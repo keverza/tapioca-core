@@ -17,6 +17,8 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/AxisGnomonMesh.hpp"
+#include "ArchViz/DiligentCameraRays.hpp"
+#include "ArchViz/DiligentGpuTimings.hpp"
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
@@ -69,10 +71,13 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     PlanAnchorLayer planAnchors;
     DiligentHud hud;
     DiligentPickBuffer pick;
+    DiligentGpuTimings gpuTimings;
 
     // Give back the HWND. See the long note at the call site in the success
     // path; this is that same teardown, reachable from both.
     auto releaseEverything = [&] () {
+        gpuTimings.Collect ();
+        gpuTimings.Shutdown ();
         scene.Shutdown ();
         hud.Shutdown ();
         pick.Shutdown ();
@@ -117,6 +122,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         factory->CreateDeviceAndContextsD3D11 (engineCI, &device, &context);
         if (device == nullptr || context == nullptr)
             throw std::runtime_error ("Diligent returned no D3D11 device or immediate context");
+
+        if (gpuTimings.Initialize (device))
+            ArchVizLog ("Diligent benchmark GPU timings enabled");
 
         std::string targetError;
         if (!target.Create (device, context, factory, surface.mode, surface.nwh, surface.width, surface.height,
@@ -319,6 +327,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 throw std::runtime_error ("the viewport surface returned no back-buffer view "
                                           "for this frame");
 
+            gpuTimings.BeginFrame (frames);
+
             // Probe 1b established this sequence against the same D3D11
             // backend. Present and the one-time native readback both touch
             // state outside our ordinary draw calls, so do not trust cached
@@ -432,8 +442,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // the note at the Draw call). Filling it anyway would be a whole
             // depth pass over the model, every frame, for a texture nothing
             // reads -- on the one path whose entire budget belongs to Archicad.
+            gpuTimings.Begin (context, GpuTimingStage::VisibilityGBuffer);
             if (!camera.IsOrthographic ())
                 scene.RenderShadowMap (context);
+            gpuTimings.End (context, GpuTimingStage::VisibilityGBuffer);
 
             // ⚠️ THE DEPTH BUFFER IS BOUND HERE AND NOWHERE ELSE. The clear
             // above deliberately takes a null DSV -- clearing colour is the
@@ -746,47 +758,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // somewhere; this is the one place that knows the surface size.
             scene.SetViewportSize (width, height);
 
-            // ---- the view ray basis, for the sky background -----------------
-            //
-            // ⚠️ `right` AND `up` CARRY THE PROJECTION PLANE'S HALF-EXTENT, so
-            // the shader adds them at NDC directly and needs no FOV of its own.
-            // In a parallel projection they are ZERO and every pixel looks along
-            // `forward` -- which is right, not a missing case: an orthographic
-            // camera's rays really are parallel.
-            {
-                float eyeWorld[3];
-                float targetWorld[3];
-                camera.GetEyePosition (eyeWorld);
-                camera.GetTarget (targetWorld);
-                float forward[3];
-                float right[3];
-                float up[3];
-                CameraBasis (eyeWorld, targetWorld, forward, right, up);
-                float rayRight[3] = { 0.0f, 0.0f, 0.0f };
-                float rayUp[3] = { 0.0f, 0.0f, 0.0f };
-                if (camera.IsPerspective () && height > 0) {
-                    constexpr float kPi = 3.14159265358979323846f;
-                    const float halfV = std::tan (camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f));
-                    const float halfH = halfV * (float (width) / float (height));
-                    for (int axis = 0; axis < 3; ++axis) {
-                        // ⚠️ NEGATED. CameraBasis's `right` is cross(worldUp,
-                        // forward), which is screen-*LEFT*: the view matrix's
-                        // own screen-right row is its negative. Pinned by
-                        // test_matrixmath's
-                        // CameraBasisRightIsTheNegativeOfTheViewMatrixScreenRight,
-                        // which exists because this shipped without the minus
-                        // and the sky came out MIRRORED -- still sky-shaped, and
-                        // detectable only by it sliding the wrong way on orbit.
-                        rayRight[axis] = -right[axis] * halfH;
-                        rayUp[axis] = up[axis] * halfV;
-                    }
-                }
-                scene.SetCameraRays (rayRight, rayUp, forward);
-            }
+            SetDiligentCameraRays (scene, camera, width, height);
 
             // Why this is conditional, and why the id pass reads the same flag,
             // is at `modelIsDrawn` above -- next to the picking that depends on it.
             if (modelIsDrawn) {
+                gpuTimings.Begin (context, GpuTimingStage::Shading);
                 const bool gBufferDebugView = hudState.debugView == int (DiligentDebugView::GBufferNormals) ||
                                               hudState.debugView == int (DiligentDebugView::GBufferDepth) ||
                                               hudState.debugView == int (DiligentDebugView::AmbientOcclusion);
@@ -809,9 +786,15 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     lastLoggedGBufferView = -1;
                     scene.Draw (context, viewProj, eye, CullMode::Cw, hudState.debugView);
                 }
+                gpuTimings.End (context, GpuTimingStage::Shading);
+            }
+            else {
+                gpuTimings.Begin (context, GpuTimingStage::Shading);
+                gpuTimings.End (context, GpuTimingStage::Shading);
             }
 
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
+            gpuTimings.Begin (context, GpuTimingStage::Post);
             UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_, planAnchorSeq_.load (),
                                       lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked, viewProj, width, height,
                                       planAnchorWidthPixels_.load (), planAnchorRgba_.load ());
@@ -837,6 +820,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.height = height;
                 hud.Draw (context, width, height, input, hudScene, hudState);
             }
+            gpuTimings.End (context, GpuTimingStage::Post);
+            // The current renderer is a single-sample forward raster path. Keep
+            // the field explicit so a progressive accumulator can replace this
+            // value without changing the benchmark log contract.
+            gpuTimings.EndFrame (frames, 1);
 
             context->SetRenderTargets (1, none, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 

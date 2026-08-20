@@ -84,4 +84,16 @@ if ($args -notcontains "-SkipArchCheck") {
 
 & $cmake --build "$root\build_29" --config $config
 if ($LASTEXITCODE -ne 0) { throw "Build failed (exit $LASTEXITCODE)." }
-Write-Host "Built ($config) -> build_29\EvP.apx" -ForegroundColor Green
+
+# CMake's internal target remains EvP, but the product artifact loaded by
+# Archicad is branded Tapioca. Keep the bridge DLL beside the renamed add-on.
+$builtAddon = Join-Path $root "build_29\EvP.apx"
+$productAddon = Join-Path $root "build_29\Tapioca.apx"
+if (-not (Test-Path -LiteralPath $builtAddon -PathType Leaf)) {
+    throw "Build completed but the add-on artifact was not found: $builtAddon"
+}
+if (Test-Path -LiteralPath $productAddon -PathType Leaf) {
+    Remove-Item -LiteralPath $productAddon -Force
+}
+Move-Item -LiteralPath $builtAddon -Destination $productAddon
+Write-Host "Built ($config) -> build_29\Tapioca.apx" -ForegroundColor Green

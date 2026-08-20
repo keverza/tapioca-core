@@ -1,0 +1,32 @@
+{
+  "defaults": {
+    "ssim_min": 0.98,
+    "delta_e_max": 2.0
+  },
+  "regions": [
+    {
+      "name": "silhouette",
+      "mask": "masks/silhouette.json"
+    },
+    {
+      "name": "material",
+      "mask": "masks/material.json"
+    },
+    {
+      "name": "shadows",
+      "mask": "masks/shadows.json"
+    },
+    {
+      "name": "glass",
+      "mask": "masks/glass.json"
+    },
+    {
+      "name": "point_cloud_edges",
+      "mask": "masks/point_cloud_edges.json"
+    },
+    {
+      "name": "interior_contact",
+      "mask": "masks/interior_contact.json"
+    }
+  ]
+}
