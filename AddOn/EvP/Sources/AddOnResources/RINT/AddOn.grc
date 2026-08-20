@@ -1,0 +1,275 @@
+/* Add-On Information */
+
+/* ⚠️ USER-FACING NAME ONLY. Everything in this file says "Tapioca"; the INTERNAL
+   name stays "EvP" everywhere else on purpose (%LOCALAPPDATA%\EvP, the `evp`
+   Python package, the EvP.* bus verbs, EvP.apx). See Sources/AddOn/AddOnVersion.hpp. */
+
+'STR#' 32000 "Information" {
+/* [  1] */	"Tapioca"
+/* [  2] */	"Python command host for Archicad, with a local HTTP server exposing geometry, spatial queries and metadata."
+}
+
+/* Text appearing in the menu */
+
+/* ^E<x> codes enable the command in non-floor-plan windows (^E3 = 3D window). */
+
+/* ⚠️ ONE MENU RESOURCE PER ITEM: title + EXACTLY ONE item, registered separately.
+   Every block below repeats the title "Tapioca" and Archicad merges them into one
+   main menu with one item each — the shape the vendored Tapir add-on ships and has
+   confirmed end to end (its ResourceIds.hpp says as much).
+
+   Do NOT "simplify" this into one 'STR#' with several items. A MenuCode_UserDef
+   menu resource has FOUR possible readings (see the remarks on
+   ACAPI_MenuItem_RegisterMenu in ACAPinc.h) and the leading unnumbered strings are
+   what select between them: with one leading string it is "main menu + items", with
+   two it is "main menu + SUBMENU + items". Adding a second item to this block was
+   tried and it silently reinterpreted the whole resource — "Tapioca Panel" became a
+   submenu title, "About" became item 1, and the About command opened the palette.
+   A separate resource per item cannot be misread. */
+
+'STR#' 32500 "Menu strings - palette" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Tapioca Panel^E3^ES^EE^EI^ED^EW^EL"
+}
+
+'STR#' 32501 "Menu strings - about" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"About Tapioca...^E3^ES^EE^EI^ED^EW^EL"
+}
+
+/* 32503, not 32502: 32502 is already the 'GICN' product logo in RFIX. Resource
+   TYPES have separate id spaces so it would in fact be legal, but a menu and an
+   icon sharing a number is a thing to trip over for no gain. */
+'STR#' 32503 "Menu strings - 3D viewer" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Tapioca 3D Viewer^E3^ES^EE^EI^ED^EW^EL"
+}
+
+'STR#' 32504 "Menu strings - notebook" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Tapioca Notebook^E3^ES^EE^EI^ED^EW^EL"
+}
+
+'STR#' 32505 "Menu strings - WebUI" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Tapioca WebUI panel^E3^ES^EE^EI^ED^EW^EL"
+}
+
+/* --- The Tapioca palette -------------------------------------------------- */
+/* Server control AND the command system in ONE panel.
+   ⚠️ ITEM IDS ARE POSITIONAL. The /* [n] */ comments are ONLY comments — ResConv
+   numbers items by their ORDER in this block. Inserting an item renumbers every
+   item after it, and ResourceIds.hpp must match, or a control is constructed on
+   the wrong item (a LeftText on a Button renders as clickable status text).
+   These rects are only a STARTING POINT: ControlPalette::Layout() recomputes
+   every position from the panel's live size, because the palette is resizable
+   and each command generates its own parameter controls at runtime.
+   `grow` only: ResConv rejects `grow | vGrow | hGrow` ("Illegal combination of
+   styles") - grow is the both-axes form, vGrow/hGrow the single-axis ones. */
+'GDLG'  32510  Palette | topCaption | close | grow   0   0  440  600  "Tapioca" {
+/* [  1] */ PushCheck      14   12  412   30   LargePlain  ""
+/* [  2] */ LeftText       14   50  412   16   SmallPlain  ""
+/* PLAT-7 retired item [3] — the second server line (held snapshot / bytes). It is
+   kept here, hidden at startup and never given a rect, because deleting it would
+   renumber ids 4..17 and every constant in ResourceIds.hpp with them. */
+/* [  3] */ LeftText       14   70  412   16   SmallPlain  ""
+/* [  4] */ LeftText       14   98  412   16   SmallPlain  ""
+/* [  5] */ SingleSelList  14  118  412  150   SmallPlain  NoPartialItems  16
+/* [  6] */ Button         14  276  120   28   LargePlain  "Rescan"
+/* [  7] */ Button        306  276  120   28   LargePlain  "Run"
+/* [  8] */ LeftText       14  312  412   16   SmallPlain  ""
+/* PLAT-F13 retired item [9] - the command title line. The description band's fold
+   header shows the command's name, and the two together read as a duplicate. Kept
+   here, hidden at startup and never given a rect, for the same reason as [3]. */
+/* [  9] */ LeftText       14  334  412   16   SmallPlain  ""
+/* Native pen swatches [10]..[17] — see PenPoolSize in ResourceIds.hpp.
+   These MUST live in the .grc: procId 257 is a generic Archicad user-control proc
+   and the FIRST data word picks the subtype (0x0001 = pen, 0x0002 = fill), which
+   DG::UserControl's runtime constructor cannot pass. Copied verbatim from DG_Test's
+   "Line Pen Setting" rows. Hidden at startup; Layout() moves the claimed ones. */
+/* [ 10] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 11] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 12] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 13] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 14] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 15] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 16] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+/* [ 17] */ UserControl    14  356   33   19   257  0x0001  0x1100  0
+}
+
+'DLGH'  32510  DLG_32510_EvP_Palette {
+1	"Run / stop the geometry server"	PushCheck_0
+2	"Server address"					LeftText_0
+3	"Server status"						LeftText_1
+4	"Commands"							LeftText_2
+5	"Commands, grouped by category"		SingleSelListBox_0
+6	"Rescan the scripts folders"		Button_0
+7	"Run the selected command"			Button_1
+8	"Command status"					LeftText_3
+9	"Parameters"						LeftText_4
+10	"Pen"								UserControl_0
+11	"Pen"								UserControl_1
+12	"Pen"								UserControl_2
+13	"Pen"								UserControl_3
+14	"Pen"								UserControl_4
+15	"Pen"								UserControl_5
+16	"Pen"								UserControl_6
+17	"Pen"								UserControl_7
+}
+
+/* --- About box (F6) ------------------------------------------------------- */
+/* A SEPARATE 'GDLG' block, so its item ids are its own — adding items here can
+   never renumber the palette's ids above. ResourceIds.hpp still has to match the
+   ORDER within this block.
+   ⚠️ Codepage 1252: no em-dash, no (c) glyph, no real ellipsis in these strings.
+   Build any such character at runtime as a UniString. */
+'GDLG'  32520  Modal | noGrow   40   40  380  316  "About Tapioca" {
+/* [  1] */ Button        110  284  160   24   LargePlain  "OK"
+/* [  2] */ Icon          126    8  128  128   32502
+/* [  3] */ CenterText     12  142  356   22   LargeBold   vCenter  "Tapioca %T (alpha)"
+/* [  4] */ CenterText     12  172  356   16   SmallPlain  vCenter  "Support and contact: not published yet."
+/* [  5] */ Button        110  194  160   24   LargePlain  "Open logs folder"
+/* [  6] */ Button        110  224  160   24   LargePlain  "Open commands folder"
+/* [  7] */ Button        110  254  160   24   LargePlain  "Check for updates"
+}
+
+'DLGH'  32520  DLG_32520_About {
+1	"Close"											OkButton
+2	"Tapioca"										ProductLogo
+3	"Product name, version, and release channel"		CenterText_0
+4	"Contact information"							CenterText_1
+5	"Open the folder holding the log files"			Button_0
+6	"Open the folder commands are loaded from"		Button_1
+7	"Open the Tapioca update page"				Button_2
+}
+
+/* ---------------------------------------------------------------------------
+   The Navigator browser ('GDLG' 32530) — what an evp.View parameter opens.
+
+   The flat popup it replaced listed every placeable view with its folder path
+   appended. That works on a template project and is unusable on a real one: the
+   user's words were "using current picker user would get lost on a larger
+   project." This mirrors Archicad's own Navigator hierarchy instead.
+
+   ⚠️ It is a LOOK-ALIKE, not Archicad's Navigator. No API exposes that as a
+   chooser — the whole ACAPI_Dialog_* surface is AttributePicker, ObjectSettings,
+   SettingsDialog, PetPalette and the LibPart/Picture file dialogs (grepped
+   2026-07-31). Expect it to drift from Archicad's styling.
+
+   The SEARCH FIELD is NOT here. It is a DG::SearchEdit built at runtime by
+   NavigatorBrowser.cpp, because live filtering needs the per-keystroke
+   SearchTextChanged event: a .grc TextEdit fires TextEditChanged on COMMIT only,
+   which is the bug that once made the palette's own search box look dead.
+
+   THE MAP TABS ARE NOT HERE EITHER, for a harder reason than the search field.
+   A .grc NormalTab declares one line PER TAB reading `<pageId> <iconId> "text"`,
+   and that pageId names a TabPage — a whole separate 'GDLG' resource per tab.
+   Three more dialog resources to keep in step, for three tabs that show the SAME
+   tree with a different filter, is machinery bought for nothing. The tab strip is
+   a runtime DG::NormalTab instead, and its labels come from NavItemChoices'
+   kNavMapNames so they cannot drift from the mapIndex they select.
+   ⚠️ Codepage 1252: no em-dash, no real ellipsis in these strings. */
+'GDLG'  32530  Modal | grow   40   40  560  620  "Choose from the Navigator" {
+/* [  1] */ LeftText            12   14   56   16   SmallPlain  vCenter  "Search:"
+/* [  2] */ SingleSelTreeView   12   68  536  476  SmallPlain  18  18  0  0  noLabelEdit  noDragDrop  0
+/* [  3] */ LeftText            12  552  536   16   SmallPlain  vCenter  "Nothing selected"
+/* [  4] */ Button             324  580  108   24   LargePlain  "Cancel"
+/* [  5] */ Button             440  580  108   24   LargePlain  "OK"
+}
+
+'DLGH'  32530  DLG_32530_NavigatorBrowser {
+1	"Search"										LeftText_0
+2	"The items in the selected map"					SingleSelTreeView_0
+3	"The item currently selected"					LeftText_1
+4	"Close without choosing"						Button_0
+5	"Use the selected item"							OkButton
+}
+
+/* ---------------------------------------------------------------------------
+   The catalogue browser ('GDLG' 32531) — what evp.LibraryPart and evp.Favourite
+   open. ONE resource for BOTH, because they ask the same question of two
+   catalogues: choose one row out of a long, folder-structured list. The caption
+   below is only a fallback; CatalogBrowser::SetTitle names the actual catalogue,
+   which is why it is not spelled here.
+
+   Same shape as the Navigator browser above, and for the same recorded reason: a
+   flat popup of thousands is a list you scroll, not one you choose from. The
+   SEARCH FIELD is likewise absent here and built at runtime as a DG::SearchEdit
+   — a .grc TextEdit fires TextEditChanged on COMMIT only, which is the bug that
+   once made the palette's own search box look dead.
+
+   THREE PANES: a search line, a FOLDER TREE on the left and the selected
+   folder's CONTENTS on the right, with a draggable divider between them -- the
+   layout Archicad's own Object Settings browser uses. The first cut put folders
+   and objects in ONE tree and it was unusable beside the real thing: every
+   object sat in a folder of its own, and a preview had nowhere to go.
+
+   THE DIVIDER IS NOT HERE either. DG::Splitter takes its orientation as a
+   CONSTRUCTOR argument (Vertical here, unlike the palette's horizontal ones) and
+   the rects of all three panes are recomputed together by LayoutPanes from the
+   live width, so a .grc rect for it would be decoration that drifts.
+
+   The rects below are only the starting geometry; LayoutPanes owns them from the
+   constructor onward.
+   ⚠️ Codepage 1252: no em-dash, no real ellipsis in these strings. */
+'GDLG'  32531  Modal | grow   40   40  720  620  "Choose an item" {
+/* [  1] */ LeftText            12   14   56   16   SmallPlain  vCenter  "Search:"
+/* [  2] */ SingleSelTreeView   12   44  228  500  SmallPlain  18  18  0  0  noLabelEdit  noDragDrop  0
+/* [  3] */ SingleSelList      246   44  462  500  SmallPlain  NoPartialItems  18
+/* [  4] */ LeftText            12  552  696   16   SmallPlain  vCenter  "Nothing selected"
+/* [  5] */ Button             484  580  108   24   LargePlain  "Cancel"
+/* [  6] */ Button             600  580  108   24   LargePlain  "OK"
+}
+
+'DLGH'  32531  DLG_32531_CatalogBrowser {
+1	"Search"										LeftText_0
+2	"Folders"										SingleSelTreeView_0
+3	"What is inside the selected folder"			SingleSelList_0
+4	"The item currently selected"					LeftText_1
+5	"Close without choosing"						Button_0
+6	"Use the selected item"							OkButton
+}
+
+/* --- The ArchViz 3D viewer palette ('GDLG' 32540) -------------------------- */
+/* bgfx renders into this palette's viewport. See archive/docs/bgfx-archviz-plan.md
+   Part I section 4 for why it is a DG::Palette at all.
+
+   ⚠️ THE VIEWPORT IS NOT IN THIS BLOCK. It is a DG::UserItem built at runtime
+   from the (Panel&, Rect&, UserItemType, FrameType) constructor, because:
+     - it is positioned entirely by ArchVizPanel::Layout() from the panel's live
+       size, so a .grc rect would be decoration;
+     - FrameType::NoFrame matters (DG must not draw a border over the bgfx
+       surface) and the runtime ctor is where that argument is;
+     - a runtime item cannot renumber anything, which the positional-id warning
+       on the palette above exists for.
+   Its HWND is what bgfx::Init::platformData.nwh gets, via
+   DG::UserItem::GetControl() ("hwnd on windows", DGUserItem.hpp).
+
+   So this block holds ONLY the status line, which is where the renderer says
+   what it is doing and, more to the point, what went wrong -- a bgfx that fails
+   to init must not present as a blank rectangle.
+   `grow` is the both-axes form; ResConv rejects `grow | vGrow | hGrow`. */
+'GDLG'  32540  Palette | topCaption | close | grow   0   0  720  520  "Tapioca 3D Viewer" {
+/* [  1] */ LeftText       10  494  700   16   SmallPlain  ""
+}
+
+'DLGH'  32540  DLG_32540_ArchVizPalette {
+1	"Renderer status"					LeftText_0
+}
+
+/* --- The Tapioca Notebook browser experiment ------------------------------ */
+'GDLG'  32550  Palette | topCaption | close | grow   0   0  420  800  "Tapioca Notebook" {
+/* [  1] */ Browser         0   0  420  800
+}
+
+'DLGH'  32550  DLG_32550_NotebookPalette {
+1	"Tapioca Notebook"				Browser_0
+}
+/* --- The Tapioca WebUI command palette preview ---------------------------- */
+'GDLG' 32560  Palette | topCaption | close | grow   0   0  960  720  "Tapioca WebUI panel" {
+/* [  1] */ Browser         0   0  960  720
+}
+
+'DLGH' 32560  DLG_32560_WebUIPalette {
+1	"Tapioca WebUI panel"			Browser_0
+}

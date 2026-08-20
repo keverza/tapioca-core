@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "source_roots": [
+    "../../Examples",
+    "Diagnostics/Probes/PlanAnchorProbe"
+  ],
+  "shared_roots": [
+    {
+      "source": "Commands/_lib",
+      "target": "_lib"
+    }
+  ],
+  "exclude": {
+    "directories": [
+      "__pycache__",
+      ".pytest_cache",
+      "_archive",
+      "archive",
+      "archives",
+      "fixture",
+      "fixtures",
+      "test",
+      "tests",
+      "tools",
+      "task-history",
+      "tasks",
+      "TASKS"
+    ],
+    "file_patterns": [
+      "*.md",
+      "*.pyc",
+      "*.pyo",
+      "*.bak",
+      ".gitignore",
+      "test_*.py",
+      "*_test.py",
+      "*_tests.py",
+      "dump_*.py",
+      "*_dump.py",
+      "load_fixture.py",
+      "*_fixture.py",
+      "fixture_*.py",
+      "_localcheck.py",
+      "tasks.*",
+      "task-history.*"
+    ]
+  }
+}

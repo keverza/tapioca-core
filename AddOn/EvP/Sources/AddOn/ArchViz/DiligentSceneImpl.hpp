@@ -1,0 +1,402 @@
+#ifndef EVP_ARCHVIZ_DILIGENTSCENEIMPL_HPP
+#define EVP_ARCHVIZ_DILIGENTSCENEIMPL_HPP
+
+// ArchViz/DiligentSceneImpl — the private state DiligentScene's three
+// translation units share.
+//
+// ⚠️ THIS HEADER IS NOT PART OF THE INTERFACE, and the split is the reason it
+// exists. `DiligentScene.hpp` is deliberately Diligent-FREE so the palette side
+// can hold a scene without pulling in Diligent's headers; this one is the
+// opposite, and only the scene's own .cpp files may include it. If a caller
+// outside ArchViz needs something here, it belongs on `DiligentScene` as a
+// method instead.
+//
+// The scene is one class over three files because it crossed the ~1,000-line
+// cap, and the seam is what the pieces need from each other rather than where
+// the middle happened to be:
+//
+//   DiligentScene.cpp          shaders, pipeline states, lifecycle
+//   DiligentSceneGeometry.cpp  the element map, Consume, bounds, stats
+//   DiligentSceneDraw.cpp      the passes: shadow map, main, overlay
+//
+// Everything they share is here, and nothing else is.
+
+#include "ArchViz/DiligentScene.hpp"
+
+#include "ArchViz/DiligentAmbientOcclusion.hpp"
+#include "ArchViz/DiligentDepthRange.hpp"
+#include "ArchViz/DiligentShadowMap.hpp"
+#include "ArchViz/EnvironmentMap.hpp"
+#include "ArchViz/SunShadowMath.hpp"
+
+#include <windows.h>
+#include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <Buffer.h>
+#include <DeviceContext.h>
+#include <GraphicsTypes.h>
+// ⚠️ NO <MapHelper.hpp>. It lives in Diligent-GraphicsTools, a module the .apx
+// does not link and would not otherwise need; IDeviceContext::MapBuffer is the
+// same two calls without the dependency, and it is what
+// archive/experiments/TransparencyProbe/src/PatternRenderer.cpp already does.
+#include <PipelineState.h>
+#include <RefCntAutoPtr.hpp>
+#include <RenderDevice.h>
+#include <Shader.h>
+#include <ShaderResourceBinding.h>
+#include <TextureView.h>
+
+#include "Components/interface/GBuffer.hpp"
+
+#include <cmath>
+#include <string>
+#include <vector>
+
+namespace geomsrv {
+namespace archviz {
+
+using Diligent::RefCntAutoPtr;
+
+// `kOpaqueAlpha` (the transparent-pass threshold) comes from MaterialTable.hpp
+// -- one definition, so the two renderers cannot disagree about which surfaces
+// blend.
+
+constexpr int kCullModeCount = 3;
+constexpr Diligent::Uint32 kGBufferNormal = 0;
+constexpr Diligent::Uint32 kGBufferDepth = 1;
+constexpr Diligent::Uint32 kGBufferMotion = 2;
+constexpr Diligent::Uint32 kGBufferGeometryMask = (1u << kGBufferNormal) | (1u << kGBufferDepth);
+
+// ⚠️ IDs START AT 1, AND 0 IS RESERVED FOR "NOTHING". The pick target is cleared
+// to zero, so a pixel of 0 means the ray missed every element -- "you clicked the
+// sky". An element numbered 0 would be indistinguishable from empty space and
+// would be selected every time the user clicked past the building.
+constexpr uint32_t kNoPickId = 0;
+
+// The three cull modes, as Diligent's rasterizer states.
+//
+// ⚠️ THESE MIRROR bgfx's D3D11 MAPPING EXACTLY, AND THAT IS THE POINT. bgfx
+// sets `FrontCounterClockwise = false` and then maps BGFX_STATE_CULL_CW to
+// D3D11_CULL_FRONT and CULL_CCW to D3D11_CULL_BACK (renderer_d3d11.cpp,
+// s_cullMode). So "CW" does not mean "clockwise faces are front" -- it means
+// cull whatever is clockwise ON SCREEN. Reproducing the mapping rather than
+// reasoning it out afresh means the Diligent viewer shows the same faces as the
+// bgfx one on the same setting, which is the only way "the port changed the
+// picture" stays separable from "the port broke culling".
+inline Diligent::CULL_MODE ToDiligentCull (CullMode cull)
+{
+    switch (cull) {
+        case CullMode::Cw:
+            return Diligent::CULL_MODE_FRONT;
+        case CullMode::Ccw:
+            return Diligent::CULL_MODE_BACK;
+        case CullMode::None:
+            return Diligent::CULL_MODE_NONE;
+    }
+    return Diligent::CULL_MODE_FRONT;
+}
+
+// The pipeline-state array index for a cull mode. ⚠️ THIS ORDER AND THE LOOP IN
+// Init ARE ONE CONTRACT: index 0 is Ccw, 1 is Cw, 2 is None. Disagreeing does
+// not fail, it draws the wrong faces.
+inline int CullIndex (CullMode cull)
+{
+    switch (cull) {
+        case CullMode::Ccw:
+            return 0;
+        case CullMode::Cw:
+            return 1;
+        case CullMode::None:
+            return 2;
+    }
+    return 1;
+}
+
+// The cull mode an inverted-hull silhouette needs: the OTHER one.
+//
+// ⚠️ IT MUST TRACK THE VISIBLE PASS'S SETTING RATHER THAN BEING A CONSTANT.
+// The hull works by drawing exactly the faces the visible pass throws away; with
+// CullMode::None nothing is thrown away, so there is no hull to draw and the
+// outline would paint a solid expanded copy of the model over the model. None
+// stays None and the outline pass skips it.
+inline CullMode InverseCull (CullMode cull)
+{
+    switch (cull) {
+        case CullMode::Cw:
+            return CullMode::Ccw;
+        case CullMode::Ccw:
+            return CullMode::Cw;
+        case CullMode::None:
+            return CullMode::None;
+    }
+    return CullMode::Ccw;
+}
+
+// How a selected element reads. ⚠️ THREE THINGS AT ONCE, AND THE LIVE RUN THAT
+// ASKED FOR THEM SAID WHY: a tint alone was reported as "the element turned
+// cyanish", which is exactly as much as a tint can say. It cannot show WHICH
+// element boundary was hit when two abut, and it cannot show anything at all
+// about the element behind it. So:
+//
+//   the SILHOUETTE says where the element ends, unambiguously, even against
+//   another element of the same material;
+//   the TINT says which element it is, at a glance, from any distance;
+//   the TRANSPARENCY lets the user see what the selection is sitting in front
+//   of, which is most of why they selected it.
+constexpr float kSelectionTintMix = 0.35f; // how much of the material survives
+constexpr float kSelectionTintR = 0.10f;
+constexpr float kSelectionTintG = 0.65f;
+constexpr float kSelectionTintB = 0.85f;
+constexpr float kSelectionAlpha = 0.55f; // 1 = the old opaque tint
+constexpr float kSelectionOutlinePixels = 3.0f;
+// Deliberately NOT the tint: the outline has to be readable ON the tinted
+// surface as well as against the background, so it is the same hue taken to full
+// saturation rather than the same colour.
+constexpr float kSelectionOutlineColor[4] = { 0.05f, 0.85f, 1.0f, 1.0f };
+
+// The HOVER silhouette (PLAT-RE136): what a click would take, shown before it is
+// taken.
+//
+// ⚠️ A DIFFERENT HUE FROM THE SELECTION, NOT A DIMMER ONE. The two are on screen
+// at the same time and mean different things -- "this IS selected" against "this
+// WOULD BE" -- and distinguishing them by brightness alone fails against a pale
+// facade, which is most of a building. Amber reads as distinct from the cyan at
+// any exposure and does not collide with the wireframe either.
+//
+// ⚠️ AND IT IS THINNER. The hover follows the mouse, so at the selection's 3 px
+// it flickers a heavy band across the model on every move; thin enough to read as
+// a highlight, thick enough to survive a thin railing.
+constexpr float kHoverOutlineColor[4] = { 1.0f, 0.62f, 0.10f, 1.0f };
+constexpr float kHoverOutlinePixels = 2.0f;
+
+// The wireframe's line colour. Alpha below 1 so overlapping edges on a dense
+// mesh build up instead of saturating into a solid mass.
+constexpr float kWireframeColor[4] = { 0.10f, 0.85f, 1.0f, 0.75f };
+
+struct Entry {
+    std::string guid; // empty for a static mesh
+    RefCntAutoPtr<Diligent::IBuffer> vertexBuffer;
+    RefCntAutoPtr<Diligent::IBuffer> indexBuffer;
+    Diligent::Uint32 vertexCount = 0;
+    Diligent::Uint32 indexCount = 0;
+    bool indices32 = true;
+    std::vector<MaterialRange> ranges;
+    uint32_t transparentRanges = 0;
+    uint32_t unmappedRanges = 0;
+    size_t gpuBytes = 0;
+    // Stable for as long as the entry lives; handed to the pick pass as a colour
+    // and mapped back on readback. ⚠️ NOT THE INDEX IN `elements` -- that moves
+    // when swap-and-pop removes an element, and a pick already in flight would
+    // then resolve to whichever element took its place.
+    uint32_t pickId = kNoPickId;
+    bool selected = false;
+    bool seenThisBatch = false;
+    bool hasBounds = false;
+    float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
+    float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
+};
+
+// Vertex and index buffers for one mesh, replacing whatever the entry held.
+// Shared by the element upserts and by the static/overlay meshes.
+bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry& entry, const void* vertices,
+                        size_t vertexBytes, const void* indices, size_t indexBytes, std::string& error);
+
+} // namespace archviz
+} // namespace geomsrv
+
+struct geomsrv::archviz::DiligentScene::Impl {
+    // ⚠️ KEPT SO A DEFERRED LOAD CAN CREATE RESOURCES. The environment map is
+    // loaded on the RENDER thread, frames after the bus asked for it, and the
+    // device is not otherwise in scope there. It is a borrowed raw pointer, not
+    // a RefCntAutoPtr, deliberately: the viewport owns the device and outlives
+    // the scene, and taking a strong reference here is precisely the mistake
+    // PLAT-RE39 spent a session on -- a second strong reference kept the device
+    // alive past its own teardown and the viewport could then only be opened once.
+    Diligent::IRenderDevice* device = nullptr;
+    RefCntAutoPtr<Diligent::IShader> vs;
+    RefCntAutoPtr<Diligent::IShader> ps;
+    RefCntAutoPtr<Diligent::IShader> shadowVs;
+    RefCntAutoPtr<Diligent::IBuffer> constants;
+    // One PSO per cull mode, twice: opaque and blended. A PSO is immutable, so
+    // a state toggle is a different object rather than a state change -- the
+    // whole stateless-design difference from bgfx::setState.
+    RefCntAutoPtr<Diligent::IPipelineState> opaquePso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> blendPso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> opaqueSrb[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> blendSrb[kCullModeCount];
+    // The pick pass. A THIRD set rather than a reuse of the opaque one, because
+    // a PSO records the formats it renders into and the pick target is an 8x8
+    // RGBA8_UNORM, not the swap chain's sRGB back buffer.
+    RefCntAutoPtr<Diligent::IShader> flatPs;
+    RefCntAutoPtr<Diligent::IPipelineState> pickPso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> pickSrb[kCullModeCount];
+    // The selection silhouette (PLAT-RE41) and the wireframe (PLAT-RE42). Both
+    // are the flat pixel shader over the swap chain's formats; they differ in the
+    // vertex shader and the rasterizer, so they are two PSO sets rather than one
+    // with a flag.
+    RefCntAutoPtr<Diligent::IShader> outlineVs;
+    RefCntAutoPtr<Diligent::IPipelineState> outlinePso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> outlineSrb[kCullModeCount];
+    // ⚠️ ONE WIREFRAME PSO, NOT THREE. Lines have no facing to cull -- culling a
+    // wireframe removes half of every closed surface's edges, which reads as a
+    // broken mesh rather than as a cull setting. CULL_MODE_NONE always.
+    RefCntAutoPtr<Diligent::IPipelineState> wirePso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> wireSrb;
+
+    std::unique_ptr<Diligent::GBuffer> gBuffer;
+    RefCntAutoPtr<Diligent::IShader> gBufferPs;
+    RefCntAutoPtr<Diligent::IShader> fullScreenVs;
+    RefCntAutoPtr<Diligent::IShader> gBufferDebugPs;
+    RefCntAutoPtr<Diligent::IShader> ambientOcclusionDebugPs;
+    RefCntAutoPtr<Diligent::IPipelineState> gBufferPso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> gBufferSrb[kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> gBufferDebugPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> gBufferDebugSrb;
+    RefCntAutoPtr<Diligent::IPipelineState> ambientOcclusionDebugPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> ambientOcclusionDebugSrb;
+    RefCntAutoPtr<Diligent::IShader> envBackgroundVs;
+    RefCntAutoPtr<Diligent::IShader> envBackgroundPs;
+    RefCntAutoPtr<Diligent::IPipelineState> envBackgroundPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> envBackgroundSrb;
+    DiligentAmbientOcclusion ambientOcclusion;
+    DiligentDepthRange depthRange;
+    uint32_t gBufferWidth = 0;
+    uint32_t gBufferHeight = 0;
+
+    std::vector<Entry> elements;      // Archicad geometry, keyed by GUID
+    std::vector<Entry> staticMeshes;  // the debug cube, until geometry lands
+    std::vector<Entry> overlayMeshes; // the gnomon: screen corner, not world
+
+    MaterialTable materials;
+    bool inFullBatch = false;
+
+    // The selected set, KEPT rather than only applied.
+    //
+    // ⚠️ THE ELEMENTS ARRIVE AFTER THE SELECTION AS OFTEN AS BEFORE IT: the user
+    // selects a stair on the floor plan and THEN opens the viewport, and the
+    // bridge only pushes when Archicad's selection CHANGES. Without this the
+    // stair extracts a second later, unselected, and the tint simply never
+    // appears -- indistinguishable from the bridge not working at all.
+    std::vector<std::string> selectionGuids;
+
+    bool IsSelectedGuid (const std::string& guid) const
+    {
+        for (const std::string& g : selectionGuids) {
+            if (g == guid)
+                return true;
+        }
+        return false;
+    }
+
+    // The element under the cursor, as a pick id. 0 = none. See
+    // DiligentScene::SetHoverId: it is not part of `selectionGuids` and must
+    // never become part of it.
+    uint32_t hoverId = kNoPickId;
+
+    float sun[3] = { 0.0f, 0.0f, 1.0f };
+    float ambient = 0.35f;
+    bool sunApplied = false;
+    bool sunBelowHorizon = false;
+    // The HUD's override. See DiligentScene.hpp -- it exists to settle whether
+    // Archicad's sunAngXY is measured from +X or from project north.
+    // Project north, CCW from +X, degrees -- carried only so the compass bearing
+    // can be reported. It never enters the sun VECTOR; see ExtractionThread.
+    float northDegrees = 90.0f;
+    // The place and moment the stored sun belongs to, carried through for the
+    // HUD. Nothing here enters a lighting calculation -- see
+    // EnvironmentUpload's ⚠️ on why the STORED angles are the ones used.
+    float latitudeDegrees = 0.0f;
+    float longitudeDegrees = 0.0f;
+    float siteAltitudeMetres = 0.0f;
+    uint16_t year = 0, month = 0, day = 0, hour = 0, minute = 0;
+    bool summerTime = false;
+    bool haveComputedSun = false;
+    float computedAzimuthDegrees = 0.0f;
+    float computedAltitudeDegrees = 0.0f;
+    bool sunOverride = false;
+    float sunOverrideAzimuth = 135.0f;
+    float sunOverrideAltitude = 45.0f;
+
+    // The sun the shader should use this frame: Archicad's, or the override.
+    void EffectiveSun (float out[3]) const
+    {
+        if (!sunOverride) {
+            out[0] = sun[0];
+            out[1] = sun[1];
+            out[2] = sun[2];
+            return;
+        }
+        constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
+        const float azimuth = sunOverrideAzimuth * kDegToRad;
+        const float altitude = sunOverrideAltitude * kDegToRad;
+        const float horizontal = std::cos (altitude);
+        out[0] = horizontal * std::cos (azimuth);
+        out[1] = horizontal * std::sin (azimuth);
+        out[2] = std::sin (altitude);
+    }
+
+    DiligentShadowMap shadowMap;
+
+    // The HDR sky. ⚠️ ALLOCATED AT INIT AND NEVER REPLACED, so the static
+    // binding made at pipeline-creation time stays valid across loads --
+    // EnvironmentMap.hpp explains why that constrains its size.
+    EnvironmentMap environment;
+    // Applied to the sky's radiance; 0 disables the environment path
+    // without unloading it, which is what makes an A/B possible in one run.
+    float environmentIntensity = 1.0f;
+    bool environmentEnabled = true;
+    float environmentRotationRadians = 0.0f;
+    // Whether the sky is DRAWN behind the model, as opposed to only lighting
+    // it. ⚠️ SEPARATE FROM environmentEnabled, and it has to be: the viewport
+    // also runs as a DirectComposition overlay ON TOP of Archicad's own 3D
+    // window, where an opaque sky would hide the very thing being annotated.
+    // The frame loop turns this off for that surface mode.
+    bool environmentBackground = true;
+    // How much analytic sun survives beside an active sky. See the HUD slider.
+    float sunWithSkyWeight = 0.55f;
+    // Realistic-quality grading: exposure into the ACES curve, a multiplier on
+    // both specular terms, and a bias added to every material's roughness.
+    float exposure = 0.6f;
+    float reflectance = 1.0f;
+    float roughnessBias = 0.0f;
+    // The view ray basis for the background pass, world space. See
+    // DiligentSceneConstants::envRayRight for the convention.
+    float cameraRayRight[3] = { 0.0f, 0.0f, 0.0f };
+    float cameraRayUp[3] = { 0.0f, 0.0f, 0.0f };
+    float cameraRayForward[3] = { 1.0f, 0.0f, 0.0f };
+    // A load requested over the bus, consumed by the frame loop.
+    // ⚠️ THE BUS THREAD MUST NOT TOUCH THE DEVICE CONTEXT, so the path is
+    // parked here and the RENDER thread does the work -- the same shape
+    // every other cross-thread request in this viewer uses.
+    std::string pendingEnvironmentPath;
+    bool environmentLoadPending = false;
+    std::string environmentError;
+    SunShadow shadow; // this frame's fit; `valid` false means render unshadowed
+
+    SceneRenderMode renderMode = SceneRenderMode::Shaded;
+    // ⚠️ Fast BY DEFAULT, and the overlay never leaves it: the overlay's frame
+    // budget belongs to Archicad, and it exists to be compared AGAINST
+    // Archicad's shading rather than to out-render it.
+    RenderQuality renderQuality = RenderQuality::Fast;
+    // The viewport, in pixels, as of the last Draw. Only the silhouette needs it
+    // -- its offset is expressed in pixels and has to become NDC somewhere.
+    uint32_t viewportWidth = 0;
+    uint32_t viewportHeight = 0;
+
+    bool ready = false;
+    size_t drawCalls = 0;
+    // ⚠️ MONOTONIC FOR THE LIFE OF THE SCENE, never reused. Recycling the id of a
+    // removed element would let a pick issued before the removal resolve to the
+    // element that inherited the number.
+    uint32_t nextPickId = kNoPickId + 1;
+
+    Entry* Find (const std::string& guid)
+    {
+        for (Entry& e : elements) {
+            if (e.guid == guid)
+                return &e;
+        }
+        return nullptr;
+    }
+};
+
+#endif

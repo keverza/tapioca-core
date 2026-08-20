@@ -1,0 +1,170 @@
+# Tapioca / EvP add-on development dependencies.
+#
+#   pip install -r dev-requirements.txt
+#
+# This is a SUPERSET of requirements.txt: it adds the tools you need to build,
+# test, and lint the C++ add-on and its Python command layer.
+#
+# ############################################################################ #
+# MOVING TO A NEW DEV PC — READ THIS FIRST                                     #
+# ############################################################################ #
+#
+# `git clone` alone does NOT give you a buildable tree. Four things live outside
+# version control and must be provisioned or copied by hand:
+#
+#   1. AddOn/reference/          ~2.5 GB of vendored SDKs — GITIGNORED (`reference/`).
+#                                Without it CMake fails at configure time.
+#   2. %LOCALAPPDATA%\Tapioca\runtime      embedded CPython 3.12 — script-provisioned.
+#   3. %LOCALAPPDATA%\Tapioca\palette.json saved palette state — copy it or lose it.
+#   4. AddOn/EvP/build_29\                 build tree — regenerate, never copy.
+#
+# ---------------------------------------------------------------------------- #
+# STEP 0 — SYSTEM PREREQUISITES (not pip-managed)                              #
+# ---------------------------------------------------------------------------- #
+#   - Visual Studio 2022 (17.x) or 2026 (18.x) — either works; the build scripts
+#     detect which one is installed (Find-VSToolset.ps1).
+#   - MSVC v143 toolset, x64/x86 flavour (14.30-14.44). MANDATORY: the Archicad
+#     DevKit rejects any other compiler (_MSC_VER must be 1930-1949). Default on
+#     VS 2022; on VS 2026 add "MSVC v143 - VS 2022 C++ x64/x86 build tools" in
+#     the VS Installer. Do NOT take the ARM variant — see docs/guides/dev-setup.md for the
+#     exact failure it produces (MSB8020 / LNK1104 LIBCMT.lib).
+#   - C++ ATL for the v143 build tools (x86 & x64) — VS Installer, individual
+#     component. DiligentCore's D3D11 backend needs <atlbase.h>; cmake/Diligent.cmake
+#     hard-fails at configure time without it. Easy to miss: it is NOT part of the
+#     default desktop C++ workload.
+#   - CMake 3.16+  (bundled with VS, or standalone; Find-CMake.ps1 auto-detects)
+#   - Git
+#   - Archicad 29  (for runtime testing — you cannot test the add-on without it)
+#   - Python 3.12 recommended as system Python (3.10+ works). The add-on ships its
+#     OWN embedded 3.12 (step 2), so the system one only runs build scripts,
+#     offline tests and the dry-run harness.
+#
+# ---------------------------------------------------------------------------- #
+# STEP 1 — PROVISION AddOn/reference/  (the long pole; do it first)            #
+# ---------------------------------------------------------------------------- #
+# Fastest path: copy the whole `AddOn\reference` folder from the old machine
+# (external SSD or robocopy over the LAN). Re-downloading DiligentEngine with
+# submodules alone takes longer than copying all of it.
+#
+#     robocopy "\\OLDPC\...\Archicad\AddOn\reference" "D:\...\Archicad\AddOn\reference" /E /MT:16
+#
+# REQUIRED to configure + build (Build-AddOn29.ps1 fails without any of these):
+#
+#   dir                          size   consumed by                       upstream
+#   ---------------------------- ------ --------------------------------- --------
+#   archicad29-api-devkit         104 MB CMakeLists AC_API_DEVKIT_DIR      Graphisoft DevKit download (AC29)
+#   python312                       2 MB CMakeLists PYTHON_DIR            CPython 3.12 embeddable: include/ + libs/
+#   cpp-httplib-master             10 MB HTTPLIB_INC (header-only)         github yhirose/cpp-httplib
+#   msgpack-c-cpp_master            6 MB MSGPACK_INC (header-only)         github msgpack/msgpack-c, cpp_master
+#   nanort-release                 65 MB NANORT_INC  (header-only)         github lighttransport/nanort
+#   DiligentEngine-master        1493 MB cmake/Diligent.cmake              github DiligentGraphics/DiligentEngine (--recursive)
+#
+#   bgfx/bx/bimg are NOT needed — cmake/Bgfx.cmake was deleted (PLAT-RE66);
+#   Diligent Engine is now the sole interactive-tier renderer. Do NOT provision
+#   them for a normal build; see AddOn/EvP/CMakeLists.txt's "ArchViz: the
+#   Diligent renderer" comment and archive/docs/render-engine-decision.md.
+#   The DevKit may also live outside the repo: set AC_API_DEVKIT_DIR and
+#   CMakeLists picks it up instead of ../reference/archicad29-api-devkit.
+#
+# REQUIRED for the offline C++ test suite (tests/cpp/Invoke-CppTests.ps1):
+#   googletest                      1 MB source drop; tests/cpp/CMakeLists.txt
+#                                        prints the provisioning command if absent
+#
+# REFERENCE ONLY — no build depends on them, but CLAUDE.md tells you to grep them
+# before writing any API code, so bring them:
+#   python-api-archicad-29.3000     2 MB authoritative API schemas
+#   tapir-archicad-automation-main 52 MB Tapir source (grep before speccing writes)
+#   archicad27-api-devkit                older-API comparisons
+#
+# NOT needed for a normal build: shaderc (built on demand by
+# tools/shaderc/Build-Shaderc.ps1 — the compiled shaders ShadersBin/*.bin.h ARE
+# checked in), and the experimental trees (magnum-*, filament-main, three.js-dev,
+# OpenUSD-dev, LumixEngine-master, crown-*, …). Skip them if disk is tight.
+#
+# ---------------------------------------------------------------------------- #
+# STEP 2 — MACHINE SETUP                                                       #
+# ---------------------------------------------------------------------------- #
+#   1. pip install -r dev-requirements.txt
+#   2. cd AddOn\EvP && .\Install-Runtime.ps1       # embedded CPython 3.12, ~15 MB
+#                                                   # downloads from python.org into
+#                                                   # %LOCALAPPDATA%\Tapioca\runtime
+#   3. cd AddOn\EvP && .\Initialize-Build29.ps1    # configure CMake/VS (build_29\EvP.sln)
+#   4. .\tools\build\Build-AddOn29.ps1            # build EvP.apx + EvPPy.dll
+#   5. cd AddOn\EvP && .\Sync-Commands.ps1         # push Commands\ -> Documents\Tapioca Commands\
+#   6. point Archicad 29 at build_29\EvP.apx, then press Rescan in the palette
+#   See docs/guides/dev-setup.md for the full checklist and the troubleshooting table.
+#
+# ---------------------------------------------------------------------------- #
+# STEP 3 — VERIFY, IN THIS ORDER (each one is offline except the last)         #
+# ---------------------------------------------------------------------------- #
+#   python tools\quality\check_cpp.py -v                    # arch rules (build runs this too)
+#   python tools\quality\check_structure.py                 # palette seam gate; must exit 0
+#   pytest -q                                              # offline Python tests
+#   AddOn\EvP\tests\cpp\Invoke-CppTests.ps1                # Geometry/ engine tests (needs googletest)
+#   python AddOn\EvP\tests\dryrun_command.py AddOn\EvP\Commands\<Folder>
+#   then load the add-on in Archicad and run one command end to end
+#
+# ---------------------------------------------------------------------------- #
+# WHAT TO CARRY OVER FROM THE OLD MACHINE (besides reference/)                 #
+# ---------------------------------------------------------------------------- #
+#   %LOCALAPPDATA%\Tapioca\palette.json  saved palette layout + last parameter
+#                                        values. The ONLY non-regenerable local
+#                                        state. Copy it; everything else under
+#                                        %LOCALAPPDATA%\Tapioca is disposable
+#                                        (runtime\ is re-provisioned, logs\ out\
+#                                        output\ dumps\ are run artefacts).
+#   %LOCALAPPDATA%\EvP\                  pre-rename leftovers. Startup migrates an
+#                                        old EvP root ONLY if the Tapioca root is
+#                                        absent — on a fresh PC just skip it.
+#   Documents\Tapioca Commands\          do NOT copy. Sync-Commands.ps1 regenerates
+#                                        it from the repo (which is the source of
+#                                        truth). The old copy also holds ~50 stale
+#                                        folders that were archived to
+#                                        Commands\_archive\ — copying it would
+#                                        resurrect them in the palette.
+#   .claude\settings.local.json          gitignored; local tool permissions only.
+#   dump\, "03 Tapir + GeometryServer\"  gitignored. Absent on the current box;
+#                                        copy only if the old machine has them
+#                                        (test fixtures / GeometryServer scripts).
+#
+# ############################################################################ #
+
+# --- Runtime (all folders) -------------------------------------------------- #
+-r requirements.txt
+
+# --- Build / codegen -------------------------------------------------------- #
+# (CMake and MSVC are system-level; no pip package needed.)
+# The build scripts and AddOn/EvP/tools/*.py use the stdlib only — nothing to add.
+
+# --- Linting / formatting --------------------------------------------------- #
+ruff                    # fast Python linter + formatter
+
+# The C++ formatter, as a wheel carrying its own clang-format.exe. Installing it
+# here is what makes `pip install -r dev-requirements.txt` sufficient on a fresh
+# machine: tools/quality/check_cpp.py resolves the wheel's binary as well as
+# PATH, because the wheel's Scripts directory is usually not on PATH.
+#
+# PINNED, against this file's no-pins rule, and the pin is the point: a
+# formatter's output is version-specific. Two clang-format majors produce two
+# different "correct" formats, so an unpinned tool makes the tree oscillate --
+# every machine reformats what the last one just formatted, and every diff is
+# noise. Move the pin deliberately, in its own commit, and re-run
+# `python tools/quality/check_cpp.py --report` to see what the new version
+# claims.
+clang-format==22.1.8    # C/C++ formatter; .clang-format at the repo root is the style
+PyYAML                  # project governance registries and history are YAML
+jsonschema              # validate governance records against TASK_SCHEMA
+
+# --- Testing ---------------------------------------------------------------- #
+# pytest is already in requirements.txt
+
+# --- Known-good versions ---------------------------------------------------- #
+# Nothing is pinned on purpose (the archicad package tracks the AC release). If a
+# new machine misbehaves, this is the set the tree is known to work with, as of
+# 2026-08-09:
+#   archicad 29.3000   multiconn_archicad 0.6.5   ezdxf 1.4.4    msgpack 1.2.1
+#   numpy 2.5.1        pillow 12.3.0              requests 2.34.2
+#   pytest 9.1.1       ruff 0.16.0                clang-format 22.1.8 (pinned above)
+# The EMBEDDED runtime installs its own baseline separately (numpy==2.0.2,
+# pillow, requests — see Install-Runtime.ps1 -Baseline); system pip does not
+# reach it, and its numpy is deliberately older.

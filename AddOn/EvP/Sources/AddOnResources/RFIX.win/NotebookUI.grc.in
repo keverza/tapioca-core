@@ -1,0 +1,3 @@
+'DATA' @NOTEBOOK_UI_RESOURCE_ID@ "Tapioca Notebook HTML" {
+    "dist/index.html"
+}

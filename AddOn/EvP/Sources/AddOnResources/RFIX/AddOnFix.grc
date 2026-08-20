@@ -1,0 +1,12 @@
+'MDID' 32500 "Add-On Identifier" {
+	896616771
+	1789139014
+}
+
+/* Product mark for the About box ('GDLG' 32520 item [2]). The body names the
+   image's BASE name; ResConv finds RFIX/Images/<base>_<W>x<H>.svg through the
+   -p search path CompileResources.py passes it. Non-localizable, so it belongs
+   here and not in RINT. */
+'GICN' 32502 "Product logo" {
+	"TapiocaLogo"
+}

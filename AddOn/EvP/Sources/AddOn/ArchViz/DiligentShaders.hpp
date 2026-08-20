@@ -1,0 +1,1183 @@
+#ifndef EVP_ARCHVIZ_DILIGENTSHADERS_HPP
+#define EVP_ARCHVIZ_DILIGENTSHADERS_HPP
+
+// ArchViz/DiligentShaders — the mesh shader pair, in HLSL, embedded.
+//
+// The bgfx path compiled `Shaders/*.sc` with shaderc into `ShadersBin/*.bin.h`
+// byte arrays. Diligent's D3D11 backend always has the HLSL compiler, so these
+// are compiled at device-init time from the source below. That trades ~2 ms of
+// startup for deleting an offline build step, a toolchain and a class of bug
+// where the checked-in blob and the source disagree. When shipping wants
+// precompiled DXBC, `ShaderCreateInfo::ByteCode` takes it and only this file
+// changes.
+//
+// ⚠️ THIS IS NO LONGER A LINE-FOR-LINE PORT OF `fs_archviz_mesh.sc`. It was, and
+// the port was faithful, and the result was reported live as "the building is
+// there, materials roughly match, and the shading still looks flat". That report
+// was correct and the shader was not broken: constant-ambient Lambert gives every
+// surface of a given orientation exactly one value, so a wall is one flat colour
+// from top to bottom and nothing indicates that the building has an inside, a
+// recess or a soffit. Two things carry almost all of the difference, and both
+// are here now:
+//
+//   HEMISPHERIC AMBIENT instead of a constant floor. Ambient light does not
+//   arrive equally from every direction: the sky is bright and the ground is
+//   dark, so an up-facing surface in shadow is much brighter than a down-facing
+//   one. This is one lerp on the normal's z, and it is what makes soffits,
+//   reveals and the undersides of balconies read.
+//
+//   A SHADOW MAP. Without it a building cannot occlude itself, so the courtyard
+//   is as bright as the roof and there is nothing on the ground to say how tall
+//   anything is.
+//
+// The bgfx shaders are NOT being kept in step with this. They are the old
+// renderer, on the way out; when they go, this comment goes with them.
+//
+// Things about the HLSL that are easy to get wrong and silent when wrong:
+//
+//   ⚠️ THE MATRIX IS TRANSPOSED BY THE UPLOAD, DELIBERATELY. MatrixMath stores
+//   row-major with row-vector semantics (bx's layout). An HLSL `float4x4` in a
+//   cbuffer packs COLUMN-major by default, so those same 16 floats arrive as
+//   the transpose -- which is exactly what makes the ordinary column-vector
+//   `mul(matrix, vector)` below correct. Do not add a transpose on either side.
+//   This applies to g_lightViewProj exactly as it does to g_viewProj.
+//
+//   ⚠️ ATTRIB2 READS AS RGBA EVEN THOUGH THE STRUCT SAYS "abgr". The vertex
+//   field is a uint32 written as 0xAABBGGRR; on a little-endian machine its
+//   bytes are R,G,B,A in memory, and a VT_UINT8 x4 normalised attribute maps
+//   byte 0 to .x. So `input.color.rgb` is already red, green, blue. A "fix"
+//   that swizzles to .bgr turns the debug cube's orange top blue.
+//
+//   ⚠️ NO MODEL MATRIX. Extraction emits world-space metres, so the world
+//   normal IS the vertex normal. When a model matrix arrives, so must its
+//   inverse-transpose for the normal -- a rotated normal is not a rotated
+//   position.
+//
+//   ⚠️ EVERYTHING HERE IS LINEAR. The swap chain's render-target view is
+//   _SRGB, so the hardware encodes on write. Adding a pow(1/2.2) in the shader
+//   double-encodes and washes the whole image out -- which reads as "the new
+//   lighting is too bright" rather than as a gamma bug.
+
+#include <string>
+
+namespace geomsrv {
+namespace archviz {
+
+// The cbuffer's C++ half. ⚠️ FIELD ORDER IS AN ABI with kArchVizMeshVS/PS
+// below, exactly as Uniforms.hpp is with uniforms.sh. Append, never insert.
+struct DiligentSceneConstants {
+    float viewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    // The same three vec4s as ArchVizParams, laid out identically so the
+    // producer side is shared with the bgfx path.
+    float sunDir[3] = { 0.0f, 0.0f, 1.0f };
+    float ambient = 0.35f;
+    float baseColor[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+    float eyePos[3] = { 0.0f, 0.0f, 0.0f };
+    // ⚠️ THE SPARE IS THE DEBUG VIEW SELECTOR, and it earns the slot. A live run
+    // reported the cube as "flat, evenly lit", which is indistinguishable by eye
+    // from four different faults: the sun never reaching the pixel shader, the
+    // normals arriving wrong, the constant buffer being read at the wrong
+    // offset, or the lighting being correct and simply hard to judge. Rendering
+    // the shader's own inputs as colour separates all four in ONE look, and it
+    // costs no extra PSO, no extra buffer and no extra draw.
+    float debugView = 0.0f;
+
+    // ---- appended for the shadow map and the hemispheric ambient ------------
+    float lightViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    // x = world metres per shadow texel (the normal-offset scale), y = the
+    // light's depth range in metres, z = 1 when the shadow map is valid and
+    // bound, w = 1/resolution.
+    float shadowParams[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // Linear radiance, NOT sRGB. rgb, w = the sun's overall strength.
+    float skyColor[4] = { 0.55f, 0.62f, 0.75f, 1.0f };
+    float groundColor[4] = { 0.22f, 0.20f, 0.18f, 1.0f };
+
+    // ---- appended for the selection silhouette (PLAT-RE41) ------------------
+    // xy = how far one outline pixel is in NDC (2/width, 2/height) TIMES the
+    // requested thickness in pixels; zw unused.
+    //
+    // ⚠️ IT IS A SCREEN-SPACE OFFSET, NOT A WORLD ONE, and that is the whole
+    // reason it needs the viewport size. A hull expanded by world metres is
+    // hairline-thin on a site model and swallows a door handle, so the thickness
+    // would have to be retuned for every zoom level -- which is the same as not
+    // working.
+    //
+    // ⚠️ `z` IS NOW THE RENDER QUALITY (PLAT-RE126): 0 = Fast, 1 = Realistic. It
+    // rides in an already-declared float4's spare lane deliberately -- appending
+    // an eighth float4 would change the cbuffer's size, and the static_assert
+    // below plus every PSO built against this layout would have to move with it
+    // for one boolean.
+    //
+    // ⚠️ `w` IS THE DRAW RANGE'S PERCEPTUAL ROUGHNESS, 0 = mirror, 1 = matte,
+    // and it takes the last spare lane for the same reason `z` took the one
+    // before it. It is UPLOADED PER RANGE alongside `baseColor` -- roughness is
+    // a property of the material being submitted, not of the frame, so hoisting
+    // it out of the range loop paints the whole model in the last material's
+    // finish, which is the failure MeshGroups exists to prevent wearing a
+    // different hat.
+    float outlineParams[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+    // ---- appended for the HDR environment (PLAT-RE51) -----------------------
+    //
+    // Nine order-2 spherical-harmonic coefficients, xyz = RGB, w unused. They
+    // ARE the entire diffuse contribution of the sky -- see
+    // ArchViz/EnvironmentLighting, where they are produced and tested.
+    //
+    // ⚠️ NINE float4s FOR NINE float3s, WASTING A LANE EACH. HLSL packs a
+    // cbuffer array with each element on its own 16-byte boundary, so a
+    // `float3 g_sh[9]` in the shader is NOT 108 bytes -- it is 144 with the
+    // padding invisible on this side. Declaring float4 here makes the padding
+    // explicit and the two sides impossible to disagree about; packing them
+    // tightly is what silently shifts every coefficient after the first.
+    float sh[9][4] = {};
+
+    // x = intensity multiplier, y = rotation about Z in RADIANS,
+    // z = 1 when a sky is loaded and bound, w = the texture's mip count.
+    float envParams[4] = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+    // ---- appended for the second material channel (PLAT-RE51) ---------------
+    //
+    // x = the draw range's specular reflectance, 0..1, UPLOADED PER RANGE
+    // beside `baseColor` exactly as roughness is.
+    // y = how much analytic sun survives when an HDR sky is active, 0..1. ⚠️ A
+    // FRAME value sharing a float4 with a PER-RANGE one, which is safe only
+    // because the whole struct is re-uploaded per range -- set y once before the
+    // range loop and it rides along. Do not "optimise" that upload out.
+    // z, w spare.
+    //
+    // ⚠️ A WHOLE float4 FOR ONE FLOAT, AND THAT IS THE DOCUMENTED CHOICE. The
+    // note on `outlineParams` records the previous decision to subdivide a
+    // spare lane; the fallback stated there for a SECOND per-material channel
+    // was to append rather than subdivide again, because the static_assert then
+    // forces both sides of the ABI to move together. This is that fallback
+    // being taken. The three spare lanes are the next channel's, at no cost.
+    float materialParams[4] = { 0.5f, 0.0f, 0.0f, 0.0f };
+
+    // ---- appended for the sky BACKGROUND (PLAT-RE51) ------------------------
+    //
+    // The camera's view ray, as three world vectors: a pixel at NDC (x, y) looks
+    // along `forward + x * right + y * up`. `right` and `up` already carry the
+    // half-extent of the projection plane, so the shader needs no FOV and no
+    // aspect of its own.
+    //
+    // ⚠️ A RAY BASIS RATHER THAN AN INVERSE VIEW-PROJECTION, on purpose. The
+    // obvious alternative is to unproject the far plane, which needs a 4x4
+    // inverse this codebase does not have and would have to grow and test for
+    // one shader. The basis comes straight out of MatrixMath's `CameraBasis`,
+    // which is already the single derivation the pick ray and the camera share.
+    //
+    // ⚠️ IN PARALLEL PROJECTION right AND up ARE ZERO, and that is correct, not
+    // a missing case: an orthographic camera's rays are all parallel, so every
+    // pixel of an infinitely distant sky looks the same direction.
+    float envRayRight[4] = {};
+    float envRayUp[4] = {};
+    float envRayForward[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+
+    // ---- appended for the Realistic grading controls (PLAT-RE51) ------------
+    //
+    // x = exposure, the pre-scale into the ACES curve. Was hard-coded 0.6.
+    // y = reflectance, a multiplier on BOTH specular terms. 1 = physical.
+    // z = roughness bias, ADDED to every material's roughness before clamping.
+    //     Negative makes the whole model glossier.
+    // w = spare.
+    //
+    // ⚠️ THESE EXIST BECAUSE ARCHICAD'S SURFACE DATA IS NOT PBR DATA, and no
+    // amount of correct shading fixes that on its own. This project's pool was
+    // measured at 0.72-0.8% `shining` on nearly every painted surface, which is
+    // a perceptual roughness of 0.99 -- a GGX lobe so broad it has no visible
+    // highlight. So Realistic renders almost identically to Fast, which is
+    // exactly what was reported, and the renderer is not at fault: it is
+    // faithfully drawing a model whose materials all claim to be matte.
+    //
+    // ⚠️ THE REAL FIX IS THE ARCHITECTURAL MATERIAL PRESETS in
+    // PROGRAM-RENDERER-TASK.md section 3 -- a table that recognises glass,
+    // metal, concrete and paint and gives each a plausible PBR description
+    // instead of trusting three legacy Blinn-Phong numbers. These three sliders
+    // are the interim: they let the look be found by eye first, so the presets
+    // are calibrated against something seen rather than guessed at.
+    float gradeParams[4] = { 0.6f, 1.0f, 0.0f, 0.0f };
+};
+
+// What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
+// in kArchVizMeshPS, the G-buffer dispatch in DiligentViewport, and
+// `_DEBUG_VIEWS` in Diagnostics/Commands/DiligentViewportSmoke/command.py.
+enum class DiligentDebugView : int {
+    Final = 0,     // the ordinary shaded result
+    Normals = 1,   // world normal as colour: n * 0.5 + 0.5
+    Lit = 2,       // the lighting term alone, grey. FLAT GREY HERE MEANS THE
+                   // SUN REALLY IS NOT REACHING THE SHADER.
+    BaseColor = 3, // vertex colour x material colour, unlit
+    SunVector = 4, // the sun direction the shader HAS, as a flat colour --
+                   // black means the constant buffer never arrived
+    Shadow = 5,    // the shadow term alone: white lit, black occluded. ALL
+                   // WHITE means the map is not bound or the frustum missed
+                   // the model; ALL BLACK means the depth comparison is
+                   // inverted, which no other view distinguishes.
+    Roughness = 6, // the per-range roughness as grey: black mirror, white
+                   // matte. ⚠️ IT EXISTS BECAUSE A UNIFORMLY WHITE IMAGE HERE
+                   // IS A REAL AND LIKELY ANSWER -- it means every surface in
+                   // the project reports GetShining()==0, so the GGX lobe has
+                   // nothing to vary and `Realistic` is correctly matte rather
+                   // than broken. Nothing else separates "the material channel
+                   // is flat" from "the specular never reached the shader".
+    GBufferNormals = 7,
+    GBufferDepth = 8,
+    AmbientOcclusion = 9,
+};
+
+static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16,
+               "the cbuffer is two float4x4s, seven float4s, the 9-element SH array, "
+               "the environment parameters, the material parameters and the three "
+               "view-ray vectors and the grading parameters, and HLSL will read it "
+               "that way");
+
+// The cbuffer declaration, ONE COPY, prepended to each shader by
+// ArchVizShaderSource below.
+//
+// ⚠️ ALL THREE STAGES MUST DECLARE IT IDENTICALLY. HLSL packs a cbuffer by
+// declaration order, so a stage that omits or reorders a field reads every
+// later field at the wrong offset -- and reads it SUCCESSFULLY, with no
+// compiler complaint and no validation error. Three hand-maintained copies is
+// exactly the shape that drifts, so there is one.
+//
+// (It is concatenated at runtime rather than by the preprocessor: a raw string
+// literal inside a macro definition is legal C++ but has a history of MSVC
+// bugs, and this is not worth spending one on.)
+constexpr const char* kArchVizCBuffer = R"hlsl(
+cbuffer ArchVizConstants
+{
+    float4x4 g_viewProj;
+    float4   g_sunAndAmbient;   // xyz = toward the sun (normalised), w = ambient
+    float4   g_baseColor;       // per draw range: rgb surface colour, a opacity
+    float4   g_eyePos;          // xyz = camera world position, w = debug view
+    float4x4 g_lightViewProj;
+    float4   g_shadowParams;    // x texel metres, y depth range, z enabled, w 1/res
+    float4   g_skyColor;
+    float4   g_groundColor;
+    float4   g_outline;         // xy = the silhouette offset in NDC per vertex
+                                // z  = render quality, w = range roughness
+    float4   g_sh[9];           // order-2 SH irradiance, xyz = RGB
+    float4   g_envParams;       // x intensity, y rotation rad, z enabled, w mips
+    float4   g_materialParams;  // per draw range: x = specular reflectance 0..1
+    float4   g_envRayRight;     // the view ray basis: dir = forward + x*right
+    float4   g_envRayUp;        //                         + y*up, at NDC (x, y)
+    float4   g_envRayForward;
+    float4   g_gradeParams;     // x exposure, y reflectance, z roughness bias
+};
+)hlsl";
+
+constexpr const char* kArchVizMeshVS = R"hlsl(
+struct VSInput
+{
+    float3 position : ATTRIB0;
+    float3 normal   : ATTRIB1;
+    float4 color    : ATTRIB2;
+};
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float3 worldPos : WORLDPOS;
+    float3 normal   : NORMAL;
+    float4 color    : COLOR0;
+};
+
+void main (in VSInput vsIn, out PSInput psIn)
+{
+    psIn.position = mul (g_viewProj, float4 (vsIn.position, 1.0));
+    psIn.worldPos = vsIn.position;   // already world space
+    psIn.normal   = vsIn.normal;     // identity model matrix, so no normal matrix
+    psIn.color    = vsIn.color;
+}
+)hlsl";
+
+// The shadow pass. Position only -- no normal, no colour, no pixel shader --
+// because the only output is depth.
+//
+// ⚠️ IT SHARES THE VERTEX BUFFER AND THEREFORE THE FULL INPUT LAYOUT. A
+// position-only layout over a 28-byte vertex would need its own buffer or a
+// stride the layout does not describe; declaring all three attributes and
+// ignoring two costs nothing and cannot desynchronise.
+constexpr const char* kArchVizShadowVS = R"hlsl(
+struct VSInput
+{
+    float3 position : ATTRIB0;
+    float3 normal   : ATTRIB1;
+    float4 color    : ATTRIB2;
+};
+
+void main (in VSInput vsIn, out float4 position : SV_POSITION)
+{
+    position = mul (g_lightViewProj, float4 (vsIn.position, 1.0));
+}
+)hlsl";
+
+// The SILHOUETTE pass's vertex shader: the mesh, pushed outward in SCREEN space
+// along its projected normal.
+//
+// It is the inverted-hull outline. Drawn with the cull mode INVERTED against the
+// visible pass -- so only the faces pointing away from the camera -- and with
+// depth testing on but no depth write, the expanded hull is hidden everywhere the
+// object itself is nearer and survives only as a ring a few pixels wide around
+// the object's silhouette. That ring is the outline.
+//
+// ⚠️ THE OFFSET IS IN CLIP SPACE, MULTIPLIED BY w, AND BOTH HALVES MATTER.
+// Offsetting in world space along the normal gives a thickness that scales with
+// the model and with the zoom, so one constant is a hairline on a site plan and
+// a blob on a door handle. Offsetting the CLIP position by `ndcPerPixel * w`
+// makes the perspective divide cancel the w back out, leaving exactly the
+// requested number of PIXELS at any distance.
+//
+// ⚠️ THE NORMAL IS ROTATED BY g_viewProj's UPPER 3x3, WHICH IS ONLY CORRECT
+// BECAUSE THERE IS NO MODEL MATRIX AND NO NON-UNIFORM SCALE (see the ⚠️ at the
+// top of this file). The projection's own perspective term is deliberately
+// ignored: the direction to push a silhouette in is the normal's SCREEN
+// direction, and normalising xy after the rotation is what supplies it.
+constexpr const char* kArchVizOutlineVS = R"hlsl(
+struct VSInput
+{
+    float3 position : ATTRIB0;
+    float3 normal   : ATTRIB1;
+    float4 color    : ATTRIB2;
+};
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float3 worldPos : WORLDPOS;
+    float3 normal   : NORMAL;
+    float4 color    : COLOR0;
+};
+
+void main (in VSInput vsIn, out PSInput psIn)
+{
+    float4 clipPos = mul (g_viewProj, float4 (vsIn.position, 1.0));
+    float3 clipNormal = mul ((float3x3) g_viewProj, vsIn.normal);
+
+    // A face seen exactly edge-on projects to a zero-length screen normal, and
+    // normalize(0) is a NaN that removes the whole triangle. Leaving it
+    // unexpanded is right: an edge-on face contributes nothing to the silhouette.
+    float2 dir = clipNormal.xy;
+    float len = length (dir);
+    if (len > 1e-6)
+        clipPos.xy += (dir / len) * g_outline.xy * clipPos.w;
+
+    psIn.position = clipPos;
+    psIn.worldPos = vsIn.position;
+    psIn.normal   = vsIn.normal;
+    psIn.color    = vsIn.color;
+}
+)hlsl";
+
+// A FLAT COLOUR, straight out of g_baseColor. Three passes share it and the
+// sharing is deliberate:
+//
+//   the PICK pass    writes the element's id, unpacked into rgb by the caller
+//   the OUTLINE pass writes the silhouette colour
+//   the WIREFRAME    writes the line colour
+//
+// ⚠️ IT PAIRS WITH kArchVizMeshVS FOR PICKING, NOT WITH A VERTEX SHADER OF ITS
+// OWN. The id pass needs only SV_POSITION, but reusing the mesh VS means the two
+// passes cannot disagree about where a vertex lands -- and a pick pass that
+// projects even slightly differently from the visible one resolves clicks near a
+// silhouette to the element BEHIND the one the user is pointing at, which reads
+// as "picking is a bit off" rather than as two projections.
+//
+// ⚠️ NO LIGHTING, NO GAMMA, NO ALPHA BLEND, NO MSAA IN THE PICK PASS. An id is
+// not a colour: any filtering blends element 3 and element 260 into element 131,
+// which exists, is plausible and is wrong. That PSO enforces the last two; this
+// enforces the rest by having nothing else to say. The outline and wireframe
+// PSOs DO blend, and pass an alpha in g_baseColor.a for it.
+constexpr const char* kArchVizFlatPS = R"hlsl(
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float3 worldPos : WORLDPOS;
+    float3 normal   : NORMAL;
+    float4 color    : COLOR0;
+};
+
+struct PSOutput
+{
+    float4 color : SV_TARGET;
+};
+
+void main (in PSInput psIn, out PSOutput psOut)
+{
+    // ⚠️ THE ALPHA IS CARRIED THROUGH, AND THE PICK PASS RELIES ON IT BEING 1.
+    // For picking, the caller has already unpacked the id into g_baseColor's
+    // three channels as byte/255 and set a=1, and the target is RGBA8_UNORM, so
+    // this round-trips exactly. For the outline and wireframe passes the alpha is
+    // the line's own, and those PSOs blend with it.
+    psOut.color = g_baseColor;
+}
+)hlsl";
+
+// The first Tutorial27_PostProcessing slice: opaque geometry writes a world
+// normal target while the fixed-function depth output fills the second G-buffer
+// element.
+constexpr const char* kArchVizGBufferPS = R"hlsl(
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float3 worldPos : WORLDPOS;
+    float3 normal   : NORMAL;
+    float4 color    : COLOR0;
+};
+
+void main (in PSInput psIn, out float4 normal : SV_TARGET)
+{
+    normal = float4 (normalize (psIn.normal), 1.0);
+}
+)hlsl";
+
+constexpr const char* kArchVizFullScreenVS = R"hlsl(
+void main (uint vertexId : SV_VertexID, out float4 position : SV_POSITION)
+{
+    float2 uv = float2 ((vertexId << 1) & 2, vertexId & 2);
+    position = float4 (uv * float2 (2.0, -2.0) + float2 (-1.0, 1.0), 0.0, 1.0);
+}
+)hlsl";
+
+// The frame's nearest and farthest depth, reduced into two uints. See
+// ArchViz/DiligentDepthRange.hpp for why the depth view cannot use a fixed ramp.
+//
+// ⚠️ THE ATOMICS ARE ON THE FLOAT'S BIT PATTERN, AND THAT IS EXACT, NOT A
+// SHORTCUT. IEEE-754 orders NON-NEGATIVE floats identically to their bit
+// patterns read as unsigned ints, and a depth buffer holds nothing else -- so
+// InterlockedMin on asuint(depth) is the true minimum, not an approximation of
+// it. HLSL has no InterlockedMin for floats, so the alternative is a much
+// slower two-pass reduction through a scratch texture.
+constexpr const char* kArchVizDepthRangeCS = R"hlsl(
+Texture2D<float> g_depth;
+RWBuffer<uint>   g_depthRangeOut;
+
+groupshared uint gsMinBits;
+groupshared uint gsMaxBits;
+
+[numthreads (8, 8, 1)]
+void main (uint3 threadId : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
+{
+    if (groupIndex == 0)
+    {
+        gsMinBits = 0xFFFFFFFF;
+        gsMaxBits = 0;
+    }
+    GroupMemoryBarrierWithGroupSync ();
+
+    uint width, height;
+    g_depth.GetDimensions (width, height);
+    if (threadId.x < width && threadId.y < height)
+    {
+        float depth = g_depth.Load (int3 (threadId.xy, 0));
+        // ⚠️ THE CLEARED BACKGROUND IS EXCLUDED. It sits at the far plane, so
+        // admitting it would peg the maximum at 20 km on every frame that shows
+        // any sky at all -- which is every exterior frame, and would put the
+        // ramp straight back where it started.
+        if (depth < 1.0)
+        {
+            uint bits = asuint (depth);
+            InterlockedMin (gsMinBits, bits);
+            InterlockedMax (gsMaxBits, bits);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync ();
+
+    // ⚠️ ONE ATOMIC PAIR PER GROUP, NOT PER PIXEL. A 1490x738 viewport is 1.1M
+    // pixels; hammering two addresses that many times serialises the whole
+    // dispatch. Reducing in groupshared first cuts it to ~17k.
+    if (groupIndex == 0 && gsMinBits <= gsMaxBits)
+    {
+        InterlockedMin (g_depthRangeOut[0], gsMinBits);
+        InterlockedMax (g_depthRangeOut[1], gsMaxBits);
+    }
+}
+)hlsl";
+
+// The raw per-frame range, eased into the one the shader actually reads.
+//
+// ⚠️ WITHOUT THIS THE RAMP IS CORRECT AND UNUSABLE. The raw min/max is a
+// property of whatever is on screen THIS frame, so orbiting re-fits it every
+// frame and the same wall changes shade continuously; worse, one pixel of
+// geometry passing near the camera collapses the near end and the whole
+// gradient visibly flips. Both were reported from the first live run. Easing
+// the range keeps the auto-fit -- which is the thing that made the view legible
+// at all -- while making it settle instead of chase.
+constexpr const char* kArchVizDepthRangeSmoothCS = R"hlsl(
+RWBuffer<uint> g_depthRangeRaw;
+RWBuffer<uint> g_depthRangeSmooth;
+
+[numthreads (1, 1, 1)]
+void main ()
+{
+    uint rawMinBits = g_depthRangeRaw[0];
+    uint rawMaxBits = g_depthRangeRaw[1];
+    // Nothing measured (an empty frame, or a resize between the two passes):
+    // HOLD the previous range rather than resetting it. Resetting is what makes
+    // the picture jump for one frame and reads as a flicker.
+    if (rawMinBits > rawMaxBits)
+        return;
+
+    float rawMin = asfloat (rawMinBits);
+    float rawMax = asfloat (rawMaxBits);
+
+    uint prevMinBits = g_depthRangeSmooth[0];
+    uint prevMaxBits = g_depthRangeSmooth[1];
+    if (prevMinBits > prevMaxBits)
+    {
+        // First measured frame: adopt outright. Easing up from a seeded value
+        // would spend a second of wall time crossing a 20 km frustum.
+        g_depthRangeSmooth[0] = rawMinBits;
+        g_depthRangeSmooth[1] = rawMaxBits;
+        return;
+    }
+
+    // ⚠️ FIXED RATE, NOT FRAME-RATE CORRECTED, AND DELIBERATELY SO. A dt-aware
+    // ease needs the frame time in the cbuffer and buys nothing here: the
+    // viewport is vsynced, and the visible behaviour of "settles over about a
+    // second" is what is wanted at 60 or at 30.
+    const float k = 0.08;
+    float newMin = lerp (asfloat (prevMinBits), rawMin, k);
+    float newMax = lerp (asfloat (prevMaxBits), rawMax, k);
+    g_depthRangeSmooth[0] = asuint (newMin);
+    g_depthRangeSmooth[1] = asuint (newMax);
+}
+)hlsl";
+
+// The sky behind the model: one full-screen triangle, no depth, drawn first.
+//
+// ⚠️ THE RAY IS BUILT IN THE VERTEX SHADER AND INTERPOLATED, which is exact
+// rather than a shortcut. A perspective view ray is linear in NDC across the
+// projection plane, so three corner rays interpolate to the correct direction at
+// every pixel; only the normalise has to be per-pixel, because interpolating
+// unit vectors does not preserve length.
+constexpr const char* kArchVizEnvBackgroundVS = R"hlsl(
+void main (uint vertexId : SV_VertexID, out float4 position : SV_POSITION, out float3 ray : TEXCOORD0)
+{
+    float2 uv = float2 ((vertexId << 1) & 2, vertexId & 2);
+    float2 ndc = uv * float2 (2.0, -2.0) + float2 (-1.0, 1.0);
+    // ⚠️ z = 0, NOT 1. Depth testing is OFF for this pass, but the value still
+    // has to be inside the clip volume or the triangle is culled outright and
+    // the sky silently never appears.
+    position = float4 (ndc, 0.0, 1.0);
+    ray = g_envRayForward.xyz + ndc.x * g_envRayRight.xyz + ndc.y * g_envRayUp.xyz;
+}
+)hlsl";
+
+constexpr const char* kArchVizEnvBackgroundPS = R"hlsl(
+void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 color : SV_TARGET)
+{
+    // ⚠️ MIP 0, UNLIKE THE REFLECTION. The reflection blurs by roughness; the
+    // background is what the eye compares the building against, and a blurred
+    // sky behind a sharp model reads as the model being pasted on.
+    float3 sky = g_envMap.SampleLevel (g_envMap_sampler, EnvUv (normalize (ray)), 0.0).rgb * g_envParams.x;
+
+    // ⚠️ THE SAME ACES CURVE AND THE SAME 0.6 PRE-SCALE AS kArchVizMeshPSMain,
+    // and they are not optional here. The model is tone mapped in Realistic
+    // quality; an untouched HDR behind it clips to white wherever the sky is
+    // brighter than 1.0, and the building then sits against a flat cut-out
+    // instead of a sky. If that curve changes, this changes with it.
+    sky *= 0.6;
+    sky = saturate ((sky * (2.51 * sky + 0.03)) / (sky * (2.43 * sky + 0.59) + 0.14));
+    color = float4 (sky, 1.0);
+}
+)hlsl";
+
+constexpr const char* kArchVizGBufferDebugPS = R"hlsl(
+Texture2D<float4> g_gbufferNormal;
+Texture2D<float>  g_gbufferDepth;
+Buffer<uint>      g_depthRange;
+
+// Depth-buffer value back to metres from the eye. ⚠️ THE TWO PROJECTIONS NEED
+// DIFFERENT ARITHMETIC AND LOOK PLAUSIBLE WITH THE WRONG ONE: perspective depth
+// is hyperbolic, parallel depth is linear, and using the linear form on a
+// perspective buffer simply pushes everything to the far plane.
+float LinearizeDepth (float depth, float nearClip, float farClip, bool perspective)
+{
+    if (perspective)
+        return nearClip * farClip / max (farClip - depth * (farClip - nearClip), 1e-6);
+    return lerp (nearClip, farClip, depth);
+}
+
+void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
+{
+    int2 pixel = int2 (position.xy);
+    float depth = g_gbufferDepth.Load (int3 (pixel, 0));
+
+    // Preserve the viewport's existing clear, including zero alpha on overlays.
+    if (depth >= 1.0)
+        discard;
+
+    if (int (g_eyePos.w) == 7)
+    {
+        float3 normal = normalize (g_gbufferNormal.Load (int3 (pixel, 0)).xyz);
+        color = float4 (normal * 0.5 + 0.5, 1.0);
+    }
+    else
+    {
+        float nearClip = g_shadowParams.x;
+        float farClip = g_shadowParams.y;
+        bool perspective = g_shadowParams.w > 0.5;
+
+        // ⚠️ THE RAMP FITS THE FRAME, AND NEITHER FIXED ALTERNATIVE WORKS.
+        // Anchored to the FRUSTUM (0.05 m .. 20 km) a whole building occupies a
+        // few percent of the range and reads as uniform grey. Anchored to the
+        // camera's ORBIT DISTANCE it clips to flat black the moment the model
+        // sits outside that band. Both shipped, both were reported as a broken
+        // depth buffer. g_depthRange carries the nearest and farthest depth
+        // really on screen, reduced this frame -- see ArchViz/DiligentDepthRange.
+        uint nearestBits = g_depthRange.Load (0);
+        uint farthestBits = g_depthRange.Load (1);
+        // Seeded min > max, so this is "the reduction wrote nothing" -- an empty
+        // frame, or a view that never dispatched it. Fall back to the frustum
+        // rather than to arithmetic on 0xFFFFFFFF read as a float (a NaN, which
+        // would paint the whole image one undefined shade).
+        float nearestDepth = nearestBits <= farthestBits ? asfloat (nearestBits) : 0.0;
+        float farthestDepth = nearestBits <= farthestBits ? asfloat (farthestBits) : 1.0;
+
+        float linearDistance = LinearizeDepth (depth, nearClip, farClip, perspective);
+        float nearestLinear = max (LinearizeDepth (nearestDepth, nearClip, farClip, perspective), nearClip);
+        float farthestLinear = LinearizeDepth (farthestDepth, nearClip, farClip, perspective);
+
+        // ⚠️ THE SPAN IS CAPPED AT 1000:1, AND THAT IS WHAT STOPS THE GRADIENT
+        // FLIPPING. Orbit far enough and a corner of the building passes close
+        // to the eye; the true nearest depth then drops to centimetres while the
+        // farthest stays at tens of metres, the log span triples, and every
+        // surface that mattered is squeezed into the top of the ramp -- which
+        // reads as the gradient inverting at particular camera angles. Pulling
+        // the near end up instead sacrifices only the few pixels that are
+        // practically touching the lens.
+        nearestLinear = max (nearestLinear, farthestLinear / 1000.0);
+
+        // Logarithmic across that measured span rather than linear: a frame
+        // holding both a doorway and a horizon is a depth RATIO in the
+        // thousands, and linear over it hands the whole near half one shade.
+        // The floor on the span keeps a single-depth frame (one flat wall
+        // filling the view) from dividing by ~0.
+        float logSpan = max (log2 (farthestLinear / nearestLinear), 1e-3);
+        float visibleDepth = 1.0 - saturate (log2 (max (linearDistance, nearestLinear) / nearestLinear) / logSpan);
+        color = float4 (visibleDepth.xxx, 1.0);
+    }
+}
+)hlsl";
+
+constexpr const char* kArchVizAmbientOcclusionDebugPS = R"hlsl(
+Texture2D<float> g_ambientOcclusion;
+Texture2D<float> g_gbufferDepth;
+
+void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
+{
+    int2 pixel = int2 (position.xy);
+    if (g_gbufferDepth.Load (int3 (pixel, 0)) >= 1.0)
+        discard;
+
+    float ambientOcclusion = g_ambientOcclusion.Load (int3 (pixel, 0));
+    color = float4 (ambientOcclusion.xxx, 1.0);
+}
+)hlsl";
+
+// The environment texture and its lookup, SHARED by the mesh shading and the
+// sky background. ⚠️ ONE COPY BY CONSTRUCTION. EnvUv is an ABI with
+// ArchViz/EnvironmentLighting's `DirectionAt` (the offline test
+// `DirectionConventionIsPinned` holds the other end), so a second transcription
+// of it in the background shader would be a convention free to drift silently:
+// the model would be lit by one sky and sit against another, which on a
+// photographic environment is genuinely hard to see and impossible to explain.
+constexpr const char* kArchVizEnvCommonPS = R"hlsl(
+Texture2D    g_envMap;
+SamplerState g_envMap_sampler;
+
+// The equirectangular lookup.
+//
+// ⚠️ THIS IS AN ABI WITH ArchViz/EnvironmentLighting's `DirectionAt`, AND THE
+// OFFLINE TEST `DirectionConventionIsPinned` EXISTS TO HOLD THE OTHER END OF IT.
+// The SH coefficients are integrated on the CPU against that convention; if this
+// disagrees, the diffuse light and the reflection come from different skies --
+// the building is lit from one direction and reflects another, which on a
+// photographic environment is genuinely hard to see and impossible to explain.
+//
+//   v = 0 is the +Z pole, v = 1 is -Z   (row 0 is up, Archicad is Z-up)
+//   u = 0 is phi = 0, i.e. +X, advancing counter-clockwise toward +Y
+float2 EnvUv (float3 dir)
+{
+    float3 d = normalize (dir);
+    // ⚠️ CLAMPED BEFORE acos. A normalise can land a hair outside [-1,1] and
+    // acos of that is NaN, which paints one black pixel at each pole -- and it
+    // moves as the camera moves, so it reads as a flickering artefact rather
+    // than as a domain error.
+    float theta = acos (clamp (d.z, -1.0, 1.0));
+    float phi = atan2 (d.y, d.x) + g_envParams.y;
+    // atan2 returns -pi..pi and the rotation can push it anywhere; wrap into
+    // 0..2pi rather than relying on the sampler's address mode, because v must
+    // stay CLAMPed even while u WRAPs.
+    const float twoPi = 6.28318530718;
+    phi = phi - twoPi * floor (phi / twoPi);
+    return float2 (phi / twoPi, theta / 3.14159265359);
+}
+
+)hlsl";
+
+constexpr const char* kArchVizMeshPS = R"hlsl(
+// ⚠️ THE SHADOW MAP IS DECLARED HERE AND THE ENVIRONMENT IS NOT. The env
+// texture and EnvUv live in kArchVizEnvCommonPS, prepended to this stage,
+// because the sky BACKGROUND shader needs the identical lookup. The shadow map
+// has only one consumer, so putting it in the shared prelude would hand the
+// background shader a texture it never reads.
+Texture2D    g_shadowMap;
+SamplerState g_shadowMap_sampler;
+
+// The sky's diffuse contribution for a world normal, reconstructed from the nine
+// coefficients. The irradiance convolution and the 1/pi are ALREADY FOLDED INTO
+// the coefficients on the CPU, so this is a plain dot product with the basis and
+// the result multiplies albedo directly.
+float3 ShDiffuse (float3 n)
+{
+    float3 result = g_sh[0].rgb * 0.282095
+                  + g_sh[1].rgb * (0.488603 * n.y)
+                  + g_sh[2].rgb * (0.488603 * n.z)
+                  + g_sh[3].rgb * (0.488603 * n.x)
+                  + g_sh[4].rgb * (1.092548 * n.x * n.y)
+                  + g_sh[5].rgb * (1.092548 * n.y * n.z)
+                  + g_sh[6].rgb * (0.315392 * (3.0 * n.z * n.z - 1.0))
+                  + g_sh[7].rgb * (1.092548 * n.x * n.z)
+                  + g_sh[8].rgb * (0.546274 * (n.x * n.x - n.y * n.y));
+    // ⚠️ CLAMPED, for the reason EvaluateDiffuse is clamped on the CPU: order-2
+    // SH rings around a small bright sun and really does reconstruct negative,
+    // which here would SUBTRACT light from the surface.
+    return max (result, 0.0.xxx);
+}
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float3 worldPos : WORLDPOS;
+    float3 normal   : NORMAL;
+    float4 color    : COLOR0;
+};
+
+struct PSOutput
+{
+    float4 color : SV_TARGET;
+};
+
+// 1 = fully lit, 0 = fully occluded.
+//
+// ⚠️ A MANUAL COMPARISON, NOT SampleCmp. A comparison sampler is faster and
+// gives free 2x2 filtering, but it needs a matching immutable sampler declared
+// in the PSO and a depth SRV bound as a comparison resource, and when any part
+// of that is wrong the result is silently 0 or 1 everywhere -- which is exactly
+// the failure mode the Shadow debug view exists to catch, so it should not also
+// be the failure mode of the setup. A 3x3 loop over an ordinary point-sampled
+// R32_FLOAT view has no such states to get wrong, and one building is nowhere
+// near the cost where it matters.
+float SampleSunShadow (float3 worldPos, float3 normal)
+{
+    if (g_shadowParams.z < 0.5)
+        return 1.0;
+
+    // Normal offset: move the sample point off the surface by a texel or so
+    // before projecting. This is the bias that scales correctly with both model
+    // size and map resolution and needs no slope term -- the surfaces that
+    // acne worst are the ones facing away from the light, and those are exactly
+    // the ones this moves furthest along their own normal.
+    // ⚠️ THE OFFSET MUST SCALE WITH THE KERNEL'S REACH, AND NOT SCALING IT IS
+    // WHAT PUT MOIRE RINGS ON THE GROUND (PLAT-RE138).
+    //
+    // The normal offset exists to push the sampled point far enough along the
+    // surface normal that the shadow map's own quantisation cannot report the
+    // surface as shadowing itself. How far is "far enough" depends on how far
+    // the KERNEL reaches: a 3x3 at one texel looks at most 1.4 texels away, but
+    // the wide 5x5 below reaches 3.2 -- and at that distance a receding surface
+    // has moved further in depth than a fixed 1.5-texel offset covers. The
+    // result is self-shadowing that comes and goes with the point-sampled taps,
+    // which is to say regular interference rings rather than honest acne.
+    //
+    // So the offset is derived from the reach rather than being a constant that
+    // happens to suit one kernel. Same for the depth bias below.
+    float kernelReachTexels = (g_outline.z > 0.5) ? 3.2 : 1.4;
+    float3 offsetPos = worldPos + normal * (g_shadowParams.x * (kernelReachTexels + 0.5));
+
+    float4 lightClip = mul (g_lightViewProj, float4 (offsetPos, 1.0));
+    if (lightClip.w <= 0.0)
+        return 1.0;
+    float3 ndc = lightClip.xyz / lightClip.w;
+
+    // ⚠️ Y IS FLIPPED. Clip space is +Y up, texture space is +Y down. Without
+    // this the shadow appears mirrored about the light's horizontal axis, which
+    // on a symmetrical building looks like a plausible shadow in the wrong place.
+    float2 uv = float2 (ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+
+    // Outside the light's frustum is UNSHADOWED, not shadowed. The frustum is
+    // fitted to the model's bounds, so anything outside it is by construction
+    // something the fit did not know about; darkening it would put a hard black
+    // rectangle around the model.
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
+        return 1.0;
+
+    // A small depth bias on top of the normal offset, expressed in metres and
+    // converted to the map's 0..1 depth, for surfaces nearly edge-on to the sun
+    // where the normal offset alone leaves acne.
+    //
+    // ⚠️ IT SCALES WITH THE KERNEL TOO, for the reason above: the wide kernel
+    // compares against texels further away, whose depth differs more.
+    float biasMetres = 0.02 * (kernelReachTexels / 1.4);
+    float depthBias = (g_shadowParams.y > 0.0) ? (biasMetres / g_shadowParams.y) : 0.0;
+    float reference = ndc.z - depthBias;
+
+    float texel = g_shadowParams.w;
+
+    // ---- REALISTIC: a wider, softer penumbra ------------------------------
+    //
+    // ⚠️ THE SUN IS NOT A POINT. A 3x3 kernel at one-texel spacing gives an edge
+    // one shadow texel wide, which on a massing model reads as cut paper -- the
+    // single most "computer-generated" thing left in the picture after the flat
+    // ambient. The real sun subtends about half a degree, so a shadow's edge
+    // softens with distance from whatever casts it.
+    //
+    // ⚠️ THIS IS A WIDER BLUR, NOT PCSS. A true contact-hardening penumbra needs
+    // a blocker-distance search first, and that wants the depth buffer the
+    // G-Buffer work will provide. A fixed wider kernel is honestly just a softer
+    // edge everywhere -- better than a hard one on a massing study, and NOT the
+    // physically-varying penumbra it will eventually be replaced by.
+    if (g_outline.z > 0.5)
+    {
+        float spread = texel * 1.6;
+        float lit = 0.0;
+        [unroll] for (int y = -2; y <= 2; ++y)
+        {
+            [unroll] for (int x = -2; x <= 2; ++x)
+            {
+                float stored = g_shadowMap.SampleLevel (
+                    g_shadowMap_sampler, uv + float2 (x, y) * spread, 0).r;
+                lit += (reference <= stored) ? 1.0 : 0.0;
+            }
+        }
+        return lit / 25.0;
+    }
+
+    float lit = 0.0;
+    [unroll] for (int y = -1; y <= 1; ++y)
+    {
+        [unroll] for (int x = -1; x <= 1; ++x)
+        {
+            float stored = g_shadowMap.SampleLevel (
+                g_shadowMap_sampler, uv + float2 (x, y) * texel, 0).r;
+            lit += (reference <= stored) ? 1.0 : 0.0;
+        }
+    }
+    return lit / 9.0;
+}
+
+)hlsl";
+
+// ...and the entry point.
+//
+// ⚠️ SPLIT FROM THE HELPERS ABOVE BY AN MSVC LIMIT, NOT BY DESIGN. A single
+// string literal may not exceed 16 KB (C2026), and the mesh pixel shader
+// passed it when the environment lighting arrived -- as a COMPILE error
+// naming only the closing line of the literal, which is a long way from
+// anything that looks like a cause. The two halves are concatenated at
+// runtime by ArchVizShaderSource, the same mechanism the shared cbuffer
+// already uses; splitting further needs no new machinery, just another
+// argument.
+constexpr const char* kArchVizMeshPSMain = R"hlsl(
+void main (in PSInput psIn, out PSOutput psOut)
+{
+    float3 n = normalize (psIn.normal);
+
+    // Two-sided, but NOT abs(dot(n, l)): that lights a north wall as brightly
+    // as a south one and throws the sun's direction away. Flip the normal
+    // toward the viewer instead. See fs_archviz_mesh.sc for the full account.
+    float3 v = normalize (g_eyePos.xyz - psIn.worldPos);
+    if (dot (n, v) < 0.0)
+        n = -n;
+
+    // ---- ambient: sky above, ground bounce below -------------------------
+    // ⚠️ n.z, NOT n.y. Archicad is Z-UP, and this is the one place in the
+    // shader where that matters: with n.y the ambient gradient would run
+    // north-south and every roof would be lit like a north wall.
+    float  hemi = saturate (n.z * 0.5 + 0.5);
+    float3 ambientColor = lerp (g_groundColor.rgb, g_skyColor.rgb, hemi);
+    float  ambient = g_sunAndAmbient.w;
+
+    // ---- the HDR sky, when one is loaded ----------------------------------
+    //
+    // ⚠️ IT REPLACES THE TWO-COLOUR AMBIENT RATHER THAN ADDING TO IT. The
+    // hemispheric lerp above is a STAND-IN for exactly this quantity -- the
+    // light arriving from the sky and the ground -- so keeping both would count
+    // the environment twice and light the model at roughly double the intensity
+    // it was tuned for. `envEnabled` is the switch between an approximation and
+    // the thing it approximates, never a sum of the two.
+    //
+    // ⚠️ AND THE AMBIENT/DIRECT SPLIT IS NOT A BRIGHTNESS DIAL, WHICH IS EASY TO
+    // MISREAD FROM THE LINE BELOW. `g_sunAndAmbient.w` divides a fixed budget
+    // between the ambient and the sun -- the sun is scaled by (1 - ambient) --
+    // so simply forcing ambient to 1 for the environment path would silently
+    // switch the sun OFF. The two terms are therefore weighted separately from
+    // here on.
+    bool envEnabled = g_envParams.z > 0.5;
+
+    // The complete ambient contribution, weighting already applied.
+    float3 ambientTerm = ambient * ambientColor;
+    // What the sun's own term is scaled by.
+    float  directWeight = 1.0 - ambient;
+
+    if (envEnabled)
+    {
+        // The SH already carries the sky's measured magnitude, so it is used at
+        // full strength and `intensity` is the only multiplier.
+        ambientTerm = ShDiffuse (n) * g_envParams.x;
+
+        // ⚠️ THE SUN IS HELD BACK WHEN A SKY IS ACTIVE, BECAUSE THE TWO OVERLAP.
+        // This used to be `directWeight = 1.0` -- the sun at FULL strength, up
+        // from the 1-ambient it gets otherwise, on top of an SH ambient already
+        // carrying the sky's own measured magnitude. The result was reported
+        // simply as "too bright" from the first real run (2026-08-17), which is
+        // exactly the symptom the old comment here predicted and then shipped
+        // anyway.
+        //
+        // ⚠️ THE WEIGHT IS A HUD SLIDER, NOT A CONSTANT, and that is the honest
+        // shape for it. The correct fix is to find the sun disc in the HDR and
+        // subtract it before projecting the SH, so the analytic sun REPLACES
+        // rather than joins it -- that is its own piece of work. Until then the
+        // right value genuinely depends on the sky in use, so it is exposed
+        // (default 0.55) instead of being a magic number nobody can check.
+        directWeight = saturate (g_materialParams.y);
+    }
+
+    // ---- direct: the sun, occluded by the shadow map ----------------------
+    float ndotl  = max (dot (n, g_sunAndAmbient.xyz), 0.0);
+    float shadow = SampleSunShadow (psIn.worldPos, n);
+    float direct = directWeight * ndotl * shadow;
+
+    float3 lighting = ambientTerm + direct.xxx * g_skyColor.w;
+    float4 base = psIn.color * g_baseColor;
+
+    // ---- RenderQuality::Realistic (PLAT-RE126) ----------------------------
+    //
+    // ⚠️ A BETTER SHADING MODEL, NOT A PHYSICALLY BASED RENDERER. Same forward
+    // pass, same single cascade, no IBL and no G-Buffer -- those arrive with
+    // DiligentFX and REPLACE what is below without the switch above it moving.
+    // Three things carry almost all of the visible difference:
+    //
+    //   1. a specular highlight, so a surface reads as a MATERIAL rather than as
+    //      a flat colour and the eye can find the geometry's curvature;
+    //   2. a wrapped diffuse term, which is what stops the shadowed side of a
+    //      massing block from going to a dead constant;
+    //   3. tone mapping, so a sunlit white wall ROLLS OFF instead of clipping to
+    //      flat white and losing its edges against the sky -- the single biggest
+    //      reason the Fast look reads as "computer graphics".
+    // Whether base.rgb already carries the alpha the premultiplied blend
+    // expects. Only the Realistic branch premultiplies, because only it splits
+    // the surface into a transmitted and a reflected half; the Fast path has no
+    // reflection to protect and premultiplies in one step at the output.
+    bool premultiplied = false;
+    if (g_outline.z > 0.5)
+    {
+        // ---- GGX, driven by the material's OWN finish ----------------------
+        //
+        // ⚠️ THE ROUGHNESS WAS ALREADY BEING EXTRACTED AND THROWN AWAY. This
+        // used to be one fixed Blinn-Phong lobe (exponent 48, strength 0.25)
+        // applied to every surface, on the stated grounds that Archicad supplies
+        // no roughness channel -- and that was wrong: `ModelerAPI::GetShining()`
+        // has been read per surface into `SurfaceMaterial::shininess` since the
+        // material pool was written, with its own header comment saying the
+        // shader ignores it "until Phase 9 brings a specular term". The specular
+        // term arrived and never collected it. So window glass, brushed metal
+        // and rough concrete all carried the SAME highlight, which is the single
+        // most "computer-generated" thing left in the picture once the shadows
+        // and the ambient are right: a real facade is read by how differently
+        // its materials catch the sun, and one lobe erases exactly that.
+        //
+        // ⚠️ DIELECTRIC ONLY -- THERE IS STILL NO METALNESS, only a varying F0.
+        // Archicad's surface has no metalness channel (`GetShining` is a
+        // shininess percentage, not a conductor flag), and deriving one from
+        // shininess would paint every polished floor and every pane of glass as
+        // a metal. That is a guess dressed as physics, and it is the kind that
+        // looks plausible in one scene and wrong in every other. A real
+        // metalness needs a material-preset table (the task spec's "architectural
+        // presets"), not an inference here.
+        //
+        // What DID arrive is Archicad's second finish channel. `shining` says
+        // how TIGHT the highlight is (roughness, above); `specularReflection`
+        // says how MUCH light leaves specularly, and SurfaceFinishProbe measured
+        // 17 distinct values of it against 12 of shining on the same pool -- so
+        // it carries more of this project's material variety than the channel
+        // the renderer was already using, and it was being thrown away.
+        // ⚠️ THE BIAS IS ADDED BEFORE THE CLAMP, so the 0.045 floor still
+        // protects the GGX denominator no matter how far it is pushed.
+        float  rough = clamp (g_outline.w + g_gradeParams.z, 0.045, 1.0);
+        float  alpha = rough * rough;
+
+        float3 h     = normalize (g_sunAndAmbient.xyz + v);
+        float  ndoth = saturate (dot (n, h));
+        float  ndotv = saturate (dot (n, v));
+        float  vdoth = saturate (dot (v, h));
+
+        // Trowbridge-Reitz (GGX) normal distribution.
+        float  denom = ndoth * ndoth * (alpha * alpha - 1.0) + 1.0;
+        float  ndf   = (alpha * alpha) / max (3.14159265 * denom * denom, 1e-7);
+
+        // Smith-Schlick visibility, Unreal's direct-light k, with the BRDF's own
+        // 1/(4 NdotL NdotV) folded in -- so the NdotL below is the rendering
+        // equation's cosine and NOT a second copy of the geometry term.
+        float  k    = (rough + 1.0) * (rough + 1.0) * 0.125;
+        float  visV = ndotv * (1.0 - k) + k;
+        float  visL = ndotl * (1.0 - k) + k;
+        float  vis  = 0.25 / max (visV * visL, 1e-5);
+
+        // ⚠️ 0.08 IS CHOSEN SO THAT THE DEFAULT CHANGES NOTHING. Unreal's
+        // remapping of a 0..1 artist "specular" onto dielectric F0 is
+        // F0 = 0.08 * specular, which puts the midpoint 0.5 exactly on 0.04 --
+        // the fixed value every surface used before this channel was read. So a
+        // project whose surfaces all sit at the default renders identically, and
+        // only genuine authored variation moves. A plain `specular * 0.04` would
+        // have halved the highlight on the entire model and read as a
+        // regression in the lighting.
+        float  f0scalar = 0.08 * saturate (g_materialParams.x);
+        float3 f0      = float3 (f0scalar, f0scalar, f0scalar);
+        float3 fresnel = f0 + (1.0 - f0) * pow (1.0 - vdoth, 5.0);
+        float3 spec    = ndf * vis * fresnel * ndotl * shadow * g_gradeParams.y;
+
+        // Wrapped diffuse: light bends a little past the terminator. Physically
+        // this stands in for the bounce a single directional light cannot carry.
+        float  wrapped = saturate ((dot (n, g_sunAndAmbient.xyz) + 0.3) / 1.3);
+        float  directSoft = directWeight * wrapped * shadow;
+
+        lighting = ambientTerm + directSoft.xxx * g_skyColor.w;
+
+        // ---- the grazing sky reflection ------------------------------------
+        //
+        // ⚠️ THIS IS WHAT MAKES GLASS READ AS GLASS, and it is a SEPARATE
+        // Fresnel from the sun's. The specular above answers "where is the sun's
+        // reflection"; a window is mostly not pointing at the sun, and what it
+        // actually shows is the SKY, most strongly at glancing angles. Using the
+        // sun's half-vector Fresnel for this would put the grazing sheen only
+        // where the highlight already is, which is to say nowhere useful.
+        //
+        // ⚠️ NOT AN IBL, AND MUST NOT BE DESCRIBED AS ONE. It reuses the same
+        // two hemisphere colours the ambient already has, sampled along the
+        // REFLECTED view direction instead of the normal -- so it costs no new
+        // texture, no new constant and no precompute, and it is a two-colour
+        // approximation of a sky, not a prefiltered environment. The real one
+        // arrives with the G-Buffer and DiligentFX and replaces these four lines.
+        float3 refl = reflect (-v, n);
+        float3 envColor;
+        if (envEnabled)
+        {
+            // ⚠️ THE MIP IS THE ROUGHNESS BLUR, AND IT IS AN APPROXIMATION OF A
+            // GGX LOBE, NOT ONE. A correctly prefiltered environment convolves
+            // each mip with the lobe for that roughness; this borrows the box
+            // mip chain, which is the wrong kernel and blurs across the
+            // equirect's distorted poles. Honest for the rough surfaces
+            // architecture is mostly made of, wrong for a mirror -- and the
+            // replacement is DiligentFX's PBR_Renderer once the G-Buffer lands.
+            //
+            // sqrt(rough) rather than rough: perceptual roughness maps to lobe
+            // width non-linearly, and a linear mapping leaves everything below
+            // about 0.5 looking like a mirror.
+            float mip = sqrt (rough) * max (g_envParams.w - 1.0, 0.0);
+            envColor = g_envMap.SampleLevel (g_envMap_sampler, EnvUv (refl), mip).rgb
+                     * g_envParams.x;
+        }
+        else
+        {
+            envColor = lerp (g_groundColor.rgb, g_skyColor.rgb,
+                             saturate (refl.z * 0.5 + 0.5));
+        }
+        float3 fresnelEnv = f0 + (1.0 - f0) * pow (1.0 - ndotv, 5.0);
+        // A rough surface scatters the reflection away rather than mirroring it.
+        // ⚠️ REFLECTANCE SCALES THIS TOO, and it is the term that matters for
+        // glass. A dielectric reflects only 4-8% head-on, which is physically
+        // right and visually nothing against a 0.7-radiance sky -- reported as
+        // "glass has transparency but no reflection". Pushing reflectance is
+        // how an architectural viewer buys back the look until the material
+        // presets can say "this pane is glass" properly.
+        float3 envSpec    = fresnelEnv * envColor * (1.0 - rough) * (1.0 - rough) * g_gradeParams.y;
+
+        // Energy conservation: what reflects specularly does not also diffuse.
+        // At normal incidence this removes 4% and is invisible; at grazing
+        // angles it is what stops a shiny surface from being BRIGHTER than a
+        // matte one instead of merely different.
+        float3 kd = 1.0 - fresnelEnv;
+
+        // ⚠️ THE TRANSMITTED HALF IS SCALED BY ALPHA AND THE REFLECTED HALF IS
+        // NOT. This is the shader's side of the premultiplied blend set up in
+        // DiligentScene::Init, and the split is the whole point: `base.rgb` is
+        // what you see THROUGH the pane, which a clearer pane shows less of,
+        // while `spec + envSpec` bounces OFF its front face and does not care
+        // what is behind it. Scaling both -- which SRC_ALPHA blending did for
+        // free -- made this project's 69%-transparent glass reflect at under a
+        // third strength and get dimmer the clearer it was authored.
+        float3 colour = base.rgb * lighting * kd * base.a +
+                        (spec + envSpec) * g_skyColor.w;
+
+        // ACES filmic curve (Narkowicz's fit). ⚠️ APPLIED BEFORE THE HARDWARE's
+        // sRGB ENCODE, NOT INSTEAD OF IT: the render target is _SRGB, so the GPU
+        // still does the transfer function on write. Adding a pow(1/2.2) here
+        // would gamma-correct twice and wash the image out -- the mistake the
+        // comment at the top of this file was written to prevent.
+        colour *= g_gradeParams.x;
+        colour = saturate ((colour * (2.51 * colour + 0.03)) /
+                           (colour * (2.43 * colour + 0.59) + 0.14));
+        base.rgb = colour;
+        lighting = float3 (1.0, 1.0, 1.0);   // already applied above
+        premultiplied = true;                // and so was the alpha
+    }
+
+    // The debug ladder. See DiligentDebugView for what each one proves; the
+    // int() of a float is exact for these small values.
+    int view = int (g_eyePos.w);
+    if (view == 1)
+        psOut.color = float4 (n * 0.5 + 0.5, 1.0);
+    else if (view == 2)
+        psOut.color = float4 (lighting, 1.0);
+    else if (view == 3)
+        psOut.color = float4 (base.rgb, 1.0);
+    else if (view == 4)
+        psOut.color = float4 (g_sunAndAmbient.xyz * 0.5 + 0.5, 1.0);
+    else if (view == 5)
+        psOut.color = float4 (shadow, shadow, shadow, 1.0);
+    else if (view == 6)
+    {
+        // ⚠️ THE RAW UPLOADED VALUE, NOT THE CLAMPED ONE the GGX branch uses,
+        // and not gated on Realistic. This view answers "did the material
+        // channel arrive", which is a question about the CONSTANT BUFFER -- so
+        // showing it only where the lighting happens to consume it would hide
+        // the case where the upload is wrong, and clamping it would hide a zero.
+        float r = saturate (g_outline.w);
+        psOut.color = float4 (r, r, r, 1.0);
+    }
+    else
+    {
+        // ⚠️ THE BLEND IS PREMULTIPLIED, so an un-premultiplied colour here
+        // comes out at full brightness over the background instead of fading
+        // with the surface -- glass that is somehow MORE opaque than the wall
+        // behind it. The opaque pass is unaffected either way: alpha is 1 there
+        // and the multiply is the identity.
+        float3 shaded = premultiplied ? base.rgb : base.rgb * lighting * base.a;
+        psOut.color = float4 (shaded, base.a);
+    }
+}
+)hlsl";
+
+// One shader's full source: the shared cbuffer, then the stage's own body.
+//
+// The second half is optional and exists only because MSVC caps a string
+// literal at 16 KB -- see kArchVizMeshPSMain. Passing the pieces separately
+// keeps the limit a property of THIS file rather than something every caller
+// has to know about.
+inline std::string ArchVizShaderSource (const char* body, const char* more = nullptr, const char* evenMore = nullptr)
+{
+    std::string source = std::string (kArchVizCBuffer) + body;
+    if (more != nullptr)
+        source += more;
+    if (evenMore != nullptr)
+        source += evenMore;
+    return source;
+}
+
+} // namespace archviz
+} // namespace geomsrv
+
+#endif

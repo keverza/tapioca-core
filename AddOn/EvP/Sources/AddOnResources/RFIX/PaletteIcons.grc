@@ -1,0 +1,22 @@
+/* Iconoir-derived, non-localizable icons for runtime-built palette controls.
+   The SVGs are 16x16 source art; CompileResources.py asks ResConv for its normal
+   2x HiDPI rendition. Keep the resource ids symbolic at use sites. */
+
+'GICN' 32600 "Choose file" {
+	"TapiocaFolder"
+}
+'GICN' 32601 "Add selection" {
+	"TapiocaPlus"
+}
+'GICN' 32602 "Remove selection" {
+	"TapiocaMinusSquare"
+}
+'GICN' 32603 "Update selection" {
+	"TapiocaRefresh"
+}
+'GICN' 32604 "Reselect elements" {
+	"TapiocaSelectFace3d"
+}
+'GICN' 32605 "Clear selection" {
+	"TapiocaSquareDashed"
+}

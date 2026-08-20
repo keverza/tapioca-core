@@ -1,0 +1,83 @@
+# The C++ layout style for every first-party source in this repository.
+#
+# Inferred from Graphisoft's Archicad C++ API DevKit tutorial/sample code
+# (graphisoft.github.io/archicad-api-devkit), then MEASURED AGAINST THIS
+# CODEBASE — there is no official Graphisoft style guide. This is the only
+# copy: clang-format searches upward from each source file, so one file at the
+# repository root covers AddOn/EvP/Sources/ entirely, and a second copy would
+# only give the two something to drift apart on.
+#
+# The vendored trees under AddOn/reference/ and the build tree carry their own
+# .clang-format files; those are upstream's business, and the checker skips
+# them (tools/quality/check_cpp.py -> EXCLUDED_PARTS).
+#
+# Layout is all this file can decide. The IDENTIFIER convention — PascalCase
+# types and functions, camelCase variables, the API_ prefix reserved to
+# Graphisoft — is in AGENTS.md; no formatter can check naming.
+
+BasedOnStyle: LLVM
+
+# --- Confirmed from sample code ---
+#
+# Function/class/namespace braces on their own line; if/for/while/switch
+# braces stay attached to the statement. Matches Graphisoft's samples exactly.
+BreakBeforeBraces: Stroustrup
+
+# Space before EVERY opening paren, including plain function calls:
+# "ACAPI_MenuItem_RegisterMenu (ID_ADDON_MENU, ...)" not "(...)"
+SpaceBeforeParens: Always
+
+# case labels indented one level deeper than their switch
+IndentCaseLabels: true
+
+# Short functions/ifs are never collapsed onto one line, even one-liners
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+
+IndentWidth: 4
+TabWidth: 4
+
+# ⚠️ SPACES, against the DevKit samples' hard tabs — this one setting is
+# measured, not inherited. The EvP tree has ZERO tab-indented lines and 15,325
+# four-space ones. With `UseTab: Always` the formatter rewrote 35,294 lines
+# across a 113-file sample; `Never` rewrites 10,764 of the same lines, so the
+# tabs alone were 69% of the churn. Under this repo's incremental policy you
+# format the file you touched, in the commit that touched it — a setting that
+# rewrites every indented line of that file buries the change inside it and
+# gets skipped. Do not "restore" this to Always without re-running the
+# measurement; the sample code is not this codebase.
+UseTab: Never
+
+# --- Measured against the codebase, not evidenced in the sample ---
+#
+# Each of these was re-checked by reformatting the NativeCommands/, Python/ and
+# Geometry/ sample with the alternative and counting changed lines. Every
+# alternative was WORSE than the value kept here, so these now describe the
+# codebase rather than guessing at it. The two closest calls:
+#
+#   SpaceBeforeParens: ControlStatements   20,082 changed lines (vs 10,764) —
+#       the space-before-call style is genuinely how this code is written.
+#   ColumnLimit: 0 (no reflow)              8,713 changed lines (vs 10,764) —
+#       120 costs ~2,000 lines of rewrapping and is kept anyway, to match the
+#       Python line-length in pyproject.toml.
+#
+# The alignment options stay OFF: switching either on made the sample worse
+# (declarations 11,128, assignments 11,004). The aligned column of declarations
+# in files like Python/PathUtils.cpp is a local pocket, not the tree's habit.
+ColumnLimit: 120
+
+# `(DWORD) strlen (utf8)`, not `(DWORD)strlen (utf8)` — the same space-before-
+# the-paren look as SpaceBeforeParens, and the codebase's own: turning this on
+# removed ~1,000 changed lines from the sample.
+SpaceAfterCStyleCast: true
+PointerAlignment: Left
+ReferenceAlignment: Left
+AlignAfterOpenBracket: Align
+SpaceBeforeCpp11BracedList: true
+Cpp11BracedListStyle: false
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+NamespaceIndentation: None
+SortIncludes: Never

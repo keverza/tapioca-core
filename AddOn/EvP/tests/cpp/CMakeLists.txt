@@ -1,0 +1,240 @@
+cmake_minimum_required (VERSION 3.16)
+
+# ============================================================================
+# EvPGeomTests — L2 offline unit tests for Sources/AddOn/Geometry/
+# (see docs/guides/testing.md §2)
+#
+# STANDALONE ON PURPOSE. This is its own CMake project, NOT a target inside the
+# add-on's CMakeLists, because:
+#   * the add-on's CMakeLists hard-fails without the Archicad DevKit, and the
+#     whole point of L2 is that it needs no DevKit, no Archicad, no Python;
+#   * that makes this buildable on Linux/WSL and in hosted CI, where the .apx
+#     cannot be built at all (docs/guides/testing.md §8.7).
+#
+# It compiles the REAL engine sources — never a copy — so a test can only pass
+# against the code that ships.
+#
+#   cmake -S . -B build && cmake --build build && ctest --test-dir build
+#
+# Sanitizers (docs/guides/testing.md §5): -DEVP_SANITIZE=ON.
+# ============================================================================
+
+project (EvPGeomTests CXX)
+
+set (CMAKE_CXX_STANDARD 20)
+set (CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set (EVP_ROOT   "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set (GEOM_DIR   "${EVP_ROOT}/Sources/AddOn/Geometry")
+set (REF_DIR    "${EVP_ROOT}/../reference")
+set (GTEST_DIR  "${REF_DIR}/googletest")
+set (NANORT_INC "${REF_DIR}/nanort-release")
+# No msgpack include on purpose: the serializer hand-rolls its writer, and
+# test_serializer.cpp hand-rolls an INDEPENDENT reader from the msgpack spec.
+# Round-tripping through the same library the writer used would prove less.
+
+option (EVP_SANITIZE "Build the tests with ASan/UBSan" OFF)
+
+# ---- the engines under test ------------------------------------------------
+# GeometryExtractor.cpp is deliberately ABSENT: it is the only file in Geometry/
+# that pulls the DevKit (Model.hpp, ACAPinc.h). It stays thin glue and is covered
+# at L5, not here. Adding it would break the no-DevKit promise above.
+set (EVP_GEOM_SOURCES
+    "${GEOM_DIR}/SliceEngine.cpp"
+    "${GEOM_DIR}/ClashEngine.cpp"
+    "${GEOM_DIR}/QueryEngine.cpp"
+    "${GEOM_DIR}/MeshSerializer.cpp"
+    "${GEOM_DIR}/RenderEngine.cpp"
+    "${GEOM_DIR}/SpatialQueries.cpp"
+    "${GEOM_DIR}/VertexWeld.cpp")
+
+# Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
+# string work with no DevKit and no DG, and a search ranking is exactly what cannot
+# be judged by eye in Archicad — "did my change make the right command come first"
+# is a question only a test answers.
+# Palette/ParamVisibility.cpp joins it on the same terms (F3): show_when decides
+# which parameter rows exist, and a row that wrongly vanishes reports nothing at
+# all in Archicad — it just looks like a command with fewer settings.
+set (EVP_PALETTE_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Palette/CommandFilter.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/ParamLayout.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/ParamVisibility.cpp")
+
+# ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
+# nothing but <vector> and <algorithm>. It earns its place because getting it
+# wrong does not FAIL -- every surface of an element renders in the first
+# material's colour, which reads as a styling choice (plan §6.3, and the three.js
+# side hit it once). That is invisible from inside Archicad unless you already
+# know what the model should look like.
+# ⚠️ KEEP IT DevKit-FREE. The moment MeshGroups.cpp includes <bgfx/bgfx.h> it
+# must leave this list, and the offline gate for Phase 6's riskiest algorithm
+# goes with it.
+# ArchViz/MaterialTable.cpp joins them on the same terms and for the same
+# reason: a wrong material lookup does not fail, it renders the building in
+# another surface's colours, and from inside Archicad that is indistinguishable
+# from a design decision.
+# ArchViz/DiligentClearCheck.cpp is here for the Diligent migration: it is the
+# verdict half of the PLAT-RE22 clear A/B, deliberately kept free of D3D11 and
+# Diligent so the sRGB/channel-order reasoning can be checked without a GPU.
+# Getting it wrong reports a rendering fault that is not there (or hides one
+# that is), and it took three live Archicad runs to notice that the last time.
+# ⚠️ KEEP IT <d3d11.h>-FREE — the DXGI format numbers are spelled out on purpose.
+set (EVP_ARCHVIZ_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
+    # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
+    # the Diligent port. It belongs here more than almost anything else in
+    # ArchViz: a left-handed view matrix over Archicad's right-handed world
+    # renders the building MIRRORED, and a debug cube survives that looking
+    # perfectly fine. It shipped once and was found by measuring which way pan
+    # went, not by looking.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/MatrixMath.cpp"
+    # ArchViz/PickVote.cpp is the rule that decides WHICH element a click selects.
+    # It has been wrong three times (PLAT-RE44 and the accuracy reports after it),
+    # every time found by a human clicking on a building and reporting that the
+    # wrong thing lit up -- a build, a sync and a restart per correction. The rule
+    # is arithmetic over 64 integers, so it belongs here.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PickVote.cpp"
+    # ArchViz/DebugCubeMesh.cpp is the instrument the renderer is calibrated
+    # with. A reversed winding here and a mirrored view matrix produce the SAME
+    # picture, so the cube has to be known-good before looking at it proves
+    # anything about the renderer.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/DebugCubeMesh.cpp"
+    # ArchViz/AxisGnomonMesh.cpp is the instrument that answers "is the image
+    # mirrored". Each arrow is one local geometry through a different axis
+    # frame, and a frame whose (u x v) is not d is a REFLECTION -- the arrow
+    # still points the right way while every triangle winds inside out.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/AxisGnomonMesh.cpp"
+    # ArchViz/SunShadowMath.cpp decides where the sun's shadow camera goes, and
+    # every way of getting it wrong produces a PICTURE rather than an error: a
+    # frustum too small clips the shadow at a straight edge, too large blurs it,
+    # inverted in depth shadows everything except what should be shadowed. The
+    # test transforms the AABB's own corners through the matrix it returns and
+    # checks they land inside the clip volume -- which is the property, not a
+    # restatement of the arithmetic.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SunShadowMath.cpp"
+    # ArchViz/EnvironmentLighting.cpp reduces an HDR sky to nine SH
+    # coefficients. It is here for the sharpest version of the usual ArchViz
+    # reason: a stray factor of pi lights the whole building three times too
+    # brightly, which reads as an EXPOSURE problem and gets tuned out
+    # elsewhere in the shader -- after which the error is permanent and
+    # invisible. A constant sky has an exactly known answer; nothing in
+    # Archicad does.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/EnvironmentLighting.cpp"
+    # ArchViz/PlanCameraMath.cpp turns a floor-plan window's measured
+    # pixel-to-model mapping into a top-down orthographic camera. It belongs
+    # here for the usual ArchViz reason -- every way of getting it wrong draws a
+    # PICTURE -- and for one more: the two mappings it must REFUSE (sheared, and
+    # mirrored) cannot be produced in Archicad on demand, so the only place they
+    # can be exercised at all is a test that builds them by hand.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanCameraMath.cpp"
+    # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
+    # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
+    # -- a wrong ribbon is a picture, not an error -- plus the arc half, which
+    # carries a convention the repo CONTRADICTS ITSELF ABOUT (CommandUtils says
+    # a positive arcAngle bulges right, polygon_area treats it as bulging left).
+    # A test can at least pin down what this file does, so the live run only has
+    # to settle which way Archicad means.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanAnchorRibbon.cpp")
+
+set (EVP_TEST_SOURCES
+    test_command_filter.cpp
+    test_param_layout.cpp
+    test_param_visibility.cpp
+    test_slice.cpp
+    test_clash.cpp
+    test_query.cpp
+    test_spatial.cpp
+    test_serializer.cpp
+    test_render.cpp
+    test_normals.cpp
+    test_meshgroups.cpp
+    test_scenecmdqueue.cpp
+    test_materialtable.cpp
+    test_diligentclear.cpp
+    test_matrixmath.cpp
+    test_debugcubemesh.cpp
+    test_axisgnomonmesh.cpp
+    test_sunshadowmath.cpp
+    test_environmentlighting.cpp
+    test_plancameramath.cpp
+    test_plananchorribbon.cpp
+    test_pickvote.cpp)
+
+# ---- googletest (vendored source drop) -------------------------------------
+# reference/ is gitignored, so a fresh clone has neither dependency. Say so here
+# rather than letting the compiler fail on a missing header.
+if (NOT EXISTS "${GTEST_DIR}/src/gtest-all.cc")
+    message (FATAL_ERROR
+        "GoogleTest not found at ${GTEST_DIR}.\n"
+        "reference/ is gitignored — provision it once with "
+        "tools/build/provision-reference.ps1 -FromUpstream -Profile test. "
+        "See tests/cpp/README.md.")
+endif ()
+if (NOT EXISTS "${NANORT_INC}/nanort.h")
+    message (FATAL_ERROR "nanort not found at ${NANORT_INC} — see AddOn/EvP/README.md.")
+endif ()
+
+add_library (gtest_vendored STATIC
+    "${GTEST_DIR}/src/gtest-all.cc"
+    "${GTEST_DIR}/src/gtest_main.cc")
+target_include_directories (gtest_vendored SYSTEM PUBLIC "${GTEST_DIR}/include")
+target_include_directories (gtest_vendored PRIVATE "${GTEST_DIR}")
+target_compile_features (gtest_vendored PUBLIC cxx_std_20)
+if (MSVC)
+    target_compile_options (gtest_vendored PRIVATE /EHsc /wd4996)
+endif ()
+find_package (Threads REQUIRED)
+target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
+
+# ---- the test binary -------------------------------------------------------
+add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
+                             ${EVP_ARCHVIZ_SOURCES} ${EVP_TEST_SOURCES})
+target_include_directories (EvPGeomTests PRIVATE
+    "${EVP_ROOT}/Sources/AddOn"
+    "${GEOM_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}")
+target_link_libraries (EvPGeomTests PRIVATE gtest_vendored)
+
+if (MSVC)
+    # /W4 on OUR code (docs/guides/testing.md §5). The add-on ships at /W3; the host-free core
+    # is where a stricter gate is affordable, so it starts here.
+    target_compile_options (EvPGeomTests PRIVATE /W4 /EHsc /MP -D_CRT_SECURE_NO_WARNINGS)
+else ()
+    target_compile_options (EvPGeomTests PRIVATE -Wall -Wextra)
+endif ()
+
+if (EVP_SANITIZE)
+    if (MSVC)
+        # MSVC's ASan turns on STL container annotations, which change the ABI of
+        # std::string/vector/optional. EVERY object in the link must agree, so the
+        # flag goes on gtest as well — otherwise the link fails with LNK2038
+        # "mismatch detected for 'annotate_string'".
+        target_compile_options (EvPGeomTests    PRIVATE /fsanitize=address)
+        target_compile_options (gtest_vendored  PRIVATE /fsanitize=address)
+    else ()
+        target_compile_options (EvPGeomTests   PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+        target_link_options    (EvPGeomTests   PRIVATE -fsanitize=address,undefined)
+        target_compile_options (gtest_vendored PRIVATE -fsanitize=address,undefined)
+        target_link_options    (gtest_vendored PRIVATE -fsanitize=address,undefined)
+    endif ()
+endif ()
+
+# Where the real-dump fixtures live, so a test can find them without a hard-coded
+# absolute path. Tests SKIP (not fail) when a fixture is absent, so a fresh clone
+# without dumps still goes green.
+# EVP_TEST_FIXTURE_DIR is the SMALL, COMMITTED fixtures beside the tests, as
+# distinct from EVP_DUMP_DIR's large captures that may be absent on a fresh
+# machine. The real-sky fixture lives there because an environment projection
+# cannot be validated on synthetic input alone (CLAUDE.md), and a 98 KB
+# downsample of a real HDR probe is small enough to track.
+target_compile_definitions (EvPGeomTests PRIVATE
+    EVP_DUMP_DIR="${EVP_ROOT}/../../dump"
+    EVP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+
+enable_testing ()
+include (GoogleTest)
+gtest_discover_tests (EvPGeomTests DISCOVERY_TIMEOUT 60)

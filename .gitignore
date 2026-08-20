@@ -1,0 +1,53 @@
+reference/
+__pycache__/
+
+.claude/settings.local.json
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.npz
+*.dxf
+*.obj
+*.stl
+/AddOn/EvP/build_29
+/AddOn/EvP/NotebookUI/node_modules/
+/AddOn/EvP/NotebookUI/dist/
+# Dump DATA only. Was `*dump*`, which (core.ignorecase=true on Windows) also
+# swallowed source folders like Commands/RoofDumpProbe/ — silently, so they were
+# never committed and got lost. Keep these anchored to data dirs/extensions.
+/dumps/
+*.dump
+/tapir-archicad-automation-main
+.claude/settings.local.json
+AddOn/EvP/command-sync.local.json
+opencode.json
+/03 Tapir + GeometryServer
+
+.pytest_cache/
+# Curated offline fixtures live in /dump/ and are intentionally trackable.
+
+# Disposable run artifacts. Logs are never task evidence by themselves; record
+# decisive excerpts in the owning task or a curated fixture instead.
+/captures/
+/tmp/
+/evp-dryrun/
+/AddOn/EvP/output/
+*.log
+
+/archive/experiments/*/build/
+
+# shaderc is a BUILD-TIME tool, built on demand by tools/shaderc/Build-Shaderc.ps1.
+# Its binary and build tree are not artefacts anyone should be pulling; the
+# shaders it produces (ShadersBin/*.bin.h) ARE checked in, which is what makes
+# an ordinary Build-AddOn29.ps1 independent of it.
+AddOn/EvP/tools/shaderc/bin/
+AddOn/EvP/tools/shaderc/build/
+/dump
+
+!AddOn/reference/
+AddOn/reference/*
+!AddOn/reference/CATALOG.yaml
+

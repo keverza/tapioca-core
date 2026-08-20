@@ -1,0 +1,110 @@
+catalog_version: 1
+reference_root: AddOn/reference
+profiles:
+  build: "Dependencies consumed by the add-on configure/build graph."
+  test: "Dependencies consumed by the offline C++ test graph."
+entries:
+  - path: archicad29-api-devkit
+    kind: directory
+    profiles: [build]
+    authority: "Graphisoft Archicad 29 API Development Kit"
+    version: "29.3100"
+    source: "https://github.com/GRAPHISOFT/archicad-api-devkit/releases"
+    provenance: >-
+      Local AC29 development-kit installation consumed by the native add-on build;
+      the version follows the checked-in AC29 migration reference.
+    download:
+      provider: github_release
+      repository: GRAPHISOFT/archicad-api-devkit
+      tag: "29.3100"
+      asset_pattern: '^API\.Development\.Kit\.WIN\.29\.3100\.zip$'
+      sha256: 29482389be83cb4222ba1d341654111ba06db5cb2b628165f930fb8c55860b0b
+
+  - path: cpp-httplib-master
+    kind: directory
+    profiles: [build]
+    authority: "cpp-httplib"
+    version: "0.49.0"
+    source: "https://github.com/yhirose/cpp-httplib"
+    provenance: >-
+      Local source checkout consumed as the add-on's header-only HTTP dependency.
+    download:
+      url: https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.49.0.zip
+
+  - path: DiligentEngine-master
+    kind: directory
+    profiles: [build]
+    authority: "Diligent Engine"
+    version: "v2.5.6"
+    source: "https://github.com/DiligentGraphics/DiligentEngine"
+    provenance: >-
+      Local recursive source checkout consumed by the active Diligent renderer CMake
+      graph.
+    download:
+      provider: git_clone
+      url: https://github.com/DiligentGraphics/DiligentEngine.git
+      ref: v2.5.6
+      recursive: true
+
+  - path: iconoir-v7.12.1
+    kind: directory
+    profiles: [build]
+    authority: "Iconoir"
+    version: "v7.12.1"
+    source: "https://github.com/iconoir-icons/iconoir/tree/main"
+    provenance: >-
+      Pinned Iconoir source for the Iconoir-derived palette SVG controls compiled into
+      the native resource bundle; Iconoir is distributed under the MIT license.
+    download:
+      provider: git_clone
+      url: https://github.com/iconoir-icons/iconoir.git
+      ref: v7.12.1
+      recursive: false
+
+  - path: googletest
+    kind: directory
+    profiles: [test]
+    authority: "GoogleTest"
+    version: "1.18.0"
+    source: "https://github.com/google/googletest"
+    provenance: >-
+      Local source drop consumed by the offline C++ test suite.
+    download:
+      url: https://github.com/google/googletest/archive/refs/tags/v1.18.0.zip
+      archive_subpath: googletest-1.18.0/googletest
+
+  - path: msgpack-c-cpp_master
+    kind: directory
+    profiles: [build]
+    authority: "MessagePack for C/C++"
+    version: "8.0.0"
+    source: "https://github.com/msgpack/msgpack-c"
+    provenance: >-
+      Local source checkout consumed as the add-on's header-only MessagePack
+      dependency.
+    download:
+      url: https://github.com/msgpack/msgpack-c/archive/refs/tags/cpp-8.0.0.zip
+      archive_subpath: msgpack-c-cpp-8.0.0
+
+  - path: nanort-release
+    kind: directory
+    profiles: [build, test]
+    authority: "nanort"
+    version: "release branch @ cdf474ae9176b87a9334c858bb06c9e028ed0e0d"
+    source: "https://github.com/lighttransport/nanort"
+    provenance: >-
+      Local source drop consumed by the add-on geometry and offline C++ test graphs.
+    download:
+      url: https://github.com/lighttransport/nanort/archive/cdf474ae9176b87a9334c858bb06c9e028ed0e0d.zip
+
+  - path: python312
+    kind: directory
+    profiles: [build]
+    authority: "Python Software Foundation"
+    version: "3.12 embeddable headers and import library"
+    source: "https://www.python.org/downloads/windows/"
+    provenance: >-
+      Local CPython 3.12 include and import-library drop consumed by the EvPPy bridge.
+    download:
+      url: https://www.nuget.org/api/v2/package/python/3.12.10
+      archive_subpath: tools

@@ -1,0 +1,23 @@
+Tapioca is distributed under the GNU General Public License, version 3. See
+LICENSE for the complete terms.
+
+The public source tree does not include the Archicad Development Kit or other
+large binary dependencies. tools/build/provision-reference.ps1 downloads the
+declared build and test dependencies from the authorities recorded in
+AddOn/reference/CATALOG.yaml. Those dependencies remain under their respective
+upstream licenses and notices.
+
+Notable upstream components used by the build include:
+
+- Graphisoft Archicad API Development Kit
+- Diligent Engine
+- cpp-httplib
+- MessagePack for C/C++
+- nanort
+- GoogleTest
+- CPython
+- IcoNoir
+
+The NotebookUI lockfile records the licenses of its JavaScript dependencies.
+Check the upstream package metadata before redistributing a modified dependency
+bundle.

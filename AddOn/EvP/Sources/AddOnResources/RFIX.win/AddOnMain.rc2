@@ -1,0 +1,7 @@
+#include "AddOn.grc.rc2"
+#include "AddOnFix.grc.rc2"
+#include "PaletteIcons.grc.rc2"
+#include "NotebookUI.grc.rc2"
+#include "WebUIPanel.grc.rc2"
+
+1	ICON    LOADONCALL MOVEABLE IMPURE  ACAP.ICO

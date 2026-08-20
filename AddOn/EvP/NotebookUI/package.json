@@ -1,0 +1,16 @@
+{
+  "name": "tapioca-notebook-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/assert-build.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vite": "8.2.1",
+    "vite-plugin-singlefile": "2.3.3"
+  }
+}

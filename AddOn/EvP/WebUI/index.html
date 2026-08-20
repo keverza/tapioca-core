@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tapioca WebUI panel</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #edf0f2;
+      --panel: #f7f8f8;
+      --surface: #ffffff;
+      --surface-2: #f1f3f4;
+      --surface-3: #e7ebed;
+      --text: #20272d;
+      --muted: #6c777f;
+      --faint: #96a0a7;
+      --line: #d5dade;
+      --line-strong: #bac2c7;
+      --accent: #2879a8;
+      --accent-strong: #195b84;
+      --accent-soft: #dceef7;
+      --good: #32784f;
+      --good-soft: #dff0e5;
+      --warn: #9d641b;
+      --warn-soft: #fff0d2;
+      --danger: #a54646;
+      --shadow: 0 10px 30px rgb(24 34 41 / 12%);
+      font: 13px/1.4 "Segoe UI", Arial, sans-serif;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #1c2226;
+      --panel: #242b30;
+      --surface: #2b3338;
+      --surface-2: #252d32;
+      --surface-3: #354047;
+      --text: #e5eaec;
+      --muted: #aab4ba;
+      --faint: #7f8a91;
+      --line: #3b464d;
+      --line-strong: #526068;
+      --accent: #65b5e2;
+      --accent-strong: #91d0ef;
+      --accent-soft: #203e4d;
+      --good: #83cf9d;
+      --good-soft: #203c2b;
+      --warn: #e5b56c;
+      --warn-soft: #473720;
+      --danger: #f09b9b;
+      --shadow: 0 10px 30px rgb(0 0 0 / 25%);
+    }
+
+    * { box-sizing: border-box; }
+    html, body, #app { width: 100%; height: 100%; margin: 0; }
+    body { min-width: 480px; overflow: hidden; color: var(--text); background: var(--bg); }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    button:disabled { cursor: default; opacity: .55; }
+    svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+
+    .app-shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); width: 100%; height: 100%; }
+    .sidebar { display: flex; min-width: 0; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
+    .brand { display: flex; gap: 10px; align-items: center; min-height: 58px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+    .brand-mark { display: grid; width: 28px; height: 28px; place-items: center; color: #fff; background: linear-gradient(135deg, #347da6, #185170); border-radius: 8px; box-shadow: 0 3px 8px rgb(20 73 101 / 25%); font-size: 15px; font-weight: 700; }
+    .brand-copy { min-width: 0; }
+    .brand-copy strong { display: block; font-size: 14px; letter-spacing: .01em; }
+    .brand-copy span { display: block; color: var(--muted); font-size: 10px; }
+
+    .server-card { margin: 14px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 2px 5px rgb(24 34 41 / 5%); }
+    .eyebrow { margin: 0 0 7px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .server-row { display: flex; gap: 8px; align-items: center; }
+    .server-button { display: flex; min-width: 0; flex: 1; gap: 7px; align-items: center; padding: 7px 8px; text-align: left; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 5px; cursor: pointer; }
+    .server-button:hover { background: var(--surface-3); }
+    .server-dot { width: 7px; height: 7px; flex: 0 0 auto; background: var(--faint); border-radius: 50%; }
+    .server-button.running .server-dot { background: var(--good); box-shadow: 0 0 0 3px var(--good-soft); }
+    .server-button strong { display: block; font-size: 11px; }
+    .server-button small { display: block; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .server-state { margin: 8px 1px 0; color: var(--muted); font-size: 10px; }
+    .server-state.running { color: var(--good); }
+
+    .command-nav { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 0 10px 12px; }
+    .nav-heading { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 6px 8px; }
+    .nav-heading .eyebrow { margin: 0; }
+    .nav-heading span { color: var(--faint); font-size: 10px; }
+    .search { display: flex; gap: 7px; align-items: center; margin: 0 4px 9px; padding: 0 8px; color: var(--muted); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 5px; }
+    .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .search input { width: 100%; min-width: 0; height: 29px; padding: 0; color: var(--text); background: transparent; border: 0; outline: 0; }
+    .command-list { min-height: 0; overflow: auto; }
+    .category-label { padding: 9px 7px 4px; color: var(--faint); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .command-item { display: block; width: 100%; padding: 8px 8px; text-align: left; background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
+    .command-item:hover { background: var(--surface-2); }
+    .command-item.selected { color: var(--accent-strong); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); }
+    .command-item strong { display: block; overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .command-item small { display: block; overflow: hidden; margin-top: 2px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .empty-list { padding: 12px 8px; color: var(--muted); font-size: 11px; }
+
+    .workspace { display: grid; min-width: 0; min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+    .topbar { display: flex; min-height: 58px; gap: 14px; align-items: center; justify-content: space-between; padding: 0 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+    .topbar-title { min-width: 0; }
+    .topbar-title strong { display: block; font-size: 15px; }
+    .topbar-title span { display: block; overflow: hidden; margin-top: 1px; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .topbar-actions { display: flex; flex: 0 0 auto; gap: 7px; align-items: center; }
+    .preview-badge { padding: 4px 8px; color: var(--warn); background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); border-radius: 999px; font-size: 10px; font-weight: 600; }
+    .icon-button { display: grid; width: 29px; height: 29px; place-items: center; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 5px; cursor: pointer; }
+    .icon-button:hover { color: var(--text); background: var(--surface-2); border-color: var(--line); }
+
+    .content { min-height: 0; overflow: auto; padding: 20px 22px 26px; }
+    .content-inner { width: min(760px, 100%); margin: 0 auto; }
+    .command-header { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+    .command-heading { min-width: 0; }
+    .command-heading .category { margin: 0 0 5px; color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .command-heading h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: -.02em; }
+    .command-heading p { max-width: 580px; margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+    .run-button { display: flex; flex: 0 0 auto; gap: 7px; align-items: center; padding: 8px 14px; color: #fff; background: var(--accent); border: 1px solid var(--accent); border-radius: 5px; cursor: pointer; font-weight: 600; }
+    .run-button:hover:not(:disabled) { background: var(--accent-strong); }
+    .run-button.running { background: var(--danger); border-color: var(--danger); }
+
+    .section { margin-top: 18px; }
+    .section-heading { display: flex; gap: 12px; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+    .section-heading h2 { margin: 0; font-size: 12px; letter-spacing: .07em; text-transform: uppercase; }
+    .section-heading span { color: var(--faint); font-size: 10px; }
+    .parameter-card { padding: 4px 12px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+    .parameter-row { display: grid; grid-template-columns: minmax(120px, .7fr) minmax(180px, 1.3fr); gap: 18px; align-items: center; min-height: 44px; border-bottom: 1px solid var(--line); }
+    .parameter-row:last-child { border-bottom: 0; }
+    .parameter-label strong { display: block; font-size: 11px; font-weight: 600; }
+    .parameter-label small { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+    .control, .parameter-row select { width: 100%; height: 29px; padding: 4px 8px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 4px; }
+    .control:focus, .parameter-row select:focus { border-color: var(--accent); outline: 0; box-shadow: 0 0 0 1px var(--accent); }
+    .check-control { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; }
+    .check-control input { accent-color: var(--accent); }
+    .inline-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .status-bar { display: flex; gap: 8px; align-items: center; margin-top: 18px; padding: 9px 11px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; font-size: 11px; }
+    .status-bar::before { width: 7px; height: 7px; flex: 0 0 auto; background: var(--faint); border-radius: 50%; content: ""; }
+    .status-bar.ready::before { background: var(--good); }
+    .status-bar.error::before { background: var(--danger); }
+    .result-card { min-height: 100px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; }
+    .result-placeholder { display: grid; min-height: 74px; place-items: center; color: var(--faint); text-align: center; font-size: 11px; }
+    .result-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .metric { padding: 9px; background: var(--surface-2); border-radius: 5px; }
+    .metric small { display: block; color: var(--muted); font-size: 10px; }
+    .metric strong { display: block; margin-top: 2px; font-size: 16px; font-variant-numeric: tabular-nums; }
+    .footer-note { margin: 18px 2px 0; color: var(--faint); font-size: 10px; }
+
+    @media (max-width: 720px) {
+      body { min-width: 420px; }
+      .app-shell { grid-template-columns: 196px minmax(0, 1fr); }
+      .content { padding: 16px; }
+      .command-header { display: block; }
+      .run-button { margin-top: 13px; }
+      .parameter-row { grid-template-columns: 1fr; gap: 3px; padding: 9px 0; }
+    }
+  </style>
+</head>
+<body>
+  <main id="app" class="app-shell">
+    <aside class="sidebar" aria-label="Tapioca navigation">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">T</div>
+        <div class="brand-copy"><strong>Tapioca</strong><span>Browser command panel</span></div>
+      </div>
+      <section class="server-card" aria-labelledby="server-heading">
+        <p id="server-heading" class="eyebrow">Data plane</p>
+        <div class="server-row">
+          <button id="server-toggle" class="server-button" type="button" aria-pressed="false">
+            <span class="server-dot" aria-hidden="true"></span>
+            <span><strong>Start server</strong><small id="server-url">127.0.0.1:19191</small></span>
+          </button>
+        </div>
+        <p id="server-state" class="server-state">Server is stopped</p>
+      </section>
+      <nav class="command-nav" aria-label="Commands">
+        <div class="nav-heading"><p class="eyebrow">Commands</p><span id="command-count">6</span></div>
+        <label class="search"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"></circle><path d="m16 16 4 4"></path></svg><span class="sr-only">Search commands</span><input id="command-search" type="search" placeholder="Search commands" autocomplete="off"></label>
+        <div id="command-list" class="command-list"></div>
+      </nav>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div class="topbar-title"><strong>Tapioca WebUI panel</strong><span>HTML controls and results preview</span></div>
+        <div class="topbar-actions"><span class="preview-badge">Visual preview</span><button id="theme-toggle" class="icon-button" type="button" aria-label="Switch theme" title="Switch theme"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg></button></div>
+      </header>
+
+      <div class="content">
+        <div class="content-inner">
+          <section class="command-header" aria-labelledby="command-title">
+            <div class="command-heading"><p id="command-category" class="category">Analysis</p><h1 id="command-title">Massing Feasibility</h1><p id="command-description">Review selected slabs, calculate planning metrics, and prepare a report from one command surface.</p></div>
+            <button id="run-button" class="run-button" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"></path></svg><span>Run command</span></button>
+          </section>
+
+          <section class="section" aria-labelledby="parameters-heading">
+            <div class="section-heading"><h2 id="parameters-heading">Parameters</h2><span>Generated from command metadata</span></div>
+            <div id="parameter-card" class="parameter-card">
+              <div class="parameter-row"><div class="parameter-label"><strong>Scope</strong><small>Elements to inspect</small></div><select aria-label="Scope"><option>Current selection</option><option>Visible model</option><option>Active storey</option></select></div>
+              <div class="parameter-row"><div class="parameter-label"><strong>Option name</strong><small>Label for this study</small></div><input class="control" aria-label="Option name" value="Main option"></div>
+              <div class="parameter-row"><div class="parameter-label"><strong>Coverage limit</strong><small>Maximum site coverage</small></div><div class="inline-controls"><input class="control" aria-label="Coverage limit" type="number" value="0.45" min="0" max="1" step="0.01"><input class="control" aria-label="Coverage unit" value="ratio" disabled></div></div>
+              <div class="parameter-row"><div class="parameter-label"><strong>Include context</strong><small>Keep surrounding geometry in the preview</small></div><label class="check-control"><input type="checkbox" checked> Include context geometry</label></div>
+            </div>
+          </section>
+
+          <section class="section" aria-labelledby="results-heading">
+            <div class="section-heading"><h2 id="results-heading">Results</h2><span id="result-label">Waiting for a run</span></div>
+            <div id="result-card" class="result-card"><div class="result-placeholder">Run the selected command to populate the results view.</div></div>
+          </section>
+
+          <div id="status-bar" class="status-bar">Ready for a visual interaction preview.</div>
+          <p class="footer-note">This embedded page is the WebUI replacement surface. Its controls are intentionally local until the command/server bridge is connected.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var commands = [
+        { title: "Massing Feasibility", category: "Analysis", description: "Review selected slabs, calculate planning metrics, and prepare a report from one command surface." },
+        { title: "Model Viewer", category: "Visualization", description: "Open a browser-rendered model view with camera, material, and selection controls." },
+        { title: "Number Along Polyline", category: "Annotation", description: "Order selected elements along a reference polyline and write a formatted ID sequence." },
+        { title: "Sun Study", category: "Analysis", description: "Explore direct sunlight hours, shadow accumulation, and live shadow states." },
+        { title: "Topography Analysis", category: "Analysis", description: "Inspect terrain, cutting shapes, and contextual surfaces in one workflow." },
+        { title: "Element Info Panel", category: "Inspection", description: "Inspect selected element metadata in a searchable browser report." }
+      ];
+      var selectedIndex = 0;
+      var serverRunning = false;
+      var runTimer = null;
+      var liveRunTimer = null;
+      var liveRunActive = false;
+      var list = document.getElementById("command-list");
+      var search = document.getElementById("command-search");
+      var count = document.getElementById("command-count");
+      var serverToggle = document.getElementById("server-toggle");
+      var serverState = document.getElementById("server-state");
+      var runButton = document.getElementById("run-button");
+      var statusBar = document.getElementById("status-bar");
+      var resultCard = document.getElementById("result-card");
+      var liveMode = location.protocol === "http:" && location.hostname === "127.0.0.1" && window.EvP && typeof window.EvP.call === "function";
+
+      function nativeCall (command, params) {
+        return new Promise(function (resolve, reject) {
+          if (!window.EvP || typeof window.EvP.call !== "function") {
+            reject(new Error("EvP.call is not available"));
+            return;
+          }
+          try {
+            Promise.resolve(window.EvP.call(JSON.stringify({ command: command, params: params || {} })))
+              .then(function (raw) { resolve(JSON.parse(String(raw))); })
+              .catch(reject);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+
+      function refreshLiveServerState () {
+        if (!liveMode) return;
+        nativeCall("Tapioca.GetServerState", {}).then(function (envelope) {
+          if (!envelope || !envelope.ok) throw new Error("server state request failed");
+          setServerState(!!envelope.data.running);
+        }).catch(function () {
+          statusBar.className = "status-bar error";
+          statusBar.textContent = "The Tapioca server bridge is unavailable.";
+        });
+      }
+
+      function renderParameters (command) {
+        if (!command.params) return;
+        var card = document.getElementById("parameter-card");
+        card.innerHTML = "";
+        command.params.forEach(function (paramJson) {
+          var param;
+          try { param = typeof paramJson === "string" ? JSON.parse(paramJson) : paramJson; } catch (_) { return; }
+          var row = document.createElement("div");
+          row.className = "parameter-row";
+          var label = document.createElement("div");
+          label.className = "parameter-label";
+          var name = document.createElement("strong");
+          name.textContent = param.label || param.name;
+          var hint = document.createElement("small");
+          hint.textContent = param.required ? "Required" : (param.type || "Value");
+          label.appendChild(name);
+          label.appendChild(hint);
+          row.appendChild(label);
+
+          var control;
+          var type = String(param.type || "str");
+          if (type === "bool" || type === "Bool") {
+            var checkLabel = document.createElement("label");
+            checkLabel.className = "check-control";
+            control = document.createElement("input");
+            control.type = "checkbox";
+            control.checked = !!param.default;
+            checkLabel.appendChild(control);
+            var checkText = document.createTextNode(param.label || param.name);
+            checkLabel.appendChild(checkText);
+            control = checkLabel;
+          } else if (type === "Enum" || type === "Action") {
+            control = document.createElement("select");
+            (param.args || []).forEach(function (choice) {
+              var option = document.createElement("option");
+              option.value = String(choice);
+              option.textContent = String(choice);
+              if (String(choice) === String(param.default)) option.selected = true;
+              control.appendChild(option);
+            });
+          } else {
+            control = document.createElement("input");
+            control.className = "control";
+            control.type = /^(int|Int|float|Float|Area|Angle)$/.test(type) ? "number" : "text";
+            if (param.default !== undefined && param.default !== null) control.value = String(param.default);
+            if (param.minimum !== undefined) control.min = String(param.minimum);
+            if (param.maximum !== undefined) control.max = String(param.maximum);
+            if (control.type === "number") control.step = type.toLowerCase().indexOf("int") >= 0 ? "1" : "any";
+          }
+          if (control.tagName === "LABEL") control.firstChild.setAttribute("data-param-name", param.name);
+          else control.setAttribute("data-param-name", param.name);
+          row.appendChild(control);
+          card.appendChild(row);
+        });
+      }
+
+      function collectLiveParams () {
+        var values = {};
+        Array.prototype.forEach.call(document.querySelectorAll("[data-param-name]"), function (control) {
+          var name = control.getAttribute("data-param-name");
+          if (!name) return;
+          if (control.type === "checkbox") values[name] = !!control.checked;
+          else if (control.type === "number") values[name] = control.value === "" ? "" : Number(control.value);
+          else values[name] = control.value;
+        });
+        return values;
+      }
+
+      function renderLiveResult (snapshot) {
+        document.getElementById("result-label").textContent = "Run result";
+        if (snapshot.resultText) {
+          var text = document.createElement("pre");
+          text.className = "probe";
+          text.textContent = snapshot.resultText;
+          resultCard.replaceChildren(text);
+          return;
+        }
+        if (snapshot.rows && snapshot.rows.length) {
+          var output = document.createElement("pre");
+          output.className = "probe";
+          output.textContent = snapshot.rows.join("\n");
+          resultCard.replaceChildren(output);
+          return;
+        }
+        resultCard.innerHTML = '<div class="result-placeholder">The command completed without a table or text result.</div>';
+      }
+
+      function pollLiveRun () {
+        nativeCall("Tapioca.GetRunState", {}).then(function (envelope) {
+          if (!envelope || !envelope.ok) throw new Error("run state request failed");
+          var snapshot = envelope.data;
+          document.getElementById("result-label").textContent = snapshot.active ? "Running" : "Run result";
+          statusBar.className = "status-bar" + (snapshot.active ? "" : " ready");
+          statusBar.textContent = snapshot.status || (snapshot.active ? "Command is running..." : "Command finished.");
+          if (snapshot.active) {
+            liveRunTimer = window.setTimeout(pollLiveRun, 300);
+            return;
+          }
+          liveRunActive = false;
+          setRunning(false);
+          renderLiveResult(snapshot);
+        }).catch(function () {
+          liveRunActive = false;
+          setRunning(false);
+          statusBar.className = "status-bar error";
+          statusBar.textContent = "The live run state could not be read.";
+        });
+      }
+
+      function loadLiveCommands () {
+        nativeCall("Tapioca.GetCommands", {}).then(function (envelope) {
+          if (!envelope || !envelope.ok) throw new Error("command catalog request failed");
+          var loaded = (envelope.data.commands || []).map(function (json) {
+            try { return typeof json === "string" ? JSON.parse(json) : json; } catch (_) { return null; }
+          }).filter(function (command) { return command && command.folder; });
+          if (!loaded.length) throw new Error(envelope.data.status || "No commands were found");
+          commands = loaded;
+          selectedIndex = 0;
+          renderCommands();
+          renderCommand();
+          statusBar.className = "status-bar ready";
+          statusBar.textContent = "Live command catalog loaded.";
+        }).catch(function (error) {
+          statusBar.className = "status-bar error";
+          statusBar.textContent = "Live command catalog unavailable: " + error.message;
+        });
+      }
+
+      function iconPlay () { return '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7V5Z"></path></svg>'; }
+      function iconStop () { return '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="1"></rect></svg>'; }
+      function escapeHtml (value) {
+        return String(value === undefined || value === null ? "" : value).replace(/[&<>\"']/g, function (character) {
+          return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[character];
+        });
+      }
+
+      function renderCommands () {
+        var query = search.value.trim().toLowerCase();
+        var visible = commands.filter(function (command) {
+          return !query || (command.title + " " + command.category + " " + command.description).toLowerCase().indexOf(query) >= 0;
+        });
+        count.textContent = String(visible.length);
+        if (!visible.length) {
+          list.innerHTML = '<div class="empty-list">No command matches this search.</div>';
+          return;
+        }
+        var html = "";
+        var category = "";
+        visible.forEach(function (command) {
+          if (command.category !== category) {
+            category = command.category;
+            html += '<div class="category-label">' + escapeHtml(category) + '</div>';
+          }
+          var index = commands.indexOf(command);
+          html += '<button class="command-item' + (index === selectedIndex ? ' selected' : '') + '" data-index="' + index + '" type="button"><strong>' + escapeHtml(command.title) + '</strong><small>' + escapeHtml(command.description) + '</small></button>';
+        });
+        list.innerHTML = html;
+        Array.prototype.forEach.call(list.querySelectorAll(".command-item"), function (item) {
+          item.addEventListener("click", function () {
+            selectedIndex = Number(item.getAttribute("data-index"));
+            renderCommands();
+            renderCommand();
+          });
+        });
+      }
+
+      function renderCommand () {
+        var command = commands[selectedIndex];
+        if (!command) return;
+        document.getElementById("command-category").textContent = command.category;
+        document.getElementById("command-title").textContent = command.title;
+        document.getElementById("command-description").textContent = command.description;
+        renderParameters(command);
+        document.getElementById("result-label").textContent = "Waiting for a run";
+        resultCard.innerHTML = '<div class="result-placeholder">Run the selected command to populate the results view.</div>';
+        statusBar.className = "status-bar";
+        statusBar.textContent = liveMode ? "Ready to run the selected command." : "Ready for a visual interaction preview.";
+      }
+
+      function setServerState (running) {
+        serverRunning = running;
+        serverToggle.classList.toggle("running", running);
+        serverToggle.setAttribute("aria-pressed", String(running));
+        serverToggle.querySelector("strong").textContent = running ? "Stop server" : "Start server";
+        serverState.textContent = running ? "Server running on localhost" : "Server is stopped";
+        serverState.className = "server-state" + (running ? " running" : "");
+        statusBar.className = "status-bar" + (running ? " ready" : "");
+        statusBar.textContent = running
+          ? (liveMode ? "Tapioca server is running on localhost." : "Local server preview is running.")
+          : (liveMode ? "Tapioca server is stopped." : "Server stopped. The page remains available as a visual preview.");
+      }
+
+      function setRunning (running) {
+        runButton.classList.toggle("running", running);
+        runButton.innerHTML = running ? iconStop() + "<span>" + (liveMode ? "Cancel run" : "Cancel preview") + "</span>" : iconPlay() + "<span>Run command</span>";
+        runButton.setAttribute("aria-label", running ? "Cancel preview" : "Run command");
+      }
+
+      function runPreview () {
+        if (liveMode && commands[selectedIndex] && commands[selectedIndex].folder) {
+          if (liveRunActive) {
+            nativeCall("Tapioca.CancelRun", {}).catch(function () {});
+            return;
+          }
+          liveRunActive = true;
+          setRunning(true);
+          statusBar.className = "status-bar";
+          statusBar.textContent = "Starting " + commands[selectedIndex].title + "...";
+          nativeCall("Tapioca.RunCommand", { folder: commands[selectedIndex].folder, params: collectLiveParams() }).then(function (envelope) {
+            if (!envelope || !envelope.ok) throw new Error(envelope && envelope.error && envelope.error.message || "command could not start");
+            pollLiveRun();
+          }).catch(function (error) {
+            liveRunActive = false;
+            setRunning(false);
+            statusBar.className = "status-bar error";
+            statusBar.textContent = error.message;
+          });
+          return;
+        }
+        if (runTimer) {
+          window.clearTimeout(runTimer);
+          runTimer = null;
+          setRunning(false);
+          statusBar.className = "status-bar error";
+          statusBar.textContent = "Preview cancelled.";
+          return;
+        }
+        setRunning(true);
+        statusBar.className = "status-bar";
+        statusBar.textContent = "Preview is running...";
+        document.getElementById("result-label").textContent = "Running";
+        runTimer = window.setTimeout(function () {
+          runTimer = null;
+          setRunning(false);
+          statusBar.className = "status-bar ready";
+          statusBar.textContent = "Preview completed. No model changes were made.";
+          document.getElementById("result-label").textContent = "Preview result";
+          resultCard.innerHTML = '<div class="result-summary"><div class="metric"><small>Elements</small><strong>24</strong></div><div class="metric"><small>Area</small><strong>1,248 m2</strong></div><div class="metric"><small>Duration</small><strong>0.42 s</strong></div></div>';
+        }, 850);
+      }
+
+      search.addEventListener("input", renderCommands);
+      serverToggle.addEventListener("click", function () {
+        if (!liveMode) {
+          setServerState(!serverRunning);
+          return;
+        }
+        var command = serverRunning ? "Tapioca.StopServer" : "Tapioca.StartServer";
+        nativeCall(command, {}).then(function (envelope) {
+          if (!envelope || !envelope.ok) throw new Error("server toggle failed");
+          refreshLiveServerState();
+        }).catch(function () {
+          statusBar.className = "status-bar error";
+          statusBar.textContent = "Could not change the Tapioca server state.";
+        });
+      });
+      runButton.addEventListener("click", runPreview);
+      document.getElementById("theme-toggle").addEventListener("click", function () {
+        var root = document.documentElement;
+        root.setAttribute("data-theme", root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+      });
+
+      renderCommands();
+      renderCommand();
+      if (liveMode) {
+        document.querySelector(".preview-badge").textContent = "Live bridge";
+        document.querySelector(".footer-note").textContent = "Connected to the Tapioca command bus through the embedded same-origin server.";
+        refreshLiveServerState();
+        loadLiveCommands();
+        window.setInterval(refreshLiveServerState, 1000);
+      }
+    }());
+  </script>
+</body>
+</html>

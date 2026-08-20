@@ -1,0 +1,17 @@
+# Commits that changed formatting only, and should not own a line in `git blame`.
+#
+# Enable it once per clone (GitHub honours the file automatically):
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Add a commit here ONLY if it is pure whitespace/formatting across many files.
+# One full 40-character SHA per line, with a `#` comment above it naming what it
+# was. A commit that mixes a real change with reformatting must not be listed --
+# ignoring it would hide the real change too, which is the other half of why
+# CLAUDE.md says to split those into a `format:` commit and a change commit.
+#
+# The C++ conversion is deliberately incremental (format the file you touch, in
+# the commit that touches it), so this file is expected to stay empty. It exists
+# so that a future dedicated cleanup pass -- `check_cpp.py --report --fix`, which
+# rewrites the whole tree -- has somewhere obvious to record itself instead of
+# destroying blame for every source file.

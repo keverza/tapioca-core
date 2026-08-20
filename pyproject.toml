@@ -1,0 +1,116 @@
+# Repository-wide Python tool configuration and the DEV environment.
+#
+# uv manages the development environment only: pytest, ruff and the offline
+# harness. It has no part in the add-on's runtime — a command's `requires` is
+# resolved inside Archicad by evp/_env.py's pip path, and the installer never
+# touches a user's external Python.
+#
+# ⚠️ requires-python is >=3.12,<3.13 to match the SHIPPED interpreter
+# (Install-Runtime.ps1 provisions CPython 3.12.10). Before this pin the repo's
+# virtualenv was 3.14, so every offline pytest and dry-run pass ran on a Python
+# the user never runs — and "passes offline" is the only evidence available for
+# most of this codebase.
+#
+# This file currently carries the pytest configuration ONLY. Plan section 9.2
+# requires one root pyproject.toml to also own the formatter and linter
+# configuration; MIG-030 adds that here rather than creating a second file.
+#
+# Why pytest needs configuring at all: a bare `pytest -q` from the repository
+# root walks AddOn/reference/, which vendors several SDKs that ship their own
+# test suites. Some of those call sys.exit() at import time, which aborts
+# collection outright — the whole run dies with INTERNALERROR before a single
+# repository test executes. CLAUDE.md and AGENTS.md both tell you to run
+# `pytest -q` from the root, so the default invocation has to work.
+
+[project]
+name = "tapioca-archicad"
+version = "0.0.0"
+description = "Development environment for the Tapioca Archicad add-on. Not a distributable package."
+requires-python = ">=3.12,<3.13"
+# Runtime dependencies of the SHIPPED evp package. Kept in step with
+# evp/_env.py's BASELINE and Install-Runtime.ps1's -Baseline; all three list the
+# same packages, because a command that works offline and not in Archicad (or the
+# reverse) is the failure mode this repo pays for most often.
+dependencies = [
+    "numpy==2.0.2",
+    "pillow",
+    "requests",
+    "pydantic>=2.7,<3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "ruff",
+    "pyyaml",
+    "jsonschema",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+
+# Explicit roots, because discovery from the repository root is not safe (see
+# above). A new test location must be added here to be collected at all.
+testpaths = [
+    "AddOn/EvP/tests",
+    "AddOn/EvP/Commands",
+    # Probes carry their pure modules' tests beside them, the same way commands
+    # do. Without this line those tests exist but are never collected, which is
+    # indistinguishable from their passing.
+    "AddOn/EvP/Diagnostics",
+    "AddOn/EvP/Sources/PyPackage",
+    "tools",
+]
+
+# Archives and build trees hold real test files that must never run: an archived
+# probe's test asserts behavior the tree no longer has, and build_29/PyPackage is
+# a copy of Sources/PyPackage that would double every result.
+norecursedirs = [
+    "archive",
+    "build_29",
+    "reference",
+    "__pycache__",
+    ".pytest_cache",
+    "node_modules",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+# Generated copies, vendored code, and archived material are not part of the
+# active Python quality surface. Commands/_archive remains format-checkable but
+# is lint-excluded below so old probe warnings do not weaken the active gate.
+extend-exclude = [
+    "AddOn/EvP/build_29",
+    "AddOn/EvP/_deps",
+    "AddOn/reference",
+    "archive",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "RUF100", # unused noqa directives
+]
+
+# Do not enable SIM or C4 yet. Their autofixes can rewrite a literal command
+# annotation into a computed expression; the AST palette scanner then silently
+# drops that command. Enable either family only with a before/after scanner
+# metadata diff, never as an unguarded bulk fix over Commands/.
+per-file-ignores = { "AddOn/EvP/Commands/_archive/**/*.py" = ["ALL"] }
+
+[tool.ruff.lint.isort]
+known-first-party = ["evp", "tapioca"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true

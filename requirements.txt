@@ -1,0 +1,31 @@
+# Archicad Python scripts -- ALL dependencies (every folder).
+#
+#   pip install -r requirements.txt
+#
+# Per-folder subsets are in each folder's own requirements.txt, so you can install
+# only what a given tier needs.
+#
+# Nothing here is needed for tkinter / json / urllib -- those are stdlib, and the
+# local libs (archive/legacy-scripts/_shared/aclib,
+# archive/legacy-scripts/_shared/utilities,
+# archive/legacy-scripts/"02 Tapir"/apt_lib.py) are pure
+# stdlib too, so they need no install at all.
+
+# --- 01 Python Palette Only ------------------------------------------------- #
+archicad                # official Graphisoft Python API (the built-in palette)
+multiconn-archicad      # UnusedViewCleaner: multi-instance connection helper
+
+# --- 02 Tapir --------------------------------------------------------------- #
+pillow                  # MassingFeasibility: screenshot compositing (PIL)
+# archicad              # (already above) AutomaticNumberingBasedOnPolyline
+
+# --- 03 Tapir + GeometryServer ---------------------------------------------- #
+requests                # geomclient: HTTP to the GeometryServer add-on
+msgpack                 # geomclient: mesh payloads
+numpy                   # geometry maths / ray batches
+ezdxf                   # ClearanceHeatmap: DXF output
+# pillow                # (already above) MassingFeasibilityGS: image compositing
+
+# --- dev / testing (not needed at runtime) ---------------------------------- #
+pytest                  # offline unit tests: EvP command folders (e.g. MassingFeasibility/
+                        # test_massingcalc.py), AddOn/EvP/tests/. Run: pytest -q
