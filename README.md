@@ -9,7 +9,23 @@ write ordinary Python workflows.
 ## Download and install
 
 Prebuilt AC29 releases are published as `Tapioca_AC29_Win.apx` on the Releases
-page. Download the asset, then:
+page. Download the asset and keep a checkout of this repository for the runtime
+installer and example commands. With Archicad closed, run these commands from
+the repository root in Windows PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\AddOn\EvP\Install-Runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\AddOn\EvP\Sync-Commands.ps1
+```
+
+`Install-Runtime.ps1` installs the bundled CPython runtime and baseline packages
+under `%LOCALAPPDATA%\Tapioca\runtime`. `Sync-Commands.ps1` copies commands from
+the repository's `Examples\` folder to `Documents\Tapioca Commands`, normally
+`%USERPROFILE%\Documents\Tapioca Commands`, which is the folder Archicad scans.
+Do not copy the example folders into `AddOn\EvP\Commands` or load them directly
+from the repository.
+
+Then:
 
 1. Open Archicad 29.
 2. Open Options > Add-On Manager.
@@ -27,9 +43,10 @@ def run(name: tapioca.Text = "Archicad"):
     tapioca.ui.text("Hello, " + name)
 ```
 
-Put the folder in `Examples/`, run `AddOn/EvP/Sync-Commands.ps1`, and press
-Rescan. The `Examples/` directory contains small runnable patterns for inputs,
-selection reads, result tables, and built-in properties.
+Save it as `Examples\HelloCommand\command.py` (or another command folder), run
+`AddOn\EvP\Sync-Commands.ps1` from the repository root, and press Rescan. The
+`Examples\` directory contains small runnable patterns for inputs, selection
+reads, result tables, and built-in properties.
 
 ## Build from source
 

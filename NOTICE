@@ -1,13 +1,27 @@
 Tapioca is distributed under the GNU General Public License, version 3. See
 LICENSE for the complete terms.
 
-The public source tree does not include the Archicad Development Kit or other
-large binary dependencies. tools/build/provision-reference.ps1 downloads the
-declared build and test dependencies from the authorities recorded in
-AddOn/reference/CATALOG.yaml. Those dependencies remain under their respective
-upstream licenses and notices.
+Third-party review (2026-08-20)
+-------------------------------
+This source tree redistributes one third-party work: the Iconoir icon set, whose
+notice is reproduced in full below. Every other upstream dependency is fetched at
+build time, so each one reaches a user under its own license directly from its own
+authority rather than from this repository:
 
-Notable upstream components used by the build include:
+- The C++ dependencies are downloaded by tools/build/provision-reference.ps1 from
+  the authorities recorded in AddOn/reference/CATALOG.yaml. Neither the Archicad
+  Development Kit nor any other SDK is committed here, and no Graphisoft header
+  text appears in these sources.
+- NotebookUI declares no runtime dependencies. Its build-time tooling
+  (TypeScript, Vite, vite-plugin-singlefile) is installed by npm from the
+  versions pinned in AddOn/EvP/NotebookUI/package-lock.json; consult that
+  lockfile and the upstream package metadata before redistributing a built
+  bundle.
+- The Tapir command schema (ENZYME-APD/tapir-archicad-automation) is used during
+  development only and is deliberately excluded from this repository. Fetch it
+  from its own project if you need it.
+
+Notable upstream components used by the build, each under its own license:
 
 - Graphisoft Archicad API Development Kit
 - Diligent Engine
@@ -16,8 +30,33 @@ Notable upstream components used by the build include:
 - nanort
 - GoogleTest
 - CPython
-- IcoNoir
 
-The NotebookUI lockfile records the licenses of its JavaScript dependencies.
-Check the upstream package metadata before redistributing a modified dependency
-bundle.
+Iconoir
+-------
+The palette SVG controls under AddOn/EvP/Icons/ are derived from Iconoir and are
+compiled into the native resource bundle, so they are redistributed with this
+software. Iconoir's license requires this notice to travel with them.
+
+    MIT License
+
+    Copyright (c) 2021 Luca Burgio
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+Tapioca2.svg is this project's own mark and is not part of the Iconoir set.
