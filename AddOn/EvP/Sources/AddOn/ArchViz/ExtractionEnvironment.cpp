@@ -64,6 +64,20 @@ std::unique_ptr<MaterialTable> ReadMaterials (const ModelerAPI::Model& model)
         // name. Adding a /100 "for consistency" collapses every surface onto
         // F0 = 0.0008 and kills the highlight the channel exists to carry.
         m.specular = static_cast<float> (std::clamp (material.GetSpecularReflection (), 0.0, 1.0));
+
+        // ⚠️ SAME 0..1 SCALE AS ITS NEIGHBOUR ABOVE, measured on the same pool:
+        // SurfaceTemplateDump's join read API diffuse 62 against MODEL 0.62.
+        m.diffuse = static_cast<float> (std::clamp (material.GetDiffuseReflection (), 0.0, 1.0));
+
+        // ⚠️ READ FOR THE CLASSIFIER, NOT FOR THE SHADER. A coloured specular
+        // highlight is the only thing in Archicad's surface data that says
+        // "conductor" -- there is no metalness field and no IOR -- so this is
+        // what lets SurfaceClassifier tell brass from gloss paint without ever
+        // looking at a name. See SurfaceMaterial::specularR.
+        const ModelerAPI::Color sc = material.GetSpecularColor ();
+        m.specularR = static_cast<float> (std::clamp (sc.red, 0.0, 1.0));
+        m.specularG = static_cast<float> (std::clamp (sc.green, 0.0, 1.0));
+        m.specularB = static_cast<float> (std::clamp (sc.blue, 0.0, 1.0));
         m.name = material.GetName ().ToCStr ().Get ();
 
         table->Set (m);

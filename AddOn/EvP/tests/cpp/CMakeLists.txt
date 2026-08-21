@@ -82,6 +82,14 @@ set (EVP_PALETTE_SOURCES
 set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
+    # ArchViz/SurfaceClassifier.cpp decides what a surface IS from its numeric
+    # channels alone. It is here for the strongest version of the ArchViz
+    # argument: every wrong threshold renders a complete, correct building in
+    # which one material is confidently the wrong substance, and the only way to
+    # catch that is to run the real 219-surface template through it offline --
+    # which needs no DevKit, because the classifier deliberately takes a plain
+    # SurfaceMaterial and reads no name.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceClassifier.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
@@ -153,6 +161,7 @@ set (EVP_TEST_SOURCES
     test_meshgroups.cpp
     test_scenecmdqueue.cpp
     test_materialtable.cpp
+    test_surfaceclassifier.cpp
     test_diligentclear.cpp
     test_matrixmath.cpp
     test_debugcubemesh.cpp

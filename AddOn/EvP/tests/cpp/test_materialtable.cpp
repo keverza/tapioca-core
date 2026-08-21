@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
+
 using namespace geomsrv::archviz;
 
 namespace {
@@ -93,6 +95,88 @@ TEST (MaterialTable, OpaqueThresholdKeepsNearlySolidSurfacesOutOfTheBlendedPass)
     EXPECT_TRUE (0.9f  < kOpaqueAlpha);
 }
 
+TEST (MaterialTable, ShineIsReadAsAPhongExponentAndNotAsAGlossFraction)
+{
+    // ⚠️ THE REGRESSION THIS PINS IS INVISIBLE IN A STILL. The old mapping was
+    // `1 - shininess`, which put the glossiest surface of the measured project
+    // at roughness 0.718 -- and since the shader scales the sky reflection by
+    // (1-roughness)^2, that is 7.9% of the reflection it should carry. Nothing
+    // errors; the building simply renders with no reflections anywhere, which
+    // is what was reported.
+    //
+    // The values below are the real pool, from SurfaceTemplateDump on
+    // 2026-08-20 (23 surfaces used by the model). `shininess` is the DevKit's
+    // shininess FACTOR divided by 100, so factor 28.18 arrives as 0.2818.
+    SurfaceMaterial matte = Make (1, 1.0f, 1.0f, 1.0f);
+    matte.shininess = 0.0f; // factor 0: brick, grass, plaster
+    EXPECT_FLOAT_EQ (SurfaceRoughness (matte), 1.0f);
+
+    SurfaceMaterial paint = Make (2, 1.0f, 1.0f, 1.0f);
+    paint.shininess = 0.008f; // factor 0.8: RAL paint
+    EXPECT_NEAR (SurfaceRoughness (paint), 0.845154f, 1e-5f);
+
+    SurfaceMaterial steel = Make (3, 1.0f, 1.0f, 1.0f);
+    steel.shininess = 0.18f; // factor 18: stainless
+    EXPECT_NEAR (SurfaceRoughness (steel), 0.316228f, 1e-5f);
+
+    SurfaceMaterial glossiest = Make (4, 1.0f, 1.0f, 1.0f);
+    glossiest.shininess = 0.2818f; // factor 28.18: the pool's maximum
+    EXPECT_NEAR (SurfaceRoughness (glossiest), 0.2574278f, 1e-5f);
+
+    // The documented ceiling of the factor. Glossy, but deliberately not a
+    // mirror -- Archicad has no channel that means "mirror".
+    SurfaceMaterial maxed = Make (5, 1.0f, 1.0f, 1.0f);
+    maxed.shininess = 1.0f; // factor 100
+    EXPECT_NEAR (SurfaceRoughness (maxed), 0.140028f, 1e-5f);
+
+    // Monotonic: more shine is never rougher.
+    EXPECT_GT (SurfaceRoughness (matte), SurfaceRoughness (paint));
+    EXPECT_GT (SurfaceRoughness (paint), SurfaceRoughness (steel));
+    EXPECT_GT (SurfaceRoughness (steel), SurfaceRoughness (glossiest));
+    EXPECT_GT (SurfaceRoughness (glossiest), SurfaceRoughness (maxed));
+}
+
+TEST (MaterialTable, OutOfSpecShineIsClampedRatherThanPropagated)
+{
+    // A factor outside [0..100] is out of spec, not a licence to return a
+    // roughness outside [0..1]. Negative and NaN both have to land on matte.
+    SurfaceMaterial negative = Make (1, 1.0f, 1.0f, 1.0f);
+    negative.shininess = -5.0f;
+    EXPECT_FLOAT_EQ (SurfaceRoughness (negative), 1.0f);
+
+    SurfaceMaterial nan = Make (2, 1.0f, 1.0f, 1.0f);
+    nan.shininess = std::numeric_limits<float>::quiet_NaN ();
+    EXPECT_FLOAT_EQ (SurfaceRoughness (nan), 1.0f);
+
+    SurfaceMaterial huge = Make (3, 1.0f, 1.0f, 1.0f);
+    huge.shininess = 80.0f; // factor 8000, i.e. the RAW storage
+    EXPECT_NEAR (SurfaceRoughness (huge), 0.140028f, 1e-5f);
+}
+
+TEST (MaterialTable, TransparentMaterialsKeepAVisibleGlassRoughness)
+{
+    // ⚠️ A FLOOR ON GLOSS, NOT A CLASSIFIER. Archicad supplies transparency,
+    // shine and specular reflection but no IOR, refraction or metalness, so a
+    // pane authored with no shine at all would otherwise come out fully matte
+    // and reflect nothing -- glass that reads as flat tinted plastic.
+    SurfaceMaterial unshinedGlass = Make (1, 0.4f, 0.6f, 0.9f, 0.5f);
+    unshinedGlass.shininess = 0.0f;
+    EXPECT_FLOAT_EQ (SurfaceRoughness (unshinedGlass), kTransparentRoughnessCeiling);
+
+    // Authored shine that is ALREADY glossier than the floor is kept: the floor
+    // must never make a well-authored pane rougher than the author said.
+    SurfaceMaterial shinedGlass = Make (2, 0.4f, 0.6f, 0.9f, 0.5f);
+    shinedGlass.shininess = 0.6f; // factor 60
+    EXPECT_NEAR (SurfaceRoughness (shinedGlass), 0.179605f, 1e-5f);
+
+    // The floor is keyed on alpha, and kOpaqueAlpha is the same threshold that
+    // decides the blended pass -- so nothing can be floored here yet drawn as
+    // opaque there.
+    SurfaceMaterial nearlyOpaque = Make (3, 0.4f, 0.6f, 0.9f, kOpaqueAlpha);
+    nearlyOpaque.shininess = 0.0f;
+    EXPECT_FLOAT_EQ (SurfaceRoughness (nearlyOpaque), 1.0f);
+}
+
 TEST (MaterialTable, TravelsThroughTheQueueAsAnOwningHandover)
 {
     // The consumer takes ownership of the table exactly as it does of an
@@ -126,7 +210,9 @@ TEST (MaterialTable, EnvironmentRidesTheQueueByValue)
     q.Clear ();
 
     EnvironmentUpload env;
-    env.sunX = 0.3f; env.sunY = -0.4f; env.sunZ = 0.86f;
+    env.sunX = 0.3f;
+    env.sunY = -0.4f;
+    env.sunZ = 0.86f;
     env.ambient = 0.42f;
     env.sunBelowHorizon = true;
     q.PushEnvironment (env);

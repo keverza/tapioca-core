@@ -26,6 +26,7 @@
 // convention (`GetSurfaceColor`), passed through rather than rescaled, so the
 // numbers here can be diffed against EvP.GetModelMaterials' output directly.
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -70,6 +71,28 @@ struct SurfaceMaterial {
     // renderer used before this channel existed.
     float specular = 0.5f;
 
+    // 0..1, ModelerAPI's `GetDiffuseReflection`. ⚠️ CARRIED FOR THE CLASSIFIER,
+    // NOT FOR THE SHADER, which gets its diffuse from the surface COLOUR. It is
+    // here because it is the one channel that separates a satin pane from a
+    // cut-out leaf when both are transparent and dull — see
+    // SurfaceClassifier.hpp, kGlassMaxDiffuse.
+    float diffuse = 0.5f;
+
+    // 0..1 each, ModelerAPI's `GetSpecularColor`. ⚠️ THE ONLY METALNESS SIGNAL
+    // ARCHICAD HAS, and it is not labelled as one: dielectrics reflect white and
+    // conductors reflect their own colour, so a highlight that is NOT neutral
+    // grey is the physical signature of a metal. Archicad has no metalness flag
+    // and no IOR, so without this channel a conductor cannot be told from gloss
+    // paint at all. ⚠️ IT IS NEVER SUFFICIENT ALONE — brick, wood and stone
+    // carry tinted specular colours too; SurfaceClassifier.hpp says what it must
+    // be conjoined with.
+    //
+    // Defaults are neutral white so a table built before this channel existed
+    // reads as an ordinary dielectric rather than as a coloured metal.
+    float specularR = 1.0f;
+    float specularG = 1.0f;
+    float specularB = 1.0f;
+
     std::string name;
 
     size_t Bytes () const { return sizeof (SurfaceMaterial) + name.capacity (); }
@@ -82,6 +105,66 @@ struct SurfaceMaterial {
 // out. Shared by the producer and the renderer so the threshold cannot differ
 // between the count and the draw.
 constexpr float kOpaqueAlpha = 0.995f;
+
+// ⚠️ ARCHICAD'S SHINE IS A BLINN-PHONG EXPONENT, NOT A GLOSS FRACTION,
+// and reading it as one is what left this project with no reflections at all.
+//
+// The DevKit says so twice, in the two places that define the channel:
+// APIdefs_Attributes.h:1122 -- "The shininess factor multiplied by 100.
+// [0..10000]" -- and Model3D/UMAT.hpp:45 -- "shininess * 100 [0..10000]".
+// So the SHININESS FACTOR itself runs 0..100, and a "factor" in a Blinn-Phong
+// model is the specular EXPONENT: 0 is perfectly diffuse, and larger is a
+// tighter highlight. `SurfaceMaterial::shininess` carries that factor divided
+// by 100, so the exponent is recovered by multiplying it back.
+//
+// The old mapping was `1 - shininess`, which reads the factor as if it were a
+// linear 0..1 gloss. Measured against this project's real pool
+// (SurfaceTemplateDump, 2026-08-20, 23 surfaces used by the model) that put
+// EVERY surface between roughness 0.718 and 1.0 -- the glossiest surface in the
+// whole building, at factor 28.18, still came out rougher than three quarters.
+// Since the shader scales the environment reflection by (1-roughness)^2, that
+// left the glossiest material reflecting 7.9% of the sky and the median
+// material reflecting none, which is exactly the reported symptom.
+//
+// The conversion below is the standard exponent-to-GGX-roughness relation,
+// roughness = sqrt(2 / (n + 2)), which matches the two lobes' widths. On the
+// measured pool it separates the materials the way a facade actually reads:
+//   factor 28.18 -> 0.257    factor 1.00 -> 0.816
+//   factor 18.00 -> 0.316    factor 0.80 -> 0.845
+//   factor 11.00 -> 0.392    factor 0.00 -> 1.000
+constexpr float kMaxShininessFactor = 100.0f;
+
+// Archicad exposes transparency, shine and specular reflection for a surface,
+// but no IOR, no refraction and no metalness. Transparent ranges are therefore
+// treated as dielectric glass for the forward preview. Keep authored shine when
+// it gives a useful gloss value, but do not let a surface authored with no
+// shine at all erase the reflection that makes glass read as glass.
+//
+// ⚠️ THIS IS A FLOOR ON GLOSS, NOT A CLASSIFIER. It cannot tell a pane from a
+// tinted plastic, and it must not grow into something that tries: the material
+// presets (RE51.B1) are where a surface's TYPE gets decided, from measured
+// numbers rather than from names.
+constexpr float kTransparentRoughnessCeiling = 0.35f;
+
+inline float SurfaceRoughness (const SurfaceMaterial& material)
+{
+    // ⚠️ CLAMP THE FACTOR, NOT THE ROUGHNESS. sqrt(2/(n+2)) is already inside
+    // (0..1] for every n >= 0, so the only value that needs defending is a
+    // negative or out-of-spec factor arriving from the model.
+    float factor = material.shininess * kMaxShininessFactor;
+    // ⚠️ ALSO CATCHES NaN: the comparison is false for it, so the negation
+    // is true and the surface lands on matte instead of on a mirror.
+    if (!(factor > 0.0f))
+        factor = 0.0f;
+    else if (factor > kMaxShininessFactor)
+        factor = kMaxShininessFactor;
+
+    float roughness = std::sqrt (2.0f / (factor + 2.0f));
+
+    if (material.alpha < kOpaqueAlpha && roughness > kTransparentRoughnessCeiling)
+        roughness = kTransparentRoughnessCeiling;
+    return roughness;
+}
 
 class MaterialTable final {
 public:

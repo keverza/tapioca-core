@@ -1,0 +1,228 @@
+# SurfaceTemplateDump, 2026-08-20 15:50, the real project template.
+# 219 Surface attributes read through the OFFICIAL API, which is what
+# the dump prints. transparency/shine/specular/diffuse are its integers
+# (shine is the raw UMAT storage, 0..10000); specularColor is 0..1.
+# The test converts them to SurfaceMaterial units exactly as
+# ExtractionEnvironment does, so this fixture also pins that conversion.
+# NAME IS PRESENT FOR THE VALIDATION CHECK ONLY. The classifier never
+# receives it -- see SurfaceClassifier.hpp.
+# name	materialType	transparency	shine	specular	diffuse	specR	specG	specB	hasTexture	usedByModel
+Plytos - TAMSIAI RUDOS	General	0	0	19	62	0.8	0.8	0.8	1	1
+Tinkas - GRUBUS - 01	General	0	0	8	95	0.992156863	0.968627451	0.949019608	1	0
+Dažai - RAL 7016	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+Betonas - PILKAS ŠVIESUS	General	0	100	25	95	0.247058824	0.247058824	0.247058824	1	1
+Dažai - RAL 7022	General	0	80	50	60	0.239215686	0.239215686	0.231372549	0	1
+Izoliacija - VATA	General	0	220	53	56	0.780392157	0.776470588	0.784313725	1	1
+Dažai - RAL 9010 BLIZGŪS	General	0	0	9	81	0.992156863	0.992156863	1	0	1
+Metalas - GELEŽIS	General	0	0	50	67	0.498039216	0.498039216	0.498039216	1	1
+Aplinka - ŽOLĖ RUSVA	General	0	0	0	73	1	1	1	1	1
+Dažai - RAL 9004	General	0	80	50	60	0.733333333	0.733333333	0.733333333	0	0
+Metalas - PLIENAS NERŪDIJANTIS	General	0	1800	95	34	0.97254902	0.97254902	0.97254902	0	1
+Stiklas - MĖLYNAS	General	22	3400	100	100	1	1	1	0	0
+Tinkas - BALTAS SMULKUS	General	0	0	67	65	0.498039216	0.498039216	0.498039216	1	1
+Medžio plokštė - PUŠIS vertikali	General	0	0	54	75	0.498039216	0.498039216	0.498039216	1	0
+Medžio plokštė - PUŠIS horizontali	General	0	0	69	75	0.498039216	0.498039216	0.498039216	1	0
+Akmuo - AKMENUKAI	General	0	0	49	77	0.498039216	0.498039216	0.498039216	1	1
+Metalas - ALIUMINIS	General	0	780	60	30	0.907896544	0.907896544	0.907896544	0	0
+Dažai - RAL 9010	General	0	80	9	60	0.990005341	0.990005341	1	0	1
+Medinės lentelės - 04 - horizontalios	General	0	0	67	34	0.990005341	0.990005341	1	1	0
+Metalas - CINKAS	General	0	1100	84	63	0.498039216	0.498039216	0.498039216	1	1
+Betonas - BLOKELIAI	General	0	100	25	75	0.498039216	0.498039216	0.498039216	1	1
+Stiklas - MATINIS	General	20	700	40	29	1	1	1	1	0
+Plastikas - BALTAS BLIZGUS	General	0	2818	62	80	1	1	1	0	1
+Dažai - RAL 1018	General	0	80	50	60	0.733333333	0.733333333	0.733333333	0	0
+Dažai - RAL 9016	General	0	80	9	60	0.990005341	0.990005341	1	0	1
+Trinkelės - PILKOS	General	0	0	0	66	0.304341192	0.217822538	0.191393912	1	1
+Asfaltas - PILKAS	General	0	32	0	88	0.304341192	0.304341192	0.304341192	1	1
+Betonas - PILKAS TAMSUS	General	0	100	71	100	0.247058824	0.247058824	0.247058824	1	1
+Dažai - D3 A	General	0	0	0	75	0.990005341	0.990005341	1	0	1
+Stiklas - SKAIDRUS	General	69	7952	100	60	1	1	1	0	0
+Plytos - ORANŽINĖS paprastasis rišimas	General	0	0	54	80	0.580392157	0.458823529	0.384313725	1	1
+Stiklas - TAMSUS (fasadams)	General	49	540	64	10	1	1	1	0	0
+Aplinka - GRUNTAS	General	0	0	0	100	1	1	1	1	1
+Tinkas - GRUBUS - 02	General	0	0	8	83	0.992156863	0.968627451	0.949019608	1	1
+Tinkas - GRUBUS- 03	General	0	0	8	72	0.992156863	0.968627451	0.949019608	1	1
+Akmuo - SMILTAINIS	General	0	0	73	72	0.874998093	0.84150454	0.669977874	1	0
+Stone - Limestone Fine	General	0	0	0	75	0.8	0.8	0.8	1	0
+Stone - Marble Carrara White	General	0	0	10	75	0.8	0.8	0.8	1	0
+Stone - Granite Gray	General	0	0	19	62	0.8	0.8	0.8	1	0
+Stone - Granite Red	General	0	0	19	62	0.8	0.8	0.8	1	0
+Roof - Asphalt Shingle Gray	General	0	0	19	62	0.8	0.8	0.8	1	0
+Metal - Copper New	General	0	820	67	44	0.976470588	0.874509804	0.525490196	0	0
+Metal - Chrome 01	General	0	5392	96	30	1	1	1	0	0
+Wood - Walnut Horizontal	General	0	0	19	62	0.8	0.8	0.8	1	0
+Wood - Walnut Vertical	General	0	0	19	62	0.8	0.8	0.8	1	0
+Paint - Vermilion	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Ultramarine Violet	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Tiles - Tan 30x30	General	0	0	0	60	0.498039216	0.498039216	0.498039216	1	0
+Ceramic - Porcelain	General	0	900	20	65	1	1	1	0	0
+Leather - Tabac	General	0	460	62	57	0.874509804	0.733333333	0.666666667	1	0
+Textile - 01	General	0	0	0	90	0.498039216	0.498039216	0.498039216	1	0
+Carpet - 03	General	0	260	0	49	1	1	1	1	0
+Water - Pond	General	0	64	72	63	0.921568627	0.729411765	0.470588235	1	0
+Glass - Blue	General	22	3400	100	100	1	1	1	0	0
+Grass - Green	General	0	0	0	73	1	1	1	1	0
+Foliage - Leaves Tree Small	General	23	300	56	91	1	1	1	1	0
+Paint - Bordeaux	General	0	72	10	53	0.990005341	0.990005341	1	0	0
+Glass - Lamp	General	14	96	73	0	1	1	1	0	0
+Brick - Common Bond	General	0	0	0	70	0.8	0.8	0.8	1	0
+Roof Tiles - French Red	General	0	0	19	62	0.8	0.8	0.8	1	0
+Stone - Marble Black	General	0	0	19	62	0.8	0.8	0.8	1	0
+Stone - Marble Pink	General	0	0	10	70	0.8	0.8	0.8	1	0
+Metal - Copper Aged	General	0	0	49	56	0.749019608	0.749019608	0.749019608	1	0
+Metal - Bronze	General	0	980	85	40	0.890196078	0.666666667	0.415686275	0	0
+Metal - Brass	General	0	620	85	28	0.988235294	0.956862745	0.760784314	0	0
+Metal - Nickel	General	0	520	81	50	0.803921569	0.77254902	0.705882353	0	0
+Metal - Gold	General	0	1600	90	50	0.984313725	0.854901961	0.509803922	0	0
+Paint - Cobalt Blue	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Ivory Black	General	0	72	36	41	0.990005341	0.990005341	1	0	0
+Roof - Asphalt Shingle Green	General	0	0	19	62	0.8	0.8	0.8	1	0
+Wood - Oak Light	General	0	0	19	62	0.8	0.8	0.8	1	0
+Siding - Dark	General	0	0	19	62	0.8	0.8	0.8	1	0
+Lino - Checkered	General	0	260	27	49	1	1	1	1	0
+Siding - Medium	General	0	0	19	62	0.8	0.8	0.8	1	0
+Siding - Light	General	0	0	19	70	0.8	0.8	0.8	1	0
+Wood - Mahogany Vertical	General	0	0	19	62	0.8	0.8	0.8	1	0
+Brick - Red Herringbone	General	0	0	0	70	0.8	0.8	0.8	1	0
+Brick - Flemish Bond	General	0	0	0	70	0.8	0.8	0.8	1	0
+Brick - Soldier Bond	General	0	0	0	70	0.8	0.8	0.8	1	0
+Brick - Stack Bond	General	0	0	0	70	0.8	0.8	0.8	1	0
+Brick - Aged Natural	General	0	0	0	70	1	1	1	1	0
+Paint - Sand Beige	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Golden Beige	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Sienna Sand	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Celadon	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Pale Jade	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Peach	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Pink Blush	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Golden Ochre	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Yellow Ochre	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Royal Blue	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Forest Green	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Cadmium Orange	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Cadmium Yellow	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Alizarin Carmine	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Brick - Brown	General	0	0	0	70	0.8	0.8	0.8	1	0
+Parquet - 01	General	0	0	19	62	0.8	0.8	0.8	1	0
+Brick - Surface Colour	General	0	0	0	70	0.8	0.8	0.8	1	0
+Pavement - Asphalt Dark	General	0	92	36	50	0.670588235	0.674509804	0.729411765	1	0
+Roof - Asphalt Shingle Drop	General	0	0	19	62	0.8	0.8	0.8	1	0
+Roof - Cedar Shingle Light	General	0	0	19	62	0.8	0.8	0.8	1	0
+Roof Tiles - Dutch	General	0	0	19	62	0.8	0.8	0.8	1	0
+Roof - Asphalt Shingle Brown	General	0	0	19	62	0.8	0.8	0.8	1	0
+Textile - 02	General	0	0	67	65	0.494117647	0.494117647	0.494117647	1	0
+Floorboards - 01	General	0	0	19	62	0.8	0.8	0.8	1	0
+Glass - Mirror	General	0	4624	100	25	1	1	1	0	0
+Brick - White Natural	General	0	0	0	70	0.8	0.8	0.8	1	0
+Carpet - 01	General	0	260	0	49	1	1	1	1	0
+Carpet - 02	General	0	260	0	49	1	1	1	1	0
+Bark - Deciduous	General	0	0	10	85	0.643137255	0.51372549	0.466666667	1	0
+Foliage - Wild grapes	General	0	140	40	91	1	1	1	1	0
+Water - Wavy	General	1	700	100	38	1	1	1	1	0
+Paint - Light Gray	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Paint - Pale Blue	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Roof Tiles - Spanish 01	General	0	0	19	62	0.8	0.8	0.8	1	0
+Tiles - White Matte 15x15	General	0	0	0	70	0.498039216	0.498039216	0.498039216	1	0
+Metal - Perforated Small Dots	General	0	0	77	46	0.498039216	0.498039216	0.498039216	1	0
+Tiles - Tan 25x25	General	0	0	0	60	0.498039216	0.498039216	0.498039216	1	0
+Roof - Corrugated Sheet Matte	General	0	0	19	62	0.8	0.8	0.8	1	0
+Ceiling - Tile 60x60	General	0	220	17	49	1	1	1	1	0
+Ceiling - Tile 60x120	General	0	220	17	49	0.97254902	0.97254902	0.97254902	1	0
+Metal - Fence Chainlink	General	0	1200	37	47	0.84539559	0.84539559	0.84539559	1	0
+Stonework - 02	General	0	0	10	70	0.8	0.8	0.8	1	0
+Stonework - 12	General	0	0	19	62	0.8	0.8	0.8	1	0
+Tiles - Light Brown 15x15	General	0	260	27	49	1	1	1	1	0
+Tiles - Mosaic Blue	General	0	0	0	70	0.498039216	0.498039216	0.498039216	1	0
+Parquet - 02	General	0	0	19	62	0.8	0.8	0.8	1	0
+Stucco - Beige Rough	General	0	84	13	77	0.992156863	0.968627451	0.949019608	1	0
+Lino - Blue	General	0	260	27	49	1	1	1	1	0
+Lino - Gray	General	0	260	27	49	1	1	1	1	0
+Roof Tiles - French Brown	General	0	0	19	62	0.8	0.8	0.8	1	0
+Wood - Mahogany Horizontal	General	0	0	19	62	0.8	0.8	0.8	1	0
+Metal - Steel	General	0	620	75	40	0.498039216	0.498039216	0.498039216	0	0
+Insulation - Bubble Wrap	General	10	1800	45	61	1	1	1	1	0
+Insulation - Cellulose	General	0	96	8	60	0.960784314	0.960784314	0.960784314	1	0
+Insulation - Solid Brown	General	0	0	0	100	0	0	0	1	0
+Air	General	100	0	0	0	0.990005341	0.990005341	1	0	0
+Medžio plokštė - RIEŠUTMEDIS horizintalus	General	0	0	59	79	0.537254902	0.345098039	0.239215686	1	0
+Plytelės - 30x30 ŠVIESIOS	General	0	3100	27	38	1	1	1	1	0
+Metalas - NIKELIS	General	0	520	81	50	0.498039216	0.498039216	0.498039216	0	0
+Dažai - RAL 9005	General	0	80	50	60	0.733333333	0.733333333	0.733333333	0	0
+Medžio plokštė - ĄŽUOLAS horizontalus	General	0	500	10	85	0.657053483	0.519249256	0.451529717	1	0
+Plytos - SENDINTOS MARGOS	General	0	0	50	64	0.741176471	0.490196078	0.341176471	1	0
+Dažai - RAL 7040	General	0	80	50	60	0.733333333	0.733333333	0.733333333	0	0
+Oras	General	100	220	9	89	0.990005341	0.990005341	1	0	0
+Plytelės - 15x15 RUSVOS	General	0	260	27	52	1	1	1	1	0
+Dažai - RAL 9003	General	0	0	9	81	0.992156863	0.992156863	1	0	0
+Dažai - RAL 9003  	General	0	80	50	60	1	1	1	0	0
+Stiklas - TAMSUS (vitrinai)	General	51	7952	93	10	1	1	1	0	0
+Dažai - RAL 7016 (LANGŲ PLĖMAMS)	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+Stogo danga - PROFILIUOTI LAKŠTAI - juodi	General	0	1500	9	94	0.990005341	0.990005341	1	1	0
+Stiklas - ŽALIAS	General	22	7952	100	60	1	1	1	0	0
+- stogo danga	General	0	1100	0	82	0.733333333	0.733333333	0.733333333	0	0
+- turėklai - METALAS	General	0	1100	50	82	0.501960784	0.501960784	0.501960784	0	0
+klinkeris - C2 RUDAS	General	0	0	0	70	0.8	0.8	0.8	1	0
+klinkeris - D2 (RUSVAS KLINKERIS)	General	0	0	0	70	1	1	1	1	0
+klinkeris - C3 RUSVAS	General	0	0	0	70	1	1	1	1	0
+klinkeris - C2_A (RUSVAS KLINKERIS)	General	0	0	0	70	1	1	1	1	0
+Dažai - B1	General	0	2000	58	41	0.990005341	0.990005341	1	0	0
+Dažai - D1	General	0	80	50	60	0.733333333	0.733333333	0.733333333	0	0
+pDažai - C2_B plytos juodos	General	0	0	0	70	0.8	0.8	0.8	1	0
+Dažai - A2_B	General	0	0	0	70	0.8	0.8	0.8	1	0
+Dažai - RAL 7016 (balkono virsus)	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+Dažai - D3 B	General	0	0	0	75	0.990005341	0.990005341	1	0	0
+Dažai - D3_C	General	0	80	50	60	0.239215686	0.239215686	0.231372549	0	0
+Dažai - A1_A	General	0	80	50	60	0.239215686	0.239215686	0.231372549	0	0
+Dažai - A3_A - Klinkeris rudas	General	0	0	50	64	0.741176471	0.490196078	0.341176471	1	0
+caparol - PALAZZO 45	General	0	3856	69	30	0.990005341	0.990005341	1	0	0
+kinkeris - C2 RUDAS vertikalus	General	0	0	0	45	0.639215686	0.639215686	0.639215686	1	0
+Dažai - D2_A balkonoVidus	General	0	0	0	70	0.8	0.8	0.8	0	0
+Dažai - D1 LangoPlėmas	General	0	80	50	60	0.733333333	0.733333333	0.733333333	0	0
+Dažai - C langoPlemas	General	0	0	0	70	0.8	0.8	0.8	0	0
+Dažai - C2 balkonas Plokštė	General	0	0	0	70	0.8	0.8	0.8	0	0
+Dažai - A3_A (90) - Klinkeris rudas	General	0	0	50	64	0.741176471	0.490196078	0.341176471	1	0
+Tinkas - BALTAS GRUBUS (GB)	General	0	0	8	95	0.992156863	0.968627451	0.949019608	1	0
+caparol - TUNDRA 5	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+caparol - PALAZZO 35	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+caparol - GRANIT 5	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+caparol - CAMEO 95	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+Tinkas - BALTAS GRUBUS (GK)	General	0	0	8	95	0.992156863	0.968627451	0.949019608	1	0
+Tinkas - INTERJERAS	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Interjeras - Tinkas - Baltas	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+- BALTA	General	0	1100	50	82	0.733333333	0.733333333	0.733333333	0	0
+pDažai - C3 (Vertikalus) plytos rusvos	General	0	0	0	70	1	1	1	1	0
+klinkeris - D2 (90) (RUSVAS KLINKERIS)	General	0	0	0	70	1	1	1	1	0
+caparol - LACHS 65	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+caparol - PALAZZO 55	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+caparol - PALAZZO 140	General	0	80	50	60	0.501960784	0.501960784	0.501960784	0	0
+Brick - Running Bond	General	0	0	0	70	0.8	0.8	0.8	1	0
+Stucco - White Rough	General	0	0	8	95	0.992156863	0.968627451	0.949019608	1	0
+Paint - Dark Gray	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Concrete - 02	General	0	1100	26	100	0.658823529	0.690196078	0.776470588	1	0
+Paint - Anthracite	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Metal - Stainless Steel	General	0	1300	83	55	0.992156863	0.968627451	0.949019608	1	0
+Wood - Pine Grained Vertical	General	0	0	19	62	0.8	0.8	0.8	1	0
+Wood - Pine Grained Horizontal	General	0	0	19	62	0.8	0.8	0.8	1	0
+Paint - Titanium White	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Plastic - Laminate	General	0	420	30	62	0.803921569	0.803921569	0.803921569	0	0
+Glass - Clear Fast	General	69	7952	100	60	1	1	1	0	0
+Earth - Brown	General	0	0	0	100	1	1	1	1	0
+Stone - Sandstone 01	General	0	0	0	75	0.8	0.8	0.8	1	0
+Metal - Iron	General	0	0	50	67	0.498039216	0.498039216	0.498039216	1	0
+Metal - Aluminium	General	0	1020	60	14	0.907896544	0.907896544	0.907896544	0	0
+Metal - Zinc	General	0	1100	84	63	0.498039216	0.498039216	0.498039216	1	0
+Pavement - Brick Moss	General	0	60	30	80	0.304341192	0.304341192	0.304341192	1	0
+Concrete - 04	General	0	0	77	72	0.463569085	0.453376059	0.397695888	1	0
+Brick - Red	General	0	0	0	70	0.8	0.8	0.8	1	0
+Paint - Glossy White	General	0	3856	69	30	0.990005341	0.990005341	1	0	0
+Stucco - White Fine	General	0	16	1	95	1	1	1	1	0
+Grass - Brown	General	0	0	0	73	1	1	1	1	0
+Paint - Lead Oxide Yellow	General	0	72	10	41	0.990005341	0.990005341	1	0	0
+Pavement - Asphalt Light	General	0	92	36	50	0.670588235	0.674509804	0.729411765	1	0
+Stonework - 13	General	0	0	10	70	0.8	0.8	0.8	1	0
+Stucco - Yellow Rough	General	0	0	8	95	0.992156863	0.968627451	0.949019608	1	0
+Stucco - Red Rough	General	0	84	13	77	0.992156863	0.968627451	0.949019608	1	0
+Floorboards - 03	General	0	0	19	62	0.8	0.8	0.8	1	0
+Glass - Satin	General	25	700	40	29	1	1	1	1	0
+Insulation - Fiberglass	General	0	60	16	41	0.97254902	0.952941176	0.819607843	1	0
+Concrete - 10	General	0	100	25	100	0.498039216	0.498039216	0.498039216	1	0

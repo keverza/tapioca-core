@@ -542,15 +542,13 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
                     // syntax error on the `::`.
                     alpha = (std::min) (alpha, kSelectionAlpha);
                 }
-                // ⚠️ ROUGHNESS IS THE COMPLEMENT OF SHININESS, NOT A RESCALE OF
-                // IT. ModelerAPI's `GetShining` is already clamped to 0..1 by
-                // the producer (ExtractionEnvironment), and 0 there means a
-                // surface with no specified finish -- which must read as matte,
-                // not as a mirror. Getting the sense backwards is invisible in a
-                // still and unmistakable the moment the camera moves: every
-                // concrete wall would sweep a highlight and every window would
-                // be dead flat.
-                const float roughness = 1.0f - mat.shininess;
+                // ⚠️ NOT `1 - shininess`. Archicad's shine is a Blinn-Phong
+                // EXPONENT, so the conversion is sqrt(2/(n+2)) -- the reasoning,
+                // the DevKit citations and the measured pool are all in
+                // SurfaceRoughness. It also applies the transparent-material
+                // gloss floor, because Archicad has no IOR, refraction or
+                // metalness field to say a pane is a pane.
+                const float roughness = SurfaceRoughness (mat);
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
