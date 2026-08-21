@@ -464,6 +464,20 @@ class DiligentScene final {
     // multiplying in a texture that describes an older camera.
     void ClearAmbientOcclusion ();
 
+    // ---- RE51.C2: real motion vectors ---------------------------------------
+    //
+    // Hand this frame's view-projection over to be the NEXT frame's previous
+    // one. ⚠️ CALL IT ONCE, AFTER EVERY PASS THAT USED THIS FRAME'S CAMERA.
+    // Calling it early makes a frame's motion vectors zero against itself, which
+    // is silent -- temporal effects simply stop reprojecting and nothing on
+    // screen says so until something moves fast.
+    //
+    // ⚠️ AND CALL IT ON EVERY PATH, INCLUDING THE DEBUG VIEWS. A frame that
+    // skips it leaves the previous matrix two frames stale, so the next motion
+    // vector is twice as long as the truth -- which reads as a temporal effect
+    // over-shooting rather than as a missed call.
+    void AdvanceFrame (const float viewProj[16]);
+
     // `intensity` scales the darkening only -- 0 is off, 1 is the effect at the
     // strength GTAO computed. ⚠️ SEPARATED FROM THE EFFECT'S OWN STRENGTH on
     // purpose: the breakdown's acceptance for C3 asks for exactly this, because

@@ -234,6 +234,27 @@ struct DiligentSceneConstants {
     // black-body approximation in HLSL would make it untestable and would give
     // the HUD and the renderer two chances to disagree about what 5500 K is.
     float whiteBalance[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
+
+    // ---- appended for RE51.C2, real motion vectors ---------------------------
+    //
+    // LAST frame's view-projection, so the G-buffer pass can put this frame's
+    // world position where the previous frame's camera would have put it.
+    //
+    // ⚠️ ON THE FIRST FRAME IT IS THIS FRAME'S, DELIBERATELY. An identity or
+    // uninitialised previous matrix produces an enormous motion vector for every
+    // pixel, and the effects downstream then either throw their whole history
+    // away -- survivable -- or reproject from far off-screen, which is a flash of
+    // garbage on the first frame after every resize. Seeding it with the current
+    // matrix makes the first frame's motion exactly zero, which is also true.
+    //
+    // ⚠️ IT DESCRIBES THE CAMERA, NOT THE MODEL. Extraction emits world-space
+    // vertices and there is no per-element transform anywhere in this renderer
+    // (see kArchVizMeshVS's "NO MODEL MATRIX"), so an element that MOVES gets a
+    // new vertex buffer rather than a new matrix, and its motion reads zero for
+    // the frame the new geometry arrives. That is C2's remaining half, recorded
+    // rather than hidden: a re-extracted element can ghost for a frame in any
+    // effect that trusts history.
+    float prevViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -264,13 +285,21 @@ enum class DiligentDebugView : int {
     GBufferAlbedo = 10,
     GBufferRoughness = 11,
     GBufferMaterialData = 12,
+    // ⚠️ RE51.C2's ACCEPTANCE ASKS FOR THIS BY NAME: "a debug view shows them
+    // before any consumer is enabled". Motion vectors are the one G-buffer
+    // channel whose correctness cannot be judged from the shaded image at all --
+    // a sign error, an axis swap or a stale previous matrix all produce a
+    // perfectly ordinary-looking frame, and only show up later as a temporal
+    // effect smearing the wrong way.
+    MotionVectors = 13,
 };
 
-static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16,
+static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64,
                "the cbuffer is two float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
-               "and the white balance, and HLSL will read it that way");
+               "the white balance and the previous view-projection, and HLSL "
+               "will read it that way");
 
 // The cbuffer declaration, ONE COPY, prepended to each shader by
 // ArchVizShaderSource below.
@@ -308,6 +337,7 @@ cbuffer ArchVizConstants
     float4   g_prefilterParams; // LOAD-TIME ONLY: x roughness, y samples,
                                 // zw source size. See DiligentSceneConstants.
     float4   g_whiteBalance;    // rgb linear gains, applied before the exposure
+    float4x4 g_prevViewProj;    // RE51.C2: last frame's camera, for motion
 };
 )hlsl";
 
@@ -325,14 +355,33 @@ struct PSInput
     float3 worldPos : WORLDPOS;
     float3 normal   : NORMAL;
     float4 color    : COLOR0;
+    // ---- RE51.C2 ---------------------------------------------------------
+    // ⚠️ THE CLIP POSITION IS CARRIED SEPARATELY EVEN THOUGH SV_POSITION EXISTS.
+    // By the time the pixel shader sees `position` the hardware has already
+    // divided by w and mapped it to PIXELS, so the NDC a motion vector needs is
+    // not recoverable from it without the viewport size and the w that was
+    // thrown away. Interpolating the clip position costs two more lanes and is
+    // exact.
+    //
+    // ⚠️ AND THE FORWARD PIXEL SHADER DOES NOT DECLARE THESE. That is legal and
+    // intended: a D3D pixel shader's input signature only has to be a SUBSET of
+    // the vertex shader's output. Adding them here therefore costs the forward
+    // path two interpolators and nothing else, and keeps ONE vertex shader
+    // feeding both passes -- which is what stops the G-buffer and the shaded
+    // image from ever disagreeing about where a triangle is.
+    float4 currClip : CURRCLIP;
+    float4 prevClip : PREVCLIP;
 };
 
 void main (in VSInput vsIn, out PSInput psIn)
 {
-    psIn.position = mul (g_viewProj, float4 (vsIn.position, 1.0));
+    float4 world = float4 (vsIn.position, 1.0);
+    psIn.position = mul (g_viewProj, world);
     psIn.worldPos = vsIn.position;   // already world space
     psIn.normal   = vsIn.normal;     // identity model matrix, so no normal matrix
     psIn.color    = vsIn.color;
+    psIn.currClip = psIn.position;
+    psIn.prevClip = mul (g_prevViewProj, world);
 }
 )hlsl";
 
@@ -470,6 +519,8 @@ struct PSInput
     float3 worldPos : WORLDPOS;
     float3 normal   : NORMAL;
     float4 color    : COLOR0;
+    float4 currClip : CURRCLIP;
+    float4 prevClip : PREVCLIP;
 };
 
 struct PSOutput
@@ -478,6 +529,7 @@ struct PSOutput
     float4 albedo       : SV_TARGET1;
     float  roughness    : SV_TARGET2;
     float4 materialData : SV_TARGET3;
+    float2 motion       : SV_TARGET4;
 };
 
 void main (in PSInput psIn, out PSOutput psOut)
@@ -490,6 +542,29 @@ void main (in PSInput psIn, out PSOutput psOut)
     psOut.roughness = roughness;
     psOut.materialData = float4 (roughness, saturate (g_materialParams.z), saturate (g_materialParams.x),
                                  saturate (albedo.a));
+
+    // ---- RE51.C2: the motion vector ---------------------------------------
+    //
+    // ⚠️ IT IS STORED IN NDC UNITS AND IT IS CURRENT MINUS PREVIOUS. That is
+    // DiligentFX's convention and it is NOT guessable -- it was read out of
+    // SSAO_ComputeTemporalAccumulation.fx, which computes
+    //
+    //     PrevLocation = Position.xy - Motion * F3NDC_XYZ_TO_UVD_SCALE.xy * ViewportSize
+    //
+    // with F3NDC_XYZ_TO_UVD_SCALE = (0.5, -0.5, 1.0) under D3D. Substituting the
+    // pixel-from-NDC mapping shows that expression is exact only when the stored
+    // value is (currNDC - prevNDC). ⚠️ THE SIGN IS THE WHOLE THING: reversed, a
+    // temporal effect reprojects the wrong way and every moving edge smears in
+    // the direction it came FROM, which reads as motion blur rather than as a
+    // bug.
+    //
+    // ⚠️ THE PERSPECTIVE DIVIDE IS PER-PIXEL AND HAS TO BE. Interpolating an
+    // already-divided NDC is affine in screen space, which is precisely what the
+    // hardware's perspective correction exists to avoid; on a floor plane
+    // running to the horizon the error is enormous.
+    float2 currNdc = psIn.currClip.xy / max (psIn.currClip.w, 1e-6);
+    float2 prevNdc = psIn.prevClip.xy / max (psIn.prevClip.w, 1e-6);
+    psOut.motion = currNdc - prevNdc;
 }
 )hlsl";
 
@@ -799,6 +874,7 @@ Texture2D<float>  g_gbufferDepth;
 Texture2D<float4> g_gbufferAlbedo;
 Texture2D<float>  g_gbufferRoughness;
 Texture2D<float4> g_gbufferMaterialData;
+Texture2D<float2> g_gbufferMotion;
 Buffer<uint>      g_depthRange;
 
 // Depth-buffer value back to metres from the eye. ⚠️ THE TWO PROJECTIONS NEED
@@ -841,6 +917,29 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
         // RGB shows roughness, classifier metalness and specular reflectance;
         // opacity remains in the target's alpha lane for downstream consumers.
         color = float4 (materialData.xyz, 1.0);
+    }
+    else if (int (g_eyePos.w) == 13)
+    {
+        // ---- RE51.C2: the motion vectors ----------------------------------
+        //
+        // ⚠️ RED IS RIGHTWARD MOTION, GREEN IS *UPWARD*, AND THE SCALE IS
+        // ENORMOUS ON PURPOSE. A vector is stored in NDC, where a fast orbit
+        // moves a pixel a few hundredths of a unit; shown at 1:1 the whole
+        // screen is mid-grey whether the vectors are right, zero, or reversed.
+        // x40 puts an ordinary drag into the visible range.
+        //
+        // ⚠️ WHAT A CORRECT FRAME LOOKS LIKE, so this can be judged rather than
+        // admired: STILL CAMERA -> flat mid-grey (0.5, 0.5) everywhere, exactly.
+        // Any colour at rest means the previous matrix is not last frame's.
+        // PANNING RIGHT -> the model turns GREENISH-CYAN (content moves LEFT on
+        // screen, so currNDC - prevNDC is negative in x). ORBITING -> a smooth
+        // gradient across the model, not a flat wash: parts nearer the pivot
+        // move less. THE SKY STAYS EXACTLY MID-GREY, because no triangle covers
+        // it and the target is cleared -- a coloured sky means the clear was
+        // lost, which is the one failure that would silently reproject the
+        // background from wherever the building used to be.
+        float2 motion = g_gbufferMotion.Load (int3 (pixel, 0));
+        color = float4 (motion * 40.0 + 0.5, 0.5, 1.0);
     }
     else
     {

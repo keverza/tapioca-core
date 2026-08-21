@@ -72,7 +72,16 @@ constexpr Diligent::Uint32 kGBufferDepth = 4;
 constexpr Diligent::Uint32 kGBufferMotion = 5;
 constexpr Diligent::Uint32 kGBufferGeometryMask = (1u << kGBufferNormal) | (1u << kGBufferAlbedo) |
                                                   (1u << kGBufferRoughness) | (1u << kGBufferMaterialData) |
-                                                  (1u << kGBufferDepth);
+                                                  (1u << kGBufferDepth) | (1u << kGBufferMotion);
+
+// ⚠️ THE MOTION TARGET'S ELEMENT INDEX IS 5 AND ITS MRT SLOT IS 4, AND WITHOUT
+// THIS TABLE THEY WOULD DISAGREE. GBuffer::Bind defaults an element's MRT slot
+// to its own index, but element 4 is the DEPTH buffer, which becomes the DSV and
+// consumes no colour slot -- so motion would be bound at slot 5 while the pixel
+// shader writes SV_TARGET4, and the vectors would land in nothing at all. The
+// array lists the slot for each RENDER-TARGET element in mask order; depth is
+// absent because Bind does not advance the cursor for it.
+constexpr Diligent::Uint32 kGBufferRTIndices[5] = { 0, 1, 2, 3, 4 };
 
 // ⚠️ IDs START AT 1, AND 0 IS RESERVED FOR "NOTHING". The pick target is cleared
 // to zero, so a pixel of 0 means the ray missed every element -- "you clicked the
@@ -394,6 +403,14 @@ struct geomsrv::archviz::DiligentScene::Impl {
     bool aoEnabled = true;
     float aoIntensity = 1.0f;
     Diligent::ITextureView* aoView = nullptr;
+
+    // ---- RE51.C2 ------------------------------------------------------------
+    // Last frame's view-projection. ⚠️ SEEDED FROM THE FIRST FRAME'S OWN MATRIX
+    // rather than left as the identity -- see DiligentSceneConstants::
+    // prevViewProj for what an identity previous camera does to every temporal
+    // effect on frame one.
+    float prevViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    bool havePrevViewProj = false;
     float lastAutoExposure = 0.0f;
     float lastSceneLuminance = 0.0f;
     float whiteBalanceKelvin = 6500.0f;

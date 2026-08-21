@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Learn how to author scanner-readable Tapioca Python commands.">
+  <title>Commands | Tapioca</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="index.html" aria-label="Tapioca home">
+        <span class="brand-mark" aria-hidden="true">T</span>
+        <span class="brand-name">Tapioca <small>for Archicad</small></span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="index.html">Overview</a>
+        <a href="getting-started.html">Get started</a>
+        <a class="active" href="commands.html" aria-current="page">Commands</a>
+        <a href="api.html">API</a>
+        <a href="development.html">Development</a>
+      </nav>
+      <a class="header-github" href="https://github.com/keverza/tapioca-core" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">&nearr;</span></a>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero container">
+      <p class="eyebrow">Command authoring</p>
+      <h1>Describe the workflow. Let the palette handle the edges.</h1>
+      <p class="lede">A Tapioca command is a top-level <code>run</code> function plus literal metadata that the palette can read without executing the command.</p>
+    </section>
+
+    <section class="section container">
+      <div class="two-column command-intro">
+        <div>
+          <p class="eyebrow">The smallest useful shape</p>
+          <h2>One folder. One entry file. One clear question.</h2>
+          <p>Production commands live under the command roots and are copied to the managed command directory by the sync script. Do not edit the deployed copy directly.</p>
+          <a class="text-link" href="https://github.com/keverza/tapioca-core/blob/main/docs/architecture/commands/SPEC.md" target="_blank" rel="noreferrer">Read the full command contract <span aria-hidden="true">&nearr;</span></a>
+        </div>
+        <div class="code-block code-block-large">
+          <div class="code-label">AddOn/EvP/Commands/&lt;Name&gt;/command.py</div>
+          <pre><code><span class="code-purple">import</span> tapioca
+
+<span class="code-purple">@tapioca.command</span>(
+    title=<span class="code-green">"Your Command"</span>,
+    category=<span class="code-green">"Annotation"</span>,
+    needs_selection=<span class="code-orange">True</span>,
+    description=<span class="code-green">"One line for the palette."</span>,
+)
+<span class="code-purple">def</span> <span class="code-blue">run</span>(count: tapioca.Int(minimum=1) = 4):
+    <span class="code-comment"># Read, compute, and present a result.</span>
+    ...</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section section-tinted">
+      <div class="container">
+        <div class="section-heading section-heading-row">
+          <div>
+            <p class="eyebrow">Authoring rules</p>
+            <h2>Keep the scanner and the user on the same page.</h2>
+          </div>
+          <p class="section-note">The palette reads metadata before it runs Python.</p>
+        </div>
+        <div class="rule-grid">
+          <div class="rule"><span>01</span><h3>Use the public import</h3><p>New commands should use <code>import tapioca</code>. Existing <code>import evp</code> commands remain valid.</p></div>
+          <div class="rule"><span>02</span><h3>Keep metadata literal</h3><p>Decorator and annotation values read by the scanner must be AST-readable literals. Computed metadata can disappear from the palette.</p></div>
+          <div class="rule"><span>03</span><h3>Keep UI in the host</h3><p>Use <code>tapioca.ui</code> for results and controls. Do not create tkinter, Qt, or another Python UI.</p></div>
+          <div class="rule"><span>04</span><h3>Respect selection state</h3><p>Declare <code>needs_selection=True</code> when the command needs the active selection so the palette can enforce that precondition.</p></div>
+          <div class="rule"><span>05</span><h3>Batch writes</h3><p>Destructive workflows should default to a dry run and use one transaction for real writes, giving the user one undo step.</p></div>
+          <div class="rule"><span>06</span><h3>Check cancellation</h3><p>Long pure-Python loops should call <code>tapioca.runtime.check_cancel()</code> between chunks.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section container">
+      <div class="section-heading">
+        <p class="eyebrow">Useful surfaces</p>
+        <h2>Start with the APIs most commands need.</h2>
+      </div>
+      <div class="surface-table" role="table" aria-label="Common Tapioca command surfaces">
+        <div class="surface-row surface-head" role="row"><span role="columnheader">Surface</span><span role="columnheader">Use it for</span><span role="columnheader">Example</span></div>
+        <div class="surface-row" role="row"><code role="cell">tapioca.selection</code><span role="cell">Read or modify selected elements</span><code role="cell">selection.get()</code></div>
+        <div class="surface-row" role="row"><code role="cell">tapioca.properties</code><span role="cell">Resolve and read project properties</span><code role="cell">properties.values(...)</code></div>
+        <div class="surface-row" role="row"><code role="cell">tapioca.ui</code><span role="cell">Show text, tables, and results</span><code role="cell">ui.table(...)</code></div>
+        <div class="surface-row" role="row"><code role="cell">tapioca.api</code><span role="cell">Call a registered native or routed command</span><code role="cell">api.call(...)</code></div>
+      </div>
+      <div class="bottom-links">
+        <a class="button button-dark" href="api.html">Explore the API <span aria-hidden="true">&rarr;</span></a>
+        <a class="text-link" href="https://github.com/keverza/tapioca-core/tree/main/Examples" target="_blank" rel="noreferrer">Open runnable examples <span aria-hidden="true">&nearr;</span></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <span>&copy; Tapioca project</span>
+      <span>Python command host for Archicad 29</span>
+      <a href="https://github.com/keverza/tapioca-core" target="_blank" rel="noreferrer">Source on GitHub <span aria-hidden="true">&nearr;</span></a>
+    </div>
+  </footer>
+</body>
+</html>

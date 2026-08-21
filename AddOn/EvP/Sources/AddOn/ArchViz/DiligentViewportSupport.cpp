@@ -77,7 +77,8 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
                                   request.debugView == int (DiligentDebugView::AmbientOcclusion) ||
                                   request.debugView == int (DiligentDebugView::GBufferAlbedo) ||
                                   request.debugView == int (DiligentDebugView::GBufferRoughness) ||
-                                  request.debugView == int (DiligentDebugView::GBufferMaterialData);
+                                  request.debugView == int (DiligentDebugView::GBufferMaterialData) ||
+                                  request.debugView == int (DiligentDebugView::MotionVectors);
 
     // ⚠️ CLEARED ON EVERY PATH THAT DOES NOT PREPARE IT. Draw multiplies in
     // whatever occlusion is standing, so a debug view -- or an AO pass that
@@ -96,6 +97,10 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
         scene.DrawGBufferDebug (context, request.target, request.view, request.proj, request.viewProj, request.eye,
                                 Camera::NearClip (), camera.FarClip (), camera.Distance (), camera.IsPerspective (),
                                 request.frameIndex, CullMode::Cw, request.debugView);
+        // ⚠️ ON THIS PATH TOO. See DiligentScene::AdvanceFrame: a frame that
+        // skips the handover leaves the previous matrix two frames stale, and
+        // the next motion vector comes out twice as long as the truth.
+        scene.AdvanceFrame (request.viewProj);
         return;
     }
 
@@ -113,6 +118,7 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
                                    Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex,
                                    CullMode::Cw);
     scene.Draw (context, request.viewProj, request.eye, CullMode::Cw, request.debugView);
+    scene.AdvanceFrame (request.viewProj);
 }
 
 void InstallDiligentDebugCallback ()

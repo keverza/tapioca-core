@@ -216,7 +216,8 @@ bool DiligentScene::EnsureGBufferTargets ()
             impl_->gBuffer->GetBuffer (kGBufferMotion) == nullptr ||
             impl_->gBuffer->GetBuffer (kGBufferAlbedo) == nullptr ||
             impl_->gBuffer->GetBuffer (kGBufferRoughness) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferMaterialData) == nullptr)
+            impl_->gBuffer->GetBuffer (kGBufferMaterialData) == nullptr ||
+            impl_->gBuffer->GetBuffer (kGBufferMotion) == nullptr)
             return false;
 
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal")
@@ -231,10 +232,25 @@ bool DiligentScene::EnsureGBufferTargets ()
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData")
             ->Set (impl_->gBuffer->GetBuffer (kGBufferMaterialData)
                        ->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferMotion")
+            ->Set (impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depthRange")
             ->Set (impl_->depthRange.BufferView ());
         impl_->gBufferWidth = impl_->viewportWidth;
         impl_->gBufferHeight = impl_->viewportHeight;
+        // ⚠️ A RESIZE IS A DISCONTINUITY, NOT A MOTION. Every pixel is somewhere
+        // else and the motion vectors describe none of it, so any reprojected
+        // history is drawn from wherever the old, differently-shaped image
+        // happened to have content. The AO pass detects this for itself as well;
+        // saying it here too costs nothing and means the scene does not depend
+        // on that being true.
+        //
+        // ⚠️ WHAT IS NOT COVERED: a camera TELEPORT. Adopting Archicad's camera
+        // moves the eye without any intervening frames, and the vectors for that
+        // frame are as wrong as a resize's. It is one frame of smeared occlusion
+        // on an event the user just triggered, which is why it is recorded here
+        // rather than guessed at with a heuristic on matrix distance.
+        impl_->ambientOcclusion.ResetHistory ();
     }
 
     return true;
@@ -254,13 +270,22 @@ bool DiligentScene::EnsureGBufferTargets ()
 void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull)
 {
     context->SetViewports (1, nullptr, 0, 0);
-    impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr, kGBufferGeometryMask);
+    // ⚠️ THE FOURTH ARGUMENT CLEARS AND THE FIFTH REMAPS. The motion target is
+    // cleared with the rest -- a pixel no triangle covers has no motion, and
+    // leaving last frame's vectors there would reproject the sky from wherever
+    // the building used to be. See kGBufferRTIndices for the remap.
+    impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr, kGBufferGeometryMask, kGBufferRTIndices);
     // Binding a different framebuffer resets the viewport on D3D11. Set it
     // again after the G-buffer bind so every MRT receives the full scene.
     context->SetViewports (1, nullptr, 0, 0);
 
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
+    // ⚠️ RE51.C2. On the first frame this IS the current matrix, so the motion
+    // vectors come out exactly zero rather than enormous -- see
+    // DiligentSceneConstants::prevViewProj.
+    std::memcpy (constants.prevViewProj, impl_->havePrevViewProj ? impl_->prevViewProj : viewProj,
+                 sizeof (float) * 16);
     constants.gradeParams[2] = impl_->roughnessBias;
     UploadConstants (context, impl_->constants, constants);
 
@@ -314,6 +339,19 @@ void DiligentScene::SetAmbientOcclusion (bool enabled, float intensity)
     impl_->aoIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
 }
 
+// RE51.C2. Called once per frame, AFTER every pass that used this frame's
+// camera. ⚠️ NOT AT THE TOP OF THE NEXT FRAME, which is the same instant and is
+// where it would be easy to put it: the AO prepass and the shading pass both run
+// inside one frame and both must see the SAME previous matrix, so the handover
+// has to happen where nothing else is left to read it.
+void DiligentScene::AdvanceFrame (const float viewProj[16])
+{
+    if (impl_ == nullptr || viewProj == nullptr)
+        return;
+    std::memcpy (impl_->prevViewProj, viewProj, sizeof (float) * 16);
+    impl_->havePrevViewProj = true;
+}
+
 void DiligentScene::ClearAmbientOcclusion ()
 {
     if (impl_ != nullptr)
@@ -336,15 +374,13 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
 
     RenderGBufferGeometry (context, viewProj, cull);
 
-    // ⚠️ THE MOTION TEXTURE IS CLEARED AND THE ACCUMULATION IS RESET, exactly as
-    // the debug path does, and for the reason finding F5 records: there are no
-    // real motion vectors yet (RE51.C2), so both temporal inputs are the current
-    // frame. This is a SPATIAL AO wearing a temporal effect's API. Feeding it an
-    // uncleared motion texture would let it ghost from history it never had.
+    // ⚠️ FINDING F5 IS CLOSED HERE (RE51.C2). This used to clear the motion
+    // texture and reset the accumulation every frame, deliberately, because
+    // there were no real vectors and a temporal effect fed invented history
+    // ghosts. The prepass above now writes genuine per-pixel motion, so the
+    // occlusion can accumulate across frames -- which is what takes the noise
+    // out of the contact shadows RE51.C3 just switched on.
     Diligent::ITexture* motionTexture = impl_->gBuffer->GetBuffer (kGBufferMotion);
-    Diligent::ITextureView* motionRtv = motionTexture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
-    const float zeroMotion[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    context->ClearRenderTarget (motionRtv, zeroMotion, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     // ⚠️ UNBIND BEFORE SAMPLING. The G-buffer's textures are render targets
     // until this line and shader resources after it; D3D11 resolves the overlap
@@ -357,6 +393,9 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
         impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
     Diligent::ITextureView* depthSrv =
         impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    // ⚠️ REAL VECTORS NOW, NOT A CLEARED TEXTURE. The argument on the other side
+    // is still named for what it used to be until C2 landed; see
+    // DiligentAmbientOcclusion::Execute.
     Diligent::ITextureView* motionSrv = motionTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 
     impl_->aoView = impl_->ambientOcclusion.Execute (
@@ -384,10 +423,12 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
 
+    // ⚠️ THE MOTION TARGET IS NO LONGER CLEARED HERE AND NO LONGER ZERO
+    // (RE51.C2). It is a real render target of the prepass now, cleared by
+    // GBuffer::Bind and written by kArchVizGBufferPS. The explicit clear that
+    // used to stand here existed only to guarantee zeros for a temporal input
+    // that had no vectors to offer; keeping it would erase them.
     Diligent::ITexture* motionTexture = impl_->gBuffer->GetBuffer (kGBufferMotion);
-    Diligent::ITextureView* motionRtv = motionTexture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
-    const float zeroMotion[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    context->ClearRenderTarget (motionRtv, zeroMotion, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     // Inputs cannot remain outputs while PostFXContext consumes them.
     context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);

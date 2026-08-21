@@ -369,11 +369,16 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = "ArchViz G-buffer geometry PSO";
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
-        gp.NumRenderTargets = 4;
+        gp.NumRenderTargets = 5;
         gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
         gp.RTVFormats[1] = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB;   // albedo; see the G-buffer element
         gp.RTVFormats[2] = Diligent::TEX_FORMAT_R16_FLOAT;
         gp.RTVFormats[3] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+        // ⚠️ RE51.C2. The slot is 4 and the ELEMENT index is 5; see
+        // kGBufferRTIndices for why those differ and what happens if they are
+        // allowed to. RG16_FLOAT holds an NDC delta, which is at most 2 in each
+        // axis, so half precision is generous rather than tight.
+        gp.RTVFormats[4] = Diligent::TEX_FORMAT_RG16_FLOAT;
         gp.DSVFormat = Diligent::TEX_FORMAT_D32_FLOAT;
         gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         gp.RasterizerDesc.CullMode = ToDiligentCull (cull);

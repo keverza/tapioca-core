@@ -41,10 +41,11 @@ const char* const kDebugViewNames[] = {
     "G-buffer albedo",
     "G-buffer roughness",
     "G-buffer material",
+    "motion vectors",
 };
 constexpr int kDebugViewCount = int (sizeof (kDebugViewNames) / sizeof (kDebugViewNames[0]));
 
-static_assert (kDebugViewCount == int (DiligentDebugView::GBufferMaterialData) + 1,
+static_assert (kDebugViewCount == int (DiligentDebugView::MotionVectors) + 1,
                "the HUD's combo and DiligentDebugView have drifted apart");
 
 // The render modes, in SceneRenderMode's order -- the combo's index IS the
