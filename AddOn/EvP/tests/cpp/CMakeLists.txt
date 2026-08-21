@@ -90,6 +90,13 @@ set (EVP_ARCHVIZ_SOURCES
     # which needs no DevKit, because the classifier deliberately takes a plain
     # SurfaceMaterial and reads no name.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SurfaceClassifier.cpp"
+    # ArchViz/BuildingMaterialSignal.cpp answers what a surface IS from the
+    # building material behind the element, which is the only place that
+    # information exists -- an Archicad surface describes appearance, not
+    # substance. It is here because its whole design rests on two measured
+    # facts (a standard priority scale, non-transferable fill guids) that can
+    # only be checked by running it over two real projects offline.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingMaterialSignal.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
@@ -162,6 +169,7 @@ set (EVP_TEST_SOURCES
     test_scenecmdqueue.cpp
     test_materialtable.cpp
     test_surfaceclassifier.cpp
+    test_buildingmaterialsignal.cpp
     test_diligentclear.cpp
     test_matrixmath.cpp
     test_debugcubemesh.cpp

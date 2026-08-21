@@ -93,7 +93,16 @@ std::vector<DumpedSurface> LoadDump ()
                 line.push_back (char (c));
             continue;
         }
-        if (!line.empty () && line[0] != '#') {
+        // ⚠️ A COMMENT IS "# " -- HASH THEN SPACE. Testing line[0] alone ate
+        // every row of the large project whose material is named
+        // "## CONCEPT - ...", which is precisely the user-authored set this
+        // fixture exists to exercise. Testing for "no tab" instead then let the
+        // COLUMN-HEADER line through as data, which is worse: its cutFillId
+        // field is the literal string "cutFillId" in both fixtures, so the two
+        // projects appeared to share a fill guid. Every comment this fixture
+        // writes begins "# "; no material name can.
+        const bool comment = line.size () >= 2 && line[0] == '#' && line[1] == ' ';
+        if (!line.empty () && !comment) {
             const std::vector<std::string> f = SplitTabs (line);
             if (f.size () >= 11) {
                 DumpedSurface s;
