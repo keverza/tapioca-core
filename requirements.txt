@@ -1,25 +1,29 @@
-# Archicad Python scripts -- ALL dependencies (every folder).
+# Tapioca Python runtime dependencies.
 #
-#   pip install -r requirements.txt
+# The native add-on ships the `evp`/`tapioca` package and embeds CPython. The
+# managed runtime is installed with `dist/Install-Runtime.ps1`; these entries
+# document the same baseline for an external or development Python environment.
+# The public examples themselves use only the shipped Tapioca API and stdlib.
 #
-# Per-folder subsets are in each folder's own requirements.txt, so you can install
-# only what a given tier needs.
+# Do not install these into a system Python expecting Archicad to use them. The
+# add-on uses its managed runtime under %LOCALAPPDATA%\Tapioca\runtime.
 
+# --- Minimum managed runtime ------------------------------------------------- #
+# Keep this list synchronized with evp._env.BASELINE and
+# dist/Install-Runtime.ps1 -Baseline. numpy backs evp.geometry; pydantic backs
+# schema-style command ports; pillow and requests are part of the shipped
+# runtime baseline used by the current command/API surface.
+numpy==2.0.2
+pillow
+requests
+pydantic>=2.7,<3
 
-archicad                # official Graphisoft Python API (the built-in palette)
-multiconn-archicad      # UnusedViewCleaner: multi-instance connection helper
+# --- Optional command dependencies ------------------------------------------ #
+# Commands declare these with @tapioca.command(requires=[...]); the managed
+# runtime installs them on first use. They are not needed for the add-on or
+# the public examples to load.
+ezdxf                   # ClearanceHeatmap, MeshFromContour, TreesFromDxf
+reportlab==4.2.5        # MassingFeasibility PDF output
 
-
-pillow                  # MassingFeasibility: screenshot compositing (PIL)
-# archicad              # (already above) AutomaticNumberingBasedOnPolyline
-
-
-requests                # geomclient: HTTP to the GeometryServer add-on
-msgpack                 # geomclient: mesh payloads
-numpy                   # geometry maths / ray batches
-ezdxf                   # ClearanceHeatmap: DXF output
-# pillow                # (already above) MassingFeasibilityGS: image compositing
-
-# --- dev / testing (not needed at runtime) ---------------------------------- #
-pytest                  # offline unit tests: EvP command folders (e.g. MassingFeasibility/
-                        # test_massingcalc.py), AddOn/EvP/tests/. Run: pytest -q
+# --- Offline development and tests ------------------------------------------ #
+pytest                  # AddOn/EvP/tests and command helper tests
