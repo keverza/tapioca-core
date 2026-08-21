@@ -777,6 +777,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.frameIndex = static_cast<uint32_t> (frames);
                 request.ambientOcclusion = hudState.ambientOcclusion;
                 request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;
+                request.ambientOcclusionRadius = hudState.ambientOcclusionRadius;
                 DrawSceneOrDebugView (scene, camera, context, request, lastLoggedGBufferView);
                 gpuTimings.End (context, GpuTimingStage::Shading);
             }
@@ -900,6 +901,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 stats_.fixedExposure = sceneStats.fixedExposure;
                 stats_.sceneLuminance = sceneStats.sceneLuminance;
                 stats_.meanAlbedo = sceneStats.meanAlbedo;
+                stats_.aoRadiusMetres = sceneStats.aoRadiusMetres;
                 for (int c = 0; c < 3; ++c)
                     stats_.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
                 stats_.substanceNamed = sceneStats.substanceNamed;

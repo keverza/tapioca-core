@@ -67,6 +67,8 @@ struct SceneDrawRequest {
     // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
     bool ambientOcclusion = true;
     float ambientOcclusionIntensity = 1.0f;
+    // World metres; 0 derives it from the model. See SetAmbientOcclusion.
+    float ambientOcclusionRadius = 0.0f;
 };
 
 // `lastLoggedGBufferView` is carried by the caller so switching away from a

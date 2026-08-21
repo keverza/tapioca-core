@@ -113,7 +113,8 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
     // for one until RE51.C3, and contact darkening cannot be had without depth
     // and normals for the whole frame. It is behind the HUD's own toggle, so
     // the cost is switchable rather than imposed.
-    scene.SetAmbientOcclusion (request.ambientOcclusion, request.ambientOcclusionIntensity);
+    scene.SetAmbientOcclusion (request.ambientOcclusion, request.ambientOcclusionIntensity,
+                               request.ambientOcclusionRadius);
     scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj, request.eye,
                                    Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex,
                                    CullMode::Cw);

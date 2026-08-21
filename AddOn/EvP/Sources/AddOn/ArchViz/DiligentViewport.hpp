@@ -135,6 +135,10 @@ struct DiligentViewportStats {
     float fixedExposure = 0.0f;
     float sceneLuminance = 0.0f;
     float meanAlbedo = 0.0f;
+    // RE51.C3. ⚠️ REPORTED BECAUSE IT IS DERIVED from the model's bounds
+    // unless the HUD overrides it -- an invisible number, and the first one
+    // to suspect when contact shadows are too subtle or the image just dims.
+    float aoRadiusMetres = 0.0f;
     float whiteBalanceGains[3] = {1.0f, 1.0f, 1.0f};
 
     // ---- RE51.B2: the substance join's coverage ------------------------------

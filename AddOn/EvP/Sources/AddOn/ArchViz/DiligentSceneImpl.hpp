@@ -24,6 +24,7 @@
 #include "ArchViz/DiligentScene.hpp"
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
+#include "ArchViz/DiligentShaders.hpp"   // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/EnvironmentMap.hpp"
@@ -211,6 +212,45 @@ struct Entry {
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
 };
+
+// ---- the three draw helpers, shared by the forward and G-buffer passes ------
+//
+// ⚠️ THEY LIVE HERE BECAUSE TWO TRANSLATION UNITS DRAW THE SAME GEOMETRY, and
+// they must do it identically. DiligentSceneDraw renders the image the user
+// sees; DiligentSceneGBuffer renders the same triangles into the G-buffer that
+// the occlusion and the debug views read. A second copy of "how a range is
+// bound and drawn" would be free to drift, and the symptom of that drift is
+// occlusion that does not line up with the shading it darkens -- which reads as
+// a projection bug rather than as two copies of one loop.
+inline void UploadConstants (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer,
+                      const DiligentSceneConstants& constants)
+{
+    Diligent::PVoid mapped = nullptr;
+    context->MapBuffer (buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
+    if (mapped != nullptr) {
+        *static_cast<DiligentSceneConstants*> (mapped) = constants;
+        context->UnmapBuffer (buffer, Diligent::MAP_WRITE);
+    }
+}
+
+inline void BindMesh (Diligent::IDeviceContext* context, const Entry& e)
+{
+    Diligent::IBuffer* vertexBuffers[1] = { e.vertexBuffer };
+    const Diligent::Uint64 offsets[1] = { 0 };
+    context->SetVertexBuffers (0, 1, vertexBuffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                               Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
+    context->SetIndexBuffer (e.indexBuffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+}
+
+inline void DrawEntryRange (Diligent::IDeviceContext* context, const Entry& e, const MaterialRange& r)
+{
+    Diligent::DrawIndexedAttribs draw;
+    draw.NumIndices = r.indexCount;
+    draw.FirstIndexLocation = r.firstIndex;
+    draw.IndexType = e.indices32 ? Diligent::VT_UINT32 : Diligent::VT_UINT16;
+    draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+    context->DrawIndexed (draw);
+}
 
 // Vertex and index buffers for one mesh, replacing whatever the entry held.
 // Shared by the element upserts and by the static/overlay meshes.
@@ -402,6 +442,10 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // frame boundary -- Draw clears it after binding.
     bool aoEnabled = true;
     float aoIntensity = 1.0f;
+    // <= 0 means "derive from the model's bounds"; see SetAmbientOcclusion.
+    float aoRadius = 0.0f;
+    // What that derivation (or the override) actually produced last frame.
+    float aoRadiusInUse = 0.0f;
     Diligent::ITextureView* aoView = nullptr;
 
     // ⚠️ A 1x1 WHITE TEXTURE MEANING "NOTHING IS OCCLUDED", AND IT IS NOT A

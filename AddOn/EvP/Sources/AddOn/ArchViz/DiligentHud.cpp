@@ -404,6 +404,19 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SliderFloat ("##aointensity", &state.ambientOcclusionIntensity, 0.0f, 2.0f, "%.2f");
                 ImGui::TextDisabled ("AO amount -- separate from the effect's own radius");
 
+                // ⚠️ THE RADIUS IS THE INSTRUMENT FOR THE ONE OPEN AO QUESTION.
+                // The first live run reported "AO darkens whole scene, but soft
+                // contact shadow is not visible", and a radius too small for
+                // the model is the leading explanation. Sweeping this settles
+                // it: if a larger radius produces recognisable contact
+                // darkening, that was the whole story; if the image only dims
+                // further at every setting, the fault is in the AO's INPUTS
+                // (depth or normals) and debug view 9 is the next look.
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##aoradius", &state.ambientOcclusionRadius, 0.0f, 20.0f, "%.2f m");
+                ImGui::TextDisabled ("AO radius -- 0 derives it from the model; now %.2f m",
+                                     scene.aoRadiusMetres);
+
                 ImGui::Checkbox ("auto exposure", &state.autoExposure);
                 ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)",
                                      scene.autoExposure, scene.sceneLuminance, scene.meanAlbedo);

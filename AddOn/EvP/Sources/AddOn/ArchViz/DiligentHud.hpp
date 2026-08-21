@@ -194,6 +194,13 @@ struct HudState {
     // further" are different requests and one slider cannot serve both.
     float ambientOcclusionIntensity = 1.0f;
 
+    // The occlusion radius in world METRES. ⚠️ 0 MEANS "DERIVE IT FROM THE
+    // MODEL", which is the default and is not the same as "no radius" -- see
+    // DiligentScene::SetAmbientOcclusion. The derived value is printed beside
+    // the slider, so moving it off zero starts from what the renderer chose
+    // rather than from an arbitrary number.
+    float ambientOcclusionRadius = 0.0f;
+
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
     // defaults change no image rendered before this existed.
     float whiteBalanceKelvin = 6500.0f;

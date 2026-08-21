@@ -161,6 +161,12 @@ struct DiligentSceneStats {
     // other input, and the one that comes from the model rather than the sky.
     float meanAlbedo = 0.0f;
 
+    // ---- RE51.C3: the occlusion radius actually in effect, in world metres ---
+    // ⚠️ REPORTED BECAUSE IT IS DERIVED. A radius the renderer chose from the
+    // model's bounds is invisible from outside, and it is the first number to
+    // suspect when the contact shadows are too subtle or the whole image dims.
+    float aoRadiusMetres = 0.0f;
+
     // ---- RE51.B2: how far the substance join actually got --------------------
     // ⚠️ COVERAGE IS THE WHOLE MEASUREMENT AND IT IS NOT A SUCCESS RATE.
     // BuildingMaterialSignal refuses whenever its two signals disagree, and
@@ -508,7 +514,18 @@ class DiligentScene final {
     // purpose: the breakdown's acceptance for C3 asks for exactly this, because
     // "more AO" and "a wider AO radius" are different requests and one slider
     // cannot serve both.
-    void SetAmbientOcclusion (bool enabled, float intensity);
+    // `radiusMetres` <= 0 means DERIVE IT FROM THE MODEL. ⚠️ THAT IS THE DEFAULT
+    // AND IT MATTERS: DiligentFX's own default is 1.0 world unit, which is a
+    // scale-free guess -- right for a scene measured in single metres, and a few
+    // pixels wide on a thirty-metre massing block. The first live run reported
+    // exactly that: "AO darkens whole scene, but soft contact shadow is not
+    // visible".
+    //
+    // ⚠️ THE DERIVED VALUE IS A HEURISTIC, NOT A MEASUREMENT, and the slider is
+    // the instrument that settles it. See DiligentSceneStats::aoRadiusMetres --
+    // whatever is in effect is reported every frame, so one run with the slider
+    // swept says whether the radius was the whole story or only half of it.
+    void SetAmbientOcclusion (bool enabled, float intensity, float radiusMetres);
 
   private:
     struct Impl;
@@ -520,6 +537,14 @@ class DiligentScene final {
     // The opaque geometry, into the G-buffer's MRTs. Shared by the debug views
     // and by the occlusion prepass so the two cannot describe different scenes.
     void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull);
+
+    // The occlusion radius in world metres: the HUD's override, or derived from
+    // the model's bounds when that is zero. ⚠️ ONE DERIVATION, TWO CALLERS --
+    // the ordinary prepass and the AO debug view. Two copies would let the view
+    // that exists to DIAGNOSE the occlusion show a different occlusion from the
+    // one being applied, which is the worst possible way for a debug view to be
+    // wrong.
+    float AmbientOcclusionRadius () const;
     std::unique_ptr<Impl> impl_;
 };
 

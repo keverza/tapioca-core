@@ -83,7 +83,7 @@ Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* normal,
     Diligent::ITextureView* depth, Diligent::ITextureView* motion, uint32_t width, uint32_t height,
     uint32_t frameIndex, const float view[16], const float proj[16], const float viewProj[16], const float eye[3],
-    float nearClip, float farClip, float focusDistance)
+    float nearClip, float farClip, float focusDistance, float effectRadiusMetres)
 {
     if (device == nullptr || context == nullptr || normal == nullptr || depth == nullptr || motion == nullptr ||
         width == 0 || height == 0 || impl_->postFx == nullptr || impl_->ssao == nullptr)
@@ -170,6 +170,15 @@ Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     // the honest first increment. Now it resets only when there is genuinely no
     // history to trust.
     settings.ResetAccumulation = impl_->haveHistory ? FALSE : TRUE;
+    // ⚠️ THE RADIUS IS IN WORLD METRES AND DiligentFX'S DEFAULT IS 1.0, WHICH IS
+    // A SCALE-FREE GUESS. It is right for a scene measured in single metres and
+    // small for a building: the first live run reported "AO darkens whole scene,
+    // but soft contact shadow is not visible", and a contact band one metre wide
+    // on a thirty-metre massing block is a few pixels. The caller derives this
+    // from the model's own bounds and the HUD can override it, because the right
+    // value is a property of the project rather than of the renderer.
+    if (effectRadiusMetres > 0.0f)
+        settings.EffectRadius = effectRadiusMetres;
     Diligent::ScreenSpaceAmbientOcclusion::RenderAttributes ssaoAttributes;
     ssaoAttributes.pDevice = device;
     ssaoAttributes.pDeviceContext = context;
