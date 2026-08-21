@@ -12,6 +12,10 @@ __pycache__/
 *.dxf
 *.obj
 *.stl
+# Curated documentation media is tracked; other generated images remain ignored.
+!docs/static/
+!docs/static/*.gif
+!docs/static/Logo.jpg
 /AddOn/EvP/build_29
 /AddOn/EvP/NotebookUI/node_modules/
 /AddOn/EvP/NotebookUI/dist/
