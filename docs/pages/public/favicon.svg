@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Tapioca</title>
+  <rect width="64" height="64" rx="18" fill="#252331"/>
+  <path d="M14 16h36v10H39v23H25V26H14z" fill="#e7a044"/>
+</svg>
