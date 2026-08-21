@@ -8,6 +8,7 @@
 #include "ArchViz/ExtractionEnvironment.hpp"
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
+#include "ArchViz/ColourSpace.hpp"
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/SceneCmdQueue.hpp" // EnvironmentUpload
 
@@ -42,10 +43,20 @@ std::unique_ptr<MaterialTable> ReadMaterials (const ModelerAPI::Model& model)
         SurfaceMaterial m;
         m.index = static_cast<int32_t> (i);
 
+        // ⚠️ sRGB IN, LINEAR OUT, AND THE DECODE IS NOT OPTIONAL. Archicad's
+        // surface colour is DISPLAY-REFERRED: the project's RAL paints carry
+        // exactly their published sRGB values (RAL 7016 arrives 0.220/0.243/
+        // 0.259, whose linear reflectance is 0.040/0.048/0.054). The shader
+        // multiplies this by light as a linear reflectance, so handing it the
+        // encoded value made anthracite grey five and a half times too bright
+        // while leaving white almost correct -- a non-uniform error no exposure
+        // control can undo, and the reason the image read as flat and washed
+        // out. Measured with SurfaceTemplateDump on 2026-08-21; see
+        // ColourSpace.hpp for the table.
         const ModelerAPI::Color c = material.GetSurfaceColor ();
-        m.r = static_cast<float> (c.red);
-        m.g = static_cast<float> (c.green);
-        m.b = static_cast<float> (c.blue);
+        m.r = SrgbToLinear (static_cast<float> (c.red));
+        m.g = SrgbToLinear (static_cast<float> (c.green));
+        m.b = SrgbToLinear (static_cast<float> (c.blue));
 
         // ⚠️ THE FLIP. ModelerAPI's transparency is 1 = INVISIBLE; alpha is
         // 1 = OPAQUE. Forgetting it renders the whole building as glass and the

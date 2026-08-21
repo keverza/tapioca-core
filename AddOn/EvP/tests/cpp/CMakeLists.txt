@@ -97,6 +97,11 @@ set (EVP_ARCHVIZ_SOURCES
     # facts (a standard priority scale, non-transferable fill guids) that can
     # only be checked by running it over two real projects offline.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingMaterialSignal.cpp"
+    # ArchViz/ColourSpace.cpp is the sRGB transfer function. It is here because
+    # a colour-space error is invisible in isolation and poisons every later
+    # calibration: the RAL measurements that prove Archicad's colours are
+    # display-referred are arithmetic, so they can be pinned exactly, offline.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/ColourSpace.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for

@@ -11,11 +11,13 @@
 // verify at runtime: the pool index is 1-BASED, and alpha is the FLIP of
 // ModelerAPI's transparency.
 
+#include "ArchViz/ColourSpace.hpp"
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <limits>
 
 using namespace geomsrv::archviz;
@@ -257,4 +259,57 @@ TEST (MaterialTable, BatchOrderPutsTheTableAheadOfItsGeometry)
     EXPECT_EQ (cmds[3].type, SceneCmdType::UpsertElement);
     EXPECT_EQ (cmds[4].type, SceneCmdType::EndBatch);
     q.Clear ();
+}
+
+// ---- RE51.B7: the colour space the pool is in ------------------------------
+
+TEST (ColourSpace, ArchicadColoursAreSrgbAndTheDecodeIsNotAPow22)
+{
+    // ⚠️ THE MEASUREMENT THIS FIX RESTS ON, pinned as arithmetic. The project's
+    // RAL paints arrive carrying their published sRGB values, so the linear
+    // reflectance the shader needs is the decoded number, not the stored one.
+    // RAL 7016 anthracite grey: stored 0.220/0.243/0.259.
+    EXPECT_NEAR (SrgbToLinear (0.220f), 0.0403f, 1e-3f);
+    EXPECT_NEAR (SrgbToLinear (0.243f), 0.0481f, 1e-3f);
+    EXPECT_NEAR (SrgbToLinear (0.259f), 0.0544f, 1e-3f);
+
+    // ⚠️ FIVE AND A HALF TIMES. The size of the error on a dark facade colour,
+    // and the reason no exposure control could have hidden it.
+    EXPECT_GT (0.220f / SrgbToLinear (0.220f), 5.0f);
+
+    // RAL 9010 near-white: barely moves. The error is NOT a uniform offset --
+    // that asymmetry is what flattened contrast across the whole image.
+    EXPECT_NEAR (SrgbToLinear (0.945f), 0.8796f, 1e-3f);
+    EXPECT_LT (0.945f / SrgbToLinear (0.945f), 1.1f);
+
+    // The exact piecewise curve, not pow(2.2). In the near-black segment the
+    // approximation is badly wrong, and dark facade colours live there.
+    EXPECT_NEAR (SrgbToLinear (0.02f), 0.02f / 12.92f, 1e-6f);
+    EXPECT_GT (std::abs (SrgbToLinear (0.02f) - std::pow (0.02f, 2.2f)), 1e-4f);
+}
+
+TEST (ColourSpace, TheTransferFunctionRoundTrips)
+{
+    for (int i = 0; i <= 100; ++i) {
+        const float v = float (i) / 100.0f;
+        EXPECT_NEAR (LinearToSrgb (SrgbToLinear (v)), v, 1e-5f) << "at " << v;
+        EXPECT_NEAR (SrgbToLinear (LinearToSrgb (v)), v, 1e-5f) << "at " << v;
+    }
+    // The anchors both directions must agree on exactly.
+    EXPECT_FLOAT_EQ (SrgbToLinear (0.0f), 0.0f);
+    EXPECT_FLOAT_EQ (SrgbToLinear (1.0f), 1.0f);
+    EXPECT_FLOAT_EQ (LinearToSrgb (0.0f), 0.0f);
+    EXPECT_FLOAT_EQ (LinearToSrgb (1.0f), 1.0f);
+}
+
+TEST (ColourSpace, OutOfRangeInputIsClampedRatherThanExtended)
+{
+    // ⚠️ A NEGATIVE INPUT IS NOT A COLOUR. Libraries that extend the curve with
+    // odd symmetry would return a negative reflectance and light the scene with
+    // it; this clamps instead.
+    EXPECT_FLOAT_EQ (SrgbToLinear (-0.5f), 0.0f);
+    EXPECT_FLOAT_EQ (LinearToSrgb (-0.5f), 0.0f);
+    EXPECT_FLOAT_EQ (SrgbToLinear (2.0f), 1.0f);
+    EXPECT_FLOAT_EQ (LinearToSrgb (2.0f), 1.0f);
+    EXPECT_FLOAT_EQ (SrgbToLinear (std::numeric_limits<float>::quiet_NaN ()), 0.0f);
 }

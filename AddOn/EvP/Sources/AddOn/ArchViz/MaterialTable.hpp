@@ -40,6 +40,14 @@ struct SurfaceMaterial {
     // `Mesh::triMaterial` and therefore in `MaterialRange::material`.
     int32_t index = 0;
 
+    // ⚠️ LINEAR, NOT sRGB, AND THE PRODUCER HAS ALREADY DECODED IT. Archicad's
+    // `GetSurfaceColor` is display-referred -- the project's RAL paints arrive
+    // carrying exactly their published sRGB values -- and the shader multiplies
+    // this by light as a linear reflectance. ExtractionEnvironment applies
+    // SrgbToLinear once, here, so every consumer is in the same space and the
+    // decode cannot be forgotten by one of them. ⚠️ ANYTHING THAT DISPLAYS THIS
+    // TO A HUMAN MUST RE-ENCODE IT: 0.040 is what anthracite grey IS, and it is
+    // not what its colour picker says.
     float r = 1.0f, g = 1.0f, b = 1.0f;
     // ⚠️ OPACITY, NOT TRANSPARENCY, AND THE FLIP IS THE POINT OF THE FIELD
     // NAME. ModelerAPI reports `GetTransparency()` where 1 means FULLY
