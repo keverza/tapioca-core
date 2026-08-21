@@ -49,6 +49,8 @@ STAGES = {
     "kArchVizDepthRangeSmoothCS": "cs_5_0",
     "kArchVizEnvBackgroundVS": "vs_5_0",
     "kArchVizEnvBackgroundPS": "ps_5_0",
+    "kArchVizEnvPrefilterVS": "vs_5_0",
+    "kArchVizEnvPrefilterPS": "ps_5_0",
     # ⚠️ THE MESH PS IS THREE LITERALS, concatenated at runtime because MSVC
     # caps a string literal at 16 KB. Compiling only the first piece would
     # check a shader with no entry point and pass on a truncated file.
@@ -72,6 +74,11 @@ PRELUDES = {
     "kArchVizMeshPS": ["kArchVizEnvCommonPS"],
     "kArchVizEnvBackgroundVS": ["kArchVizEnvCommonPS"],
     "kArchVizEnvBackgroundPS": ["kArchVizEnvCommonPS"],
+    # ⚠️ THE PREFILTER PIXEL SHADER NEEDS THE SAME PRELUDE AS THE BACKGROUND,
+    # and that is the point of RE51.B6's design rather than an accident: EnvUv
+    # and its inverse EnvDir are the ONE equirectangular convention in the tree,
+    # and the prefilter writes the very texture the other two read.
+    "kArchVizEnvPrefilterPS": ["kArchVizEnvCommonPS"],
 }
 
 

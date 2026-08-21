@@ -26,6 +26,8 @@
 // convention (`GetSurfaceColor`), passed through rather than rescaled, so the
 // numbers here can be diffed against EvP.GetModelMaterials' output directly.
 
+#include "ArchViz/BuildingMaterialSignal.hpp"   // Substance -- pure, no ACAPI
+
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -100,6 +102,30 @@ struct SurfaceMaterial {
     float specularR = 1.0f;
     float specularG = 1.0f;
     float specularB = 1.0f;
+
+    // ---- what the surface SITS ON, not what it looks like -------------------
+    //
+    // ⚠️ THIS DOES NOT COME FROM THE SURFACE POOL AT ALL, and that is the whole
+    // point of the field. Every channel above is something Archicad stores
+    // about how a surface LOOKS, and measured on the real template that is not
+    // enough to tell wood from brick: "Wood - Pine Grained Horizontal" and
+    // "Plytos - TAMSIAI RUDOS" are identical on shine, specular and diffuse,
+    // and their colours differ by one degree of hue. What they ARE lives one
+    // level down, on the BUILDING MATERIAL behind the element.
+    //
+    // ArchViz/ExtractionSubstance reads it, ArchViz/BuildingMaterialSignal
+    // classifies it and ArchViz/SubstanceJoin folds the many-to-many join into
+    // this one value. `Unknown` is the ordinary case for a project that has not
+    // been read yet, for a surface shared across substances, and for a building
+    // material the signal refused -- and it must render exactly as the renderer
+    // rendered before this field existed.
+    Substance substance = Substance::Unknown;
+
+    // The winning substance's share of the surface's observed weight, 0..1.
+    // ⚠️ REPORTED, NOT THRESHOLDED AGAIN. SubstanceJoin has already applied the
+    // dominance bar; a second threshold here would be a second policy in a
+    // second place, drifting from the first.
+    float substanceConfidence = 0.0f;
 
     std::string name;
 

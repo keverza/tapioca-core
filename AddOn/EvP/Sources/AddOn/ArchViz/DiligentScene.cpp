@@ -700,6 +700,20 @@ void DiligentScene::SetGrading (float exposure, float reflectance, float roughne
     impl_->roughnessBias = roughnessBias < -1.0f ? -1.0f : (roughnessBias > 1.0f ? 1.0f : roughnessBias);
 }
 
+void DiligentScene::SetAutoExposure (bool enabled)
+{
+    if (impl_ != nullptr)
+        impl_->autoExposureEnabled = enabled;
+}
+
+void DiligentScene::SetWhiteBalance (float kelvin, float tint)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->whiteBalanceKelvin = kelvin;
+    impl_->whiteBalanceTint = tint;
+}
+
 void DiligentScene::SetCameraRays (const float right[3], const float up[3], const float forward[3])
 {
     if (impl_ == nullptr)

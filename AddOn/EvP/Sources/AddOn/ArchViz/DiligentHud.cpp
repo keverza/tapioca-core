@@ -344,6 +344,26 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##sunwithsky", &state.sunWithSkyWeight, 0.0f, 1.0f, "%.2f");
                 ImGui::TextDisabled ("sun beside the sky -- lower it if the result is too bright");
+
+                // ---- RE51.B6 -------------------------------------------------
+                //
+                // ⚠️ NOTHING ON SCREEN SEPARATES A GGX-PREFILTERED MIP CHAIN
+                // FROM A BOX-FILTERED ONE. Both are "blurrier at higher
+                // roughness"; the difference is whether a polished surface
+                // reflects a recognisable environment or a smear, and that is a
+                // judgement, not an observation. So the state is printed. If it
+                // says box-filtered, the reason is the prefilter pipeline
+                // failing to build and the message names it.
+                if (scene.environmentLoaded) {
+                    if (scene.environmentPrefiltered)
+                        ImGui::TextDisabled ("  GGX-prefiltered: %u mips in %.1f ms",
+                                             scene.environmentPrefilteredMips,
+                                             scene.environmentPrefilterMs);
+                    else
+                        ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
+                                            "  box-filtered (mirrors will smear): %s",
+                                            scene.environmentPrefilterError.c_str ());
+                }
             }
 
             // ---- Materials & grading ----------------------------------------
@@ -366,6 +386,29 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##exposure", &state.exposure, 0.05f, 3.0f, "%.2f");
                 ImGui::TextDisabled ("exposure into the tone curve");
+
+                // ---- RE51.B9 ------------------------------------------------
+                //
+                // ⚠️ THE ESTIMATE IS PRINTED WHETHER OR NOT IT IS APPLIED, and
+                // that is the whole point of shipping the checkbox off. The auto
+                // exposure has one calibration constant and no live measurement
+                // behind it; showing what it WOULD choose beside the fixed value
+                // turns the first run into the measurement instead of into a
+                // surprise. If the two are close, turn it on and delete this
+                // note; if they are not, the ratio is the correction.
+                ImGui::Checkbox ("auto exposure", &state.autoExposure);
+                ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)",
+                                     scene.autoExposure, scene.sceneLuminance, scene.meanAlbedo);
+
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##whitebalance", &state.whiteBalanceKelvin, 2000.0f, 12000.0f, "%.0f K");
+                ImGui::TextDisabled ("white balance -- the light being CORRECTED FOR; 6500 K is neutral");
+
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##tint", &state.whiteBalanceTint, -1.0f, 1.0f, "%+.2f");
+                ImGui::TextDisabled ("tint -- negative green, positive magenta; gains %.2f %.2f %.2f",
+                                     scene.whiteBalanceGains[0], scene.whiteBalanceGains[1],
+                                     scene.whiteBalanceGains[2]);
             }
 
             // ⚠️ DISABLED, NOT ABSENT, AND NOT LIVE. Nothing in the viewer reads

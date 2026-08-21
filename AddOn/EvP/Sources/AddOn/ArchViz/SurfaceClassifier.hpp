@@ -191,7 +191,26 @@ struct SurfacePreset {
     float reflectance = 0.5f;
 };
 
-// ⚠️ PURE, like the classifier, and tested over the same real template.
+// ---- RE51.B4/B2: the substance's share of the preset ------------------------
+//
+// ⚠️ THE SUBSTANCE ONLY SPEAKS WHERE THE SURFACE IS SILENT, and this constant is
+// the line between the two. MEASURED on the real project: nearly every painted
+// surface sits at 0.72-0.8% `shining`, which is not a finish -- it is the value
+// a surface has when nobody ever authored one. The genuinely authored finishes
+// are an order of magnitude away (11, 18, 34, 38.56 and 79.52 percent, on the
+// handful of glass and metal surfaces). So below this bar the shininess channel
+// carries NO information, and substituting the substance's plausible default
+// replaces nothing; above it, the author said something and it is believed.
+//
+// This is what stops the presets from being an override. A varnished timber
+// floor authored at 40% shine keeps its gloss; the hundred untouched surfaces
+// on concrete, earth and plasterboard stop all rendering with the identical
+// roughness 0.99 that made Realistic look the same as Fast.
+constexpr float kUnauthoredShine = 0.02f;
+
+// ⚠️ PURE, like the classifier, and tested over the same real template. It reads
+// `material.substance` as well as the numeric channels; a table built before
+// that field existed carries `Unknown` and gets exactly the old behaviour.
 SurfacePreset PresetFor (const SurfaceMaterial& material);
 
 } // namespace archviz

@@ -4,6 +4,7 @@
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ArchVizLog.hpp"       // ArchVizLog
 #include "ArchViz/ExtractionEnvironment.hpp"   // ReadMaterials, ReadEnvironment
+#include "ArchViz/ExtractionSubstance.hpp"     // ReadProjectSubstances, ObserveElementSubstances
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/MeshGroups.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
@@ -87,6 +88,11 @@ struct SliceState {
     std::atomic<int64_t>  holdMs    { 0 };
     std::atomic<bool>     completed { false };
     std::vector<Mesh>     meshes;
+    // RE51: what this slice saw about which surfaces sit on which substances.
+    // ⚠️ PLAIN, LIKE `meshes`, AND HARVESTED ON THE SAME TERMS -- only when the
+    // slice completed AND the Invoke returned ok. A timed-out slice is abandoned
+    // whole; half its observations would bias the vote it feeds.
+    std::vector<SurfaceSubstanceObservation> observations;
     // PARTIAL PASSES ONLY: which of the wanted GUIDs this slice actually saw in
     // the model. What is NOT seen by the end of the pass is what was deleted (or
     // hidden, or moved off the storey), and that is how a removal is derived
@@ -326,11 +332,16 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     auto materials = std::make_shared<std::unique_ptr<MaterialTable>> ();
     auto env       = std::make_shared<EnvironmentUpload> ();
     auto haveEnv   = std::make_shared<std::atomic<bool>> (false);
+    // RE51: the project's building materials, classified. Read here with the
+    // surface pool for exactly the same reason -- both are small, both are
+    // per-project rather than per-element, and a second gate hop would cost a
+    // round trip to save nothing. Only a FULL pass needs it.
+    auto substances = std::make_shared<ProjectSubstances> ();
 
     const int64_t acquireStart = NowMs ();
     GS::UniString gateErr;
     const bool acquired = evp::MainThreadGate::Get ().Invoke (
-        [handle, materials, env, haveEnv] {
+        [handle, materials, env, haveEnv, substances, full] {
             auto model = std::make_unique<ModelerAPI::Model> ();
             if (!AcquireCurrentModel (*model))
                 return;                       // handle->model stays null: "no 3D model"
@@ -344,6 +355,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
 
             handle->count  = ModelElementCount (*model);
             *materials     = ReadMaterials (*model);
+            if (full)
+                *substances = ReadProjectSubstances ();
             haveEnv->store (ReadEnvironment (*env));
             handle->model  = model.release (); // ⚠️ ownership moves to the pass
         },
@@ -427,6 +440,18 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     // Keeping the old table would repaint one changed wall in another surface's
     // colour and leave the rest of the building right, which is the hardest
     // possible version of this bug to notice.
+    // ⚠️ THE TABLE THAT GOES OUT FIRST CARRIES THE *PREVIOUS* PASS'S SUBSTANCES.
+    // On a partial pass that is the whole answer (nothing re-derives it). On a
+    // full pass it is a placeholder that keeps the model from flashing back to
+    // undifferentiated matte for the length of the walk, and it is replaced by
+    // the freshly joined table at the end. See substanceMemory_ for why the
+    // carry-forward is checked against the surface name rather than trusted.
+    std::vector<SurfaceMaterial> surfaces;
+    if (*materials != nullptr) {
+        surfaces = (*materials)->All ();
+        ApplySubstanceMemory (substanceMemory_, **materials);
+    }
+
     SceneCmdQueue::Get ().PushBeginBatch (full);
     if (*materials != nullptr)
         SceneCmdQueue::Get ().PushMaterials (std::move (*materials));
@@ -436,6 +461,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     // ---- phase 2: walk the model, a few milliseconds at a time --------------
     auto wanted = std::make_shared<const std::set<std::string>> (filter);
     std::set<std::string> found;
+    std::vector<SurfaceSubstanceObservation> observations;
 
     int32_t  cursor              = 1;        // 1-BASED
     int      consecutiveTimeouts = 0;
@@ -472,8 +498,13 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         const int64_t   sliceMs  = opt.sliceMs;
         const int64_t sliceStart = NowMs ();
         GS::UniString sliceErr;
+        // RE51: observe substances only when there is something to observe them
+        // against. `full` gates the whole join; an empty attribute map means the
+        // read failed or the project has no classifiable materials, and walking
+        // every body to record `Unknown` for all of them would be pure cost.
+        const bool observeSubstances = full && !substances->byAttribute.empty ();
         const bool ok = evp::MainThreadGate::Get ().Invoke (
-            [model, count, st, wanted, sliceMs] {
+            [model, count, st, wanted, sliceMs, observeSubstances, substances] {
                 // The budget is checked INSIDE the slice, on the main thread, so
                 // the bound is on how long Archicad is actually held — not on
                 // how many elements we guessed would fit.
@@ -508,6 +539,14 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
                             st->matched.push_back (guid);
                         }
                     }
+                    // ⚠️ EVERY ELEMENT, NOT ONLY THE TESSELLATED ONES, and it
+                    // is the same on both pass shapes because the loop already
+                    // visits every index either way. A vote taken over only the
+                    // elements a filter happened to match would be a different
+                    // vote each refresh, so a surface's substance would change
+                    // as the user edited unrelated parts of the building.
+                    if (observeSubstances)
+                        ObserveElementSubstances (*model, i, *substances, st->observations);
                     ++i;
                     if (NowMs () - begin >= sliceMs)
                         break;
@@ -554,6 +593,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         }
         for (const std::string& guid : st->matched)
             found.insert (guid);
+        if (!st->observations.empty ())
+            observations.insert (observations.end (), st->observations.begin (), st->observations.end ());
 
         {
             std::lock_guard<std::mutex> lock (mutex_);
@@ -593,6 +634,33 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
                 ++removed;
             }
         }
+    }
+
+    // ---- RE51: the substance join, and the table it produces ---------------
+    //
+    // ⚠️ A SECOND MATERIAL TABLE ON THE SAME BATCH, DELIBERATELY. The first went
+    // out before the geometry because a range that arrives before its table is
+    // drawn against the previous pool (SceneCmdQueue.hpp). This one carries the
+    // SAME pool with the substance field filled in, which no index depends on --
+    // so it is safe here, and here is the only place it CAN go: the vote is not
+    // complete until every element has been walked.
+    //
+    // ⚠️ AND ONLY WHEN THE PASS FINISHED. A pass that was stopped or gave up has
+    // seen part of the model, and a partial vote is not a weaker answer -- it is
+    // a different one, which would change a surface's substance according to how
+    // far a cancelled refresh happened to get.
+    if (full && !gaveUp && !observations.empty () && cursor > handle->count) {
+        int named = 0;
+        SceneCmdQueue::Get ().PushMaterials (
+            BuildSubstanceTable (surfaces, observations, substanceMemory_, named));
+
+        ArchVizLog ("extraction: substance join - " + std::to_string (named) + "/" +
+                    std::to_string (surfaces.size ()) + " surfaces named from " +
+                    std::to_string (substances->classified) + "/" +
+                    std::to_string (substances->total) + " classified building materials, " +
+                    std::to_string (observations.size ()) + " observations" +
+                    (substances->error.empty () ? std::string ()
+                                                : std::string (" (") + substances->error + ")"));
     }
 
     // ---- close the batch ----------------------------------------------------

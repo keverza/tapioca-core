@@ -66,8 +66,16 @@ public:
     EnvironmentMap (const EnvironmentMap&) = delete;
     EnvironmentMap& operator= (const EnvironmentMap&) = delete;
 
-    // Allocates the texture. Does NOT load anything -- until Load succeeds the
-    // map is Ready() but not Loaded(), and the shader's own gate keeps it unread.
+    // Allocates the textures and builds the prefilter pipeline. Does NOT load
+    // anything -- until Load succeeds the map is Ready() but not Loaded(), and
+    // the shader's own gate keeps it unread.
+    //
+    // ⚠️ TWO TEXTURES, NOT ONE, SINCE RE51.B6. The upload lands in a private
+    // SOURCE texture with an ordinary box mip chain, and the prefilter reads
+    // that while writing the PUBLIC one whose view `ShaderView` returns. They
+    // cannot be the same object: a D3D11 draw that reads and writes one texture
+    // has its SRV silently unbound, which renders a black sky and says nothing.
+    // Both are allocated once here, for the binding reason above.
     bool Init (Diligent::IRenderDevice* device, std::string& error);
     void Shutdown ();
     bool IsReady () const;
@@ -97,6 +105,31 @@ public:
     // roughness into a mip index.
     uint32_t MipLevels () const;
 
+    // ---- RE51.B6, the GGX prefilter -----------------------------------------
+
+    // Whether the last successful Load ran the prefilter to completion.
+    //
+    // ⚠️ FALSE IS A WORKING RENDERER, NOT A BROKEN ONE, and that is why it is a
+    // separate flag from IsLoaded. If the prefilter pipeline could not be built
+    // -- an old driver, a shader that failed to compile -- the map falls back to
+    // the BOX mip chain it had before this unit, which is the behaviour every
+    // image before 2026-08-21 was rendered with. The sky still loads, the model
+    // still reflects it, and only a mirror looks worse than it should. A
+    // prefilter that failed loudly and blanked the sky would be a far worse
+    // trade.
+    bool IsPrefiltered () const;
+
+    // How many mips the last Load actually re-rendered (0 when it fell back),
+    // and how long that took. ⚠️ REPORTED BECAUSE IT IS THE ONLY EVIDENCE. A
+    // prefiltered mip and a box-filtered one are both "a blurrier sky"; nothing
+    // on screen distinguishes a prefilter that ran from one that silently did
+    // not, so the probe reads these two numbers instead of judging pixels.
+    uint32_t PrefilteredMips () const;
+    double PrefilterMilliseconds () const;
+
+    // Why the prefilter did not run, empty when it did. Never blocks a load.
+    const char* PrefilterError () const;
+
     // The solid-angle-weighted mean radiance of the loaded sky.
     //
     // ⚠️ IT IS REPORTED BECAUSE A BLACK SKY AND A FAILED BINDING LOOK THE SAME.
@@ -105,8 +138,14 @@ public:
     // view distinguishes them. One number does.
     void AverageRadiance (float out[3]) const;
 
-private:
+    // ⚠️ PUBLIC AS A NAME ONLY, AND STILL OPAQUE. The definition lives in the
+    // .cpp and nothing outside it can do anything with this. It is spelled
+    // public so the prefilter helpers there -- which are file-local free
+    // functions, not members, because they are Diligent plumbing rather than
+    // part of this class's contract -- may NAME the type in their signatures.
     struct Impl;
+
+private:
     Impl* impl_;
 };
 

@@ -130,6 +130,30 @@ struct DiligentSceneStats {
     float environmentAverage[3] = { 0.0f, 0.0f, 0.0f };
     std::string environmentPath;
     std::string environmentError;
+    // ---- RE51.B6: whether the mip chain is a real GGX prefilter -------------
+    // ⚠️ NOTHING ON SCREEN SEPARATES THESE. A prefiltered chain and a
+    // box-filtered one are both "a blurrier sky at higher roughness"; the only
+    // way to know which one a reflection is reading is to ask.
+    // `environmentPrefilterError` names the fallback's reason and is empty when
+    // the prefilter ran.
+    bool environmentPrefiltered = false;
+    uint32_t environmentPrefilteredMips = 0;
+    double environmentPrefilterMs = 0.0;
+    std::string environmentPrefilterError;
+
+    // ---- RE51.B9: the exposure the light implies ----------------------------
+    // ⚠️ REPORTED EVEN WHEN NOT APPLIED. `autoExposureEnabled` says whether it
+    // reached the shader; `autoExposure` and `sceneLuminance` are computed every
+    // frame regardless, so one live run produces the number that decides whether
+    // middle grey is the right target for this project.
+    bool autoExposureEnabled = false;
+    float autoExposure = 0.0f;
+    float sceneLuminance = 0.0f;
+    float appliedExposure = 0.0f;
+    float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
+    // The mean linear reflectance of the surface pool -- the auto exposure's
+    // other input, and the one that comes from the model rather than the sky.
+    float meanAlbedo = 0.0f;
     // How many elements draw highlighted. ⚠️ THIS IS THE ONE NUMBER THAT
     // SEPARATES "the bridge never delivered the selection" from "the tint is not
     // visible": a selection of three in Archicad and 0 here is the former, 3
@@ -254,6 +278,24 @@ class DiligentScene final {
     // DiligentSceneConstants::gradeParams: Archicad's surfaces are Blinn-Phong
     // percentages, and this project's read as matte almost everywhere.
     void SetGrading (float exposure, float reflectance, float roughnessBias);
+
+    // ---- RE51.B9: the finishing controls that follow the LIGHT ---------------
+
+    // Auto exposure. When on, `SetGrading`'s exposure is IGNORED and the value
+    // is derived from the scene's own light each frame (ArchViz/AutoExposure).
+    //
+    // ⚠️ IT SHIPS OFF, AND THAT IS A MEASUREMENT GAP RATHER THAN A DOUBT ABOUT
+    // THE ARITHMETIC. The estimate has one calibration constant -- middle grey
+    // -- and whether 0.18 is right for this project's materials can only be
+    // settled by comparing what it chooses against a render somebody looked at.
+    // Until then it is COMPUTED and REPORTED every frame (see Stats::
+    // autoExposure) and applied only when asked for, so the first live run
+    // produces the number instead of a surprise.
+    void SetAutoExposure (bool enabled);
+
+    // White balance, as the temperature of the light being CORRECTED FOR.
+    // 6500 K and tint 0 is the exact identity -- see AutoExposure.hpp.
+    void SetWhiteBalance (float kelvin, float tint);
 
     // The camera's view-ray basis, for the sky background. Supplied rather than
     // derived because the scene has no camera — only the frame loop does.

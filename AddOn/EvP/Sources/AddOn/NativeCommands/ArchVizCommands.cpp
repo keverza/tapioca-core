@@ -10,7 +10,9 @@
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/SelectionBridge.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
+#include "Python/CloudCompareRunner.hpp"
 #include "Python/MainThreadGate.hpp"
+#include "Python/RunCancel.hpp"
 
 namespace geomsrv {
 
@@ -637,6 +639,65 @@ class SetDiligentSunCommand : public MainThreadCommand {
     }
 };
 
+// CloudCompare is deliberately an out-of-process, ACAPI-free operation. The
+// in-process bus calls this command on its HTTP worker because NeedsMainThread
+// is false; no gate hop is allowed to turn a long CLI run into an Archicad UI
+// stall.
+class RunCloudCompareCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "RunCloudCompare";
+    }
+
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::UniString executablePath;
+        GS::UniString inputPath;
+        GS::UniString outputPath;
+        if (!params.Get ("executablePath", executablePath) || executablePath.IsEmpty () ||
+            !params.Get ("inputPath", inputPath) || inputPath.IsEmpty () || !params.Get ("outputPath", outputPath) ||
+            outputPath.IsEmpty ())
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("executablePath, inputPath and outputPath are required", "Tapioca.RunCloudCompare"));
+
+        GS::Array<double> cropPolygon;
+        params.Get ("cropPolygon", cropPolygon);
+        if ((cropPolygon.GetSize () % 2) != 0 || (!cropPolygon.IsEmpty () && cropPolygon.GetSize () < 6))
+            return NativeCommandResult::Failure (EVP_FAIL (
+                "cropPolygon must contain zero values or at least three XY pairs", "Tapioca.RunCloudCompare"));
+
+        bool keepOutside = false;
+        params.Get ("keepOutside", keepOutside);
+        double subsampleStep = 0.0;
+        params.Get ("subsampleStep", subsampleStep);
+        if (subsampleStep < 0.0)
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("subsampleStep cannot be negative", "Tapioca.RunCloudCompare"));
+
+        const evp::CloudCompareResult result = evp::RunCloudCompareCli (
+            executablePath, inputPath, outputPath, cropPolygon.IsEmpty () ? nullptr : cropPolygon.GetContent (),
+            cropPolygon.GetSize () / 2, keepOutside, subsampleStep, evp::RunCancel::Get ().Generation ());
+
+        // A process-level failure is diagnostic domain data, not a transport
+        // failure: the transcript and exact exit code must reach the probe.
+        GS::ObjectState os;
+        os.Add ("succeeded", result.succeeded);
+        os.Add ("cancelled", result.cancelled);
+        os.Add ("exitCode", (GS::Int32) result.exitCode);
+        os.Add ("transcript", result.transcript);
+        os.Add ("outputPath", result.outputPath);
+        os.Add ("logPath", result.logPath);
+        os.Add ("failureReason", result.error);
+        return os;
+    }
+};
+
 const NativeCommandRegistration kArchVizCommandRegistrations[] = {
     { "SetOverlayFrameLatency", &MakeRegisteredNativeCommand<SetOverlayFrameLatencyCommand>, false,
       R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":3}},"additionalProperties":false,"required":["frames"]})json",
@@ -685,6 +746,9 @@ const NativeCommandRegistration kArchVizCommandRegistrations[] = {
     { "SetDiligentEnvironmentMap", &MakeRegisteredNativeCommand<SetDiligentEnvironmentMapCommand>, false,
       R"json({"type":"object","properties":{"path":{"type":"string"},"enabled":{"type":"boolean"},"intensity":{"type":"number","minimum":0,"maximum":20},"rotationDegrees":{"type":"number","minimum":-360,"maximum":360}},"additionalProperties":false,"required":["path"]})json",
       R"json({"type":"object","properties":{"requested":{"type":"string"},"enabled":{"type":"boolean"},"intensity":{"type":"number"},"rotationDegrees":{"type":"number"}},"additionalProperties":false,"required":["requested","enabled","intensity","rotationDegrees"]})json" },
+    { "RunCloudCompare", &MakeRegisteredNativeCommand<RunCloudCompareCommand>, false,
+      R"json({"type":"object","properties":{"executablePath":{"type":"string","minLength":1},"inputPath":{"type":"string","minLength":1},"outputPath":{"type":"string","minLength":1},"cropPolygon":{"type":"array","items":{"type":"number"},"minItems":0},"keepOutside":{"type":"boolean"},"subsampleStep":{"type":"number","minimum":0}},"additionalProperties":false,"required":["executablePath","inputPath","outputPath"]})json",
+      R"json({"type":"object","properties":{"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"exitCode":{"type":"integer"},"transcript":{"type":"string"},"outputPath":{"type":"string"},"logPath":{"type":"string"},"failureReason":{"type":"string"}},"additionalProperties":false,"required":["succeeded","cancelled","exitCode","transcript","outputPath","logPath","failureReason"]})json" },
 };
 
 } // namespace

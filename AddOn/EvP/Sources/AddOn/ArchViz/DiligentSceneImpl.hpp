@@ -363,9 +363,27 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sunWithSkyWeight = 0.55f;
     // Realistic-quality grading: exposure into the ACES curve, a multiplier on
     // both specular terms, and a bias added to every material's roughness.
-    float exposure = 0.6f;
+    //
+    // ⚠️ 1.2, AND IT HAD DRIFTED FROM DiligentHud::exposure UNTIL 2026-08-21.
+    // The tone curve moved from Narkowicz's per-channel ACES to Hill's fit, and
+    // 1.2 is the pre-scale at which the two agree on neutral grey to within
+    // 0.002; the HUD's copy moved with it and this one did not. It was invisible
+    // because the HUD calls SetGrading on its first frame and overwrites this,
+    // so the number here only decides what a frame drawn BEFORE the HUD exists
+    // looks like -- and a headless render (PLAT-RE52) has no HUD at all, so it
+    // would have rendered every image at half the exposure of the interactive
+    // viewport. These two are ONE value in two places; move them together.
+    float exposure = 1.2f;
     float reflectance = 1.0f;
     float roughnessBias = 0.0f;
+    // RE51.B9. `autoExposure` gates whether `exposure` above is used at all;
+    // `lastAutoExposure` is what the estimate CHOSE this frame and is reported
+    // whether or not it was applied -- see DiligentScene::SetAutoExposure.
+    bool autoExposureEnabled = false;
+    float lastAutoExposure = 0.0f;
+    float lastSceneLuminance = 0.0f;
+    float whiteBalanceKelvin = 6500.0f;
+    float whiteBalanceTint = 0.0f;
     // The view ray basis for the background pass, world space. See
     // DiligentSceneConstants::envRayRight for the convention.
     float cameraRayRight[3] = { 0.0f, 0.0f, 0.0f };

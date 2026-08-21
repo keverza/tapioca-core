@@ -102,6 +102,75 @@ SurfaceVerdict ClassifySurface (const SurfaceMaterial& m)
 // (Unreal's remapping), so 0.5 IS 0.04. Writing 0.04 here would give F0 0.0032.
 constexpr float kDielectricReflectance = 0.5f;
 
+// The PBR description a SUBSTANCE earns, for a surface whose own finish channel
+// carries nothing (see kUnauthoredShine). Applied only in that case, and only
+// where the optical classifier has already declined to answer.
+//
+// ⚠️ EVERY NUMBER HERE IS INVENTED, WHICH IS EXACTLY WHY EACH ONE IS JUSTIFIED
+// AGAINST A PHYSICAL REFERENCE RATHER THAN CHOSEN BY EYE. Archicad stores no
+// roughness and no IOR; there is nothing to measure, so the alternative to a
+// referenced default is an unreferenced one.
+//
+// Reflectance is the DIELECTRIC level the shader maps through F0 = 0.08 * r, so
+// 0.5 is F0 = 0.04, the IOR-1.5 dielectric every PBR renderer defaults to.
+void ApplySubstancePreset (Substance substance, SurfacePreset& preset)
+{
+    switch (substance) {
+        case Substance::Concrete:
+            // Cast concrete is a rough dielectric with an ordinary IOR near 1.5.
+            // Not 1.0: even a raw finish has enough specular sheen at grazing
+            // angles to catch the sky, and a roughness of exactly 1 removes it.
+            preset.roughness = 0.85f;
+            break;
+
+        case Substance::Earth:
+            // Soil, gravel and topsoil: the roughest thing on a site, and a
+            // LOWER specular level than mineral concrete because the organic
+            // fraction has an IOR nearer 1.4 (F0 ~ 0.028).
+            preset.roughness = 0.95f;
+            preset.reflectance = 0.35f;
+            break;
+
+        case Substance::Wood:
+            // Bare or lightly finished timber. ⚠️ NOT GLOSSY: a lacquered floor
+            // is authored with a real shine and therefore never reaches this
+            // branch at all, which is the whole design of kUnauthoredShine.
+            preset.roughness = 0.65f;
+            break;
+
+        case Substance::Plastic:
+            // Polymers sit at IOR 1.5-1.6, so slightly ABOVE the dielectric
+            // default (F0 ~ 0.048), and unfinished plastic parts read as
+            // semi-gloss rather than matte.
+            preset.roughness = 0.45f;
+            preset.reflectance = 0.60f;
+            break;
+
+        case Substance::Metal:
+            // ⚠️ THE ONE SUBSTANCE THAT CHANGES THE LIGHTING MODEL RATHER THAN
+            // ITS PARAMETERS, and the one case where the building material
+            // genuinely knows something the surface does not. A powder-coated
+            // steel balustrade is authored with a flat paint surface; only the
+            // material behind it says conductor.
+            preset.metallic = 1.0f;
+            preset.roughness = 0.35f;
+            break;
+
+        case Substance::Glass:
+            // ⚠️ DELIBERATELY NOTHING. A GLASS building material reaching this
+            // branch means the SURFACE in front of it is opaque and unpolished
+            // -- a spandrel panel, or the frame captured with the pane. Trusting
+            // the substance here would render solid panels as windows, which is
+            // the confidently-wrong failure this whole track refuses to make.
+            // Real glazing is caught optically by ClassifySurface, from
+            // transparency, and never gets here.
+            break;
+
+        case Substance::Unknown:
+            break;
+    }
+}
+
 SurfacePreset PresetFor (const SurfaceMaterial& m)
 {
     SurfacePreset preset;
@@ -135,11 +204,21 @@ SurfacePreset PresetFor (const SurfaceMaterial& m)
         case SurfaceClass::Polished:
         case SurfaceClass::Matte:
         case SurfaceClass::Unclassified:
-            // ⚠️ UNCLASSIFIED CHANGES NOTHING, and that is the contract. A
-            // surface the classifier would not name is drawn exactly as the
-            // renderer drew it before any of this existed -- measured roughness,
-            // measured specular, dielectric. A refusal must never become a
-            // silent third behaviour.
+            // ⚠️ THE OPTICAL REFUSAL STILL CHANGES NOTHING BY ITSELF. What
+            // follows is a SECOND, INDEPENDENT source of evidence -- the
+            // building material behind the element -- and it is consulted only
+            // here, where the surface's own channels have already failed to
+            // answer. A surface the optical classifier NAMED is never
+            // second-guessed by the substance: transparency and specular
+            // reflection are genuine optical measurements of the thing being
+            // drawn, and the building material behind a pane of glass is often
+            // the mullion's steel.
+            //
+            // ⚠️ AND ONLY WHERE THE FINISH CHANNEL IS UNAUTHORED. See
+            // kUnauthoredShine: above that bar the author said something about
+            // this surface and it is believed, substance or no substance.
+            if (m.shininess <= kUnauthoredShine)
+                ApplySubstancePreset (m.substance, preset);
             break;
     }
     return preset;

@@ -160,6 +160,21 @@ struct HudState {
     float reflectance = 1.0f;
     float roughnessBias = 0.0f;
 
+    // ---- RE51.B9 -------------------------------------------------------------
+    //
+    // ⚠️ AUTO EXPOSURE SHIPS OFF, AND THE CHECKBOX IS THE MEASUREMENT. The
+    // estimate (ArchViz/AutoExposure) is computed every frame whether or not it
+    // is applied, and the HUD prints what it chose beside the fixed value -- so
+    // the first live run says whether middle grey is the right target for this
+    // project's materials without risking a single image on the answer. Turning
+    // it on by default before that number exists would be guessing in public.
+    bool autoExposure = false;
+
+    // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
+    // defaults change no image rendered before this existed.
+    float whiteBalanceKelvin = 6500.0f;
+    float whiteBalanceTint = 0.0f;
+
     // ---- projection: perspective or axonometric ----------------------------
     //
     // Archicad's own two 3D projections, and the viewer should offer both: a

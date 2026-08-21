@@ -97,6 +97,22 @@ set (EVP_ARCHVIZ_SOURCES
     # facts (a standard priority scale, non-transferable fill guids) that can
     # only be checked by running it over two real projects offline.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingMaterialSignal.cpp"
+    # ArchViz/SubstanceJoin.cpp is what finally gives that classifier a caller:
+    # it folds the many-to-many body->surface join into one verdict per surface.
+    # ⚠️ IT IS HERE FOR THE SHARPEST VERSION OF THE ARCHVIZ REASON. Every way of
+    # getting the join wrong renders a complete, plausible building in the wrong
+    # materials -- no crash, no warning, and nothing on screen that says the
+    # timber studs are being drawn as concrete. Pure by construction: no ACAPI,
+    # no ModelerAPI, no Diligent, so the vote can be exercised offline against
+    # exactly the ambiguous cases a real project produces.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SubstanceJoin.cpp"
+    # ArchViz/AutoExposure.cpp is RE51.B9's exposure estimate and its white
+    # balance. It is here because BOTH halves fail silently and plausibly: an
+    # exposure that is wrong by a stop reads as a styling choice, and a white
+    # balance applied in the wrong SENSE warms the image when asked to cool it
+    # and looks entirely deliberate. Pure by construction -- which is the whole
+    # reason the Kelvin arithmetic lives in C++ rather than in HLSL.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/AutoExposure.cpp"
     # ArchViz/ColourSpace.cpp is the sRGB transfer function. It is here because
     # a colour-space error is invisible in isolation and poisons every later
     # calibration: the RAL measurements that prove Archicad's colours are
@@ -159,6 +175,12 @@ set (EVP_ARCHVIZ_SOURCES
     # to settle which way Archicad means.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanAnchorRibbon.cpp")
 
+# The CloudCompare command builder is deliberately DevKit-free. It pins the
+# external CLI contract while the runner itself remains in the ACAPI-free
+# Python process-boundary source root.
+set (EVP_CLOUDCOMPARE_SOURCES
+     "${EVP_ROOT}/Sources/AddOn/Python/CloudCompareCommand.cpp")
+
 set (EVP_TEST_SOURCES
     test_command_filter.cpp
     test_param_layout.cpp
@@ -175,6 +197,8 @@ set (EVP_TEST_SOURCES
     test_materialtable.cpp
     test_surfaceclassifier.cpp
     test_buildingmaterialsignal.cpp
+    test_substancejoin.cpp
+    test_autoexposure.cpp
     test_diligentclear.cpp
     test_matrixmath.cpp
     test_debugcubemesh.cpp
@@ -183,7 +207,8 @@ set (EVP_TEST_SOURCES
     test_environmentlighting.cpp
     test_plancameramath.cpp
     test_plananchorribbon.cpp
-    test_pickvote.cpp)
+    test_pickvote.cpp
+    test_cloudcompare.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
 # reference/ is gitignored, so a fresh clone has neither dependency. Say so here
@@ -213,10 +238,12 @@ target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
 
 # ---- the test binary -------------------------------------------------------
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
-                             ${EVP_ARCHVIZ_SOURCES} ${EVP_TEST_SOURCES})
+                              ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
+                              ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"
     "${GEOM_DIR}"
+    "${EVP_ROOT}/Sources/AddOn/Python"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}")
 target_link_libraries (EvPGeomTests PRIVATE gtest_vendored)

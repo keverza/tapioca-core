@@ -56,6 +56,11 @@
 #include <vector>
 #include <atomic>
 
+#include "ArchViz/SubstanceJoin.hpp"
+
+#include <map>
+#include <utility>
+
 namespace geomsrv {
 namespace archviz {
 
@@ -236,6 +241,25 @@ private:
     void ArmObservers (const std::vector<std::string>& guids, const Options& opt);
 
     void RunLiveLoop (const Options& opt);
+
+    // ---- RE51.B2/B6: the substance join, remembered between passes ----------
+    //
+    // ⚠️ THE SUBSTANCE WALK IS A FULL-PASS COST AND MUST NOT BECOME A PER-EDIT
+    // ONE. Deriving it needs every element's bodies and every body's polygons;
+    // that is affordable once per rebuild and is exactly what a partial refresh
+    // exists to avoid paying. So a full pass computes it and a partial pass
+    // carries it forward.
+    //
+    // ⚠️ THE NAME IS AN IDENTITY CHECKSUM AND NOTHING ELSE. Archicad RENUMBERS
+    // the model's surface pool whenever it rebuilds the 3D, so a remembered
+    // index can point at a different surface after an edit -- which would paint
+    // one surface with another's substance and look like a shading bug.
+    // Comparing the name at that index catches the renumbering and drops the
+    // memory instead. This is the standing "names must never decide" rule
+    // observed, not bent: the name never contributes to WHAT a substance is,
+    // only to whether a previously computed answer still refers to the same
+    // surface.
+    std::map<int32_t, std::pair<std::string, SurfaceSubstance>> substanceMemory_;
 
     std::thread        worker_;
     std::atomic<bool>  stopFlag_ { false };

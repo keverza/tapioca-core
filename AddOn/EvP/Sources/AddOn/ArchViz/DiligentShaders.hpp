@@ -201,6 +201,35 @@ struct DiligentSceneConstants {
     // neutral grey to within 0.002 across the whole range. Changing one without
     // the other changes the exposure of every image ever compared against these.
     float gradeParams[4] = { 1.2f, 1.0f, 0.0f, 0.0f };
+
+    // ---- appended for RE51.B6, the GGX environment prefilter ----------------
+    //
+    // x = the perceptual roughness this prefilter pass is convolving for,
+    // y = how many GGX samples to take, z = the SOURCE map's width in texels,
+    // w = its height. ⚠️ THESE ARE READ BY ONE SHADER ONLY -- the offline
+    // prefilter in ArchViz/EnvironmentMap, which runs at LOAD time and never
+    // during a frame. The scene's own draw path leaves them at their defaults
+    // and never looks at them.
+    //
+    // ⚠️ THEY RIDE THE SCENE cbuffer RATHER THAN A SECOND ONE ON PURPOSE. The
+    // prefilter shader needs `EnvUv`, which reads `g_envParams.y`; giving it a
+    // private constant buffer would mean either a second copy of that lookup or
+    // two buffers bound to one tiny pass. Sharing the declaration is what keeps
+    // exactly ONE equirectangular convention in the tree (see EnvUv's ⚠️).
+    float prefilterParams[4] = { 0.0f, 64.0f, 2048.0f, 1024.0f };
+
+    // ---- appended for RE51.B9, white balance --------------------------------
+    //
+    // rgb = LINEAR per-channel gains applied immediately before the exposure
+    // pre-scale and the tone curve; w spare. 1,1,1 is the identity, which is
+    // what every image rendered before this existed used.
+    //
+    // ⚠️ IT IS A GAIN, NOT A TEMPERATURE. The Kelvin-and-tint arithmetic lives
+    // on the CPU in ArchViz/AutoExposure, where it is tested offline against
+    // published chromaticities; the shader receives the result. Putting a
+    // black-body approximation in HLSL would make it untestable and would give
+    // the HUD and the renderer two chances to disagree about what 5500 K is.
+    float whiteBalance[4] = { 1.0f, 1.0f, 1.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -233,11 +262,11 @@ enum class DiligentDebugView : int {
     GBufferMaterialData = 12,
 };
 
-static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16,
+static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16,
                "the cbuffer is two float4x4s, seven float4s, the 9-element SH array, "
-               "the environment parameters, the material parameters and the three "
-               "view-ray vectors and the grading parameters, and HLSL will read it "
-               "that way");
+               "the environment parameters, the material parameters, the three "
+               "view-ray vectors, the grading parameters, the prefilter parameters "
+               "and the white balance, and HLSL will read it that way");
 
 // The cbuffer declaration, ONE COPY, prepended to each shader by
 // ArchVizShaderSource below.
@@ -271,6 +300,9 @@ cbuffer ArchVizConstants
     float4   g_envRayUp;        //                         + y*up, at NDC (x, y)
     float4   g_envRayForward;
     float4   g_gradeParams;     // x exposure, y reflectance, z roughness bias
+    float4   g_prefilterParams; // LOAD-TIME ONLY: x roughness, y samples,
+                                // zw source size. See DiligentSceneConstants.
+    float4   g_whiteBalance;    // rgb linear gains, applied before the exposure
 };
 )hlsl";
 
@@ -589,6 +621,152 @@ void main (uint vertexId : SV_VertexID, out float4 position : SV_POSITION, out f
 }
 )hlsl";
 
+// ---- RE51.B6: the GGX prefilter that replaces the box mip chain ------------
+//
+// ⚠️ THIS IS THE WHOLE OF B6 ON THE GPU, AND IT RUNS AT LOAD TIME, NOT PER
+// FRAME. The environment texture the model reflects used to be box-filtered --
+// each mip the arithmetic mean of four texels of the one above. That is the
+// wrong kernel by construction: a GGX lobe at roughness r is not a box, it is
+// not even radially symmetric in the equirectangular plane, and a box mip blurs
+// ACROSS the map's distorted poles as if they were flat. The visible
+// consequence is exactly what was reported live -- a polished surface reflects
+// a grey smear rather than a recognisable environment -- and no amount of
+// correcting the roughness-to-mip mapping fixes it, because the mip being
+// selected does not contain the right image at any level.
+//
+// So each mip is now RE-RENDERED by importance-sampling the GGX distribution
+// for that mip's roughness, which is Karis's split-sum first half
+// (s2013_pbs_epic_notes_v2.pdf) and a direct port of DiligentFX's own
+// Shaders/PBR/private/PrefilterEnvMap.psh. Two deliberate differences from that
+// file, both forced by this renderer's shape:
+//
+//   ⚠️ EQUIRECTANGULAR, NOT A CUBEMAP. DiligentFX renders six cube faces
+//   through CubemapFace.vsh. This tree binds ONE Texture2D as a STATIC shader
+//   variable at pipeline-creation time (see EnvironmentMap.hpp), and swapping
+//   that for a TextureCube would change the resource layout of every mesh PSO
+//   and every SRB built from one. The lobe integral does not care what
+//   parameterisation the result is stored in; only the texel solid angle does,
+//   and that is what OmegaP below computes for a sphere map instead of a cube.
+//
+//   ⚠️ NO BRDF LUT. DiligentFX pairs this with PrecomputeBRDF.psh and samples
+//   the table; the mesh shader here uses Karis's ANALYTIC fit to the same
+//   table, which RE51.B4 already landed and measured. A LUT would be a third
+//   texture binding for a difference below the precision of everything around
+//   it. The analytic fit is named at its call site as the thing a LUT would
+//   replace; that trade is unchanged by this unit.
+//
+// ⚠️ IT READS A DIFFERENT TEXTURE FROM THE ONE IT WRITES. `g_envSource` is the
+// box-mipped upload; the destination is the bound environment map's mip `i`.
+// Reading and writing one texture would be a hazard the D3D11 runtime resolves
+// by silently unbinding the SRV, which produces a BLACK sky and no message.
+constexpr const char* kArchVizEnvPrefilterVS = R"hlsl(
+void main (uint vertexId : SV_VertexID, out float4 position : SV_POSITION, out float2 uv : TEXCOORD0)
+{
+    // The same full-screen triangle as kArchVizFullScreenVS, with the uv kept
+    // rather than discarded: this pass needs the DESTINATION texel's position
+    // in the equirectangular plane to know which direction it is filtering.
+    uv = float2 ((vertexId << 1) & 2, vertexId & 2);
+    position = float4 (uv * float2 (2.0, -2.0) + float2 (-1.0, 1.0), 0.0, 1.0);
+}
+)hlsl";
+
+constexpr const char* kArchVizEnvPrefilterPS = R"hlsl(
+Texture2D    g_envSource;
+SamplerState g_envSource_sampler;
+
+// Hammersley's low-discrepancy sequence. `reversebits` is a shader-model-5
+// intrinsic, which the D3D11 backend at feature level 11 always has.
+float2 Hammersley2D (uint i, uint n)
+{
+    return float2 (float (i) / float (n), float (reversebits (i)) * 2.3283064365386963e-10);
+}
+
+// Karis's GGX half-vector importance sample, in the tangent frame of `n`.
+float3 ImportanceSampleGGX (float2 xi, float perceptualRoughness, float3 n)
+{
+    float alpha = perceptualRoughness * perceptualRoughness;
+    float a2 = alpha * alpha;
+
+    float phi = 6.28318530718 * xi.x;
+    float cosTheta = sqrt (saturate ((1.0 - xi.y) / (1.0 + (a2 - 1.0) * xi.y)));
+    float sinTheta = sqrt (saturate (1.0 - cosTheta * cosTheta));
+
+    float3 h = float3 (sinTheta * cos (phi), sinTheta * sin (phi), cosTheta);
+    float3 up = abs (n.z) < 0.999 ? float3 (0.0, 0.0, 1.0) : float3 (1.0, 0.0, 0.0);
+    float3 tx = normalize (cross (up, n));
+    float3 ty = cross (n, tx);
+    return tx * h.x + ty * h.y + n * h.z;
+}
+
+void main (float4 position : SV_POSITION, float2 uv : TEXCOORD0, out float4 color : SV_TARGET)
+{
+    // ⚠️ N == V == R, THE STANDARD SPLIT-SUM ASSUMPTION, and it is an
+    // approximation rather than a simplification: a prefiltered map is indexed
+    // by ONE direction, so the view-dependent stretch of a grazing GGX lobe
+    // cannot be stored. Every real-time IBL makes this trade; it is why grazing
+    // reflections are slightly too round everywhere, including in UE5.
+    float3 n = normalize (EnvDir (uv));
+
+    float perceptualRoughness = g_prefilterParams.x;
+    uint  numSamples = uint (g_prefilterParams.y);
+    float srcWidth = max (g_prefilterParams.z, 1.0);
+    float srcHeight = max (g_prefilterParams.w, 1.0);
+    float srcMips = max (g_envParams.w, 1.0);
+
+    float alpha = perceptualRoughness * perceptualRoughness;
+    float a2 = max (alpha * alpha, 1e-8);
+
+    float3 sum = float3 (0.0, 0.0, 0.0);
+    float weight = 0.0;
+    for (uint i = 0u; i < numSamples; ++i)
+    {
+        float2 xi = Hammersley2D (i, numSamples);
+        float3 h = ImportanceSampleGGX (xi, perceptualRoughness, n);
+        float3 l = 2.0 * dot (n, h) * h - n;
+
+        float ndotl = saturate (dot (n, l));
+        float ndoth = saturate (dot (n, h));
+        if (ndotl <= 0.0 || ndoth <= 0.0)
+            continue;
+
+        // ⚠️ THE MIP BIAS IS NOT COSMETIC, IT IS WHAT KILLS THE FIREFLIES. With
+        // a few hundred samples spread over a wide lobe, a single texel holding
+        // the sun's disc -- thousands of times brighter than its neighbours --
+        // lands in some output texels and not others, and the result is a rash
+        // of bright dots that looks like corrupt memory. Choosing the source mip
+        // whose texel solid angle matches the sample's own makes each sample an
+        // AVERAGE of the region it represents instead of one lucky texel.
+        // (placeholderart.wordpress.com, "Runtime environment map filtering".)
+        //
+        // vdoth == ndoth here because v == n, so the GGX sample PDF reduces to
+        // D * ndoth / (4 * vdoth) == D / 4.
+        float denom = ndoth * ndoth * (a2 - 1.0) + 1.0;
+        float d = a2 / max (3.14159265359 * denom * denom, 1e-8);
+        float pdf = max (d * 0.25, 1e-6);
+        float omegaS = 1.0 / (float (numSamples) * pdf);
+
+        // The solid angle of ONE SOURCE TEXEL at this sample's latitude. An
+        // equirectangular texel spans 2pi/width in longitude and pi/height in
+        // latitude, and shrinks toward the poles by sin(theta) -- which is the
+        // whole reason a box mip chain is wrong for this map.
+        float sinTheta = max (sqrt (saturate (1.0 - l.z * l.z)), 1e-4);
+        float omegaP = (6.28318530718 / srcWidth) * (3.14159265359 / srcHeight) * sinTheta;
+
+        float mip = clamp (0.5 * log2 (omegaS / omegaP) + 1.0, 0.0, srcMips - 1.0);
+        sum += g_envSource.SampleLevel (g_envSource_sampler, EnvUv (l), mip).rgb * ndotl;
+        weight += ndotl;
+    }
+
+    // ⚠️ A ZERO WEIGHT IS REACHABLE AND MUST NOT DIVIDE. At the very smoothest
+    // mip the lobe can be narrower than the sample set resolves; falling back
+    // to the unfiltered direction is right there, not black.
+    if (weight > 0.0)
+        color = float4 (sum / weight, 1.0);
+    else
+        color = float4 (g_envSource.SampleLevel (g_envSource_sampler, EnvUv (n), 0.0).rgb, 1.0);
+}
+)hlsl";
+
 constexpr const char* kArchVizEnvBackgroundPS = R"hlsl(
 void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 color : SV_TARGET)
 {
@@ -606,9 +784,7 @@ void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 col
     // 0.6 while the model used the exposure control, so moving that control
     // brightened the building and left the sky where it was -- the two drifted
     // apart exactly when someone was trying to judge them together.
-    sky *= g_gradeParams.x;
-    sky = AcesFitted (sky);
-    color = float4 (sky, 1.0);
+    color = float4 (Grade (sky), 1.0);
 }
 )hlsl";
 
@@ -763,6 +939,23 @@ float2 EnvUv (float3 dir)
     return float2 (phi / twoPi, theta / 3.14159265359);
 }
 
+// The EXACT INVERSE of EnvUv, and it is here rather than in the prefilter
+// shader for the reason EnvUv itself is here: two transcriptions of one
+// convention drift, and the drift is invisible.
+//
+// ⚠️ THE PREFILTER IS THE ONLY CALLER, and it runs with g_envParams.y == 0, so
+// the rotation term below is the identity there. It is written out anyway
+// because a version that silently ignored the rotation would be a DIFFERENT
+// function from EnvUv, which is precisely what this pairing exists to prevent.
+float3 EnvDir (float2 uv)
+{
+    const float twoPi = 6.28318530718;
+    float phi = uv.x * twoPi - g_envParams.y;
+    float theta = uv.y * 3.14159265359;
+    float sinTheta = sin (theta);
+    return float3 (sinTheta * cos (phi), sinTheta * sin (phi), cos (theta));
+}
+
 // ---- ACES, the FITTED form, replacing Narkowicz's per-channel curve ---------
 //
 // ⚠️ THE OLD CURVE WAS APPLIED TO EACH CHANNEL INDEPENDENTLY, AND THAT IS WHAT
@@ -801,6 +994,27 @@ float3 AcesFitted (float3 colour)
     float3 a = v * (v + 0.0245786) - 0.000090537;
     float3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
     return saturate (mul (acesOut, a / b));
+}
+
+// ---- the ONE finishing chain, shared by the model and the sky ---------------
+//
+// ⚠️ IT IS A FUNCTION BECAUSE THE TWO CALL SITES ALREADY DRIFTED ONCE. The sky
+// background carried a hard-coded 0.6 pre-scale while the model read
+// g_gradeParams.x, so moving the exposure control brightened the building and
+// left the sky exactly where it was -- and the whole reason a sky is drawn at
+// all is to have something to judge the building against. White balance is
+// added here rather than at either call site for the same reason.
+//
+// ORDER MATTERS AND IT IS THE PHOTOGRAPHIC ONE: white balance is a property of
+// the LIGHT, so it is applied to scene-referred radiance; exposure scales that
+// radiance; the tone curve then maps it to display. Balancing AFTER the curve
+// would tint the clipped highlights, which is the artefact that reads as a
+// cheap filter.
+//
+// ⚠️ STILL BEFORE THE HARDWARE sRGB ENCODE. The render target is an _SRGB view.
+float3 Grade (float3 radiance)
+{
+    return AcesFitted (radiance * g_whiteBalance.rgb * g_gradeParams.x);
 }
 
 )hlsl";
@@ -1157,28 +1371,30 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // sun's half-vector Fresnel for this would put the grazing sheen only
         // where the highlight already is, which is to say nowhere useful.
         //
-        // ⚠️ NOT AN IBL, AND MUST NOT BE DESCRIBED AS ONE. It reuses the same
-        // two hemisphere colours the ambient already has, sampled along the
-        // REFLECTED view direction instead of the normal -- so it costs no new
-        // texture, no new constant and no precompute, and it is a two-colour
-        // approximation of a sky, not a prefiltered environment. The real one
-        // arrives with the G-Buffer and DiligentFX and replaces these four lines.
+        // ⚠️ TWO DIFFERENT THINGS SHARE THIS BRANCH, and only the fallback is
+        // an approximation. With an HDR loaded this samples the GGX-PREFILTERED
+        // environment (RE51.B6) along the reflected view direction -- a real
+        // IBL specular term. Without one it reuses the two hemisphere colours
+        // the ambient already has, which costs no texture and no precompute and
+        // is a two-colour stand-in for a sky, not a prefiltered environment.
         float3 refl = reflect (-v, n);
         float3 envColor;
         if (envEnabled)
         {
-            // ⚠️ THE MIP IS THE ROUGHNESS BLUR, AND IT IS AN APPROXIMATION OF A
-            // GGX LOBE, NOT ONE. A correctly prefiltered environment convolves
-            // each mip with the lobe for that roughness; this borrows the box
-            // mip chain, which is the wrong kernel and blurs across the
-            // equirect's distorted poles. Honest for the rough surfaces
-            // architecture is mostly made of, wrong for a mirror -- and the
-            // replacement is DiligentFX's PBR_Renderer once the G-Buffer lands.
+            // ⚠️ THE MIP IS NOW A REAL GGX LOBE (RE51.B6), AND THE MAPPING
+            // CHANGED WITH IT. Each mip of g_envMap is rendered by
+            // kArchVizEnvPrefilterPS at perceptual roughness i/(mips-1), so the
+            // index is LINEAR in perceptual roughness by construction. It used
+            // to be sqrt(rough), which was a correction for the box mip chain
+            // being far too sharp for its nominal roughness -- keeping that
+            // curve now would over-blur every glossy surface by the same amount
+            // it used to under-blur it.
             //
-            // sqrt(rough) rather than rough: perceptual roughness maps to lobe
-            // width non-linearly, and a linear mapping leaves everything below
-            // about 0.5 looking like a mirror.
-            float mip = sqrt (rough) * max (g_envParams.w - 1.0, 0.0);
+            // ⚠️ DO NOT REINTRODUCE A CURVE HERE. If a surface reads as too
+            // sharp or too blurred, the prefilter's roughness ladder is the
+            // thing that is wrong, and it is one line in EnvironmentMap.cpp.
+            // A second mapping here would make the two disagree silently.
+            float mip = saturate (rough) * max (g_envParams.w - 1.0, 0.0);
             envColor = g_envMap.SampleLevel (g_envMap_sampler, EnvUv (refl), mip).rgb
                      * g_envParams.x;
         }
@@ -1258,9 +1474,7 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // channels of an already-saturated surface further apart, which is what
         // made this project's greens and oranges read as over-saturated once the
         // sRGB decode (RE51.B7) stopped washing them toward grey.
-        colour *= g_gradeParams.x;
-        colour = AcesFitted (colour);
-        base.rgb = colour;
+        base.rgb = Grade (colour);
         lighting = float3 (1.0, 1.0, 1.0);   // already applied above
         premultiplied = true;                // and so was the alpha
     }

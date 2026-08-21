@@ -3,6 +3,7 @@
 // DiligentScene.cpp and the passes in DiligentSceneDraw.cpp; DiligentSceneImpl.hpp
 // says why the class is spread over three files.
 
+#include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include <algorithm>
@@ -441,6 +442,20 @@ DiligentSceneStats DiligentScene::Stats () const
     impl_->environment.AverageRadiance (s.environmentAverage);
     s.environmentPath = impl_->environment.LoadedPath ();
     s.environmentError = impl_->environmentError;
+    s.environmentPrefiltered = impl_->environment.IsPrefiltered ();
+    s.environmentPrefilteredMips = impl_->environment.PrefilteredMips ();
+    s.environmentPrefilterMs = impl_->environment.PrefilterMilliseconds ();
+    s.environmentPrefilterError = impl_->environment.PrefilterError ();
+
+    s.autoExposureEnabled = impl_->autoExposureEnabled;
+    s.autoExposure = impl_->lastAutoExposure;
+    s.sceneLuminance = impl_->lastSceneLuminance;
+    s.appliedExposure = impl_->autoExposureEnabled ? impl_->lastAutoExposure : impl_->exposure;
+    const WhiteBalanceGains gains =
+        ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
+    for (int c = 0; c < 3; ++c)
+        s.whiteBalanceGains[c] = gains.rgb[c];
+    s.meanAlbedo = MeanPoolAlbedo (impl_->materials);
     s.selected = SelectionCount ();
     s.materials = impl_->materials.Size ();
     s.pending = SceneCmdQueue::Get ().PendingCount ();

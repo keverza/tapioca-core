@@ -7,6 +7,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
 #include <algorithm> // std::min, for the selection alpha against a glass material
@@ -444,6 +445,60 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
     std::memcpy (constants.envRayUp, impl_->cameraRayUp, sizeof (float) * 3);
     std::memcpy (constants.envRayForward, impl_->cameraRayForward, sizeof (float) * 3);
 
+    // ⚠️ THE GRADING IS SET *BEFORE* THE SKY PASS, NOT WITH THE REST OF THE
+    // MATERIAL CONSTANTS. The background shader finishes through the same
+    // `Grade` the model does -- deliberately, so the two cannot drift -- and it
+    // uploads the constant buffer several lines below. Setting the exposure or
+    // the white balance after that point leaves the SKY on the previous frame's
+    // values while the building is on this frame's, which reads as the sky
+    // lagging the exposure slider by one frame and is very easy to dismiss.
+    //
+    // ⚠️ `materialParams[1]` MOVED UP HERE WITH IT, because the estimate reads
+    // the sun's share out of the buffer rather than from impl_.
+    constants.materialParams[1] = impl_->sunWithSkyWeight;
+    // ---- RE51.B9: the exposure the light implies, and the white balance ------
+    //
+    // ⚠️ COMPUTED EVERY FRAME EVEN WHEN IT IS NOT APPLIED. The estimate has one
+    // calibration constant and no live measurement behind it yet, so it ships
+    // switched off -- but a control nobody can see the effect of is a control
+    // nobody can calibrate. Computing it regardless costs a few dozen floating
+    // point operations and puts the answer in the stats and the HUD, so ONE run
+    // settles whether middle grey is right for this project.
+    //
+    // ⚠️ THE INPUTS ARE READ FROM `constants`, NOT RE-DERIVED FROM impl_. The
+    // estimate has to describe the frame that is about to be drawn; taking the
+    // sun weight or the SH from anywhere other than the buffer being uploaded is
+    // how it would end up metering a scene nobody rendered.
+    {
+        SceneLight light;
+        light.environmentActive = envActive;
+        for (int c = 0; c < 3; ++c) {
+            // ⚠️ 0.282095 IS ShDiffuse's DC BASIS FUNCTION, and applying it here
+            // is what makes this the AVERAGE of ShDiffuse over all normals
+            // rather than the raw coefficient. Dropping it over-estimates the
+            // sky by 3.5x, which would under-expose every image by that much.
+            light.skyIrradiance[c] = constants.sh[0][c] * 0.282095f * constants.envParams[0];
+            light.ambientSky[c] = constants.skyColor[c];
+            light.ambientGround[c] = constants.groundColor[c];
+        }
+        light.sunStrength = constants.skyColor[3];
+        light.sunWeight = constants.materialParams[1];
+        // ⚠️ `ambient` IS THE FOURTH LANE OF g_sunAndAmbient ON THE SHADER SIDE,
+        // and a separate member on this one. Same value, two names -- see
+        // DiligentSceneConstants, where sunDir[3] and ambient are one float4.
+        light.ambientShare = constants.ambient;
+        light.meanAlbedo = MeanPoolAlbedo (impl_->materials);
+
+        impl_->lastSceneLuminance = MeanSceneLuminance (light);
+        impl_->lastAutoExposure = AutoExposure (light);
+    }
+    constants.gradeParams[0] = impl_->autoExposureEnabled ? impl_->lastAutoExposure : impl_->exposure;
+
+    const WhiteBalanceGains balance =
+        ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
+    for (int c = 0; c < 3; ++c)
+        constants.whiteBalance[c] = balance.rgb[c];
+
     // ---- the sky behind the model, before anything else ----------------------
     //
     // ⚠️ FINAL VIEW ONLY. Every other debug view answers a question about the
@@ -474,10 +529,9 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
     // uploads a colour without a material behind it.
     // Set once, before the range loop: it is a frame value riding in the
     // per-range float4. See DiligentSceneConstants::materialParams.
-    constants.materialParams[1] = impl_->sunWithSkyWeight;
-    constants.gradeParams[0] = impl_->exposure;
     constants.gradeParams[1] = impl_->reflectance;
     constants.gradeParams[2] = impl_->roughnessBias;
+
 
     auto uploadConstants = [&] (float r, float g, float b, float a, float roughness = 1.0f, float specular = 0.5f,
                                 float metallic = 0.0f) {
