@@ -1035,9 +1035,19 @@ void main (in PSInput psIn, out PSOutput psOut)
         // have halved the highlight on the entire model and read as a
         // regression in the lighting.
         float  f0scalar = 0.08 * saturate (g_materialParams.x);
-        float3 f0      = float3 (f0scalar, f0scalar, f0scalar);
-        float3 fresnel = f0 + (1.0 - f0) * pow (1.0 - vdoth, 5.0);
-        float3 spec    = ndf * vis * fresnel * ndotl * shadow * g_gradeParams.y;
+
+        // ⚠️ METALNESS ARRIVES FROM THE CLASSIFIER, NOT FROM SHININESS. It is
+        // uploaded per range in g_materialParams.z by SurfaceClassifier's
+        // PresetFor; Archicad itself has no such channel, and deriving one from
+        // shine would paint every polished floor and every pane as chrome. The
+        // mapping below is the glTF metallic-roughness convention as DiligentFX
+        // implements it (Shaders/PBR/public/PBR_Shading.fxh:438-440): a
+        // conductor's F0 IS its colour, and it has no diffuse lobe at all.
+        float  metallic = saturate (g_materialParams.z);
+        float3 f0       = lerp (float3 (f0scalar, f0scalar, f0scalar), base.rgb, metallic);
+        float3 fresnel  = f0 + (1.0 - f0) * pow (1.0 - vdoth, 5.0);
+        float3 spec     = ndf * vis * fresnel * ndotl * shadow * g_gradeParams.y;
+
 
         // Wrapped diffuse: light bends a little past the terminator. Physically
         // this stands in for the bounce a single directional light cannot carry.
@@ -1085,21 +1095,61 @@ void main (in PSInput psIn, out PSOutput psOut)
             envColor = lerp (g_groundColor.rgb, g_skyColor.rgb,
                              saturate (refl.z * 0.5 + 0.5));
         }
+        // ⚠️ THE SPLIT-SUM ENVIRONMENT BRDF, WHICH REPLACED A TERM THAT WAS
+        // SILENTLY DELETING EVERY REFLECTION IN THE MODEL.
+        //
+        // What stood here was `fresnelEnv * envColor * (1-rough)^2`. That
+        // squared falloff is not physics -- it double-counts the roughness,
+        // which the mip selection above has ALREADY applied -- and on the
+        // measured project it is what made the symptom. With the roughness
+        // mapping corrected, the glossiest surface in the building sits at
+        // roughness 0.257, and (1-0.257)^2 = 0.55; before that correction it sat
+        // at 0.718 and the factor was 0.079. Either way, concrete at roughness
+        // 0.82 kept 3% and everything matte kept none, so the model rendered
+        // with no environment reflection anywhere and the fix for the roughness
+        // alone did not bring it back.
+        //
+        // The correct quantity is the second half of Karis's split-sum: the
+        // integral of the GGX BRDF over the hemisphere, tabulated against NdotV
+        // and roughness, giving a scale and a bias for F0. DiligentFX samples it
+        // from a precomputed LUT (Shaders/PBR/private/PrecomputeBRDF.psh, used
+        // in PBR_Shading.fxh as `SpecularLight * (F0 * PreIntBRDF.x +
+        // PreIntBRDF.y)`). ⚠️ THAT LUT IS RE51.B6'S JOB, not this one -- it
+        // needs a precompute pass and a second texture binding. This is the
+        // ANALYTIC FIT to the same table (Karis 2013, "Physically Based Shading
+        // on Mobile"), which needs neither, and which B6 should replace with the
+        // real LUT rather than delete.
+        //
+        // ⚠️ THE BIAS TERM IS WHY GLASS WORKS. `AB.y` is the grazing-angle
+        // reflection that survives even when F0 is 0.04, and it is exactly the
+        // quantity the old squared falloff scaled to nothing.
+        float4 c0 = float4 (-1.0, -0.0275, -0.572, 0.022);
+        float4 c1 = float4 ( 1.0,  0.0425,  1.040, -0.040);
+        float4 rp = rough * c0 + c1;
+        float  a004 = min (rp.x * rp.x, exp2 (-9.28 * ndotv)) * rp.x + rp.y;
+        float2 envAB = float2 (-1.04, 1.04) * a004 + rp.zw;
+        float3 envBrdf = f0 * envAB.x + envAB.y;
+
+        float3 envSpec = envBrdf * envColor * g_gradeParams.y;
+
+        // ⚠️ STILL NEEDED SEPARATELY, for the diffuse side only. `envBrdf`
+        // above is the specular share; `fresnelEnv` below is what that share
+        // takes AWAY from the diffuse, and the two are not the same number.
         float3 fresnelEnv = f0 + (1.0 - f0) * pow (1.0 - ndotv, 5.0);
-        // A rough surface scatters the reflection away rather than mirroring it.
-        // ⚠️ REFLECTANCE SCALES THIS TOO, and it is the term that matters for
-        // glass. A dielectric reflects only 4-8% head-on, which is physically
-        // right and visually nothing against a 0.7-radiance sky -- reported as
-        // "glass has transparency but no reflection". Pushing reflectance is
-        // how an architectural viewer buys back the look until the material
-        // presets can say "this pane is glass" properly.
-        float3 envSpec    = fresnelEnv * envColor * (1.0 - rough) * (1.0 - rough) * g_gradeParams.y;
+
 
         // Energy conservation: what reflects specularly does not also diffuse.
         // At normal incidence this removes 4% and is invisible; at grazing
         // angles it is what stops a shiny surface from being BRIGHTER than a
         // matte one instead of merely different.
-        float3 kd = 1.0 - fresnelEnv;
+        //
+        // ⚠️ AND A CONDUCTOR HAS NO DIFFUSE LOBE AT ALL. Metals absorb what they
+        // do not reflect, so `(1 - metallic)` removes the diffuse term outright
+        // rather than dimming it -- the second half of the same glTF convention
+        // that put the base colour into F0 above (PBR_Shading.fxh:438). Without
+        // this a metal would be a diffuse surface WITH a mirror on top and read
+        // as painted plastic, which is the classic way metalness looks wrong.
+        float3 kd = (1.0 - fresnelEnv) * (1.0 - metallic);
 
         // ⚠️ THE TRANSMITTED HALF IS SCALED BY ALPHA AND THE REFLECTED HALF IS
         // NOT. This is the shader's side of the premultiplied blend set up in

@@ -27,7 +27,7 @@
 // official API's `SurfaceAttribute.materialType` has exactly the closed set this
 // file needs — General, Simple, Matte, Metal, Plastic, Glass, Glowing, Constant
 // (ModelMaterial.hpp mirrors it as `ModelerAPI::Material::Type`) — and it would
-// have turned this whole file into a lookup. ALL 219 SURFACES OF THIS TEMPLATE
+// have turned this whole file into a lookup. ALL 212 SURFACES OF THIS TEMPLATE
 // REPORT `General`. Nobody authored it, and a default is indistinguishable from
 // unset. ⚠️ DO re-measure it per template with SurfaceTemplateDump: a template
 // that DOES author it should be read directly and this file skipped.
@@ -39,8 +39,8 @@
 // a RESULT, not a failure; see kAmbiguousSpecular for the case that earns it.
 //
 // Every threshold traces to a measured value from the SurfaceTemplateDump run of
-// 2026-08-20 (`dumps/surface_template__20260820_155007`, 219 surface attributes,
-// 23 used by the model), re-stated at each constant. NOTHING HERE IS INTUITION.
+// 2026-08-21 (`dumps/surface_template__20260821_115759`, 212 surface attributes,
+// 64 used by the model), re-stated at each constant. NOTHING HERE IS INTUITION.
 
 #pragma once
 
@@ -102,7 +102,7 @@ constexpr float kInvisibleTransparency = 0.99f;
 // Below the line sit only "Water - Wavy" at 1 and the surfaces at 0.
 constexpr float kGlassTransparency = 0.10f;
 
-// ⚠️ THE CLEANEST LINE IN THE WHOLE TEMPLATE. MEASURED: of 219 surfaces the ones
+// ⚠️ THE CLEANEST LINE IN THE WHOLE TEMPLATE. MEASURED: of 212 surfaces the ones
 // at specular reflection >= 80 are SEVEN glasses, NINE metals and one water, and
 // nothing else whatsoever. Above this line transparency alone separates glass
 // from metal, and both verdicts are safe.
@@ -165,6 +165,34 @@ SurfaceVerdict ClassifySurface (const SurfaceMaterial& material);
 
 // For logs and the dump probe. Never parsed back — this is not a serialisation.
 const char* SurfaceClassName (SurfaceClass cls);
+
+// ---- RE51.B4: the PBR description a class earns ---------------------------
+//
+// ⚠️ THIS IS WHERE ARCHICAD'S MISSING CHANNELS ARE FILLED IN, and it is the
+// only place allowed to invent a number. `SurfaceMaterial` carries what Archicad
+// stores; `SurfacePreset` carries what a PBR shader needs and Archicad never
+// had — metalness above all. The classifier decides WHICH surface gets which
+// treatment; this decides WHAT that treatment is.
+struct SurfacePreset {
+    // 0 or 1. ⚠️ NEVER INFERRED FROM SHININESS — that is the standing rule this
+    // whole track exists to honour, because shininess-as-metalness paints every
+    // polished floor and every window pane as chrome. It comes from the
+    // classifier's verdict and from nothing else.
+    float metallic = 0.0f;
+
+    // The GGX roughness the range is drawn with.
+    float roughness = 1.0f;
+
+    // The DIELECTRIC specular level, 0..1, which the shader maps to F0 through
+    // Unreal's F0 = 0.08 * reflectance. Ignored when `metallic` is 1, where F0
+    // becomes the base colour instead — the glTF/DiligentFX metallic-roughness
+    // convention (DiligentFX/Shaders/PBR/public/PBR_Shading.fxh:440,
+    // `Reflectance0 = lerp(float3(f0,f0,f0), BaseColor, Metallic)`).
+    float reflectance = 0.5f;
+};
+
+// ⚠️ PURE, like the classifier, and tested over the same real template.
+SurfacePreset PresetFor (const SurfaceMaterial& material);
 
 } // namespace archviz
 } // namespace geomsrv

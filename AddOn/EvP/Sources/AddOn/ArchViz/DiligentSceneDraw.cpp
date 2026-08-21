@@ -7,6 +7,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/SurfaceClassifier.hpp"
 
 #include <algorithm> // std::min, for the selection alpha against a glass material
 #include <cstring>
@@ -447,15 +448,22 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
     constants.gradeParams[1] = impl_->reflectance;
     constants.gradeParams[2] = impl_->roughnessBias;
 
-    auto uploadConstants = [&] (float r, float g, float b, float a, float roughness = 1.0f, float specular = 0.5f) {
+    auto uploadConstants = [&] (float r, float g, float b, float a, float roughness = 1.0f, float specular = 0.5f,
+                                float metallic = 0.0f) {
         constants.baseColor[0] = r;
         constants.baseColor[1] = g;
         constants.baseColor[2] = b;
         constants.baseColor[3] = a;
         constants.outlineParams[3] = roughness;
         constants.materialParams[0] = specular;
+        // ⚠️ LANE z, AND IT WAS SPARE. Metalness rides the float4 that already
+        // carries the specular level rather than growing the cbuffer, so the
+        // static_assert in DiligentShaders.hpp and every PSO built against that
+        // layout stay put.
+        constants.materialParams[2] = metallic;
         UploadConstants (context, impl_->constants, constants);
     };
+
 
     auto drawRange = [&] (const Entry& e, const MaterialRange& r, bool blended) {
         Diligent::IPipelineState* pso = blended ? impl_->blendPso[index] : impl_->opaquePso[index];
@@ -542,17 +550,18 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
                     // syntax error on the `::`.
                     alpha = (std::min) (alpha, kSelectionAlpha);
                 }
-                // ⚠️ NOT `1 - shininess`. Archicad's shine is a Blinn-Phong
-                // EXPONENT, so the conversion is sqrt(2/(n+2)) -- the reasoning,
-                // the DevKit citations and the measured pool are all in
-                // SurfaceRoughness. It also applies the transparent-material
-                // gloss floor, because Archicad has no IOR, refraction or
-                // metalness field to say a pane is a pane.
-                const float roughness = SurfaceRoughness (mat);
+                // ⚠️ THE WHOLE PBR DESCRIPTION, FROM THE CLASSIFIER, NOT FROM
+                // THE RAW CHANNELS. `PresetFor` runs SurfaceClassifier over the
+                // measured numbers and returns the roughness, the dielectric
+                // specular level and -- the part Archicad has no channel for at
+                // all -- the metalness. Reading `mat.shininess` directly here
+                // again would quietly restore the dielectric-only renderer.
+                const SurfacePreset preset = PresetFor (mat);
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (tintR, tintG, tintB, alpha, roughness, mat.specular);
+                uploadConstants (tintR, tintG, tintB, alpha, preset.roughness,
+                                 preset.reflectance, preset.metallic);
                 drawRange (e, r, blended);
             }
         }

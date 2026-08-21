@@ -4,7 +4,7 @@
 // ⚠️ WHY OFFLINE, AND WHY OVER THE DUMP. A classifier is exactly the kind of
 // code that passes any test you write for it, because the same intuition writes
 // the rule and the example. The only test with any force is the one that runs it
-// over the 219 surfaces a real Archicad template actually contains, and checks
+// over the 212 surfaces a real Archicad template actually contains, and checks
 // the verdicts against what those surfaces are. So the fixture is the committed
 // dump, and the check is a confusion count — not six hand-built structs.
 //
@@ -80,7 +80,7 @@ std::vector<DumpedSurface> LoadDump ()
 {
     std::vector<DumpedSurface> rows;
 #ifdef EVP_TEST_FIXTURE_DIR
-    const std::string path = std::string (EVP_TEST_FIXTURE_DIR) + "/surface_template_20260820.tsv";
+    const std::string path = std::string (EVP_TEST_FIXTURE_DIR) + "/surface_template_20260821.tsv";
     std::FILE* file = std::fopen (path.c_str (), "rb");
     if (file == nullptr)
         return rows;
@@ -136,9 +136,9 @@ TEST (SurfaceClassifier, TheDumpFixtureIsTheRealTemplate)
 {
     const std::vector<DumpedSurface> rows = LoadDump ();
     if (rows.empty ())
-        GTEST_SKIP () << "surface_template_20260820.tsv is not present";
+        GTEST_SKIP () << "surface_template_20260821.tsv is not present";
 
-    EXPECT_EQ (rows.size (), 219u);
+    EXPECT_EQ (rows.size (), 212u);
 
     // ⚠️ THE REASON THIS CLASSIFIER EXISTS AT ALL, pinned so a template that
     // DOES author materialType is noticed instead of being classified the hard
@@ -151,7 +151,7 @@ TEST (SurfaceClassifier, NoMetalOrGlassVerdictIsWrongOnTheRealTemplate)
 {
     const std::vector<DumpedSurface> rows = LoadDump ();
     if (rows.empty ())
-        GTEST_SKIP () << "surface_template_20260820.tsv is not present";
+        GTEST_SKIP () << "surface_template_20260821.tsv is not present";
 
     // ⚠️ THE ONE CHECK THAT MATTERS. Glass and Metal are the verdicts that move
     // F0 and roughness far enough to ruin a surface, so a false positive on
@@ -182,7 +182,7 @@ TEST (SurfaceClassifier, AmbiguousSurfacesAreReportedRatherThanGuessed)
 {
     const std::vector<DumpedSurface> rows = LoadDump ();
     if (rows.empty ())
-        GTEST_SKIP () << "surface_template_20260820.tsv is not present";
+        GTEST_SKIP () << "surface_template_20260821.tsv is not present";
 
     std::vector<std::string> unclassified;
     for (const DumpedSurface& s : rows) {
@@ -215,7 +215,7 @@ TEST (SurfaceClassifier, EveryGlassInTheTemplateIsFound)
 {
     const std::vector<DumpedSurface> rows = LoadDump ();
     if (rows.empty ())
-        GTEST_SKIP () << "surface_template_20260820.tsv is not present";
+        GTEST_SKIP () << "surface_template_20260821.tsv is not present";
 
     // Recall, not just precision: a classifier that returns Unclassified for
     // everything would pass the false-positive test above and be useless.
@@ -282,7 +282,7 @@ TEST (SurfaceClassifier, AConfidentVerdictNeverCarriesZeroConfidence)
 {
     const std::vector<DumpedSurface> rows = LoadDump ();
     if (rows.empty ())
-        GTEST_SKIP () << "surface_template_20260820.tsv is not present";
+        GTEST_SKIP () << "surface_template_20260821.tsv is not present";
 
     for (const DumpedSurface& s : rows) {
         const SurfaceVerdict v = ClassifySurface (s.material);
@@ -304,4 +304,68 @@ TEST (SurfaceClassifier, EveryClassHasAName)
     EXPECT_STREQ (SurfaceClassName (SurfaceClass::Metal), "metal");
     EXPECT_STREQ (SurfaceClassName (SurfaceClass::Polished), "polished");
     EXPECT_STREQ (SurfaceClassName (SurfaceClass::Matte), "matte");
+}
+
+// ---- RE51.B4: the preset the verdict earns ---------------------------------
+
+TEST (SurfacePresets, OnlyAConductorEverGetsMetalness)
+{
+    const std::vector<DumpedSurface> rows = LoadDump ();
+    if (rows.empty ())
+        GTEST_SKIP () << "surface_template_20260821.tsv is not present";
+
+    // ⚠️ THE STANDING RULE, PINNED AS A TEST. Metalness must come from the
+    // classifier and from nothing else -- never from shininess, which would make
+    // every gloss-white wall and every pane of glass a conductor. If this ever
+    // fails, something started inferring it again.
+    for (const DumpedSurface& s : rows) {
+        const SurfacePreset preset = PresetFor (s.material);
+        const bool isMetal = ClassifySurface (s.material).cls == SurfaceClass::Metal;
+        EXPECT_FLOAT_EQ (preset.metallic, isMetal ? 1.0f : 0.0f) << s.name;
+    }
+}
+
+TEST (SurfacePresets, GlassGetsPhysicalDielectricReflectanceNotItsAuthoredValue)
+{
+    // "Stiklas - SKAIDRUS": authored at specular 100, which the shader would map
+    // to F0 = 0.08 -- twice the reflectance of real glass. The preset replaces it
+    // with the IOR-1.5 dielectric value, F0 = 0.04, which the shader reaches
+    // through 0.08 * 0.5.
+    const SurfaceMaterial glass = FromOfficialApi (69, 7952, 100, 60, 1, 1, 1);
+    ASSERT_EQ (ClassifySurface (glass).cls, SurfaceClass::Glass);
+
+    const SurfacePreset preset = PresetFor (glass);
+    EXPECT_FLOAT_EQ (preset.metallic, 0.0f);
+    EXPECT_FLOAT_EQ (preset.reflectance, 0.5f);
+    EXPECT_FLOAT_EQ (preset.reflectance * 0.08f, 0.04f);
+
+    // And it stays smooth: shine 7952 is a factor of 79.52, so the measured
+    // roughness is already glass-like and the transparent floor never engages.
+    EXPECT_LT (preset.roughness, 0.20f);
+}
+
+TEST (SurfacePresets, AMetalKeepsItsMeasuredRoughness)
+{
+    // "Metalas - PLIENAS NERŪDIJANTIS": shine 1800, a factor of 18.
+    const SurfaceMaterial steel = FromOfficialApi (0, 1800, 95, 34, 1, 1, 1);
+    ASSERT_EQ (ClassifySurface (steel).cls, SurfaceClass::Metal);
+
+    const SurfacePreset preset = PresetFor (steel);
+    EXPECT_FLOAT_EQ (preset.metallic, 1.0f);
+    EXPECT_NEAR (preset.roughness, 0.316228f, 1e-5f);
+}
+
+TEST (SurfacePresets, AnUnclassifiedSurfaceIsLeftExactlyAsItWasMeasured)
+{
+    // ⚠️ THE CONTRACT FOR A REFUSAL. "Paint - Glossy White" is the surface the
+    // classifier declines to name; it must be drawn precisely as the renderer
+    // drew it before any classification existed -- measured roughness, measured
+    // specular, no metalness. A refusal must never become a silent third look.
+    const SurfaceMaterial glossyWhite = FromOfficialApi (0, 3856, 69, 30, 0.99f, 0.99f, 1.0f);
+    ASSERT_EQ (ClassifySurface (glossyWhite).cls, SurfaceClass::Unclassified);
+
+    const SurfacePreset preset = PresetFor (glossyWhite);
+    EXPECT_FLOAT_EQ (preset.metallic, 0.0f);
+    EXPECT_FLOAT_EQ (preset.reflectance, glossyWhite.specular);
+    EXPECT_FLOAT_EQ (preset.roughness, SurfaceRoughness (glossyWhite));
 }

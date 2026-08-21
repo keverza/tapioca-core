@@ -93,6 +93,58 @@ SurfaceVerdict ClassifySurface (const SurfaceMaterial& m)
     return { SurfaceClass::Matte, 0.60f };
 }
 
+// ---- RE51.B4 --------------------------------------------------------------
+
+// The dielectric specular level that reproduces F0 = 0.04, which is the
+// Fresnel reflectance of an IOR-1.5 dielectric at normal incidence -- window
+// glass, and the value every PBR renderer uses as its dielectric default.
+// ⚠️ 0.5, NOT 0.04: the shader maps reflectance to F0 as 0.08 * reflectance
+// (Unreal's remapping), so 0.5 IS 0.04. Writing 0.04 here would give F0 0.0032.
+constexpr float kDielectricReflectance = 0.5f;
+
+SurfacePreset PresetFor (const SurfaceMaterial& m)
+{
+    SurfacePreset preset;
+    preset.roughness = SurfaceRoughness (m);
+    preset.reflectance = m.specular;
+
+    switch (ClassifySurface (m).cls) {
+        case SurfaceClass::Metal:
+            // ⚠️ THE ONE LINE THIS ENTIRE TRACK EXISTS TO WRITE. Archicad has no
+            // metalness channel, so until the classifier could say "this surface
+            // is a conductor" every metal in every project was shaded as a
+            // dielectric reflecting 4% of the sky. F0 becomes the base colour in
+            // the shader and the diffuse lobe goes away, which is what makes a
+            // metal look like one.
+            preset.metallic = 1.0f;
+            break;
+
+        case SurfaceClass::Glass:
+            // ⚠️ THE MEASURED SPECULAR IS DISCARDED HERE, ON PURPOSE. This
+            // project authors its glass at specular 100, which the shader would
+            // map to F0 = 0.08 -- twice the physical reflectance of glass. The
+            // physical reference is the one number about glass nobody disputes:
+            // IOR 1.5 gives F0 = 0.04. What makes a pane read as glass is not a
+            // fattened head-on reflection, it is the FRESNEL RISE toward grazing
+            // angles, and that arrives correctly from the split-sum term once F0
+            // is right.
+            preset.reflectance = kDielectricReflectance;
+            break;
+
+        case SurfaceClass::Invisible:
+        case SurfaceClass::Polished:
+        case SurfaceClass::Matte:
+        case SurfaceClass::Unclassified:
+            // ⚠️ UNCLASSIFIED CHANGES NOTHING, and that is the contract. A
+            // surface the classifier would not name is drawn exactly as the
+            // renderer drew it before any of this existed -- measured roughness,
+            // measured specular, dielectric. A refusal must never become a
+            // silent third behaviour.
+            break;
+    }
+    return preset;
+}
+
 const char* SurfaceClassName (SurfaceClass cls)
 {
     switch (cls) {
