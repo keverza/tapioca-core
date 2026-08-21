@@ -624,14 +624,23 @@ bool PythonHost::RunCommand (const GS::UniString& path, const GS::UniString& mod
 
 GS::UniString GetScriptsRoot ()
 {
-    GS::UniString profile;
-    if (!ReadEnv (L"USERPROFILE", profile))
+    const GS::UniString dataDir = EvpDataDir ();
+    if (dataDir.IsEmpty ())
         return GS::UniString ();
-    const GS::UniString root (profile + GS::UniString ("\\Documents\\Tapioca Commands"));
-    const GS::UniString legacy (profile + GS::UniString ("\\Documents\\EvP Commands"));
-    if (!PathExists (root) && PathExists (legacy))
-        MoveFileExW ((LPCWSTR) legacy.ToUStr ().Get (), (LPCWSTR) root.ToUStr ().Get (),
-                     MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH);
+
+    const GS::UniString root (dataDir + GS::UniString ("\\Commands"));
+
+    // Move the generated working copy once so existing installations do not lose
+    // their commands when the scripts root leaves Documents.
+    GS::UniString profile;
+    if (!PathExists (root) && ReadEnv (L"USERPROFILE", profile)) {
+        const GS::UniString oldTapioca (profile + GS::UniString ("\\Documents\\Tapioca Commands"));
+        const GS::UniString oldEvP (profile + GS::UniString ("\\Documents\\EvP Commands"));
+        const GS::UniString legacy = PathExists (oldTapioca) ? oldTapioca : oldEvP;
+        if (!legacy.IsEmpty () && PathExists (legacy) && CreateDirectoryChain (dataDir))
+            MoveFileExW ((LPCWSTR) legacy.ToUStr ().Get (), (LPCWSTR) root.ToUStr ().Get (),
+                         MOVEFILE_COPY_ALLOWED | MOVEFILE_WRITE_THROUGH);
+    }
     return root;
 }
 
@@ -639,7 +648,7 @@ bool EnsureSampleCommandExists (GS::UniString& error)
 {
     const GS::UniString root = GetScriptsRoot ();
     if (root.IsEmpty ()) {
-        error = "%USERPROFILE% is not set.";
+        error = "%LOCALAPPDATA% is not set.";
         return false;
     }
 

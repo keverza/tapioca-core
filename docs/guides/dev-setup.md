@@ -97,7 +97,7 @@ captures.
 - `%LOCALAPPDATA%\Tapioca\palette.json`: copy only if the saved palette layout and
   parameter values matter; otherwise the palette recreates defaults.
 - `%LOCALAPPDATA%\Tapioca\runtime`: do not copy; provision it on the new machine.
-- `Documents\Tapioca Commands\`: do not copy; sync regenerates it from the repository.
+- `%LOCALAPPDATA%\Tapioca\Commands\`: do not copy; sync regenerates it from the repository.
 - `%LOCALAPPDATA%\Tapioca\logs`, `output`, and `dumps`: copy only a named fixture or
   evidence case that is needed for the current task.
 

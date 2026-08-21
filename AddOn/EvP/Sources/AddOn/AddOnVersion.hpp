@@ -8,9 +8,9 @@
 //   * EVP_PRODUCT_NAME is the USER-FACING name. It appears in the menu, the
 //     palette caption, the About box and status text. It is the only spelling a
 //     user ever sees, and it may change again.
-//   * The INTERNAL name stays "EvP", deliberately and permanently: %LOCALAPPDATA%\EvP\,
-//     the `evp` Python package, `namespace evp`, the `EvP.*` bus verbs, EvP.apx /
-//     EvPPy.dll and every command folder under "Documents\EvP Commands". Renaming
+//   * The INTERNAL name stays "EvP", deliberately and permanently: the `evp` Python
+//     package, `namespace evp`, the `EvP.*` bus verbs, EvP.apx / EvPPy.dll and every
+//     command folder under %LOCALAPPDATA%\Tapioca\Commands. Renaming
 //     any of those would break existing commands, dumps, lockfiles and doc paths
 //     for no user-visible gain. If you are here because `import evp` looks
 //     inconsistent with the product name — it is, on purpose. Leave it.

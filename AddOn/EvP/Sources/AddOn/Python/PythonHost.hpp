@@ -104,7 +104,7 @@ GS::UniString TakeScriptTranscript ();
 GS::UniString GetSpikeScriptPath ();
 bool EnsureSpikeScriptExists (GS::UniString& error);
 
-// The default scripts root: %USERPROFILE%\Documents\EvP Commands.
+// The default scripts root: %LOCALAPPDATA%\Tapioca\Commands.
 // Configurable and multi-root later; one root is enough for P2.
 GS::UniString GetScriptsRoot ();
 

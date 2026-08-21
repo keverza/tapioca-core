@@ -1,10 +1,10 @@
 # Compose the manifest-defined command roots into the flat scripts root Archicad reads.
 #
-# The repo is the SOURCE OF TRUTH; %USERPROFILE%\Documents\Tapioca Commands is a
-# generated working copy. The checked-in command-sync.json is the public source-root
-# allowlist. A local, gitignored command-sync.local.json may add private roots when this
-# component is mounted under the tapioca-dev superproject. The target-side ownership
-# file records what this script deployed so -Prune cannot remove an unrelated folder.
+# The repo is the SOURCE OF TRUTH; %LOCALAPPDATA%\Tapioca\Commands is a generated
+# working copy. The checked-in command-sync.json is the public source-root allowlist.
+# A local, gitignored command-sync.local.json may add private roots when this component
+# is mounted under the tapioca-dev superproject. The target-side ownership file records
+# what this script deployed so -Prune cannot remove an unrelated folder.
 #
 #   .\Sync-Commands.ps1            copy changed files
 #   .\Sync-Commands.ps1 -WhatIf    show what would change, touch nothing
@@ -309,13 +309,18 @@ foreach ($activeFolder in $activeFolders) {
     $activeFolderKeys[$activeFolder.ToLowerInvariant()] = $true
 }
 
-$documents = [Environment]::GetFolderPath('MyDocuments')
-if ([string]::IsNullOrWhiteSpace($documents)) {
-    throw "Windows did not provide a Documents folder; run Sync-Commands.ps1 in native Windows PowerShell"
+$localAppData = $env:LOCALAPPDATA
+if ([string]::IsNullOrWhiteSpace($localAppData)) {
+    throw "Windows did not provide LOCALAPPDATA; run Sync-Commands.ps1 in native Windows PowerShell"
 }
 
-$target = Join-Path $documents 'Tapioca Commands'
-$legacyTarget = Join-Path $documents 'EvP Commands'
+$target = Join-Path $localAppData 'Tapioca\Commands'
+$legacyTargets = @()
+$documents = [Environment]::GetFolderPath('MyDocuments')
+if (-not [string]::IsNullOrWhiteSpace($documents)) {
+    $legacyTargets += Join-Path $documents 'Tapioca Commands'
+    $legacyTargets += Join-Path $documents 'EvP Commands'
+}
 $ownershipPath = Join-Path $target $ownershipFileName
 
 $previousFolders = @()
@@ -336,11 +341,20 @@ if ($Prune -and (Test-Path -LiteralPath $ownershipPath -PathType Leaf)) {
     Write-Host "No target ownership manifest at $ownershipPath; no folders will be pruned." -ForegroundColor Yellow
 }
 
-if (-not (Test-Path -LiteralPath $target -PathType Container) -and
-    (Test-Path -LiteralPath $legacyTarget -PathType Container)) {
-    if ($PSCmdlet.ShouldProcess($legacyTarget, "migrate to $target")) {
-        Move-Item -LiteralPath $legacyTarget -Destination $target
-        Write-Host "migrated $legacyTarget -> $target"
+if (-not (Test-Path -LiteralPath $target -PathType Container)) {
+    foreach ($legacyTarget in $legacyTargets) {
+        if (-not (Test-Path -LiteralPath $legacyTarget -PathType Container)) {
+            continue
+        }
+        if ($PSCmdlet.ShouldProcess($legacyTarget, "migrate to $target")) {
+            $targetParent = Split-Path -LiteralPath $target -Parent
+            if (-not (Test-Path -LiteralPath $targetParent -PathType Container)) {
+                New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
+            }
+            Move-Item -LiteralPath $legacyTarget -Destination $target
+            Write-Host "migrated $legacyTarget -> $target"
+        }
+        break
     }
 }
 

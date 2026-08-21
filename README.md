@@ -20,10 +20,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\AddOn\EvP\Sync-Commands.ps
 
 `Install-Runtime.ps1` installs the bundled CPython runtime and baseline packages
 under `%LOCALAPPDATA%\Tapioca\runtime`. `Sync-Commands.ps1` copies commands from
-the repository's `Examples\` folder to `Documents\Tapioca Commands`, normally
-`%USERPROFILE%\Documents\Tapioca Commands`, which is the folder Archicad scans.
-Do not copy the example folders into `AddOn\EvP\Commands` or load them directly
-from the repository.
+the repository's `Examples\` folder to `%LOCALAPPDATA%\Tapioca\Commands`, which is
+the folder Archicad scans. Do not copy the example folders into `AddOn\EvP\Commands`
+or load them directly from the repository.
 
 Then:
 
