@@ -330,7 +330,7 @@ $runtime = $runtimeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathTy
 if ($null -ne $runtime) {
     Add-Result -Name "Embedded Python runtime" -Status PASS -Detail $runtime
 } else {
-    Add-Result -Name "Embedded Python runtime" -Status WARN -Detail "No python312.dll found; run AddOn/EvP/Install-Runtime.ps1 before live add-on use."
+    Add-Result -Name "Embedded Python runtime" -Status WARN -Detail "No python312.dll found; run dist/Install-Runtime.ps1 before live add-on use."
 }
 
 $archicadCandidates = @()

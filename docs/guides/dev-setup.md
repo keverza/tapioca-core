@@ -50,8 +50,7 @@ The runtime is separate from the system Python and is loaded by the add-on from
 `%LOCALAPPDATA%\Tapioca\runtime`:
 
 ```powershell
-cd AddOn\EvP
-.\Install-Runtime.ps1
+.\dist\Install-Runtime.ps1
 ```
 
 Run this with Archicad closed. The doctor only reports whether `python312.dll` is
@@ -107,7 +106,7 @@ captures.
   `AddOn\reference\CATALOG.yaml`, then copy or provision the catalog-listed source.
 - **v143 or ATL validation fails**: add the x64/x86 components in Visual Studio
   Installer, not the ARM variant.
-- **The runtime is missing**: run `AddOn\EvP\Install-Runtime.ps1` with Archicad
+- **The runtime is missing**: run `dist\Install-Runtime.ps1` with Archicad
   closed; do not delete it as a first repair step.
 - **A native change is not visible**: rebuild, restart Archicad, and reload the `.apx`.
 - **A Python command is not visible**: run `AddOn\EvP\Sync-Commands.ps1`, then press

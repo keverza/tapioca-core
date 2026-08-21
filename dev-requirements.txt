@@ -85,12 +85,12 @@
 # STEP 2 — MACHINE SETUP                                                       #
 # ---------------------------------------------------------------------------- #
 #   1. pip install -r dev-requirements.txt
-#   2. cd AddOn\EvP && .\Install-Runtime.ps1       # embedded CPython 3.12, ~15 MB
+#   2. .\dist\Install-Runtime.ps1                  # embedded CPython 3.12, ~15 MB
 #                                                   # downloads from python.org into
 #                                                   # %LOCALAPPDATA%\Tapioca\runtime
 #   3. cd AddOn\EvP && .\Initialize-Build29.ps1    # configure CMake/VS (build_29\EvP.sln)
 #   4. .\tools\build\Build-AddOn29.ps1            # build EvP.apx + EvPPy.dll
-#   5. cd AddOn\EvP && .\Sync-Commands.ps1         # push Commands\ -> Documents\Tapioca Commands\
+#   5. cd AddOn\EvP && .\Sync-Commands.ps1         # push Commands\ -> %LOCALAPPDATA%\Tapioca\Commands\
 #   6. point Archicad 29 at build_29\EvP.apx, then press Rescan in the palette
 #   See docs/guides/dev-setup.md for the full checklist and the troubleshooting table.
 #
