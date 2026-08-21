@@ -1,15 +1,12 @@
 # Tapioca
 ![Tapioca logo](./docs/static/Logo.jpg)
-Tapioca is a Python command host for Archicad 29. It keeps Archicad integration
-and safe main-thread SDK access in a native add-on while letting command authors
-write ordinary Python workflows.
+Tapioca is a UI for Python automation.
 
 [![Build](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml/badge.svg)](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml)
 
 ## Download and install
 
-Prebuilt AC29 releases are published as `Tapioca_AC29_Win.apx` on the Releases
-page. Download the asset and keep a checkout of this repository for the runtime
+Prebuilt AC29 releases are published on the Releases page. Download the asset and keep a checkout of this repository for the runtime
 installer and example commands. With Archicad closed, run these commands from
 the repository root in Windows PowerShell:
 
@@ -27,9 +24,9 @@ Then:
 
 1. Open Archicad 29.
 2. Open Options > Add-On Manager.
-3. Choose Add, select `Tapioca.apx`, Tapir.apx, and confirm the load.
+3. Choose Add, select Tapir.apx and Tapioca.apx.
 4. Open the Tapioca palette from the Window menu.
-5. Press Rescan after adding or changing a command folder.
+5. Press Rescan after add changes from a command folder.
 
 ## First command
 
