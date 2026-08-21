@@ -456,6 +456,13 @@ DiligentSceneStats DiligentScene::Stats () const
     for (int c = 0; c < 3; ++c)
         s.whiteBalanceGains[c] = gains.rgb[c];
     s.meanAlbedo = MeanPoolAlbedo (impl_->materials);
+    for (const SurfaceMaterial& surface : impl_->materials.All ()) {
+        const size_t slot = size_t (surface.substance);
+        if (slot < 7)
+            ++s.substanceCounts[slot];
+        if (surface.substance != Substance::Unknown)
+            ++s.substanceNamed;
+    }
     s.selected = SelectionCount ();
     s.materials = impl_->materials.Size ();
     s.pending = SceneCmdQueue::Get ().PendingCount ();

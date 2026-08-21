@@ -115,6 +115,31 @@ struct DiligentViewportStats {
     float environmentAverage[3] = {0.0f, 0.0f, 0.0f};
     std::string environmentPath;
     std::string environmentError;
+    // ---- RE51.B6: is the mip chain a real GGX prefilter, or the box fallback?
+    // ⚠️ NOTHING ON SCREEN SEPARATES THEM. Both are "blurrier at higher
+    // roughness"; the difference is whether a mirror reflects a recognisable
+    // environment, which is a judgement rather than an observation.
+    bool environmentPrefiltered = false;
+    uint64_t environmentPrefilteredMips = 0;
+    double environmentPrefilterMs = 0.0;
+    std::string environmentPrefilterError;
+
+    // ---- RE51.B9: the exposure the light implies -----------------------------
+    // ⚠️ `autoExposure` IS REPORTED EVEN WHEN `autoExposureEnabled` IS FALSE.
+    // That is the point: the estimate ships switched off until one live run says
+    // whether its middle-grey target suits this project, and it cannot say that
+    // unless the number is visible while the fixed value is what renders.
+    bool autoExposureEnabled = false;
+    float autoExposure = 0.0f;
+    float appliedExposure = 0.0f;
+    float sceneLuminance = 0.0f;
+    float meanAlbedo = 0.0f;
+    float whiteBalanceGains[3] = {1.0f, 1.0f, 1.0f};
+
+    // ---- RE51.B2: the substance join's coverage ------------------------------
+    uint64_t substanceNamed = 0;
+    uint64_t substanceCounts[7] = {};
+
     std::string cameraSource;   // where the starting view came from
     // ---- the live camera, for the overlay path -----------------------------
     // What the viewport is ACTUALLY looking through, this frame. The overlay

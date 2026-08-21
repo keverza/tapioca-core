@@ -154,6 +154,18 @@ struct DiligentSceneStats {
     // The mean linear reflectance of the surface pool -- the auto exposure's
     // other input, and the one that comes from the model rather than the sky.
     float meanAlbedo = 0.0f;
+
+    // ---- RE51.B2: how far the substance join actually got --------------------
+    // ⚠️ COVERAGE IS THE WHOLE MEASUREMENT AND IT IS NOT A SUCCESS RATE.
+    // BuildingMaterialSignal refuses whenever its two signals disagree, and
+    // SubstanceJoin refuses again whenever a surface is shared across
+    // substances -- so a low number is a property of the project's attributes
+    // and of how its surfaces are reused, not a failure. What WOULD be a failure
+    // is zero with a non-empty pool, which says the element-index join is wrong.
+    // The per-substance breakdown is what separates those two.
+    size_t substanceNamed = 0;
+    // Indexed by Substance's own enum values, so index 0 is the refusals.
+    size_t substanceCounts[7] = {};
     // How many elements draw highlighted. ⚠️ THIS IS THE ONE NUMBER THAT
     // SEPARATES "the bridge never delivered the selection" from "the tint is not
     // visible": a selection of three in Archicad and 0 here is the former, 3
