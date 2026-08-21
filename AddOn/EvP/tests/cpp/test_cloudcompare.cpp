@@ -12,7 +12,7 @@ TEST (CloudCompareCommand, PinsReleaseAndBuildsCropExport)
     request.executablePath = L"C:\\Tools\\Cloud Compare\\CloudCompare.exe";
     request.logPath = L"C:\\Temp\\tile.log";
     request.inputPath = L"C:\\Survey Files\\tile.laz";
-    request.outputPath = L"C:\\Temp\\tile.ply";
+    request.outputPath = L"C:\\Temp Files\\tile output.ply";
     request.cropPolygon = { { 10.0, 20.0 }, { 30.0, 20.0 }, { 30.0, 40.0 } };
     request.keepOutside = true;
 
@@ -22,7 +22,7 @@ TEST (CloudCompareCommand, PinsReleaseAndBuildsCropExport)
                         L"-LOG_FILE \"C:\\Temp\\tile.log\" -O -GLOBAL_SHIFT AUTO "
                         L"\"C:\\Survey Files\\tile.laz\" -CROP2D Z 3 10 20 30 20 30 40 -OUTSIDE "
                         L"-C_EXPORT_FMT PLY -PLY_EXPORT_FMT BINARY_LE -NO_TIMESTAMP -SAVE_CLOUDS FILE "
-                        L"\"C:\\Temp\\tile.ply\"");
+                        L"\"\\\"C:\\Temp Files\\tile output.ply\\\"\"");
 }
 
 TEST (CloudCompareCommand, OmitsOptionalOperationsWhenDisabled)

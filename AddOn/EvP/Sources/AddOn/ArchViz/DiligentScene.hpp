@@ -240,7 +240,25 @@ class DiligentScene final {
     // which case Draw renders unshadowed rather than wrong.
     bool RenderShadowMap (Diligent::IDeviceContext* context);
 
-    void Draw (Diligent::IDeviceContext* context, const float viewProj[16], const float eye[3], CullMode cull,
+    // ⚠️ `colorTarget` AND `depthTarget` ARE PARAMETERS BECAUSE THIS FUNCTION
+    // NOW BINDS THEM ITSELF, AND IT DOES THAT BECAUSE NOT DOING SO PRODUCED A
+    // GREY VIEWPORT ON 2026-08-21. Draw used to inherit whatever the frame loop
+    // had bound. That held for as long as nothing in between rebound anything
+    // -- and then TWO passes inside this very call started doing exactly that:
+    // the ambient-occlusion prepass (RE51.C3), which renders the G-buffer and
+    // ends with SetRenderTargets(0, ...), and the environment prefilter
+    // (RE51.B6), which renders into the environment map's own mip chain when an
+    // HDR arrives. After either one, every subsequent draw in the frame went
+    // nowhere. Nothing errored: the geometry simply stopped appearing while the
+    // G-buffer debug views -- which bind their own target at the end -- kept
+    // working perfectly, which is what made it look like a shading fault rather
+    // than a binding one.
+    //
+    // ⚠️ THE DEPTH VIEW IS NOT CLEARED HERE. The frame loop clears it once,
+    // deliberately, before navigation; clearing it again would discard the
+    // shadow pass's and the prepass's contribution to this frame's ordering.
+    void Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
+               Diligent::ITextureView* depthTarget, const float viewProj[16], const float eye[3], CullMode cull,
                int debugView);
 
     // Render opaque geometry into the shader-readable normal/depth G-buffer,
@@ -451,10 +469,17 @@ class DiligentScene final {
     // is now made -- and it is made VISIBLY, behind an HUD toggle, rather than
     // by quietly doubling the cost of every frame.
     //
-    // ⚠️ CALL IT BEFORE Draw, NOT AFTER. It leaves no render target bound; Draw
-    // binds its own. Calling it after would darken the NEXT frame with THIS
-    // frame's occlusion, which under orbit reads as the shading lagging the
-    // camera and is very easy to mistake for a temporal effect.
+    // ⚠️ CALL IT BEFORE Draw, NOT AFTER. Calling it after would darken the NEXT
+    // frame with THIS frame's occlusion, which under orbit reads as the shading
+    // lagging the camera and is easy to mistake for a temporal effect.
+    //
+    // ⚠️ IT LEAVES NO RENDER TARGET BOUND, AND Draw REBINDS ITS OWN *BECAUSE OF
+    // THIS*. Draw used to inherit the frame loop's binding; this prepass ends
+    // with SetRenderTargets(0, ...) so the G-buffer can be sampled, and the
+    // first live run after it landed rendered a GREY VIEWPORT with no geometry
+    // and no error at all -- while the G-buffer debug views, which bind their
+    // own target at the end, kept working perfectly. Do not "simplify" Draw
+    // back to inheriting its targets.
     void PrepareAmbientOcclusion (Diligent::IDeviceContext* context, const float view[16], const float proj[16],
                                   const float viewProj[16], const float eye[3], float nearClip, float farClip,
                                   float focusDistance, uint32_t frameIndex, CullMode cull);

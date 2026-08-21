@@ -531,17 +531,40 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
     ++impl_->drawCalls;
 }
 
-void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewProj[16], const float eye[3],
+void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
+                          Diligent::ITextureView* depthTarget, const float viewProj[16], const float eye[3],
                           CullMode cull, int debugView)
 {
     if (context == nullptr || !impl_->ready)
         return;
 
-    // ⚠️ (1, nullptr, 0, 0), NOT (0, ...). Zero means "bind no viewports at
-    // all" and every triangle is clipped away while the clear still happens --
-    // which reads exactly like a renderer that draws nothing. It cost
-    // TransparencyProbe a full run; see PatternRenderer.cpp -> Render.
-    context->SetViewports (1, nullptr, 0, 0);
+    // ⚠️ BOUND HERE, NOT INHERITED. See the header: two passes inside this call
+    // rebind the render targets for their own purposes, and inheriting the
+    // frame loop's binding meant everything after the first of them drew into
+    // nothing at all -- silently.
+    const auto bindFrameTargets = [&] () {
+        context->SetRenderTargets (1, &colorTarget, depthTarget,
+                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        // ⚠️ AFTER THE BIND, ALWAYS. SetRenderTargets resets the viewport
+        // whenever the framebuffer actually changes.
+        //
+        // ⚠️ AND (1, nullptr, 0, 0), NOT (0, ...). Zero means "bind no viewports
+        // at all" and every triangle is clipped away while the clear still
+        // happens -- which reads exactly like a renderer that draws nothing. It
+        // cost TransparencyProbe a full run; see PatternRenderer.cpp -> Render.
+        context->SetViewports (1, nullptr, 0, 0);
+    };
+    // ⚠️ NO SILENT FALLBACK TO INHERITING. A version of this that quietly used
+    // whatever happened to be bound is exactly what produced the grey viewport,
+    // so a missing target is reported and the frame is skipped instead. It
+    // cannot happen from the one caller; if it ever does, the log says so rather
+    // than the picture.
+    if (colorTarget == nullptr) {
+        ArchVizLog ("ArchViz Draw: no colour target was supplied; the frame is skipped. The caller "
+                    "must pass the view it wants drawn into -- Draw no longer inherits a binding.");
+        return;
+    }
+    bindFrameTargets ();
 
     const int index = CullIndex (cull);
     impl_->drawCalls = 0;
@@ -612,6 +635,12 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
             // dropped. It is reported through the stats.
             impl_->environmentError = environmentError;
         }
+        // ⚠️ THE LOAD RENDERS. EnvironmentMap::Load runs the GGX prefilter
+        // (RE51.B6), which binds each mip of the environment map as a render
+        // target in turn and leaves the LAST one -- a 1x1 texel -- bound. Every
+        // draw after this point in the frame would go there. One frame, on the
+        // frame an HDR arrives, and it would also have corrupted that mip.
+        bindFrameTargets ();
     }
 
     const bool envActive =

@@ -1,7 +1,6 @@
 :root {
-  --sl-color-accent-low: #f7e9d1;
-  --sl-color-accent: #b96c20;
-  --sl-color-accent-high: #693b0d;
+  /* Starlight's base palette is dark mode. Keep the scale ordered from text
+     and highlights (gray-1) down to the page background (black). */
   --sl-color-white: #fffaf2;
   --sl-color-gray-1: #f5efe7;
   --sl-color-gray-2: #e9e0d5;
@@ -10,22 +9,49 @@
   --sl-color-gray-5: #544c47;
   --sl-color-gray-6: #332e36;
   --sl-color-black: #252331;
+  --sl-color-accent-low: #4a301c;
+  --sl-color-accent: #edaa55;
+  --sl-color-accent-high: #ffe0ad;
+  --sl-color-text: var(--sl-color-gray-2);
+  --sl-color-text-accent: var(--sl-color-accent-high);
+  --sl-color-text-invert: var(--sl-color-accent-low);
+  --sl-color-bg: var(--sl-color-black);
+  --sl-color-bg-nav: var(--sl-color-gray-6);
+  --sl-color-bg-sidebar: var(--sl-color-gray-6);
+  --sl-color-bg-inline-code: var(--sl-color-gray-5);
+  --sl-color-bg-accent: var(--sl-color-accent-high);
+  --sl-color-hairline-light: var(--sl-color-gray-5);
+  --sl-color-hairline: var(--sl-color-gray-6);
+  --sl-color-hairline-shade: var(--sl-color-black);
   --sl-font: "Segoe UI", Arial, sans-serif;
   --sl-font-system: "Segoe UI", Arial, sans-serif;
 }
 
-:root[data-theme='dark'] {
-  --sl-color-accent-low: #4a301c;
-  --sl-color-accent: #edaa55;
-  --sl-color-accent-high: #ffe0ad;
-  --sl-color-white: #fffaf2;
-  --sl-color-gray-1: #2f2b35;
-  --sl-color-gray-2: #403943;
-  --sl-color-gray-3: #625a65;
-  --sl-color-gray-4: #958b94;
-  --sl-color-gray-5: #c2b9bd;
-  --sl-color-gray-6: #e8ded4;
-  --sl-color-black: #211f28;
+:root[data-theme='light'] {
+  /* Light mode reverses the gray scale and the white/black semantics. */
+  --sl-color-white: #252331;
+  --sl-color-gray-1: #332e36;
+  --sl-color-gray-2: #544c47;
+  --sl-color-gray-3: #887d73;
+  --sl-color-gray-4: #cfc3b5;
+  --sl-color-gray-5: #e9e0d5;
+  --sl-color-gray-6: #f5efe7;
+  --sl-color-gray-7: #fbf6ef;
+  --sl-color-black: #fffaf2;
+  --sl-color-accent-low: #f7e9d1;
+  --sl-color-accent: #b96c20;
+  --sl-color-accent-high: #693b0d;
+  --sl-color-text: var(--sl-color-gray-2);
+  --sl-color-text-accent: var(--sl-color-accent);
+  --sl-color-text-invert: var(--sl-color-black);
+  --sl-color-bg: var(--sl-color-black);
+  --sl-color-bg-nav: var(--sl-color-gray-7);
+  --sl-color-bg-sidebar: var(--sl-color-bg);
+  --sl-color-bg-inline-code: var(--sl-color-gray-6);
+  --sl-color-bg-accent: var(--sl-color-accent);
+  --sl-color-hairline-light: var(--sl-color-gray-6);
+  --sl-color-hairline: var(--sl-color-gray-5);
+  --sl-color-hairline-shade: var(--sl-color-gray-6);
 }
 
 .sl-markdown-content h1,
@@ -50,9 +76,15 @@
 
 .hero {
   background:
-    radial-gradient(circle at 88% 20%, rgba(231, 160, 68, 0.16), transparent 16rem),
-    linear-gradient(135deg, rgba(255, 250, 242, 0.96), rgba(247, 233, 209, 0.7));
+    radial-gradient(circle at 88% 20%, rgba(237, 170, 85, 0.18), transparent 16rem),
+    linear-gradient(135deg, #332e36, #252331);
   border-radius: 1.25rem;
+}
+
+:root[data-theme='light'] .hero {
+  background:
+    radial-gradient(circle at 88% 20%, rgba(231, 160, 68, 0.16), transparent 16rem),
+    linear-gradient(135deg, #fffaf2, #f7e9d1);
 }
 
 .hero h1 {

@@ -117,7 +117,8 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
     scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj, request.eye,
                                    Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex,
                                    CullMode::Cw);
-    scene.Draw (context, request.viewProj, request.eye, CullMode::Cw, request.debugView);
+    scene.Draw (context, request.target, request.depth, request.viewProj, request.eye, CullMode::Cw,
+                request.debugView);
     scene.AdvanceFrame (request.viewProj);
 }
 

@@ -53,6 +53,11 @@ class PlanAnchorLayer;
 // no occlusion standing for the next frame to multiply in.
 struct SceneDrawRequest {
     Diligent::ITextureView* target = nullptr;
+    // ⚠️ THE DEPTH VIEW TRAVELS WITH THE COLOUR ONE, because DiligentScene::Draw
+    // binds both itself now -- see its header for the grey viewport that made
+    // that necessary. It is bound, never cleared: the frame loop clears it once,
+    // before navigation.
+    Diligent::ITextureView* depth = nullptr;
     const float* view = nullptr;        // 16
     const float* proj = nullptr;        // 16
     const float* viewProj = nullptr;    // 16

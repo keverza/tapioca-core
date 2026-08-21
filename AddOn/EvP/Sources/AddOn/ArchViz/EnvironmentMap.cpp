@@ -232,10 +232,14 @@ std::string BuildPrefilterPipeline (Diligent::IRenderDevice* device, Environment
 // Run the prefilter over the whole destination chain. Called only after the
 // source has been uploaded and its box mips generated.
 //
-// ⚠️ IT RESTORES NOTHING. The caller (Load) runs before the frame's own
-// SetRenderTargets, and DiligentSceneDraw binds its targets unconditionally at
-// the top of every frame -- so leaving the last mip bound here is invisible.
-// If that ever stops being true, this is the place that has to save and restore.
+// ⚠️ IT RESTORES NOTHING, AND ITS CALLER HAS TO. This binds each mip of the
+// environment map in turn and leaves the LAST one -- a 1x1 texel -- bound.
+// DiligentScene::Draw rebinds the frame's targets immediately after the
+// deferred load for exactly this reason; without that, every draw for the rest
+// of the frame an HDR arrives would go into that mip, blanking the image and
+// corrupting the mip. An earlier version of this comment asserted the caller
+// rebound "unconditionally at the top of every frame". It did not, and the
+// sibling fault in the ambient-occlusion prepass is what exposed that.
 void RunPrefilter (Diligent::IDeviceContext* context, EnvironmentMap::Impl& impl)
 {
     const uint32_t mipCount = impl.mipLevels;

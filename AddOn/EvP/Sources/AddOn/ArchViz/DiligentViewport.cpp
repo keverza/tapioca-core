@@ -768,6 +768,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 gpuTimings.Begin (context, GpuTimingStage::Shading);
                 SceneDrawRequest request;
                 request.target = rtv;
+                request.depth = dsv;
                 request.view = view;
                 request.proj = proj;
                 request.viewProj = viewProj;

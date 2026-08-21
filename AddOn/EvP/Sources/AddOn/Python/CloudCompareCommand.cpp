@@ -36,6 +36,19 @@ std::wstring QuoteArgument (const std::wstring& value)
     return quoted;
 }
 
+std::wstring QuoteCloudCompareFileArgument (const std::wstring& value)
+{
+    // CloudCompare's SAVE_CLOUDS FILE parser splits one argv value on spaces and
+    // only preserves a filename when the quote characters are still present in
+    // that value. Normal Win32 quoting is removed before CloudCompare sees argv.
+    std::wstring parserValue;
+    parserValue.reserve (value.size () + 2);
+    parserValue.push_back (L'"');
+    parserValue += value;
+    parserValue.push_back (L'"');
+    return QuoteArgument (parserValue);
+}
+
 std::wstring Number (double value)
 {
     std::wostringstream stream;
@@ -92,7 +105,7 @@ std::wstring BuildCloudCompareCommandLine (const CloudCompareCommandRequest& req
     Append (command, L"-NO_TIMESTAMP");
     Append (command, L"-SAVE_CLOUDS");
     Append (command, L"FILE");
-    Append (command, QuoteArgument (request.outputPath));
+    Append (command, QuoteCloudCompareFileArgument (request.outputPath));
     return command;
 }
 
