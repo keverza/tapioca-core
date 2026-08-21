@@ -766,7 +766,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 gpuTimings.Begin (context, GpuTimingStage::Shading);
                 const bool gBufferDebugView = hudState.debugView == int (DiligentDebugView::GBufferNormals) ||
                                               hudState.debugView == int (DiligentDebugView::GBufferDepth) ||
-                                              hudState.debugView == int (DiligentDebugView::AmbientOcclusion);
+                                              hudState.debugView == int (DiligentDebugView::AmbientOcclusion) ||
+                                              hudState.debugView == int (DiligentDebugView::GBufferAlbedo) ||
+                                              hudState.debugView == int (DiligentDebugView::GBufferRoughness) ||
+                                              hudState.debugView == int (DiligentDebugView::GBufferMaterialData);
                 if (gBufferDebugView) {
                     if (hudState.debugView != lastLoggedGBufferView) {
                         lastLoggedGBufferView = hudState.debugView;

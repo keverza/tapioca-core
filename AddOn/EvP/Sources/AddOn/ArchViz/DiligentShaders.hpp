@@ -143,7 +143,7 @@ struct DiligentSceneConstants {
     // FRAME value sharing a float4 with a PER-RANGE one, which is safe only
     // because the whole struct is re-uploaded per range -- set y once before the
     // range loop and it rides along. Do not "optimise" that upload out.
-    // z, w spare.
+    // z = the draw range's classifier-provided metalness, 0..1. w spare.
     //
     // ⚠️ A WHOLE float4 FOR ONE FLOAT, AND THAT IS THE DOCUMENTED CHOICE. The
     // note on `outlineParams` records the previous decision to subdivide a
@@ -223,6 +223,9 @@ enum class DiligentDebugView : int {
     GBufferNormals = 7,
     GBufferDepth = 8,
     AmbientOcclusion = 9,
+    GBufferAlbedo = 10,
+    GBufferRoughness = 11,
+    GBufferMaterialData = 12,
 };
 
 static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16,
@@ -258,7 +261,7 @@ cbuffer ArchVizConstants
                                 // z  = render quality, w = range roughness
     float4   g_sh[9];           // order-2 SH irradiance, xyz = RGB
     float4   g_envParams;       // x intensity, y rotation rad, z enabled, w mips
-    float4   g_materialParams;  // per draw range: x = specular reflectance 0..1
+    float4   g_materialParams;  // per draw range: x = specular, y = sun weight, z = metalness
     float4   g_envRayRight;     // the view ray basis: dir = forward + x*right
     float4   g_envRayUp;        //                         + y*up, at NDC (x, y)
     float4   g_envRayForward;
@@ -413,9 +416,11 @@ void main (in PSInput psIn, out PSOutput psOut)
 }
 )hlsl";
 
-// The first Tutorial27_PostProcessing slice: opaque geometry writes a world
-// normal target while the fixed-function depth output fills the second G-buffer
-// element.
+// The deferred inputs are written in one opaque pass. Albedo stays in the
+// source material space, roughness is the value the forward GGX path consumes,
+// and material data reserves the standard PBR lanes for roughness, metalness,
+// specular reflectance and opacity. Metalness is zero until the classifier owns
+// that decision.
 constexpr const char* kArchVizGBufferPS = R"hlsl(
 struct PSInput
 {
@@ -425,9 +430,24 @@ struct PSInput
     float4 color    : COLOR0;
 };
 
-void main (in PSInput psIn, out float4 normal : SV_TARGET)
+struct PSOutput
 {
-    normal = float4 (normalize (psIn.normal), 1.0);
+    float4 normal       : SV_TARGET0;
+    float4 albedo       : SV_TARGET1;
+    float  roughness    : SV_TARGET2;
+    float4 materialData : SV_TARGET3;
+};
+
+void main (in PSInput psIn, out PSOutput psOut)
+{
+    float4 albedo = psIn.color * g_baseColor;
+    float roughness = clamp (g_outline.w + g_gradeParams.z, 0.045, 1.0);
+
+    psOut.normal = float4 (normalize (psIn.normal), 1.0);
+    psOut.albedo = albedo;
+    psOut.roughness = roughness;
+    psOut.materialData = float4 (roughness, saturate (g_materialParams.z), saturate (g_materialParams.x),
+                                 saturate (albedo.a));
 }
 )hlsl";
 
@@ -586,6 +606,9 @@ void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 col
 constexpr const char* kArchVizGBufferDebugPS = R"hlsl(
 Texture2D<float4> g_gbufferNormal;
 Texture2D<float>  g_gbufferDepth;
+Texture2D<float4> g_gbufferAlbedo;
+Texture2D<float>  g_gbufferRoughness;
+Texture2D<float4> g_gbufferMaterialData;
 Buffer<uint>      g_depthRange;
 
 // Depth-buffer value back to metres from the eye. ⚠️ THE TWO PROJECTIONS NEED
@@ -612,6 +635,22 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     {
         float3 normal = normalize (g_gbufferNormal.Load (int3 (pixel, 0)).xyz);
         color = float4 (normal * 0.5 + 0.5, 1.0);
+    }
+    else if (int (g_eyePos.w) == 10)
+    {
+        color = float4 (g_gbufferAlbedo.Load (int3 (pixel, 0)).rgb, 1.0);
+    }
+    else if (int (g_eyePos.w) == 11)
+    {
+        float roughness = saturate (g_gbufferRoughness.Load (int3 (pixel, 0)));
+        color = float4 (roughness.xxx, 1.0);
+    }
+    else if (int (g_eyePos.w) == 12)
+    {
+        float4 materialData = g_gbufferMaterialData.Load (int3 (pixel, 0));
+        // RGB shows roughness, classifier metalness and specular reflectance;
+        // opacity remains in the target's alpha lane for downstream consumers.
+        color = float4 (materialData.xyz, 1.0);
     }
     else
     {
@@ -876,10 +915,9 @@ float SampleSunShadow (float3 worldPos, float3 normal)
 // string literal may not exceed 16 KB (C2026), and the mesh pixel shader
 // passed it when the environment lighting arrived -- as a COMPILE error
 // naming only the closing line of the literal, which is a long way from
-// anything that looks like a cause. The two halves are concatenated at
-// runtime by ArchVizShaderSource, the same mechanism the shared cbuffer
-// already uses; splitting further needs no new machinery, just another
-// argument.
+// anything that looks like a cause. The pieces are concatenated at runtime by
+// ArchVizShaderSource, the same mechanism the shared cbuffer already uses;
+// splitting further needs no new machinery, just another argument.
 constexpr const char* kArchVizMeshPSMain = R"hlsl(
 void main (in PSInput psIn, out PSOutput psOut)
 {
@@ -972,6 +1010,12 @@ void main (in PSInput psIn, out PSOutput psOut)
     // the surface into a transmitted and a reflected half; the Fast path has no
     // reflection to protect and premultiplies in one step at the output.
     bool premultiplied = false;
+)hlsl";
+
+// The classifier's metalness and split-sum fit pushed the entry-point literal
+// over MSVC's 16 KB limit. Keep the split at a statement boundary so the
+// runtime source remains one shader while each C++ literal stays compilable.
+constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
     if (g_outline.z > 0.5)
     {
         // ---- GGX, driven by the material's OWN finish ----------------------
@@ -1047,7 +1091,6 @@ void main (in PSInput psIn, out PSOutput psOut)
         float3 f0       = lerp (float3 (f0scalar, f0scalar, f0scalar), base.rgb, metallic);
         float3 fresnel  = f0 + (1.0 - f0) * pow (1.0 - vdoth, 5.0);
         float3 spec     = ndf * vis * fresnel * ndotl * shadow * g_gradeParams.y;
-
 
         // Wrapped diffuse: light bends a little past the terminator. Physically
         // this stands in for the bounce a single directional light cannot carry.
@@ -1137,7 +1180,6 @@ void main (in PSInput psIn, out PSOutput psOut)
         // takes AWAY from the diffuse, and the two are not the same number.
         float3 fresnelEnv = f0 + (1.0 - f0) * pow (1.0 - ndotv, 5.0);
 
-
         // Energy conservation: what reflects specularly does not also diffuse.
         // At normal incidence this removes 4% and is invisible; at grazing
         // angles it is what stops a shiny surface from being BRIGHTER than a
@@ -1213,17 +1255,20 @@ void main (in PSInput psIn, out PSOutput psOut)
 
 // One shader's full source: the shared cbuffer, then the stage's own body.
 //
-// The second half is optional and exists only because MSVC caps a string
-// literal at 16 KB -- see kArchVizMeshPSMain. Passing the pieces separately
-// keeps the limit a property of THIS file rather than something every caller
-// has to know about.
-inline std::string ArchVizShaderSource (const char* body, const char* more = nullptr, const char* evenMore = nullptr)
+// Additional pieces are optional and exist only because MSVC caps a string
+// literal at 16 KB -- see the split mesh pixel shader. Passing the pieces
+// separately keeps the limit a property of THIS file rather than something
+// every caller has to know about.
+inline std::string ArchVizShaderSource (const char* body, const char* more = nullptr, const char* evenMore = nullptr,
+                                        const char* last = nullptr)
 {
     std::string source = std::string (kArchVizCBuffer) + body;
     if (more != nullptr)
         source += more;
     if (evenMore != nullptr)
         source += evenMore;
+    if (last != nullptr)
+        source += last;
     return source;
 }
 

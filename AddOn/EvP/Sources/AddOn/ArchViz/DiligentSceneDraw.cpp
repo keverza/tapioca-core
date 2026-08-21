@@ -219,13 +219,24 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
         impl_->gBuffer->Resize (impl_->device, impl_->viewportWidth, impl_->viewportHeight);
         if (impl_->gBuffer->GetBuffer (kGBufferNormal) == nullptr ||
             impl_->gBuffer->GetBuffer (kGBufferDepth) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferMotion) == nullptr)
+            impl_->gBuffer->GetBuffer (kGBufferMotion) == nullptr ||
+            impl_->gBuffer->GetBuffer (kGBufferAlbedo) == nullptr ||
+            impl_->gBuffer->GetBuffer (kGBufferRoughness) == nullptr ||
+            impl_->gBuffer->GetBuffer (kGBufferMaterialData) == nullptr)
             return;
 
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal")
             ->Set (impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth")
             ->Set (impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo")
+            ->Set (impl_->gBuffer->GetBuffer (kGBufferAlbedo)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness")
+            ->Set (
+                impl_->gBuffer->GetBuffer (kGBufferRoughness)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData")
+            ->Set (impl_->gBuffer->GetBuffer (kGBufferMaterialData)
+                       ->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depthRange")
             ->Set (impl_->depthRange.BufferView ());
         impl_->gBufferWidth = impl_->viewportWidth;
@@ -234,15 +245,31 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
 
     context->SetViewports (1, nullptr, 0, 0);
     impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr, kGBufferGeometryMask);
+    // Binding a different framebuffer resets the viewport on D3D11. Set it
+    // again after the G-buffer bind so every MRT receives the full scene.
+    context->SetViewports (1, nullptr, 0, 0);
 
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
+    constants.gradeParams[2] = impl_->roughnessBias;
     UploadConstants (context, impl_->constants, constants);
 
     const int index = CullIndex (cull);
     context->SetPipelineState (impl_->gBufferPso[index]);
     context->CommitShaderResources (impl_->gBufferSrb[index], Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     impl_->drawCalls = 0;
+
+    const SurfaceMaterial defaultMaterial;
+    auto uploadMaterial = [&] (const SurfaceMaterial& material, const SurfacePreset& preset) {
+        constants.baseColor[0] = material.r;
+        constants.baseColor[1] = material.g;
+        constants.baseColor[2] = material.b;
+        constants.baseColor[3] = material.alpha;
+        constants.outlineParams[3] = preset.roughness;
+        constants.materialParams[0] = preset.reflectance;
+        constants.materialParams[2] = preset.metallic;
+        UploadConstants (context, impl_->constants, constants);
+    };
 
     auto drawOpaqueRanges = [&] (const Entry& e, bool consultMaterials) {
         if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
@@ -251,8 +278,12 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
         for (const MaterialRange& range : e.ranges) {
             if (range.indexCount == 0)
                 continue;
-            if (consultMaterials && impl_->materials.Lookup (range.material).alpha < kOpaqueAlpha)
+            const SurfaceMaterial& material =
+                consultMaterials ? impl_->materials.Lookup (range.material) : defaultMaterial;
+            if (consultMaterials && material.alpha < kOpaqueAlpha)
                 continue;
+            const SurfacePreset preset = consultMaterials ? PresetFor (material) : SurfacePreset {};
+            uploadMaterial (material, preset);
             DrawEntryRange (context, e, range);
             ++impl_->drawCalls;
         }
@@ -464,7 +495,6 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
         UploadConstants (context, impl_->constants, constants);
     };
 
-
     auto drawRange = [&] (const Entry& e, const MaterialRange& r, bool blended) {
         Diligent::IPipelineState* pso = blended ? impl_->blendPso[index] : impl_->opaquePso[index];
         Diligent::IShaderResourceBinding* srb = blended ? impl_->blendSrb[index] : impl_->opaqueSrb[index];
@@ -560,8 +590,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
                 // ⚠️ PER RANGE, NOT PER FRAME. Hoisting the upload out of this
                 // loop paints every range in the last material's colour -- and
                 // now its finish too, in both channels.
-                uploadConstants (tintR, tintG, tintB, alpha, preset.roughness,
-                                 preset.reflectance, preset.metallic);
+                uploadConstants (tintR, tintG, tintB, alpha, preset.roughness, preset.reflectance, preset.metallic);
                 drawRange (e, r, blended);
             }
         }

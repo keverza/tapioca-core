@@ -49,15 +49,15 @@ STAGES = {
     "kArchVizDepthRangeSmoothCS": "cs_5_0",
     "kArchVizEnvBackgroundVS": "vs_5_0",
     "kArchVizEnvBackgroundPS": "ps_5_0",
-    # ⚠️ THE MESH PS IS TWO LITERALS, concatenated at runtime because MSVC
-    # caps a string literal at 16 KB. Compiling only the first half would
+    # ⚠️ THE MESH PS IS THREE LITERALS, concatenated at runtime because MSVC
+    # caps a string literal at 16 KB. Compiling only the first piece would
     # check a shader with no entry point and pass on a truncated file.
     "kArchVizMeshPS": "ps_5_0",
 }
 
 # Stages whose source is more than one literal, in concatenation order.
 CONTINUATIONS = {
-    "kArchVizMeshPS": ["kArchVizMeshPSMain"],
+    "kArchVizMeshPS": ["kArchVizMeshPSMain", "kArchVizMeshPSMainTail"],
 }
 
 # Literals prepended AFTER the cbuffer and BEFORE the stage's own body, matching

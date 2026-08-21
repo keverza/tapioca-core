@@ -13122,7 +13122,7 @@
           "view": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 9
+            "maximum": 12
           }
         },
         "additionalProperties": false,
@@ -13136,7 +13136,7 @@
           "view": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 9
+            "maximum": 12
           }
         },
         "additionalProperties": false,

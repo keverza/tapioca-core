@@ -48,13 +48,13 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
 
     auto compile = [&] (Diligent::SHADER_TYPE type, const char* name, const char* body,
                         RefCntAutoPtr<Diligent::IShader>& out, const char* more = nullptr,
-                        const char* evenMore = nullptr) -> bool {
+                        const char* evenMore = nullptr, const char* last = nullptr) -> bool {
         // ⚠️ THE SOURCE MUST OUTLIVE CreateShader. `ArchVizShaderSource` returns
         // by value and `sci.Source` is a borrowed pointer; binding the temporary
         // to a named local is what keeps it alive across the call. Passing
         // `ArchVizShaderSource(body).c_str()` inline compiles, and reads freed
         // memory.
-        const std::string source = ArchVizShaderSource (body, more, evenMore);
+        const std::string source = ArchVizShaderSource (body, more, evenMore, last);
         Diligent::ShaderCreateInfo sci;
         sci.Desc.Name = name;
         sci.Desc.ShaderType = type;
@@ -74,7 +74,7 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz mesh VS", kArchVizMeshVS, impl_->vs))
         return false;
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz mesh PS", kArchVizEnvCommonPS, impl_->ps, kArchVizMeshPS,
-                  kArchVizMeshPSMain))
+                  kArchVizMeshPSMain, kArchVizMeshPSMainTail))
         return false;
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz shadow VS", kArchVizShadowVS, impl_->shadowVs))
         return false;
@@ -131,9 +131,16 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     // Borrowed for the deferred environment load -- see Impl::device.
     impl_->device = device;
 
-    Diligent::GBuffer::ElementDesc gBufferElements[3];
+    Diligent::GBuffer::ElementDesc gBufferElements[6] {};
     gBufferElements[kGBufferNormal].Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
     gBufferElements[kGBufferNormal].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
+    gBufferElements[kGBufferAlbedo].Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
+    gBufferElements[kGBufferAlbedo].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA8_UNORM, 0.0f, 0.0f, 0.0f, 0.0f);
+    gBufferElements[kGBufferRoughness].Format = Diligent::TEX_FORMAT_R16_FLOAT;
+    gBufferElements[kGBufferRoughness].ClearValue.SetColor (Diligent::TEX_FORMAT_R16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
+    gBufferElements[kGBufferMaterialData].Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+    gBufferElements[kGBufferMaterialData].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA16_FLOAT, 0.0f, 0.0f, 0.0f,
+                                                               0.0f);
     gBufferElements[kGBufferDepth].Format = Diligent::TEX_FORMAT_D32_FLOAT;
     gBufferElements[kGBufferDepth].ClearValue.SetDepthStencil (Diligent::TEX_FORMAT_D32_FLOAT, 1.0f);
     gBufferElements[kGBufferMotion].Format = Diligent::TEX_FORMAT_RG16_FLOAT;
@@ -327,16 +334,19 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     }
 
     // ---- debug G-buffer geometry pipelines --------------------------------
-    // Same mesh VS and layout as the visible pass, but one normal target and the
-    // G-buffer's shader-readable depth attachment.
+    // Same mesh VS and layout as the visible pass, but four material targets and
+    // the G-buffer's shader-readable depth attachment.
     for (int i = 0; i < kCullModeCount; ++i) {
         const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
 
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = "ArchViz G-buffer geometry PSO";
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
-        gp.NumRenderTargets = 1;
+        gp.NumRenderTargets = 4;
         gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+        gp.RTVFormats[1] = Diligent::TEX_FORMAT_RGBA8_UNORM;
+        gp.RTVFormats[2] = Diligent::TEX_FORMAT_R16_FLOAT;
+        gp.RTVFormats[3] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
         gp.DSVFormat = Diligent::TEX_FORMAT_D32_FLOAT;
         gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         gp.RasterizerDesc.CullMode = ToDiligentCull (cull);
@@ -354,13 +364,18 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
             error = "Diligent CreateGraphicsPipelineState(ArchViz G-buffer geometry) failed";
             return false;
         }
-        Diligent::IShaderResourceVariable* constantsVar =
-            impl_->gBufferPso[i]->GetStaticVariableByName (Diligent::SHADER_TYPE_VERTEX, "ArchVizConstants");
-        if (constantsVar == nullptr) {
-            error = "Diligent could not resolve `ArchVizConstants` in the G-buffer vertex shader";
-            return false;
+        const Diligent::SHADER_TYPE stages[2] = { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL };
+        for (Diligent::SHADER_TYPE stage : stages) {
+            Diligent::IShaderResourceVariable* constantsVar =
+                impl_->gBufferPso[i]->GetStaticVariableByName (stage, "ArchVizConstants");
+            if (constantsVar == nullptr) {
+                error = "Diligent could not resolve `ArchVizConstants` in the G-buffer ";
+                error += (stage == Diligent::SHADER_TYPE_VERTEX ? "vertex" : "pixel");
+                error += " shader";
+                return false;
+            }
+            constantsVar->Set (impl_->constants);
         }
-        constantsVar->Set (impl_->constants);
         impl_->gBufferPso[i]->CreateShaderResourceBinding (&impl_->gBufferSrb[i], true);
         if (impl_->gBufferSrb[i] == nullptr) {
             error = "Diligent CreateShaderResourceBinding(ArchViz G-buffer geometry) failed";
@@ -371,6 +386,9 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     Diligent::ShaderResourceVariableDesc debugVariables[] = {
         { Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         { Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         { Diligent::SHADER_TYPE_PIXEL, "g_depthRange", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
     };
     Diligent::GraphicsPipelineStateCreateInfo debugPci;

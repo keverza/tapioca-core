@@ -28,12 +28,23 @@ namespace {
 // `debug_view` parameter. ⚠️ THE ORDER IS THE DiligentDebugView ENUM'S ORDER --
 // the combo's index IS the value, so an insertion here silently renumbers them.
 const char* const kDebugViewNames[] = {
-    "final",          "normals",           "lit", "base color", "sun vector", "shadow", "roughness", "G-buffer normals",
-    "G-buffer depth", "ambient occlusion",
+    "final",
+    "normals",
+    "lit",
+    "base color",
+    "sun vector",
+    "shadow",
+    "roughness",
+    "G-buffer normals",
+    "G-buffer depth",
+    "ambient occlusion",
+    "G-buffer albedo",
+    "G-buffer roughness",
+    "G-buffer material",
 };
 constexpr int kDebugViewCount = int (sizeof (kDebugViewNames) / sizeof (kDebugViewNames[0]));
 
-static_assert (kDebugViewCount == int (DiligentDebugView::AmbientOcclusion) + 1,
+static_assert (kDebugViewCount == int (DiligentDebugView::GBufferMaterialData) + 1,
                "the HUD's combo and DiligentDebugView have drifted apart");
 
 // The render modes, in SceneRenderMode's order -- the combo's index IS the

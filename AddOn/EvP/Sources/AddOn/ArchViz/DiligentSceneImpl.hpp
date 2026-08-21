@@ -61,10 +61,18 @@ using Diligent::RefCntAutoPtr;
 // blend.
 
 constexpr int kCullModeCount = 3;
+// Keep the render-target elements contiguous. GBuffer::Bind uses an element's
+// index as its MRT slot by default, while depth is selected as the DSV and the
+// motion target remains cleared-only until RE51.C2 supplies real vectors.
 constexpr Diligent::Uint32 kGBufferNormal = 0;
-constexpr Diligent::Uint32 kGBufferDepth = 1;
-constexpr Diligent::Uint32 kGBufferMotion = 2;
-constexpr Diligent::Uint32 kGBufferGeometryMask = (1u << kGBufferNormal) | (1u << kGBufferDepth);
+constexpr Diligent::Uint32 kGBufferAlbedo = 1;
+constexpr Diligent::Uint32 kGBufferRoughness = 2;
+constexpr Diligent::Uint32 kGBufferMaterialData = 3;
+constexpr Diligent::Uint32 kGBufferDepth = 4;
+constexpr Diligent::Uint32 kGBufferMotion = 5;
+constexpr Diligent::Uint32 kGBufferGeometryMask = (1u << kGBufferNormal) | (1u << kGBufferAlbedo) |
+                                                  (1u << kGBufferRoughness) | (1u << kGBufferMaterialData) |
+                                                  (1u << kGBufferDepth);
 
 // ⚠️ IDs START AT 1, AND 0 IS RESERVED FOR "NOTHING". The pick target is cleared
 // to zero, so a pixel of 0 means the ray missed every element -- "you clicked the
