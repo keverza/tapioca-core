@@ -404,6 +404,22 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float aoIntensity = 1.0f;
     Diligent::ITextureView* aoView = nullptr;
 
+    // ⚠️ A 1x1 WHITE TEXTURE MEANING "NOTHING IS OCCLUDED", AND IT IS NOT A
+    // CONVENIENCE. `g_ambientOcclusion` is a DYNAMIC shader variable, so it has
+    // to be assigned on every SRB before CommitShaderResources -- and there are
+    // frames with no occlusion to assign: the first ones, before geometry
+    // arrives; any frame with the effect switched off; and any frame where the
+    // AO pass declined. Committing an unbound dynamic variable is a validation
+    // failure inside Archicad's process, which is exactly the class of fault
+    // that took it down once already.
+    //
+    // ⚠️ AND IT IS *WHITE*, WHICH IS THE SECOND HALF. An unbound texture reads
+    // as ZERO, and zero occlusion means FULLY occluded -- the whole model black.
+    // Binding white makes the failure mode "no effect" instead of "no image",
+    // so the constant gate in g_gradeParams.w becomes a second line of defence
+    // rather than the only one.
+    RefCntAutoPtr<Diligent::ITexture> aoFallback;
+
     // ---- RE51.C2 ------------------------------------------------------------
     // Last frame's view-projection. ⚠️ SEEDED FROM THE FIRST FRAME'S OWN MATRIX
     // rather than left as the identity -- see DiligentSceneConstants::

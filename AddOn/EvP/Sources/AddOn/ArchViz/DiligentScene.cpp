@@ -421,6 +421,20 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        // ⚠️ RE51.C2, AND LEAVING IT OUT CRASHED ARCHICAD. Every texture this
+        // shader reads is rebound per resize, so every one of them must be
+        // DYNAMIC; a variable absent from this table silently defaults to
+        // STATIC, which means it does NOT exist on the SRB, which means
+        // GetVariableByName returns NULL -- and the bind site dereferenced it.
+        // The only warning was one "No resource is assigned to static shader
+        // variable" line in archviz.log, printed at pipeline creation, several
+        // seconds before the frame that died.
+        //
+        // ⚠️ ADDING A TEXTURE TO kArchVizGBufferDebugPS MEANS ADDING A ROW HERE.
+        // There is no build-time check that these two agree; the bind helper in
+        // EnsureGBufferTargets now reports a mismatch instead of crashing on
+        // it, which is the second half of the same fix.
+        { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMotion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         { Diligent::SHADER_TYPE_PIXEL, "g_depthRange", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
     };
     Diligent::GraphicsPipelineStateCreateInfo debugPci;
@@ -502,6 +516,35 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         impl_->envBackgroundPso->CreateShaderResourceBinding (&impl_->envBackgroundSrb, true);
         if (impl_->envBackgroundSrb == nullptr) {
             error = "Diligent CreateShaderResourceBinding(ArchViz environment background) failed";
+            return false;
+        }
+    }
+
+    // ---- the "nothing is occluded" fallback (RE51.C3) ----------------------
+    // See DiligentSceneImpl's ⚠️ on why this exists and why it is white rather
+    // than black. Created once; it never changes and never resizes.
+    {
+        Diligent::TextureDesc td;
+        td.Name = "ArchViz unoccluded fallback";
+        td.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        td.Width = 1;
+        td.Height = 1;
+        td.Format = Diligent::TEX_FORMAT_R8_UNORM;
+        td.MipLevels = 1;
+        td.Usage = Diligent::USAGE_IMMUTABLE;
+        td.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+
+        const Diligent::Uint8 white = 255;
+        Diligent::TextureSubResData level;
+        level.pData = &white;
+        level.Stride = 1;
+        Diligent::TextureData initial;
+        initial.pSubResources = &level;
+        initial.NumSubresources = 1;
+
+        device->CreateTexture (td, &initial, &impl_->aoFallback);
+        if (impl_->aoFallback == nullptr) {
+            error = "Diligent CreateTexture(ArchViz unoccluded fallback) failed";
             return false;
         }
     }

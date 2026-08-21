@@ -623,6 +623,97 @@ def _check_architecture_citations(failures: list[str]) -> None:
                 )
 
 
+# ⚠️ SHADER STAGES WHOSE TEXTURES ARE *ALL* BOUND THROUGH AN SRB, so every one
+# of them must be declared DYNAMIC or MUTABLE in its pipeline's resource layout.
+#
+# This is a hand-maintained table and that is deliberate, exactly as
+# check_hlsl.py's PRELUDES is: a stage added here that does not belong fails
+# noisily, which is far better than the table silently drifting from
+# DiligentScene::Init and the rule quietly checking nothing.
+#
+# ⚠️ THE MESH PIXEL SHADER IS NOT IN THIS TABLE AND MUST NOT BE. It reads
+# `g_shadowMap` and `g_envMap`, which are correctly STATIC -- each is allocated
+# once and refilled, which is the whole reason EnvironmentMap fixes its own
+# size -- alongside `g_ambientOcclusion`, which is correctly DYNAMIC because
+# DiligentFX reallocates it on resize. Sweeping that stage in would demand the
+# wrong thing of two of the three.
+SRB_BOUND_SHADER_STAGES = (
+    "kArchVizGBufferDebugPS",
+    "kArchVizAmbientOcclusionDebugPS",
+)
+
+
+def _check_architecture_srb_variables(failures: list[str]) -> None:
+    """A shader variable reached through an SRB must be MUTABLE or DYNAMIC.
+
+    ⚠️ THIS RULE EXISTS BECAUSE BREAKING IT CRASHED ARCHICAD ON 2026-08-21.
+    Diligent puts STATIC shader variables on the PIPELINE and everything else on
+    the SRB, so `srb->GetVariableByName(...)` returns NULL for a variable left
+    STATIC -- and the ArchViz bind sites dereferenced that result directly. A
+    texture added to a shader without the matching one-line entry in its PSO's
+    `ShaderResourceVariableDesc[]` therefore took the host process down, on the
+    first frame that had geometry to draw, with a single "No resource is
+    assigned to static shader variable" line in archviz.log as the only warning.
+
+    The bind sites are defensive now, so the same mistake would log and disable
+    a debug view instead. This catches it one step earlier, offline, for free.
+
+    ⚠️ IT LOOKS AT THE SHADER SOURCE, NOT AT THE BIND SITES, AND THE FIRST
+    VERSION OF THIS RULE DID THE OPPOSITE AND CAUGHT NOTHING. Scanning for
+    `GetVariableByName(stage, "literal")` misses every bind that goes through a
+    helper taking the name as a parameter -- which is precisely the shape the
+    crash fix introduced. The declarations in the HLSL are the durable place to
+    read the list from.
+    """
+    archviz = REPO_ROOT / "AddOn/EvP/Sources/AddOn/ArchViz"
+    shaders = archviz / "DiligentShaders.hpp"
+    if not archviz.is_dir() or not shaders.is_file():
+        return
+
+    declare_pattern = re.compile(
+        r"Diligent::SHADER_TYPE_[A-Z_]+\s*,\s*\"([A-Za-z0-9_]+)\"\s*,\s*"
+        r"Diligent::SHADER_RESOURCE_VARIABLE_TYPE_(?:DYNAMIC|MUTABLE)"
+    )
+    comment_pattern = re.compile(r"//[^\n]*")
+
+    declared: set[str] = set()
+    for path in sorted(archviz.glob("*.cpp")):
+        text = comment_pattern.sub("", path.read_text(encoding="utf-8"))
+        declared.update(match.group(1) for match in declare_pattern.finditer(text))
+
+    source = shaders.read_text(encoding="utf-8")
+    blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
+    # A resource declaration at the top level of a stage: `Texture2D<float> g_x;`,
+    # `Texture2D g_x;`, `Buffer<uint> g_x;`. Samplers are excluded -- they are
+    # immutable samplers here, which live in a different table entirely.
+    resource_pattern = re.compile(
+        r"^\s*(?:Texture2D|Texture2DArray|TextureCube|Buffer|StructuredBuffer)"
+        r"(?:<[^>]*>)?\s+([A-Za-z0-9_]+)\s*;",
+        re.M,
+    )
+
+    for stage in SRB_BOUND_SHADER_STAGES:
+        body = blocks.get(stage)
+        if body is None:
+            failures.append(
+                f"SRB: SRB_BOUND_SHADER_STAGES names `{stage}`, which is not a shader "
+                "literal in DiligentShaders.hpp. Either the stage was renamed or the "
+                "table in check_cpp.py is stale; both mean this rule is not checking "
+                "what it claims to."
+            )
+            continue
+        for name in resource_pattern.findall(body):
+            if name not in declared:
+                failures.append(
+                    f"SRB: {stage} declares `{name}`, and every resource that stage "
+                    "reads is bound through a shader resource binding - but no PSO "
+                    "declares it DYNAMIC or MUTABLE, so it is STATIC, it is NOT on the "
+                    "SRB, and GetVariableByName returns null there. Add a "
+                    "ShaderResourceVariableDesc row for it in DiligentScene::Init. "
+                    "(This exact omission crashed Archicad on 2026-08-21.)"
+                )
+
+
 def _run_architecture(verbose: bool) -> int:
     failures: list[str] = []
     checks = [
@@ -634,6 +725,7 @@ def _run_architecture(verbose: bool) -> int:
         ("SUBOBJECT sub-objects never call the shell", _check_architecture_subobjects),
         ("REGISTRY  one provider per domain, all registered", _check_architecture_registry),
         ("CITATIONS entry-point docs cite symbols, not lines", _check_architecture_citations),
+        ("SRB       SRB-bound shader variables are never STATIC", _check_architecture_srb_variables),
     ]
     for label, check in checks:
         before = len(failures)

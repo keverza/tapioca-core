@@ -7,6 +7,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
+#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog -- a failed bind must say so, not crash
 #include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
@@ -211,31 +212,63 @@ bool DiligentScene::EnsureGBufferTargets ()
 {
     if (impl_->gBufferWidth != impl_->viewportWidth || impl_->gBufferHeight != impl_->viewportHeight) {
         impl_->gBuffer->Resize (impl_->device, impl_->viewportWidth, impl_->viewportHeight);
-        if (impl_->gBuffer->GetBuffer (kGBufferNormal) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferDepth) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferMotion) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferAlbedo) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferRoughness) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferMaterialData) == nullptr ||
-            impl_->gBuffer->GetBuffer (kGBufferMotion) == nullptr)
-            return false;
+        // ⚠️ EVERY BIND BELOW IS CHECKED, AND THIS BLOCK IS WHY ARCHICAD CRASHED
+        // ON 2026-08-21. It used to be a column of
+        //
+        //     srb->GetVariableByName (stage, "name")->Set (view);
+        //
+        // with no check on either half. `GetVariableByName` returns NULL for a
+        // variable that is not on the SRB, and a texture is not on the SRB
+        // whenever it is STATIC rather than DYNAMIC -- which is what a shader
+        // texture MISSING FROM debugVariables in DiligentScene::Init silently
+        // becomes. So adding `g_gbufferMotion` to the shader and forgetting the
+        // one-line table entry produced a null dereference inside Archicad's
+        // process, on the first frame that had geometry to draw, several seconds
+        // after the only clue: a single "No resource is assigned to static
+        // shader variable" line in archviz.log.
+        //
+        // ⚠️ IT REPORTS RATHER THAN SKIPPING QUIETLY. A bind that silently did
+        // nothing would leave the debug view black with no way to tell that from
+        // an empty G-buffer, and the whole point of these views is to be
+        // trustworthy about what they show.
+        bool bindsOk = true;
+        const auto bindDebug = [&] (const char* name, Diligent::Uint32 buffer) {
+            Diligent::ITexture* texture = impl_->gBuffer->GetBuffer (buffer);
+            Diligent::IShaderResourceVariable* variable =
+                impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, name);
+            if (texture == nullptr || variable == nullptr) {
+                ArchVizLog (std::string ("ArchViz G-buffer debug: cannot bind `") + name + "` -- " +
+                            (texture == nullptr
+                                 ? "the target was not allocated"
+                                 : "the shader variable is not on the SRB, which means it is STATIC rather "
+                                   "than DYNAMIC: add it to `debugVariables` in DiligentScene::Init"));
+                bindsOk = false;
+                return;
+            }
+            variable->Set (texture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        };
 
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal")
-            ->Set (impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth")
-            ->Set (impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo")
-            ->Set (impl_->gBuffer->GetBuffer (kGBufferAlbedo)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness")
-            ->Set (
-                impl_->gBuffer->GetBuffer (kGBufferRoughness)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData")
-            ->Set (impl_->gBuffer->GetBuffer (kGBufferMaterialData)
-                       ->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferMotion")
-            ->Set (impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
-        impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depthRange")
-            ->Set (impl_->depthRange.BufferView ());
+        bindDebug ("g_gbufferNormal", kGBufferNormal);
+        bindDebug ("g_gbufferDepth", kGBufferDepth);
+        bindDebug ("g_gbufferAlbedo", kGBufferAlbedo);
+        bindDebug ("g_gbufferRoughness", kGBufferRoughness);
+        bindDebug ("g_gbufferMaterialData", kGBufferMaterialData);
+        bindDebug ("g_gbufferMotion", kGBufferMotion);
+
+        if (Diligent::IShaderResourceVariable* depthRangeVar =
+                impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depthRange")) {
+            depthRangeVar->Set (impl_->depthRange.BufferView ());
+        } else {
+            ArchVizLog ("ArchViz G-buffer debug: cannot bind `g_depthRange` -- it is not on the SRB");
+            bindsOk = false;
+        }
+
+        // ⚠️ THE SIZE IS RECORDED ONLY ON SUCCESS. Recording it after a failed
+        // bind would make the next frame think the targets are already current
+        // and skip the retry, turning one bad frame into a permanently dead
+        // G-buffer.
+        if (!bindsOk)
+            return false;
         impl_->gBufferWidth = impl_->viewportWidth;
         impl_->gBufferHeight = impl_->viewportHeight;
         // ⚠️ A RESIZE IS A DISCONTINUITY, NOT A MOTION. Every pixel is somewhere
@@ -454,10 +487,20 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
             frameIndex, view, proj, viewProj, eye, nearClip, farClip, focusDistance);
         if (ambientOcclusionSrv == nullptr)
             return;
-        impl_->ambientOcclusionDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion")
-            ->Set (ambientOcclusionSrv);
-        impl_->ambientOcclusionDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth")
-            ->Set (depthSrv);
+        // Checked, for the reason the G-buffer binds above are: a variable that
+        // is not on the SRB is NULL here, and dereferencing it takes Archicad
+        // down rather than the viewport.
+        Diligent::IShaderResourceVariable* aoVar =
+            impl_->ambientOcclusionDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion");
+        Diligent::IShaderResourceVariable* aoDepthVar =
+            impl_->ambientOcclusionDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth");
+        if (aoVar == nullptr || aoDepthVar == nullptr) {
+            ArchVizLog ("ArchViz ambient occlusion debug: a shader variable is not on the SRB; add it to "
+                        "`ambientOcclusionVariables` in DiligentScene::Init");
+            return;
+        }
+        aoVar->Set (ambientOcclusionSrv);
+        aoDepthVar->Set (depthSrv);
     }
 
     Diligent::ITextureView* target = colorTarget;
@@ -505,6 +548,14 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
 
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
+    // ⚠️ THE FORWARD PASS DOES NOT *USE* THIS, AND IT IS UPLOADED ANYWAY. The
+    // mesh vertex shader is shared with the G-buffer pass, so it computes
+    // `prevClip` here too; the forward pixel shader simply never reads it.
+    // Leaving the field at its identity default would work today and would hand
+    // the first consumer added to this path -- TAA, motion blur, anything
+    // temporal -- a previous camera at the world origin, silently.
+    std::memcpy (constants.prevViewProj, impl_->havePrevViewProj ? impl_->prevViewProj : viewProj,
+                 sizeof (float) * 16);
     impl_->EffectiveSun (constants.sunDir);
     constants.ambient = impl_->ambient;
     constants.eyePos[0] = eye[0];
@@ -702,7 +753,17 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
     // is that constant, not a null check -- HLSL cannot ask whether a texture is
     // bound, and sampling an unbound one returns zero, which would darken the
     // entire model to black rather than leaving it alone.
-    if (impl_->aoView != nullptr) {
+    // ⚠️ THE VARIABLE IS ASSIGNED ON EVERY FRAME, INCLUDING FRAMES WITH NO
+    // OCCLUSION. It is DYNAMIC, so leaving it unset and committing the SRB is a
+    // validation failure inside Archicad's process -- and there are plenty of
+    // such frames: before geometry arrives, with the effect switched off, or
+    // when the AO pass declined. The fallback is a 1x1 WHITE texel meaning
+    // "nothing is occluded"; see DiligentSceneImpl::aoFallback for why white
+    // and not simply "leave it".
+    Diligent::ITextureView* occlusionView = impl_->aoView;
+    if (occlusionView == nullptr && impl_->aoFallback != nullptr)
+        occlusionView = impl_->aoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    if (occlusionView != nullptr) {
         for (int cullIdx = 0; cullIdx < kCullModeCount; ++cullIdx) {
             for (Diligent::IShaderResourceBinding* srb :
                  { impl_->opaqueSrb[cullIdx].RawPtr (), impl_->blendSrb[cullIdx].RawPtr () }) {
@@ -710,13 +771,13 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
                     continue;
                 if (Diligent::IShaderResourceVariable* var =
                         srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion"))
-                    var->Set (impl_->aoView);
+                    var->Set (occlusionView);
             }
         }
-        constants.gradeParams[3] = impl_->aoIntensity;
-    } else {
-        constants.gradeParams[3] = 0.0f;
     }
+    // The constant is still the gate: the fallback is bound so the SRB is
+    // valid, not so the shader reads it.
+    constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
 
     const bool drawSurfaces = impl_->renderMode != SceneRenderMode::Wireframe;
     const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded && impl_->wirePso != nullptr;
