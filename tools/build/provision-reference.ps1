@@ -364,30 +364,47 @@ function Copy-DirectoryContents {
     }
 }
 
+function Read-TextFileOrEmpty {
+    param ([Parameter(Mandatory)][string] $Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return ""
+    }
+    $text = [string] (Get-Content -LiteralPath $Path -Raw)
+    if ($null -eq $text) {
+        return ""
+    }
+    return $text
+}
+
 function Invoke-GitCommand {
     param (
         [Parameter(Mandatory)][string] $GitPath,
         [Parameter(Mandatory)][string[]] $Arguments
     )
 
+    # Git reports ordinary progress ("Cloning into '...'", submodule paths) on stderr,
+    # not just failures. Calling it as `& git ... 2> file` makes Windows PowerShell 5.1
+    # wrap every one of those lines in a NativeCommandError ErrorRecord, which the
+    # script-scope $ErrorActionPreference = "Stop" then turns into a terminating error --
+    # so a perfectly healthy clone aborts the provisioner. Start-Process hands both
+    # streams straight to files without PowerShell interpreting either one, leaving the
+    # exit code as the only success signal, which is what the callers already check.
+    $stdoutPath = [IO.Path]::GetTempFileName()
     $stderrPath = [IO.Path]::GetTempFileName()
     try {
-        $output = @(& $GitPath @Arguments 2> $stderrPath)
-        $exitCode = [int] $LASTEXITCODE
-        $stderr = if (Test-Path -LiteralPath $stderrPath -PathType Leaf) {
-            [string] (Get-Content -LiteralPath $stderrPath -Raw)
-        } else {
-            ""
-        }
-        if ($null -eq $stderr) {
-            $stderr = ""
-        }
+        $process = Start-Process -FilePath $GitPath -ArgumentList $Arguments `
+            -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        $stdout = Read-TextFileOrEmpty $stdoutPath
+        $stderr = Read-TextFileOrEmpty $stderrPath
         return [pscustomobject]@{
-            ExitCode = $exitCode
-            Output = @($output)
+            ExitCode = [int] $process.ExitCode
+            Output = @($stdout -split "`r`n|`n" | Where-Object { $_ -ne "" })
             Error = $stderr.Trim()
         }
     } finally {
+        Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
     }
 }

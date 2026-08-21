@@ -1,5 +1,5 @@
 # Tapioca
-
+![Tapioca logo](./docs/static/Logo.jpg)
 Tapioca is a Python command host for Archicad 29. It keeps Archicad integration
 and safe main-thread SDK access in a native add-on while letting command authors
 write ordinary Python workflows.
