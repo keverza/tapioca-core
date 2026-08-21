@@ -134,8 +134,19 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     Diligent::GBuffer::ElementDesc gBufferElements[6] {};
     gBufferElements[kGBufferNormal].Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
     gBufferElements[kGBufferNormal].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
-    gBufferElements[kGBufferAlbedo].Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
-    gBufferElements[kGBufferAlbedo].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA8_UNORM, 0.0f, 0.0f, 0.0f, 0.0f);
+    // ⚠️ _SRGB, AND IT IS THE ONE G-BUFFER CHANNEL THAT WANTS IT. Albedo is the
+    // only colour in the G-buffer; everything else here is a vector, a depth or
+    // a scalar. Since RE51.B7 the value written is LINEAR reflectance, and linear
+    // quantises badly in 8 bits at the dark end -- this project's anthracite grey
+    // is 0.040, which lands on byte 10 where one step is 10% of the value, so
+    // dark facades band visibly. An _SRGB view spends the same 8 bits where the
+    // eye is: the hardware encodes on write and decodes on read, so the shader on
+    // both sides still sees linear and nothing else changes.
+    // ⚠️ DO NOT COPY THIS TO ANOTHER CHANNEL. A normal, a roughness or a motion
+    // vector put through the sRGB curve is silently corrupted.
+    gBufferElements[kGBufferAlbedo].Format = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB;
+    gBufferElements[kGBufferAlbedo].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB, 0.0f, 0.0f, 0.0f,
+                                                         0.0f);
     gBufferElements[kGBufferRoughness].Format = Diligent::TEX_FORMAT_R16_FLOAT;
     gBufferElements[kGBufferRoughness].ClearValue.SetColor (Diligent::TEX_FORMAT_R16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
     gBufferElements[kGBufferMaterialData].Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
@@ -344,7 +355,7 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
         gp.NumRenderTargets = 4;
         gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
-        gp.RTVFormats[1] = Diligent::TEX_FORMAT_RGBA8_UNORM;
+        gp.RTVFormats[1] = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB;   // albedo; see the G-buffer element
         gp.RTVFormats[2] = Diligent::TEX_FORMAT_R16_FLOAT;
         gp.RTVFormats[3] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
         gp.DSVFormat = Diligent::TEX_FORMAT_D32_FLOAT;

@@ -311,6 +311,24 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
 
     ArchVizLog ("ArchViz overlay target: composition swap chain " + std::to_string (width) + "x" +
                 std::to_string (height) + ", BGRA8_UNORM premultiplied, FLIP_SEQUENTIAL, 2 buffers");
+    // ⚠️ THIS PATH DOES NOT sRGB-ENCODE AND THE PALETTE PATH DOES. RE51.B7's
+    // audit finding F3, logged rather than silently carried: the palette child
+    // takes whatever the swap chain reports, measured as a UNORM texture with an
+    // _SRGB view, so the hardware applies the transfer function on write. Here
+    // the DXGI back buffer is wrapped and its DEFAULT view taken, which is plain
+    // UNORM. The pixel shader is the same one and it ends in LINEAR, so an image
+    // presented through this path is markedly darker -- a linear 0.5 shown raw
+    // reads as 0.21 linear, roughly half the intended midtone.
+    //
+    // NOT FIXED HERE ON PURPOSE: the overlay has not been exercised since this
+    // format was set, so there is no run to check a change against. The fix when
+    // it is is to create the render target view EXPLICITLY with
+    // TEX_FORMAT_BGRA8_UNORM_SRGB instead of calling GetDefaultView in
+    // BeginFrame -- DXGI permits an sRGB RTV over a UNORM flip-model back
+    // buffer, which is exactly how the palette path gets one.
+    ArchVizLog ("ArchViz overlay target: ⚠️ NO sRGB ENCODE ON THIS PATH (audit F3) -- the palette "
+                "path presents through an _SRGB view and this one does not, so the same scene "
+                "renders darker here. Judge nothing by eye in overlay mode until this is settled.");
     return true;
 }
 

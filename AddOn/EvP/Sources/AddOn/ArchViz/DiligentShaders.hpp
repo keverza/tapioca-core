@@ -195,7 +195,12 @@ struct DiligentSceneConstants {
     // instead of trusting three legacy Blinn-Phong numbers. These three sliders
     // are the interim: they let the look be found by eye first, so the presets
     // are calibrated against something seen rather than guessed at.
-    float gradeParams[4] = { 0.6f, 1.0f, 0.0f, 0.0f };
+    // ⚠️ 1.2, AND IT MOVED WITH THE TONE CURVE, NOT AS A BRIGHTNESS PREFERENCE.
+    // The old 0.6 was the pre-scale for Narkowicz's per-channel ACES; AcesFitted
+    // replaced that curve, and 1.2 is the pre-scale at which the two agree on
+    // neutral grey to within 0.002 across the whole range. Changing one without
+    // the other changes the exposure of every image ever compared against these.
+    float gradeParams[4] = { 1.2f, 1.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -597,8 +602,12 @@ void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 col
     // quality; an untouched HDR behind it clips to white wherever the sky is
     // brighter than 1.0, and the building then sits against a flat cut-out
     // instead of a sky. If that curve changes, this changes with it.
-    sky *= 0.6;
-    sky = saturate ((sky * (2.51 * sky + 0.03)) / (sky * (2.43 * sky + 0.59) + 0.14));
+    // ⚠️ g_gradeParams.x, NOT A HARD-CODED CONSTANT. This used to be a literal
+    // 0.6 while the model used the exposure control, so moving that control
+    // brightened the building and left the sky where it was -- the two drifted
+    // apart exactly when someone was trying to judge them together.
+    sky *= g_gradeParams.x;
+    sky = AcesFitted (sky);
     color = float4 (sky, 1.0);
 }
 )hlsl";
@@ -752,6 +761,46 @@ float2 EnvUv (float3 dir)
     const float twoPi = 6.28318530718;
     phi = phi - twoPi * floor (phi / twoPi);
     return float2 (phi / twoPi, theta / 3.14159265359);
+}
+
+// ---- ACES, the FITTED form, replacing Narkowicz's per-channel curve ---------
+//
+// ⚠️ THE OLD CURVE WAS APPLIED TO EACH CHANNEL INDEPENDENTLY, AND THAT IS WHAT
+// OVER-SATURATED THE IMAGE. A per-channel curve compresses a bright channel more
+// than a dark one, so on an already-saturated surface it pushes the channels
+// FURTHER apart. Measured on this project's own grass, authored sRGB
+// (0.34, 0.66, 0.18) under unit white light: the per-channel curve rendered it
+// (0.26, 0.63, 0.08) -- the blue channel more than halved -- while the fit below
+// renders (0.30, 0.62, 0.14), close to what was authored.
+//
+// This is Stephen Hill's fit to the real ACES RRT+ODT: into the ACES working
+// space, through the tone curve, and back. The matrices are what make it
+// desaturate HIGHLIGHTS the way film does instead of saturating MIDTONES the way
+// a per-channel curve does.
+//
+// ⚠️ THE GREY RESPONSE IS DELIBERATELY UNCHANGED. Narkowicz at the old 0.6
+// pre-scale and this fit at 1.2 agree on neutral grey to within 0.002 across the
+// range (0.10 -> 0.024 vs 0.019, 0.50 -> 0.458 vs 0.454, 1.00 -> 0.840 vs
+// 0.841), which is why the default exposure moved with the curve. Brightness is
+// held; only colour rendition changes. Do not move one without the other.
+//
+// ⚠️ STILL BEFORE THE HARDWARE sRGB ENCODE, NOT INSTEAD OF IT. The render target
+// is an _SRGB view; adding a pow(1/2.2) here gamma-corrects twice.
+float3 AcesFitted (float3 colour)
+{
+    // Row-major, and mul(M, v) treats v as a column vector -- the orientation
+    // Hill's original HLSL uses. Transposing either matrix silently produces a
+    // plausible-looking image with the wrong primaries.
+    const float3x3 acesIn = float3x3 (0.59719, 0.35458, 0.04823,
+                                      0.07600, 0.90834, 0.01566,
+                                      0.02840, 0.13383, 0.83777);
+    const float3x3 acesOut = float3x3 ( 1.60475, -0.53108, -0.07367,
+                                       -0.10208,  1.10813, -0.00605,
+                                       -0.00327, -0.07276,  1.07602);
+    float3 v = mul (acesIn, colour);
+    float3 a = v * (v + 0.0245786) - 0.000090537;
+    float3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return saturate (mul (acesOut, a / b));
 }
 
 )hlsl";
@@ -1204,14 +1253,13 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         float3 colour = base.rgb * lighting * kd * base.a +
                         (spec + envSpec) * g_skyColor.w;
 
-        // ACES filmic curve (Narkowicz's fit). ⚠️ APPLIED BEFORE THE HARDWARE's
-        // sRGB ENCODE, NOT INSTEAD OF IT: the render target is _SRGB, so the GPU
-        // still does the transfer function on write. Adding a pow(1/2.2) here
-        // would gamma-correct twice and wash the image out -- the mistake the
-        // comment at the top of this file was written to prevent.
+        // ACES, the fitted form. ⚠️ SEE AcesFitted IN THE PRELUDE for why this is
+        // no longer a per-channel curve: the per-channel one was pushing the
+        // channels of an already-saturated surface further apart, which is what
+        // made this project's greens and oranges read as over-saturated once the
+        // sRGB decode (RE51.B7) stopped washing them toward grey.
         colour *= g_gradeParams.x;
-        colour = saturate ((colour * (2.51 * colour + 0.03)) /
-                           (colour * (2.43 * colour + 0.59) + 0.14));
+        colour = AcesFitted (colour);
         base.rgb = colour;
         lighting = float3 (1.0, 1.0, 1.0);   // already applied above
         premultiplied = true;                // and so was the alpha

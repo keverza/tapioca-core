@@ -152,7 +152,11 @@ struct HudState {
     // dielectric reflects 4-8% head-on, which is correct and invisible against
     // a 0.7-radiance sky; pushing it past 1 is not physical and is exactly what
     // an architectural viewer wants until the material presets land.
-    float exposure = 0.6f;
+    // ⚠️ MUST MATCH DiligentSceneConstants::gradeParams[0]. The HUD's value is
+    // what actually reaches the shader (DiligentViewport -> SetGrading), so a
+    // stale default here silently overrides the one next to the tone curve. It
+    // moved 0.6 -> 1.2 when AcesFitted replaced the per-channel curve.
+    float exposure = 1.2f;
     float reflectance = 1.0f;
     float roughnessBias = 0.0f;
 
