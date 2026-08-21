@@ -9,7 +9,7 @@ Run the examples from the palette after syncing the public command roots. The
 same folders can be passed to `AddOn/EvP/tests/dryrun_command.py` for an offline
 wire-level dry run.
 
-## Examples In Action
+## More complex possibilities in action
 
 ![UI Showcase](../docs/static/UI%20Showcase.gif)
 
