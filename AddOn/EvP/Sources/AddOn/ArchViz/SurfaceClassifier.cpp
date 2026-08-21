@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include <algorithm>
+
 namespace geomsrv {
 namespace archviz {
 
@@ -186,6 +188,13 @@ SurfacePreset PresetFor (const SurfaceMaterial& m)
             // the shader and the diffuse lobe goes away, which is what makes a
             // metal look like one.
             preset.metallic = 1.0f;
+            // ⚠️ AND A CEILING ON ITS ROUGHNESS, ADDED AFTER THE FIRST LIVE
+            // RUN. Metalness alone made metals dark rather than reflective:
+            // F0 becomes the base colour and the diffuse lobe goes away, so a
+            // metal that reflects a mip-11 average of the sky has neither a
+            // diffuse term nor a recognisable reflection and reads as flat
+            // paint. See kMetalRoughness.
+            preset.roughness = (std::min) (preset.roughness, kMetalRoughness);
             break;
 
         case SurfaceClass::Glass:
@@ -198,6 +207,14 @@ SurfacePreset PresetFor (const SurfaceMaterial& m)
             // angles, and that arrives correctly from the split-sum term once F0
             // is right.
             preset.reflectance = kDielectricReflectance;
+            // ⚠️ THE CEILING IN MaterialTable's SurfaceRoughness IS NOT ENOUGH.
+            // That one is 0.35 and it is a FLOOR ON GLOSS for every transparent
+            // range -- written before there was a classifier, to stop panes
+            // authored with no shine at all from going fully matte. It cannot
+            // be lowered to this value, because it also catches tinted
+            // plastics, water and cut-out foliage. This branch knows the range
+            // is GLASS, so it can say what glass actually is.
+            preset.roughness = (std::min) (preset.roughness, kGlassRoughness);
             break;
 
         case SurfaceClass::Invisible:

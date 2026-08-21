@@ -451,6 +451,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.autoExposure = impl_->lastAutoExposure;
     s.sceneLuminance = impl_->lastSceneLuminance;
     s.appliedExposure = impl_->autoExposureEnabled ? impl_->lastAutoExposure : impl_->exposure;
+    s.fixedExposure = impl_->exposure;
     const WhiteBalanceGains gains =
         ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
     for (int c = 0; c < 3; ++c)

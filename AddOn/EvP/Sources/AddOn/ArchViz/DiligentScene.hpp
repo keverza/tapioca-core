@@ -150,6 +150,12 @@ struct DiligentSceneStats {
     float autoExposure = 0.0f;
     float sceneLuminance = 0.0f;
     float appliedExposure = 0.0f;
+    // ⚠️ THE MANUAL VALUE, REPORTED EVEN WHILE AUTO IS DRIVING. Without it the
+    // drift check has nowhere to look: `appliedExposure` is the estimate once
+    // auto is on, and the two defaults that drifted apart once already
+    // (DiligentHud::exposure and DiligentSceneImpl::exposure) would go
+    // unwatched for exactly as long as auto stayed enabled.
+    float fixedExposure = 0.0f;
     float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
     // The mean linear reflectance of the surface pool -- the auto exposure's
     // other input, and the one that comes from the model rather than the sky.
@@ -296,13 +302,13 @@ class DiligentScene final {
     // Auto exposure. When on, `SetGrading`'s exposure is IGNORED and the value
     // is derived from the scene's own light each frame (ArchViz/AutoExposure).
     //
-    // ⚠️ IT SHIPS OFF, AND THAT IS A MEASUREMENT GAP RATHER THAN A DOUBT ABOUT
-    // THE ARITHMETIC. The estimate has one calibration constant -- middle grey
-    // -- and whether 0.18 is right for this project's materials can only be
-    // settled by comparing what it chooses against a render somebody looked at.
-    // Until then it is COMPUTED and REPORTED every frame (see Stats::
-    // autoExposure) and applied only when asked for, so the first live run
-    // produces the number instead of a surprise.
+    // ⚠️ ON BY DEFAULT SINCE THE 2026-08-21 LIVE RUN. It shipped off for one
+    // session because the estimate has a calibration constant and nobody had
+    // compared what it chooses against a render they had looked at. That run
+    // settled it: the fixed key was reported as "too bright and saturated",
+    // which is what a fixed key does when the sky is brighter than the key
+    // assumed. Both values are still reported every frame (Stats::autoExposure
+    // beside Stats::fixedExposure) so the comparison stays available.
     void SetAutoExposure (bool enabled);
 
     // White balance, as the temperature of the light being CORRECTED FOR.
@@ -433,8 +439,48 @@ class DiligentScene final {
 
     DiligentSceneStats Stats () const;
 
+    // ---- RE51.C3: ambient occlusion in the ORDINARY path --------------------
+
+    // Run the G-buffer geometry prepass and GTAO, and keep the result for the
+    // next `Draw` to multiply into its ambient term.
+    //
+    // ⚠️ THIS IS A SECOND GEOMETRY PASS, AND IT IS THE FIRST TIME THE FORWARD
+    // PATH HAS PAID FOR ONE. Every earlier G-buffer use was debug-only,
+    // deliberately, so ordinary rendering stayed single-pass. Contact darkening
+    // cannot be had without depth and normals for the whole frame, so the trade
+    // is now made -- and it is made VISIBLY, behind an HUD toggle, rather than
+    // by quietly doubling the cost of every frame.
+    //
+    // ⚠️ CALL IT BEFORE Draw, NOT AFTER. It leaves no render target bound; Draw
+    // binds its own. Calling it after would darken the NEXT frame with THIS
+    // frame's occlusion, which under orbit reads as the shading lagging the
+    // camera and is very easy to mistake for a temporal effect.
+    void PrepareAmbientOcclusion (Diligent::IDeviceContext* context, const float view[16], const float proj[16],
+                                  const float viewProj[16], const float eye[3], float nearClip, float farClip,
+                                  float focusDistance, uint32_t frameIndex, CullMode cull);
+
+    // Forget any prepared occlusion, so the next Draw shades without it. ⚠️ THE
+    // FRAME LOOP MUST CALL THIS WHENEVER IT SKIPS THE PREPASS, or Draw keeps
+    // multiplying in a texture that describes an older camera.
+    void ClearAmbientOcclusion ();
+
+    // `intensity` scales the darkening only -- 0 is off, 1 is the effect at the
+    // strength GTAO computed. ⚠️ SEPARATED FROM THE EFFECT'S OWN STRENGTH on
+    // purpose: the breakdown's acceptance for C3 asks for exactly this, because
+    // "more AO" and "a wider AO radius" are different requests and one slider
+    // cannot serve both.
+    void SetAmbientOcclusion (bool enabled, float intensity);
+
   private:
     struct Impl;
+
+    // Resize the G-buffer to the viewport and rebind the debug SRB. False when
+    // any target failed to allocate, in which case nothing may sample them.
+    bool EnsureGBufferTargets ();
+
+    // The opaque geometry, into the G-buffer's MRTs. Shared by the debug views
+    // and by the occlusion prepass so the two cannot describe different scenes.
+    void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull);
     std::unique_ptr<Impl> impl_;
 };
 

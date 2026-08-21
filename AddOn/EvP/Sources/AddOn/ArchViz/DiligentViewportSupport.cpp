@@ -14,6 +14,7 @@
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/DiligentShaders.hpp"   // DiligentDebugView, for the pass selector
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 
@@ -67,6 +68,52 @@ void DILIGENT_CALL_TYPE DiligentDebugMessage (Diligent::DEBUG_MESSAGE_SEVERITY s
 }
 
 }   // namespace
+
+void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDeviceContext* context,
+                           const SceneDrawRequest& request, int& lastLoggedGBufferView)
+{
+    const bool gBufferDebugView = request.debugView == int (DiligentDebugView::GBufferNormals) ||
+                                  request.debugView == int (DiligentDebugView::GBufferDepth) ||
+                                  request.debugView == int (DiligentDebugView::AmbientOcclusion) ||
+                                  request.debugView == int (DiligentDebugView::GBufferAlbedo) ||
+                                  request.debugView == int (DiligentDebugView::GBufferRoughness) ||
+                                  request.debugView == int (DiligentDebugView::GBufferMaterialData);
+
+    // ⚠️ CLEARED ON EVERY PATH THAT DOES NOT PREPARE IT. Draw multiplies in
+    // whatever occlusion is standing, so a debug view -- or an AO pass that
+    // failed -- must leave nothing behind, or the next ordinary frame darkens
+    // with an older camera's occlusion and the shading appears to lag the orbit.
+    scene.ClearAmbientOcclusion ();
+
+    if (gBufferDebugView) {
+        if (request.debugView != lastLoggedGBufferView) {
+            lastLoggedGBufferView = request.debugView;
+            ArchVizLog ("Diligent G-buffer view " + std::to_string (request.debugView) + ": near " +
+                        std::to_string (Camera::NearClip ()) + " m, far " + std::to_string (camera.FarClip ()) +
+                        " m, eye-to-target " + std::to_string (camera.Distance ()) + " m, " +
+                        (camera.IsPerspective () ? "perspective" : "parallel"));
+        }
+        scene.DrawGBufferDebug (context, request.target, request.view, request.proj, request.viewProj, request.eye,
+                                Camera::NearClip (), camera.FarClip (), camera.Distance (), camera.IsPerspective (),
+                                request.frameIndex, CullMode::Cw, request.debugView);
+        return;
+    }
+
+    // Re-arm the log, so switching away and back reports the camera as it is
+    // THEN rather than staying silent.
+    lastLoggedGBufferView = -1;
+
+    // ⚠️ BEFORE Draw, AND IT IS A SECOND GEOMETRY PASS. See
+    // DiligentScene::PrepareAmbientOcclusion: the forward path had never paid
+    // for one until RE51.C3, and contact darkening cannot be had without depth
+    // and normals for the whole frame. It is behind the HUD's own toggle, so
+    // the cost is switchable rather than imposed.
+    scene.SetAmbientOcclusion (request.ambientOcclusion, request.ambientOcclusionIntensity);
+    scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj, request.eye,
+                                   Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex,
+                                   CullMode::Cw);
+    scene.Draw (context, request.viewProj, request.eye, CullMode::Cw, request.debugView);
+}
 
 void InstallDiligentDebugCallback ()
 {

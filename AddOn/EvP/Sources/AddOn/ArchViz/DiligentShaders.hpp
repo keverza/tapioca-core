@@ -179,7 +179,11 @@ struct DiligentSceneConstants {
     // y = reflectance, a multiplier on BOTH specular terms. 1 = physical.
     // z = roughness bias, ADDED to every material's roughness before clamping.
     //     Negative makes the whole model glossier.
-    // w = spare.
+    // w = ambient occlusion intensity (RE51.C3), 0 = off. ⚠️ IT IS ALSO THE
+    //     SHADER'S ONLY GATE on `g_ambientOcclusion`: HLSL cannot ask whether a
+    //     texture is bound, and an unbound Load returns ZERO, which reads as
+    //     fully occluded and would render the model black. Draw sets this to 0
+    //     whenever no occlusion was prepared.
     //
     // ⚠️ THESE EXIST BECAUSE ARCHICAD'S SURFACE DATA IS NOT PBR DATA, and no
     // amount of correct shading fixes that on its own. This project's pool was
@@ -299,7 +303,8 @@ cbuffer ArchVizConstants
     float4   g_envRayRight;     // the view ray basis: dir = forward + x*right
     float4   g_envRayUp;        //                         + y*up, at NDC (x, y)
     float4   g_envRayForward;
-    float4   g_gradeParams;     // x exposure, y reflectance, z roughness bias
+    float4   g_gradeParams;     // x exposure, y reflectance, z roughness bias,
+                                // w ambient occlusion intensity AND its gate
     float4   g_prefilterParams; // LOAD-TIME ONLY: x roughness, y samples,
                                 // zw source size. See DiligentSceneConstants.
     float4   g_whiteBalance;    // rgb linear gains, applied before the exposure
@@ -1028,6 +1033,21 @@ constexpr const char* kArchVizMeshPS = R"hlsl(
 Texture2D    g_shadowMap;
 SamplerState g_shadowMap_sampler;
 
+// ---- RE51.C3: the frame's ambient occlusion --------------------------------
+//
+// ⚠️ NO SAMPLER, AND `Load` RATHER THAN `Sample`. The AO texture is exactly the
+// size of the surface being drawn, so there is a one-to-one mapping from pixel
+// to texel and any filtering would only blur an already-blurred quantity. Load
+// also takes integer coordinates, which removes the half-texel question
+// entirely -- and a half-texel slip in an occlusion term looks like a rim of
+// light around every contact edge, which reads as a lighting choice.
+//
+// ⚠️ IT IS DECLARED WHETHER OR NOT ONE IS BOUND, and the gate is
+// `g_gradeParams.w`, NOT a null check. HLSL cannot ask whether a texture is
+// bound; an unbound Load returns ZERO, and zero occlusion means fully occluded,
+// which would render the whole model black.
+Texture2D<float> g_ambientOcclusion;
+
 // The sky's diffuse contribution for a world normal, reconstructed from the nine
 // coefficients. The irradiance convolution and the 1/pi are ALREADY FOLDED INTO
 // the coefficients on the CPU, so this is a plain dot product with the basis and
@@ -1244,6 +1264,31 @@ void main (in PSInput psIn, out PSOutput psOut)
         // right value genuinely depends on the sky in use, so it is exposed
         // (default 0.55) instead of being a magic number nobody can check.
         directWeight = saturate (g_materialParams.y);
+    }
+
+    // ---- RE51.C3: ambient occlusion ---------------------------------------
+    //
+    // ⚠️ IT MULTIPLIES THE AMBIENT TERM AND NOTHING ELSE. Ambient occlusion
+    // describes how much of the SKY a point can see; the sun is a single
+    // direction and already has a shadow map, which is a far better answer for
+    // it. Multiplying the sun by AO too is the classic over-darkening that
+    // makes a render look dirty rather than grounded, and it double-counts the
+    // occlusion the shadow map has already applied.
+    //
+    // ⚠️ AND IT IS THE REASON MASSING STOPS FLOATING. Nothing else in this
+    // shader darkens where a block meets the ground: the shadow map only knows
+    // about the sun's direction, so a courtyard in full skylight had exactly
+    // the brightness of an open roof. That contact gradient is what the eye
+    // reads as "this object is SITTING on that surface".
+    if (g_gradeParams.w > 0.0)
+    {
+        float occlusion = g_ambientOcclusion.Load (int3 (int2 (psIn.position.xy), 0));
+        // lerp toward the measured occlusion by the intensity, so 0 is exactly
+        // the image without this and 1 is GTAO at the strength it computed.
+        // ⚠️ INTENSITY IS NOT THE EFFECT'S RADIUS. C3's acceptance asks for the
+        // two to be separable; a radius change is a different request and lives
+        // in the AO pass's own settings.
+        ambientTerm *= lerp (1.0, saturate (occlusion), saturate (g_gradeParams.w));
     }
 
     // ---- direct: the sun, occluded by the shadow map ----------------------

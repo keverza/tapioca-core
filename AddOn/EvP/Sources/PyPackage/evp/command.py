@@ -169,17 +169,23 @@ class _ProjectList:
     call. Calling one — `evp.Layer(show_when={"action": "Place"})` — returns a new
     instance carrying the kwargs, which is what lets a picker take show_when
     without every use site growing a pair of brackets.
+
+    `FilePath(extensions=("e57", "las"))` adds arbitrary suffix filters to its
+    Browse dialog. The suffixes are picker metadata; the command still receives a
+    normal path string and performs its own runtime validation.
     """
 
-    __slots__ = ("kind", "readonly", "show_when")
+    __slots__ = ("kind", "readonly", "show_when", "extensions")
 
-    def __init__(self, kind, readonly=False, show_when=None):
+    def __init__(self, kind, readonly=False, show_when=None, extensions=None):
         self.kind = kind
         self.readonly = readonly
         self.show_when = show_when
+        self.extensions = tuple(extensions or ())
 
-    def __call__(self, readonly=False, show_when=None):
-        return _ProjectList(self.kind, readonly=readonly, show_when=show_when)
+    def __call__(self, readonly=False, show_when=None, extensions=None):
+        return _ProjectList(self.kind, readonly=readonly, show_when=show_when,
+                            extensions=extensions)
 
     def __repr__(self):
         return "evp.%s" % self.kind
@@ -191,6 +197,9 @@ Fill = _ProjectList("Fill")          # -> APIUserControlType_AllFill,    value: 
 LineType = _ProjectList("LineType")  # -> APIUserControlType_SymbolLine, value: line type name
 Surface = _ProjectList("Surface")    # -> APIUserControlType_Material,   value: surface name
 Story = _ProjectList("Story")
+# `extensions` is optional picker metadata, not a runtime validation rule. The
+# palette uses it to register a temporary filter for arbitrary filesystem types
+# that Archicad's own File Type Manager does not know about (for example E57).
 FilePath = _ProjectList("FilePath")
 
 class _ProjectField:

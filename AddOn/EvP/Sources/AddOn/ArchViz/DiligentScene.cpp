@@ -223,6 +223,12 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
     };
 
+    // See the ⚠️ at the mesh PSO's resource layout for why this one variable is
+    // not STATIC like everything else the mesh shader reads.
+    const Diligent::ShaderResourceVariableDesc meshVariables[] = {
+        { Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+    };
+
     for (int i = 0; i < kCullModeCount; ++i) {
         // ⚠️ THIS ORDER IS CullIndex's, INVERTED. See DiligentSceneImpl.hpp.
         const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
@@ -276,6 +282,16 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
             pci.pVS = impl_->vs;
             pci.pPS = impl_->ps;
             pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+            // ⚠️ THE AMBIENT OCCLUSION IS THE ONE MUTABLE TEXTURE IN THIS
+            // PIPELINE, AND IT HAS TO BE (RE51.C3). Every other resource here is
+            // STATIC because it is allocated once and refilled -- that is the
+            // whole reason EnvironmentMap fixes its own size. The AO texture is
+            // owned by DiligentFX's PostFXContext, which REALLOCATES it on every
+            // viewport resize, so a static binding would capture a view that is
+            // freed the first time the panel is dragged wider. DYNAMIC lets Draw
+            // re-point it per frame.
+            pci.PSODesc.ResourceLayout.Variables = meshVariables;
+            pci.PSODesc.ResourceLayout.NumVariables = _countof (meshVariables);
             pci.PSODesc.ResourceLayout.ImmutableSamplers = immutableSamplers;
             pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (immutableSamplers);
 

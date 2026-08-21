@@ -766,31 +766,17 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // is at `modelIsDrawn` above -- next to the picking that depends on it.
             if (modelIsDrawn) {
                 gpuTimings.Begin (context, GpuTimingStage::Shading);
-                const bool gBufferDebugView = hudState.debugView == int (DiligentDebugView::GBufferNormals) ||
-                                              hudState.debugView == int (DiligentDebugView::GBufferDepth) ||
-                                              hudState.debugView == int (DiligentDebugView::AmbientOcclusion) ||
-                                              hudState.debugView == int (DiligentDebugView::GBufferAlbedo) ||
-                                              hudState.debugView == int (DiligentDebugView::GBufferRoughness) ||
-                                              hudState.debugView == int (DiligentDebugView::GBufferMaterialData);
-                if (gBufferDebugView) {
-                    if (hudState.debugView != lastLoggedGBufferView) {
-                        lastLoggedGBufferView = hudState.debugView;
-                        ArchVizLog ("Diligent G-buffer view " + std::to_string (hudState.debugView) + ": near " +
-                                    std::to_string (Camera::NearClip ()) + " m, far " +
-                                    std::to_string (camera.FarClip ()) + " m, eye-to-target " +
-                                    std::to_string (camera.Distance ()) + " m, " +
-                                    (camera.IsPerspective () ? "perspective" : "parallel"));
-                    }
-                    scene.DrawGBufferDebug (context, rtv, view, proj, viewProj, eye, Camera::NearClip (),
-                                            camera.FarClip (), camera.Distance (), camera.IsPerspective (),
-                                            static_cast<uint32_t> (frames), CullMode::Cw, hudState.debugView);
-                }
-                else {
-                    // Re-arm the log, so switching away and back reports the
-                    // camera as it is THEN rather than staying silent.
-                    lastLoggedGBufferView = -1;
-                    scene.Draw (context, viewProj, eye, CullMode::Cw, hudState.debugView);
-                }
+                SceneDrawRequest request;
+                request.target = rtv;
+                request.view = view;
+                request.proj = proj;
+                request.viewProj = viewProj;
+                request.eye = eye;
+                request.debugView = hudState.debugView;
+                request.frameIndex = static_cast<uint32_t> (frames);
+                request.ambientOcclusion = hudState.ambientOcclusion;
+                request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;
+                DrawSceneOrDebugView (scene, camera, context, request, lastLoggedGBufferView);
                 gpuTimings.End (context, GpuTimingStage::Shading);
             }
             else {
@@ -910,6 +896,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 stats_.autoExposureEnabled = sceneStats.autoExposureEnabled;
                 stats_.autoExposure = sceneStats.autoExposure;
                 stats_.appliedExposure = sceneStats.appliedExposure;
+                stats_.fixedExposure = sceneStats.fixedExposure;
                 stats_.sceneLuminance = sceneStats.sceneLuminance;
                 stats_.meanAlbedo = sceneStats.meanAlbedo;
                 for (int c = 0; c < 3; ++c)

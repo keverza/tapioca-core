@@ -168,7 +168,31 @@ struct HudState {
     // the first live run says whether middle grey is the right target for this
     // project's materials without risking a single image on the answer. Turning
     // it on by default before that number exists would be guessing in public.
-    bool autoExposure = false;
+    // ⚠️ ON BY DEFAULT SINCE THE 2026-08-21 LIVE RUN, WHICH IS THE MEASUREMENT
+    // THE PREVIOUS DEFAULT WAS WAITING FOR. It shipped OFF for one session
+    // because the estimate has a calibration constant -- middle grey -- and
+    // nobody had yet compared what it chooses against a render they had looked
+    // at. The user's verdict from that run: "autoexposure should be default
+    // setting as otherwise scene is too bright and saturated." That is exactly
+    // the direction a fixed key errs in when the sky is brighter than the key
+    // assumed, and it is the case B9 exists to remove.
+    bool autoExposure = true;
+
+    // ---- RE51.C3 -------------------------------------------------------------
+    //
+    // ⚠️ ON BY DEFAULT AND STILL A TOGGLE, because it is the first thing in the
+    // forward path to cost a SECOND GEOMETRY PASS. Contact darkening is the
+    // single biggest visible win left in the raster path -- nothing else in the
+    // shader knows that a block is SITTING on the ground rather than floating
+    // above it -- but doubling the geometry cost of every frame is a real
+    // trade on a large project, and it should be one somebody can undo without
+    // a rebuild.
+    bool ambientOcclusion = true;
+
+    // Scales the darkening only. ⚠️ NOT THE EFFECT'S RADIUS -- C3's acceptance
+    // asks for the two to be separable, because "more AO" and "AO that reaches
+    // further" are different requests and one slider cannot serve both.
+    float ambientOcclusionIntensity = 1.0f;
 
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
     // defaults change no image rendered before this existed.

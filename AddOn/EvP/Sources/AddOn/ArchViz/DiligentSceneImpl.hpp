@@ -379,7 +379,21 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // RE51.B9. `autoExposure` gates whether `exposure` above is used at all;
     // `lastAutoExposure` is what the estimate CHOSE this frame and is reported
     // whether or not it was applied -- see DiligentScene::SetAutoExposure.
-    bool autoExposureEnabled = false;
+    // ⚠️ true, AND IT MUST MATCH DiligentHud::autoExposure. Same trap as
+    // `exposure` two lines up: the HUD overwrites this on its first frame, so
+    // the value here only decides what a HUD-less render does -- and a headless
+    // still (PLAT-RE52) that metered differently from the viewport would be the
+    // exposure drift all over again, in a place nobody looks.
+    bool autoExposureEnabled = true;
+
+    // ---- RE51.C3 ------------------------------------------------------------
+    // ⚠️ `aoView` IS NON-NULL ONLY BETWEEN PrepareAmbientOcclusion AND THE Draw
+    // THAT CONSUMES IT. It points into the AO pass's own texture, which that
+    // pass owns and may reallocate on resize, so it is never held across a
+    // frame boundary -- Draw clears it after binding.
+    bool aoEnabled = true;
+    float aoIntensity = 1.0f;
+    Diligent::ITextureView* aoView = nullptr;
     float lastAutoExposure = 0.0f;
     float lastSceneLuminance = 0.0f;
     float whiteBalanceKelvin = 6500.0f;

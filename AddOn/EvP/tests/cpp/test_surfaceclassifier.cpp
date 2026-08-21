@@ -353,15 +353,62 @@ TEST (SurfacePresets, GlassGetsPhysicalDielectricReflectanceNotItsAuthoredValue)
     EXPECT_LT (preset.roughness, 0.20f);
 }
 
-TEST (SurfacePresets, AMetalKeepsItsMeasuredRoughness)
+// ⚠️ THIS TEST CHANGED ITS MIND ON 2026-08-21, AND THE LIVE RUN IS WHY. It used
+// to assert that a metal keeps its measured roughness EXACTLY -- shine 1800 ->
+// 0.316 -- on the principle that a measurement beats an invention. The run said
+// the measurement is not one: "HDR does not land on object, they do not reflect
+// hdr", and in the same breath, "if roughness bias is set to -1.00 scene becomes
+// reflective". So the prefiltered environment was arriving correctly and 0.316
+// was simply selecting a mip with nothing recognisable left in it. See
+// kMetalRoughness for what a bare architectural metal actually is.
+TEST (SurfacePresets, AMetalIsCappedAtAPolishedRoughness)
 {
-    // "Metalas - PLIENAS NERŪDIJANTIS": shine 1800, a factor of 18.
+    // "Metalas - PLIENAS NERŪDIJANTIS": shine 1800, a factor of 18, whose
+    // measured roughness is 0.316 -- rougher than any bare metal reads.
     const SurfaceMaterial steel = FromOfficialApi (0, 1800, 95, 34, 1, 1, 1);
     ASSERT_EQ (ClassifySurface (steel).cls, SurfaceClass::Metal);
 
     const SurfacePreset preset = PresetFor (steel);
     EXPECT_FLOAT_EQ (preset.metallic, 1.0f);
-    EXPECT_NEAR (preset.roughness, 0.316228f, 1e-5f);
+    EXPECT_FLOAT_EQ (preset.roughness, kMetalRoughness);
+}
+
+// ⚠️ THE OTHER HALF OF THE SAME CONTRACT, AND THE REASON IT IS A CEILING RATHER
+// THAN AN OVERRIDE. A surface authored GLOSSIER than its class ceiling keeps
+// what its author gave it; the ceiling only stops a class from being rougher
+// than the thing it is a class of can physically be. Without this test the
+// distinction is invisible -- an override passes the test above just as well.
+TEST (SurfacePresets, AMetalAuthoredGLOSSIERThanTheCeilingKeepsIt)
+{
+    // Shine 9000 -> factor 90 -> roughness sqrt(2/92) = 0.147, just inside the
+    // 0.15 ceiling.
+    const SurfaceMaterial polished = FromOfficialApi (0, 9000, 95, 34, 1, 1, 1);
+    ASSERT_EQ (ClassifySurface (polished).cls, SurfaceClass::Metal);
+
+    const SurfacePreset preset = PresetFor (polished);
+    EXPECT_LT (preset.roughness, kMetalRoughness);
+    EXPECT_NEAR (preset.roughness, 0.147442f, 1e-5f);
+}
+
+// ⚠️ GLASS NEEDED A CEILING OF ITS OWN, AND MaterialTable's 0.35 IS NOT IT.
+// That one is a FLOOR ON GLOSS for every transparent range -- written before
+// there was a classifier, and it also catches tinted plastics, water and
+// cut-out foliage, so it cannot be lowered to what float glass actually is.
+// This branch knows the range is glass.
+TEST (SurfacePresets, GlassIsNearMirrorSmooth)
+{
+    // The same pane as the reflectance test above: 69% transparent, shine 7952.
+    const SurfaceMaterial glass = FromOfficialApi (69, 7952, 100, 60, 1, 1, 1);
+    ASSERT_EQ (ClassifySurface (glass).cls, SurfaceClass::Glass);
+    EXPECT_FLOAT_EQ (PresetFor (glass).roughness, kGlassRoughness);
+
+    // And a pane authored with NO shine at all -- which the transparent floor
+    // would otherwise leave at 0.35 -- comes out as glass too. This is the case
+    // that made the live run report no reflections: 0.35 selects a mip four
+    // levels down a twelve-level chain, which is a 128-pixel-wide panorama.
+    const SurfaceMaterial dullPane = FromOfficialApi (69, 0, 100, 60, 1, 1, 1);
+    ASSERT_EQ (ClassifySurface (dullPane).cls, SurfaceClass::Glass);
+    EXPECT_FLOAT_EQ (PresetFor (dullPane).roughness, kGlassRoughness);
 }
 
 TEST (SurfacePresets, AnUnclassifiedSurfaceIsLeftExactlyAsItWasMeasured)

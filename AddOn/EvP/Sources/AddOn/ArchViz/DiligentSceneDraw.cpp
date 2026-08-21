@@ -207,15 +207,8 @@ void DiligentScene::SetViewportSize (uint32_t width, uint32_t height)
     impl_->viewportHeight = height;
 }
 
-void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
-                                      const float view[16], const float proj[16], const float viewProj[16],
-                                      const float eye[3], float nearClip, float farClip, float focusDistance,
-                                      bool perspective, uint32_t frameIndex, CullMode cull, int debugView)
+bool DiligentScene::EnsureGBufferTargets ()
 {
-    if (context == nullptr || colorTarget == nullptr || !impl_->ready || impl_->gBuffer == nullptr ||
-        impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
-        return;
-
     if (impl_->gBufferWidth != impl_->viewportWidth || impl_->gBufferHeight != impl_->viewportHeight) {
         impl_->gBuffer->Resize (impl_->device, impl_->viewportWidth, impl_->viewportHeight);
         if (impl_->gBuffer->GetBuffer (kGBufferNormal) == nullptr ||
@@ -224,7 +217,7 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
             impl_->gBuffer->GetBuffer (kGBufferAlbedo) == nullptr ||
             impl_->gBuffer->GetBuffer (kGBufferRoughness) == nullptr ||
             impl_->gBuffer->GetBuffer (kGBufferMaterialData) == nullptr)
-            return;
+            return false;
 
         impl_->gBufferDebugSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal")
             ->Set (impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
@@ -244,6 +237,22 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
         impl_->gBufferHeight = impl_->viewportHeight;
     }
 
+    return true;
+}
+
+// The opaque geometry into the G-buffer's MRTs.
+//
+// ⚠️ ONE COPY, SHARED BY THE DEBUG VIEWS AND BY THE OCCLUSION PREPASS. Two
+// copies would be two descriptions of the same scene, free to disagree about
+// which ranges are opaque or which preset a material gets -- and the symptom
+// would be occlusion that does not line up with the shading it darkens, which
+// reads as a projection bug rather than as a duplicated loop.
+//
+// ⚠️ IT LEAVES THE G-BUFFER BOUND AS A RENDER TARGET. Every caller has to unbind
+// before sampling those same textures as SRVs; D3D11 resolves the conflict by
+// silently dropping the SRV, which produces a black result and no message.
+void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull)
+{
     context->SetViewports (1, nullptr, 0, 0);
     impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr, kGBufferGeometryMask);
     // Binding a different framebuffer resets the viewport on D3D11. Set it
@@ -294,6 +303,86 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
         drawOpaqueRanges (e, true);
     for (const Entry& e : impl_->staticMeshes)
         drawOpaqueRanges (e, false);
+
+}
+
+void DiligentScene::SetAmbientOcclusion (bool enabled, float intensity)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->aoEnabled = enabled;
+    impl_->aoIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
+}
+
+void DiligentScene::ClearAmbientOcclusion ()
+{
+    if (impl_ != nullptr)
+        impl_->aoView = nullptr;
+}
+
+// RE51.C3. See the header for why the forward path now pays for a second
+// geometry pass, and why this has to run BEFORE Draw rather than after.
+void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, const float view[16],
+                                             const float proj[16], const float viewProj[16], const float eye[3],
+                                             float nearClip, float farClip, float focusDistance, uint32_t frameIndex,
+                                             CullMode cull)
+{
+    ClearAmbientOcclusion ();
+    if (context == nullptr || !impl_->ready || impl_->gBuffer == nullptr || !impl_->aoEnabled ||
+        impl_->aoIntensity <= 0.0f || impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
+        return;
+    if (!EnsureGBufferTargets ())
+        return;
+
+    RenderGBufferGeometry (context, viewProj, cull);
+
+    // ⚠️ THE MOTION TEXTURE IS CLEARED AND THE ACCUMULATION IS RESET, exactly as
+    // the debug path does, and for the reason finding F5 records: there are no
+    // real motion vectors yet (RE51.C2), so both temporal inputs are the current
+    // frame. This is a SPATIAL AO wearing a temporal effect's API. Feeding it an
+    // uncleared motion texture would let it ghost from history it never had.
+    Diligent::ITexture* motionTexture = impl_->gBuffer->GetBuffer (kGBufferMotion);
+    Diligent::ITextureView* motionRtv = motionTexture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
+    const float zeroMotion[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    context->ClearRenderTarget (motionRtv, zeroMotion, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+
+    // ⚠️ UNBIND BEFORE SAMPLING. The G-buffer's textures are render targets
+    // until this line and shader resources after it; D3D11 resolves the overlap
+    // by dropping the SRV, so an occlusion pass that skipped this would read
+    // black and darken nothing, with no error anywhere.
+    context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+
+    impl_->ambientOcclusion.Init (impl_->device);
+    Diligent::ITextureView* normalSrv =
+        impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* depthSrv =
+        impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* motionSrv = motionTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+
+    impl_->aoView = impl_->ambientOcclusion.Execute (
+        impl_->device, context, normalSrv, depthSrv, motionSrv, impl_->viewportWidth, impl_->viewportHeight,
+        frameIndex, view, proj, viewProj, eye, nearClip, farClip, focusDistance);
+}
+
+void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
+                                      const float view[16], const float proj[16], const float viewProj[16],
+                                      const float eye[3], float nearClip, float farClip, float focusDistance,
+                                      bool perspective, uint32_t frameIndex, CullMode cull, int debugView)
+{
+    if (context == nullptr || colorTarget == nullptr || !impl_->ready || impl_->gBuffer == nullptr ||
+        impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
+        return;
+
+    if (!EnsureGBufferTargets ())
+        return;
+    impl_->drawCalls = 0;
+    RenderGBufferGeometry (context, viewProj, cull);
+
+    // ⚠️ A SECOND, FRESH CONSTANT BLOCK. The prepass above uploaded its own and
+    // left the last MATERIAL's values in the buffer; the debug resolve below
+    // needs frame values, not whatever range happened to be drawn last.
+    DiligentSceneConstants constants;
+    std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
 
     Diligent::ITexture* motionTexture = impl_->gBuffer->GetBuffer (kGBufferMotion);
     Diligent::ITextureView* motionRtv = motionTexture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
@@ -558,6 +647,35 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, const float viewPro
         DrawEntryRange (context, e, r);
         ++impl_->drawCalls;
     };
+
+    // ---- RE51.C3: the occlusion prepared before this call -------------------
+    //
+    // ⚠️ BOUND ON EVERY MESH SRB, NOT ONLY THE ONE ABOUT TO DRAW. The cull mode
+    // and the blend state each pick a different SRB, and the transparent pass
+    // switches between them mid-frame; binding only `index` leaves the others
+    // pointing at whatever the last resize left there, which on a fresh device
+    // is nothing at all and reads as a validation error rather than as dark
+    // glass.
+    //
+    // ⚠️ AND THE INTENSITY IS ZEROED WHEN THERE IS NO TEXTURE. The shader's gate
+    // is that constant, not a null check -- HLSL cannot ask whether a texture is
+    // bound, and sampling an unbound one returns zero, which would darken the
+    // entire model to black rather than leaving it alone.
+    if (impl_->aoView != nullptr) {
+        for (int cullIdx = 0; cullIdx < kCullModeCount; ++cullIdx) {
+            for (Diligent::IShaderResourceBinding* srb :
+                 { impl_->opaqueSrb[cullIdx].RawPtr (), impl_->blendSrb[cullIdx].RawPtr () }) {
+                if (srb == nullptr)
+                    continue;
+                if (Diligent::IShaderResourceVariable* var =
+                        srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion"))
+                    var->Set (impl_->aoView);
+            }
+        }
+        constants.gradeParams[3] = impl_->aoIntensity;
+    } else {
+        constants.gradeParams[3] = 0.0f;
+    }
 
     const bool drawSurfaces = impl_->renderMode != SceneRenderMode::Wireframe;
     const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded && impl_->wirePso != nullptr;

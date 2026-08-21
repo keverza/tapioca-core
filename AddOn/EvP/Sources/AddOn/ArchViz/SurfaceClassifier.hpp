@@ -208,6 +208,42 @@ struct SurfacePreset {
 // roughness 0.99 that made Realistic look the same as Fast.
 constexpr float kUnauthoredShine = 0.02f;
 
+// ---- RE51.B4, second pass: the finish a CLASS earns -------------------------
+//
+// ⚠️ THESE EXIST BECAUSE THE LIVE RUN SAID "THEY DO NOT REFLECT THE HDR", and
+// the same run said what was really wrong: with the roughness bias pulled to
+// -1.00 -- which drives every surface to roughness 0 -- the scene became
+// reflective. So the prefiltered environment chain is reaching the shader
+// correctly and the materials were simply asking for the wrong mip. Glass at
+// 0.35 selects mip 3.85 of a twelve-mip chain, which is a 128-pixel-wide
+// panorama: a coloured wash, exactly as reported.
+//
+// ⚠️ THEY ARE CEILINGS, NOT OVERRIDES, and `min` is doing that work below. A
+// surface authored GLOSSIER than its class ceiling keeps what it was authored
+// with; the ceiling only stops a class from being rougher than the thing it is
+// a class of can physically be.
+//
+// GLASS. Float glass is optically flat -- that is how it is made, drawn off a
+// tin bath -- so its microfacet roughness is as near zero as any architectural
+// material gets, and every PBR reference puts architectural glazing at or below
+// 0.05. ⚠️ FROSTED AND ETCHED GLASS EXIST AND THIS WILL BE WRONG FOR THEM.
+// Archicad has no channel that distinguishes them: `shining` is authored at 100
+// on this project's glass and at 0 on other panes in the same template, which
+// is not a finish measurement, it is noise. Clear glazing is overwhelmingly the
+// common case, so it is the one that gets the default.
+constexpr float kGlassRoughness = 0.05f;
+
+// METAL, THE OPTICALLY CLASSIFIED KIND. ⚠️ DELIBERATELY DIFFERENT FROM THE
+// SUBSTANCE-DRIVEN METAL BELOW, and the difference is real rather than an
+// oversight. Reaching this branch means the SURFACE ITSELF reads as a
+// conductor -- a coloured specular highlight with a real gloss behind it --
+// which is a bare or polished metal finish: anodised aluminium, stainless,
+// brass. Those sit between polished (0.1) and satin (0.25). A surface whose
+// building material is metal but whose SURFACE says matte paint is a
+// powder-coated balustrade, and it stays at the rougher value in
+// ApplySubstancePreset.
+constexpr float kMetalRoughness = 0.15f;
+
 // ⚠️ PURE, like the classifier, and tested over the same real template. It reads
 // `material.substance` as well as the numeric channels; a table built before
 // that field existed carries `Unknown` and gets exactly the old behaviour.

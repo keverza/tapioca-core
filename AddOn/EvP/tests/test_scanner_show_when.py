@@ -120,6 +120,25 @@ def test_show_when_survives_json_as_flat_keys(tmp_path):
     assert layer["show_when_values"] == ["Place", "Update"]
 
 
+def test_file_path_extensions_survive_scan(tmp_path):
+    source = '''
+import evp
+
+
+@evp.command()
+def run(
+    executable: evp.FilePath(extensions=("exe",)) = "CloudCompare.exe",
+    tile: evp.FilePath(extensions=("e57", "las", "laz", "ply")) = "tile.e57",
+):
+    pass
+'''
+    params = params_by_name(scan(source, tmp_path))
+
+    assert params["executable"]["type"] == "FilePath"
+    assert params["executable"]["extensions"] == ("exe",)
+    assert params["tile"]["extensions"] == ("e57", "las", "laz", "ply")
+
+
 def test_selection_sets_are_preserved_in_declaration_order(tmp_path):
     source = '''
 import evp

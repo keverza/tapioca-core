@@ -132,6 +132,7 @@ struct DiligentViewportStats {
     bool autoExposureEnabled = false;
     float autoExposure = 0.0f;
     float appliedExposure = 0.0f;
+    float fixedExposure = 0.0f;
     float sceneLuminance = 0.0f;
     float meanAlbedo = 0.0f;
     float whiteBalanceGains[3] = {1.0f, 1.0f, 1.0f};

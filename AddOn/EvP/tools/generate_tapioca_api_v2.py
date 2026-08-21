@@ -29,9 +29,11 @@ from typing import Any
 # 2026-08-17, PLAT-9 again: +1 for GetLibraryPartPreviewInfo, which reports one
 # part's preview MIME type so the thumbnail question is answered by a real
 # library instead of by a guess.
-EXPECTED_REGISTRY_COMMANDS = 130
+# 2026-08-21, RE51.G1: +1 for RunCloudCompare, the out-of-process point-cloud
+# preprocessing boundary used by the CloudCompare crop probe.
+EXPECTED_REGISTRY_COMMANDS = 131
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 149
+EXPECTED_TOTAL_COMMANDS = 150
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

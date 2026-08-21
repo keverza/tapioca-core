@@ -39,6 +39,37 @@ class Camera;
 class DiligentScene;
 class PlanAnchorLayer;
 
+// Which of the scene's two passes this frame runs, and running it.
+//
+// ⚠️ IT IS HERE BECAUSE DiligentViewport.cpp CROSSED THE SOFT CAP AGAIN, and
+// this is the seam that was already there: everything else left in that file is
+// the frame LOOP -- acquire, present, resize, tear down -- while this is one
+// self-contained decision with one caller, exactly like the gnomon pass and the
+// plan-anchor step beside it.
+//
+// The decision itself is small and the reasons are not: a G-buffer debug view
+// and the ordinary shaded path both need the G-buffer, but only the ordinary
+// path prepares AMBIENT OCCLUSION from it, and whichever path runs must leave
+// no occlusion standing for the next frame to multiply in.
+struct SceneDrawRequest {
+    Diligent::ITextureView* target = nullptr;
+    const float* view = nullptr;        // 16
+    const float* proj = nullptr;        // 16
+    const float* viewProj = nullptr;    // 16
+    const float* eye = nullptr;         // 3
+    int debugView = 0;
+    uint32_t frameIndex = 0;
+    // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
+    bool ambientOcclusion = true;
+    float ambientOcclusionIntensity = 1.0f;
+};
+
+// `lastLoggedGBufferView` is carried by the caller so switching away from a
+// debug view and back reports the camera as it is THEN rather than staying
+// silent. -1 means "nothing logged yet".
+void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDeviceContext* context,
+                           const SceneDrawRequest& request, int& lastLoggedGBufferView);
+
 // Diligent's OWN diagnostics, into archviz.log.
 //
 // ⚠️ IT COST A ROUND TRIP NOT TO HAVE THIS. `CreateSwapChainD3D11 returned no

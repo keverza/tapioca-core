@@ -3,7 +3,7 @@
 
 #include "APIEnvir.h"
 #include "ACAPinc.h"
-#include "APIdefs_Interface.h"   // API_AttributePicker (Layer/Pen/Fill/LineType)
+#include "APIdefs_Interface.h" // API_AttributePicker (Layer/Pen/Fill/LineType)
 #include "DGModule.hpp"
 
 #include <memory>
@@ -14,35 +14,58 @@ class ControlPalette;
 namespace evp {
 
 struct CommandInfo;
-class  PaletteScroll;
+class PaletteScroll;
 
 // One scanned parameter and the control generated for it.
 struct ParamControl {
     GS::UniString name;
     GS::UniString type;
     GS::UniString unit;
+    // FilePath only: arbitrary extensions to show in the modal file dialog.
+    // An empty list retains the unfiltered Archicad file dialog.
+    GS::Array<GS::UniString> fileExtensions;
 
     std::unique_ptr<DG::LeftText> label;
 
     // The generated control. Null for Kind::Pen, whose swatch is a pooled .grc item
     // this row only borrows — use Widget() to get whichever one is live.
-    std::unique_ptr<DG::Item>     control;
+    std::unique_ptr<DG::Item> control;
 
     // Kind::Pen only: a borrowed pool entry, owned by the palette. NOT freed here.
     DG::UserControl* penSwatch = nullptr;
 
-    DG::Item* Widget () const { return penSwatch != nullptr ? (DG::Item*) penSwatch : control.get (); }
+    DG::Item* Widget () const
+    {
+        return penSwatch != nullptr ? (DG::Item*) penSwatch : control.get ();
+    }
 
     // Reading a control back needs its concrete type, which DG::Item does not
     // carry — so remember which one we built.
     // Action is an Enum in every mechanical respect — same popup, same read-back.
     // It is a separate kind only so PlaceAt can pin it above everything else: it
     // is the command's mode, and the rows below it are there because of it.
-    enum class Kind { Bool, Int, Real, Length, Area, Volume, Angle, Text, Enum,
-                      Action, Attribute, Pen, Story, FilePath, NavItem,
-                      NavBrowse, Catalog, ProjectField } kind = Kind::Text;
+    enum class Kind {
+        Bool,
+        Int,
+        Real,
+        Length,
+        Area,
+        Volume,
+        Angle,
+        Text,
+        Enum,
+        Action,
+        Attribute,
+        Pen,
+        Story,
+        FilePath,
+        NavItem,
+        NavBrowse,
+        Catalog,
+        ProjectField
+    } kind = Kind::Text;
 
-    GS::Array<GS::UniString> choices;   // Enum/Action and Story: the popup's row labels
+    GS::Array<GS::UniString> choices; // Enum/Action and Story: the popup's row labels
 
     // ProjectField only: the value behind each popup row, parallel to `choices`.
     // The row shows a Project Info field's DESCRIPTION (what the user reads in
@@ -54,7 +77,7 @@ struct ParamControl {
     GS::Array<GS::UniString> choiceValues;
 
     // F3 — show_when, flattened by the scanner. Empty controller == always shown.
-    GS::UniString            showWhenParam;
+    GS::UniString showWhenParam;
     GS::Array<GS::UniString> showWhenValues;
 
     // F4 — the row IS visible by its own rules, but the column is scrolled so far
@@ -128,14 +151,13 @@ struct ParamControl {
     // Every type the picker supports hosts on a DG::PushCheck. Pen is NOT one of
     // them (see UserControlTypeFor) and never reaches here.
     GS::Owner<API_AttributePicker> picker;
-    API_AttrTypeID                 attrType = API_ZombieAttrID;
+    API_AttrTypeID attrType = API_ZombieAttrID;
 
     // A bounded field states its domain in plain text to the LEFT of the box
     // (e.g. "1-255"), rather than rejecting input silently. Written, not hidden
     // behind a popover: it needs no click, so the constraint is known BEFORE
     // typing. On the left so it never eats into the input box's width.
     std::unique_ptr<DG::LeftText> domainHint;
-
 
     // A parameter with no default in run()'s signature. Run stays disabled until
     // every one of these has a usable value, so a command cannot be started in a
@@ -167,7 +189,7 @@ struct ParamControl {
 // this panel only BORROWS from. See ControlPalette's member list for why the
 // destruction order matters.
 class ParamPanel {
-public:
+  public:
     ParamPanel (const DG::Panel& panel, ControlPalette& observer,
                 std::vector<std::unique_ptr<DG::UserControl>>& penPool);
 
@@ -208,8 +230,7 @@ public:
     bool HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflow);
     bool HandleButtonClicked (const DG::ButtonClickEvent& ev);
 
-private:
-
+  private:
     // F3 — re-evaluate every show_when against the values the controls hold now,
     // and record the answer in each row's `visible`. Returns true when anything
     // moved, which is exactly when a reflow is owed. The rule evaluation itself is
@@ -221,7 +242,7 @@ private:
     // simply clipped before this existed.
 
     const DG::Panel& panel;
-    ControlPalette&  observer;
+    ControlPalette& observer;
 
     // NOT owned: the .grc pen swatches, bound once by the shell and lent out.
     std::vector<std::unique_ptr<DG::UserControl>>& penPool;
@@ -242,6 +263,6 @@ private:
     std::unique_ptr<DG::Separator> actionRule;
 };
 
-}   // namespace evp
+} // namespace evp
 
 #endif

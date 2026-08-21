@@ -5,24 +5,24 @@
 #include "ResourceIds.hpp"
 #include "Palette/ParamLayout.hpp"
 #include "Palette/PaletteMetrics.hpp"
-#include "Palette/PaletteScroll.hpp"         // F4 — every row reaches the panel through it
-#include "Palette/ParamVisibility.hpp"       // F3 show_when — DevKit-free, tested offline
-#include "Palette/ParamValues.hpp"           // a control's value <-> its text, both ways
-#include "Palette/NavItemChoices.hpp"        // evp.View / evp.Database — the rows and their guids
-#include "Palette/NavigatorBrowser.hpp"      // evp.View — the modal Navigator tree
-#include "Palette/CatalogPicker.hpp"         // evp.LibraryPart / evp.Favourite — catalogue + modal
-#include "Palette/AttributePickerTypes.hpp"  // UserControlTypeFor — evp.Layer/… -> Archicad's picker
-#include "ControlPalette.hpp"                // evp::CommandInfo + the shell, the sole observer
-#include "NativeCommands/CommandUtils.hpp"   // geomsrv::AttributeNameToIndex / …IndexToName
-#include "AddOnCommands.hpp"                 // geomsrv::ProjectInfoFieldChoices — evp.ProjectField rows
+#include "Palette/PaletteScroll.hpp"        // F4 — every row reaches the panel through it
+#include "Palette/ParamVisibility.hpp"      // F3 show_when — DevKit-free, tested offline
+#include "Palette/ParamValues.hpp"          // a control's value <-> its text, both ways
+#include "Palette/NavItemChoices.hpp"       // evp.View / evp.Database — the rows and their guids
+#include "Palette/NavigatorBrowser.hpp"     // evp.View — the modal Navigator tree
+#include "Palette/CatalogPicker.hpp"        // evp.LibraryPart / evp.Favourite — catalogue + modal
+#include "Palette/AttributePickerTypes.hpp" // UserControlTypeFor — evp.Layer/… -> Archicad's picker
+#include "ControlPalette.hpp"               // evp::CommandInfo + the shell, the sole observer
+#include "NativeCommands/CommandUtils.hpp"  // geomsrv::AttributeNameToIndex / …IndexToName
+#include "AddOnCommands.hpp"                // geomsrv::ProjectInfoFieldChoices — evp.ProjectField rows
 #include "Python/PathUtils.hpp"
 
 #include "ObjectState.hpp"
 #include "ObjectStateJSONConversion.hpp"
 
-#include "DGFileDialog.hpp"      // evp.FilePath Browse button
-#include "FileTypeManager.hpp"   // FTM::RootGroup — the "any file" filter
-#include "Location.hpp"          // IO::Location -> path string
+#include "DGFileDialog.hpp"    // evp.FilePath Browse button
+#include "FileTypeManager.hpp" // FTM::RootGroup — the "any file" filter
+#include "Location.hpp"        // IO::Location -> path string
 
 #include <algorithm>
 #include <string>
@@ -31,29 +31,38 @@ using namespace evp::palette;
 
 namespace {
 
+constexpr short LabelGap = 8;
+constexpr short DomainHintWidth = 84;
 
-constexpr short LabelGap          = 8;
-constexpr short DomainHintWidth   = 84;
+constexpr short PenSwatchWidth = 33;    // as in DG_Test's "Line Pen Setting" (33x19)
+constexpr short BrowseButtonWidth = 24; // compact folder icon before a FilePath field
+constexpr short BrowseButtonGap = 4;
 
-constexpr short PenSwatchWidth    = 33;   // as in DG_Test's "Line Pen Setting" (33x19)
-constexpr short BrowseButtonWidth = 24;   // compact folder icon before a FilePath field
-constexpr short BrowseButtonGap   = 4;
+std::string NormalizedFileExtension (const GS::UniString& rawExtension)
+{
+    const char* const rawText = rawExtension.ToCStr ();
+    if (rawText == nullptr)
+        return {};
+
+    std::string extension (rawText);
+    if (!extension.empty () && extension.front () == '.')
+        extension.erase (0, 1);
+    return extension;
+}
 
 // UserControlTypeFor — which Archicad picker an evp.<Attribute> type maps to —
 // lives in Palette/AttributePickerTypes.hpp. It is a table of claims about the
 // picker's supported-type list, not panel layout, and it left this file when the
 // soft cap forced a split.
 
-}   // namespace
+} // namespace
 
 namespace evp {
 
 // ---------------------------------------------------------------------------
 ParamPanel::ParamPanel (const DG::Panel& panel, ControlPalette& observer,
-                        std::vector<std::unique_ptr<DG::UserControl>>& penPool) :
-    panel    (panel),
-    observer (observer),
-    penPool  (penPool)
+                        std::vector<std::unique_ptr<DG::UserControl>>& penPool)
+    : panel (panel), observer (observer), penPool (penPool)
 {
 }
 
@@ -74,7 +83,7 @@ void ParamPanel::Create ()
 
 void ParamPanel::Clear ()
 {
-    paramControls.clear ();   // unique_ptrs destroy the DG items
+    paramControls.clear (); // unique_ptrs destroy the DG items
 
     // The pool is NOT owned by the rows, so nothing above hid these. Left visible,
     // a swatch from the previous command would linger over the new one's layout.
@@ -99,16 +108,16 @@ void ParamPanel::Rebuild (const CommandInfo& info)
     // Positions are assigned by PlaceAt; this rect is only a placeholder.
     const DG::Rect seed (Margin, 0, Margin + 100, RowHeight);
 
-    size_t nextPenSlot = 0;   // into penPool
+    size_t nextPenSlot = 0; // into penPool
 
     for (const GS::UniString& paramJson : info.paramJsons) {
         GS::ObjectState os;
         if (JSON::ConvertToObjectState (paramJson, os) != NoError)
             continue;
 
-        ParamControl        pc;
-        API_UserControlType controlType = APIUserControlType_Layer;   // set by UserControlTypeFor
-        GS::UniString       domainText;   // empty unless the param declares bounds
+        ParamControl pc;
+        API_UserControlType controlType = APIUserControlType_Layer; // set by UserControlTypeFor
+        GS::UniString domainText;                                   // empty unless the param declares bounds
         os.Get ("name", pc.name);
         // No default in run()'s signature -> required. The scanner reports it, so
         // this stays in step with the code rather than a hand-kept list.
@@ -117,6 +126,7 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             pc.required = requiredFlag;
         os.Get ("type", pc.type);
         os.Get ("unit", pc.unit);
+        os.Get ("extensions", pc.fileExtensions);
 
         // Per-param attributes ride in the param's own flat dict (the scanner folds
         // arbitrary annotation kwargs in — evp.Float(..., readonly=True,
@@ -125,8 +135,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
         bool readonly = false;
         os.Get ("readonly", readonly);
         GS::UniString defaultFrom;
-        const bool    haveDefaultFrom = os.Get ("default_from", defaultFrom);
-        bool          defaultFromResolved = false;   // set below if default_from resolves
+        const bool haveDefaultFrom = os.Get ("default_from", defaultFrom);
+        bool defaultFromResolved = false; // set below if default_from resolves
 
         // F3 — show_when, already FLAT: the scanner turned {"action": [...]} into a
         // name plus a string array, because a nested dict is the one shape this
@@ -145,7 +155,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
         if (!os.Get ("label", labelText) || labelText.IsEmpty ())
             labelText = pc.name;
         const GS::UniString projectUnit = ProjectUnitLabel (pc.unit);
-        if (!projectUnit.IsEmpty ()) labelText += " (" + projectUnit + ")";
+        if (!projectUnit.IsEmpty ())
+            labelText += " (" + projectUnit + ")";
         pc.label->SetText (labelText);
 
         if (pc.type == "bool" || pc.type == "Bool") {
@@ -163,24 +174,25 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             // ApplyVisibility. Attached to the shell, never to this panel.
             box->Attach (observer);
             pc.control = std::move (box);
-
-        } else if (pc.type == "Int" || pc.type == "int") {
+        }
+        else if (pc.type == "Int" || pc.type == "int") {
             pc.kind = ParamControl::Kind::Int;
             auto edit = std::make_unique<DG::IntEdit> (panel, seed);
             GS::Int32 minimum = 0, maximum = 0, value = 0;
             const bool haveMin = os.Get ("minimum", minimum);
             const bool haveMax = os.Get ("maximum", maximum);
-            if (haveMin) edit->SetMin (minimum);
-            if (haveMax) edit->SetMax (maximum);
+            if (haveMin)
+                edit->SetMin (minimum);
+            if (haveMax)
+                edit->SetMax (maximum);
             os.Get ("default", value);
             edit->SetValue (value);
             pc.control = std::move (edit);
 
-            domainText = FormatDomain (haveMin, haveMax,
-                                       GS::UniString::Printf ("%d", (int) minimum),
+            domainText = FormatDomain (haveMin, haveMax, GS::UniString::Printf ("%d", (int) minimum),
                                        GS::UniString::Printf ("%d", (int) maximum));
-
-        } else if (pc.type == "Float" || pc.type == "float") {
+        }
+        else if (pc.type == "Float" || pc.type == "float") {
             double value = 0.0;
             os.Get ("default", value);
 
@@ -201,44 +213,49 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             if (pc.unit == "m") {
                 pc.kind = ParamControl::Kind::Length;
                 edit = std::make_unique<DG::LengthEdit> (panel, seed);
-            } else if (pc.unit == "m2") {
+            }
+            else if (pc.unit == "m2") {
                 pc.kind = ParamControl::Kind::Area;
                 edit = std::make_unique<DG::AreaEdit> (panel, seed);
-            } else if (pc.unit == "m3") {
+            }
+            else if (pc.unit == "m3") {
                 pc.kind = ParamControl::Kind::Volume;
                 edit = std::make_unique<DG::VolumeEdit> (panel, seed);
-            } else if (pc.unit == "rad") {
+            }
+            else if (pc.unit == "rad") {
                 pc.kind = ParamControl::Kind::Angle;
                 edit = std::make_unique<DG::AngleEdit> (panel, seed);
-            } else {
+            }
+            else {
                 pc.kind = ParamControl::Kind::Real;
                 edit = std::make_unique<DG::RealEdit> (panel, seed);
             }
-            double     minimum = 0.0, maximum = 0.0;
+            double minimum = 0.0, maximum = 0.0;
             const bool haveMin = os.Get ("minimum", minimum);
             const bool haveMax = os.Get ("maximum", maximum);
-            if (haveMin) edit->SetMin (minimum);
-            if (haveMax) edit->SetMax (maximum);
+            if (haveMin)
+                edit->SetMin (minimum);
+            if (haveMax)
+                edit->SetMax (maximum);
             edit->SetValue (value);
             pc.control = std::move (edit);
 
-            domainText = FormatNumericDomain (pc.unit, haveMin, haveMax,
-                                              minimum, maximum);
-
-        } else if (pc.type == "Pen" && nextPenSlot < penPool.size ()) {
+            domainText = FormatNumericDomain (pc.unit, haveMin, haveMax, minimum, maximum);
+        }
+        else if (pc.type == "Pen" && nextPenSlot < penPool.size ()) {
             // Archicad's real pen swatch, borrowed from the .grc pool. The attribute
             // picker CANNOT do this: APIUserControlType_Pen is absent from the types
             // API_AttributePickerParams documents, and asking for it just fails.
             // Pens are not attributes at all — they are numbers 1..255 — so the
             // value here is the pen index, not a name.
-            pc.kind      = ParamControl::Kind::Pen;
+            pc.kind = ParamControl::Kind::Pen;
             pc.penSwatch = penPool[nextPenSlot++].get ();
 
             GS::Int32 pen = 1;
             os.Get ("default", pen);
             pc.penSwatch->SetValue (pen);
-
-        } else if (pc.type == "Pen") {
+        }
+        else if (pc.type == "Pen") {
             // Pool exhausted: more pen parameters than reserved .grc items.
             pc.kind = ParamControl::Kind::Int;
             auto edit = std::make_unique<DG::IntEdit> (panel, seed);
@@ -249,37 +266,38 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             edit->SetValue (pen);
             pc.control = std::move (edit);
             domainText = FormatDomain (true, true, "1", "255");
-            AppendTextLine (ScanLogPath (),
+            AppendTextLine (
+                ScanLogPath (),
                 GS::UniString::Printf ("  pen '%T': the pen swatch pool holds only %u item(s) and they are all "
                                        "claimed - using a 1..255 number field. Raise PenPoolSize in "
                                        "ResourceIds.hpp and add matching UserControl items to AddOn.grc.",
                                        pc.name.ToPrintf (), (unsigned) penPool.size ()));
-
-        } else if (UserControlTypeFor (pc.type, controlType, pc.attrType)) {
+        }
+        else if (UserControlTypeFor (pc.type, controlType, pc.attrType)) {
             // Archicad's OWN attribute picker: a PushCheck showing the current
             // attribute plus an arrow, which opens the project's real chooser. The
             // user cannot type here, so a typo can never invent a layer.
             auto host = std::make_unique<DG::PushCheck> (panel, seed);
 
             API_AttributePickerParams params;
-            params.type                = controlType;
-            params.dialogID            = panel.GetId ();
-            params.itemID              = host->GetId ();
+            params.type = controlType;
+            params.dialogID = panel.GetId ();
+            params.itemID = host->GetId ();
             params.pushCheckAppearance = API_AttributePickerParams::PushCheckAppearance::ArrowIconAndText;
 
-            const bool created = (ACAPI_Dialog_CreateAttributePicker (params, pc.picker) == NoError)
-                              && (pc.picker != nullptr);
+            const bool created =
+                (ACAPI_Dialog_CreateAttributePicker (params, pc.picker) == NoError) && (pc.picker != nullptr);
 
             if (created) {
                 pc.kind = ParamControl::Kind::Attribute;
-                GS::UniString      name;
+                GS::UniString name;
                 API_AttributeIndex index;
                 os.Get ("default", name);
                 if (geomsrv::AttributeNameToIndex (pc.attrType, name, index))
                     pc.picker->SetSelectedAttributeIndex (index);
                 pc.control = std::move (host);
-
-            } else {
+            }
+            else {
                 // A popup listing what the project ACTUALLY contains. No typing, so
                 // still no invented attributes — just not Archicad's own widget.
                 host.reset ();
@@ -287,7 +305,7 @@ void ParamPanel::Rebuild (const CommandInfo& info)
                 auto popup = std::make_unique<DG::PopUp> (panel, seed, RowHeight, 0);
 
                 GS::Array<API_Attribute> attributes;
-                GS::UniString            value;
+                GS::UniString value;
                 os.Get ("default", value);
                 if (ACAPI_Attribute_GetAttributesByType (pc.attrType, attributes) == NoError) {
                     for (const API_Attribute& attribute : attributes)
@@ -304,20 +322,19 @@ void ParamPanel::Rebuild (const CommandInfo& info)
                     popup->SetItemText (1, "(no attributes in this project)");
                 }
                 pc.control = std::move (popup);
-                AppendTextLine (ScanLogPath (),
-                    GS::UniString::Printf ("  picker: ACAPI_Dialog_CreateAttributePicker REFUSED type %T - "
-                                           "listing %u project attribute(s) in a popup instead. The requested "
-                                           "API_UserControlType is probably not on the supported list in "
-                                           "API_AttributePickerParams.",
-                                           pc.type.ToPrintf (), (unsigned) pc.choices.GetSize ()));
+                AppendTextLine (ScanLogPath (), GS::UniString::Printf (
+                                                    "  picker: ACAPI_Dialog_CreateAttributePicker REFUSED type %T - "
+                                                    "listing %u project attribute(s) in a popup instead. The requested "
+                                                    "API_UserControlType is probably not on the supported list in "
+                                                    "API_AttributePickerParams.",
+                                                    pc.type.ToPrintf (), (unsigned) pc.choices.GetSize ()));
             }
-
-        } else if (pc.type == "Enum" || pc.type == "Action") {
+        }
+        else if (pc.type == "Enum" || pc.type == "Action") {
             // Mechanically identical; the kind differs only so PlaceAt can pin the
             // Action above every other row (it is the command's mode, and the rows
             // below exist because of it).
-            pc.kind = (pc.type == "Action") ? ParamControl::Kind::Action
-                                            : ParamControl::Kind::Enum;
+            pc.kind = (pc.type == "Action") ? ParamControl::Kind::Action : ParamControl::Kind::Enum;
             // vSize = drop-down row height, textOffset = text indent.
             auto popup = std::make_unique<DG::PopUp> (panel, seed, RowHeight, 0);
             os.Get ("args", pc.choices);
@@ -338,8 +355,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             // no popup was attached to anything.
             popup->Attach (observer);
             pc.control = std::move (popup);
-
-        } else if (pc.type == "Story") {
+        }
+        else if (pc.type == "Story") {
             // A popup of the project's real stories, so a story parameter cannot name
             // one that does not exist. Rows read "0  Ground floor"; the value handed
             // to run() is the story INDEX, which is NOT the row number — stories run
@@ -349,19 +366,19 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             pc.kind = ParamControl::Kind::Story;
             auto popup = std::make_unique<DG::PopUp> (panel, seed, RowHeight, 0);
 
-            GS::Int32  defaultIndex = 0;
+            GS::Int32 defaultIndex = 0;
             const bool haveDefault = os.Get ("default", defaultIndex);
 
             API_StoryInfo storyInfo = {};
-            short         selectRow = 0;
+            short selectRow = 0;
             if (ACAPI_ProjectSetting_GetStorySettings (&storyInfo) == NoError && storyInfo.data != nullptr) {
                 const short count = storyInfo.lastStory - storyInfo.firstStory + 1;
                 for (short i = 0; i < count; ++i) {
                     const API_StoryType& story = (*storyInfo.data)[i];
                     popup->AppendItem ();
-                    popup->SetItemText ((short) (i + 1),
-                        GS::UniString::Printf ("%d  %T", (int) story.index,
-                                               GS::UniString (story.uName).ToPrintf ()));
+                    popup->SetItemText (
+                        (short) (i + 1),
+                        GS::UniString::Printf ("%d  %T", (int) story.index, GS::UniString (story.uName).ToPrintf ()));
                     pc.storyIndices.Push ((GS::Int32) story.index);
                     // Preselect the declared default index, or the active story when
                     // the parameter has no default of its own.
@@ -374,12 +391,13 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             if (pc.storyIndices.IsEmpty ()) {
                 popup->AppendItem ();
                 popup->SetItemText (1, "(no stories in this project)");
-            } else {
+            }
+            else {
                 popup->SelectItem (selectRow >= 1 ? selectRow : (short) 1);
             }
             pc.control = std::move (popup);
-
-        } else if (pc.type == "ProjectField") {
+        }
+        else if (pc.type == "ProjectField") {
             // A popup of the open project's Project Info fields, so a command can
             // ask WHICH field a value comes from instead of hard-coding one in its
             // source. Read live here rather than through Tapioca.GetProjectInfo:
@@ -414,15 +432,13 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             for (UIndex i = 0; i < fieldDescriptions.GetSize (); ++i) {
                 if (numericOnly) {
                     double parsed = 0.0;
-                    if (i >= fieldValues.GetSize () ||
-                        !ParseLocalizedNumber (fieldValues[i], parsed))
+                    if (i >= fieldValues.GetSize () || !ParseLocalizedNumber (fieldValues[i], parsed))
                         continue;
                 }
                 pc.choices.Push (fieldDescriptions[i]);
                 // Pushed TOGETHER, never in separate loops: the row and the key it
                 // sends are only related by index (see ParamPanel.hpp).
-                pc.choiceValues.Push (i < fieldKeys.GetSize () ? fieldKeys[i]
-                                                               : GS::UniString ());
+                pc.choiceValues.Push (i < fieldKeys.GetSize () ? fieldKeys[i] : GS::UniString ());
             }
 
             // The declared default is matched the way ProjectInfoField matches:
@@ -437,15 +453,14 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             for (UIndex i = 0; i < pc.choices.GetSize (); ++i) {
                 popup->AppendItem ();
                 popup->SetItemText ((short) (i + 1), pc.choices[i]);
-                if (!needle.IsEmpty () && i < pc.choiceValues.GetSize () &&
-                    pc.choiceValues[i].ToLowerCase () == needle)
-                    selectRow = (short) (i + 1);       // exact key wins outright
+                if (!needle.IsEmpty () && i < pc.choiceValues.GetSize () && pc.choiceValues[i].ToLowerCase () == needle)
+                    selectRow = (short) (i + 1); // exact key wins outright
             }
             if (selectRow == 0 && !needle.IsEmpty ()) {
                 for (UIndex i = 0; i < pc.choices.GetSize (); ++i) {
                     if (pc.choices[i].ToLowerCase ().Contains (needle)) {
                         selectRow = (short) (i + 1);
-                        break;                        // first description match
+                        break; // first description match
                     }
                 }
             }
@@ -454,16 +469,16 @@ void ParamPanel::Rebuild (const CommandInfo& info)
                 // reads back as an empty key — which is what the command refuses
                 // on, and what keeps it from satisfying a required parameter.
                 popup->AppendItem ();
-                popup->SetItemText (1, numericOnly ? "(no numeric project-info fields)"
-                                                   : "(no project-info fields)");
-            } else {
+                popup->SetItemText (1, numericOnly ? "(no numeric project-info fields)" : "(no project-info fields)");
+            }
+            else {
                 popup->SelectItem (selectRow >= 1 ? selectRow : (short) 1);
             }
             // A ProjectField can control a show_when like any other popup.
             popup->Attach (observer);
             pc.control = std::move (popup);
-
-        } else if (pc.type == "View") {
+        }
+        else if (pc.type == "View") {
             // A BUTTON that opens the Navigator browser, not a list. The value
             // handed to run() is the chosen item's GUID; the button shows the row
             // text so the choice is readable without opening anything.
@@ -491,12 +506,11 @@ void ParamPanel::Rebuild (const CommandInfo& info)
                 pc.selectedGuid = declared;
 
             auto button = std::make_unique<DG::Button> (panel, seed);
-            button->SetText (pc.selectedLabel.IsEmpty () ? GS::UniString ("Navigator")
-                                                         : pc.selectedLabel);
+            button->SetText (pc.selectedLabel.IsEmpty () ? GS::UniString ("Navigator") : pc.selectedLabel);
             button->Attach (observer);
             pc.control = std::move (button);
-
-        } else if (pc.type == "Database") {
+        }
+        else if (pc.type == "Database") {
             // A flat popup, deliberately: the independent databases are a dozen
             // entries with no hierarchy, so the browser dialog would be ceremony.
             // Rows read "layout  -  A-101 Plans"; the value is the database guid.
@@ -513,9 +527,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             for (UIndex i = 0; i < rows.GetSize (); ++i) {
                 popup->AppendItem ();
                 popup->SetItemText ((short) (i + 1), rows[i].label);
-                pc.itemGuids.Push (rows[i].guid);      // row and guid, one statement
-                if (!value.IsEmpty () && selectRow == 0 &&
-                    (rows[i].guid == value || rows[i].label == value))
+                pc.itemGuids.Push (rows[i].guid); // row and guid, one statement
+                if (!value.IsEmpty () && selectRow == 0 && (rows[i].guid == value || rows[i].label == value))
                     selectRow = (short) (i + 1);
             }
 
@@ -526,14 +539,15 @@ void ParamPanel::Rebuild (const CommandInfo& info)
                 // missing one.
                 popup->AppendItem ();
                 popup->SetItemText (1, "(no databases in this project)");
-            } else {
+            }
+            else {
                 popup->SelectItem (selectRow >= 1 ? selectRow : (short) 1);
             }
 
             popup->Attach (observer);
             pc.control = std::move (popup);
-
-        } else if (pc.type == "LibraryPart" || pc.type == "Favourite") {
+        }
+        else if (pc.type == "LibraryPart" || pc.type == "Favourite") {
             // A BUTTON that opens the catalogue browser. Same shape as evp.View
             // and for the same recorded reason: a loaded library is thousands of
             // parts, and a flat popup of thousands is a list you scroll, not one
@@ -558,8 +572,8 @@ void ParamPanel::Rebuild (const CommandInfo& info)
                                                     : GS::UniString ("Choose library object"));
             button->Attach (observer);
             pc.control = std::move (button);
-
-        } else if (pc.type == "FilePath") {
+        }
+        else if (pc.type == "FilePath") {
             // A text field you can type into PLUS a Browse button, because
             // remembering a full path is not the user's job. The value is the path
             // string; the button just fills the field (see HandleButtonClicked).
@@ -568,14 +582,14 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             GS::UniString value;
             os.Get ("default", value);
             edit->SetText (value);
-            edit->Attach (observer);   // typing re-checks the Run gate, as for Text
+            edit->Attach (observer); // typing re-checks the Run gate, as for Text
             pc.control = std::move (edit);
 
             pc.browseButton = std::make_unique<DG::IconButton> (panel, seed);
             pc.browseButton->SetIcon (DG::Icon (ACAPI_GetOwnResModule (), PaletteIconFolderId));
             pc.browseButton->Attach (observer);
-
-        } else {
+        }
+        else {
             // str, evp.Layer and anything unrecognised fall back to a text field.
             // Layer becomes an attribute picker above; a text field is honest here.
             pc.kind = ParamControl::Kind::Text;
@@ -630,7 +644,7 @@ void ParamPanel::Rebuild (const CommandInfo& info)
 // feature that can be wrong invisibly, so it lives where a test can reach it.
 bool ParamPanel::ApplyVisibility ()
 {
-    std::vector<std::string>    names, values;
+    std::vector<std::string> names, values;
     std::vector<VisibilityRule> rules;
     names.reserve (paramControls.size ());
     values.reserve (paramControls.size ());
@@ -676,13 +690,25 @@ void ParamPanel::ShowControls ()
     // question asked by the scroll rather than by show_when.
     for (ParamControl& pc : paramControls) {
         const bool on = pc.visible && !pc.clipped;
-        if (on) { pc.label->Show (); pc.Widget ()->Show (); }
-        else    { pc.label->Hide (); pc.Widget ()->Hide (); }
+        if (on) {
+            pc.label->Show ();
+            pc.Widget ()->Show ();
+        }
+        else {
+            pc.label->Hide ();
+            pc.Widget ()->Hide ();
+        }
         if (pc.domainHint) {
-            if (on) pc.domainHint->Show (); else pc.domainHint->Hide ();
+            if (on)
+                pc.domainHint->Show ();
+            else
+                pc.domainHint->Hide ();
         }
         if (pc.browseButton) {
-            if (on) pc.browseButton->Show (); else pc.browseButton->Hide ();
+            if (on)
+                pc.browseButton->Show ();
+            else
+                pc.browseButton->Hide ();
         }
     }
 }
@@ -701,8 +727,8 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         const short inputWidth = (short) InputColumnWidth (right - left);
         const short assemblyLeft = (short) (right - inputWidth);
         short controlLeft = pc.kind == ParamControl::Kind::FilePath
-                          ? (short) (assemblyLeft + BrowseButtonWidth + BrowseButtonGap)
-                          : assemblyLeft;
+                                ? (short) (assemblyLeft + BrowseButtonWidth + BrowseButtonGap)
+                                : assemblyLeft;
         short controlRight = right;
 
         // A pen swatch is a fixed-size colour chip in Archicad's own dialogs,
@@ -713,9 +739,8 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         // The domain hint stays immediately left of the field. Labels now use
         // every remaining pixel and naturally truncate first on a narrow panel.
         const short hintRight = (short) (controlLeft - 4);
-        const short hintLeft  = (short) (hintRight - DomainHintWidth);
-        const short labelRight = pc.domainHint ? (short) (hintLeft - LabelGap)
-                                               : (short) (assemblyLeft - LabelGap);
+        const short hintLeft = (short) (hintRight - DomainHintWidth);
+        const short labelRight = pc.domainHint ? (short) (hintLeft - LabelGap) : (short) (assemblyLeft - LabelGap);
 
         // F4 — the whole row stands or falls together: if the scrolled column has
         // moved any of it out of the viewport, none of it goes on the panel, and
@@ -725,9 +750,8 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         clip.Place (pc.label.get (), DG::Rect (left, y + 3, labelRight, y + RowHeight));
         clip.Place (pc.domainHint.get (), DG::Rect (hintLeft, y + 3, hintRight, y + RowHeight));
         clip.Place (pc.Widget (), DG::Rect (controlLeft, y, controlRight, y + RowHeight));
-        clip.Place (pc.browseButton.get (), DG::Rect (assemblyLeft, y,
-                                                      (short) (assemblyLeft + BrowseButtonWidth),
-                                                      y + RowHeight));
+        clip.Place (pc.browseButton.get (),
+                    DG::Rect (assemblyLeft, y, (short) (assemblyLeft + BrowseButtonWidth), y + RowHeight));
         y += RowHeight + RowGap;
     };
 
@@ -747,9 +771,7 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
         return any;
     };
 
-    const auto isAction = [] (const ParamControl& pc) {
-        return pc.kind == ParamControl::Kind::Action;
-    };
+    const auto isAction = [] (const ParamControl& pc) { return pc.kind == ParamControl::Kind::Action; };
 
     // A rule this layout did not use must be HIDDEN, or it lingers wherever the
     // previous command left it — a .grc-free item keeps its last rect.
@@ -771,13 +793,10 @@ short ParamPanel::PlaceAt (short top, short left, short right, const PaletteScro
 
     // Then required, the grouping rule, and optional — the things that BLOCK Run
     // read first.
-    const bool hadRequired = placeGroup ([&] (const ParamControl& pc) {
-        return !isAction (pc) && pc.required;
+    const bool hadRequired = placeGroup ([&] (const ParamControl& pc) { return !isAction (pc) && pc.required; });
+    const bool hasOptional = std::any_of (paramControls.begin (), paramControls.end (), [&] (const ParamControl& pc) {
+        return pc.visible && !isAction (pc) && !pc.required;
     });
-    const bool hasOptional = std::any_of (paramControls.begin (), paramControls.end (),
-                                          [&] (const ParamControl& pc) {
-                                              return pc.visible && !isAction (pc) && !pc.required;
-                                          });
     placeRule (groupRule, hadRequired && hasOptional);
     placeGroup ([&] (const ParamControl& pc) { return !isAction (pc) && !pc.required; });
 
@@ -794,7 +813,7 @@ bool ParamPanel::HandleCheckItemChanged (const DG::CheckItemChangeEvent& ev, boo
             continue;
         if (pc.kind == ParamControl::Kind::Attribute) {
             if (pc.picker != nullptr)
-                pc.picker->Invoke ();      // updates the control's own text
+                pc.picker->Invoke (); // updates the control's own text
             // PushCheck latches when clicked; the picker is not a toggle.
             static_cast<DG::PushCheck*> (pc.control.get ())->Uncheck ();
         }
@@ -832,16 +851,15 @@ bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
 
         NavigatorBrowser browser (pc.selectedGuid);
         if (browser.Invoke () != DG::ModalDialog::Accept)
-            return true;    // cancelled: keep whatever the row already held
+            return true; // cancelled: keep whatever the row already held
 
         // ⚠️ Guid and label move TOGETHER or not at all. A button showing one item's
         // text while sending another item's guid is the failure with no symptom —
         // the user reads the row they meant and the command acts on something else.
-        pc.selectedGuid  = browser.GetSelectedGuid ();
+        pc.selectedGuid = browser.GetSelectedGuid ();
         pc.selectedLabel = browser.GetSelectedLabel ();
-        static_cast<DG::Button*> (pc.control.get ())->SetText (
-            pc.selectedLabel.IsEmpty () ? GS::UniString ("Navigator")
-                                        : pc.selectedLabel);
+        static_cast<DG::Button*> (pc.control.get ())
+            ->SetText (pc.selectedLabel.IsEmpty () ? GS::UniString ("Navigator") : pc.selectedLabel);
         // The Run gate may have just been satisfied, and a show_when may depend on
         // this value — the shell re-checks both after a handled button click.
         return true;
@@ -860,25 +878,45 @@ bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
         if (pc.browseButton == nullptr || ev.GetSource () != pc.browseButton.get ())
             continue;
 
-        // "Any file" is FTM::RootGroup, and it takes BOTH calls.
+        // "Any file" is FTM::RootGroup, and it takes BOTH calls. A command may
+        // instead declare arbitrary extensions (e.g. E57), which are not
+        // necessarily registered in Archicad's global File Type Manager. Build
+        // those filters in a short-lived private manager for this dialog.
         //
         // AddFilter only fills the filter popup. What the dialog VALIDATES the chosen
         // file against is its filter ROOT, and the default root is UnknownGroup — so
         // every file was refused ("selected file is not all files (*.*)") no matter
         // what the popup said. The DevKit's own users always pair the two:
         // ObjectStateProcessor.cpp does AddFilter (type) + SetFilterRoot (group).
-        // There is also no wildcard extension — the original code registered a type
-        // whose extension was the literal string "*", which matches nothing.
+        FTM::FileTypeManager fileTypeManager ("Tapioca.FilePath");
+        FTM::GroupID filterRoot;
         DG::FileDialog dialog (DG::FileDialog::OpenFile);
-        dialog.SetFilterRoot (FTM::RootGroup);   // what a chosen file is checked against
-        dialog.AddFilter (FTM::RootGroup);       // what the filter popup offers
+        if (pc.fileExtensions.IsEmpty ()) {
+            filterRoot = FTM::RootGroup;
+            dialog.SetFilterRoot (filterRoot);
+            dialog.AddFilter (filterRoot);
+        }
+        else {
+            filterRoot = fileTypeManager.AddGroup ("Tapioca files");
+            for (const GS::UniString& rawExtension : pc.fileExtensions) {
+                const std::string extension = NormalizedFileExtension (rawExtension);
+                if (extension.empty () || extension == "*")
+                    continue;
+
+                const std::string description = "Tapioca file (*." + extension + ")";
+                const FTM::FileType fileType (description.c_str (), extension.c_str (), 0, 0, 0);
+                const FTM::TypeID typeID = fileTypeManager.AddType (fileType, filterRoot);
+                if (typeID != FTM::UnknownType)
+                    dialog.AddFilter (typeID);
+            }
+            dialog.SetFilterRoot (filterRoot);
+        }
         if (!dialog.Invoke ()) {
             // Cancel and refusal look the same from here, so say which one this was —
             // a Browse button that silently does nothing is unreportable.
-            AppendTextLine (ScanLogPath (),
-                GS::UniString::Printf ("  FilePath '%T': the file dialog returned nothing "
-                                       "(cancelled, or the selection was refused).",
-                                       pc.name.ToPrintf ()));
+            AppendTextLine (ScanLogPath (), GS::UniString::Printf ("  FilePath '%T': the file dialog returned nothing "
+                                                                   "(cancelled, or the selection was refused).",
+                                                                   pc.name.ToPrintf ()));
             return true;
         }
 
@@ -886,15 +924,17 @@ bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
         const GSErrCode pathErr = dialog.GetSelectedFile ().ToPath (&path);
         if (pathErr == NoError) {
             static_cast<DG::TextEdit*> (pc.control.get ())->SetText (path);
-        } else {
+        }
+        else {
             AppendTextLine (ScanLogPath (),
-                GS::UniString::Printf ("  FilePath '%T': a file was chosen but its location "
-                                       "would not convert to a path (error %d) - the field is "
-                                       "unchanged.", pc.name.ToPrintf (), (int) pathErr));
+                            GS::UniString::Printf ("  FilePath '%T': a file was chosen but its location "
+                                                   "would not convert to a path (error %d) - the field is "
+                                                   "unchanged.",
+                                                   pc.name.ToPrintf (), (int) pathErr));
         }
         return true;
     }
     return false;
 }
 
-}   // namespace evp
+} // namespace evp

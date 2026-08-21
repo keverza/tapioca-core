@@ -396,6 +396,13 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 // turns the first run into the measurement instead of into a
                 // surprise. If the two are close, turn it on and delete this
                 // note; if they are not, the ratio is the correction.
+                // ---- RE51.C3 ------------------------------------------------
+                ImGui::Checkbox ("ambient occlusion", &state.ambientOcclusion);
+                ImGui::TextDisabled ("  contact darkening -- costs a SECOND geometry pass");
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##aointensity", &state.ambientOcclusionIntensity, 0.0f, 2.0f, "%.2f");
+                ImGui::TextDisabled ("AO amount -- separate from the effect's own radius");
+
                 ImGui::Checkbox ("auto exposure", &state.autoExposure);
                 ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)",
                                      scene.autoExposure, scene.sceneLuminance, scene.meanAlbedo);
