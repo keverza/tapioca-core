@@ -347,7 +347,10 @@ if (-not (Test-Path -LiteralPath $target -PathType Container)) {
             continue
         }
         if ($PSCmdlet.ShouldProcess($legacyTarget, "migrate to $target")) {
-            $targetParent = Split-Path -LiteralPath $target -Parent
+            # Split-Path -LiteralPath has no -Parent (it is the only member of
+            # LiteralPathSet), so the two cannot bind together. Use the .NET call
+            # to keep the literal, wildcard-free semantics the rest of this uses.
+            $targetParent = [IO.Path]::GetDirectoryName($target)
             if (-not (Test-Path -LiteralPath $targetParent -PathType Container)) {
                 New-Item -ItemType Directory -Path $targetParent -Force | Out-Null
             }
