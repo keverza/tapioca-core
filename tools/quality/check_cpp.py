@@ -565,6 +565,7 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
         "ControlPalette.cpp",
         "ControlPalette.hpp",
         "ControlPaletteLayout.cpp",
+        "ControlPaletteMenu.cpp",
         "ControlPaletteParams.cpp",
         "ControlPaletteRun.cpp",
         "PaletteRegistration.cpp",

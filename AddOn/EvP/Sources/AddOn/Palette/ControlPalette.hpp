@@ -13,6 +13,7 @@
 #include "Palette/ActionBar.hpp"
 #include "Palette/SelectionSetPanel.hpp"
 #include "Palette/CommandListPanel.hpp"
+#include "Palette/PaletteContextMenu.hpp"
 #include "Palette/ServerBand.hpp"
 #include "Palette/PaletteScroll.hpp"
 // evp::CommandInfo and the scan that produces it — likewise not here.
@@ -208,6 +209,11 @@ class ControlPalette final : public DG::Palette,
     // Selection and server state change outside this panel, so the gate has to be
     // re-checked on idle. Throttled — it costs an ACAPI call.
     virtual void PanelIdle (const DG::PanelIdleEvent& ev) override;
+    // The right-click menu. One more override on an observer this class already
+    // registers — see ControlPaletteMenu.cpp for the route, the main-thread guard,
+    // and why the menu itself is a sub-object.
+    virtual void PanelContextMenuRequested (const DG::PanelContextMenuEvent& ev, bool* needHelp,
+                                            bool* processed) override;
     virtual void PanelCloseRequested (const DG::PanelCloseRequestEvent& ev, bool* accepted) override;
 
     static GSErrCode PaletteControlCallBack (Int32 referenceID, API_PaletteMessageID messageID, GS::IntPtr param);
@@ -283,6 +289,11 @@ class ControlPalette final : public DG::Palette,
     // It owns its header, its wrapped lines and its height; this shell owns the
     // band it sits in, the splitter below it, and the DG event subscription.
     evp::DescriptionPanel description;
+
+    // The palette's right-click menu: its commands, its labels and its one
+    // Display call. Borrows nothing and is borrowed by nothing, so its position
+    // among these members carries no destruction-order meaning.
+    evp::PaletteContextMenu contextMenu;
 
     // Feature E — the two splitter bars, and the resizable heights they drive.
     // Both bars are built at runtime like the Continue button so they need no .grc
