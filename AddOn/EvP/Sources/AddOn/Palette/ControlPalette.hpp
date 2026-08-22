@@ -25,6 +25,7 @@
 #include "AddOnVersion.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -209,11 +210,28 @@ class ControlPalette final : public DG::Palette,
     // Selection and server state change outside this panel, so the gate has to be
     // re-checked on idle. Throttled — it costs an ACAPI call.
     virtual void PanelIdle (const DG::PanelIdleEvent& ev) override;
-    // The right-click menu. One more override on an observer this class already
-    // registers — see ControlPaletteMenu.cpp for the route, the main-thread guard,
-    // and why the menu itself is a sub-object.
+    // The right-click menu — THREE routes, because DG has three and a panel-level
+    // handler alone reaches only part of the palette (measured: background, buttons
+    // and static text yes; edit controls and the command list no). All three land in
+    // the same ShowContextMenu; see ControlPaletteMenu.cpp for which event covers
+    // what, the main-thread guard, and why the menu itself is a sub-object.
     virtual void PanelContextMenuRequested (const DG::PanelContextMenuEvent& ev, bool* needHelp,
                                             bool* processed) override;
+    // Every generated parameter control and the command search field attach to THIS,
+    // so one override serves all of them. Declared once and it overrides the method
+    // in each ItemObserver base copy — DG does not inherit ItemObserver virtually,
+    // but a single derived declaration still overrides it in every base subobject.
+    virtual void ItemContextMenuRequested (const DG::ItemContextMenuEvent& ev, bool* needHelp,
+                                           bool* processed) override;
+    // DG::ListBox intercepts the context event (it overrides SpecContextMenuRequested)
+    // and re-dispatches it HERE — which is why the command list never reached the
+    // panel handler. Serves the results table's list box too.
+    virtual void ListBoxContextMenuRequested (const DG::ListBoxContextMenuEvent& ev, bool* processed) override;
+
+    // Shared by all three: the guard, the position, the display and the dispatch.
+    // Returns true when a menu was actually shown, which is what the caller reports
+    // back to DG as `processed`.
+    bool ShowContextMenu ();
     virtual void PanelCloseRequested (const DG::PanelCloseRequestEvent& ev, bool* accepted) override;
 
     static GSErrCode PaletteControlCallBack (Int32 referenceID, API_PaletteMessageID messageID, GS::IntPtr param);
@@ -294,6 +312,10 @@ class ControlPalette final : public DG::Palette,
     // Display call. Borrows nothing and is borrowed by nothing, so its position
     // among these members carries no destruction-order meaning.
     evp::PaletteContextMenu contextMenu;
+    // When the last menu CLOSED. DG can raise more than one context event for a
+    // single right-click (an item's and then the panel's), and two menus in a row
+    // for one click is a bug the user sees. See ShowContextMenu.
+    std::chrono::steady_clock::time_point lastContextMenuAt {};
 
     // Feature E — the two splitter bars, and the resizable heights they drive.
     // Both bars are built at runtime like the Continue button so they need no .grc
