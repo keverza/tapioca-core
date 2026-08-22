@@ -626,8 +626,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // ---- RE51.C7: prepare SSR before the resolve -----------------------
         //
         // ⚠️ SSR READS THE HDR SCENE COLOUR, so it must run AFTER the mesh draw
-        // and BEFORE the resolve. The G-buffer was rendered by the AO prepass
-        // earlier in the frame; SSR reuses it without a third geometry pass.
+        // and BEFORE the resolve. The opaque G-buffer was rendered by the AO
+        // prepass earlier in the frame; SSR completes it with glass receivers.
         // The HDR colour SRV is available because EnsureHdrTarget succeeded.
         if (impl_->ssrEnabled && impl_->ssrIntensity > 0.0f) {
             PrepareScreenSpaceReflection (context, view, proj, viewProj, eye,

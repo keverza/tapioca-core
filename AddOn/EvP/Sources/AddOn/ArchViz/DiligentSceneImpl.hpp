@@ -365,6 +365,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     DiligentDepthRange depthRange;
     uint32_t gBufferWidth = 0;
     uint32_t gBufferHeight = 0;
+    uint32_t gBufferFrameIndex = 0;
+    bool gBufferFrameValid = false;
 
     std::vector<Entry> elements;      // Archicad geometry, keyed by GUID
     std::vector<Entry> staticMeshes;  // the debug cube, until geometry lands

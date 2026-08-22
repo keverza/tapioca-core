@@ -13,6 +13,7 @@
 namespace Diligent {
 namespace HLSL {
 
+#include "Shaders/Common/public/BasicStructures.fxh"
 #include "Shaders/Common/public/ShaderDefinitions.fxh"
 #include "Shaders/PostProcess/ScreenSpaceReflection/public/ScreenSpaceReflectionStructures.fxh"
 
@@ -90,7 +91,7 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     Diligent::ITextureView* motion, uint32_t width, uint32_t height,
     uint32_t frameIndex, const float view[16], const float proj[16],
     const float viewProj[16], const float eye[3], float nearClip, float farClip,
-    float focusDistance, float intensity, float roughnessThreshold)
+    float focusDistance, float roughnessThreshold)
 {
     if (device == nullptr || context == nullptr || color == nullptr || depth == nullptr ||
         normal == nullptr || material == nullptr || motion == nullptr ||
@@ -197,7 +198,10 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     // if it reprojects from a frame that does not exist.
     settings.TemporalRadianceStabilityFactor = impl_->haveHistory ? 1.0f : 0.0f;
     settings.TemporalVarianceStabilityFactor = impl_->haveHistory ? 0.9f : 0.0f;
-    settings.AlphaInterpolation = intensity;
+    // Intensity belongs to the composition pass. AlphaInterpolation scales the
+    // effect's confidence output; values above one make a later lerp extrapolate
+    // past the reflected radiance and produce bright streaks.
+    settings.AlphaInterpolation = 1.0f;
 
     // ⚠️ THE COLOUR INPUT IS THE PREVIOUS FRAME'S when history exists, because
     // SSR's temporal mode looks up what the reflected pixel showed LAST frame

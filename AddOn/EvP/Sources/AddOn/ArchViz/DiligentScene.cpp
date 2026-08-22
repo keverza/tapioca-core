@@ -1070,6 +1070,7 @@ void DiligentScene::Shutdown ()
     impl_->gBuffer.reset ();
     impl_->gBufferWidth = 0;
     impl_->gBufferHeight = 0;
+    impl_->gBufferFrameValid = false;
     impl_->wireSrb.Release ();
     impl_->wirePso.Release ();
     impl_->constants.Release ();
@@ -1124,12 +1125,6 @@ void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, flo
     impl_->ssrIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
     impl_->ssrRoughnessThreshold =
         roughnessThreshold < 0.0f ? 0.0f : (roughnessThreshold > 1.0f ? 1.0f : roughnessThreshold);
-}
-
-void DiligentScene::ClearScreenSpaceReflection ()
-{
-    if (impl_ != nullptr)
-        impl_->ssrView = nullptr;
 }
 
 bool DiligentScene::EnsureHdrTarget ()

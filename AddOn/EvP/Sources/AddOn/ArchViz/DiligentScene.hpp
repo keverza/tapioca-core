@@ -554,9 +554,11 @@ class DiligentScene final {
     // a GPU texture.
     bool EnsureHdrTarget ();
 
-    // The opaque geometry, into the G-buffer's MRTs. Shared by the debug views
-    // and by the occlusion prepass so the two cannot describe different scenes.
-    void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull);
+    // The opaque geometry, into the G-buffer's MRTs. The SSR call follows with
+    // transparent glass receivers without clearing, after AO has consumed the
+    // opaque-only buffers.
+    void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull,
+                                bool transparentGlassOnly = false);
 
     // The occlusion radius in world metres: the HUD's override, or derived from
     // the model's bounds when that is zero. ⚠️ ONE DERIVATION, TWO CALLERS --

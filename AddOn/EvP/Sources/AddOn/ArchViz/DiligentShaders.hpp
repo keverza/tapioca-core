@@ -1081,7 +1081,7 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     if (roughness < 1.0 && g_gradeParams.w > 0.0)
     {
         float4 ssr = g_ssrColor.Load (int3 (pixel, 0));
-        float ssrWeight = ssr.a * saturate(1.0 - roughness) * saturate(g_gradeParams.w);
+        float ssrWeight = saturate (ssr.a * saturate (1.0 - roughness) * g_gradeParams.w);
         radiance = lerp (radiance, ssr.rgb, ssrWeight);
     }
 

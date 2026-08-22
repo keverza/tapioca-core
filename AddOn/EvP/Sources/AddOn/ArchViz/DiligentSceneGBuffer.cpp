@@ -109,6 +109,7 @@ bool DiligentScene::EnsureGBufferTargets ()
         // rather than guessed at with a heuristic on matrix distance.
         impl_->ambientOcclusion.ResetHistory ();
         impl_->screenSpaceReflection.ResetHistory ();
+        impl_->gBufferFrameValid = false;
     }
 
     return true;
@@ -125,14 +126,16 @@ bool DiligentScene::EnsureGBufferTargets ()
 // ⚠️ IT LEAVES THE G-BUFFER BOUND AS A RENDER TARGET. Every caller has to unbind
 // before sampling those same textures as SRVs; D3D11 resolves the conflict by
 // silently dropping the SRV, which produces a black result and no message.
-void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull)
+void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull,
+                                           bool transparentGlassOnly)
 {
     context->SetViewports (1, nullptr, 0, 0);
     // ⚠️ THE FOURTH ARGUMENT CLEARS AND THE FIFTH REMAPS. The motion target is
     // cleared with the rest -- a pixel no triangle covers has no motion, and
     // leaving last frame's vectors there would reproject the sky from wherever
     // the building used to be. See kGBufferRTIndices for the remap.
-    impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr, kGBufferGeometryMask, kGBufferRTIndices);
+    impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr,
+                          transparentGlassOnly ? 0 : kGBufferGeometryMask, kGBufferRTIndices);
     // Binding a different framebuffer resets the viewport on D3D11. Set it
     // again after the G-buffer bind so every MRT receives the full scene.
     context->SetViewports (1, nullptr, 0, 0);
@@ -150,7 +153,8 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
     const int index = CullIndex (cull);
     context->SetPipelineState (impl_->gBufferPso[index]);
     context->CommitShaderResources (impl_->gBufferSrb[index], Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    impl_->drawCalls = 0;
+    if (!transparentGlassOnly)
+        impl_->drawCalls = 0;
 
     const SurfaceMaterial defaultMaterial;
     auto uploadMaterial = [&] (const SurfaceMaterial& material, const SurfacePreset& preset) {
@@ -173,8 +177,16 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
                 continue;
             const SurfaceMaterial& material =
                 consultMaterials ? impl_->materials.Lookup (range.material) : defaultMaterial;
-            if (consultMaterials && material.alpha < kOpaqueAlpha)
+            if (consultMaterials) {
+                if (transparentGlassOnly) {
+                    if (material.alpha >= kOpaqueAlpha || ClassifySurface (material).cls != SurfaceClass::Glass)
+                        continue;
+                } else if (material.alpha < kOpaqueAlpha) {
+                    continue;
+                }
+            } else if (transparentGlassOnly) {
                 continue;
+            }
             const SurfacePreset preset = consultMaterials ? PresetFor (material) : SurfacePreset {};
             uploadMaterial (material, preset);
             DrawEntryRange (context, e, range);
@@ -184,8 +196,10 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
 
     for (const Entry& e : impl_->elements)
         drawOpaqueRanges (e, true);
-    for (const Entry& e : impl_->staticMeshes)
-        drawOpaqueRanges (e, false);
+    if (!transparentGlassOnly) {
+        for (const Entry& e : impl_->staticMeshes)
+            drawOpaqueRanges (e, false);
+    }
 
 }
 
@@ -223,12 +237,11 @@ void DiligentScene::ClearScreenSpaceReflection ()
         impl_->ssrView = nullptr;
 }
 
-// RE51.C7. The SSR prepass, modelled on PrepareAmbientOcclusion. It reuses the
-// SAME G-buffer geometry pass the AO already rendered, so there is no third
-// geometry pass -- the normals, depth, material and motion are all already
-// written and unbound. It feeds them to DiligentFX's ScreenSpaceReflection
-// along with the HDR scene colour, and stores the result in `ssrView` for Draw
-// to composite in the resolve pass.
+// RE51.C7. The SSR prepass, modelled on PrepareAmbientOcclusion. It starts from
+// the opaque G-buffer AO rendered, then adds classified glass without clearing.
+// That partial pass is necessary because blended glass is absent from AO's
+// depth, normals and material data. It feeds the completed buffers and HDR scene
+// colour to DiligentFX and stores the result for the resolve pass.
 //
 // ⚠️ THIS RUNS AFTER PrepareAmbientOcclusion AND AFTER THE MESH DRAW, because
 // SSR needs the finished HDR colour as input. The AO prepass runs before the
@@ -245,14 +258,23 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
         impl_->ssrIntensity <= 0.0f || impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
         return;
 
-    // ⚠️ THE G-BUFFER MUST HAVE BEEN RENDERED THIS FRAME by PrepareAmbientOcclusion.
-    // SSR reads the same normals, depth, material and motion. If the AO prepass
-    // was skipped (AO disabled), the G-buffer is stale or empty, and SSR would
-    // read garbage. Rather than silently rendering a wrong result, we decline.
-    if (impl_->gBufferWidth != impl_->viewportWidth || impl_->gBufferHeight != impl_->viewportHeight)
+    if (!EnsureGBufferTargets ())
         return;
     if (impl_->hdrColorSRV == nullptr)
         return;
+
+    // AO consumes the opaque-only buffers before this point. Glass is blended
+    // in the visible pass and was therefore absent from those buffers, but SSR
+    // must trace from the visible glass surface rather than geometry behind it.
+    // Add only classified glass now, preserving the opaque depth and avoiding
+    // foliage or other alpha-blended ranges becoming reflection receivers.
+    if (!impl_->gBufferFrameValid || impl_->gBufferFrameIndex != frameIndex) {
+        RenderGBufferGeometry (context, viewProj, CullMode::Cw);
+        impl_->gBufferFrameIndex = frameIndex;
+        impl_->gBufferFrameValid = true;
+    }
+    RenderGBufferGeometry (context, viewProj, CullMode::Cw, true);
+    context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 
     impl_->screenSpaceReflection.Init (impl_->device);
 
@@ -268,7 +290,7 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
     impl_->ssrView = impl_->screenSpaceReflection.Execute (
         impl_->device, context, impl_->hdrColorSRV, depthSrv, normalSrv, materialSrv, motionSrv,
         impl_->viewportWidth, impl_->viewportHeight, frameIndex, view, proj, viewProj, eye,
-        nearClip, farClip, focusDistance, impl_->ssrIntensity, impl_->ssrRoughnessThreshold);
+        nearClip, farClip, focusDistance, impl_->ssrRoughnessThreshold);
 }
 
 // RE51.C3. See the header for why the forward path now pays for a second
@@ -330,6 +352,8 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
         return;
 
     RenderGBufferGeometry (context, viewProj, cull);
+    impl_->gBufferFrameIndex = frameIndex;
+    impl_->gBufferFrameValid = true;
 
     // ⚠️ FINDING F5 IS CLOSED HERE (RE51.C2). This used to clear the motion
     // texture and reset the accumulation every frame, deliberately, because
