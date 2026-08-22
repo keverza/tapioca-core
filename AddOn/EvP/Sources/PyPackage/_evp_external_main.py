@@ -73,6 +73,11 @@ def main():
     params_json = sys.stdin.read().lstrip("﻿").strip() or "{}"
 
     action = os.environ.get("EVP_ACTION") or ""
+    # Set only when the palette dispatched a @evp.menu entry: where the click
+    # landed. Rides in the environment for the same reason EVP_ACTION does —
+    # stdin carries the user's parameter values and nothing else should have to
+    # be filtered back out of them.
+    region = os.environ.get("EVP_MENU_REGION") or ""
     folder = os.environ.get("EVP_COMMAND_DIR")
     if not folder:
         return _fail("%EVP_COMMAND_DIR% is unset -- this script is launched by EvP, not by hand.")
@@ -118,7 +123,7 @@ def main():
         # that run performed. Mirrored in EvPPy.cpp's runner -- change one,
         # change the other.
         if action:
-            _invoke.run_action(fn, action, folder=folder)
+            _invoke.run_action(fn, action, folder=folder, region=region)
         else:
             _invoke.invoke(fn, json.loads(params_json), folder=folder)
     except Exception as exc:

@@ -19,8 +19,13 @@ struct CommandLaunchRequest {
     GS::UniString title;
     GS::UniString paramsJson;
     // Empty for Run; the name of one of the command's declared output actions
-    // when the user pressed a button in the action bar instead.
+    // when the user pressed a button in the action bar instead — or one of its
+    // @tapioca.menu entries when the user picked one from the right-click menu.
     GS::UniString action;
+    // Empty for everything EXCEPT a right-click entry, where it is the region the
+    // click landed in ("panel", "params", "param:<name>", "commands", "results").
+    // The palette resolves it; the command reads it as `ctx.region`.
+    GS::UniString menuRegion;
     GS::UniString requiresApi, requiresTapir;
     GS::Array<GS::UniString> requirements;
     bool external = false;

@@ -103,8 +103,12 @@ typedef int (*EvpPy_ScanCommandsFn) (const uint16_t* root, char** jsonOut, char*
 // pointer, so the rules above still hold — and it is a parameter rather than a
 // key smuggled into paramsJson because paramsJson is the user's values and
 // nothing else should ever have to be filtered back out of it.
+// `menuRegion` (UTF-8, may be null or empty) rides beside it on exactly the same
+// reasoning: it is set only when the action was dispatched from the palette's
+// right-click menu, and says WHERE the click landed ("panel", "params",
+// "param:<name>", "commands", "results"). The command reads it as `ctx.region`.
 typedef int (*EvpPy_RunCommandFn) (const uint16_t* scriptPath, const char* moduleName, const char* paramsJson,
-                                   const char* actionName, char* errorUtf8, int errorSize);
+                                   const char* actionName, const char* menuRegion, char* errorUtf8, int errorSize);
 typedef void (*EvpPy_FreeStringFn) (char* text);
 
 #define EVPPY_SETAPICALL_SYMBOL "EvpPy_SetApiCall"

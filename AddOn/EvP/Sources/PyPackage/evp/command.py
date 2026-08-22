@@ -589,6 +589,11 @@ def menu(label, region="panel", name=None):
         "commands"      over the command list and its search field
         "results"       over the results table
 
+    The entry reads where it was invoked from as `ctx.region` — the same
+    vocabulary — and `ctx.param` is the parameter name out of a "param:<name>"
+    region, or "". So ONE entry declared for `region="params"` can still act on the
+    row it was aimed at, rather than needing one entry per parameter.
+
     A "param:<name>" region naming a parameter the command does not declare is a
     scan error, not a menu entry that never appears: the palette reads these
     statically, so a typo can be caught at Rescan instead of by a user wondering

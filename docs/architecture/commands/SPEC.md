@@ -240,6 +240,18 @@ A menu entry IS an action: same `(ctx, outputs)` contract, same run store, dispa
 same `RunSelected` path an action bar button uses. `outputs` is `None` until the command has been
 run once. Every region also carries the built-in entries (Run, Rescan Commands, Hide Palette).
 
+The resolved region reaches the entry as `ctx.region`, and `ctx.param` is the parameter name a
+`param:<name>` region carries. It travels as its own parameter beside `action` — through
+`CommandLaunchRequest`, `EvpPy_RunCommand` and `_invoke.run_action` for an embedded run, and as
+`%EVP_MENU_REGION%` for an external one — never inside `paramsJson`, which is the user's values
+and nothing else. It is empty for every other kind of invocation, so `if ctx.region:` reads as
+"was I invoked from the menu".
+
+Every right-click writes one `--` line to `logs\commands.log` naming the resolved region and the
+outcome, including when the menu was refused (a run is in flight) or a duplicate event was
+dropped. A region whose menu never opened and a region whose entry was simply not picked are
+otherwise indistinguishable in the log.
+
 `DG::ContextMenu::Display` is modal and blocks the main thread, so the palette refuses to open a
 menu while a run, a selection prompt, or an Archicad busy state is live.
 

@@ -11,8 +11,8 @@ installer and example commands. With Archicad closed, run these commands from
 the repository root in Windows PowerShell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\dist\Install-Runtime.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\AddOn\EvP\Sync-Commands.ps1
+ .\dist\Install-Runtime.ps1
+ .\AddOn\EvP\Sync-Commands.ps1
 ```
 
 `Install-Runtime.ps1` installs the bundled CPython runtime and baseline packages

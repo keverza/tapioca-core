@@ -166,7 +166,7 @@ void ControlPalette::RefreshRunGate ()
             commandStatus.SetText (message);
     }
 }
-void ControlPalette::RunSelected (const GS::UniString& action)
+void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniString& menuRegion)
 {
     // E9 re-entrancy guard. Nothing stopped a second Run press from spawning a
     // second detached worker, and two runs sharing one cancel token would mean Stop
@@ -238,6 +238,7 @@ void ControlPalette::RunSelected (const GS::UniString& action)
                                               title,
                                               params.CollectJson (),
                                               action,
+                                              menuRegion,
                                               info->requiresApi,
                                               info->requiresTapir,
                                               info->requirements,

@@ -299,7 +299,7 @@ const char* const runnerSource = "import importlib.util, json, os, sys\n"
                                  "        _evp_load(path, name)\n"
                                  "    finally:\n"
                                  "        sys.modules.pop(name, None)\n"
-                                 "def _evp_run_command(path, name, params_json, action=''):\n"
+                                 "def _evp_run_command(path, name, params_json, action='', region=''):\n"
                                  "    \"\"\"Import command.py and call its run() with the dialog's values.\"\"\"\n"
                                  "    # WHERE THIS COMMAND'S IMPORTS COME FROM -- its own folder, `_lib/` at the\n"
                                  "    # scripts root, and opted-in sibling command folders -- is decided in ONE\n"
@@ -338,7 +338,7 @@ const char* const runnerSource = "import importlib.util, json, os, sys\n"
                                  "            # stored, because re-running the command to export its\n"
                                  "            # result would repeat every write that run performed.\n"
                                  "            if action:\n"
-                                 "                return _invoke.run_action(fn, action, folder=folder)\n"
+                                 "                return _invoke.run_action(fn, action, folder=folder, region=region)\n"
                                  "            return _invoke.invoke(fn, json.loads(params_json), folder=folder)\n"
                                  "        except BaseException as exc:\n"
                                  "            import evp\n"
@@ -497,8 +497,8 @@ extern "C" __declspec (dllexport) int EvpPy_AddSysPathFront (const uint16_t* dir
 }
 
 extern "C" __declspec (dllexport) int EvpPy_RunCommand (const uint16_t* scriptPath, const char* moduleName,
-                                                        const char* paramsJson, const char* actionName, char* errorUtf8,
-                                                        int errorSize)
+                                                        const char* paramsJson, const char* actionName,
+                                                        const char* menuRegion, char* errorUtf8, int errorSize)
 {
     if (!initialized) {
         SetError (errorUtf8, errorSize, "EvpPy_RunCommand: the interpreter is not initialized.");
@@ -517,8 +517,9 @@ extern "C" __declspec (dllexport) int EvpPy_RunCommand (const uint16_t* scriptPa
         result_code = EVPPY_ERROR;
     }
     else {
-        PyObject* const result = PyObject_CallFunction (runner, "Osss", path, moduleName, paramsJson,
-                                                        actionName == nullptr ? "" : actionName);
+        PyObject* const result =
+            PyObject_CallFunction (runner, "Ossss", path, moduleName, paramsJson,
+                                   actionName == nullptr ? "" : actionName, menuRegion == nullptr ? "" : menuRegion);
         if (result == nullptr) {
             PyErr_Print (); // traceback -> sys.stderr -> report callback -> log
             SetError (errorUtf8, errorSize, "the command raised an exception (traceback in the log)");

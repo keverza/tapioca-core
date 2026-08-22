@@ -67,8 +67,14 @@ class PythonHost {
     // caller reports "cancelled" rather than "FAILED".
     // `action` empty runs the command; a name runs one of its declared output
     // actions against the last run's stored result instead.
+    // `menuRegion` is set only when that action came from the palette's
+    // right-click menu, and says where the click landed — the command reads it as
+    // `ctx.region`. A separate parameter rather than a key in paramsJson, on the
+    // same reasoning as `action`: paramsJson is the user's values and nothing else
+    // should ever have to be filtered back out of it.
     bool RunCommand (const GS::UniString& path, const GS::UniString& moduleName, const GS::UniString& paramsJson,
-                     const GS::UniString& action, bool& cancelled, GS::UniString& error);
+                     const GS::UniString& action, const GS::UniString& menuRegion, bool& cancelled,
+                     GS::UniString& error);
 
   private:
     PythonHost () = default;

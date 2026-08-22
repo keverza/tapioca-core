@@ -32,10 +32,10 @@ class Context:
     """
 
     __slots__ = ("name", "folder", "mode", "previous_plan", "plan", "scene",
-                 "_lines", "_log_name")
+                 "region", "_lines", "_log_name")
 
     def __init__(self, name, folder=None, mode="run", log_name=None,
-                 previous_plan=None, preview_kind=None):
+                 previous_plan=None, preview_kind=None, region=""):
         self.name = name
         self.folder = folder
         # The Plan `evp._invoke` built from this run's inputs, before anything
@@ -56,6 +56,13 @@ class Context:
         # ALWAYS a real PreviewScene, never None, so a preview() function does not
         # have to branch on whether anyone is looking — building a fragment nobody
         # renders costs a few hundred triangles that are then dropped.
+        # WHERE the user right-clicked, for an entry declared with
+        # @evp.menu: "panel", "params", "param:<name>", "commands" or
+        # "results". EMPTY for every other kind of invocation — a run, a
+        # preview, an action-bar button — so `if ctx.region:` reads as "was I
+        # invoked from the menu", and an entry declared for one region can still
+        # tell WHICH control it was aimed at when it declared "params".
+        self.region = region or ""
         self.scene = _preview.PreviewScene(preview_kind or "3d")
         self._lines = []
         self._log_name = log_name or _slug_name(name)
@@ -63,6 +70,16 @@ class Context:
     @property
     def is_preview(self):
         return self.mode == "preview"
+
+    @property
+    def param(self):
+        """The parameter name a "param:<name>" region names, or "".
+
+        The common thing an entry wants out of `region`, spelled once here so
+        every command does not re-split the string.
+        """
+        prefix = "param:"
+        return self.region[len(prefix):] if self.region.startswith(prefix) else ""
 
     @property
     def log_path(self):

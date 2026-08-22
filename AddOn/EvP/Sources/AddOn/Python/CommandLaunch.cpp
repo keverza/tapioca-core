@@ -44,6 +44,7 @@ void LaunchCommand (const CommandLaunchRequest& request, std::function<void (uin
                           PythonHost::Get ().GetRuntimeHome (),
                           PythonHost::Get ().GetOwnDir () + GS::UniString ("\\PyPackage"),
                           request.action,
+                          request.menuRegion,
                           request.requiresApi,
                           request.requiresTapir,
                           request.requirements, // E7: installed before the command imports

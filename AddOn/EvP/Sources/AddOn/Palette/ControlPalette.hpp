@@ -150,7 +150,10 @@ class ControlPalette final : public DG::Palette,
     void ReflowParams ();
     // `action` empty runs the command; a name runs one of its declared output
     // actions instead, down the same worker, token and completion path.
-    void RunSelected (const GS::UniString& action = GS::UniString ());
+    // `menuRegion` is set only when that name came from the right-click menu — it
+    // is where the click landed, and the command reads it as `ctx.region`.
+    void RunSelected (const GS::UniString& action = GS::UniString (),
+                      const GS::UniString& menuRegion = GS::UniString ());
 
     // NOTE: the command's wrapped description is NOT here — it is part of the
     // command block, so ParamPanel builds and places it (evp::ParamPanel::Rebuild).

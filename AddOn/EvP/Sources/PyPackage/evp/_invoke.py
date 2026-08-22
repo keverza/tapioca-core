@@ -178,7 +178,7 @@ def _validate_outputs(model, result, name):
             % (name, model.__name__, exc)) from exc
 
 
-def run_action(fn, action, folder=None):
+def run_action(fn, action, folder=None, region=""):
     """Execute one of a command's declared actions on its LAST result.
 
     ⚠️ THE COMMAND IS NOT RE-RUN. Its Outputs and Plan come from the run store,
@@ -190,6 +190,13 @@ def run_action(fn, action, folder=None):
     from the declared Outputs. A command's OWN action is its function, called with
     the same stored result — the flexible half, so the standard set never has to
     grow to cover one command's special case.
+
+    `region` is set only when the palette dispatched this from its RIGHT-CLICK
+    menu, and says where the click landed ("panel", "params", "param:<name>",
+    "commands", "results"). It reaches the function as `ctx.region`, so one entry
+    declared for a whole area can still tell which control it was aimed at. A
+    standard action ignores it: the framework builds those from the Outputs and
+    there is no command code to tell.
     """
     from . import outputs as _outputs
 
@@ -213,7 +220,8 @@ def run_action(fn, action, folder=None):
     if action in custom:
         ctx = Context(name=meta.get("title") or folder or "command",
                       folder=folder, mode="action",
-                      previous_plan=_planstore.load(folder))
+                      previous_plan=_planstore.load(folder),
+                      region=region)
         return custom[action](ctx, stored)
 
     name = os.path.basename(os.path.normpath(folder)) if folder else "tapioca"

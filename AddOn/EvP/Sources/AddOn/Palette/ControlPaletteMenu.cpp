@@ -59,9 +59,49 @@
 
 #include "ControlPalette.hpp"
 
+#include "Python/PathUtils.hpp" // EvpDataDir / AppendTextLine — the region trace
+
+#include <ctime>
+
 // The guard, the position, the display and the dispatch — shared by all three
 // events, so the three handlers below are each two lines and there is exactly one
 // place the menu's behaviour lives.
+namespace {
+
+// One line into logs\commands.log per right-click, beside the run headers the same
+// file already carries.
+//
+// WHY IT EXISTS: the menu entries a command declares are the only other evidence of
+// where a click landed, and they only report the region a user actually PICKS. A
+// region whose menu never opened and a region whose entry was simply not chosen
+// look identical from the log — which is exactly the question that could not be
+// answered the first time this was measured. This line is written whether or not
+// anything is picked, and whether or not the menu opens at all.
+//
+// "--" rather than the run header's "=====": a right-click is not a run, and a
+// reader scanning for runs must not have to filter these out by eye.
+void TraceContextMenu (const GS::UniString& region, const GS::UniString& outcome)
+{
+    const GS::UniString dataDir = evp::EvpDataDir ();
+    if (dataDir.IsEmpty ())
+        return;
+
+    const std::time_t now = std::time (nullptr);
+    std::tm local {};
+#if defined(_WIN32)
+    localtime_s (&local, &now);
+#else
+    local = *std::localtime (&now);
+#endif
+
+    evp::AppendTextLine (
+        dataDir + GS::UniString ("\logs\commands.log"),
+        GS::UniString::Printf ("-- %02d:%02d:%02d right-click: region=", local.tm_hour, local.tm_min, local.tm_sec) +
+            region + "  " + outcome);
+}
+
+} // namespace
+
 // Which region of the palette the pointer was over, in the vocabulary
 // @tapioca.menu declares against. The whole of the palette's context sensitivity is
 // this function: everything downstream is a string compare (evp::PaletteContextMenu
@@ -103,8 +143,15 @@ bool ControlPalette::ShowContextMenu (const DG::Item* clicked)
     // promptActive: E3 — the run is waiting for the user to select and press
     //            Continue, so the palette is mid-conversation.
     // itemsDisabled: Archicad has told us it is busy (project open/close).
-    if (runActive.load () || promptActive.load () || itemsDisabled.load ())
+    const GS::UniString region = RegionOf (clicked);
+
+    if (runActive.load () || promptActive.load () || itemsDisabled.load ()) {
+        // Traced, not silent: "the menu did not open" and "the menu opened and you
+        // dismissed it" are indistinguishable to the user, and only one of them is
+        // this add-on refusing on purpose.
+        TraceContextMenu (region, "refused (a run is in flight)");
         return false;
+    }
 
     // ⚠️ ONE CLICK, POSSIBLY TWO EVENTS. Now that both the item and the panel hook
     // are live, a control that raises the item event and then lets the panel event
@@ -114,8 +161,13 @@ bool ControlPalette::ShowContextMenu (const DG::Item* clicked)
     // click, and is dropped. A human cannot deliberately right-click twice that
     // fast; a duplicated event always is that fast.
     const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now ();
-    if (now - lastContextMenuAt < std::chrono::milliseconds (300))
+    if (now - lastContextMenuAt < std::chrono::milliseconds (300)) {
+        // Also traced. If DG never duplicates, this line never appears and the guard
+        // can go; if it does, the log says so instead of the count of runs being
+        // quietly double what the user clicked.
+        TraceContextMenu (region, "dropped (duplicate event for one click)");
         return false;
+    }
 
     // DG::ContextMenu wants SCREEN coordinates. The events carry a position of their
     // own (ev.GetPosition ()), but the shipped DevKit example reads the mouse
@@ -127,7 +179,7 @@ bool ControlPalette::ShowContextMenu (const DG::Item* clicked)
         return false;
 
     const evp::PaletteContextMenu::Result picked = contextMenu.Display (
-        mouse.GetMouseOffsetInNativeUnits (), WhatIsMissing ().IsEmpty (), SelectedCommand (), RegionOf (clicked));
+        mouse.GetMouseOffsetInNativeUnits (), WhatIsMissing ().IsEmpty (), SelectedCommand (), region);
     // Display BLOCKS for as long as the menu is open, so the stamp goes here, on the
     // close — not on the open.
     lastContextMenuAt = std::chrono::steady_clock::now ();
@@ -143,15 +195,39 @@ bool ControlPalette::ShowContextMenu (const DG::Item* clicked)
             Hide ();
             break;
         case evp::PaletteContextMenu::Choice::Action:
+            // The region goes WITH it: the command reads it as `ctx.region`, so one
+            // entry declared for a whole area can still tell which control it was
+            // aimed at.
             // A menu entry IS an action: the same RunSelected the action bar's
             // buttons use, so the worker, the token, the Cancel role and the
             // completion path are all the ones that already exist. Nothing about
             // running a right-click entry is a special case.
-            RunSelected (picked.action);
+            RunSelected (picked.action, region);
             break;
         case evp::PaletteContextMenu::Choice::None:
             break;
     }
+
+    // What the user did with it — the half of the evidence the command's own log
+    // line cannot carry, because a built-in entry runs no command code at all.
+    GS::UniString outcome ("shown, nothing picked");
+    switch (picked.choice) {
+        case evp::PaletteContextMenu::Choice::Run:
+            outcome = "shown, ran the command";
+            break;
+        case evp::PaletteContextMenu::Choice::Rescan:
+            outcome = "shown, rescanned";
+            break;
+        case evp::PaletteContextMenu::Choice::Hide:
+            outcome = "shown, hid the palette";
+            break;
+        case evp::PaletteContextMenu::Choice::Action:
+            outcome = GS::UniString ("shown, ran ") + picked.action;
+            break;
+        case evp::PaletteContextMenu::Choice::None:
+            break;
+    }
+    TraceContextMenu (region, outcome);
 
     // The menu was shown, so the click was ours whether or not anything was picked.
     return true;

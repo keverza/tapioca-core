@@ -85,11 +85,13 @@ struct Pipe {
 // The child's environment: ours, plus EvP's own variables. A block of
 // "NAME=VALUE\0NAME=VALUE\0\0".
 //
-// EVP_ACTION rides here rather than in the params on stdin for the same reason
-// the embedded runner takes it as its own argument: stdin carries the USER's
-// values, and nothing else should ever have to be filtered back out of them.
+// EVP_ACTION and EVP_MENU_REGION ride here rather than in the params on stdin for
+// the same reason the embedded runner takes them as its own arguments: stdin
+// carries the USER's values, and nothing else should ever have to be filtered back
+// out of them.
 std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::UniString& commandDir,
-                                       const GS::UniString& packageDir, const GS::UniString& action)
+                                       const GS::UniString& packageDir, const GS::UniString& action,
+                                       const GS::UniString& menuRegion)
 {
     std::vector<wchar_t> block;
 
@@ -120,6 +122,7 @@ std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::
     // Always set, empty for an ordinary run - so an inherited stale value can
     // never turn a Run into an export.
     append (GS::UniString ("EVP_ACTION=") + action);
+    append (GS::UniString ("EVP_MENU_REGION=") + menuRegion);
     // PYTHONPATH carries ONLY the package dir. The command folder is appended to
     // sys.path by the entry script instead, so it lands AFTER this one and can
     // never shadow `evp` itself.
@@ -132,8 +135,9 @@ std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::
 } // namespace
 
 bool RunCommandExternal (const GS::UniString& folder, const GS::UniString& paramsJson, const GS::UniString& action,
-                         unsigned short port, const GS::UniString& runtimeHome, const GS::UniString& packageDir,
-                         uint64_t runGeneration, GS::UniString& output, bool& cancelled, GS::UniString& error)
+                         const GS::UniString& menuRegion, unsigned short port, const GS::UniString& runtimeHome,
+                         const GS::UniString& packageDir, uint64_t runGeneration, GS::UniString& output,
+                         bool& cancelled, GS::UniString& error)
 {
     cancelled = false;
 
@@ -174,8 +178,8 @@ bool RunCommandExternal (const GS::UniString& folder, const GS::UniString& param
         mutableCommandLine.assign (text, text + wcslen (text) + 1); // CreateProcessW may write to it
     }
 
-    std::vector<wchar_t> environment =
-        BuildEnvironment (GS::UniString::Printf ("http://127.0.0.1:%d", (int) port), folder, packageDir, action);
+    std::vector<wchar_t> environment = BuildEnvironment (GS::UniString::Printf ("http://127.0.0.1:%d", (int) port),
+                                                         folder, packageDir, action, menuRegion);
 
     STARTUPINFOW startup = {};
     startup.cb = sizeof (startup);

@@ -593,8 +593,8 @@ bool PythonHost::ScanCommands (const GS::UniString& root, GS::UniString& json, G
 }
 
 bool PythonHost::RunCommand (const GS::UniString& path, const GS::UniString& moduleName,
-                             const GS::UniString& paramsJson, const GS::UniString& action, bool& cancelled,
-                             GS::UniString& error)
+                             const GS::UniString& paramsJson, const GS::UniString& action,
+                             const GS::UniString& menuRegion, bool& cancelled, GS::UniString& error)
 {
     cancelled = false;
     if (!EnsureInitialized (error))
@@ -603,10 +603,12 @@ bool PythonHost::RunCommand (const GS::UniString& path, const GS::UniString& mod
     const auto moduleUtf8 = moduleName.ToCStr (0, MaxUSize, CC_UTF8);
     const auto paramsUtf8 = paramsJson.ToCStr (0, MaxUSize, CC_UTF8);
     const auto actionUtf8 = action.ToCStr (0, MaxUSize, CC_UTF8);
+    const auto regionUtf8 = menuRegion.ToCStr (0, MaxUSize, CC_UTF8);
 
     char errorBuffer[512] = { 0 };
     const int code = ((EvpPy_RunCommandFn) runCommandFn) (path.ToUStr ().Get (), moduleUtf8.Get (), paramsUtf8.Get (),
-                                                          actionUtf8.Get (), errorBuffer, (int) sizeof (errorBuffer));
+                                                          actionUtf8.Get (), regionUtf8.Get (), errorBuffer,
+                                                          (int) sizeof (errorBuffer));
 
     // E9 — a cancel is its own outcome, between "ran" and "failed": report it as a
     // success so nothing writes FAILED, but tell the caller so the status can say

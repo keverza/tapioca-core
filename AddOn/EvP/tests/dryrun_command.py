@@ -31,13 +31,19 @@ silently, so a typo'd command name cannot pass as working.
 """
 
 import importlib.util
+import binascii
 import json
 import math
 import os
 import re
+import struct
 import sys
 import traceback
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import zlib
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "EvP", "Sources", "PyPackage"))
@@ -104,6 +110,54 @@ _diligent = {"open": False, "polls": 0, "deviceAttempts": 0, "devicePolls": 0,
              # The sun override (PLAT-RE58). Stateful, so a probe's A/B really
              # reads back what it pushed instead of a constant.
              "sunOverride": False, "sunOverrideAz": 135.0, "sunOverrideAlt": 45.0}
+
+# PLAT-RE52 capture state is separate from the visible viewer, matching the real
+# one-consumer lifecycle: each start expires the previous capture URL.
+_diligent_capture = {"id": 0, "polls": 0, "width": 0, "height": 0,
+                     "cancelled": False, "png": b""}
+
+
+def _png_chunk(kind, data):
+    crc = binascii.crc32(kind + data) & 0xFFFFFFFF
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", crc)
+
+
+def _fake_capture_png(width, height):
+    row = b"\x00" + bytes((39, 121, 203, 255)) * width
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", header) +
+            _png_chunk(b"IDAT", zlib.compress(row * height)) +
+            _png_chunk(b"IEND", b""))
+
+
+class _LoopbackCaptureResponse:
+    def __init__(self, body):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self):
+        return self.body
+
+
+_real_urlopen = urllib.request.urlopen
+
+
+def _fake_loopback_urlopen(url, *_args, **_kwargs):
+    parsed = urllib.parse.urlparse(url)
+    if parsed.path != "/screenshot/diligent":
+        return _real_urlopen(url, *_args, **_kwargs)
+    requested = int((urllib.parse.parse_qs(parsed.query).get("id") or [0])[0])
+    if requested != _diligent_capture["id"] or not _diligent_capture["png"]:
+        raise urllib.error.HTTPError(url, 409, "Diligent capture id is unavailable", {}, None)
+    return _LoopbackCaptureResponse(_diligent_capture["png"])
+
+
+urllib.request.urlopen = _fake_loopback_urlopen
 
 # RE51.D1 is a separate one-shot D3D12 device and presentation probe. Keep its
 # state separate so the dry run also proves it never changes the D3D11 viewer.
@@ -2114,6 +2168,46 @@ def _one(command, params):
         _diligent["polls"] = 0
         return _ok({"posted": True})
 
+    if command == "EvP.StartDiligentCapture":
+        _diligent_capture["id"] += 1
+        _diligent_capture["polls"] = 0
+        _diligent_capture["width"] = int(params.get("width", 0))
+        _diligent_capture["height"] = int(params.get("height", 0))
+        _diligent_capture["cancelled"] = False
+        _diligent_capture["png"] = _fake_capture_png(
+            _diligent_capture["width"], _diligent_capture["height"])
+        return _v2({"id": _diligent_capture["id"], "status": "running"})
+
+    if command == "EvP.DiligentCaptureState":
+        capture_id = int(params.get("id", 0))
+        if capture_id != _diligent_capture["id"]:
+            return _err("the Diligent capture id is unknown or has expired")
+        _diligent_capture["polls"] += 1
+        if _diligent_capture["cancelled"]:
+            status, stage = "cancelled", "cancelled"
+        elif _diligent_capture["polls"] == 1:
+            status, stage = "running", "extracting"
+        elif _diligent_capture["polls"] == 2:
+            status, stage = "running", "rendering"
+        else:
+            status, stage = "completed", "completed"
+        url = "http://127.0.0.1:19191/screenshot/diligent?id=%d" % capture_id
+        return _v2({
+            "id": capture_id, "status": status, "stage": stage,
+            "width": _diligent_capture["width"], "height": _diligent_capture["height"],
+            "bytes": len(_diligent_capture["png"]) if status == "completed" else 0,
+            "url": url if status == "completed" else "pending",
+            "failureMessage": "",
+        })
+
+    if command == "EvP.CancelDiligentCapture":
+        capture_id = int(params.get("id", 0))
+        running = (capture_id == _diligent_capture["id"] and
+                   _diligent_capture["polls"] < 3 and
+                   not _diligent_capture["cancelled"])
+        _diligent_capture["cancelled"] = running
+        return _v2({"cancelled": running})
+
     if command == "EvP.SetOverlayInstruction":
         # The overlay's HUD banner (PLAT-RE111). Nothing here can show it, but a
         # command that calls it must not be reported as using an unknown verb --
@@ -2433,6 +2527,20 @@ def _one(command, params):
             params.get("targetX", 0.0), params.get("targetY", 0.0), params.get("targetZ", 0.0)]
         _diligent["syncs"] += 1
         return _ok({"accepted": True})
+
+    if command == "EvP.GetDiligentCamera":
+        if not _diligent["open"]:
+            return _err("a visible Diligent viewport with a perspective camera is required")
+        camera = _diligent["camera"]
+        if not any(camera):
+            camera = [24.0, -18.0, 12.0, 4.0, 1.5, 1.5]
+        return _v2({
+            "valid": True, "source": "viewer", "orthographic": False,
+            "viewMoving": False,
+            "eyeX": camera[0], "eyeY": camera[1], "eyeZ": camera[2],
+            "targetX": camera[3], "targetY": camera[4], "targetZ": camera[5],
+            "viewConeDegreesHorizontal": 60.0,
+        })
 
     if command == "EvP.ViewerState":
         if _archviz["open"]:

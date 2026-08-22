@@ -110,14 +110,22 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
                 }
 
                 WebUIRunState::Get ().SetStatus ("Running " + info.title + "...");
-                // The empty string is `action`: the WebUI starts RUNS, never output
-                // actions — those are the control palette's action bar, which acts
-                // on a stored result the WebUI has no equivalent of.
-                const CommandLaunchRequest request {
-                    info.path,        info.folder,        info.title,        requestedParams, GS::UniString (),
-                    info.requiresApi, info.requiresTapir, info.requirements, external,        port,
-                    generation
-                };
+                // The two empty strings are `action` and `menuRegion`: the WebUI
+                // starts RUNS, never output actions — those are the control
+                // palette's action bar and right-click menu, which act on a stored
+                // result the WebUI has no equivalent of.
+                const CommandLaunchRequest request { info.path,
+                                                     info.folder,
+                                                     info.title,
+                                                     requestedParams,
+                                                     GS::UniString (),
+                                                     GS::UniString (),
+                                                     info.requiresApi,
+                                                     info.requiresTapir,
+                                                     info.requirements,
+                                                     external,
+                                                     port,
+                                                     generation };
                 LaunchCommand (request, [] (uint64_t finishedGeneration, const GS::UniString& status) {
                     WebUIRunState::Get ().Finish (finishedGeneration, status);
                 });

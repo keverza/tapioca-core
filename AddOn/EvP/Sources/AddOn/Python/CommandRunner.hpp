@@ -13,6 +13,9 @@ struct CommandRunSpec {
     GS::UniString path, module, paramsJson, title, folderDir, runtimeHome, packageDir;
     // Empty for an ordinary run; the name of a declared output action otherwise.
     GS::UniString action;
+    // Empty unless that action came from the palette's right-click menu, in which
+    // case it is where the click landed — the command reads it as `ctx.region`.
+    GS::UniString menuRegion;
     GS::UniString requiresApi, requiresTapir;
     GS::Array<GS::UniString> requirements;
     bool external = false;
