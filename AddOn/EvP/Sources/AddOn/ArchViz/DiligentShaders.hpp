@@ -552,7 +552,14 @@ void main (in PSInput psIn, out PSOutput psOut)
     float4 albedo = psIn.color * g_baseColor;
     float roughness = clamp (g_outline.w + g_gradeParams.z, 0.045, 1.0);
 
-    psOut.normal = float4 (normalize (psIn.normal), 1.0);
+    // Match the visible two-sided shader exactly. DiligentFX expects the normal
+    // of the surface being shaded; feeding an imported back-face normal sends
+    // the reflection ray through the receiver instead of above it.
+    float3 normal = normalize (psIn.normal);
+    float3 viewDir = normalize (g_eyePos.xyz - psIn.worldPos);
+    if (dot (normal, viewDir) < 0.0)
+        normal = -normal;
+    psOut.normal = float4 (normal, 1.0);
     psOut.albedo = albedo;
     psOut.roughness = roughness;
     psOut.materialData = float4 (roughness, saturate (g_materialParams.z), saturate (g_materialParams.x),
@@ -1048,6 +1055,9 @@ Texture2D<float4> g_hdrColor;
 Texture2D<float4> g_ssrColor;
 Texture2D<float>  g_gbufferRoughness;
 Texture2D<float>  g_gbufferDepth;
+Texture2D<float4> g_gbufferNormal;
+Texture2D<float4> g_gbufferAlbedo;
+Texture2D<float4> g_gbufferMaterialData;
 
 void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 {
@@ -1061,10 +1071,12 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 
     // ---- RE51.C7: compose SSR over the HDR scene colour -------------------
     //
-    // ⚠️ LERP, NOT ADD. The HDR colour at a glass pixel already carries the IBL
-    // sky reflection; adding SSR on top would double-count the sky. Replacing
-    // it with SSR where SSR has confidence is correct: the SSR result includes
-    // the neighbouring objects (the tree on the glass) that the IBL cannot see.
+    // Match Tutorial27_PostProcessing's ComputeSpecularIBL: interpolate between
+    // the prefiltered environment radiance and SSR first, then apply the
+    // split-sum BRDF. The HDR pixel already contains the environment term, so
+    // replace that term only. Replacing the entire HDR pixel also replaces its
+    // direct, diffuse and transmitted light and turns a reflection into an
+    // opaque duplicate of the reflected object.
     //
     // ⚠️ GATED BY ROUGHNESS AND SSR ALPHA. A rough surface gets no SSR because
     // its reflection is a diffuse blur that screen-space rays cannot represent.
@@ -1082,7 +1094,44 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     {
         float4 ssr = g_ssrColor.Load (int3 (pixel, 0));
         float ssrWeight = saturate (ssr.a * saturate (1.0 - roughness) * g_gradeParams.w);
-        radiance = lerp (radiance, ssr.rgb, ssrWeight);
+
+        uint width, height;
+        g_hdrColor.GetDimensions (width, height);
+        float2 ndc = float2 ((position.x / float (width)) * 2.0 - 1.0,
+                             1.0 - (position.y / float (height)) * 2.0);
+        float3 viewRay = normalize (g_envRayForward.xyz + ndc.x * g_envRayRight.xyz +
+                                    ndc.y * g_envRayUp.xyz);
+        float3 viewDir = -viewRay;
+        float3 normal = normalize (g_gbufferNormal.Load (int3 (pixel, 0)).xyz);
+        float4 material = g_gbufferMaterialData.Load (int3 (pixel, 0));
+        float3 baseColor = g_gbufferAlbedo.Load (int3 (pixel, 0)).rgb;
+        float metallic = saturate (material.y);
+        float f0scalar = 0.08 * saturate (material.z);
+        float3 f0 = lerp (float3 (f0scalar, f0scalar, f0scalar), baseColor, metallic);
+        float ndotv = saturate (dot (normal, viewDir));
+
+        // Same analytic split-sum fit as the forward shader's environment term.
+        float4 c0 = float4 (-1.0, -0.0275, -0.572, 0.022);
+        float4 c1 = float4 ( 1.0,  0.0425,  1.040, -0.040);
+        float4 rp = roughness * c0 + c1;
+        float a004 = min (rp.x * rp.x, exp2 (-9.28 * ndotv)) * rp.x + rp.y;
+        float2 envAB = float2 (-1.04, 1.04) * a004 + rp.zw;
+        float3 envBrdf = f0 * envAB.x + envAB.y;
+
+        float3 reflected = reflect (-viewDir, normal);
+        float3 envColor;
+        if (g_envParams.z > 0.5)
+        {
+            float mip = saturate (roughness) * max (g_envParams.w - 1.0, 0.0);
+            envColor = g_envMap.SampleLevel (g_envMap_sampler, EnvUv (reflected), mip).rgb * g_envParams.x;
+        }
+        else
+        {
+            envColor = lerp (g_groundColor.rgb, g_skyColor.rgb,
+                             saturate (reflected.z * 0.5 + 0.5));
+        }
+
+        radiance += (ssr.rgb - envColor) * envBrdf * g_gradeParams.y * g_skyColor.w * ssrWeight;
     }
 
     color = float4 (Grade (radiance), hdr.a);

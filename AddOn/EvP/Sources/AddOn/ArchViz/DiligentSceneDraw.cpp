@@ -661,11 +661,33 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         if (roughnessView == nullptr && impl_->ssrRoughnessFallback != nullptr)
             roughnessView = impl_->ssrRoughnessFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
         Diligent::ITextureView* depthView = nullptr;
+        Diligent::ITextureView* normalView = nullptr;
+        Diligent::ITextureView* albedoView = nullptr;
+        Diligent::ITextureView* materialView = nullptr;
         if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
             Diligent::ITexture* depthTex = impl_->gBuffer->GetBuffer (kGBufferDepth);
             if (depthTex != nullptr)
                 depthView = depthTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+            Diligent::ITexture* normalTex = impl_->gBuffer->GetBuffer (kGBufferNormal);
+            Diligent::ITexture* albedoTex = impl_->gBuffer->GetBuffer (kGBufferAlbedo);
+            Diligent::ITexture* materialTex = impl_->gBuffer->GetBuffer (kGBufferMaterialData);
+            if (normalTex != nullptr)
+                normalView = normalTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+            if (albedoTex != nullptr)
+                albedoView = albedoTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+            if (materialTex != nullptr)
+                materialView = materialTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
         }
+        Diligent::ITextureView* dataFallback =
+            impl_->ssrFallback != nullptr
+                ? impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)
+                : nullptr;
+        if (normalView == nullptr)
+            normalView = dataFallback;
+        if (albedoView == nullptr)
+            albedoView = dataFallback;
+        if (materialView == nullptr)
+            materialView = dataFallback;
         if (ssrColorView != nullptr) {
             if (Diligent::IShaderResourceVariable* var =
                     impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ssrColor"))
@@ -681,6 +703,16 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                     impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth"))
                 var->Set (depthView);
         }
+        const auto bindResolveTexture = [&] (const char* name, Diligent::ITextureView* view) {
+            if (view == nullptr)
+                return;
+            if (Diligent::IShaderResourceVariable* var =
+                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, name))
+                var->Set (view);
+        };
+        bindResolveTexture ("g_gbufferNormal", normalView);
+        bindResolveTexture ("g_gbufferAlbedo", albedoView);
+        bindResolveTexture ("g_gbufferMaterialData", materialView);
 
         context->SetPipelineState (impl_->resolvePso);
         context->CommitShaderResources (impl_->resolveSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);

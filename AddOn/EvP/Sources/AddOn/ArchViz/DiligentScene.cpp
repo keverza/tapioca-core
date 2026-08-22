@@ -656,25 +656,28 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     }
 
     // ---- the resolve PSO ----------------------------------------------------
-    // Full-screen triangle, no depth, one pixel shader that samples the HDR
-    // target and applies Grade(). The HDR colour is DYNAMIC because the target
+    // Full-screen triangle, no depth; the HDR target is DYNAMIC because it
     // is recreated on resize.
     {
-        // ⚠️ g_hdrColor IS ALWAYS BOUND. g_ssrColor, g_gbufferRoughness and
-        // g_gbufferDepth are bound only when SSR is active; on frames without
-        // SSR, a 1x1 black texture is bound so the shader's roughness check
-        // sees 1.0 and skips the SSR branch entirely.
         Diligent::ShaderResourceVariableDesc resolveVariables[] = {
             { Diligent::SHADER_TYPE_PIXEL, "g_hdrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_ssrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         };
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = "ArchViz HDR resolve PSO";
         pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
         pci.PSODesc.ResourceLayout.Variables = resolveVariables;
         pci.PSODesc.ResourceLayout.NumVariables = _countof (resolveVariables);
+        const Diligent::ImmutableSamplerDesc resolveSamplers[] = {
+            { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
+        };
+        pci.PSODesc.ResourceLayout.ImmutableSamplers = resolveSamplers;
+        pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (resolveSamplers);
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
         gp.NumRenderTargets = 1;
         gp.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
@@ -691,6 +694,11 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         if (Diligent::IShaderResourceVariable* cb =
                 impl_->resolvePso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "ArchVizConstants"))
             cb->Set (impl_->constants);
+        if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
+            if (Diligent::IShaderResourceVariable* envVar =
+                    impl_->resolvePso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap"))
+                envVar->Set (envView);
+        }
         impl_->resolvePso->CreateShaderResourceBinding (&impl_->resolveSrb, true);
         if (impl_->resolveSrb == nullptr) {
             error = "Diligent CreateShaderResourceBinding(ArchViz HDR resolve) failed";
@@ -728,9 +736,6 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     }
 
     // ---- the SSR fallbacks (RE51.C7) ----------------------------------------
-    // A 1x1 black RGBA16_FLOAT for g_ssrColor and a 1x1 R16_FLOAT at 1.0 for
-    // g_gbufferRoughness. Bound on every frame SSR is off so the resolve SRB's
-    // DYNAMIC variables are always assigned and the shader skips the SSR branch.
     {
         Diligent::TextureDesc td;
         td.Name = "ArchViz SSR black fallback";

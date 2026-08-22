@@ -126,8 +126,8 @@ bool DiligentScene::EnsureGBufferTargets ()
 // ⚠️ IT LEAVES THE G-BUFFER BOUND AS A RENDER TARGET. Every caller has to unbind
 // before sampling those same textures as SRVs; D3D11 resolves the conflict by
 // silently dropping the SRV, which produces a black result and no message.
-void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull,
-                                           bool transparentGlassOnly)
+void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16],
+                                           const float eye[3], CullMode cull, bool transparentGlassOnly)
 {
     context->SetViewports (1, nullptr, 0, 0);
     // ⚠️ THE FOURTH ARGUMENT CLEARS AND THE FIFTH REMAPS. The motion target is
@@ -142,6 +142,9 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
 
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
+    constants.eyePos[0] = eye[0];
+    constants.eyePos[1] = eye[1];
+    constants.eyePos[2] = eye[2];
     // ⚠️ RE51.C2. On the first frame this IS the current matrix, so the motion
     // vectors come out exactly zero rather than enormous -- see
     // DiligentSceneConstants::prevViewProj.
@@ -269,11 +272,11 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
     // Add only classified glass now, preserving the opaque depth and avoiding
     // foliage or other alpha-blended ranges becoming reflection receivers.
     if (!impl_->gBufferFrameValid || impl_->gBufferFrameIndex != frameIndex) {
-        RenderGBufferGeometry (context, viewProj, CullMode::Cw);
+        RenderGBufferGeometry (context, viewProj, eye, CullMode::Cw);
         impl_->gBufferFrameIndex = frameIndex;
         impl_->gBufferFrameValid = true;
     }
-    RenderGBufferGeometry (context, viewProj, CullMode::Cw, true);
+    RenderGBufferGeometry (context, viewProj, eye, CullMode::Cw, true);
     context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 
     impl_->screenSpaceReflection.Init (impl_->device);
@@ -351,7 +354,7 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
     if (!EnsureGBufferTargets ())
         return;
 
-    RenderGBufferGeometry (context, viewProj, cull);
+    RenderGBufferGeometry (context, viewProj, eye, cull);
     impl_->gBufferFrameIndex = frameIndex;
     impl_->gBufferFrameValid = true;
 
@@ -396,7 +399,7 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
     if (!EnsureGBufferTargets ())
         return;
     impl_->drawCalls = 0;
-    RenderGBufferGeometry (context, viewProj, cull);
+    RenderGBufferGeometry (context, viewProj, eye, cull);
 
     // ⚠️ A SECOND, FRESH CONSTANT BLOCK. The prepass above uploaded its own and
     // left the last MATERIAL's values in the buffer; the debug resolve below
