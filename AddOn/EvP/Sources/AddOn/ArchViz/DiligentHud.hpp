@@ -201,6 +201,17 @@ struct HudState {
     // rather than from an arbitrary number.
     float ambientOcclusionRadius = 0.0f;
 
+    // ---- RE51.C7: screen-space reflections --------------------------------
+    // ⚠️ OFF BY DEFAULT. SSR is a port of DiligentFX's ScreenSpaceReflection,
+    // and the first live run is the measurement -- the user's "tree on glass"
+    // report is the acceptance test. Defaulting to on would hide whether the
+    // effect is helping or hurting on a project that was never seen with it.
+    bool screenSpaceReflection = false;
+    // Scales how much of the SSR result is blended over the HDR colour.
+    float ssrIntensity = 1.0f;
+    // Surfaces rougher than this get no SSR. 0.2 = only near-mirrors; 1.0 = all.
+    float ssrRoughnessThreshold = 0.2f;
+
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
     // defaults change no image rendered before this existed.
     float whiteBalanceKelvin = 6500.0f;

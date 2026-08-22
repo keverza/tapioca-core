@@ -182,8 +182,9 @@ void DiligentScene::SetViewportSize (uint32_t width, uint32_t height)
 }
 
 void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
-                          Diligent::ITextureView* depthTarget, const float viewProj[16], const float eye[3],
-                          CullMode cull, int debugView)
+                          Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
+                          const float viewProj[16], const float eye[3], CullMode cull, int debugView,
+                          float nearClip, float farClip, float focusDistance, uint32_t frameIndex)
 {
     if (context == nullptr || !impl_->ready)
         return;
@@ -604,7 +605,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         }
     }
 
-    // ---- the HDR resolve pass (RE51.C7 prerequisite) ------------------------
+    // ---- the HDR resolve pass with SSR composition (RE51.C7) ----------------
     //
     // ⚠️ THIS PASS BINDS THE SWAP CHAIN TARGET AND LEAVES IT BOUND. It is the
     // second of the two contracts from the 2026-08-21 binding fault: the HDR
@@ -616,12 +617,71 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // resolve PS's own Grade() call reads the same exposure and white balance
     // the LDR path would have applied. The resolve PS does NOT branch on
     // g_frameControl.x -- it always tone-maps.
+    //
+    // ⚠️ g_gradeParams.w IS REUSED AS THE SSR INTENSITY IN THE RESOLVE PASS.
+    // In the mesh shader it is the AO intensity; in the resolve pass AO is
+    // already baked into the HDR colour, so the lane is free. When SSR is off,
+    // it is set to 0 and the shader's roughness check skips the SSR branch.
     if (useHdr) {
+        // ---- RE51.C7: prepare SSR before the resolve -----------------------
+        //
+        // ⚠️ SSR READS THE HDR SCENE COLOUR, so it must run AFTER the mesh draw
+        // and BEFORE the resolve. The G-buffer was rendered by the AO prepass
+        // earlier in the frame; SSR reuses it without a third geometry pass.
+        // The HDR colour SRV is available because EnsureHdrTarget succeeded.
+        if (impl_->ssrEnabled && impl_->ssrIntensity > 0.0f) {
+            PrepareScreenSpaceReflection (context, view, proj, viewProj, eye,
+                                          nearClip, farClip, focusDistance, frameIndex);
+        }
+
         constants.frameControl[0] = 0.0f;
+        // ⚠️ gradeParams.w: AO intensity was already applied in the mesh shader,
+        // so the lane is repurposed for SSR intensity in the resolve pass.
+        constants.gradeParams[3] = (impl_->ssrView != nullptr) ? impl_->ssrIntensity : 0.0f;
         UploadConstants (context, impl_->constants, constants);
         context->SetRenderTargets (1, &colorTarget, depthTarget,
                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         context->SetViewports (1, nullptr, 0, 0);
+
+        // Bind the resolve SRB's DYNAMIC variables. g_hdrColor is always the HDR
+        // target; g_ssrColor and g_gbufferRoughness are the SSR result or
+        // fallbacks that make the shader skip the SSR branch.
+        if (Diligent::IShaderResourceVariable* hdrVar =
+                impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
+            hdrVar->Set (impl_->hdrColorSRV);
+        Diligent::ITextureView* ssrColorView = impl_->ssrView;
+        if (ssrColorView == nullptr && impl_->ssrFallback != nullptr)
+            ssrColorView = impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        Diligent::ITextureView* roughnessView = nullptr;
+        if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
+            Diligent::ITexture* roughnessTex = impl_->gBuffer->GetBuffer (kGBufferRoughness);
+            if (roughnessTex != nullptr)
+                roughnessView = roughnessTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        }
+        if (roughnessView == nullptr && impl_->ssrRoughnessFallback != nullptr)
+            roughnessView = impl_->ssrRoughnessFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        Diligent::ITextureView* depthView = nullptr;
+        if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
+            Diligent::ITexture* depthTex = impl_->gBuffer->GetBuffer (kGBufferDepth);
+            if (depthTex != nullptr)
+                depthView = depthTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        }
+        if (ssrColorView != nullptr) {
+            if (Diligent::IShaderResourceVariable* var =
+                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ssrColor"))
+                var->Set (ssrColorView);
+        }
+        if (roughnessView != nullptr) {
+            if (Diligent::IShaderResourceVariable* var =
+                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness"))
+                var->Set (roughnessView);
+        }
+        if (depthView != nullptr) {
+            if (Diligent::IShaderResourceVariable* var =
+                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth"))
+                var->Set (depthView);
+        }
+
         context->SetPipelineState (impl_->resolvePso);
         context->CommitShaderResources (impl_->resolveSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         Diligent::DrawAttribs resolve;
@@ -629,6 +689,9 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         resolve.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
         context->Draw (resolve);
         ++impl_->drawCalls;
+
+        // Clear the SSR view so the next frame does not reuse a freed texture.
+        ClearScreenSpaceReflection ();
     }
 
     // ---- the wireframe overlay ---------------------------------------------

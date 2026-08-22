@@ -264,8 +264,9 @@ class DiligentScene final {
     // deliberately, before navigation; clearing it again would discard the
     // shadow pass's and the prepass's contribution to this frame's ordering.
     void Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
-               Diligent::ITextureView* depthTarget, const float viewProj[16], const float eye[3], CullMode cull,
-               int debugView);
+               Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
+               const float viewProj[16], const float eye[3], CullMode cull, int debugView,
+               float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
 
     // Render opaque geometry into the shader-readable normal/depth G-buffer,
     // then resolve one channel to the viewport target.
@@ -526,6 +527,19 @@ class DiligentScene final {
     // whatever is in effect is reported every frame, so one run with the slider
     // swept says whether the radius was the whole story or only half of it.
     void SetAmbientOcclusion (bool enabled, float intensity, float radiusMetres);
+
+    // ---- RE51.C7: screen-space reflections ----------------------------------
+    //
+    // ⚠️ `intensity` scales how much of the SSR result is blended over the HDR
+    // scene colour. 0 is off; 1 is the effect at full confidence.
+    // `roughnessThreshold` gates which surfaces spawn rays: a surface rougher
+    // than this gets no SSR, which is correct because a rough surface's
+    // reflection is a diffuse blur that screen-space rays cannot represent.
+    void SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold);
+    void ClearScreenSpaceReflection ();
+    void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16],
+                                       const float proj[16], const float viewProj[16], const float eye[3],
+                                       float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
 
   private:
     struct Impl;

@@ -108,6 +108,7 @@ bool DiligentScene::EnsureGBufferTargets ()
         // on an event the user just triggered, which is why it is recorded here
         // rather than guessed at with a heuristic on matrix distance.
         impl_->ambientOcclusion.ResetHistory ();
+        impl_->screenSpaceReflection.ResetHistory ();
     }
 
     return true;
@@ -214,6 +215,60 @@ void DiligentScene::ClearAmbientOcclusion ()
 {
     if (impl_ != nullptr)
         impl_->aoView = nullptr;
+}
+
+void DiligentScene::ClearScreenSpaceReflection ()
+{
+    if (impl_ != nullptr)
+        impl_->ssrView = nullptr;
+}
+
+// RE51.C7. The SSR prepass, modelled on PrepareAmbientOcclusion. It reuses the
+// SAME G-buffer geometry pass the AO already rendered, so there is no third
+// geometry pass -- the normals, depth, material and motion are all already
+// written and unbound. It feeds them to DiligentFX's ScreenSpaceReflection
+// along with the HDR scene colour, and stores the result in `ssrView` for Draw
+// to composite in the resolve pass.
+//
+// ⚠️ THIS RUNS AFTER PrepareAmbientOcclusion AND AFTER THE MESH DRAW, because
+// SSR needs the finished HDR colour as input. The AO prepass runs before the
+// mesh draw because it darkens the shading; SSR runs after because it reads
+// the shading. The two share the G-buffer but nothing else.
+//
+// ⚠️ RENDER THREAD ONLY, like everything else in this file.
+void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16],
+                                                   const float proj[16], const float viewProj[16], const float eye[3],
+                                                   float nearClip, float farClip, float focusDistance, uint32_t frameIndex)
+{
+    ClearScreenSpaceReflection ();
+    if (context == nullptr || !impl_->ready || impl_->gBuffer == nullptr || !impl_->ssrEnabled ||
+        impl_->ssrIntensity <= 0.0f || impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
+        return;
+
+    // ⚠️ THE G-BUFFER MUST HAVE BEEN RENDERED THIS FRAME by PrepareAmbientOcclusion.
+    // SSR reads the same normals, depth, material and motion. If the AO prepass
+    // was skipped (AO disabled), the G-buffer is stale or empty, and SSR would
+    // read garbage. Rather than silently rendering a wrong result, we decline.
+    if (impl_->gBufferWidth != impl_->viewportWidth || impl_->gBufferHeight != impl_->viewportHeight)
+        return;
+    if (impl_->hdrColorSRV == nullptr)
+        return;
+
+    impl_->screenSpaceReflection.Init (impl_->device);
+
+    Diligent::ITextureView* normalSrv =
+        impl_->gBuffer->GetBuffer (kGBufferNormal)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* depthSrv =
+        impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* materialSrv =
+        impl_->gBuffer->GetBuffer (kGBufferMaterialData)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* motionSrv =
+        impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+
+    impl_->ssrView = impl_->screenSpaceReflection.Execute (
+        impl_->device, context, impl_->hdrColorSRV, depthSrv, normalSrv, materialSrv, motionSrv,
+        impl_->viewportWidth, impl_->viewportHeight, frameIndex, view, proj, viewProj, eye,
+        nearClip, farClip, focusDistance, impl_->ssrIntensity, impl_->ssrRoughnessThreshold);
 }
 
 // RE51.C3. See the header for why the forward path now pays for a second

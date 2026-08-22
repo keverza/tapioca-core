@@ -1045,6 +1045,9 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 // the resolve has no reason to blur.
 constexpr const char* kArchVizResolvePS = R"hlsl(
 Texture2D<float4> g_hdrColor;
+Texture2D<float4> g_ssrColor;
+Texture2D<float>  g_gbufferRoughness;
+Texture2D<float>  g_gbufferDepth;
 
 void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 {
@@ -1054,7 +1057,35 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     if (hdr.a <= 0.0)
         discard;
 
-    color = float4 (Grade (hdr.rgb), hdr.a);
+    float3 radiance = hdr.rgb;
+
+    // ---- RE51.C7: compose SSR over the HDR scene colour -------------------
+    //
+    // ⚠️ LERP, NOT ADD. The HDR colour at a glass pixel already carries the IBL
+    // sky reflection; adding SSR on top would double-count the sky. Replacing
+    // it with SSR where SSR has confidence is correct: the SSR result includes
+    // the neighbouring objects (the tree on the glass) that the IBL cannot see.
+    //
+    // ⚠️ GATED BY ROUGHNESS AND SSR ALPHA. A rough surface gets no SSR because
+    // its reflection is a diffuse blur that screen-space rays cannot represent.
+    // The SSR's own alpha is its confidence; where it is zero, the HDR colour
+    // survives unchanged.
+    //
+    // ⚠️ g_gradeParams.w IS REUSED AS THE SSR INTENSITY HERE. In the mesh
+    // shader it is the AO intensity; in the resolve pass AO is already baked
+    // into the HDR colour, so the lane is free. This is deliberate and
+    // documented: the resolve pass is the one place where both effects'
+    // intensities need to live, and the cbuffer has no spare float4 for a
+    // second control. The value is set by Draw before the resolve draw.
+    float roughness = g_gbufferRoughness.Load (int3 (pixel, 0));
+    if (roughness < 1.0 && g_gradeParams.w > 0.0)
+    {
+        float4 ssr = g_ssrColor.Load (int3 (pixel, 0));
+        float ssrWeight = ssr.a * saturate(1.0 - roughness) * saturate(g_gradeParams.w);
+        radiance = lerp (radiance, ssr.rgb, ssrWeight);
+    }
+
+    color = float4 (Grade (radiance), hdr.a);
 }
 )hlsl";
 

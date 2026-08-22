@@ -778,6 +778,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.ambientOcclusion = hudState.ambientOcclusion;
                 request.ambientOcclusionIntensity = hudState.ambientOcclusionIntensity;
                 request.ambientOcclusionRadius = hudState.ambientOcclusionRadius;
+                request.screenSpaceReflection = hudState.screenSpaceReflection;
+                request.ssrIntensity = hudState.ssrIntensity;
+                request.ssrRoughnessThreshold = hudState.ssrRoughnessThreshold;
                 DrawSceneOrDebugView (scene, camera, context, request, lastLoggedGBufferView);
                 gpuTimings.End (context, GpuTimingStage::Shading);
             }

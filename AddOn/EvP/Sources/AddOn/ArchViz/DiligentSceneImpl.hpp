@@ -24,6 +24,7 @@
 #include "ArchViz/DiligentScene.hpp"
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
+#include "ArchViz/DiligentScreenSpaceReflection.hpp"
 #include "ArchViz/DiligentShaders.hpp"   // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
@@ -336,7 +337,31 @@ struct geomsrv::archviz::DiligentScene::Impl {
     Diligent::ITextureView* hdrColorSRV = nullptr;
     uint32_t hdrWidth = 0;
     uint32_t hdrHeight = 0;
+    // ---- RE51.C7: the SSR composition PSO and state --------------------------
+    //
+    // ⚠️ THE COMPOSITION HAPPENS IN THE RESOLVE PASS, NOT AS A SEPARATE PASS.
+    // The resolve PS samples the HDR colour, the SSR radiance, and the G-buffer
+    // roughness, blends SSR over HDR based on confidence and roughness, then
+    // applies Grade() and writes to the swap chain. One pass, no extra targets.
+    //
+    // ⚠️ `ssrView` IS NON-NULL ONLY BETWEEN PrepareScreenSpaceReflection AND
+    // THE Draw THAT CONSUMES IT. It points into the SSR pass's own texture,
+    // which that pass owns and may reallocate on resize, so it is never held
+    // across a frame boundary -- same contract as `aoView`.
+    Diligent::ITextureView* ssrView = nullptr;
+    bool ssrEnabled = false;
+    float ssrIntensity = 1.0f;
+    float ssrRoughnessThreshold = 0.2f;
+    // A 1x1 black RGBA16_FLOAT texture bound to the resolve's g_ssrColor when
+    // SSR is off, so the shader variable is always assigned and the SRB is
+    // valid. ⚠️ SAME LESSON AS THE AO FALLBACK: a DYNAMIC variable left unset
+    // is a validation failure inside Archicad's process.
+    RefCntAutoPtr<Diligent::ITexture> ssrFallback;
+    // A 1x1 R16_FLOAT at 1.0 (fully rough) bound to g_gbufferRoughness when SSR
+    // is off, so the shader's `roughness < 1.0` check skips the SSR branch.
+    RefCntAutoPtr<Diligent::ITexture> ssrRoughnessFallback;
     DiligentAmbientOcclusion ambientOcclusion;
+    DiligentScreenSpaceReflection screenSpaceReflection;
     DiligentDepthRange depthRange;
     uint32_t gBufferWidth = 0;
     uint32_t gBufferHeight = 0;

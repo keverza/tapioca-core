@@ -115,11 +115,14 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
     // the cost is switchable rather than imposed.
     scene.SetAmbientOcclusion (request.ambientOcclusion, request.ambientOcclusionIntensity,
                                request.ambientOcclusionRadius);
+    scene.SetScreenSpaceReflection (request.screenSpaceReflection, request.ssrIntensity,
+                                    request.ssrRoughnessThreshold);
     scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj, request.eye,
                                    Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex,
                                    CullMode::Cw);
-    scene.Draw (context, request.target, request.depth, request.viewProj, request.eye, CullMode::Cw,
-                request.debugView);
+    scene.Draw (context, request.target, request.depth, request.view, request.proj, request.viewProj,
+                request.eye, CullMode::Cw, request.debugView,
+                Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex);
     scene.AdvanceFrame (request.viewProj);
 }
 

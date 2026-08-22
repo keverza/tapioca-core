@@ -69,6 +69,10 @@ struct SceneDrawRequest {
     float ambientOcclusionIntensity = 1.0f;
     // World metres; 0 derives it from the model. See SetAmbientOcclusion.
     float ambientOcclusionRadius = 0.0f;
+    // RE51.C7. Screen-space reflections -- see SetScreenSpaceReflection.
+    bool screenSpaceReflection = false;
+    float ssrIntensity = 1.0f;
+    float ssrRoughnessThreshold = 0.2f;
 };
 
 // `lastLoggedGBufferView` is carried by the caller so switching away from a

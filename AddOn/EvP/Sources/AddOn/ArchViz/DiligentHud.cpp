@@ -417,6 +417,16 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::TextDisabled ("AO radius -- 0 derives it from the model; now %.2f m",
                                      scene.aoRadiusMetres);
 
+                // ---- RE51.C7: screen-space reflections ----------------------
+                ImGui::Checkbox ("screen-space reflections", &state.screenSpaceReflection);
+                ImGui::TextDisabled ("  neighbouring-object reflections -- needs Realistic quality");
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##ssrintensity", &state.ssrIntensity, 0.0f, 2.0f, "%.2f");
+                ImGui::TextDisabled ("SSR amount -- how much of the reflection to show");
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##ssrroughness", &state.ssrRoughnessThreshold, 0.0f, 1.0f, "%.2f");
+                ImGui::TextDisabled ("SSR roughness threshold -- surfaces rougher than this get no rays");
+
                 ImGui::Checkbox ("auto exposure", &state.autoExposure);
                 ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)",
                                      scene.autoExposure, scene.sceneLuminance, scene.meanAlbedo);

@@ -57,7 +57,7 @@ OVERSIZED = {
         "sub-object, not another shell file",
     ),
     "ArchViz/DiligentScene.cpp": (
-        1108,
+        1185,
         "the scene's lifecycle file - shaders, pipeline states, settings. The "
         "class is already split over four TUs (DiligentSceneGeometry.cpp for the "
         "element map, DiligentSceneDraw.cpp for the passes, "

@@ -660,8 +660,15 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     // target and applies Grade(). The HDR colour is DYNAMIC because the target
     // is recreated on resize.
     {
+        // ⚠️ g_hdrColor IS ALWAYS BOUND. g_ssrColor, g_gbufferRoughness and
+        // g_gbufferDepth are bound only when SSR is active; on frames without
+        // SSR, a 1x1 black texture is bound so the shader's roughness check
+        // sees 1.0 and skips the SSR branch entirely.
         Diligent::ShaderResourceVariableDesc resolveVariables[] = {
             { Diligent::SHADER_TYPE_PIXEL, "g_hdrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_ssrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         };
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = "ArchViz HDR resolve PSO";
@@ -716,6 +723,57 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         device->CreateTexture (td, &initial, &impl_->aoFallback);
         if (impl_->aoFallback == nullptr) {
             error = "Diligent CreateTexture(ArchViz unoccluded fallback) failed";
+            return false;
+        }
+    }
+
+    // ---- the SSR fallbacks (RE51.C7) ----------------------------------------
+    // A 1x1 black RGBA16_FLOAT for g_ssrColor and a 1x1 R16_FLOAT at 1.0 for
+    // g_gbufferRoughness. Bound on every frame SSR is off so the resolve SRB's
+    // DYNAMIC variables are always assigned and the shader skips the SSR branch.
+    {
+        Diligent::TextureDesc td;
+        td.Name = "ArchViz SSR black fallback";
+        td.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        td.Width = 1;
+        td.Height = 1;
+        td.Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+        td.MipLevels = 1;
+        td.Usage = Diligent::USAGE_IMMUTABLE;
+        td.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+        const Diligent::Uint16 black[4] = { 0, 0, 0, 0 };
+        Diligent::TextureSubResData level;
+        level.pData = black;
+        level.Stride = 8;
+        Diligent::TextureData initial;
+        initial.pSubResources = &level;
+        initial.NumSubresources = 1;
+        device->CreateTexture (td, &initial, &impl_->ssrFallback);
+        if (impl_->ssrFallback == nullptr) {
+            error = "Diligent CreateTexture(ArchViz SSR black fallback) failed";
+            return false;
+        }
+    }
+    {
+        Diligent::TextureDesc td;
+        td.Name = "ArchViz SSR roughness fallback (fully rough)";
+        td.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        td.Width = 1;
+        td.Height = 1;
+        td.Format = Diligent::TEX_FORMAT_R16_FLOAT;
+        td.MipLevels = 1;
+        td.Usage = Diligent::USAGE_IMMUTABLE;
+        td.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+        const Diligent::Uint16 one = 0x3C00; // 1.0 in half float
+        Diligent::TextureSubResData level;
+        level.pData = &one;
+        level.Stride = 2;
+        Diligent::TextureData initial;
+        initial.pSubResources = &level;
+        initial.NumSubresources = 1;
+        device->CreateTexture (td, &initial, &impl_->ssrRoughnessFallback);
+        if (impl_->ssrRoughnessFallback == nullptr) {
+            error = "Diligent CreateTexture(ArchViz SSR roughness fallback) failed";
             return false;
         }
     }
@@ -971,6 +1029,7 @@ void DiligentScene::Shutdown ()
     impl_->shadowMap.Shutdown ();
     impl_->environment.Shutdown ();
     impl_->ambientOcclusion.Shutdown ();
+    impl_->screenSpaceReflection.Shutdown ();
     impl_->depthRange.Shutdown ();
     impl_->envBackgroundSrb.Release ();
     impl_->envBackgroundPso.Release ();
@@ -990,6 +1049,8 @@ void DiligentScene::Shutdown ()
     impl_->hdrWidth = 0;
     impl_->hdrHeight = 0;
     impl_->resolvePs.Release ();
+    impl_->ssrFallback.Release ();
+    impl_->ssrRoughnessFallback.Release ();
     impl_->ambientOcclusionDebugSrb.Release ();
     impl_->ambientOcclusionDebugPso.Release ();
     impl_->gBufferDebugSrb.Release ();
@@ -1053,6 +1114,22 @@ void DiligentScene::SetSunOverride (bool enabled, float azimuthDegrees, float al
     impl_->sunOverride = enabled;
     impl_->sunOverrideAzimuth = azimuthDegrees;
     impl_->sunOverrideAltitude = altitudeDegrees;
+}
+
+void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->ssrEnabled = enabled;
+    impl_->ssrIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
+    impl_->ssrRoughnessThreshold =
+        roughnessThreshold < 0.0f ? 0.0f : (roughnessThreshold > 1.0f ? 1.0f : roughnessThreshold);
+}
+
+void DiligentScene::ClearScreenSpaceReflection ()
+{
+    if (impl_ != nullptr)
+        impl_->ssrView = nullptr;
 }
 
 bool DiligentScene::EnsureHdrTarget ()
