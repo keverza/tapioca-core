@@ -95,7 +95,7 @@ void TraceContextMenu (const GS::UniString& region, const GS::UniString& outcome
 #endif
 
     evp::AppendTextLine (
-        dataDir + GS::UniString ("\logs\commands.log"),
+        dataDir + GS::UniString ("\\logs\\commands.log"),
         GS::UniString::Printf ("-- %02d:%02d:%02d right-click: region=", local.tm_hour, local.tm_min, local.tm_sec) +
             region + "  " + outcome);
 }

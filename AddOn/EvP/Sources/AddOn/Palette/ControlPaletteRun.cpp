@@ -21,6 +21,7 @@
 #include "ControlPalette.hpp"
 
 #include "Python/CommandLaunch.hpp" // composes a run from what the palette selected
+#include "Python/PathUtils.hpp"     // StartupTrace — the run path's crash breadcrumbs
 #include "Python/MainThreadGate.hpp"
 #include "Python/PythonHost.hpp"
 #include "Python/RunCancel.hpp" // E9 — the running command's cancel token
@@ -168,6 +169,12 @@ void ControlPalette::RefreshRunGate ()
 }
 void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniString& menuRegion)
 {
+    // BREADCRUMBS, flushed per line into logs\startup.log. A hard crash leaves
+    // nothing behind but what was already on disk, and this path now has three
+    // callers (the Run button, an action-bar button, a right-click entry) that all
+    // end in the same place — so "where did it get to" has to be answerable from
+    // the log rather than from a repro nobody can reproduce.
+    evp::StartupTrace (GS::UniString ("RunSelected: enter action='") + action + "' region='" + menuRegion + "'");
     // E9 re-entrancy guard. Nothing stopped a second Run press from spawning a
     // second detached worker, and two runs sharing one cancel token would mean Stop
     // could only ever reach the newer one. One run at a time, said out loud.
@@ -233,6 +240,8 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     // that subprocess is calling back into the main thread the whole time. Composing
     // the run and starting that worker is evp::LaunchCommand's job — the palette
     // supplies only what it alone knows.
+    evp::StartupTrace ("RunSelected: params collected, composing the run");
+
     const evp::CommandLaunchRequest request { info->path,
                                               info->folder,
                                               title,

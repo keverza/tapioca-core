@@ -606,9 +606,16 @@ bool PythonHost::RunCommand (const GS::UniString& path, const GS::UniString& mod
     const auto regionUtf8 = menuRegion.ToCStr (0, MaxUSize, CC_UTF8);
 
     char errorBuffer[512] = { 0 };
+    // The ABI crossing. EvP.apx and EvPPy.dll are built together and their
+    // signatures must agree; a MISMATCHED PAIR corrupts the stack here rather than
+    // failing cleanly, so the last thing on disk before a crash should say that
+    // this was the call in flight.
+    StartupTrace ("PythonHost: entering the EvPPy bridge");
     const int code = ((EvpPy_RunCommandFn) runCommandFn) (path.ToUStr ().Get (), moduleUtf8.Get (), paramsUtf8.Get (),
                                                           actionUtf8.Get (), regionUtf8.Get (), errorBuffer,
                                                           (int) sizeof (errorBuffer));
+
+    StartupTrace ("PythonHost: returned from the EvPPy bridge");
 
     // E9 — a cancel is its own outcome, between "ran" and "failed": report it as a
     // success so nothing writes FAILED, but tell the caller so the status can say
