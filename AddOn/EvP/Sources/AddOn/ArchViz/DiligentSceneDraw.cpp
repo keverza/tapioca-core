@@ -35,7 +35,8 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context)
 {
     if (impl_ != nullptr)
         impl_->shadow = SunShadow {};
-    if (context == nullptr || !impl_->ready || !impl_->shadowMap.IsReady ())
+    if (impl_ == nullptr || context == nullptr || !impl_->ready || !impl_->shadowsEnabled ||
+        !impl_->shadowMap.IsReady ())
         return false;
 
     // ⚠️ FITTED TO THE ELEMENTS ONLY. Anything larger spends the shadow map's
@@ -94,6 +95,15 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context)
 
     impl_->shadowMap.End (context);
     return true;
+}
+
+void DiligentScene::SetShadowsEnabled (bool enabled)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->shadowsEnabled = enabled;
+    if (!enabled)
+        impl_->shadow = SunShadow {};
 }
 
 void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull)

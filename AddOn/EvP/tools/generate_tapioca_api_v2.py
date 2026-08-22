@@ -31,9 +31,9 @@ from typing import Any
 # library instead of by a guess.
 # 2026-08-21, RE51.G1: +1 for RunCloudCompare, the out-of-process point-cloud
 # preprocessing boundary used by the CloudCompare crop probe.
-EXPECTED_REGISTRY_COMMANDS = 131
+EXPECTED_REGISTRY_COMMANDS = 134
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 150
+EXPECTED_TOTAL_COMMANDS = 153
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

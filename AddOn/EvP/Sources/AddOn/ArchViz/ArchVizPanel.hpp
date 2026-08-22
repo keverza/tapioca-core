@@ -31,15 +31,14 @@
 #include "ArchViz/DiligentViewport.hpp"
 
 #include <memory>
+#include <string>
 
-class ArchVizPanel final : public DG::Palette,
-                           public DG::PanelObserver,
-                           public DG::UserItemObserver {
-public:
-    static bool         HasInstance ();
-    static void         CreateInstance ();
+class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public DG::UserItemObserver {
+  public:
+    static bool HasInstance ();
+    static void CreateInstance ();
     static ArchVizPanel& GetInstance ();
-    static void         DestroyInstance ();
+    static void DestroyInstance ();
 
     void Show ();
     void Hide ();
@@ -61,6 +60,8 @@ public:
     // destructive, see ViewportWindow.
     static void OpenViewer ();
     static void OpenDiligentProbe ();
+    static bool OpenD3D12FeasibilityProbe (std::string& error);
+    static void CloseD3D12FeasibilityProbe ();
     static void OpenDiligentViewport ();
 
     // The OVERLAY (PLAT-RE37): the same Diligent viewport, drawing into a
@@ -175,7 +176,7 @@ public:
 
     ~ArchVizPanel () override;
 
-private:
+  private:
     ArchVizPanel ();
 
     void Layout ();
@@ -248,16 +249,16 @@ private:
 
     static GS::Ref<ArchVizPanel> instance;
 
-    DG::LeftText                  statusText;
+    DG::LeftText statusText;
     std::unique_ptr<DG::UserItem> viewport;
     // So the idle poll does not rewrite an unchanged status line every tick.
-    GS::UniString                 lastStatus;
+    GS::UniString lastStatus;
     // ⚠️ THE LAST DPI SCALE DG ACTUALLY ANSWERED WITH. `DisplayScale()` is asked
     // during window switches and palette hide/show, when the item's window may
     // momentarily not be askable — and answering 1.0 there sizes the backbuffer
     // at 2/3 on a 150% display for a monitor that has not moved. Mutable because
     // DisplayScale is const and this is a cache, not state anyone can observe.
-    mutable double                lastGoodScale = 1.0;
+    mutable double lastGoodScale = 1.0;
 };
 
 #endif

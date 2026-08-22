@@ -7,8 +7,9 @@
 // instead of by argument in a review — the user cannot rebuild the add-on, so a
 // constant that is only 80% certain has to become a control, not a guess.
 //
-// ⚠️ Plain C++ only, no bx, no bgfx, no DG. This header is included on both
-// sides of the archviz_render seam (cmake/Bgfx.cmake) and by the .apx.
+// Plain C++ only, with no Diligent or DG dependency. The HUD, scene and frame
+// loop share these values without pulling graphics or palette types across
+// their boundary.
 //
 // RENDER THREAD ONLY: the settings are a local of the frame loop, handed to the
 // panel by reference and read back the same frame. Nothing else may hold one.
@@ -18,8 +19,7 @@
 namespace geomsrv {
 namespace archviz {
 
-// ⚠️ NAMED AFTER THE bgfx STATE, NOT AFTER "front"/"back", ON PURPOSE, and that
-// naming is what let the 2026-08-06 run be read correctly. Which winding is the
+// Named after the winding, not after "front"/"back", on purpose. Which winding is the
 // FRONT face is not an independent fact: it depends on the handedness of the
 // view+projection pair, because a left-handed pair applied to a right-handed
 // world mirrors every triangle's screen-space winding along with the image.
@@ -27,8 +27,8 @@ namespace archviz {
 // made "CCW is correct" look like an answer instead of a symptom of the mirror
 // it actually was. The user sees the flag; the flag is the evidence.
 enum class CullMode : uint8_t {
-    Ccw  = 0,   // BGFX_STATE_CULL_CCW — correct only while the matrices were MIRRORED
-    Cw   = 1,   // BGFX_STATE_CULL_CW  — the default now that Camera is right-handed
+    Ccw  = 0,   // correct only while the matrices were mirrored
+    Cw   = 1,   // the default now that Camera is right-handed
     None = 2,   // no culling: both windings drawn, so the shape is at least whole
 };
 
@@ -66,17 +66,10 @@ enum class RenderQuality : uint8_t {
     // overlay and for navigating a large model.
     Fast = 0,
 
-    // Closer to a rendered image: a specular term, a softer shadow edge, and
-    // filmic tone mapping so bright surfaces roll off instead of clipping to
-    // flat white. Still the SAME forward pass and the same single cascade --
-    // it is a better shading model, NOT a physically based renderer.
-    //
-    // ⚠️ THIS IS NOT DiligentFX's PBR PATH, and must not be described as if it
-    // were. DiligentFX is linked and proven reachable (PLAT-RE127), but its PBR
-    // renderer needs a G-Buffer the viewport does not have yet; IBL, SSAO, SSR
-    // and TAA all sit behind that. `Realistic` is what the existing forward pass
-    // can honestly deliver today, and the G-Buffer work replaces its internals
-    // later WITHOUT the switch or the UI changing.
+    // Closer to a rendered image: GGX material shading, HDR environment IBL,
+    // softer shadows, optional DiligentFX AO/SSR/TAA, and one filmic resolve.
+    // It remains an interactive raster quality rather than the progressive
+    // physically based renderer planned by RE51.
     Realistic = 1,
 };
 

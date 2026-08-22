@@ -372,7 +372,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
             // ⚠️ ONLY `realistic` READS THESE. Shown regardless rather than
             // hidden on `fast`, because a control that vanishes reads as a bug;
             // the note below says which switch turns them on.
-            if (ImGui::CollapsingHeader ("materials & grading")) {
+            if (ImGui::CollapsingHeader ("post processing")) {
                 if (state.renderQuality != int (RenderQuality::Realistic))
                     ImGui::TextDisabled ("(quality is `fast` -- these apply to `realistic`)");
 
@@ -476,12 +476,14 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                                 (unsigned long long) scene.pending);
 
         ImGui::Separator ();
-        // The three sun/shadow states the log reports, live. This is the whole
-        // reason the HUD exists: "is the sun reaching the shader" used to be a
-        // command run, a log read and a re-run.
-        ImGui::Text ("sun %s%s", scene.sunApplied ? "applied" : "DEFAULT (never arrived)",
-                     scene.sunBelowHorizon ? ", below horizon" : "");
-        ImGui::Text ("  dir %.2f %.2f %.2f   ambient %.2f", scene.sun[0], scene.sun[1], scene.sun[2], scene.ambient);
+        // The requested C9 panels expose only values that reach a real renderer
+        // subsystem. The overlay retains these diagnostics but no dead widgets.
+        const bool showLightInspector = state.readOnly || ImGui::CollapsingHeader ("light inspector");
+        if (showLightInspector) {
+            ImGui::Text ("sun %s%s", scene.sunApplied ? "applied" : "DEFAULT (never arrived)",
+                         scene.sunBelowHorizon ? ", below horizon" : "");
+            ImGui::Text ("  dir %.2f %.2f %.2f   ambient %.2f", scene.sun[0], scene.sun[1], scene.sun[2],
+                         scene.ambient);
         // ⚠️ BOTH AZIMUTHS, BOTH LABELLED. Showing one unlabelled number in
         // [-180, 180] produced a live report of "Archicad says 240, the viewer
         // says -120" -- which is not necessarily a disagreement at all: -120 and
@@ -490,10 +492,10 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         // Whichever of the two Archicad's dialog is showing, one of these lines
         // now matches it exactly, and the mismatch (if any) is a number rather
         // than an impression.
-        ImGui::Text ("  model  %.1f deg (CCW from +X)   altitude %.1f deg", scene.sunAzimuthDegrees,
-                     scene.sunAltitudeDegrees);
-        ImGui::Text ("  compass %.1f deg (CW from north)   north %.1f deg", scene.sunBearingDegrees,
-                     scene.northDegrees);
+            ImGui::Text ("  model  %.1f deg (CCW from +X)   altitude %.1f deg", scene.sunAzimuthDegrees,
+                         scene.sunAltitudeDegrees);
+            ImGui::Text ("  compass %.1f deg (CW from north)   north %.1f deg", scene.sunBearingDegrees,
+                         scene.northDegrees);
         // ⚠️ THE PLACE AND MOMENT, because a wrong sun has two very different
         // causes and they look identical on a building: the CONVERSION is wrong,
         // or the viewer is reading a sun the user never set. The angles above are
@@ -502,35 +504,50 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         // disagree, the project's sun was TYPED into the Sun dialog rather than
         // computed from its date, which is ordinary and is not a bug in either
         // number.
-        ImGui::TextDisabled ("  place %.4f, %.4f  alt %.0f m   %04u-%02u-%02u %02u:%02u%s", scene.latitudeDegrees,
-                             scene.longitudeDegrees, scene.siteAltitudeMetres, scene.year, scene.month, scene.day,
-                             scene.hour, scene.minute, scene.summerTime ? " DST" : "");
-        if (scene.haveComputedSun) {
-            const float azGap = std::abs (scene.computedAzimuthDegrees - scene.sunAzimuthDegrees);
-            const float altGap = std::abs (scene.computedAltitudeDegrees - scene.sunAltitudeDegrees);
-            if (!scene.sunOverridden && (azGap > 0.5f || altGap > 0.5f))
-                ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
-                                    "  that date implies %.1f / %.1f deg -- STORED sun used",
-                                    scene.computedAzimuthDegrees, scene.computedAltitudeDegrees);
+            ImGui::TextDisabled ("  place %.4f, %.4f  alt %.0f m   %04u-%02u-%02u %02u:%02u%s",
+                                 scene.latitudeDegrees, scene.longitudeDegrees, scene.siteAltitudeMetres,
+                                 scene.year, scene.month, scene.day, scene.hour, scene.minute,
+                                 scene.summerTime ? " DST" : "");
+            if (scene.haveComputedSun) {
+                const float azGap = std::abs (scene.computedAzimuthDegrees - scene.sunAzimuthDegrees);
+                const float altGap = std::abs (scene.computedAltitudeDegrees - scene.sunAltitudeDegrees);
+                if (!scene.sunOverridden && (azGap > 0.5f || altGap > 0.5f))
+                    ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
+                                        "  that date implies %.1f / %.1f deg -- STORED sun used",
+                                        scene.computedAzimuthDegrees, scene.computedAltitudeDegrees);
+            }
+
+            if (!state.readOnly) {
+                ImGui::Checkbox ("override the sun", &state.sunOverride);
+                ImGui::SameLine ();
+                if (ImGui::Button ("match Archicad"))
+                    state.sunOverride = false;
+                if (state.sunOverride) {
+                    ImGui::SliderFloat ("azimuth", &state.sunAzimuthDegrees, -180.0f, 180.0f, "%.1f deg");
+                    ImGui::SliderFloat ("altitude", &state.sunAltitudeDegrees, 0.0f, 90.0f, "%.1f deg");
+                    float overrideBearing = scene.northDegrees - state.sunAzimuthDegrees;
+                    overrideBearing -= 360.0f * std::floor (overrideBearing / 360.0f);
+                    ImGui::TextDisabled ("azimuth is CCW from +X (east) = compass %.1f deg", overrideBearing);
+                }
+            }
         }
 
-        ImGui::Checkbox ("override the sun", &state.sunOverride);
-        if (state.sunOverride) {
-            ImGui::SliderFloat ("azimuth", &state.sunAzimuthDegrees, -180.0f, 180.0f, "%.1f deg");
-            ImGui::SliderFloat ("altitude", &state.sunAltitudeDegrees, 0.0f, 90.0f, "%.1f deg");
-            // The slider drives the MODEL angle, so the bearing it corresponds to
-            // is spelled out rather than left to be worked out against north.
-            float overrideBearing = scene.northDegrees - state.sunAzimuthDegrees;
-            overrideBearing -= 360.0f * std::floor (overrideBearing / 360.0f);
-            ImGui::TextDisabled ("azimuth is CCW from +X (east) = compass %.1f deg", overrideBearing);
+        const bool showShadowSettings = state.readOnly || ImGui::CollapsingHeader ("shadow settings");
+        if (showShadowSettings) {
+            if (!state.readOnly)
+                ImGui::Checkbox ("cast shadows", &state.shadowsEnabled);
+            if (!state.shadowsEnabled)
+                ImGui::TextDisabled ("shadow rendering disabled");
+            else if (scene.shadowResolution == 0)
+                ImGui::TextColored (ImVec4 (1.0f, 0.5f, 0.4f, 1.0f), "no shadow map (see archviz.log)");
+            else if (!scene.shadowFitted)
+                ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "shadow map %u, not fitted yet",
+                                    scene.shadowResolution);
+            else
+                ImGui::Text ("shadow %u   texel %.3f m", scene.shadowResolution, scene.shadowTexelMetres);
+            ImGui::TextDisabled (state.renderQuality == int (RenderQuality::Realistic) ? "filter: realistic 5 x 5"
+                                                                                       : "filter: fast 3 x 3");
         }
-        if (scene.shadowResolution == 0)
-            ImGui::TextColored (ImVec4 (1.0f, 0.5f, 0.4f, 1.0f), "no shadow map (see archviz.log)");
-        else if (!scene.shadowFitted)
-            ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "shadow map %u, not fitted yet",
-                                scene.shadowResolution);
-        else
-            ImGui::Text ("shadow %u   texel %.3f m", scene.shadowResolution, scene.shadowTexelMetres);
         ImGui::Text ("draws %llu   materials in pool %llu", (unsigned long long) scene.drawCalls,
                      (unsigned long long) scene.materials);
     }

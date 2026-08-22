@@ -323,6 +323,10 @@ GSErrCode Initialize (void)
 
 GSErrCode FreeData (void)
 {
+    // RE51.D1's worker is guarded by the same crash breadcrumb as experimental
+    // camera sync. Join it before ShutDownCameraSync clears that breadcrumb, so
+    // a crash during D3D12 teardown still blocks an automatic retry next session.
+    ArchVizPanel::CloseD3D12FeasibilityProbe ();
     // ⚠️ FIRST, AND AHEAD OF EVERY WINDOW AND THREAD BELOW. The camera-sync
     // mechanisms are timers, Windows hooks and (later on the ladder) a detour on
     // Archicad's own present path, all of whose callbacks live in this DLL --

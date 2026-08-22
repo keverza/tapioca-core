@@ -446,6 +446,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     }
 
     DiligentShadowMap shadowMap;
+    bool shadowsEnabled = true;
 
     // The HDR sky. ⚠️ ALLOCATED AT INIT AND NEVER REPLACED, so the static
     // binding made at pipeline-creation time stays valid across loads --

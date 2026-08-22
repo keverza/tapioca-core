@@ -201,6 +201,11 @@ struct HudState {
     // rather than from an arbitrary number.
     float ambientOcclusionRadius = 0.0f;
 
+    // ---- RE51.C9: shadow settings -----------------------------------------
+    // Keep the map allocated and gate fitting/sampling. Re-enabling therefore
+    // restores shadows without rebuilding GPU resources.
+    bool shadowsEnabled = true;
+
     // ---- RE51.C7: screen-space reflections --------------------------------
     // ⚠️ OFF BY DEFAULT. SSR is a port of DiligentFX's ScreenSpaceReflection,
     // and the first live run is the measurement -- the user's "tree on glass"

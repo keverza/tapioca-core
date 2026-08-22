@@ -105,6 +105,10 @@ _diligent = {"open": False, "polls": 0, "deviceAttempts": 0, "devicePolls": 0,
              # reads back what it pushed instead of a constant.
              "sunOverride": False, "sunOverrideAz": 135.0, "sunOverrideAlt": 45.0}
 
+# RE51.D1 is a separate one-shot D3D12 device and presentation probe. Keep its
+# state separate so the dry run also proves it never changes the D3D11 viewer.
+_d3d12 = {"attempted": False, "running": False, "polls": 0}
+
 # Which offline scenario this run is playing; see each use below.
 _CANCEL_AFTER = int(os.environ.get("EVP_DRYRUN_CANCEL_AFTER", "0") or 0)
 
@@ -2058,6 +2062,42 @@ def _one(command, params):
                     "running": _diligent["deviceAttempts"] > 0 and not done,
                     "succeeded": done,
                     "failureMessage": ""})
+
+    if command == "EvP.StartD3D12FeasibilityProbe":
+        confirmed = bool(params.get("confirm"))
+        if not confirmed or _d3d12["attempted"]:
+            return _ok({"started": False,
+                        "error": "confirm=true is required" if not confirmed
+                                 else "RE51.D1 was already attempted in this process"})
+        _d3d12.update({"attempted": True, "running": True, "polls": 0})
+        return _ok({"started": True, "error": ""})
+
+    if command == "EvP.D3D12FeasibilityProbeState":
+        if _d3d12["running"]:
+            _d3d12["polls"] += 1
+            if _d3d12["polls"] >= 5:
+                _d3d12["running"] = False
+        stages = ("starting", "child HWND", "overlay transparent",
+                  "overlay half alpha", "complete")
+        stage = stages[min(_d3d12["polls"], len(stages) - 1)] if _d3d12["attempted"] else ""
+        completed = _d3d12["attempted"] and not _d3d12["running"]
+        return _ok({
+            "attempted": _d3d12["attempted"], "running": _d3d12["running"],
+            "completed": completed, "cancelled": False, "cleanTeardown": completed,
+            "stage": stage, "failureMessage": "", "deviceAttempted": _d3d12["attempted"],
+            "deviceSucceeded": completed, "deviceFailure": "", "adapter": "Dry-run D3D12",
+            "childAttempted": _d3d12["polls"] >= 1, "childSucceeded": completed,
+            "childPresents": 8 if completed else 0, "childLastPresentResult": 0,
+            "childFailure": "", "overlayAttempted": _d3d12["polls"] >= 2,
+            "overlaySucceeded": completed, "overlayPresents": 16 if completed else 0,
+            "overlayLastPresentResult": 0, "overlayFailure": "", "rayTracingFeature": 1,
+            "rayTracingCaps": 3, "rayTracingStandalone": True, "rayTracingInline": True,
+            "rayTracingIndirect": False, "maxRecursionDepth": 31, "maxRayGenThreads": 1073741824,
+        })
+
+    if command == "EvP.StopD3D12FeasibilityProbe":
+        _d3d12["running"] = False
+        return _ok({"stopped": True})
 
     if command == "EvP.OpenDiligentViewport":
         _diligent["open"] = True

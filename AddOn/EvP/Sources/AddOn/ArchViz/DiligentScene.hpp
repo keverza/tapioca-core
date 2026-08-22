@@ -245,6 +245,9 @@ class DiligentScene final {
     // them again. Returns false when there was nothing to fit a frustum to, in
     // which case Draw renders unshadowed rather than wrong.
     bool RenderShadowMap (Diligent::IDeviceContext* context);
+    // Disabling clears the current fit so Draw cannot sample the previous
+    // frame's shadow while leaving the map resource ready for re-enabling.
+    void SetShadowsEnabled (bool enabled);
 
     // ⚠️ `colorTarget` AND `depthTarget` ARE PARAMETERS BECAUSE THIS FUNCTION
     // NOW BINDS THEM ITSELF, AND IT DOES THAT BECAUSE NOT DOING SO PRODUCED A

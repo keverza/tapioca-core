@@ -19,7 +19,7 @@ if (NOT EXISTS "${DILIGENT_DIR}/DiligentCore/CMakeLists.txt")
     message (FATAL_ERROR "DiligentCore is missing at '${DILIGENT_DIR}'.")
 endif ()
 
-set (DILIGENT_NO_DIRECT3D12 ON CACHE BOOL "" FORCE)
+set (DILIGENT_NO_DIRECT3D12 OFF CACHE BOOL "" FORCE)
 set (DILIGENT_NO_VULKAN     ON CACHE BOOL "" FORCE)
 set (DILIGENT_NO_OPENGL     ON CACHE BOOL "" FORCE)
 set (DILIGENT_NO_WEBGPU     ON CACHE BOOL "" FORCE)
@@ -100,6 +100,9 @@ endforeach ()
 set (DILIGENT_PROBE_LIBS
     Diligent-Common
     Diligent-GraphicsEngineD3D11-static
+    # RE51.D1 only: an isolated, explicitly invoked D3D12 feasibility probe.
+    # The production viewport remains D3D11 until RE51.D2 is accepted.
+    Diligent-GraphicsEngineD3D12-static
     # GraphicsTools is what DiligentFX's components are built on (RenderStateCache,
     # MapHelper, CommonlyUsedStates) and it is linked PRIVATELY by the engine, so
     # a consumer has to ask for it by name.

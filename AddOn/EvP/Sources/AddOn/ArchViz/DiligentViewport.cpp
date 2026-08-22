@@ -444,6 +444,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // the note at the Draw call). Filling it anyway would be a whole
             // depth pass over the model, every frame, for a texture nothing
             // reads -- on the one path whose entire budget belongs to Archicad.
+            scene.SetShadowsEnabled (hudState.shadowsEnabled);
             gpuTimings.Begin (context, GpuTimingStage::VisibilityGBuffer);
             if (!camera.IsOrthographic ())
                 scene.RenderShadowMap (context);

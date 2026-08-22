@@ -140,6 +140,7 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),
+    ("NativeCommands/ArchVizCommands.cpp", "ArchViz/D3D12FeasibilityProbe.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/SelectionBridge.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ViewportOverlayWindow.hpp"),

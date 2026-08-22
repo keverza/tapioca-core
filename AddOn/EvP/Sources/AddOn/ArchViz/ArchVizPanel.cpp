@@ -1,9 +1,11 @@
 #include "ArchViz/ArchVizPanel.hpp"
-#include "ArchViz/ArchVizLog.hpp"      // ArchVizLog — one log for the whole viewer
-#include "ArchViz/CameraSyncMode.hpp"  // the ONE way the camera sync is armed
+#include "ArchViz/ArchVizLog.hpp"     // ArchVizLog — one log for the whole viewer
+#include "ArchViz/CameraSyncMode.hpp" // the ONE way the camera sync is armed
+#include "ArchViz/D3D12FeasibilityProbe.hpp"
 #include "ArchViz/DiligentProbe.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/ExperimentGuard.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/ModelWatch.hpp"
@@ -11,10 +13,10 @@
 #include "ArchViz/SelectionBridge.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 #include "ArchViz/ViewerHost.hpp"
-#include "ArchViz/ViewerSettings.hpp"   // SceneRenderMode -- the overlay starts in wireframe
+#include "ArchViz/ViewerSettings.hpp" // SceneRenderMode -- the overlay starts in wireframe
 #include "ResourceIds.hpp"
 
-#include "DGWin.h"                       // DGGetDialogItemWindow / DGGetDPIForDialogItem
+#include "DGWin.h" // DGGetDialogItemWindow / DGGetDPIForDialogItem
 
 #include <cstdio>
 #include <string>
@@ -33,8 +35,12 @@ namespace {
 // palette metrics in Palette/PaletteMetrics.hpp belong to the command palette's
 // bands, and a constant moves to a shared header on its SECOND consumer, never
 // speculatively (CLAUDE.md).
-constexpr short kMargin       = 8;
+constexpr short kMargin = 8;
 constexpr short kStatusHeight = 16;
+
+// Main-thread only. The shared experiment guard must only be disarmed by the
+// mechanism that armed it.
+bool s_d3d12ProbeGuardArmed = false;
 
 GS::UniString FromStd (const std::string& s)
 {
@@ -53,17 +59,16 @@ GS::UniString FromStd (const std::string& s)
 // thing to get out of step.
 bool OverlayRunning ()
 {
-    const geomsrv::archviz::DiligentViewportStats stats =
-        geomsrv::archviz::DiligentViewport::Get ().Stats ();
+    const geomsrv::archviz::DiligentViewportStats stats = geomsrv::archviz::DiligentViewport::Get ().Stats ();
     return stats.running && stats.overlay;
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
-ArchVizPanel::ArchVizPanel () :
-    DG::Palette (ACAPI_GetOwnResModule (), ArchVizPaletteResId, ACAPI_GetOwnResModule (), archVizPaletteGuid),
-    statusText  (GetReference (), ArchVizStatusTextId)
+ArchVizPanel::ArchVizPanel ()
+    : DG::Palette (ACAPI_GetOwnResModule (), ArchVizPaletteResId, ACAPI_GetOwnResModule (), archVizPaletteGuid),
+      statusText (GetReference (), ArchVizStatusTextId)
 {
     Attach (*this);
     BeginEventProcessing ();
@@ -74,8 +79,8 @@ ArchVizPanel::ArchVizPanel () :
     //
     // UserItemType::Normal (not Partial): we never ask DG for a partial update
     // because we never let DG paint at all.
-    viewport = std::make_unique<DG::UserItem> (
-        *this, DG::Rect (0, 0, 100, 100), DG::UserItem::Normal, DG::UserItem::NoFrame);
+    viewport =
+        std::make_unique<DG::UserItem> (*this, DG::Rect (0, 0, 100, 100), DG::UserItem::Normal, DG::UserItem::NoFrame);
     viewport->Attach (*this);
     // A dynamically created DG item starts HIDDEN. This one has to be shown
     // BEFORE its HWND is asked for and handed to a renderer — a hidden item's
@@ -98,7 +103,10 @@ ArchVizPanel::~ArchVizPanel ()
     EndEventProcessing ();
 }
 
-bool ArchVizPanel::HasInstance () { return instance != nullptr; }
+bool ArchVizPanel::HasInstance ()
+{
+    return instance != nullptr;
+}
 
 void ArchVizPanel::CreateInstance ()
 {
@@ -108,12 +116,15 @@ void ArchVizPanel::CreateInstance ()
     }
 }
 
-ArchVizPanel& ArchVizPanel::GetInstance () { return *instance; }
+ArchVizPanel& ArchVizPanel::GetInstance ()
+{
+    return *instance;
+}
 
 void ArchVizPanel::DestroyInstance ()
 {
     if (HasInstance ())
-        GetInstance ().StopRenderer ();   // before the DG objects go
+        GetInstance ().StopRenderer (); // before the DG objects go
     instance = nullptr;
 }
 
@@ -139,7 +150,10 @@ void ArchVizPanel::Show ()
     DG::Palette::Show ();
 }
 
-void ArchVizPanel::Hide () { DG::Palette::Hide (); }
+void ArchVizPanel::Hide ()
+{
+    DG::Palette::Hide ();
+}
 
 // ---------------------------------------------------------------------------
 // The 3D viewer menu item, and the palette's own APIPalMsg_OpenPalette.
@@ -159,6 +173,10 @@ void ArchVizPanel::OpenDiligentProbe ()
     if (!HasInstance ())
         CreateInstance ();
     ArchVizPanel& panel = GetInstance ();
+    if (s_d3d12ProbeGuardArmed) {
+        panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
+        return;
+    }
     panel.Show ();
     if (geomsrv::archviz::DiligentProbe::Get ().Start (panel.ViewportWindow ()))
         panel.statusText.SetText ("Diligent Probe 1c running; check logs after it completes.");
@@ -166,11 +184,101 @@ void ArchVizPanel::OpenDiligentProbe ()
         panel.statusText.SetText ("Diligent Probe 1c did not start; check logs.");
 }
 
+bool ArchVizPanel::OpenD3D12FeasibilityProbe (std::string& error)
+{
+    namespace av = geomsrv::archviz;
+    namespace vo = geomsrv::archviz::viewportoverlay;
+
+    if (av::DiligentViewport::Get ().IsRunning ()) {
+        error = "the production D3D11 viewport or overlay is running; close it before RE51.D1";
+        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
+        return false;
+    }
+    if (av::DiligentProbe::Get ().Stats ().running) {
+        error = "the D3D11 device probe is running; wait for it before RE51.D1";
+        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
+        return false;
+    }
+    if (vo::Stats ().active) {
+        error = "an overlay window is already active; close it before RE51.D1";
+        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
+        return false;
+    }
+
+    if (!HasInstance ())
+        CreateInstance ();
+    ArchVizPanel& panel = GetInstance ();
+
+    // Find the document target before showing the palette can change which
+    // window Windows considers frontmost.
+    const vo::OverlayTarget target = vo::FindOverlayTarget ();
+    std::string overlayError;
+    HWND overlay = nullptr;
+    if (target.valid)
+        overlay = vo::Create (target, vo::OverlayAttach::Popup, overlayError);
+    else
+        overlayError = target.how.empty () ? "no frontmost document target was found" : target.how;
+
+    panel.Show ();
+    void* child = panel.ViewportWindow ();
+    uint32_t childWidth = 0;
+    uint32_t childHeight = 0;
+    if (child == nullptr || !panel.ViewportPixelSize (childWidth, childHeight)) {
+        vo::Destroy ();
+        error = "the DG child HWND or its physical client size is unavailable";
+        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
+        return false;
+    }
+
+    uint32_t overlayWidth = 0;
+    uint32_t overlayHeight = 0;
+    if (overlay != nullptr) {
+        const vo::OverlayStats overlayStats = vo::Stats ();
+        overlayWidth = overlayStats.width;
+        overlayHeight = overlayStats.height;
+    }
+
+    if (!av::experimentguard::Arm ("re51-d1-d3d12", error)) {
+        vo::Destroy ();
+        av::D3D12FeasibilityProbe::Get ().SetRefusal (error);
+        return false;
+    }
+    s_d3d12ProbeGuardArmed = true;
+
+    if (!av::D3D12FeasibilityProbe::Get ().Start (child, childWidth, childHeight, overlay, overlayWidth, overlayHeight,
+                                                  overlayError, error)) {
+        vo::Destroy ();
+        av::experimentguard::Disarm ();
+        s_d3d12ProbeGuardArmed = false;
+        return false;
+    }
+
+    panel.statusText.SetText ("RE51.D1 D3D12 feasibility probe running; follow the command instructions.");
+    return true;
+}
+
+void ArchVizPanel::CloseD3D12FeasibilityProbe ()
+{
+    geomsrv::archviz::D3D12FeasibilityProbe::Get ().Stop ();
+    if (s_d3d12ProbeGuardArmed) {
+        geomsrv::archviz::viewportoverlay::Destroy ();
+        geomsrv::archviz::experimentguard::Disarm ();
+        s_d3d12ProbeGuardArmed = false;
+        if (HasInstance ())
+            GetInstance ().statusText.SetText ("RE51.D1 D3D12 feasibility probe stopped.");
+    }
+}
+
 void ArchVizPanel::OpenDiligentViewport ()
 {
     if (!HasInstance ())
         CreateInstance ();
     ArchVizPanel& panel = GetInstance ();
+    if (s_d3d12ProbeGuardArmed) {
+        panel.Show ();
+        panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
+        return;
+    }
     panel.Show ();
 
     if (geomsrv::archviz::DiligentViewport::Get ().IsRunning ())
@@ -232,9 +340,9 @@ void ArchVizPanel::OpenDiligentViewport ()
         //              exactly this pairing, which is why the two directions are
         //              separate flags rather than one on/off.
         geomsrv::archviz::modelwatch::Start ();
-        geomsrv::archviz::selectionbridge::Start (
-            geomsrv::archviz::selectionbridge::ToViewer);
-    } else {
+        geomsrv::archviz::selectionbridge::Start (geomsrv::archviz::selectionbridge::ToViewer);
+    }
+    else {
         panel.statusText.SetText ("Diligent viewport did not start; see archviz.log.");
     }
 }
@@ -268,13 +376,18 @@ constexpr uint32_t kOverlayTrackMs = 33;
 // 10 ms); asking for 16 halves the sample rate for nothing.
 constexpr uint32_t kOverlayCameraSyncMs = 15;
 
-}   // namespace
+} // namespace
 
 void ArchVizPanel::OpenDiligentOverlay (int attach)
 {
     if (!HasInstance ())
         CreateInstance ();
     ArchVizPanel& panel = GetInstance ();
+    if (s_d3d12ProbeGuardArmed) {
+        panel.Show ();
+        panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
+        return;
+    }
     // ⚠️ THE PALETTE IS *NOT* SHOWN IN OVERLAY MODE, and the first live run is
     // why. Showing it puts an EMPTY floating 3D panel next to the overlay --
     // empty because the picture is going to the overlay window instead, which
@@ -292,10 +405,9 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     namespace vo = geomsrv::archviz::viewportoverlay;
     const vo::OverlayTarget target = vo::FindOverlayTarget ();
     std::string overlayError;
-    const vo::OverlayAttach attachMode =
-        attach == 1 ? vo::OverlayAttach::ChildLayered :
-        attach == 2 ? vo::OverlayAttach::ChildTransparent :
-                      vo::OverlayAttach::Popup;
+    const vo::OverlayAttach attachMode = attach == 1   ? vo::OverlayAttach::ChildLayered
+                                         : attach == 2 ? vo::OverlayAttach::ChildTransparent
+                                                       : vo::OverlayAttach::Popup;
     HWND overlay = vo::Create (target, attachMode, overlayError);
     if (overlay == nullptr) {
         // ⚠️ SHOWN ONLY ON FAILURE. The status line is the only place a user
@@ -339,8 +451,7 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // two agree" -- the only question an overlay exists to answer -- stops being
     // answerable at exactly the moment it is asked. The HUD's combo can switch it
     // back for a look.
-    geomsrv::archviz::DiligentViewport::Get ().SetRenderMode (
-        int (geomsrv::archviz::SceneRenderMode::Wireframe));
+    geomsrv::archviz::DiligentViewport::Get ().SetRenderMode (int (geomsrv::archviz::SceneRenderMode::Wireframe));
 
     // ⚠️ AND IF IT WAS ALREADY ON SCREEN, TAKE IT OFF. `Show` refuses while an
     // overlay runs, but a palette opened BEFORE the overlay started is already
@@ -372,14 +483,13 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // reversibility must be the only way in, or its idea of the current mode is
     // fiction.
     std::string syncError;
-    if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy,
-                                              kOverlayCameraSyncMs, 1.0, syncError)) {
+    if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy, kOverlayCameraSyncMs, 1.0,
+                                              syncError)) {
         geomsrv::archviz::ArchVizLog ("overlay: camera sync did not arm -- " + syncError);
     }
 
     panel.statusText.SetText (FromStd ("Diligent overlay over " + stats.targetClass + " (" +
-                                       std::to_string (stats.width) + "x" +
-                                       std::to_string (stats.height) + ")"));
+                                       std::to_string (stats.width) + "x" + std::to_string (stats.height) + ")"));
 }
 
 void ArchVizPanel::CloseDiligentOverlay ()
@@ -407,6 +517,9 @@ void ArchVizPanel::CloseDiligentOverlay ()
 
 void ArchVizPanel::CloseViewer ()
 {
+    // Stop D3D12 before camera-sync teardown clears the shared experiment
+    // breadcrumb. A crash during the D3D12 join must survive into safe mode.
+    CloseD3D12FeasibilityProbe ();
     geomsrv::archviz::ShutDownCameraSync ();
     if (!HasInstance ())
         return;
@@ -418,12 +531,11 @@ void ArchVizPanel::CloseViewer ()
 // ---------------------------------------------------------------------------
 void ArchVizPanel::Layout ()
 {
-    const short width  = GetWidth ();
+    const short width = GetWidth ();
     const short height = GetHeight ();
 
     const short statusTop = (short) (height - kMargin - kStatusHeight);
-    statusText.SetRect (DG::Rect (kMargin, statusTop, (short) (width - kMargin),
-                                  (short) (statusTop + kStatusHeight)));
+    statusText.SetRect (DG::Rect (kMargin, statusTop, (short) (width - kMargin), (short) (statusTop + kStatusHeight)));
 
     if (viewport != nullptr) {
         // Flush to the panel edges except for the status strip: the viewport is
@@ -441,7 +553,7 @@ namespace {
 // out outright.
 std::string DescribeWindow (const char* label, HWND hwnd)
 {
-    std::string out = std::string (label) + "=0x" ;
+    std::string out = std::string (label) + "=0x";
     char buf[32] = {};
     std::snprintf (buf, sizeof (buf), "%p", (void*) hwnd);
     out += buf;
@@ -456,13 +568,12 @@ std::string DescribeWindow (const char* label, HWND hwnd)
     RECT r = {};
     ::GetClientRect (hwnd, &r);
     char detail[256] = {};
-    std::snprintf (detail, sizeof (detail), " class='%s' client=%ldx%ld parent=%p visible=%d",
-                   cls, r.right - r.left, r.bottom - r.top,
-                   (void*) ::GetParent (hwnd), ::IsWindowVisible (hwnd) ? 1 : 0);
+    std::snprintf (detail, sizeof (detail), " class='%s' client=%ldx%ld parent=%p visible=%d", cls, r.right - r.left,
+                   r.bottom - r.top, (void*) ::GetParent (hwnd), ::IsWindowVisible (hwnd) ? 1 : 0);
     return out + detail;
 }
 
-}   // namespace
+} // namespace
 
 void* ArchVizPanel::ViewportWindow () const
 {
@@ -479,10 +590,9 @@ void* ArchVizPanel::ViewportWindow () const
     // and PLAT-RE39 -- the viewport opening once per session -- is what it looks
     // like here. A handle checked before the attempt costs nothing.
     if (hwnd == nullptr || ::IsWindow (hwnd) == FALSE) {
-        geomsrv::archviz::ArchVizLog (
-            "viewport window — " + DescribeWindow ("DGGetDialogItemWindow", hwnd) +
-            "  (panel " + std::to_string ((int) GetId ()) + ", item " +
-            std::to_string ((int) viewport->GetId ()) + ")");
+        geomsrv::archviz::ArchVizLog ("viewport window — " + DescribeWindow ("DGGetDialogItemWindow", hwnd) +
+                                      "  (panel " + std::to_string ((int) GetId ()) + ", item " +
+                                      std::to_string ((int) viewport->GetId ()) + ")");
         return nullptr;
     }
 
@@ -509,6 +619,10 @@ void ArchVizPanel::StopRenderer ()
     // bug class CLAUDE.md flags for the change observer ("unwatch on teardown,
     // unconditionally"), with the same consequence.
     StopNavLog ();
+
+    // RE51.D1 owns another render thread and may be presenting to both windows.
+    // Join it before either the DG child or overlay HWND can be destroyed.
+    CloseD3D12FeasibilityProbe ();
 
     // ⚠️ THE PRODUCER GOES BEFORE THE CONSUMER, and unconditionally, for the
     // same reason as the timer above. An extraction pass in flight is submitting
@@ -557,10 +671,8 @@ void ArchVizPanel::StopRenderer ()
 
 void ArchVizPanel::RefreshStatus ()
 {
-    const geomsrv::archviz::DiligentProbeStats diligent =
-        geomsrv::archviz::DiligentProbe::Get ().Stats ();
-    const geomsrv::archviz::DiligentViewportStats viewportStats =
-        geomsrv::archviz::DiligentViewport::Get ().Stats ();
+    const geomsrv::archviz::DiligentProbeStats diligent = geomsrv::archviz::DiligentProbe::Get ().Stats ();
+    const geomsrv::archviz::DiligentViewportStats viewportStats = geomsrv::archviz::DiligentViewport::Get ().Stats ();
 
     GS::UniString text;
     // ⚠️ PROBE 1c CREATES A DEVICE AND NOTHING ELSE -- no swap chain, no frame
@@ -576,21 +688,24 @@ void ArchVizPanel::RefreshStatus ()
         else if (viewportStats.diligentClearMatched && viewportStats.nativeClearMatched)
             text = viewportStats.sceneReady
                        ? GS::UniString ("Diligent viewport: clear A/B PASS, drawing.")
-                       : GS::UniString ("Diligent viewport: clear A/B PASS, but the scene did not build - see archviz.log.");
+                       : GS::UniString (
+                             "Diligent viewport: clear A/B PASS, but the scene did not build - see archviz.log.");
         else if (viewportStats.nativeClearMatched)
             text = GS::UniString ("Diligent viewport: only the raw D3D11 clear landed - see archviz.log.");
         else if (viewportStats.diligentClearMatched)
             text = GS::UniString ("Diligent viewport: only the Diligent clear landed - see archviz.log.");
         else
             text = GS::UniString ("Diligent viewport: BOTH clears failed - the fault is below Diligent.");
-    } else if (diligent.attempted) {
+    }
+    else if (diligent.attempted) {
         if (diligent.running)
             text = GS::UniString ("Diligent Probe 1c: creating D3D11 device...");
         else if (diligent.succeeded)
             text = GS::UniString ("Diligent Probe 1c: PASS - device and context created.");
         else
             text = GS::UniString ("Diligent Probe 1c: did not pass - see archviz.log.");
-    } else {
+    }
+    else {
         text = GS::UniString ("Viewer not running.");
     }
 
@@ -637,7 +752,7 @@ bool ArchVizPanel::ViewportPixelSize (uint32_t& width, uint32_t& height) const
         return false;
     if (client.right <= 0 || client.bottom <= 0)
         return false;
-    width  = uint32_t (client.right);
+    width = uint32_t (client.right);
     height = uint32_t (client.bottom);
     return true;
 }
@@ -690,8 +805,10 @@ double ArchVizPanel::DisplayScale () const
 void ArchVizPanel::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed)
 {
     uint8_t button = geomsrv::archviz::kMouseNone;
-    if (ev.IsLeftButton ())   button = geomsrv::archviz::kMouseLeft;
-    if (ev.IsRightButton ())  button = geomsrv::archviz::kMouseRight;
+    if (ev.IsLeftButton ())
+        button = geomsrv::archviz::kMouseLeft;
+    if (ev.IsRightButton ())
+        button = geomsrv::archviz::kMouseRight;
     if (button != geomsrv::archviz::kMouseNone)
         geomsrv::archviz::InputRingBuffer::Get ().PushButton (button, true);
 
@@ -703,8 +820,10 @@ void ArchVizPanel::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool
 void ArchVizPanel::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* processed)
 {
     uint8_t button = geomsrv::archviz::kMouseNone;
-    if (ev.IsLeftButton ())   button = geomsrv::archviz::kMouseLeft;
-    if (ev.IsRightButton ())  button = geomsrv::archviz::kMouseRight;
+    if (ev.IsLeftButton ())
+        button = geomsrv::archviz::kMouseLeft;
+    if (ev.IsRightButton ())
+        button = geomsrv::archviz::kMouseRight;
     // ⚠️ IF THE BUTTON CANNOT BE IDENTIFIED, RELEASE THEM ALL. A dropped mouse-up
     // strands an ImGui widget mid-drag (plan §4 risk 2) — releasing one button
     // too many is trivially recoverable, holding one forever is not. The camera
@@ -712,7 +831,8 @@ void ArchVizPanel::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* pr
     if (button == geomsrv::archviz::kMouseNone) {
         geomsrv::archviz::InputRingBuffer::Get ().PushButton (
             uint8_t (geomsrv::archviz::kMouseLeft | geomsrv::archviz::kMouseRight), false);
-    } else {
+    }
+    else {
         geomsrv::archviz::InputRingBuffer::Get ().PushButton (button, false);
     }
 
@@ -756,11 +876,10 @@ void ArchVizPanel::PanelResized (const DG::PanelResizeEvent& /*ev*/)
     // changed was the viewport, not the camera. A resize is rare, so logging
     // every one costs nothing and turns a glimpse into a record: two entries a
     // few ms apart, with a size that goes away and comes back, IS the bug.
-    geomsrv::archviz::ArchVizLog (
-        "resize: item " + std::to_string (viewport->GetWidth ()) + "x" +
-        std::to_string (viewport->GetHeight ()) + " logical, scale " +
-        std::to_string (scale) + " -> " + std::to_string (pw) + "x" + std::to_string (ph) +
-        " physical" + (IsVisible () ? "" : "   [PALETTE HIDDEN]"));
+    geomsrv::archviz::ArchVizLog ("resize: item " + std::to_string (viewport->GetWidth ()) + "x" +
+                                  std::to_string (viewport->GetHeight ()) + " logical, scale " +
+                                  std::to_string (scale) + " -> " + std::to_string (pw) + "x" + std::to_string (ph) +
+                                  " physical" + (IsVisible () ? "" : "   [PALETTE HIDDEN]"));
 
     // ⚠️ NOT WHEN IT IS AN OVERLAY (PLAT-RE57). When the renderer is running as an
     // OVERLAY its surface is sized to ARCHICAD'S
@@ -796,7 +915,6 @@ void ArchVizPanel::UserItemUpdate (const DG::UserItemUpdateEvent& /*ev*/)
     // NOTHING. Deliberately. See the header: DG painting anything here — a
     // background fill included — fights the renderer's present.
 }
-
 
 // ---------------------------------------------------------------------------
 // Modeless-window registration. Same shape as ControlPalette's (which lives in
@@ -835,13 +953,12 @@ GSErrCode ArchVizPanel::PaletteControlCallBack (Int32, API_PaletteMessageID mess
 
 GSErrCode ArchVizPanel::RegisterPaletteControlCallBack ()
 {
-    return ACAPI_RegisterModelessWindow (
-        GS::CalculateHashValue (archVizPaletteGuid),
-        PaletteControlCallBack,
-        API_PalEnabled_FloorPlan + API_PalEnabled_Section + API_PalEnabled_Elevation +
-        API_PalEnabled_InteriorElevation + API_PalEnabled_3D + API_PalEnabled_Detail +
-        API_PalEnabled_Worksheet + API_PalEnabled_Layout + API_PalEnabled_DocumentFrom3D,
-        GSGuid2APIGuid (archVizPaletteGuid));
+    return ACAPI_RegisterModelessWindow (GS::CalculateHashValue (archVizPaletteGuid), PaletteControlCallBack,
+                                         API_PalEnabled_FloorPlan + API_PalEnabled_Section + API_PalEnabled_Elevation +
+                                             API_PalEnabled_InteriorElevation + API_PalEnabled_3D +
+                                             API_PalEnabled_Detail + API_PalEnabled_Worksheet + API_PalEnabled_Layout +
+                                             API_PalEnabled_DocumentFrom3D,
+                                         GSGuid2APIGuid (archVizPaletteGuid));
 }
 
 GSErrCode ArchVizPanel::UnregisterPaletteControlCallBack ()
