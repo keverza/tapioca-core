@@ -16,6 +16,8 @@
 #include <SwapChainD3D11.h>
 #include <Texture.h>
 #include <TextureView.h>
+#include <DataBlobImpl.hpp>
+#include <PNGCodec.h>
 
 #include <atomic>
 #include <string>
@@ -77,6 +79,10 @@ struct DiligentViewportTarget::Impl {
 
     // ---- the palette-child path -------------------------------------------
     RefCntAutoPtr<Diligent::ISwapChain> swapChain;
+
+    // ---- the offscreen path -----------------------------------------------
+    RefCntAutoPtr<Diligent::ITexture> offscreenColor;
+    RefCntAutoPtr<Diligent::ITexture> offscreenStaging;
 
     // ---- the overlay path --------------------------------------------------
     // ⚠️ RAW COM POINTERS WITH EXPLICIT Release, NOT ComPtr. `wrl/client.h` is
@@ -167,10 +173,11 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
                                      void* hwnd, uint32_t width, uint32_t height,
                                      std::string& error)
 {
-    if (device == nullptr || context == nullptr || factory == nullptr || hwnd == nullptr ||
+    if (device == nullptr || context == nullptr || factory == nullptr ||
+        (mode != SurfaceMode::Offscreen && hwnd == nullptr) ||
         width == 0 || height == 0) {
-        error = "DiligentViewportTarget::Create needs a device, a context, a factory, a window "
-                "and a non-zero size";
+        error = "DiligentViewportTarget::Create needs a device, a context, a factory, "
+                "a non-zero size and a window unless the surface is offscreen";
         return false;
     }
 
@@ -193,6 +200,39 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
         const Diligent::SwapChainDesc& actual = impl_->swapChain->GetDesc ();
         impl_->colorFormat = uint32_t (actual.ColorBufferFormat);
         impl_->depthFormat = uint32_t (actual.DepthBufferFormat);
+        return true;
+    }
+
+    if (mode == SurfaceMode::Offscreen) {
+        impl_->colorFormat = uint32_t (Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB);
+        impl_->depthFormat = uint32_t (Diligent::TEX_FORMAT_D32_FLOAT);
+
+        Diligent::TextureDesc cd;
+        cd.Name = "ArchViz offscreen colour";
+        cd.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        cd.Width = width;
+        cd.Height = height;
+        cd.MipLevels = 1;
+        cd.Format = static_cast<Diligent::TEXTURE_FORMAT> (impl_->colorFormat);
+        cd.BindFlags = Diligent::BIND_RENDER_TARGET;
+        cd.Usage = Diligent::USAGE_DEFAULT;
+        device->CreateTexture (cd, nullptr, &impl_->offscreenColor);
+
+        Diligent::TextureDesc sd = cd;
+        sd.Name = "ArchViz offscreen readback";
+        sd.BindFlags = Diligent::BIND_NONE;
+        sd.Usage = Diligent::USAGE_STAGING;
+        sd.CPUAccessFlags = Diligent::CPU_ACCESS_READ;
+        device->CreateTexture (sd, nullptr, &impl_->offscreenStaging);
+
+        if (!impl_->CreateOverlayDepth (error) || impl_->offscreenColor == nullptr ||
+            impl_->offscreenStaging == nullptr) {
+            if (error.empty ())
+                error = "could not create the offscreen colour or staging texture";
+            return false;
+        }
+        ArchVizLog ("ArchViz offscreen target: " + std::to_string (width) + "x" +
+                    std::to_string (height) + ", RGBA8_UNORM_SRGB");
         return true;
     }
 
@@ -352,6 +392,8 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
 
     impl_->ReleaseOverlay ();
     impl_->swapChain.Release ();
+    impl_->offscreenStaging.Release ();
+    impl_->offscreenColor.Release ();
     impl_->deviceD3D11.Release ();
     impl_->device = nullptr;
 }
@@ -379,7 +421,7 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
             if (impl_->mode == SurfaceMode::PaletteChild) {
                 if (impl_->swapChain != nullptr)
                     impl_->swapChain->Resize (w, h);
-            } else if (impl_->compositionSwapChain != nullptr) {
+            } else if (impl_->mode == SurfaceMode::Overlay && impl_->compositionSwapChain != nullptr) {
                 // ⚠️ THE WRAPPED VIEWS GO FIRST. ResizeBuffers refuses while any
                 // outstanding reference to a back buffer exists, and every entry
                 // in this map is one -- it fails with DXGI_ERROR_INVALID_CALL and
@@ -420,6 +462,14 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
         rtv = impl_->swapChain->GetCurrentBackBufferRTV ();
         dsv = impl_->swapChain->GetDepthBufferDSV ();
         return rtv != nullptr;
+    }
+
+    if (impl_->mode == SurfaceMode::Offscreen) {
+        if (impl_->offscreenColor == nullptr || impl_->depthTexture == nullptr)
+            return false;
+        rtv = impl_->offscreenColor->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
+        dsv = impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
+        return rtv != nullptr && dsv != nullptr;
     }
 
     if (impl_->compositionSwapChain == nullptr || impl_->depthTexture == nullptr)
@@ -470,6 +520,8 @@ void DiligentViewportTarget::Present ()
             impl_->swapChain->Present (1);
         return;
     }
+    if (impl_->mode == SurfaceMode::Offscreen)
+        return;
     if (impl_->compositionSwapChain == nullptr)
         return;
     // ⚠️ SYNC INTERVAL 1, NOT 0, AND A LIVE RUN IS WHY. Present(0) lets DWM pick
@@ -488,6 +540,49 @@ void DiligentViewportTarget::Present ()
         impl_->lastPresentResult.store (uint32_t (hr), std::memory_order_relaxed);
     if (FAILED (hr))
         impl_->presentFailures.fetch_add (1, std::memory_order_relaxed);
+}
+
+bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context,
+                                         std::string& png, std::string& error)
+{
+    png.clear ();
+    if (impl_ == nullptr || impl_->mode != SurfaceMode::Offscreen || context == nullptr ||
+        impl_->offscreenColor == nullptr || impl_->offscreenStaging == nullptr) {
+        error = "CapturePng requires a live offscreen target and context";
+        return false;
+    }
+
+    Diligent::CopyTextureAttribs copy;
+    copy.pSrcTexture = impl_->offscreenColor;
+    copy.SrcTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    copy.pDstTexture = impl_->offscreenStaging;
+    copy.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    context->CopyTexture (copy);
+    context->Flush ();
+
+    Diligent::MappedTextureSubresource mapped;
+    context->MapTextureSubresource (impl_->offscreenStaging, 0, 0, Diligent::MAP_READ,
+                                    Diligent::MAP_FLAG_NONE, nullptr, mapped);
+    if (mapped.pData == nullptr) {
+        error = "the offscreen staging texture could not be mapped";
+        return false;
+    }
+
+    Diligent::RefCntAutoPtr<Diligent::IDataBlob> blob = Diligent::DataBlobImpl::Create ();
+    // PNG's stable numeric colour-type value for RGBA. PNGCodec deliberately
+    // exposes an int without exporting libpng's private include directory.
+    constexpr int kPngColorTypeRgba = 6;
+    const auto encoded = Diligent::EncodePng (
+        static_cast<const Diligent::Uint8*> (mapped.pData), impl_->width, impl_->height,
+        static_cast<Diligent::Uint32> (mapped.Stride), kPngColorTypeRgba, blob);
+    context->UnmapTextureSubresource (impl_->offscreenStaging, 0, 0);
+
+    if (encoded != Diligent::ENCODE_PNG_RESULT_OK || blob == nullptr || blob->GetSize () == 0) {
+        error = "Diligent EncodePng failed for the offscreen frame";
+        return false;
+    }
+    png.assign (static_cast<const char*> (blob->GetConstDataPtr ()), blob->GetSize ());
+    return true;
 }
 
 // Bound the number of already-rendered frames DXGI may hold before showing one.
@@ -558,6 +653,8 @@ IDXGISwapChain* DiligentViewportTarget::Dxgi () const
 {
     if (impl_->mode == SurfaceMode::Overlay)
         return impl_->compositionSwapChain;
+    if (impl_->mode == SurfaceMode::Offscreen)
+        return nullptr;
     if (impl_->swapChain == nullptr)
         return nullptr;
     // ⚠️ SCOPED, AND THE BRACES ARE THE WHOLE POINT (PLAT-RE39). RefCntAutoPtr's

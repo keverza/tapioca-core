@@ -21,6 +21,82 @@ namespace {
 
 namespace av = archviz;
 
+av::CameraStart ReadCaptureCamera (const GS::ObjectState& params)
+{
+    GS::ObjectState p;
+    params.Get ("camera", p);
+    av::CameraStart camera;
+    double value = 0.0;
+    p.Get ("eyeX", value);    camera.eye[0] = float (value);
+    p.Get ("eyeY", value);    camera.eye[1] = float (value);
+    p.Get ("eyeZ", value);    camera.eye[2] = float (value);
+    p.Get ("targetX", value); camera.target[0] = float (value);
+    p.Get ("targetY", value); camera.target[1] = float (value);
+    p.Get ("targetZ", value); camera.target[2] = float (value);
+    p.Get ("viewConeDegreesHorizontal", value); camera.viewConeDegreesHorizontal = float (value);
+    GS::UniString source;
+    p.Get ("source", source); camera.source = source.ToCStr ().Get ();
+    p.Get ("valid", camera.valid);
+    p.Get ("orthographic", camera.orthographic);
+    p.Get ("viewMoving", camera.viewMoving);
+    return camera;
+}
+
+class StartDiligentCaptureCommand : public MainThreadCommand {
+public:
+    GS::String GetName () const override { return "StartDiligentCapture"; }
+    bool NeedsMainThread () const override { return false; }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int32 width = 0, height = 0;
+        GS::UniString quality;
+        params.Get ("width", width); params.Get ("height", height); params.Get ("renderQuality", quality);
+        uint64_t id = 0;
+        std::string error;
+        if (!av::DiligentViewport::Get ().StartCapture (uint32_t (width), uint32_t (height),
+                ReadCaptureCamera (params), quality == "realistic" ? 1 : 0, id, error))
+            return NativeCommandResult::Failure (GS::UniString (error.c_str (), CC_UTF8));
+        GS::ObjectState os;
+        os.Add ("id", static_cast<GS::Int64> (id)); os.Add ("status", "running");
+        return os;
+    }
+};
+
+class DiligentCaptureStateCommand : public MainThreadCommand {
+public:
+    GS::String GetName () const override { return "DiligentCaptureState"; }
+    bool NeedsMainThread () const override { return false; }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int64 id = 0;
+        params.Get ("id", id);
+        const av::DiligentCaptureStats stats = av::DiligentViewport::Get ().CaptureStats ();
+        if (stats.id != static_cast<uint64_t> (id))
+            return NativeCommandResult::Failure ("the Diligent capture id is unknown or has expired");
+        GS::ObjectState os;
+        os.Add ("id", static_cast<GS::Int64> (stats.id));
+        os.Add ("status", GS::UniString (stats.status.c_str (), CC_UTF8));
+        os.Add ("stage", GS::UniString (stats.stage.c_str (), CC_UTF8));
+        os.Add ("width", static_cast<GS::Int32> (stats.width)); os.Add ("height", static_cast<GS::Int32> (stats.height));
+        os.Add ("bytes", static_cast<GS::Int64> (stats.bytes)); os.Add ("url", GS::UniString (stats.url.c_str (), CC_UTF8));
+        os.Add ("failureMessage", GS::UniString (stats.failureMessage.c_str (), CC_UTF8));
+        return os;
+    }
+};
+
+class CancelDiligentCaptureCommand : public MainThreadCommand {
+public:
+    GS::String GetName () const override { return "CancelDiligentCapture"; }
+    bool NeedsMainThread () const override { return false; }
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int64 id = 0; params.Get ("id", id);
+        GS::ObjectState os;
+        os.Add ("cancelled", av::DiligentViewport::Get ().CancelCapture (static_cast<uint64_t> (id)));
+        return os;
+    }
+};
+
 class ProbeDiligentDeviceCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -872,6 +948,12 @@ const NativeCommandRegistration
         { "DiligentViewportState", &MakeRegisteredNativeCommand<DiligentViewportStateCommand>, false,
           R"json({"type":"object","properties":{},"additionalProperties":false})json",
           R"json({"type":"object","properties":{"running":{"type":"boolean"},"initialized":{"type":"boolean"},"failed":{"type":"boolean"},"failureMessage":{"type":"string"},"frames":{"type":"integer","minimum":0},"fps":{"type":"number","minimum":0},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"resizes":{"type":"integer","minimum":0},"clearChecked":{"type":"boolean"},"diligentClearMatched":{"type":"boolean"},"nativeClearMatched":{"type":"boolean"},"diligentClearReport":{"type":"string"},"nativeClearReport":{"type":"string"},"adapter":{"type":"string"},"featureLevel":{"type":"integer","minimum":0},"presentCount":{"type":"integer","minimum":0},"stalePresents":{"type":"integer","minimum":0},"presentFailures":{"type":"integer","minimum":0},"lastPresentResult":{"type":"integer"},"frameLatency":{"type":"integer","minimum":0},"deviceRemovedReason":{"type":"integer","minimum":0},"sceneReady":{"type":"boolean"},"sceneElements":{"type":"integer","minimum":0},"sceneTriangles":{"type":"integer","minimum":0},"sceneVertices":{"type":"integer","minimum":0},"sceneGpuBytes":{"type":"integer","minimum":0},"scenePending":{"type":"integer","minimum":0},"sceneMaterials":{"type":"integer","minimum":0},"materialMisses":{"type":"integer","minimum":0},"transparentRanges":{"type":"integer","minimum":0},"sunApplied":{"type":"boolean"},"sunBelowHorizon":{"type":"boolean"},"sunX":{"type":"number"},"sunY":{"type":"number"},"sunZ":{"type":"number"},"ambient":{"type":"number","minimum":0,"maximum":1},"sunOverridden":{"type":"boolean"},"sunAzimuthDegrees":{"type":"number"},"sunBearingDegrees":{"type":"number"},"northDegrees":{"type":"number"},"sunAltitudeDegrees":{"type":"number"},"shadowReady":{"type":"boolean"},"shadowFitted":{"type":"boolean"},"shadowResolution":{"type":"integer","minimum":0},"shadowTexelMetres":{"type":"number","minimum":0},"cameraEyeX":{"type":"number"},"cameraEyeY":{"type":"number"},"cameraEyeZ":{"type":"number"},"cameraTargetX":{"type":"number"},"cameraTargetY":{"type":"number"},"cameraTargetZ":{"type":"number"},"cameraFovDegreesVertical":{"type":"number","minimum":0},"cameraSyncs":{"type":"integer","minimum":0},"cameraSource":{"type":"string"},"pickAvailable":{"type":"boolean"},"pickSeq":{"type":"integer","minimum":0},"pickedGuid":{"type":"string"},"selectedCount":{"type":"integer","minimum":0},"planAnchors":{"type":"boolean"},"planAnchorLayerReady":{"type":"boolean"},"planAnchorVertices":{"type":"integer","minimum":0},"planAnchorWidthPixels":{"type":"number","minimum":0},"selectionBridgeMode":{"type":"integer","minimum":0,"maximum":3},"overlay":{"type":"boolean"},"latitudeDegrees":{"type":"number"},"longitudeDegrees":{"type":"number"},"siteAltitudeMetres":{"type":"number"},"sunYear":{"type":"integer","minimum":0},"sunMonth":{"type":"integer","minimum":0},"sunDay":{"type":"integer","minimum":0},"sunHour":{"type":"integer","minimum":0},"sunMinute":{"type":"integer","minimum":0},"summerTime":{"type":"boolean"},"haveComputedSun":{"type":"boolean"},"computedAzimuthDegrees":{"type":"number"},"computedAltitudeDegrees":{"type":"number"},"renderMode":{"type":"integer","minimum":0,"maximum":2},"callout":{"type":"boolean"},"debugView":{"type":"integer","minimum":0,"maximum":13},"environmentLoaded":{"type":"boolean"},"environmentActive":{"type":"boolean"},"environmentMipLevels":{"type":"integer","minimum":0},"environmentAverageR":{"type":"number"},"environmentAverageG":{"type":"number"},"environmentAverageB":{"type":"number"},"environmentPath":{"type":"string"},"environmentError":{"type":"string"},"environmentPrefiltered":{"type":"boolean"},"environmentPrefilteredMips":{"type":"integer","minimum":0},"environmentPrefilterMs":{"type":"number","minimum":0},"environmentPrefilterError":{"type":"string"},"autoExposureEnabled":{"type":"boolean"},"autoExposure":{"type":"number","minimum":0},"appliedExposure":{"type":"number","minimum":0},"fixedExposure":{"type":"number","minimum":0},"sceneLuminance":{"type":"number","minimum":0},"meanAlbedo":{"type":"number","minimum":0},"aoRadiusMetres":{"type":"number","minimum":0},"whiteBalanceR":{"type":"number","minimum":0},"whiteBalanceG":{"type":"number","minimum":0},"whiteBalanceB":{"type":"number","minimum":0},"substanceNamed":{"type":"integer","minimum":0},"substanceCounts":{"type":"object","properties":{"unknown":{"type":"integer","minimum":0},"earth":{"type":"integer","minimum":0},"concrete":{"type":"integer","minimum":0},"metal":{"type":"integer","minimum":0},"plastic":{"type":"integer","minimum":0},"glass":{"type":"integer","minimum":0},"wood":{"type":"integer","minimum":0}},"additionalProperties":false}},"additionalProperties":false,"required":["overlay","latitudeDegrees","longitudeDegrees","siteAltitudeMetres","sunYear","sunMonth","sunDay","sunHour","sunMinute","summerTime","haveComputedSun","computedAzimuthDegrees","computedAltitudeDegrees","renderMode","callout","running","initialized","failed","failureMessage","frames","fps","width","height","resizes","clearChecked","diligentClearMatched","nativeClearMatched","diligentClearReport","nativeClearReport","adapter","featureLevel","presentCount","deviceRemovedReason","sceneReady","sceneElements","sceneTriangles","sceneVertices","sceneGpuBytes","scenePending","sceneMaterials","materialMisses","transparentRanges","sunApplied","sunBelowHorizon","sunX","sunY","sunZ","ambient","sunOverridden","sunAzimuthDegrees","sunBearingDegrees","northDegrees","sunAltitudeDegrees","shadowReady","shadowFitted","shadowResolution","shadowTexelMetres","cameraEyeX","cameraEyeY","cameraEyeZ","cameraTargetX","cameraTargetY","cameraTargetZ","cameraFovDegreesVertical","cameraSyncs","cameraSource","pickAvailable","pickSeq","pickedGuid","selectedCount","planAnchors","planAnchorLayerReady","planAnchorVertices","planAnchorWidthPixels","selectionBridgeMode","debugView"]})json" },
+        { "StartDiligentCapture", &MakeRegisteredNativeCommand<StartDiligentCaptureCommand>, false,
+          R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"renderQuality":{"type":"string","enum":["fast","realistic"]},"camera":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}},"additionalProperties":false,"required":["width","height","renderQuality","camera"]})json", R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","const":"running"}},"additionalProperties":false,"required":["id","status"]})json" },
+        { "DiligentCaptureState", &MakeRegisteredNativeCommand<DiligentCaptureStateCommand>, false,
+          R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json", R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","enum":["running","completed","failed","cancelled"]},"stage":{"type":"string"},"width":{"type":"integer","minimum":16},"height":{"type":"integer","minimum":16},"bytes":{"type":"integer","minimum":0},"url":{"type":"string","minLength":1},"failureMessage":{"type":"string"}},"additionalProperties":false,"required":["id","status","stage","width","height","bytes","url","failureMessage"]})json" },
+        { "CancelDiligentCapture", &MakeRegisteredNativeCommand<CancelDiligentCaptureCommand>, false,
+          R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json", R"json({"type":"object","properties":{"cancelled":{"type":"boolean"}},"additionalProperties":false,"required":["cancelled"]})json" },
         { "OpenDiligentOverlay", &MakeRegisteredNativeCommand<OpenDiligentOverlayCommand>, false,
           R"json({"type":"object","properties":{"attach":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false})json",
           R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },

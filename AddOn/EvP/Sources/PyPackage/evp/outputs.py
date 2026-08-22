@@ -33,12 +33,13 @@ from __future__ import annotations
 import csv as _csv
 import json as _json
 import os
+import time as _time
 import urllib.request as _request
 
 from . import paths
 
 __all__ = ["Artifact", "OutputError", "STANDARD_ACTIONS",
-           "csv_file", "json_file", "text_file", "image", "capture", "pdf",
+           "csv_file", "json_file", "text_file", "image", "capture", "diligent_capture", "pdf",
            "to_layout", "to_worksheet", "to_3d_document",
            "bake", "set_properties", "set_geometry",
            "run_action", "table_of"]
@@ -163,6 +164,56 @@ def capture(name, view="current", save=True):
             "to be running." % (view, url, exc)) from exc
 
     return (image(name, png) if save else None), png
+
+
+def diligent_capture(name, camera, width, height, render_quality="realistic",
+                      save=True, timeout=300.0, poll_interval=0.1):
+    """Render a fixed-size Diligent frame and return ``(artifact, png_bytes)``.
+
+    Native extraction and rendering are asynchronous. This wrapper polls their
+    non-blocking state command and downloads the completed PNG from loopback.
+    """
+    from .api import call
+
+    started = call("Tapioca.StartDiligentCapture", {
+        "width": width,
+        "height": height,
+        "renderQuality": render_quality,
+        "camera": dict(camera),
+    }, raise_on_error=False)
+    if not started.ok:
+        raise OutputError("Diligent capture did not start: %s" % _result_error(started))
+
+    capture_id = (started.data or {}).get("id")
+    deadline = _time.monotonic() + float(timeout)
+    while True:
+        state_result = call("Tapioca.DiligentCaptureState", {"id": capture_id},
+                            raise_on_error=False)
+        if not state_result.ok:
+            raise OutputError("Diligent capture state failed: %s" % _result_error(state_result))
+        state = state_result.data or {}
+        status = state.get("status")
+        if status == "completed":
+            url = state.get("url")
+            try:
+                with _request.urlopen(url) as response:
+                    png = response.read()
+            except Exception as exc:
+                raise OutputError("Diligent capture completed, but fetching %s failed: %s"
+                                  % (url, exc)) from exc
+            return (image(name, png) if save else None), png
+        if status in ("failed", "cancelled"):
+            raise OutputError("Diligent capture %s during %s: %s"
+                              % (status, state.get("stage"),
+                                 state.get("failureMessage") or "no reason given"))
+        if _time.monotonic() >= deadline:
+            call("Tapioca.CancelDiligentCapture", {"id": capture_id}, raise_on_error=False)
+            raise OutputError("Diligent capture timed out after %.1f seconds" % float(timeout))
+        _time.sleep(float(poll_interval))
+
+
+def _result_error(result):
+    return (result.error or {}).get("message") or "no reason given"
 
 
 def pdf(name, title, headers=(), rows=(), images=(), footer="", landscape=False):

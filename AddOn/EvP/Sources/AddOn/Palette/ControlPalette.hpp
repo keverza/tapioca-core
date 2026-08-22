@@ -229,9 +229,14 @@ class ControlPalette final : public DG::Palette,
     virtual void ListBoxContextMenuRequested (const DG::ListBoxContextMenuEvent& ev, bool* processed) override;
 
     // Shared by all three: the guard, the position, the display and the dispatch.
-    // Returns true when a menu was actually shown, which is what the caller reports
-    // back to DG as `processed`.
-    bool ShowContextMenu ();
+    // `clicked` is the item under the pointer (null over bare panel), which is all
+    // it takes to tell the regions apart. Returns true when a menu was actually
+    // shown, which is what the caller reports back to DG as `processed`.
+    bool ShowContextMenu (const DG::Item* clicked);
+    // Which region of the palette `clicked` belongs to, in the vocabulary
+    // @tapioca.menu declares against: "panel", "params", "param:<name>",
+    // "commands", "results".
+    GS::UniString RegionOf (const DG::Item* clicked) const;
     virtual void PanelCloseRequested (const DG::PanelCloseRequestEvent& ev, bool* accepted) override;
 
     static GSErrCode PaletteControlCallBack (Int32 referenceID, API_PaletteMessageID messageID, GS::IntPtr param);

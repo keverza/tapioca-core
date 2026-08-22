@@ -22,9 +22,13 @@
 #include "ArchViz/DiligentViewport.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp"   // BuildAnchorRibbonSet
+#include "ArchViz/SceneCmdQueue.hpp"
 
+#include <cmath>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <utility>
@@ -41,6 +45,12 @@ DiligentViewport& DiligentViewport::Get ()
 DiligentViewport::~DiligentViewport () { Stop (); }
 
 bool DiligentViewport::Start (const Surface& surface, const CameraStart& camera)
+{
+    std::lock_guard<std::mutex> lock (lifecycleMutex_);
+    return StartUnlocked (surface, camera);
+}
+
+bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart& camera)
 {
     if (running_.load () || !surface.IsValid ())
         return false;
@@ -60,6 +70,7 @@ bool DiligentViewport::Start (const Surface& surface, const CameraStart& camera)
         stats_.width = surface.width;
         stats_.height = surface.height;
         stats_.cameraSource = camera.source;
+        currentCameraAvailable_ = false;
     }
     running_.store (true);
     ArchVizLog ("---- Diligent viewport starting: " + std::to_string (surface.width) + "x" +
@@ -72,8 +83,103 @@ bool DiligentViewport::Start (const Surface& surface, const CameraStart& camera)
     return true;
 }
 
+bool DiligentViewport::StartCapture (uint32_t width, uint32_t height,
+                                     const CameraStart& camera, int renderQuality,
+                                     uint64_t& captureId, std::string& error)
+{
+    std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
+    captureId = 0;
+    if (!camera.valid || camera.orthographic) {
+        error = "headless capture currently requires a valid perspective camera";
+        return false;
+    }
+    for (int axis = 0; axis < 3; ++axis) {
+        if (!std::isfinite (camera.eye[axis]) || !std::isfinite (camera.target[axis]) ||
+            std::abs (camera.eye[axis]) > 1e15f || std::abs (camera.target[axis]) > 1e15f) {
+            error = "headless capture camera coordinates must be finite and within +/-1e15 metres";
+            return false;
+        }
+    }
+    const double dx = double (camera.eye[0]) - double (camera.target[0]);
+    const double dy = double (camera.eye[1]) - double (camera.target[1]);
+    const double dz = double (camera.eye[2]) - double (camera.target[2]);
+    if (dx * dx + dy * dy + dz * dz <= 1e-8f ||
+        camera.viewConeDegreesHorizontal <= 1.0f || camera.viewConeDegreesHorizontal >= 179.0f) {
+        error = "headless capture requires distinct eye/target points and a horizontal field of view in (1, 179)";
+        return false;
+    }
+    if (IsRunning () || ExtractionWorker::Get ().IsRunning ()) {
+        error = "a Diligent viewport or extraction pass is already running";
+        return false;
+    }
+    if (worker_.joinable ())
+        worker_.join ();
+
+    SceneCmdQueue::Get ().Clear ();
+    {
+        std::lock_guard<std::mutex> lock (mutex_);
+        captureId = ++nextCaptureId_;
+        captureStats_ = {};
+        captureStats_.id = captureId;
+        captureStats_.status = "running";
+        captureStats_.stage = "extracting";
+        captureStats_.width = width;
+        captureStats_.height = height;
+        captureStats_.url = "http://127.0.0.1:19191/screenshot/diligent?id=" + std::to_string (captureId);
+    }
+    activeCaptureId_.store (captureId);
+    captureRenderQuality_.store (renderQuality);
+
+    ExtractionWorker::Get ().Start (true);
+    Surface surface;
+    surface.mode = SurfaceMode::Offscreen;
+    surface.width = width;
+    surface.height = height;
+    if (!StartUnlocked (surface, camera)) {
+        ExtractionWorker::Get ().Stop ();
+        SceneCmdQueue::Get ().Clear ();
+        activeCaptureId_.store (0);
+        std::lock_guard<std::mutex> lock (mutex_);
+        captureStats_.status = "failed";
+        captureStats_.stage = "starting";
+        captureStats_.failureMessage = "the offscreen D3D11 viewport refused to start";
+        error = captureStats_.failureMessage;
+        return false;
+    }
+    return true;
+}
+
+bool DiligentViewport::CancelCapture (uint64_t captureId)
+{
+    uint64_t expected = captureId;
+    if (captureId == 0 || !activeCaptureId_.compare_exchange_strong (
+                              expected, (std::numeric_limits<uint64_t>::max) ()))
+        return false;
+    ExtractionWorker::Get ().RequestStop ();
+    stopRequested_.store (true);
+    std::lock_guard<std::mutex> lock (mutex_);
+    captureStats_.stage = "cancelling";
+    return true;
+}
+
+DiligentCaptureStats DiligentViewport::CaptureStats () const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    return captureStats_;
+}
+
+bool DiligentViewport::CurrentCamera (CameraStart& camera) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    if (!currentCameraAvailable_)
+        return false;
+    camera = currentCamera_;
+    return true;
+}
+
 void DiligentViewport::Stop ()
 {
+    std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
     stopRequested_.store (true);
     if (worker_.joinable ())
         worker_.join ();

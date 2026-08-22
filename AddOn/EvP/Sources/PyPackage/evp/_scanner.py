@@ -426,6 +426,90 @@ def _resolve_actions(meta, tree, line):
     meta["action_labels"] = labels
 
 
+# Where a right-click entry may appear. The palette resolves the region of the
+# click itself (Palette/ControlPaletteMenu.cpp); this list is what an author is
+# allowed to name, and naming anything else is a scan error rather than an entry
+# that silently never shows.
+MENU_REGIONS = ("panel", "params", "commands", "results")
+MENU_PARAM_PREFIX = "param:"
+
+
+def _custom_menu_items(tree):
+    """[(name, label, region)] for every module-level function carrying
+    @evp.menu("...") — in source order, which is the order they appear in.
+
+    Read statically, like the action labels above and for the same reason: the
+    palette has to build the menu without executing the file.
+    """
+    found = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in node.decorator_list:
+            call = decorator if isinstance(decorator, ast.Call) else None
+            if call is None:
+                continue
+            target = call.func
+            name = (target.attr if isinstance(target, ast.Attribute)
+                    else getattr(target, "id", None))
+            if name != "menu" or not call.args:
+                continue
+            label = _literal(call.args[0], "@evp.menu(...)")
+            declared = node.name
+            region = "panel"
+            for keyword in call.keywords:
+                if keyword.arg == "name":
+                    declared = _literal(keyword.value, "@evp.menu(name=...)")
+                elif keyword.arg == "region":
+                    region = _literal(keyword.value, "@evp.menu(region=...)")
+            found.append((str(declared), str(label), str(region)))
+    return found
+
+
+def _resolve_menu(meta, tree, line):
+    """Turn the module's @menu functions into three flat parallel arrays: the
+    names run_action takes, what each entry says, and where it appears.
+
+    Parallel arrays for the same reason `actions` uses them — C++ reads string
+    arrays out of ObjectState reliably and nested objects it does not.
+
+    A "param:<name>" region is checked against the command's OWN parameters here,
+    where the line number is still known. A command whose ports come from a model
+    (`inputs=`) has no statically readable parameters, so that check is skipped
+    rather than guessed at.
+    """
+    declared_params = {str(p.get("name")) for p in (meta.get("params") or [])}
+    schema_ports = bool(meta.get("inputs"))
+
+    names, labels, regions = [], [], []
+    for name, label, region in _custom_menu_items(tree):
+        if region.startswith(MENU_PARAM_PREFIX):
+            param = region[len(MENU_PARAM_PREFIX):]
+            if not param:
+                raise ScanError(
+                    '@evp.menu(region="param:...") needs a parameter name after '
+                    "the colon, e.g. \"param:offset\" (line %d)" % line, line)
+            if not schema_ports and param not in declared_params:
+                raise ScanError(
+                    "@evp.menu(region=%r) names a parameter this command does not "
+                    "declare. Declared: %s. An entry pinned to a control that does "
+                    "not exist can never appear (line %d)"
+                    % (region, ", ".join(sorted(declared_params)) or "none", line),
+                    line)
+        elif region not in MENU_REGIONS:
+            raise ScanError(
+                "@evp.menu(region=%r) is not a region. Use one of %s, or "
+                '"param:<name>" for a single parameter\'s control (line %d)'
+                % (region, ", ".join(MENU_REGIONS), line), line)
+        names.append(name)
+        labels.append(label)
+        regions.append(region)
+
+    meta["menu_items"] = names
+    meta["menu_labels"] = labels
+    meta["menu_regions"] = regions
+
+
 def scan_file(path, folder_name):
     """Metadata for one command.py. Raises ScanError with a reason and a line."""
     with open(path, "r", encoding="utf-8") as handle:
@@ -499,6 +583,14 @@ def scan_file(path, folder_name):
                 # parallel arrays, same reason as above.
                 "actions": [],
                 "action_labels": [],
+                # The command's own right-click entries: the names run_action
+                # takes, what each says, and which region of the palette it
+                # appears over. Three flat parallel arrays, same reason as above.
+                # ALWAYS emitted, so a command with no menu reaches C++ as three
+                # empty arrays rather than three missing keys.
+                "menu_items": [],
+                "menu_labels": [],
+                "menu_regions": [],
             }
             if decorator.args:
                 raise ScanError(
@@ -593,6 +685,12 @@ def scan_file(path, folder_name):
                         "the open project's Working Unit."
                         % (param["name"], param["unit"], decorator.lineno,
                            api_unit, api_name), decorator.lineno)
+
+            # AFTER the parameters are parsed, because a "param:<name>" region is
+            # checked against them — an entry pinned to a control that does not
+            # exist is caught at Rescan rather than by a right-click that does
+            # nothing.
+            _resolve_menu(meta, tree, decorator.lineno)
 
             # Fold each localized label into its parameter's own metadata, so the
             # C++ dialog generator reads it flat (os.Get("label", ...)) — it cannot

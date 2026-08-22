@@ -35,6 +35,16 @@
 //     override will simply never fire for it and the inputs stay as they are —
 //     nothing else regresses. That is the one outcome still unmeasured.)
 //
+// ── CONTEXT SENSITIVITY ────────────────────────────────────────────────────────
+// The menu is not one menu. RegionOf () turns the item under the pointer into a
+// region name — "panel", "params", "param:<name>", "commands", "results" — and the
+// selected command's own entries (@tapioca.menu in its Python source, carried
+// through CommandInfo::menuItems) are filtered to it. The built-in three are always
+// there underneath, so every region is a superset of the same floor.
+//
+// A chosen entry runs through RunSelected, which is the action-bar path: a menu
+// entry IS an action, and nothing about executing one is new machinery.
+//
 // THIS ADDS NO ROUTE. ControlPalette already derives from DG::PanelObserver and
 // DG::ListBoxObserver, already reaches ItemObserver through six of its bases, and
 // already Attach()es every item involved. No .grc item, no resource, no new Attach,
@@ -52,7 +62,37 @@
 // The guard, the position, the display and the dispatch — shared by all three
 // events, so the three handlers below are each two lines and there is exactly one
 // place the menu's behaviour lives.
-bool ControlPalette::ShowContextMenu ()
+// Which region of the palette the pointer was over, in the vocabulary
+// @tapioca.menu declares against. The whole of the palette's context sensitivity is
+// this function: everything downstream is a string compare (evp::PaletteContextMenu
+// ::ShowsIn), so a new region is one line here and one word in the Python docstring.
+//
+// Each band answers for its own items — the shell asks, it does not reach in. That
+// is the same seam ButtonClicked and PanelWheelTracked already use.
+GS::UniString ControlPalette::RegionOf (const DG::Item* clicked) const
+{
+    if (clicked == nullptr) // bare panel, between the bands
+        return "panel";
+
+    // A generated parameter control names its own port, so an entry can be pinned
+    // to one row: "param:offset" appears over offset's field, its label and (for a
+    // FilePath) its Browse button, and nowhere else.
+    const GS::UniString param = params.ParamNameAt (clicked);
+    if (!param.IsEmpty ())
+        return GS::UniString ("param:") + param;
+
+    if (commandsPanel.IsSource (clicked)) // the list and its search field
+        return "commands";
+    if (results.IsSource (clicked))
+        return "results";
+
+    // Buttons, the status lines, the server band: all palette furniture. A command
+    // cannot pin an entry to them, and the built-ins are the same everywhere, so
+    // they answer as the panel does.
+    return "panel";
+}
+
+bool ControlPalette::ShowContextMenu (const DG::Item* clicked)
 {
     // The main-thread guard. A false return leaves `processed` alone, which hands
     // the click back to DG — so a right-click during a run behaves exactly as it
@@ -86,13 +126,13 @@ bool ControlPalette::ShowContextMenu ()
     if (!mouse.Retrieve ())
         return false;
 
-    const evp::PaletteContextMenu::Choice choice =
-        contextMenu.Display (mouse.GetMouseOffsetInNativeUnits (), WhatIsMissing ().IsEmpty ());
+    const evp::PaletteContextMenu::Result picked = contextMenu.Display (
+        mouse.GetMouseOffsetInNativeUnits (), WhatIsMissing ().IsEmpty (), SelectedCommand (), RegionOf (clicked));
     // Display BLOCKS for as long as the menu is open, so the stamp goes here, on the
     // close — not on the open.
     lastContextMenuAt = std::chrono::steady_clock::now ();
 
-    switch (choice) {
+    switch (picked.choice) {
         case evp::PaletteContextMenu::Choice::Run:
             RunSelected ();
             break;
@@ -101,6 +141,13 @@ bool ControlPalette::ShowContextMenu ()
             break;
         case evp::PaletteContextMenu::Choice::Hide:
             Hide ();
+            break;
+        case evp::PaletteContextMenu::Choice::Action:
+            // A menu entry IS an action: the same RunSelected the action bar's
+            // buttons use, so the worker, the token, the Cancel role and the
+            // completion path are all the ones that already exist. Nothing about
+            // running a right-click entry is a special case.
+            RunSelected (picked.action);
             break;
         case evp::PaletteContextMenu::Choice::None:
             break;
@@ -111,31 +158,26 @@ bool ControlPalette::ShowContextMenu ()
 }
 
 // The panel background, the buttons and the static text.
-//
-// ev.GetItem () is what a REGION-AWARE menu would branch on — it is the control
-// under the pointer, or null over bare panel. Deliberately unused: this menu is the
-// same everywhere, so there is nothing yet to branch on. See
-// docs/architecture/api/RMB-CONTEXT-MENU-LIMITS.md §2 for what each region can be
-// identified by.
-void ControlPalette::PanelContextMenuRequested (const DG::PanelContextMenuEvent& /*ev*/, bool* needHelp,
-                                                bool* processed)
+void ControlPalette::PanelContextMenuRequested (const DG::PanelContextMenuEvent& ev, bool* needHelp, bool* processed)
 {
     // Decline the "What's this?" route — this panel has no help anchors.
     if (needHelp != nullptr)
         *needHelp = false;
 
-    if (ShowContextMenu () && processed != nullptr)
+    // GetItem () is the control under the pointer, or null over bare panel — the
+    // one thing the region needs.
+    if (ShowContextMenu (ev.GetItem ()) && processed != nullptr)
         *processed = true;
 }
 
 // Every generated parameter control and the command search field. One override
 // covers them all because they all attach to this object.
-void ControlPalette::ItemContextMenuRequested (const DG::ItemContextMenuEvent& /*ev*/, bool* needHelp, bool* processed)
+void ControlPalette::ItemContextMenuRequested (const DG::ItemContextMenuEvent& ev, bool* needHelp, bool* processed)
 {
     if (needHelp != nullptr)
         *needHelp = false;
 
-    if (ShowContextMenu () && processed != nullptr)
+    if (ShowContextMenu (ev.GetSource ()) && processed != nullptr)
         *processed = true;
 }
 
@@ -143,11 +185,12 @@ void ControlPalette::ItemContextMenuRequested (const DG::ItemContextMenuEvent& /
 // event themselves and would never reach the panel handler.
 //
 // ⚠️ ev.GetItem () is the ROW UNDER THE POINTER, which is not necessarily the
-// SELECTED row. The menu's Run therefore still runs the selected command, not the
-// one that was right-clicked. Uniform with every other region for now; making the
-// click select first is the first thing a per-region menu should change.
-void ControlPalette::ListBoxContextMenuRequested (const DG::ListBoxContextMenuEvent& /*ev*/, bool* processed)
+// SELECTED row, so this handler passes GetSource () — the list box — and the region
+// is "commands", not one row. Run therefore still runs the SELECTED command, not
+// the one that was right-clicked. Making the click select first is the next thing
+// this region should gain.
+void ControlPalette::ListBoxContextMenuRequested (const DG::ListBoxContextMenuEvent& ev, bool* processed)
 {
-    if (ShowContextMenu () && processed != nullptr)
+    if (ShowContextMenu (ev.GetSource ()) && processed != nullptr)
         *processed = true;
 }

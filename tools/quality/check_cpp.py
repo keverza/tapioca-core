@@ -37,6 +37,14 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "ArchViz/DiligentViewport.cpp": (
+        1090,
+        "the single render-thread lifecycle and frame-order authority. Device and "
+        "target control, support algorithms, scene storage/draw passes, and offscreen "
+        "target ownership already live in separate translation units; splitting the "
+        "ordered frame body would create a second description of pass ordering. This "
+        "entry freezes its current size, so future work must extract rather than grow it",
+    ),
     "Palette/ControlPalette.cpp": (
         675,
         "the palette shell - one concern; splitting it would cut the DG event "

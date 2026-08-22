@@ -33,6 +33,15 @@ struct CommandInfo {
     // ObjectState reliably and nested objects it does not.
     GS::Array<GS::UniString> actions;
     GS::Array<GS::UniString> actionLabels;
+    // The command's own RIGHT-CLICK entries (@tapioca.menu). Three parallel arrays
+    // for the same reason: menuItems[i] is the name run_action takes — a menu entry
+    // is dispatched down the identical path an action button uses — menuLabels[i] is
+    // what the entry says, and menuRegions[i] is WHERE it appears: "panel",
+    // "params", "param:<name>", "commands" or "results". The palette resolves the
+    // region of the click and shows the entries that match.
+    GS::Array<GS::UniString> menuItems;
+    GS::Array<GS::UniString> menuLabels;
+    GS::Array<GS::UniString> menuRegions;
     // Which preview band to size: "text" (the Plan.diff, free for every planning
     // command), "3d" or "plan2d". DECLARED by the command rather than inferred,
     // because the band has to be laid out before any command code runs.

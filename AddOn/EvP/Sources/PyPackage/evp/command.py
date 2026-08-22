@@ -563,3 +563,47 @@ def action(label, name=None):
         return fn
 
     return decorate
+
+
+def menu(label, region="panel", name=None):
+    """Put one of this command's OWN actions in the palette's RIGHT-CLICK menu.
+
+    The context-sensitive half of the output API. `@tapioca.action` puts an entry
+    in the action bar, where every command's buttons sit in the same place; this
+    puts one under the pointer, where WHAT WAS CLICKED is part of the question.
+
+        @tapioca.menu("Reset offsets", region="params")
+        def reset_offsets(ctx, outputs):
+            ...            # `outputs` is the LAST run's result, from the store
+
+    A MENU ENTRY IS AN ACTION. Same `(ctx, outputs)` contract, same run store,
+    same worker, same Cancel — the palette dispatches it down the identical path
+    an action button uses, so nothing about running it is a special case. The only
+    thing `menu` adds is WHERE it appears.
+
+    `region` says where that is:
+
+        "panel"         anywhere on the palette — the default
+        "params"        over any generated parameter control
+        "param:<name>"  over ONE named parameter's control, e.g. "param:offset"
+        "commands"      over the command list and its search field
+        "results"       over the results table
+
+    A "param:<name>" region naming a parameter the command does not declare is a
+    scan error, not a menu entry that never appears: the palette reads these
+    statically, so a typo can be caught at Rescan instead of by a user wondering
+    why right-clicking does nothing.
+
+    ⚠️ THE COMMAND IS NOT RE-RUN to serve an entry, exactly as for `action` — and
+    `outputs` is None when nothing has run yet, so an entry that acts on a result
+    must say so rather than assume one.
+
+    `label` and `region` MUST be literals: the palette reads them with the AST
+    scanner, which never executes the file.
+    """
+    def decorate(fn):
+        fn.__evp_action__ = {"name": name or fn.__name__, "label": str(label)}
+        fn.__evp_menu__ = {"region": str(region)}
+        return fn
+
+    return decorate

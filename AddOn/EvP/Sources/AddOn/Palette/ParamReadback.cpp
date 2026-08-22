@@ -115,8 +115,8 @@ GS::UniString ParamControl::CurrentValueText () const
             // in a command's source, so show_when={"plot_field": "SKLYPOPLOTAS"} is
             // genuinely usable here.
             const short selected = static_cast<DG::PopUp*> (control.get ())->GetSelectedItem ();
-            return (selected >= 1 && (UIndex) selected <= choiceValues.GetSize ())
-                       ? choiceValues[selected - 1] : GS::UniString ();
+            return (selected >= 1 && (UIndex) selected <= choiceValues.GetSize ()) ? choiceValues[selected - 1]
+                                                                                   : GS::UniString ();
         }
         case Kind::Text:
         case Kind::FilePath:
@@ -247,6 +247,28 @@ GS::UniString ParamPanel::CollectJson () const
 // INVISIBLE ROWS ARE IGNORED (F3), for the same reason a readonly one is: a
 // required parameter the user cannot see would disable Run with a message naming
 // a control that is not on screen — a dead end with no way out of it.
+// Which parameter a DG item belongs to. Lives beside the other question the shell
+// asks about the controls rather than about one control, and for the same reason:
+// only this object knows which item was built for which port.
+GS::UniString ParamPanel::ParamNameAt (const DG::Item* item) const
+{
+    if (item == nullptr)
+        return GS::UniString ();
+
+    for (const ParamControl& pc : paramControls) {
+        // Widget () hands back whichever item is live for this row — the generated
+        // control, or the borrowed pen swatch for Kind::Pen. The label counts too:
+        // to a user aiming a pointer, the row's caption is as much "that parameter"
+        // as the field is.
+        if (pc.Widget () == item || pc.label.get () == item)
+            return pc.name;
+        // A FilePath row is TWO items: the field and the Browse button beside it.
+        if (pc.browseButton != nullptr && pc.browseButton.get () == item)
+            return pc.name;
+    }
+    return GS::UniString ();
+}
+
 GS::UniString ParamPanel::WhatIsMissing () const
 {
     for (const ParamControl& pc : paramControls) {

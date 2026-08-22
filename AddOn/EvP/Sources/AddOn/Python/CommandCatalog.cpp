@@ -71,6 +71,9 @@ ScanOutcome ScanCommandFolders ()
         os.Get ("preview_kind", info.previewKind);
         os.Get ("actions", info.actions);
         os.Get ("action_labels", info.actionLabels);
+        os.Get ("menu_items", info.menuItems);
+        os.Get ("menu_labels", info.menuLabels);
+        os.Get ("menu_regions", info.menuRegions);
         os.Get ("timeout_s", info.timeoutSeconds);
         os.Get ("paramsJson", info.paramJsons);
         outcome.commands.push_back (info);
@@ -124,6 +127,9 @@ GS::UniString CommandInfoJson (const CommandInfo& info)
     command.Add ("preview_kind", info.previewKind);
     command.Add ("actions", info.actions);
     command.Add ("action_labels", info.actionLabels);
+    command.Add ("menu_items", info.menuItems);
+    command.Add ("menu_labels", info.menuLabels);
+    command.Add ("menu_regions", info.menuRegions);
     command.Add ("timeout_s", info.timeoutSeconds);
     command.Add ("params", info.paramJsons);
 

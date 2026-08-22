@@ -43,7 +43,11 @@ struct Surface {
     uint32_t width  = 0;
     uint32_t height = 0;
 
-    bool IsValid () const { return nwh != nullptr && width > 0 && height > 0; }
+    bool IsValid () const
+    {
+        return width > 0 && height > 0 &&
+               (mode == SurfaceMode::Offscreen || nwh != nullptr);
+    }
 };
 
 }   // namespace archviz

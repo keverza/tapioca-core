@@ -1,7 +1,7 @@
 """evp.paths — the ONE place a command decides WHERE to write.
 
 Every Tapioca command, probe, and test-dump writes only under ``%LOCALAPPDATA%\\Tapioca\\``,
-in one of three buckets, each with a FIXED behaviour. Pick the bucket by what the
+in one of four buckets, each with a FIXED behaviour. Pick the bucket by what the
 file is *for*, and the behaviour comes for free:
 
     logs/     <name>.log            a human reads it to see what happened.
@@ -12,6 +12,8 @@ file is *for*, and the behaviour comes for free:
     dumps/    <case>__<stamp>/...   a test / geometry capture you replay offline later.
                                     UNIQUE per run (timestamped), NEVER overwritten;
                                     the user prunes these by hand.
+    presets/  <kind>/<name>.json    reusable user-authored settings. Named, durable,
+                                    and replaced atomically only when requested.
 
 Rule of thumb:
   * Overwrite every run, only the latest matters      -> output_path()
@@ -65,6 +67,13 @@ def output_dir():
 
 def dumps_dir():
     return _bucket("dumps")
+
+
+def presets_dir(kind):
+    r"""A reusable-settings directory under the Tapioca ``presets`` bucket."""
+    path = os.path.join(_bucket("presets"), _slug(kind))
+    os.makedirs(path, exist_ok=True)
+    return path
 
 
 def cache_dir(name):

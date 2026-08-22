@@ -20,14 +20,17 @@
 #include "ArchViz/DiligentCameraRays.hpp"
 #include "ArchViz/DiligentGpuTimings.hpp"
 #include "ArchViz/PlanAnchorLayer.hpp"
+#include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp"
 #include "ArchViz/DiligentViewportTarget.hpp"
+#include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/HardwareInput.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/Uniforms.hpp"
+#include "Screenshot/ScreenshotStore.hpp"
 
 #include <windows.h>
 #include <d3d11.h> // Must precede Diligent's D3D11 interop header (Probe 1a).
@@ -42,6 +45,7 @@
 #include <cmath>
 #include <cstdlib> // std::abs for the click-vs-drag slack, on int32_t
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -49,6 +53,8 @@ namespace geomsrv::archviz {
 
 void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 {
+    const bool offscreen = surface.mode == SurfaceMode::Offscreen;
+    const uint64_t runCaptureId = offscreen ? activeCaptureId_.load () : 0;
     // ⚠️ DECLARED OUTSIDE THE try SO THE FAILURE PATH CAN RELEASE THEM PROPERLY.
     // An exception thrown after the swap chain exists -- a shader that does not
     // compile, a pipeline state that will not create -- would otherwise unwind
@@ -136,7 +142,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
         // Render thread, because the swap chain only exists here. The why is in
         // DiligentViewportSupport's ApplyRequestedFrameLatency.
-        ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);
+        if (surface.mode == SurfaceMode::Overlay)
+            ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);
 
         {
             std::lock_guard<std::mutex> lock (mutex_);
@@ -144,8 +151,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             stats_.overlay = surface.mode == SurfaceMode::Overlay;
         }
         ArchVizLog (std::string ("Diligent viewport: device, immediate context and ") +
-                    (surface.mode == SurfaceMode::Overlay ? "COMPOSITION OVERLAY surface" : "HWND swap chain") +
-                    " initialized");
+                     (surface.mode == SurfaceMode::Overlay ? "COMPOSITION OVERLAY surface" :
+                      offscreen ? "OFFSCREEN surface" : "HWND swap chain") +
+                     " initialized");
 
         // ---- the scene ------------------------------------------------------
         // The real one: SceneCmdQueue's elements, with Archicad's own materials
@@ -175,12 +183,14 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // because the project origin is inside the ground floor slab. It now
             // lives in a fixed corner of the screen at a fixed size, which is
             // also what every DCC does and for the same reason.
-            std::vector<ArchVizVertex> gnomonVertices;
-            std::vector<uint16_t> gnomonIndices;
-            axisgnomon::Build (gnomonVertices, gnomonIndices);
-            if (!scene.AddOverlayMesh (device, "axis gnomon", gnomonVertices.data (), gnomonVertices.size (),
-                                       gnomonIndices.data (), gnomonIndices.size (), sceneError))
-                ArchVizLog ("Diligent viewport: the axis gnomon did not upload: " + sceneError);
+            if (!offscreen) {
+                std::vector<ArchVizVertex> gnomonVertices;
+                std::vector<uint16_t> gnomonIndices;
+                axisgnomon::Build (gnomonVertices, gnomonIndices);
+                if (!scene.AddOverlayMesh (device, "axis gnomon", gnomonVertices.data (), gnomonVertices.size (),
+                                           gnomonIndices.data (), gnomonIndices.size (), sceneError))
+                    ArchVizLog ("Diligent viewport: the axis gnomon did not upload: " + sceneError);
+            }
 
             // The cube stays until Archicad's geometry lands, so an empty
             // project and a broken extraction do not look the same. NEUTRAL
@@ -230,7 +240,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // is what tells a probe which of the two happened, because "clicking
             // does nothing" looks identical either way.
             std::string pickError;
-            if (!pick.Init (device, pickError))
+            if (!offscreen && !pick.Init (device, pickError))
                 ArchVizLog ("Diligent viewport: picking is unavailable (" + pickError +
                             "); the viewport runs without it");
             {
@@ -244,17 +254,19 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // so, which is the difference between "anchors are off" and
             // "anchors could not be drawn".
             std::string anchorError;
-            if (!planAnchors.Init (device, target.ColorFormat (), target.DepthFormat (), anchorError))
+            if (!offscreen && !planAnchors.Init (device, target.ColorFormat (), target.DepthFormat (), anchorError))
                 ArchVizLog ("Diligent viewport: the plan anchor layer did not start (" + anchorError +
                             "); the viewport runs without anchors");
 
             std::string hudError;
-            if (!hud.Init (device, target.ColorFormat (), target.DepthFormat (), hudError))
+            if (!offscreen && !hud.Init (device, target.ColorFormat (), target.DepthFormat (), hudError))
                 ArchVizLog ("Diligent viewport: the ImGui HUD did not start (" + hudError +
                             "); the viewport runs without it");
             hudState.debugView = debugView_.load ();
             hudState.renderMode = renderMode_.load ();
             hudState.showCallout = showCallout_.load ();
+            if (offscreen)
+                hudState.renderQuality = captureRenderQuality_.load ();
             // ⚠️ THE OVERLAY'S HUD IS A READOUT, NOT A CONTROL SURFACE. Its
             // window is WS_EX_TRANSPARENT, so every widget would draw and none
             // could be clicked (PLAT-RE55) -- and a dead control reads as a hung
@@ -297,8 +309,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // see PickState. ServicePick owns all of it; the loop only reads
         // `hoverId` back out for the callout.
         PickState pickState;
+        std::chrono::steady_clock::time_point captureReadyAt;
 
         while (!stopRequested_.load ()) {
+            bool captureThisFrame = false;
             if (resizePending_.exchange (false)) {
                 const uint32_t nextWidth = pendingWidth_.load ();
                 const uint32_t nextHeight = pendingHeight_.load ();
@@ -352,7 +366,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // view); against a transparent clear it would report "both clears
             // failed" every time, which is the one verdict that says the fault is
             // below Diligent. A false alarm in that slot is worse than no check.
-            if (target.Mode () == SurfaceMode::Overlay)
+            if (target.Mode () != SurfaceMode::PaletteChild)
                 clearVerified = true;
             if (!clearVerified) {
                 // The A/B needs the target unbound before it can copy: D3D11
@@ -433,6 +447,29 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 }
             }
 
+            if (offscreen) {
+                const ExtractionWorker::Progress progress = ExtractionWorker::Get ().Snapshot ();
+                const size_t pending = SceneCmdQueue::Get ().PendingCount ();
+                if (progress.gaveUp)
+                    throw std::runtime_error ("capture extraction gave up before completing the model");
+                if (!progress.running && !progress.done)
+                    throw std::runtime_error ("capture extraction failed: " + progress.phase);
+
+                const DiligentSceneStats captureScene = scene.Stats ();
+                {
+                    std::lock_guard<std::mutex> lock (mutex_);
+                    captureStats_.stage = progress.done ? (pending == 0 ? "rendering" : "uploading") : "extracting";
+                }
+                if (progress.done && pending == 0) {
+                    if (captureScene.elements == 0)
+                        throw std::runtime_error ("capture extraction completed with no drawable model elements");
+                    const auto now = std::chrono::steady_clock::now ();
+                    if (captureReadyAt == std::chrono::steady_clock::time_point {})
+                        captureReadyAt = now;
+                    captureThisFrame = now - captureReadyAt >= std::chrono::milliseconds (100);
+                }
+            }
+
             // ⚠️ THE SHADOW PASS GOES HERE, BEFORE THE MAIN TARGETS ARE BOUND,
             // and it deliberately leaves nothing bound afterwards. It swaps the
             // render targets to its own depth texture; doing it after the
@@ -465,11 +502,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // Archicad's own conventions, through the SAME Camera the bgfx
             // viewer uses: wheel zooms toward the cursor, wheel-button drags
             // pan, Shift+drag orbits, double-click fits.
-            InputSnapshot input = InputRingBuffer::Get ().Take ();
+            InputSnapshot input = offscreen ? InputSnapshot {} : InputRingBuffer::Get ().Take ();
             // ⚠️ AFTER Take, BEFORE anything consumes it. Take() returns the
             // polled fields zeroed on purpose, so a consumer that runs before
             // this line sees the cursor at 0,0.
-            PollHardwareInput (surface.nwh, input);
+            if (!offscreen)
+                PollHardwareInput (surface.nwh, input);
             // ⚠️ THE HUD'S ANSWER IS FROM THE PREVIOUS FRAME, AND THAT IS
             // CORRECT. ImGui only knows whether it wants the mouse after its
             // widgets have been submitted, and the HUD is drawn at the END of
@@ -478,7 +516,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // scene, which puts the panel underneath the building. One frame of
             // latency on "was that click for the combo box" is invisible; the
             // alternative is an orbit every time the user opens the dropdown.
-            if (camera.ApplyInput (input, hudState.wantsMouse, width, height))
+            if (!offscreen && camera.ApplyInput (input, hudState.wantsMouse, width, height))
                 userHasNavigated = true;
 
             // ---- the overlay path: Archicad drives ----------------------------
@@ -569,6 +607,14 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             float eye[3];
             camera.GetEyePosition (eye);
+            {
+                CameraStart snapshot;
+                const bool available = SnapshotPerspectiveCamera (camera, width, height, snapshot);
+                std::lock_guard<std::mutex> lock (mutex_);
+                currentCameraAvailable_ = available;
+                if (available)
+                    currentCamera_ = snapshot;
+            }
 
             // ⚠️ THE MODEL IS NOT DRAWN ON THE FLOOR PLAN, AND THAT IS THE
             // DECISION PLAT-RE65 IS, not an optimisation. A floor plan is not a
@@ -605,8 +651,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             //
             // ⚠️ CALLED EVEN WHEN IT CANNOT PICK, because clearing the hover is
             // one of its answers. See ServicePick.
-            ServicePick (pick, pickState, !hudState.wantsMouse && modelIsDrawn, device, context, scene, input, frames,
-                         width, height, motionViewProj, rtv, dsv, mutex_, stats_);
+            if (!offscreen)
+                ServicePick (pick, pickState, !hudState.wantsMouse && modelIsDrawn, device, context, scene, input, frames,
+                             width, height, motionViewProj, rtv, dsv, mutex_, stats_);
             const uint32_t hoverId = pickState.hoverId;
 
             // What the callout shows. Looked up every frame rather than cached
@@ -798,16 +845,17 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
-            UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_, planAnchorSeq_.load (),
-                                      lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked, viewProj, width, height,
-                                      planAnchorWidthPixels_.load (), planAnchorRgba_.load ());
+            if (!offscreen)
+                UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_, planAnchorSeq_.load (),
+                                          lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked, viewProj, width, height,
+                                          planAnchorWidthPixels_.load (), planAnchorRgba_.load ());
 
-            if (!blanked)
+            if (!offscreen && !blanked)
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
 
             // Last, over everything, into the full-surface viewport the gnomon
             // restored.
-            if (hud.IsReady () && !blanked) {
+            if (!offscreen && hud.IsReady () && !blanked) {
                 const DiligentSceneStats hudScene = scene.Stats ();
                 {
                     // ⚠️ THE LOCK ENDS HERE, BEFORE Draw. `mutex_` is what the
@@ -831,7 +879,30 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             context->SetRenderTargets (1, none, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 
-            ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);
+            if (captureThisFrame) {
+                {
+                    std::lock_guard<std::mutex> lock (mutex_);
+                    captureStats_.stage = "encoding";
+                }
+                std::string png;
+                std::string captureError;
+                if (!target.CapturePng (context, png, captureError))
+                    throw std::runtime_error (captureError);
+                uint64_t captureId = runCaptureId;
+                if (captureId == 0 || captureId == (std::numeric_limits<uint64_t>::max) () ||
+                    !activeCaptureId_.compare_exchange_strong (captureId, 0))
+                    break;
+                ScreenshotStore::Get ().Publish ("diligent", png, captureId);
+                {
+                    std::lock_guard<std::mutex> lock (mutex_);
+                    captureStats_.stage = "teardown";
+                    captureStats_.bytes = png.size ();
+                }
+                ++frames;
+                break;
+            }
+            if (surface.mode == SurfaceMode::Overlay)
+                ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);
             // To Archicad's Present detour, before ours: this frame's back
             // buffer is still buffer 0 (PLAT-RE79 phase 4).
             MirrorOverlayToHost (device, context, target, camera);
@@ -977,6 +1048,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         std::lock_guard<std::mutex> lock (mutex_);
         stats_.failed = true;
         stats_.error = ex.what ();
+        if (offscreen && activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ()) {
+            captureStats_.status = "failed";
+            captureStats_.failureMessage = ex.what ();
+        }
+        if (activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ())
+            activeCaptureId_.store (0);
         ArchVizLog ("Diligent viewport FAILED: " + stats_.error);
     }
     catch (...) {
@@ -984,12 +1061,30 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         std::lock_guard<std::mutex> lock (mutex_);
         stats_.failed = true;
         stats_.error = "unknown exception during Diligent viewport lifecycle";
+        if (offscreen && activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ()) {
+            captureStats_.status = "failed";
+            captureStats_.failureMessage = stats_.error;
+        }
+        if (activeCaptureId_.load () != (std::numeric_limits<uint64_t>::max) ())
+            activeCaptureId_.store (0);
         ArchVizLog ("Diligent viewport FAILED: " + stats_.error);
     }
 
+    if (offscreen)
+        ExtractionWorker::Get ().RequestStop ();
     running_.store (false);
     std::lock_guard<std::mutex> lock (mutex_);
     stats_.running = false;
+    if (offscreen && activeCaptureId_.load () == (std::numeric_limits<uint64_t>::max) ()) {
+        captureStats_.status = captureStats_.stage = "cancelled";
+        activeCaptureId_.store (0);
+    } else if (offscreen && captureStats_.status == "running" && captureStats_.bytes > 0) {
+        captureStats_.status = captureStats_.stage = "completed";
+    } else if (offscreen && captureStats_.status == "running") {
+        captureStats_.status = captureStats_.stage = "failed";
+        captureStats_.failureMessage = "capture stopped before the frame was encoded";
+        activeCaptureId_.store (0);
+    }
 }
 
 } // namespace geomsrv::archviz

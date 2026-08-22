@@ -218,6 +218,15 @@ class ParamPanel {
     // usable in it, or empty when they are all satisfied.
     GS::UniString WhatIsMissing () const;
 
+    // Which PARAMETER a DG item belongs to, or empty when the item is not one of
+    // the generated controls (or is null). The right-click menu asks this to turn
+    // the item under the pointer into a region — a "param:<name>" entry appears
+    // over its own control and nowhere else — and it is the only thing that can
+    // answer it, because it is the only object that knows which item was built for
+    // which port. Matches the row's label as well as its control: the label is as
+    // much "that parameter" to a user aiming a pointer as the field is.
+    GS::UniString ParamNameAt (const DG::Item* item) const;
+
     // Event routing. Each returns true when the event belonged to a generated
     // control, so the shell's handler can stop there. Sub-objects never Attach
     // themselves — the shell is the observer these were attached to.

@@ -198,6 +198,25 @@ bool ApplyArchicadCamera (Camera& camera, const CameraStart& start,
     return true;
 }
 
+bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t height,
+                                CameraStart& snapshot)
+{
+    snapshot = {};
+    snapshot.source = "viewer";
+    if (camera.IsOrthographic () || width == 0 || height == 0)
+        return false;
+
+    camera.GetEyePosition (snapshot.eye);
+    camera.GetTarget (snapshot.target);
+    constexpr float kPi = 3.14159265358979323846f;
+    const float aspect = float (width) / float (height);
+    const float halfV = camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f);
+    snapshot.viewConeDegreesHorizontal =
+        2.0f * std::atan (std::tan (halfV) * aspect) * (180.0f / kPi);
+    snapshot.valid = true;
+    return true;
+}
+
 namespace {
 
 // The axis gnomon's corner, in screen pixels.

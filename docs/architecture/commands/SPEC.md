@@ -223,6 +223,26 @@ are explicit and throttled progress is safe in per-item loops. A final status me
 the only evidence because the palette replaces it when the run finishes; durable detail goes to
 the command log.
 
+### Right-Click Menu
+
+The palette's context menu is region-sensitive. `ControlPalette` resolves which region the
+pointer was over — `panel`, `params`, `param:<name>`, `commands`, `results` — through three DG
+hooks, because one does not reach the whole panel: `PanelContextMenuRequested` covers the
+background, buttons and static text, `ListBoxContextMenuRequested` covers the list boxes (which
+intercept the event themselves), and `ItemContextMenuRequested` covers the generated controls.
+
+A command declares its own entries with `@tapioca.menu(label, region=...)`. The scanner emits
+them as three flat parallel arrays (`menu_items`, `menu_labels`, `menu_regions`), the same shape
+`actions` uses and for the same reason. A `param:<name>` region is validated against the
+command's declared parameters at scan time; an unknown region is a scan error.
+
+A menu entry IS an action: same `(ctx, outputs)` contract, same run store, dispatched through the
+same `RunSelected` path an action bar button uses. `outputs` is `None` until the command has been
+run once. Every region also carries the built-in entries (Run, Rescan Commands, Hide Palette).
+
+`DG::ContextMenu::Display` is modal and blocks the main thread, so the palette refuses to open a
+menu while a run, a selection prompt, or an Archicad busy state is live.
+
 The results table keeps content-derived widths for initial layout. User header widths must be
 preserved and applied to the corresponding row fields; the generic header/data synchronization
 work is tracked separately as `internal work item`.

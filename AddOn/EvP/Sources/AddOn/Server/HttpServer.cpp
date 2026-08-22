@@ -637,6 +637,19 @@ void HttpServer::RegisterRoutes ()
     server->Get ("/screenshot/top", [serveShot] (const httplib::Request&, httplib::Response& res) {
         serveShot (ScreenshotStore::Get ().Top (), res);
     });
+    server->Get ("/screenshot/diligent", [serveShot] (const httplib::Request& req, httplib::Response& res) {
+        const auto shot = ScreenshotStore::Get ().Diligent ();
+        const uint64_t requestedId = req.has_param ("id")
+                                         ? std::strtoull (req.get_param_value ("id").c_str (), nullptr, 10)
+                                         : 0;
+        if (!shot || requestedId == 0 || shot->id != requestedId) {
+            res.status = 409;
+            res.set_content ("{\"ok\":false,\"error\":\"Diligent capture id is unavailable\"}",
+                             "application/json");
+            return;
+        }
+        serveShot (shot, res);
+    });
 
     // ---- M8: element metadata (cached at Send All) ------------------------
 

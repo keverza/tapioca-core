@@ -88,6 +88,7 @@ SUBOBJECT_SOURCES = [
 SHELL_IMPLEMENTATION = [
     "ControlPalette.cpp",
     "ControlPaletteLayout.cpp",
+    "ControlPaletteMenu.cpp",
     "ControlPaletteParams.cpp",
     "ControlPaletteRun.cpp",
 ]

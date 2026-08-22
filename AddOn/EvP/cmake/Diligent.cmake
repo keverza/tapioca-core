@@ -107,6 +107,7 @@ set (DILIGENT_PROBE_LIBS
     # MapHelper, CommonlyUsedStates) and it is linked PRIVATELY by the engine, so
     # a consumer has to ask for it by name.
     Diligent-GraphicsTools
+    Diligent-TextureLoader
     Diligent-Imgui
     DiligentFX
     d3d11

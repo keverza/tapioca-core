@@ -24,31 +24,39 @@ public:
         return instance;
     }
 
-    // Main thread: publish a freshly captured view. kind is "current" or "top".
-    void Publish (const std::string& kind, std::string png)
+    // Any thread: publish immutable PNG bytes. kind is current, top, or diligent.
+    void Publish (const std::string& kind, std::string png, uint64_t id = 0)
     {
         std::lock_guard<std::mutex> lock (mtx);
         auto s = std::make_shared<Shot> ();
         s->png = std::move (png);
-        s->id  = ++counter;
-        if (kind == "top") top = s; else current = s;
+        s->id  = id != 0 ? id : ++counter;
+        if (kind == "top")
+            top = s;
+        else if (kind == "diligent")
+            diligent = s;
+        else
+            current = s;
     }
 
     // Any thread: fetch a view (null before first capture).
     std::shared_ptr<const Shot> Current () const { std::lock_guard<std::mutex> l (mtx); return current; }
     std::shared_ptr<const Shot> Top ()     const { std::lock_guard<std::mutex> l (mtx); return top; }
+    std::shared_ptr<const Shot> Diligent () const { std::lock_guard<std::mutex> l (mtx); return diligent; }
 
     void Release ()
     {
         std::lock_guard<std::mutex> l (mtx);
         current.reset ();
         top.reset ();
+        diligent.reset ();
     }
 
     size_t Bytes () const
     {
         std::lock_guard<std::mutex> l (mtx);
-        return (current ? current->png.capacity () : 0) + (top ? top->png.capacity () : 0);
+        return (current ? current->png.capacity () : 0) + (top ? top->png.capacity () : 0) +
+               (diligent ? diligent->png.capacity () : 0);
     }
 
 private:
@@ -57,6 +65,7 @@ private:
     mutable std::mutex          mtx;
     std::shared_ptr<const Shot> current;
     std::shared_ptr<const Shot> top;
+    std::shared_ptr<const Shot> diligent;
     uint64_t                    counter = 0;
 };
 

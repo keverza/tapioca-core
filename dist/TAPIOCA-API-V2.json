@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 130,
+      "nativeRegistry": 138,
       "dispatcherLocal": 19,
-      "total": 149
+      "total": 157
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -371,6 +371,35 @@
           "intervalMs",
           "experimentsBlocked",
           "experimentsBlockedWhy"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.CancelDiligentCapture",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "cancelled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cancelled"
         ]
       }
     },
@@ -1336,6 +1365,158 @@
       }
     },
     {
+      "name": "Tapioca.D3D12FeasibilityProbeState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "attempted": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "completed": {
+            "type": "boolean"
+          },
+          "cancelled": {
+            "type": "boolean"
+          },
+          "cleanTeardown": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "failureMessage": {
+            "type": "string"
+          },
+          "deviceAttempted": {
+            "type": "boolean"
+          },
+          "deviceSucceeded": {
+            "type": "boolean"
+          },
+          "deviceFailure": {
+            "type": "string"
+          },
+          "adapter": {
+            "type": "string"
+          },
+          "hardwarePreflightSucceeded": {
+            "type": "boolean"
+          },
+          "hardwareCreateResult": {
+            "type": "integer"
+          },
+          "hardwareFeatureLevel": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "d3d12Runtime": {
+            "type": "string"
+          },
+          "childAttempted": {
+            "type": "boolean"
+          },
+          "childSucceeded": {
+            "type": "boolean"
+          },
+          "childPresents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "childLastPresentResult": {
+            "type": "integer"
+          },
+          "childFailure": {
+            "type": "string"
+          },
+          "overlayAttempted": {
+            "type": "boolean"
+          },
+          "overlaySucceeded": {
+            "type": "boolean"
+          },
+          "overlayPresents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "overlayLastPresentResult": {
+            "type": "integer"
+          },
+          "overlayFailure": {
+            "type": "string"
+          },
+          "rayTracingFeature": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rayTracingCaps": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rayTracingStandalone": {
+            "type": "boolean"
+          },
+          "rayTracingInline": {
+            "type": "boolean"
+          },
+          "rayTracingIndirect": {
+            "type": "boolean"
+          },
+          "maxRecursionDepth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxRayGenThreads": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "attempted",
+          "running",
+          "completed",
+          "cancelled",
+          "cleanTeardown",
+          "stage",
+          "failureMessage",
+          "deviceAttempted",
+          "deviceSucceeded",
+          "deviceFailure",
+          "adapter",
+          "hardwarePreflightSucceeded",
+          "hardwareCreateResult",
+          "hardwareFeatureLevel",
+          "d3d12Runtime",
+          "childAttempted",
+          "childSucceeded",
+          "childPresents",
+          "childLastPresentResult",
+          "childFailure",
+          "overlayAttempted",
+          "overlaySucceeded",
+          "overlayPresents",
+          "overlayLastPresentResult",
+          "overlayFailure",
+          "rayTracingFeature",
+          "rayTracingCaps",
+          "rayTracingStandalone",
+          "rayTracingInline",
+          "rayTracingIndirect",
+          "maxRecursionDepth",
+          "maxRayGenThreads"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.DecomposePolygon",
       "implementation": "native-registry",
       "inputScheme": {
@@ -1494,6 +1675,74 @@
         "required": [
           "deleted",
           "results"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.DiligentCaptureState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "stage": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 16
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 16
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "failureMessage": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "stage",
+          "width",
+          "height",
+          "bytes",
+          "url",
+          "failureMessage"
         ]
       }
     },
@@ -1953,7 +2202,7 @@
           "debugView": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 9
+            "maximum": 13
           },
           "environmentLoaded": {
             "type": "boolean"
@@ -1979,6 +2228,97 @@
           },
           "environmentError": {
             "type": "string"
+          },
+          "environmentPrefiltered": {
+            "type": "boolean"
+          },
+          "environmentPrefilteredMips": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "environmentPrefilterMs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "environmentPrefilterError": {
+            "type": "string"
+          },
+          "autoExposureEnabled": {
+            "type": "boolean"
+          },
+          "autoExposure": {
+            "type": "number",
+            "minimum": 0
+          },
+          "appliedExposure": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fixedExposure": {
+            "type": "number",
+            "minimum": 0
+          },
+          "sceneLuminance": {
+            "type": "number",
+            "minimum": 0
+          },
+          "meanAlbedo": {
+            "type": "number",
+            "minimum": 0
+          },
+          "aoRadiusMetres": {
+            "type": "number",
+            "minimum": 0
+          },
+          "whiteBalanceR": {
+            "type": "number",
+            "minimum": 0
+          },
+          "whiteBalanceG": {
+            "type": "number",
+            "minimum": 0
+          },
+          "whiteBalanceB": {
+            "type": "number",
+            "minimum": 0
+          },
+          "substanceNamed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "substanceCounts": {
+            "type": "object",
+            "properties": {
+              "unknown": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "earth": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "concrete": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "metal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "plastic": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "glass": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "wood": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false,
@@ -4747,6 +5087,69 @@
             ]
           }
         }
+      }
+    },
+    {
+      "name": "Tapioca.GetDiligentCamera",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "orthographic": {
+            "type": "boolean"
+          },
+          "viewMoving": {
+            "type": "boolean"
+          },
+          "eyeX": {
+            "type": "number"
+          },
+          "eyeY": {
+            "type": "number"
+          },
+          "eyeZ": {
+            "type": "number"
+          },
+          "targetX": {
+            "type": "number"
+          },
+          "targetY": {
+            "type": "number"
+          },
+          "targetZ": {
+            "type": "number"
+          },
+          "viewConeDegreesHorizontal": {
+            "type": "number",
+            "exclusiveMinimum": 1,
+            "exclusiveMaximum": 179
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "valid",
+          "source",
+          "orthographic",
+          "viewMoving",
+          "eyeX",
+          "eyeY",
+          "eyeZ",
+          "targetX",
+          "targetY",
+          "targetZ",
+          "viewConeDegreesHorizontal"
+        ]
       }
     },
     {
@@ -12786,6 +13189,83 @@
       }
     },
     {
+      "name": "Tapioca.RunCloudCompare",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "executablePath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inputPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cropPolygon": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 0
+          },
+          "keepOutside": {
+            "type": "boolean"
+          },
+          "subsampleStep": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "executablePath",
+          "inputPath",
+          "outputPath"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "succeeded": {
+            "type": "boolean"
+          },
+          "cancelled": {
+            "type": "boolean"
+          },
+          "exitCode": {
+            "type": "integer"
+          },
+          "transcript": {
+            "type": "string"
+          },
+          "outputPath": {
+            "type": "string"
+          },
+          "logPath": {
+            "type": "string"
+          },
+          "failureReason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "succeeded",
+          "cancelled",
+          "exitCode",
+          "transcript",
+          "outputPath",
+          "logPath",
+          "failureReason"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.RunCommand",
       "implementation": "dispatcher-local",
       "inputScheme": {
@@ -14507,6 +14987,143 @@
       }
     },
     {
+      "name": "Tapioca.StartD3D12FeasibilityProbe",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "confirm"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "started": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "started",
+          "error"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.StartDiligentCapture",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "renderQuality": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "realistic"
+            ]
+          },
+          "camera": {
+            "type": "object",
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": "string"
+              },
+              "orthographic": {
+                "type": "boolean"
+              },
+              "viewMoving": {
+                "type": "boolean"
+              },
+              "eyeX": {
+                "type": "number"
+              },
+              "eyeY": {
+                "type": "number"
+              },
+              "eyeZ": {
+                "type": "number"
+              },
+              "targetX": {
+                "type": "number"
+              },
+              "targetY": {
+                "type": "number"
+              },
+              "targetZ": {
+                "type": "number"
+              },
+              "viewConeDegreesHorizontal": {
+                "type": "number",
+                "exclusiveMinimum": 1,
+                "exclusiveMaximum": 179
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valid",
+              "source",
+              "orthographic",
+              "viewMoving",
+              "eyeX",
+              "eyeY",
+              "eyeZ",
+              "targetX",
+              "targetY",
+              "targetZ",
+              "viewConeDegreesHorizontal"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "width",
+          "height",
+          "renderQuality",
+          "camera"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "const": "running"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.StartServer",
       "implementation": "dispatcher-local",
       "inputScheme": {
@@ -14529,6 +15146,27 @@
         "required": [
           "started",
           "port"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.StopD3D12FeasibilityProbe",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "stopped": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "stopped"
         ]
       }
     },

@@ -66,8 +66,8 @@ def test_retained_native_catalog_has_one_unique_row_per_command():
     # Bump WITH the command that moves it. See the note on
     # EXPECTED_REGISTRY_COMMANDS in tools/generate_tapioca_api_v2.py: this and
     # that constant count the same rows and were both found stale on 2026-08-15.
-    assert len(names) == 134
-    assert len(set(names)) == 134
+    assert len(names) == 138
+    assert len(set(names)) == 138
 
 
 def test_dispatcher_local_catalog_has_nineteen_unique_verbs():

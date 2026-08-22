@@ -22,10 +22,10 @@ def test_extracts_complete_unique_cpp_catalog():
     registry = [item for item in catalog.commands if item.implementation == "native-registry"]
     local = [item for item in catalog.commands if item.implementation == "dispatcher-local"]
 
-    assert len(registry) == 134
+    assert len(registry) == 138
     assert len(local) == 19
-    assert len(catalog.commands) == 153
-    assert len({item.name for item in catalog.commands}) == 153
+    assert len(catalog.commands) == 157
+    assert len({item.name for item in catalog.commands}) == 157
     assert all(item.input_scheme and item.output_scheme for item in catalog.commands)
 
 
@@ -39,12 +39,12 @@ def test_generated_artifacts_are_deterministic_and_canonical(tmp_path):
     assert markdown_path.read_bytes() == first_markdown
     document = json.loads(first_json)
     assert document["metadata"]["counts"] == {
-        "nativeRegistry": 134,
+        "nativeRegistry": 138,
         "dispatcherLocal": 19,
-        "total": 153,
+        "total": 157,
     }
     assert all(item["name"].startswith("Tapioca.") for item in document["commands"])
-    assert len(markdown_path.read_text(encoding="utf-8").splitlines()) == 161
+    assert len(markdown_path.read_text(encoding="utf-8").splitlines()) == 165
 
 
 def test_unparseable_registered_schema_fails(tmp_path):

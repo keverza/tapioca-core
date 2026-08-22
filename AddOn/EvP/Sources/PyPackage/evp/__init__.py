@@ -14,6 +14,7 @@ truth and any wrapper bug reduces to a single reproducible `evp.api.call` line.
 from . import changes
 from . import context
 from . import drafting
+from . import diligent
 from . import drawings
 from . import elements
 from . import errors
@@ -37,7 +38,7 @@ from . import webui
 # and gets a clear ImportError if it is missing.
 from .api import Result, EvpError, Cancelled, call, debug, API_VERSION
 from .command import (
-    command, action, Float, Int, Enum, Bool, Text, Action,
+    command, action, menu, Float, Int, Enum, Bool, Text, Action,
     Layer, Pen, Fill, LineType, Surface, Story, FilePath, ProjectField, View, Database,
     LibraryPart, Favourite,
     BuildingMaterial, WallComposite, SlabComposite, RoofComposite, ShellComposite,
@@ -53,11 +54,11 @@ __all__ = [
     "Transaction", "TransactionError", "Handle", "transaction",
     "Context", "ElementSpec", "FromStep", "Plan", "PlanDiff", "PlanError",
     "PreviewScene", "PreviewBudgetError",
-    "changes", "context", "drafting", "drawings", "elements", "errors", "geometry",
+    "changes", "context", "drafting", "diligent", "drawings", "elements", "errors", "geometry",
     "issues",
     "layouts", "outputs", "paths", "plan", "preview", "properties", "runtime", "selection",
     "model", "topology", "ui", "webui",
-    "command", "action", "Float", "Int", "Enum", "Bool", "Text", "Action",
+    "command", "action", "menu", "Float", "Int", "Enum", "Bool", "Text", "Action",
     "Layer", "Pen", "Fill", "LineType", "Surface", "Story", "FilePath", "ProjectField", "View", "Database",
     "LibraryPart", "Favourite",
     "BuildingMaterial", "WallComposite", "SlabComposite", "RoofComposite", "ShellComposite",

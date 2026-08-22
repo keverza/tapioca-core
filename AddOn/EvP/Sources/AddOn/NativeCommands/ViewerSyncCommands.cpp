@@ -173,6 +173,37 @@ public:
     }
 };
 
+class GetDiligentCameraCommand : public MainThreadCommand {
+public:
+    GS::String GetName () const override { return "GetDiligentCamera"; }
+    bool NeedsMainThread () const override { return false; }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        av::DiligentViewport& viewport = av::DiligentViewport::Get ();
+        av::CameraStart camera;
+        if (!viewport.IsRunning () || viewport.Mode () == av::SurfaceMode::Offscreen ||
+            !viewport.CurrentCamera (camera)) {
+            return NativeCommandResult::Failure (
+                "a visible Diligent viewport with a perspective camera is required");
+        }
+
+        GS::ObjectState os;
+        os.Add ("valid", camera.valid);
+        os.Add ("source", GS::UniString (camera.source.c_str (), CC_UTF8));
+        os.Add ("orthographic", camera.orthographic);
+        os.Add ("viewMoving", camera.viewMoving);
+        os.Add ("eyeX", double (camera.eye[0]));
+        os.Add ("eyeY", double (camera.eye[1]));
+        os.Add ("eyeZ", double (camera.eye[2]));
+        os.Add ("targetX", double (camera.target[0]));
+        os.Add ("targetY", double (camera.target[1]));
+        os.Add ("targetZ", double (camera.target[2]));
+        os.Add ("viewConeDegreesHorizontal", double (camera.viewConeDegreesHorizontal));
+        return os;
+    }
+};
+
 // Follow Archicad's 3D window continuously, from a main-thread Win32 timer.
 //
 // ⚠️ THIS REPLACES THE PYTHON POLLING LOOP AND IS NOT THE SAME THING. Driving
@@ -482,6 +513,9 @@ const NativeCommandRegistration kViewerSyncCommandRegistrations[] = {
     { "GetArchicad3DCamera", &MakeRegisteredNativeCommand<GetArchicad3DCameraCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["valid","source","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },
+    { "GetDiligentCamera", &MakeRegisteredNativeCommand<GetDiligentCameraCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },
     { "SetDiligentCamera", &MakeRegisteredNativeCommand<SetDiligentCameraCommand>, false,
       R"json({"type":"object","properties":{"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json",
       R"json({"type":"object","properties":{"accepted":{"type":"boolean"}},"additionalProperties":false,"required":["accepted"]})json" },

@@ -4,7 +4,7 @@
 // ArchViz/DiligentViewportTarget — WHERE the viewport's frames go, so that the
 // frame loop does not have to know.
 //
-// There are two surfaces and they are not variations on one thing:
+// There are three surfaces and they are not variations on one thing:
 //
 //   PaletteChild  a Diligent HWND swap chain on the DG UserItem. Opaque, its own
 //                 depth buffer, `ISwapChain::Present`. This is what the viewport
@@ -14,6 +14,8 @@
 //                 with `CreateSwapChainForComposition`, has premultiplied alpha,
 //                 is presented through raw DXGI, and its back buffers are wrapped
 //                 into Diligent textures we did not create.
+//   Offscreen     an owned colour/depth pair with no HWND and no Present. The
+//                 final LDR colour texture is staged and encoded as PNG.
 //
 // ⚠️ ONE INTERFACE RATHER THAN TWO FRAME LOOPS, AND THAT IS THE WHOLE REASON THIS
 // FILE EXISTS. A second copy of the loop would have to keep the camera, the
@@ -51,6 +53,7 @@ namespace archviz {
 enum class SurfaceMode : uint8_t {
     PaletteChild = 0,
     Overlay = 1,
+    Offscreen = 2,
 };
 
 class DiligentViewportTarget final {
@@ -81,6 +84,11 @@ public:
     // tearing rather than as a stale binding.
     bool BeginFrame (Diligent::ITextureView*& rtv, Diligent::ITextureView*& dsv);
     void Present ();
+
+    // Offscreen mode only. The caller must unbind the colour target before this
+    // call; the method copies through a staging texture and returns PNG bytes.
+    bool CapturePng (Diligent::IDeviceContext* context, std::string& png,
+                     std::string& error);
 
     // Applied at the next BeginFrame, not here: resizing between a bind and a
     // draw destroys the texture the context is holding.

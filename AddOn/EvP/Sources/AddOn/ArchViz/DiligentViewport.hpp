@@ -222,6 +222,17 @@ struct CameraStart {
     bool viewMoving = false;
 };
 
+struct DiligentCaptureStats {
+    uint64_t id = 0;
+    std::string status = "idle";
+    std::string stage = "idle";
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint64_t bytes = 0;
+    std::string url;
+    std::string failureMessage;
+};
+
 // The viewport's render thread. It owns every Diligent object it creates and
 // never calls DG, ACAPI, or MainThreadGate. The palette supplies a validated
 // HWND plus the starting camera, and communicates only through atomics, the
@@ -231,6 +242,11 @@ public:
     static DiligentViewport& Get ();
 
     bool Start (const Surface& surface, const CameraStart& camera = CameraStart {});
+    bool StartCapture (uint32_t width, uint32_t height, const CameraStart& camera,
+                       int renderQuality, uint64_t& captureId, std::string& error);
+    bool CancelCapture (uint64_t captureId);
+    DiligentCaptureStats CaptureStats () const;
+    bool CurrentCamera (CameraStart& camera) const;
     void Stop ();
     void RequestResize (uint32_t width, uint32_t height);
     void SetDebugView (int view) { debugView_.store (view); }
@@ -375,6 +391,7 @@ public:
 private:
     DiligentViewport () = default;
     ~DiligentViewport ();
+    bool StartUnlocked (const Surface& surface, const CameraStart& camera);
     DiligentViewport (const DiligentViewport&) = delete;
     DiligentViewport& operator= (const DiligentViewport&) = delete;
 
@@ -432,6 +449,8 @@ private:
     // 1 by default: the 2026-08-14 review's cheapest candidate fix for the
     // lingering afterimage. Set 0 to restore DXGI's default and A/B it.
     std::atomic<uint32_t> requestedFrameLatency_ {1};
+    std::atomic<uint64_t> activeCaptureId_ {0};
+    std::atomic<int> captureRenderQuality_ {1};
 
     // ---- camera generation (PLAT-RE99) -------------------------------------
     // ⚠️ IT ANSWERS A QUESTION THE DESYNC MEASUREMENT STRUCTURALLY CANNOT. That
@@ -459,8 +478,13 @@ private:
     std::atomic<uint32_t> planAnchorRgba_ {0xFF3B30C0u};
     std::atomic<uint64_t> planAnchorSeq_ {0};
 
+    mutable std::mutex lifecycleMutex_;
     mutable std::mutex mutex_;
     CameraStart pendingCamera_;
+    CameraStart currentCamera_;
+    bool currentCameraAvailable_ = false;
+    DiligentCaptureStats captureStats_;
+    uint64_t nextCaptureId_ = 0;
     // Guarded by `mutex_`, not atomic: this is a whole storey's triangles and a
     // torn read would draw half of one anchor set over half of another.
     std::vector<PlanAnchorVertex> pendingPlanAnchors_;

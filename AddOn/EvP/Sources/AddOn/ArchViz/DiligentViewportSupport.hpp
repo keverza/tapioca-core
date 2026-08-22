@@ -109,6 +109,9 @@ void InstallDiligentDebugCallback ();
 bool ApplyArchicadCamera (Camera& camera, const CameraStart& start,
                           uint32_t width, uint32_t height, float* outDistance = nullptr);
 
+bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t height,
+                                CameraStart& snapshot);
+
 // The axis gnomon, in a small square viewport in the bottom-left corner.
 //
 // ⚠️ IT BORROWS ONLY THE CAMERA'S *ORIENTATION*, not its position or its
