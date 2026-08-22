@@ -2086,6 +2086,8 @@ def _one(command, params):
             "completed": completed, "cancelled": False, "cleanTeardown": completed,
             "stage": stage, "failureMessage": "", "deviceAttempted": _d3d12["attempted"],
             "deviceSucceeded": completed, "deviceFailure": "", "adapter": "Dry-run D3D12",
+            "hardwarePreflightSucceeded": completed, "hardwareCreateResult": 0,
+            "hardwareFeatureLevel": 0xC100, "d3d12Runtime": r"C:\\Windows\\System32\\d3d12.dll",
             "childAttempted": _d3d12["polls"] >= 1, "childSucceeded": completed,
             "childPresents": 8 if completed else 0, "childLastPresentResult": 0,
             "childFailure": "", "overlayAttempted": _d3d12["polls"] >= 2,

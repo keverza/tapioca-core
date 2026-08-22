@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <exception>
 #include <stdexcept>
+#include <vector>
 
 namespace geomsrv::archviz {
 namespace {
@@ -42,6 +43,91 @@ template <class T> void ReleaseCom (T*& object)
         object->Release ();
         object = nullptr;
     }
+}
+
+std::string Narrow (const wchar_t* text)
+{
+    if (text == nullptr || *text == L'\0')
+        return {};
+    const int size = ::WideCharToMultiByte (CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1)
+        return {};
+    std::vector<char> utf8 (static_cast<size_t> (size));
+    ::WideCharToMultiByte (CP_UTF8, 0, text, -1, utf8.data (), size, nullptr, nullptr);
+    return std::string (utf8.data ());
+}
+
+struct HardwarePreflight {
+    bool succeeded = false;
+    HRESULT result = E_FAIL;
+    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
+    std::string adapter;
+    std::string runtime;
+};
+
+HardwarePreflight ProbeHardwareDevice ()
+{
+    HardwarePreflight result;
+    HMODULE d3d12 = ::LoadLibraryExW (L"d3d12.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if (d3d12 == nullptr) {
+        result.result = HRESULT_FROM_WIN32 (::GetLastError ());
+        return result;
+    }
+
+    wchar_t runtimePath[MAX_PATH] = {};
+    ::GetModuleFileNameW (d3d12, runtimePath, MAX_PATH);
+    result.runtime = Narrow (runtimePath);
+    const auto createDevice = reinterpret_cast<PFN_D3D12_CREATE_DEVICE> (::GetProcAddress (d3d12, "D3D12CreateDevice"));
+    if (createDevice == nullptr) {
+        result.result = HRESULT_FROM_WIN32 (::GetLastError ());
+        ::FreeLibrary (d3d12);
+        return result;
+    }
+
+    IDXGIFactory4* factory = nullptr;
+    HRESULT hr = ::CreateDXGIFactory1 (__uuidof (IDXGIFactory4), reinterpret_cast<void**> (&factory));
+    IDXGIAdapter1* hardware = nullptr;
+    if (SUCCEEDED (hr)) {
+        for (UINT index = 0; factory->EnumAdapters1 (index, &hardware) != DXGI_ERROR_NOT_FOUND; ++index) {
+            DXGI_ADAPTER_DESC1 desc = {};
+            hardware->GetDesc1 (&desc);
+            if ((desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
+                SUCCEEDED (createDevice (hardware, D3D_FEATURE_LEVEL_11_0, __uuidof (ID3D12Device), nullptr))) {
+                result.adapter = Narrow (desc.Description);
+                break;
+            }
+            ReleaseCom (hardware);
+        }
+    }
+
+    if (hardware == nullptr) {
+        result.result = FAILED (hr) ? hr : DXGI_ERROR_UNSUPPORTED;
+    }
+    else {
+        constexpr D3D_FEATURE_LEVEL levels[] = { D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0,
+                                                 D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0 };
+        for (const D3D_FEATURE_LEVEL level : levels) {
+            ID3D12Device* device = nullptr;
+            hr = createDevice (hardware, level, __uuidof (ID3D12Device), reinterpret_cast<void**> (&device));
+            ArchVizLog ("[RE51.D1] hardware D3D12CreateDevice adapter='" + result.adapter + "' level=0x" + [&] {
+                char text[16] = {};
+                std::snprintf (text, sizeof (text), "%04X", uint32_t (level));
+                return std::string (text);
+            }() + " result=" + HrText (hr));
+            ReleaseCom (device);
+            result.result = hr;
+            result.featureLevel = level;
+            if (SUCCEEDED (hr)) {
+                result.succeeded = true;
+                break;
+            }
+        }
+    }
+
+    ReleaseCom (hardware);
+    ReleaseCom (factory);
+    ::FreeLibrary (d3d12);
+    return result;
 }
 
 } // namespace
@@ -164,6 +250,22 @@ void D3D12FeasibilityProbe::Run (void* childHwnd, uint32_t childWidth, uint32_t 
             stats_.deviceAttempted = true;
         }
         ArchVizLog ("[RE51.D1] D3D12 device creation begin");
+        const HardwarePreflight preflight = ProbeHardwareDevice ();
+        {
+            std::lock_guard<std::mutex> lock (mutex_);
+            stats_.hardwarePreflightSucceeded = preflight.succeeded;
+            stats_.hardwareCreateResult = uint32_t (preflight.result);
+            stats_.hardwareFeatureLevel = uint32_t (preflight.featureLevel);
+            stats_.d3d12Runtime = preflight.runtime;
+            stats_.adapter = preflight.adapter;
+        }
+        ArchVizLog ("[RE51.D1] hardware preflight " + std::string (preflight.succeeded ? "PASS" : "FAIL") +
+                    ": adapter='" + preflight.adapter + "' runtime='" + preflight.runtime + "' result=" +
+                    HrText (preflight.result));
+        if (!preflight.succeeded)
+            throw std::runtime_error ("hardware D3D12CreateDevice failed " + HrText (preflight.result) +
+                                      "; WARP presentation was not attempted");
+
         Diligent::EngineD3D12CreateInfo createInfo;
         createInfo.Features.RayTracing = Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
         Diligent::IEngineFactoryD3D12* factory = Diligent::GetEngineFactoryD3D12 ();
@@ -181,6 +283,8 @@ void D3D12FeasibilityProbe::Run (void* childHwnd, uint32_t childWidth, uint32_t 
         const auto& deviceInfo = device->GetDeviceInfo ();
         const auto& adapterInfo = device->GetAdapterInfo ();
         const auto& rt = adapterInfo.RayTracing;
+        if (adapterInfo.Type == Diligent::ADAPTER_TYPE_SOFTWARE)
+            throw std::runtime_error ("Diligent returned a software D3D12 adapter; WARP is not a D1 success");
         {
             std::lock_guard<std::mutex> lock (mutex_);
             stats_.deviceSucceeded = true;

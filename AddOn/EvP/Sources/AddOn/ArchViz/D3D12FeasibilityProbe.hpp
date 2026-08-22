@@ -22,6 +22,10 @@ struct D3D12FeasibilityProbeStats {
     bool deviceSucceeded = false;
     std::string deviceError;
     std::string adapter;
+    bool hardwarePreflightSucceeded = false;
+    uint32_t hardwareCreateResult = 0;
+    uint32_t hardwareFeatureLevel = 0;
+    std::string d3d12Runtime;
 
     bool childAttempted = false;
     bool childSucceeded = false;
