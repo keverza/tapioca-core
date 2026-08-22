@@ -661,6 +661,7 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     {
         Diligent::ShaderResourceVariableDesc resolveVariables[] = {
             { Diligent::SHADER_TYPE_PIXEL, "g_hdrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_ssrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
@@ -1035,6 +1036,8 @@ void DiligentScene::Shutdown ()
     impl_->environment.Shutdown ();
     impl_->ambientOcclusion.Shutdown ();
     impl_->screenSpaceReflection.Shutdown ();
+    impl_->temporalAntiAliasing.Shutdown ();
+    impl_->taaView = nullptr;
     impl_->depthRange.Shutdown ();
     impl_->envBackgroundSrb.Release ();
     impl_->envBackgroundPso.Release ();
@@ -1122,16 +1125,6 @@ void DiligentScene::SetSunOverride (bool enabled, float azimuthDegrees, float al
     impl_->sunOverrideAltitude = altitudeDegrees;
 }
 
-void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold)
-{
-    if (impl_ == nullptr)
-        return;
-    impl_->ssrEnabled = enabled;
-    impl_->ssrIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
-    impl_->ssrRoughnessThreshold =
-        roughnessThreshold < 0.0f ? 0.0f : (roughnessThreshold > 1.0f ? 1.0f : roughnessThreshold);
-}
-
 bool DiligentScene::EnsureHdrTarget ()
 {
     if (impl_ == nullptr || impl_->device == nullptr)
@@ -1176,6 +1169,9 @@ bool DiligentScene::EnsureHdrTarget ()
     if (impl_->resolveSrb != nullptr) {
         if (Diligent::IShaderResourceVariable* var =
                 impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
+            var->Set (impl_->hdrColorSRV);
+        if (Diligent::IShaderResourceVariable* var =
+                impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage"))
             var->Set (impl_->hdrColorSRV);
     }
     return true;

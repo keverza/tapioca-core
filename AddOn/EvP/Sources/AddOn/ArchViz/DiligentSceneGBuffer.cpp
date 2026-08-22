@@ -32,6 +32,57 @@
 namespace geomsrv {
 namespace archviz {
 
+void DiligentScene::SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->ssrEnabled = enabled;
+    impl_->ssrIntensity = intensity < 0.0f ? 0.0f : (intensity > 2.0f ? 2.0f : intensity);
+    impl_->ssrRoughnessThreshold =
+        roughnessThreshold < 0.0f ? 0.0f : (roughnessThreshold > 1.0f ? 1.0f : roughnessThreshold);
+}
+
+void DiligentScene::SetTemporalAntiAliasing (bool enabled, float stability)
+{
+    if (impl_ == nullptr)
+        return;
+    if (impl_->taaEnabled != enabled)
+        impl_->temporalAntiAliasing.ResetHistory ();
+    impl_->taaEnabled = enabled;
+    impl_->taaStability = stability < 0.0f ? 0.0f : (stability > 1.0f ? 1.0f : stability);
+    if (!enabled)
+        impl_->taaView = nullptr;
+}
+
+void DiligentScene::PrepareTemporalAntiAliasingFrame (
+    Diligent::IDeviceContext* context, uint32_t frameIndex, const float projection[16],
+    float jitteredProjection[16], float jitter[2])
+{
+    if (projection == nullptr || jitteredProjection == nullptr || jitter == nullptr)
+        return;
+    std::memcpy (jitteredProjection, projection, sizeof (float) * 16);
+    jitter[0] = 0.0f;
+    jitter[1] = 0.0f;
+    if (impl_ == nullptr || !impl_->taaEnabled || context == nullptr)
+        return;
+    // Jitter is enabled only after every resource needed by both the HDR source
+    // and temporal history exists. Failure therefore falls back to the stable,
+    // unjittered path rather than displaying a moving raw sample.
+    if (!EnsureHdrTarget () || !EnsureGBufferTargets ())
+        return;
+
+    impl_->temporalAntiAliasing.Init (impl_->device);
+    impl_->temporalAntiAliasing.Prepare (
+        impl_->device, context, impl_->viewportWidth, impl_->viewportHeight,
+        frameIndex, projection, jitteredProjection, jitter);
+}
+
+void DiligentScene::ResetTemporalAntiAliasingHistory ()
+{
+    if (impl_ != nullptr)
+        impl_->temporalAntiAliasing.ResetHistory ();
+}
+
 bool DiligentScene::EnsureGBufferTargets ()
 {
     if (impl_->gBufferWidth != impl_->viewportWidth || impl_->gBufferHeight != impl_->viewportHeight) {
@@ -109,6 +160,7 @@ bool DiligentScene::EnsureGBufferTargets ()
         // rather than guessed at with a heuristic on matrix distance.
         impl_->ambientOcclusion.ResetHistory ();
         impl_->screenSpaceReflection.ResetHistory ();
+        impl_->temporalAntiAliasing.ResetHistory ();
         impl_->gBufferFrameValid = false;
     }
 
@@ -127,7 +179,8 @@ bool DiligentScene::EnsureGBufferTargets ()
 // before sampling those same textures as SRVs; D3D11 resolves the conflict by
 // silently dropping the SRV, which produces a black result and no message.
 void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16],
-                                           const float eye[3], CullMode cull, bool transparentGlassOnly)
+                                           const float motionViewProj[16], const float eye[3], CullMode cull,
+                                           bool appendTransparent, bool glassOnly)
 {
     context->SetViewports (1, nullptr, 0, 0);
     // ⚠️ THE FOURTH ARGUMENT CLEARS AND THE FIFTH REMAPS. The motion target is
@@ -135,13 +188,14 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
     // leaving last frame's vectors there would reproject the sky from wherever
     // the building used to be. See kGBufferRTIndices for the remap.
     impl_->gBuffer->Bind (context, kGBufferGeometryMask, nullptr,
-                          transparentGlassOnly ? 0 : kGBufferGeometryMask, kGBufferRTIndices);
+                          appendTransparent ? 0 : kGBufferGeometryMask, kGBufferRTIndices);
     // Binding a different framebuffer resets the viewport on D3D11. Set it
     // again after the G-buffer bind so every MRT receives the full scene.
     context->SetViewports (1, nullptr, 0, 0);
 
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
+    std::memcpy (constants.motionViewProj, motionViewProj, sizeof (float) * 16);
     constants.eyePos[0] = eye[0];
     constants.eyePos[1] = eye[1];
     constants.eyePos[2] = eye[2];
@@ -156,7 +210,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
     const int index = CullIndex (cull);
     context->SetPipelineState (impl_->gBufferPso[index]);
     context->CommitShaderResources (impl_->gBufferSrb[index], Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    if (!transparentGlassOnly)
+    if (!appendTransparent)
         impl_->drawCalls = 0;
 
     const SurfaceMaterial defaultMaterial;
@@ -181,13 +235,14 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
             const SurfaceMaterial& material =
                 consultMaterials ? impl_->materials.Lookup (range.material) : defaultMaterial;
             if (consultMaterials) {
-                if (transparentGlassOnly) {
-                    if (material.alpha >= kOpaqueAlpha || ClassifySurface (material).cls != SurfaceClass::Glass)
+                if (appendTransparent) {
+                    if (material.alpha >= kOpaqueAlpha ||
+                        (glassOnly && ClassifySurface (material).cls != SurfaceClass::Glass))
                         continue;
                 } else if (material.alpha < kOpaqueAlpha) {
                     continue;
                 }
-            } else if (transparentGlassOnly) {
+            } else if (appendTransparent) {
                 continue;
             }
             const SurfacePreset preset = consultMaterials ? PresetFor (material) : SurfacePreset {};
@@ -199,7 +254,7 @@ void DiligentScene::RenderGBufferGeometry (Diligent::IDeviceContext* context, co
 
     for (const Entry& e : impl_->elements)
         drawOpaqueRanges (e, true);
-    if (!transparentGlassOnly) {
+    if (!appendTransparent) {
         for (const Entry& e : impl_->staticMeshes)
             drawOpaqueRanges (e, false);
     }
@@ -253,8 +308,10 @@ void DiligentScene::ClearScreenSpaceReflection ()
 //
 // ⚠️ RENDER THREAD ONLY, like everything else in this file.
 void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16],
-                                                   const float proj[16], const float viewProj[16], const float eye[3],
-                                                   float nearClip, float farClip, float focusDistance, uint32_t frameIndex)
+                                                   const float proj[16], const float viewProj[16],
+                                                   const float motionViewProj[16], const float eye[3],
+                                                   const float jitter[2], float nearClip, float farClip,
+                                                   float focusDistance, uint32_t frameIndex)
 {
     ClearScreenSpaceReflection ();
     if (context == nullptr || !impl_->ready || impl_->gBuffer == nullptr || !impl_->ssrEnabled ||
@@ -272,11 +329,11 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
     // Add only classified glass now, preserving the opaque depth and avoiding
     // foliage or other alpha-blended ranges becoming reflection receivers.
     if (!impl_->gBufferFrameValid || impl_->gBufferFrameIndex != frameIndex) {
-        RenderGBufferGeometry (context, viewProj, eye, CullMode::Cw);
+        RenderGBufferGeometry (context, viewProj, motionViewProj, eye, CullMode::Cw);
         impl_->gBufferFrameIndex = frameIndex;
         impl_->gBufferFrameValid = true;
     }
-    RenderGBufferGeometry (context, viewProj, eye, CullMode::Cw, true);
+    RenderGBufferGeometry (context, viewProj, motionViewProj, eye, CullMode::Cw, true, true);
     context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 
     impl_->screenSpaceReflection.Init (impl_->device);
@@ -292,8 +349,45 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
 
     impl_->ssrView = impl_->screenSpaceReflection.Execute (
         impl_->device, context, impl_->hdrColorSRV, depthSrv, normalSrv, materialSrv, motionSrv,
-        impl_->viewportWidth, impl_->viewportHeight, frameIndex, view, proj, viewProj, eye,
+        impl_->viewportWidth, impl_->viewportHeight, frameIndex, view, proj, viewProj, eye, jitter,
         nearClip, farClip, focusDistance, impl_->ssrRoughnessThreshold);
+}
+
+Diligent::ITextureView* DiligentScene::ExecuteTemporalAntiAliasing (
+    Diligent::IDeviceContext* context, const float view[16], const float proj[16],
+    const float viewProj[16], const float motionViewProj[16], const float eye[3],
+    const float jitter[2], float nearClip, float farClip, float focusDistance, uint32_t frameIndex)
+{
+    impl_->taaView = nullptr;
+    if (context == nullptr || !impl_->ready || !impl_->taaEnabled || impl_->hdrColorSRV == nullptr ||
+        impl_->gBuffer == nullptr || impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
+        return nullptr;
+    if (!EnsureGBufferTargets ())
+        return nullptr;
+
+    const size_t visibleDrawCalls = impl_->drawCalls;
+    if (!impl_->gBufferFrameValid || impl_->gBufferFrameIndex != frameIndex) {
+        RenderGBufferGeometry (context, viewProj, motionViewProj, eye, CullMode::Cw);
+        impl_->gBufferFrameIndex = frameIndex;
+        impl_->gBufferFrameValid = true;
+    }
+    // TAA accumulates the complete HDR image, so its depth and motion must also
+    // describe blended ranges instead of the opaque surface behind them.
+    RenderGBufferGeometry (context, viewProj, motionViewProj, eye, CullMode::Cw, true, false);
+    // This postpass happens after the visible draw. Keep Stats aligned with the
+    // AO path, where Draw resets away the prepass submissions.
+    impl_->drawCalls = visibleDrawCalls;
+    context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+
+    Diligent::ITextureView* depthSrv =
+        impl_->gBuffer->GetBuffer (kGBufferDepth)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* motionSrv =
+        impl_->gBuffer->GetBuffer (kGBufferMotion)->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    impl_->taaView = impl_->temporalAntiAliasing.Execute (
+        impl_->device, context, impl_->hdrColorSRV, depthSrv, motionSrv,
+        impl_->viewportWidth, impl_->viewportHeight, frameIndex, view, proj, viewProj, eye,
+        nearClip, farClip, focusDistance, jitter, impl_->taaStability);
+    return impl_->taaView;
 }
 
 // RE51.C3. See the header for why the forward path now pays for a second
@@ -343,9 +437,10 @@ float DiligentScene::AmbientOcclusionRadius () const
 }
 
 void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, const float view[16],
-                                             const float proj[16], const float viewProj[16], const float eye[3],
-                                             float nearClip, float farClip, float focusDistance, uint32_t frameIndex,
-                                             CullMode cull)
+                                             const float proj[16], const float viewProj[16],
+                                             const float motionViewProj[16], const float eye[3],
+                                             const float jitter[2], float nearClip, float farClip,
+                                             float focusDistance, uint32_t frameIndex, CullMode cull)
 {
     ClearAmbientOcclusion ();
     if (context == nullptr || !impl_->ready || impl_->gBuffer == nullptr || !impl_->aoEnabled ||
@@ -354,7 +449,7 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
     if (!EnsureGBufferTargets ())
         return;
 
-    RenderGBufferGeometry (context, viewProj, eye, cull);
+    RenderGBufferGeometry (context, viewProj, motionViewProj, eye, cull);
     impl_->gBufferFrameIndex = frameIndex;
     impl_->gBufferFrameValid = true;
 
@@ -384,7 +479,7 @@ void DiligentScene::PrepareAmbientOcclusion (Diligent::IDeviceContext* context, 
 
     impl_->aoView = impl_->ambientOcclusion.Execute (
         impl_->device, context, normalSrv, depthSrv, motionSrv, impl_->viewportWidth, impl_->viewportHeight,
-        frameIndex, view, proj, viewProj, eye, nearClip, farClip, focusDistance, AmbientOcclusionRadius ());
+        frameIndex, view, proj, viewProj, eye, jitter, nearClip, farClip, focusDistance, AmbientOcclusionRadius ());
 }
 
 void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
@@ -399,7 +494,7 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
     if (!EnsureGBufferTargets ())
         return;
     impl_->drawCalls = 0;
-    RenderGBufferGeometry (context, viewProj, eye, cull);
+    RenderGBufferGeometry (context, viewProj, viewProj, eye, cull);
 
     // ⚠️ A SECOND, FRESH CONSTANT BLOCK. The prepass above uploaded its own and
     // left the last MATERIAL's values in the buffer; the debug resolve below
@@ -439,7 +534,8 @@ void DiligentScene::DrawGBufferDebug (Diligent::IDeviceContext* context, Diligen
         // wrong -- it would send the next investigation somewhere else entirely.
         ambientOcclusionSrv = impl_->ambientOcclusion.Execute (
             impl_->device, context, normalSrv, depthSrv, motionSrv, impl_->viewportWidth, impl_->viewportHeight,
-            frameIndex, view, proj, viewProj, eye, nearClip, farClip, focusDistance, AmbientOcclusionRadius ());
+            frameIndex, view, proj, viewProj, eye, nullptr, nearClip, farClip, focusDistance,
+            AmbientOcclusionRadius ());
         if (ambientOcclusionSrv == nullptr)
             return;
         // Checked, for the reason the G-buffer binds above are: a variable that

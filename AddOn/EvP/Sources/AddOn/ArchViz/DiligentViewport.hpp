@@ -379,6 +379,7 @@ private:
     DiligentViewport& operator= (const DiligentViewport&) = delete;
 
     void Run (Surface surface, CameraStart camera);
+    void PublishCamera (const CameraStart& camera, bool discontinuity);
 
     std::thread worker_;
     std::atomic<bool> running_ {false};
@@ -446,6 +447,7 @@ private:
     // The generation of whatever is sitting in `pendingCamera_`, written
     // under the same lock so the pair can never be torn apart.
     uint64_t pendingCameraGeneration_ = 0;
+    bool pendingCameraDiscontinuity_ = false;
     std::atomic<uint64_t> presentedCameraGeneration_ {0};
     std::atomic<uint64_t> stalePresents_ {0};
     // PLAT-RE65's plan anchors. Same generation rule as the sun override: the

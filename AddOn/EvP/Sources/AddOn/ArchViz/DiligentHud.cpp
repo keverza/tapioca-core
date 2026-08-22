@@ -427,6 +427,13 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SliderFloat ("##ssrroughness", &state.ssrRoughnessThreshold, 0.0f, 1.0f, "%.2f");
                 ImGui::TextDisabled ("SSR roughness threshold -- surfaces rougher than this get no rays");
 
+                // ---- RE51.C8: temporal anti-aliasing ------------------------
+                ImGui::Checkbox ("temporal anti-aliasing", &state.temporalAntiAliasing);
+                ImGui::TextDisabled ("  HDR history accumulation -- needs Realistic quality");
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##taastability", &state.taaStability, 0.0f, 1.0f, "%.2f");
+                ImGui::TextDisabled ("TAA stability -- higher is steadier; lower rejects history faster");
+
                 ImGui::Checkbox ("auto exposure", &state.autoExposure);
                 ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)",
                                      scene.autoExposure, scene.sceneLuminance, scene.meanAlbedo);

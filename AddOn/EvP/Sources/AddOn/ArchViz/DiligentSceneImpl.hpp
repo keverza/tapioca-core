@@ -25,6 +25,7 @@
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
+#include "ArchViz/DiligentTemporalAntiAliasing.hpp"
 #include "ArchViz/DiligentShaders.hpp"   // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
@@ -362,6 +363,10 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::ITexture> ssrRoughnessFallback;
     DiligentAmbientOcclusion ambientOcclusion;
     DiligentScreenSpaceReflection screenSpaceReflection;
+    DiligentTemporalAntiAliasing temporalAntiAliasing;
+    Diligent::ITextureView* taaView = nullptr;
+    bool taaEnabled = false;
+    float taaStability = 0.9f;
     DiligentDepthRange depthRange;
     uint32_t gBufferWidth = 0;
     uint32_t gBufferHeight = 0;

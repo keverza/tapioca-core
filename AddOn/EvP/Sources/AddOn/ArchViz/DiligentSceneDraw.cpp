@@ -183,8 +183,9 @@ void DiligentScene::SetViewportSize (uint32_t width, uint32_t height)
 
 void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
                           Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
-                          const float viewProj[16], const float eye[3], CullMode cull, int debugView,
-                          float nearClip, float farClip, float focusDistance, uint32_t frameIndex)
+                          const float viewProj[16], const float motionViewProj[16], const float eye[3],
+                          const float jitter[2], CullMode cull, int debugView, float nearClip,
+                          float farClip, float focusDistance, uint32_t frameIndex)
 {
     if (context == nullptr || !impl_->ready)
         return;
@@ -252,6 +253,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
 
     DiligentSceneConstants constants;
     std::memcpy (constants.viewProj, viewProj, sizeof (float) * 16);
+    std::memcpy (constants.motionViewProj, motionViewProj, sizeof (float) * 16);
     // ⚠️ THE FORWARD PASS DOES NOT *USE* THIS, AND IT IS UPLOADED ANYWAY. The
     // mesh vertex shader is shared with the G-buffer pass, so it computes
     // `prevClip` here too; the forward pixel shader simply never reads it.
@@ -630,9 +632,15 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // prepass earlier in the frame; SSR completes it with glass receivers.
         // The HDR colour SRV is available because EnsureHdrTarget succeeded.
         if (impl_->ssrEnabled && impl_->ssrIntensity > 0.0f) {
-            PrepareScreenSpaceReflection (context, view, proj, viewProj, eye,
+            PrepareScreenSpaceReflection (context, view, proj, viewProj, motionViewProj, eye, jitter,
                                           nearClip, farClip, focusDistance, frameIndex);
         }
+
+        Diligent::ITextureView* resolvedHdr = ExecuteTemporalAntiAliasing (
+            context, view, proj, viewProj, motionViewProj, eye, jitter,
+            nearClip, farClip, focusDistance, frameIndex);
+        if (resolvedHdr == nullptr)
+            resolvedHdr = impl_->hdrColorSRV;
 
         constants.frameControl[0] = 0.0f;
         // ⚠️ gradeParams.w: AO intensity was already applied in the mesh shader,
@@ -643,12 +651,15 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         context->SetViewports (1, nullptr, 0, 0);
 
-        // Bind the resolve SRB's DYNAMIC variables. g_hdrColor is always the HDR
-        // target; g_ssrColor and g_gbufferRoughness are the SSR result or
-        // fallbacks that make the shader skip the SSR branch.
+        // TAA's alpha is history weight, not coverage. Resolve RGB from the TAA
+        // result when available, but always read coverage from this frame's
+        // original HDR target so the composition overlay stays transparent.
         if (Diligent::IShaderResourceVariable* hdrVar =
                 impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
-            hdrVar->Set (impl_->hdrColorSRV);
+            hdrVar->Set (resolvedHdr);
+        if (Diligent::IShaderResourceVariable* coverageVar =
+                impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage"))
+            coverageVar->Set (impl_->hdrColorSRV);
         Diligent::ITextureView* ssrColorView = impl_->ssrView;
         if (ssrColorView == nullptr && impl_->ssrFallback != nullptr)
             ssrColorView = impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
@@ -724,6 +735,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
 
         // Clear the SSR view so the next frame does not reuse a freed texture.
         ClearScreenSpaceReflection ();
+        impl_->taaView = nullptr;
     }
 
     // ---- the wireframe overlay ---------------------------------------------

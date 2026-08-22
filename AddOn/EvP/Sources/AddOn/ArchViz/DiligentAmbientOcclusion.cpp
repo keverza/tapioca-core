@@ -83,7 +83,7 @@ Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* normal,
     Diligent::ITextureView* depth, Diligent::ITextureView* motion, uint32_t width, uint32_t height,
     uint32_t frameIndex, const float view[16], const float proj[16], const float viewProj[16], const float eye[3],
-    float nearClip, float farClip, float focusDistance, float effectRadiusMetres)
+    const float jitter[2], float nearClip, float farClip, float focusDistance, float effectRadiusMetres)
 {
     if (device == nullptr || context == nullptr || normal == nullptr || depth == nullptr || motion == nullptr ||
         width == 0 || height == 0 || impl_->postFx == nullptr || impl_->ssao == nullptr)
@@ -128,7 +128,8 @@ Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     camera.fHandness = 1.0f;
     camera.uiFrameIndex = frameIndex;
     camera.fFocusDistance = focusDistance;
-    camera.f2Jitter = Diligent::float2 { 0.0f, 0.0f };
+    camera.f2Jitter = Diligent::float2 { jitter != nullptr ? jitter[0] : 0.0f,
+                                        jitter != nullptr ? jitter[1] : 0.0f };
     camera.mView = Diligent::float4x4::MakeMatrix (view);
     camera.mProj = Diligent::float4x4::MakeMatrix (proj);
     camera.mViewProj = Diligent::float4x4::MakeMatrix (viewProj);

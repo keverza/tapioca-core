@@ -101,10 +101,15 @@ void DiligentViewport::SyncCamera (const CameraStart& camera)
     // AdoptCamera, which is a request rather than a follow. See the header.
     if (mode_.load () != SurfaceMode::Overlay)
         return;
-    AdoptCamera (camera);
+    PublishCamera (camera, false);
 }
 
 void DiligentViewport::AdoptCamera (const CameraStart& camera)
+{
+    PublishCamera (camera, true);
+}
+
+void DiligentViewport::PublishCamera (const CameraStart& camera, bool discontinuity)
 {
     // ⚠️ AN INVALID CAMERA IS DROPPED, NOT PUSHED. Archicad's 3D window in an
     // axonometric projection has no eye position at all, and
@@ -118,6 +123,7 @@ void DiligentViewport::AdoptCamera (const CameraStart& camera)
     {
         std::lock_guard<std::mutex> lock (mutex_);
         pendingCamera_ = camera;
+        pendingCameraDiscontinuity_ = discontinuity;
         // ⚠️ STAMPED INSIDE THE LOCK, WITH THE CAMERA IT BELONGS TO. The render
         // thread takes the pair out together; if the number were assigned
         // outside, two syncs in quick succession could pair the first camera

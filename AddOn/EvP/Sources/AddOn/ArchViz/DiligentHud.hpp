@@ -212,6 +212,12 @@ struct HudState {
     // Surfaces rougher than this get no SSR. 0.2 = only near-mirrors; 1.0 = all.
     float ssrRoughnessThreshold = 0.2f;
 
+    // ---- RE51.C8: temporal anti-aliasing -----------------------------------
+    // Off until its first live A/B. The control makes the port reversible while
+    // the unfiltered HDR fallback remains exactly the previously verified path.
+    bool temporalAntiAliasing = false;
+    float taaStability = 0.9f;
+
     // 6500 K and tint 0 are the EXACT identity (AutoExposure.hpp), so these
     // defaults change no image rendered before this existed.
     float whiteBalanceKelvin = 6500.0f;

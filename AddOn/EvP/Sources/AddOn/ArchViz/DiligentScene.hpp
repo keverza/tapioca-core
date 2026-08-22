@@ -265,8 +265,9 @@ class DiligentScene final {
     // shadow pass's and the prepass's contribution to this frame's ordering.
     void Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
                Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
-               const float viewProj[16], const float eye[3], CullMode cull, int debugView,
-               float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
+               const float viewProj[16], const float motionViewProj[16], const float eye[3],
+               const float jitter[2], CullMode cull, int debugView, float nearClip,
+               float farClip, float focusDistance, uint32_t frameIndex);
 
     // Render opaque geometry into the shader-readable normal/depth G-buffer,
     // then resolve one channel to the viewport target.
@@ -378,12 +379,12 @@ class DiligentScene final {
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id
     // target.
     //
-    // ⚠️ `viewProj` IS THE VISIBLE PASS'S OWN, UNMODIFIED, and that is the fix
-    // PLAT-RE136 is. It used to be a second matrix aimed at the cursor by
+    // ⚠️ `viewProj` IS THE DISPLAYED IMAGE'S NOMINAL, UNJITTERED CAMERA, and
+    // that is the fix PLAT-RE136 is. It used to be a second matrix aimed at the cursor by
     // DiligentPickBuffer::Aim, which put two descriptions of one camera in the
     // code; every reported picking fault was the two disagreeing. Hand this the
-    // matrix Draw is given on the same frame and pixel (x, y) of the id buffer is
-    // pixel (x, y) of the picture, in every projection and at every DPI.
+    // nominal camera used to present the frame and pixel (x, y) of the id buffer
+    // is pixel (x, y) of the picture, in every projection and at every DPI.
     //
     // ⚠️ THE CULL MODE MUST BE THE ONE Draw USED. A pick pass that culls
     // differently from the visible pass can resolve a click to the BACK face of
@@ -488,8 +489,9 @@ class DiligentScene final {
     // own target at the end, kept working perfectly. Do not "simplify" Draw
     // back to inheriting its targets.
     void PrepareAmbientOcclusion (Diligent::IDeviceContext* context, const float view[16], const float proj[16],
-                                  const float viewProj[16], const float eye[3], float nearClip, float farClip,
-                                  float focusDistance, uint32_t frameIndex, CullMode cull);
+                                  const float viewProj[16], const float motionViewProj[16], const float eye[3],
+                                  const float jitter[2], float nearClip, float farClip, float focusDistance,
+                                  uint32_t frameIndex, CullMode cull);
 
     // Forget any prepared occlusion, so the next Draw shades without it. ⚠️ THE
     // FRAME LOOP MUST CALL THIS WHENEVER IT SKIPS THE PREPASS, or Draw keeps
@@ -538,8 +540,16 @@ class DiligentScene final {
     void SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold);
     void ClearScreenSpaceReflection ();
     void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16],
-                                       const float proj[16], const float viewProj[16], const float eye[3],
+                                       const float proj[16], const float viewProj[16],
+                                       const float motionViewProj[16], const float eye[3], const float jitter[2],
                                        float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
+
+    // ---- RE51.C8: temporal anti-aliasing on genuine history ----------------
+    void SetTemporalAntiAliasing (bool enabled, float stability);
+    void PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* context, uint32_t frameIndex,
+                                           const float projection[16], float jitteredProjection[16],
+                                           float jitter[2]);
+    void ResetTemporalAntiAliasingHistory ();
 
   private:
     struct Impl;
@@ -557,8 +567,14 @@ class DiligentScene final {
     // The opaque geometry, into the G-buffer's MRTs. The SSR call follows with
     // transparent glass receivers without clearing, after AO has consumed the
     // opaque-only buffers.
-    void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], const float eye[3],
-                                CullMode cull, bool transparentGlassOnly = false);
+    void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16],
+                                const float motionViewProj[16], const float eye[3], CullMode cull,
+                                bool appendTransparent = false, bool glassOnly = false);
+
+    Diligent::ITextureView* ExecuteTemporalAntiAliasing (
+        Diligent::IDeviceContext* context, const float view[16], const float proj[16],
+        const float viewProj[16], const float motionViewProj[16], const float eye[3],
+        const float jitter[2], float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
 
     // The occlusion radius in world metres: the HUD's override, or derived from
     // the model's bounds when that is zero. ⚠️ ONE DERIVATION, TWO CALLERS --

@@ -142,8 +142,10 @@ must be measured with the shared navigation log and must not be promoted from an
 ## Picking
 
 Picking is an ID G-buffer, not a second cursor-aim camera. For each pick, IDs are rendered at
-the viewport's own resolution with the visible pass's own `viewProj`. Pixel `(x, y)` in the ID
-buffer therefore corresponds to pixel `(x, y)` in the visible image at every projection and DPI.
+the viewport's own resolution with the displayed image's nominal, unjittered camera. A temporal
+effect may jitter an individual geometry sample, but its accumulated output and the pick buffer
+share the nominal pixel grid. Pixel `(x, y)` in the ID buffer therefore corresponds to pixel
+`(x, y)` in the displayed image at every projection and DPI.
 Only a small readback box is copied around the cursor. A click arriving while a readback is in
 flight is retained, the box is clamped at frame edges, and `PickVote` resolves the cursor's
 actual position inside the box.
@@ -161,6 +163,22 @@ reimplement NOAA or silently replace the stored values with a recomputation.
 The custom-mode `sunAzimuth` convention still requires verification at a project with a
 different north value. DiligentFX is linked and reachable, but link reachability is not proof
 that a DiligentFX cascade or post-effect is correct on the active device.
+
+## Temporal Post-Processing
+
+Temporal anti-aliasing consumes linear pre-tone-map HDR colour, current and previous depth,
+genuine motion vectors, and current and previous camera attributes. Projection jitter is applied
+to visible geometry and reported in every `PostFXContext` camera, but it is removed from the motion
+vectors by deriving those vectors from separate unjittered current and previous matrices.
+
+DiligentFX TAA output alpha is history weight, not viewport coverage. The HDR resolve therefore
+uses accumulated RGB and reads alpha separately from the current unaccumulated HDR target. This is
+required for the DirectComposition overlay to remain transparent where the current frame drew no
+content. Resize, geometry replacement, projection changes, effect-mode changes, and skipped effect
+frames invalidate temporal history. Ordinary camera publications retain history and rely on genuine
+motion, depth rejection, and TAA's motion factor; resetting every camera poll would disable TAA on
+the continuously synchronized overlay. Explicit one-shot camera adoption is marked as a
+discontinuity and resets history.
 
 ## API And Command Boundary
 

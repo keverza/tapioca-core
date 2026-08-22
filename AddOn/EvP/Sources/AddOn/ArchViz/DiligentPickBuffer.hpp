@@ -22,10 +22,12 @@
 //     origin, a near-plane change — silently reintroduces the same class of bug.
 //
 // So the ids are now rendered ONCE PER PICK AT THE VIEWPORT'S OWN RESOLUTION,
-// WITH THE VIEW-PROJECTION THE VISIBLE PASS IS USING. There is nothing left to
-// aim: pixel (x, y) of the id buffer IS pixel (x, y) of the picture the user
-// clicked on, by construction, in every projection and at every DPI. The readback
-// is then a small box copied out around the cursor.
+// WITH THE DISPLAYED IMAGE'S NOMINAL VIEW-PROJECTION. A temporal effect may
+// jitter one geometry sample, but its accumulated output and picking share this
+// unjittered pixel grid. There is nothing left to aim: pixel (x, y) of the id
+// buffer IS pixel (x, y) of the picture the user clicked on, by construction, in
+// every projection and at every DPI. The readback is then a small box copied out
+// around the cursor.
 //
 // The cost is one extra geometry pass at full resolution on the frames a pick is
 // wanted — depth and a flat colour, no shading, no shadow lookup — against the

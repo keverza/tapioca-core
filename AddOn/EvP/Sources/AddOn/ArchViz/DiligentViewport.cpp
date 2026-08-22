@@ -398,6 +398,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // for a second and takes that second out of Archicad's UI thread
             // with it. 32 is the same starting point the bgfx path uses.
             const size_t consumed = scene.Consume (device, 32);
+            if (consumed > 0)
+                scene.ResetTemporalAntiAliasingHistory ();
 
             // ⚠️ EVERY BATCH, NOT ONLY THE FIRST. Geometry arrives 32 elements at
             // a time, so the box after batch one covers 32 elements -- and
@@ -486,6 +488,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (cameraSyncPending_.exchange (false)) {
                 CameraStart pushed;
                 uint64_t pushedGeneration = 0;
+                bool cameraDiscontinuity = false;
                 {
                     // ⚠️ THE CAMERA AND ITS GENERATION COME OUT TOGETHER, UNDER
                     // ONE LOCK. Reading the generation after unlocking let a
@@ -496,9 +499,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     std::lock_guard<std::mutex> lock (mutex_);
                     pushed = pendingCamera_;
                     pushedGeneration = pendingCameraGeneration_;
+                    cameraDiscontinuity = pendingCameraDiscontinuity_;
                 }
                 adoptedGeneration = pushedGeneration;
                 if (ApplyArchicadCamera (camera, pushed, width, height)) {
+                    if (cameraDiscontinuity)
+                        scene.ResetTemporalAntiAliasingHistory ();
                     userHasNavigated = true; // stop the idle auto-orbit for good
                     std::lock_guard<std::mutex> lock (mutex_);
                     ++stats_.cameraSyncs;
@@ -521,23 +527,47 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 camera.SetOrbit (float (age * 0.35) - 0.9f, 0.6f);
             }
 
+            // Apply the projection mode before deriving either stable or
+            // jittered matrices. Doing it later records one frame in the wrong
+            // projection and contaminates temporal history.
+            if (hudState.orthographic != lastOrthographic) {
+                if (hudState.orthographic) {
+                    constexpr float kPi = 3.14159265358979323846f;
+                    const float halfHeight =
+                        camera.Distance () * std::tan (camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f));
+                    camera.SetOrthographic (true, halfHeight > 1e-3f ? halfHeight : 1.0f);
+                }
+                else {
+                    camera.SetOrthographic (false, 0.0f);
+                }
+                scene.ResetTemporalAntiAliasingHistory ();
+                lastOrthographic = hudState.orthographic;
+            }
+
+            const bool blanked = blanked_.load ();
+            scene.SetViewportSize (width, height);
             float view[16];
+            float stableProj[16];
             float proj[16];
+            float motionViewProj[16];
             float viewProj[16];
+            float jitter[2] = { 0.0f, 0.0f };
             camera.GetViewMatrix (view);
-            camera.GetProjMatrix (proj, height > 0 ? float (width) / float (height) : 1.0f);
+            camera.GetProjMatrix (stableProj, height > 0 ? float (width) / float (height) : 1.0f);
+
+            const bool taaActive = hudState.temporalAntiAliasing &&
+                                   hudState.renderQuality == int (RenderQuality::Realistic) &&
+                                   hudState.debugView == int (DiligentDebugView::Final) &&
+                                   debugView_.load () == int (DiligentDebugView::Final) &&
+                                   !camera.IsOrthographic () && !blanked;
+            scene.SetTemporalAntiAliasing (taaActive, hudState.taaStability);
+            scene.PrepareTemporalAntiAliasingFrame (context, static_cast<uint32_t> (frames), stableProj, proj,
+                                                     jitter);
+            Multiply (motionViewProj, view, stableProj);
             Multiply (viewProj, view, proj);
 
             float eye[3];
             camera.GetEyePosition (eye);
-
-            // ---- PLAT-RE83: the `hideonnav` blank (see SetBlanked's header) --
-            // ⚠️ READ ONCE PER FRAME, AFTER THE CLEAR AND BEFORE THE CONTENT. A
-            // mid-frame change would draw the anchors and not the scene, which is
-            // a picture nothing intends -- and everything above still runs, so
-            // lifting the blank shows a correct overlay rather than one catching
-            // up over the next few frames.
-            const bool blanked = blanked_.load ();
 
             // ⚠️ THE MODEL IS NOT DRAWN ON THE FLOOR PLAN, AND THAT IS THE
             // DECISION PLAT-RE65 IS, not an optimisation. A floor plan is not a
@@ -575,7 +605,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ⚠️ CALLED EVEN WHEN IT CANNOT PICK, because clearing the hover is
             // one of its answers. See ServicePick.
             ServicePick (pick, pickState, !hudState.wantsMouse && modelIsDrawn, device, context, scene, input, frames,
-                         width, height, viewProj, rtv, dsv, mutex_, stats_);
+                         width, height, motionViewProj, rtv, dsv, mutex_, stats_);
             const uint32_t hoverId = pickState.hoverId;
 
             // What the callout shows. Looked up every frame rather than cached
@@ -732,34 +762,6 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             scene.SetRenderQuality (hudState.renderQuality == int (RenderQuality::Realistic) ? RenderQuality::Realistic
                                                                                              : RenderQuality::Fast);
 
-            // ---- the projection toggle --------------------------------------
-            // ⚠️ SWITCHING MUST NOT RE-FRAME THE MODEL, or the two projections
-            // cannot be compared -- which is the only reason to offer both. The
-            // parallel half-height is derived from the CURRENT eye-to-target
-            // distance and vertical FOV, so the model subtends the same angle
-            // before and after: halfHeight = distance * tan(fovY/2).
-            //
-            // ⚠️ ONLY ON THE FRAME THE TOGGLE CHANGES. Recomputing every frame
-            // would fight the user's own zoom, because in parallel projection
-            // zooming CHANGES the half-height and nothing else -- so a per-frame
-            // recompute would snap it back from the perspective distance and the
-            // view would refuse to zoom at all.
-            if (hudState.orthographic != lastOrthographic) {
-                if (hudState.orthographic) {
-                    constexpr float kPi = 3.14159265358979323846f;
-                    const float halfHeight =
-                        camera.Distance () * std::tan (camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f));
-                    camera.SetOrthographic (true, halfHeight > 1e-3f ? halfHeight : 1.0f);
-                }
-                else {
-                    camera.SetOrthographic (false, 0.0f);
-                }
-                lastOrthographic = hudState.orthographic;
-            }
-            // The silhouette's thickness is in pixels and has to become NDC
-            // somewhere; this is the one place that knows the surface size.
-            scene.SetViewportSize (width, height);
-
             SetDiligentCameraRays (scene, camera, width, height);
 
             // Why this is conditional, and why the id pass reads the same flag,
@@ -772,7 +774,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.view = view;
                 request.proj = proj;
                 request.viewProj = viewProj;
+                request.motionViewProj = motionViewProj;
                 request.eye = eye;
+                request.jitter = jitter;
                 request.debugView = hudState.debugView;
                 request.frameIndex = static_cast<uint32_t> (frames);
                 request.ambientOcclusion = hudState.ambientOcclusion;
@@ -781,6 +785,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 request.screenSpaceReflection = hudState.screenSpaceReflection;
                 request.ssrIntensity = hudState.ssrIntensity;
                 request.ssrRoughnessThreshold = hudState.ssrRoughnessThreshold;
+                request.temporalAntiAliasing = taaActive;
+                request.taaStability = hudState.taaStability;
                 DrawSceneOrDebugView (scene, camera, context, request, lastLoggedGBufferView);
                 gpuTimings.End (context, GpuTimingStage::Shading);
             }

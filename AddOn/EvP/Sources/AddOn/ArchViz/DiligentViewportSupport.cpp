@@ -100,7 +100,7 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
         // ⚠️ ON THIS PATH TOO. See DiligentScene::AdvanceFrame: a frame that
         // skips the handover leaves the previous matrix two frames stale, and
         // the next motion vector comes out twice as long as the truth.
-        scene.AdvanceFrame (request.viewProj);
+        scene.AdvanceFrame (request.motionViewProj);
         return;
     }
 
@@ -116,14 +116,15 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
     scene.SetAmbientOcclusion (request.ambientOcclusion, request.ambientOcclusionIntensity,
                                request.ambientOcclusionRadius);
     scene.SetScreenSpaceReflection (request.screenSpaceReflection, request.ssrIntensity,
-                                    request.ssrRoughnessThreshold);
-    scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj, request.eye,
-                                   Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex,
-                                   CullMode::Cw);
+                                     request.ssrRoughnessThreshold);
+    scene.SetTemporalAntiAliasing (request.temporalAntiAliasing, request.taaStability);
+    scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj,
+                                   request.motionViewProj, request.eye, request.jitter, Camera::NearClip (),
+                                   camera.FarClip (), camera.Distance (), request.frameIndex, CullMode::Cw);
     scene.Draw (context, request.target, request.depth, request.view, request.proj, request.viewProj,
-                request.eye, CullMode::Cw, request.debugView,
+                request.motionViewProj, request.eye, request.jitter, CullMode::Cw, request.debugView,
                 Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex);
-    scene.AdvanceFrame (request.viewProj);
+    scene.AdvanceFrame (request.motionViewProj);
 }
 
 void InstallDiligentDebugCallback ()

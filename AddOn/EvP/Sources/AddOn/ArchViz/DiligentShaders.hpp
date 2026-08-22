@@ -269,6 +269,10 @@ struct DiligentSceneConstants {
     // exactly as it did before the HDR target existed, which is the property
     // that makes the increment verifiable in isolation.
     float frameControl[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+    // Current UNJITTERED view-projection. Visible geometry uses `viewProj`, but
+    // temporal reprojection must not report the Halton sample offset as motion.
+    float motionViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -308,8 +312,8 @@ enum class DiligentDebugView : int {
     MotionVectors = 13,
 };
 
-static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16,
-               "the cbuffer is two float4x4s, seven float4s, the 9-element SH array, "
+static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64,
+               "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
                "the white balance, the previous view-projection, and the frame "
@@ -353,6 +357,7 @@ cbuffer ArchVizConstants
     float4   g_whiteBalance;    // rgb linear gains, applied before the exposure
     float4x4 g_prevViewProj;    // RE51.C2: last frame's camera, for motion
     float4   g_frameControl;    // x = 1 for HDR output (skip Grade, resolve pass tone-maps)
+    float4x4 g_motionViewProj;  // RE51.C8: current camera without projection jitter
 };
 )hlsl";
 
@@ -395,7 +400,9 @@ void main (in VSInput vsIn, out PSInput psIn)
     psIn.worldPos = vsIn.position;   // already world space
     psIn.normal   = vsIn.normal;     // identity model matrix, so no normal matrix
     psIn.color    = vsIn.color;
-    psIn.currClip = psIn.position;
+    // Visible position is jittered; motion is not. Otherwise a stationary edge
+    // reports the Halton sample delta as movement and TAA chases its own jitter.
+    psIn.currClip = mul (g_motionViewProj, world);
     psIn.prevClip = mul (g_prevViewProj, world);
 }
 )hlsl";
@@ -1052,6 +1059,7 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 // the resolve has no reason to blur.
 constexpr const char* kArchVizResolvePS = R"hlsl(
 Texture2D<float4> g_hdrColor;
+Texture2D<float4> g_hdrCoverage;
 Texture2D<float4> g_ssrColor;
 Texture2D<float>  g_gbufferRoughness;
 Texture2D<float>  g_gbufferDepth;
@@ -1063,8 +1071,11 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 {
     int2 pixel = int2 (position.xy);
     float4 hdr = g_hdrColor.Load (int3 (pixel, 0));
+    float coverage = g_hdrCoverage.Load (int3 (pixel, 0)).a;
 
-    if (hdr.a <= 0.0)
+    // DiligentFX TAA stores history weight in output alpha. Coverage therefore
+    // comes from this frame's original HDR target, never from the TAA result.
+    if (coverage <= 0.0)
         discard;
 
     float3 radiance = hdr.rgb;
@@ -1134,7 +1145,7 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
         radiance += (ssr.rgb - envColor) * envBrdf * g_gradeParams.y * g_skyColor.w * ssrWeight;
     }
 
-    color = float4 (Grade (radiance), hdr.a);
+    color = float4 (Grade (radiance), coverage);
 }
 )hlsl";
 

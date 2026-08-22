@@ -61,7 +61,11 @@ struct SceneDrawRequest {
     const float* view = nullptr;        // 16
     const float* proj = nullptr;        // 16
     const float* viewProj = nullptr;    // 16
+    // Unjittered current camera, used only to write motion vectors. Visible
+    // geometry uses viewProj above.
+    const float* motionViewProj = nullptr; // 16
     const float* eye = nullptr;         // 3
+    const float* jitter = nullptr;      // 2
     int debugView = 0;
     uint32_t frameIndex = 0;
     // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
@@ -73,6 +77,9 @@ struct SceneDrawRequest {
     bool screenSpaceReflection = false;
     float ssrIntensity = 1.0f;
     float ssrRoughnessThreshold = 0.2f;
+    // RE51.C8. TAA only runs in the HDR final path; this is the requested state.
+    bool temporalAntiAliasing = false;
+    float taaStability = 0.9f;
 };
 
 // `lastLoggedGBufferView` is carried by the caller so switching away from a
@@ -249,8 +256,8 @@ struct PickState {
 // found them, because the id pass has to unbind them to copy. The depth buffer
 // is NOT re-cleared: the caller cleared it and the id pass used its own.
 //
-// ⚠️ `viewProj` MUST BE THE ONE THE VISIBLE PASS IS GIVEN THIS FRAME. That
-// identity is the whole of the fix -- see DiligentPickBuffer.hpp.
+// ⚠️ `viewProj` MUST BE THE DISPLAYED IMAGE'S NOMINAL, UNJITTERED CAMERA. TAA's
+// output resolves onto that grid even though its current geometry sample moves.
 //
 // `enabled` is the caller's "the model is actually on screen and the mouse is
 // mine" test. ⚠️ IT STILL HAS TO BE CALLED WHEN FALSE: clearing the hover is an
