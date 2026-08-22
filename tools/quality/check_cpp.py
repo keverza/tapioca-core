@@ -56,6 +56,19 @@ OVERSIZED = {
         "left to extract, so the next feature that needs a lot of lines needs a "
         "sub-object, not another shell file",
     ),
+    "ArchViz/DiligentScene.cpp": (
+        1108,
+        "the scene's lifecycle file - shaders, pipeline states, settings. The "
+        "class is already split over four TUs (DiligentSceneGeometry.cpp for the "
+        "element map, DiligentSceneDraw.cpp for the passes, "
+        "DiligentSceneGBuffer.cpp for the deferred prepass). This file is the "
+        "PSO creation that Init owns, and the HDR scene-colour target added 233 "
+        "lines of pipeline-state objects that are the same shape as the 360 "
+        "lines of LDR ones above them. The natural next split is a "
+        "DiligentScenePso.cpp carrying the HDR/resolve PSO creation out of Init; "
+        "that is a mechanical extraction that does not change behaviour and "
+        "should land when the next PSO family arrives rather than mid-feature.",
+    ),
     "Palette/ControlPaletteRun.cpp": (
         320,
         "the run state, extracted from the shell. Still the shell (it defines "
@@ -640,6 +653,7 @@ def _check_architecture_citations(failures: list[str]) -> None:
 SRB_BOUND_SHADER_STAGES = (
     "kArchVizGBufferDebugPS",
     "kArchVizAmbientOcclusionDebugPS",
+    "kArchVizResolvePS",
 )
 
 

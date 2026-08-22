@@ -314,6 +314,28 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::IShader> envBackgroundPs;
     RefCntAutoPtr<Diligent::IPipelineState> envBackgroundPso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> envBackgroundSrb;
+    // ---- the HDR scene-colour target and its resolve pass --------------------
+    //
+    // ⚠️ THE HDR PSOs ARE THE SAME SHADERS AS THE LDR ONES, only the RTV format
+    // differs (RGBA16_FLOAT instead of the swap chain's sRGB). A PSO records its
+    // render-target formats at creation time, so a format change is a new object
+    // rather than a state toggle. The mesh pixel shader branches on
+    // g_frameControl.x to skip Grade() when writing into HDR; the resolve PS
+    // applies Grade() once when copying HDR back to the swap chain.
+    RefCntAutoPtr<Diligent::IShader> resolvePs;
+    RefCntAutoPtr<Diligent::IPipelineState> hdrOpaquePso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> hdrBlendPso[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrOpaqueSrb[kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrBlendSrb[kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> hdrEnvBackgroundPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrEnvBackgroundSrb;
+    RefCntAutoPtr<Diligent::IPipelineState> resolvePso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> resolveSrb;
+    RefCntAutoPtr<Diligent::ITexture> hdrColorTexture;
+    Diligent::ITextureView* hdrColorRTV = nullptr;
+    Diligent::ITextureView* hdrColorSRV = nullptr;
+    uint32_t hdrWidth = 0;
+    uint32_t hdrHeight = 0;
     DiligentAmbientOcclusion ambientOcclusion;
     DiligentDepthRange depthRange;
     uint32_t gBufferWidth = 0;

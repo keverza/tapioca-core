@@ -188,22 +188,6 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     if (context == nullptr || !impl_->ready)
         return;
 
-    // ⚠️ BOUND HERE, NOT INHERITED. See the header: two passes inside this call
-    // rebind the render targets for their own purposes, and inheriting the
-    // frame loop's binding meant everything after the first of them drew into
-    // nothing at all -- silently.
-    const auto bindFrameTargets = [&] () {
-        context->SetRenderTargets (1, &colorTarget, depthTarget,
-                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-        // ⚠️ AFTER THE BIND, ALWAYS. SetRenderTargets resets the viewport
-        // whenever the framebuffer actually changes.
-        //
-        // ⚠️ AND (1, nullptr, 0, 0), NOT (0, ...). Zero means "bind no viewports
-        // at all" and every triangle is clipped away while the clear still
-        // happens -- which reads exactly like a renderer that draws nothing. It
-        // cost TransparencyProbe a full run; see PatternRenderer.cpp -> Render.
-        context->SetViewports (1, nullptr, 0, 0);
-    };
     // ⚠️ NO SILENT FALLBACK TO INHERITING. A version of this that quietly used
     // whatever happened to be bound is exactly what produced the grey viewport,
     // so a missing target is reported and the frame is skipped instead. It
@@ -214,7 +198,53 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                     "must pass the view it wants drawn into -- Draw no longer inherits a binding.");
         return;
     }
+
+    // ---- the HDR scene-colour path (RE51.C7 prerequisite) -------------------
+    //
+    // ⚠️ REALISTIC + FINAL VIEW ONLY. Fast quality has no tone mapping to move,
+    // and every debug view answers a question about the model's own data, not
+    // about the finished image. Routing those through the HDR target and resolve
+    // would tone-map the normals or the roughness, which is exactly what the
+    // debug views exist to avoid.
+    //
+    // ⚠️ IF THE HDR TARGET CANNOT BE ALLOCATED, FALL BACK TO LDR. A resize that
+    // fails to create the offscreen texture must not take the whole frame with
+    // it; the LDR path produces a correct image, just one where each shader
+    // tone-maps individually rather than in one resolve.
+    const bool useHdr = (impl_->renderQuality == RenderQuality::Realistic && debugView == 0 &&
+                         EnsureHdrTarget ());
+
+    // ⚠️ BOUND HERE, NOT INHERITED. See the header: two passes inside this call
+    // rebind the render targets for their own purposes, and inheriting the
+    // frame loop's binding meant everything after the first of them drew into
+    // nothing at all -- silently.
+    //
+    // ⚠️ THE HDR PATH BINDS THE OFFSCREEN TARGET, NOT THE SWAP CHAIN. The
+    // resolve pass at the end copies back to the swap chain with Grade() applied
+    // in one place. The LDR path binds the swap chain directly, as before.
+    Diligent::ITextureView* sceneColorTarget = useHdr ? impl_->hdrColorRTV : colorTarget;
+    const auto bindFrameTargets = [&] () {
+        context->SetRenderTargets (1, &sceneColorTarget, depthTarget,
+                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        // ⚠️ AFTER THE BIND, ALWAYS. SetRenderTargets resets the viewport
+        // whenever the framebuffer actually changes.
+        //
+        // ⚠️ AND (1, nullptr, 0, 0), NOT (0, ...). Zero means "bind no viewports
+        // at all" and every triangle is clipped away while the clear still
+        // happens -- which reads exactly like a renderer that draws nothing. It
+        // cost TransparencyProbe a full run; see PatternRenderer.cpp -> Render.
+        context->SetViewports (1, nullptr, 0, 0);
+    };
     bindFrameTargets ();
+
+    // ⚠️ CLEAR THE HDR TARGET TO TRANSPARENT BLACK. The resolve pass discards
+    // alpha==0 pixels, so the swap chain's own clear (grey for the palette,
+    // transparent for the overlay) survives wherever no geometry was drawn.
+    if (useHdr && impl_->hdrColorRTV != nullptr) {
+        const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        context->ClearRenderTarget (impl_->hdrColorRTV, hdrClear,
+                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
 
     const int index = CullIndex (cull);
     impl_->drawCalls = 0;
@@ -354,6 +384,12 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     }
     constants.gradeParams[0] = impl_->autoExposureEnabled ? impl_->lastAutoExposure : impl_->exposure;
 
+    // ⚠️ THE HDR FLAG RIDES THE CBUFFER, NOT A SECOND BIND. When this is 1, the
+    // mesh PS and the env background PS skip Grade() and write raw radiance;
+    // the resolve pass at the end applies it once. Set once here and it rides
+    // through every per-range upload, exactly as materialParams[1] does.
+    constants.frameControl[0] = useHdr ? 1.0f : 0.0f;
+
     const WhiteBalanceGains balance =
         ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
     for (int c = 0; c < 3; ++c)
@@ -366,8 +402,13 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // harder, not easier, to see what the view exists to show.
     if (envActive && impl_->environmentBackground && debugView == 0 && impl_->envBackgroundPso != nullptr) {
         UploadConstants (context, impl_->constants, constants);
-        context->SetPipelineState (impl_->envBackgroundPso);
-        context->CommitShaderResources (impl_->envBackgroundSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        // ⚠️ HDR PATH USES THE HDR ENV BACKGROUND PSO, which writes raw radiance
+        // into the RGBA16_FLOAT target. The LDR path uses the original PSO that
+        // tone-maps inline into the swap chain's sRGB view.
+        Diligent::IPipelineState* skyPso = useHdr ? impl_->hdrEnvBackgroundPso : impl_->envBackgroundPso;
+        Diligent::IShaderResourceBinding* skySrb = useHdr ? impl_->hdrEnvBackgroundSrb : impl_->envBackgroundSrb;
+        context->SetPipelineState (skyPso);
+        context->CommitShaderResources (skySrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         Diligent::DrawAttribs sky;
         sky.NumVertices = 3;
         sky.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
@@ -410,8 +451,18 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     };
 
     auto drawRange = [&] (const Entry& e, const MaterialRange& r, bool blended) {
-        Diligent::IPipelineState* pso = blended ? impl_->blendPso[index] : impl_->opaquePso[index];
-        Diligent::IShaderResourceBinding* srb = blended ? impl_->blendSrb[index] : impl_->opaqueSrb[index];
+        // ⚠️ HDR PATH SELECTS THE HDR PSO SET. Same shaders, same SRB layout,
+        // different RTV format (RGBA16_FLOAT). The pixel shader branches on
+        // g_frameControl.x to skip Grade() when writing into the HDR target.
+        Diligent::IPipelineState* pso;
+        Diligent::IShaderResourceBinding* srb;
+        if (useHdr) {
+            pso = blended ? impl_->hdrBlendPso[index] : impl_->hdrOpaquePso[index];
+            srb = blended ? impl_->hdrBlendSrb[index] : impl_->hdrOpaqueSrb[index];
+        } else {
+            pso = blended ? impl_->blendPso[index] : impl_->opaquePso[index];
+            srb = blended ? impl_->blendSrb[index] : impl_->opaqueSrb[index];
+        }
         context->SetPipelineState (pso);
         context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         BindMesh (context, e);
@@ -444,8 +495,12 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         occlusionView = impl_->aoFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
     if (occlusionView != nullptr) {
         for (int cullIdx = 0; cullIdx < kCullModeCount; ++cullIdx) {
+            // ⚠️ BOTH LDR AND HDR SRBs. The HDR path uses its own PSO set, so its
+            // SRBs carry the same DYNAMIC g_ambientOcclusion variable -- and the
+            // same validation failure if it is left unset.
             for (Diligent::IShaderResourceBinding* srb :
-                 { impl_->opaqueSrb[cullIdx].RawPtr (), impl_->blendSrb[cullIdx].RawPtr () }) {
+                 { impl_->opaqueSrb[cullIdx].RawPtr (), impl_->blendSrb[cullIdx].RawPtr (),
+                   impl_->hdrOpaqueSrb[cullIdx].RawPtr (), impl_->hdrBlendSrb[cullIdx].RawPtr () }) {
                 if (srb == nullptr)
                     continue;
                 if (Diligent::IShaderResourceVariable* var =
@@ -547,6 +602,33 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 drawRange (e, r, blended);
             }
         }
+    }
+
+    // ---- the HDR resolve pass (RE51.C7 prerequisite) ------------------------
+    //
+    // ⚠️ THIS PASS BINDS THE SWAP CHAIN TARGET AND LEAVES IT BOUND. It is the
+    // second of the two contracts from the 2026-08-21 binding fault: the HDR
+    // scene pass binds its own target (the HDR RTV) and this pass restores to
+    // the caller's target. The wireframe and outline draws that follow inherit
+    // the swap chain binding exactly as they did before the HDR path existed.
+    //
+    // ⚠️ THE FRAME CONTROL FLAG IS SET BACK TO 0 BEFORE THE UPLOAD, so the
+    // resolve PS's own Grade() call reads the same exposure and white balance
+    // the LDR path would have applied. The resolve PS does NOT branch on
+    // g_frameControl.x -- it always tone-maps.
+    if (useHdr) {
+        constants.frameControl[0] = 0.0f;
+        UploadConstants (context, impl_->constants, constants);
+        context->SetRenderTargets (1, &colorTarget, depthTarget,
+                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        context->SetViewports (1, nullptr, 0, 0);
+        context->SetPipelineState (impl_->resolvePso);
+        context->CommitShaderResources (impl_->resolveSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        Diligent::DrawAttribs resolve;
+        resolve.NumVertices = 3;
+        resolve.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        context->Draw (resolve);
+        ++impl_->drawCalls;
     }
 
     // ---- the wireframe overlay ---------------------------------------------

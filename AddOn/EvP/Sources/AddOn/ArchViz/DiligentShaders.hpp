@@ -255,6 +255,20 @@ struct DiligentSceneConstants {
     // rather than hidden: a re-extracted element can ghost for a frame in any
     // effect that trusts history.
     float prevViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+
+    // ---- appended for the HDR scene-colour target (RE51.C7 prerequisite) -----
+    //
+    // x = 1 when the frame renders into the offscreen RGBA16_FLOAT target and
+    // Grade() must be SKIPPED, leaving raw scene-referred radiance for the
+    // resolve pass to tone-map in one place. 0 = the existing LDR path, where
+    // each shader tone-maps individually into the swap chain's sRGB view.
+    //
+    // ⚠️ THIS IS THE FIELD THAT MOVES TONE MAPPING OUT OF TWO SHADERS AND INTO
+    // ONE. The mesh PS and the env background PS both branch on it; the resolve
+    // PS applies Grade() unconditionally. With this off, the renderer behaves
+    // exactly as it did before the HDR target existed, which is the property
+    // that makes the increment verifiable in isolation.
+    float frameControl[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -294,12 +308,12 @@ enum class DiligentDebugView : int {
     MotionVectors = 13,
 };
 
-static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64,
+static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16,
                "the cbuffer is two float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
-               "the white balance and the previous view-projection, and HLSL "
-               "will read it that way");
+               "the white balance, the previous view-projection, and the frame "
+               "control flag, and HLSL will read it that way");
 
 // The cbuffer declaration, ONE COPY, prepended to each shader by
 // ArchVizShaderSource below.
@@ -338,6 +352,7 @@ cbuffer ArchVizConstants
                                 // zw source size. See DiligentSceneConstants.
     float4   g_whiteBalance;    // rgb linear gains, applied before the exposure
     float4x4 g_prevViewProj;    // RE51.C2: last frame's camera, for motion
+    float4   g_frameControl;    // x = 1 for HDR output (skip Grade, resolve pass tone-maps)
 };
 )hlsl";
 
@@ -864,7 +879,13 @@ void main (float4 position : SV_POSITION, float3 ray : TEXCOORD0, out float4 col
     // 0.6 while the model used the exposure control, so moving that control
     // brightened the building and left the sky where it was -- the two drifted
     // apart exactly when someone was trying to judge them together.
-    color = float4 (Grade (sky), 1.0);
+    //
+    // ⚠️ CONDITIONAL ON g_frameControl.x, same as the mesh PS: HDR output skips
+    // Grade here and the resolve pass applies it once to the whole frame.
+    if (g_frameControl.x > 0.5)
+        color = float4 (sky, 1.0);
+    else
+        color = float4 (Grade (sky), 1.0);
 }
 )hlsl";
 
@@ -1001,6 +1022,39 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 
     float ambientOcclusion = g_ambientOcclusion.Load (int3 (pixel, 0));
     color = float4 (ambientOcclusion.xxx, 1.0);
+}
+)hlsl";
+
+// ---- the HDR resolve pass: tone maps the offscreen scene colour in ONE place --
+//
+// ⚠️ THIS IS THE PASS THAT REPLACES INLINE GRADE() IN THE MESH AND SKY SHADERS.
+// When g_frameControl.x is 1, those shaders write raw scene-referred radiance
+// (and premultiplied alpha) into the RGBA16_FLOAT HDR target; this full-screen
+// pass reads it back, applies Grade() once, and writes display-referred colour
+// into the swap chain's sRGB view.
+//
+// ⚠️ DISCARD ON ALPHA == 0, NOT CLEAR-COLOUR REPLACEMENT. The HDR target is
+// cleared to transparent black; pixels no pass wrote stay at (0,0,0,0), and
+// discarding them lets the swap chain's own clear (grey for the palette,
+// transparent for the overlay) survive. That is what makes the overlay path
+// work without a separate resolve: where the model isn't, the overlay shows
+// Archicad's own 3D window.
+//
+// ⚠️ LOAD, NOT SAMPLE. The HDR target is exactly the viewport's own resolution,
+// so pixel (x,y) maps 1:1 to texel (x,y). Filtering would only blur edges that
+// the resolve has no reason to blur.
+constexpr const char* kArchVizResolvePS = R"hlsl(
+Texture2D<float4> g_hdrColor;
+
+void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
+{
+    int2 pixel = int2 (position.xy);
+    float4 hdr = g_hdrColor.Load (int3 (pixel, 0));
+
+    if (hdr.a <= 0.0)
+        discard;
+
+    color = float4 (Grade (hdr.rgb), hdr.a);
 }
 )hlsl";
 
@@ -1618,7 +1672,17 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // channels of an already-saturated surface further apart, which is what
         // made this project's greens and oranges read as over-saturated once the
         // sRGB decode (RE51.B7) stopped washing them toward grey.
-        base.rgb = Grade (colour);
+        //
+        // ⚠️ CONDITIONAL ON g_frameControl.x: when rendering into the HDR
+        // scene-colour target, Grade is SKIPPED here and applied once by the
+        // resolve pass. That is what makes the frame scene-referred rather than
+        // display-referred, and it is what C7's SSR and B9's percentile exposure
+        // need as input. When g_frameControl.x is 0 (the LDR path, Fast quality,
+        // or any debug view), the shader tone-maps exactly as before.
+        if (g_frameControl.x > 0.5)
+            base.rgb = colour;
+        else
+            base.rgb = Grade (colour);
         lighting = float3 (1.0, 1.0, 1.0);   // already applied above
         premultiplied = true;                // and so was the alpha
     }

@@ -534,6 +534,12 @@ class DiligentScene final {
     // any target failed to allocate, in which case nothing may sample them.
     bool EnsureGBufferTargets ();
 
+    // Resize the offscreen HDR scene-colour target to the viewport and rebind
+    // the resolve SRB. False when the target could not be allocated, in which
+    // case Draw falls back to the LDR path. ⚠️ RENDER THREAD ONLY -- it creates
+    // a GPU texture.
+    bool EnsureHdrTarget ();
+
     // The opaque geometry, into the G-buffer's MRTs. Shared by the debug views
     // and by the occlusion prepass so the two cannot describe different scenes.
     void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull);

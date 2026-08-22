@@ -45,6 +45,7 @@ STAGES = {
     "kArchVizGBufferPS": "ps_5_0",
     "kArchVizGBufferDebugPS": "ps_5_0",
     "kArchVizAmbientOcclusionDebugPS": "ps_5_0",
+    "kArchVizResolvePS": "ps_5_0",
     "kArchVizDepthRangeCS": "cs_5_0",
     "kArchVizDepthRangeSmoothCS": "cs_5_0",
     "kArchVizEnvBackgroundVS": "vs_5_0",
@@ -79,6 +80,11 @@ PRELUDES = {
     # and its inverse EnvDir are the ONE equirectangular convention in the tree,
     # and the prefilter writes the very texture the other two read.
     "kArchVizEnvPrefilterPS": ["kArchVizEnvCommonPS"],
+    # ⚠️ THE RESOLVE PS CALLS Grade(), which lives in the common prelude.
+    # Without it fxc sees an undeclared identifier and fails -- which is the
+    # point of the PRELUDES table: a stage that needs a prelude and does not
+    # declare it here fails loudly rather than compiling a half-shader.
+    "kArchVizResolvePS": ["kArchVizEnvCommonPS"],
 }
 
 
