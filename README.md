@@ -1,24 +1,24 @@
 # Tapioca
 ![Tapioca logo](./docs/static/Logo.jpg)
-Tapioca is a UI for Python automation.
+
+Tapioca is a UI for Python automation scripts.
+Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD python API if installed. 
 
 [![Build](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml/badge.svg)](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml)
 
 ## Download and install
 
-Prebuilt AC29 releases are published on the Releases page. Download the asset and keep a checkout of this repository for the runtime
-installer and example commands. With Archicad closed, run these commands from
-the repository root in Windows PowerShell:
+Prebuilt AC29 Tapioca.apx is on Releases page. Download the asset and clone this repository for the python runtime installer and example commands. With Archicad closed, run these commands from the repository root in Windows PowerShell:
 
 ```powershell
- .\dist\Install-Runtime.ps1
- .\AddOn\EvP\Sync-Commands.ps1
+ ./dist\Install-Runtime.ps1
+ ./AddOn\EvP\Sync-Commands.ps1
 ```
 
 `Install-Runtime.ps1` installs the bundled CPython runtime and baseline packages
 under `%LOCALAPPDATA%\Tapioca\runtime`. `Sync-Commands.ps1` copies commands from
 the repository's `Examples\` folder to `%LOCALAPPDATA%\Tapioca\Commands`, which is
-the folder Archicad scans.
+the folder Tapioca scans to show scripts.
 
 Then:
 
