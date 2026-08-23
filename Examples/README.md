@@ -1,7 +1,5 @@
 # Examples
 
-![Tapioca logo](../docs/static/Logo.jpg)
-
 These commands are deliberately small. Each one demonstrates one public Tapioca
 surface without depending on the development workspace or a client project.
 
