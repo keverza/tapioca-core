@@ -1,7 +1,7 @@
 # Tapioca
 ![Tapioca logo](./docs/static/Logo.jpg)
 
-Tapioca is a UI for Python automation scripts.
+Tapioca is an UI for Python automation scripts.
 Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD python API if installed. 
 
 [![Build](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml/badge.svg)](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml)
