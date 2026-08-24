@@ -152,6 +152,50 @@ void OrthographicRH (float out[16], float left, float right, float bottom, float
     out[15] = 1.0f;
 }
 
+// Right-multiplying by diag (1, 1, -1, 1) negates column 2 -- the third basis
+// axis, which under LookAtRH points BACK along the line of sight and now points
+// along it. Spelled out element by element rather than as a matrix product,
+// because at four elements the product is the harder thing to check.
+void ToLeftHandedView (float out[16], const float m[16])
+{
+    if (out != m)
+        std::memcpy (out, m, sizeof (float) * 16);
+    out[2] = -m[2];
+    out[6] = -m[6];
+    out[10] = -m[10];
+    out[14] = -m[14];
+}
+
+// Left-multiplying by diag (1, 1, -1, 1) negates row 2. For PerspectiveRH that
+// turns (m22, m23) = (-far/(far-near), -1) into (+far/(far-near), +1) and leaves
+// m32 -- and therefore the depth values already in the buffer -- alone.
+void ToLeftHandedProjection (float out[16], const float m[16])
+{
+    if (out != m)
+        std::memcpy (out, m, sizeof (float) * 16);
+    out[8] = -m[8];
+    out[9] = -m[9];
+    out[10] = -m[10];
+    out[11] = -m[11];
+}
+
+void JitterProjection (float out[16], const float m[16], float jitterX, float jitterY)
+{
+    ToLeftHandedProjection (out, m);
+    // m33 == 0 is the projective case. Under PerspectiveRH the offset has to
+    // scale with z to stay constant in screen space, which is what putting it in
+    // row 2 does; OrthographicRH is affine and takes it in row 3 directly.
+    if (out[15] == 0.0f) {
+        out[8] += jitterX;
+        out[9] += jitterY;
+    }
+    else {
+        out[12] += jitterX;
+        out[13] += jitterY;
+    }
+    ToLeftHandedProjection (out, out);
+}
+
 void Multiply (float out[16], const float a[16], const float b[16])
 {
     float result[16];

@@ -1,4 +1,6 @@
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
+#include "ArchViz/DiligentPostFxCamera.hpp"
+#include "ArchViz/MatrixMath.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -131,17 +133,16 @@ bool DiligentTemporalAntiAliasing::Prepare (Diligent::IRenderDevice* device, Dil
     if (impl_->taa->GetAccumulatedFrameSRV () == nullptr)
         return false;
     const Diligent::float2 offset = impl_->taa->GetJitterOffset ();
-    const Diligent::float4x4 base = Diligent::float4x4::MakeMatrix (projection);
-    Diligent::float4x4 jittered = base;
-    if (jittered.m33 == 0.0f) {
-        jittered.m20 += offset.x;
-        jittered.m21 += offset.y;
-    }
-    else {
-        jittered.m30 += offset.x;
-        jittered.m31 += offset.y;
-    }
-    std::memcpy (jitteredProjection, jittered.Data (), sizeof (float) * 16);
+    // ⚠️ NOT Diligent's GetJitteredProjMatrix INLINED HERE, WHICH IS WHAT THIS
+    // USED TO BE. That helper is written for a left-handed projection and this
+    // renderer's is not, so transcribing it applied the jitter with the sign
+    // REVERSED against the `jitter` reported below -- see MatrixMath's
+    // JitterProjection, which applies it through the right convention and is
+    // pinned by test_matrixmath.
+    JitterProjection (jitteredProjection, projection, offset.x, offset.y);
+    // The NDC offset the pixel actually received, which is now what was asked
+    // for. CameraAttribs::f2Jitter carries it to TAA's accumulation pass, and
+    // the two agreeing is the whole point.
     jitter[0] = offset.x;
     jitter[1] = offset.y;
     impl_->preparedFrame = frameIndex;
@@ -172,12 +173,21 @@ Diligent::ITextureView* DiligentTemporalAntiAliasing::Execute (
     camera.fNearPlaneZ = nearClip;
     camera.fFarPlaneZ = farClip;
 #endif
-    camera.fHandness = 1.0f;
+    // ⚠️ -1 IS "LEFT-HANDED" (BasicStructures.fxh). The matrices below are
+    // converted, so this now describes them honestly. Nothing under PostProcess/
+    // actually reads it -- which is exactly why the mismatch it should have
+    // caught went unnoticed for as long as it did.
+    camera.fHandness = -1.0f;
     camera.uiFrameIndex = frameIndex;
     camera.fFocusDistance = focusDistance;
     camera.f2Jitter = Diligent::float2 { jitter[0], jitter[1] };
-    camera.mView = Diligent::float4x4::MakeMatrix (view);
-    camera.mProj = Diligent::float4x4::MakeMatrix (proj);
+    // ⚠️ CONVERTED TO DILIGENTFX'S LEFT-HANDED CONVENTION, which is not this
+    // renderer's. See DiligentPostFxCamera.hpp for what breaks without it.
+    // mViewProj is deliberately NOT converted: the conversion leaves the
+    // view-projection bit-for-bit identical, which is the whole reason it is
+    // safe to make here rather than in the camera.
+    camera.mView = PostFxViewMatrix (view);
+    camera.mProj = PostFxProjMatrix (proj);
     camera.mViewProj = Diligent::float4x4::MakeMatrix (viewProj);
     camera.mViewInv = camera.mView.Inverse ();
     camera.mProjInv = camera.mProj.Inverse ();

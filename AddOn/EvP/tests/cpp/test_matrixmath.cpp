@@ -468,3 +468,234 @@ TEST (MatrixMath, CameraBasisSurvivesAZeroLengthView)
         EXPECT_TRUE (std::isfinite (up[k])) << "up " << k;
     }
 }
+
+// ---- the left-handed pair DiligentFX's post-processing insists on -----------
+//
+// ⚠️ OFFLINE FOR THE SAME REASON AS EVERYTHING ABOVE: this failure renders a
+// plausible picture too. Handing DiligentFX the right-handed pair does not
+// produce black or NaN, it produces reflections that are THERE and wrong --
+// mirrored about the view axis and with every hit accepted, because the
+// thickness rejection divides by a view-space z that has the wrong sign. It
+// shipped that way and was found by re-deriving the shader's algebra, not by
+// looking. The two assertions below are exactly what that derivation needs to
+// hold: that the depth buffer is unaffected, and that the shader's own
+// reconstruction comes back to where it started.
+
+namespace {
+
+// PostFX_Common.fxh's ScreenXYDepthToViewSpace, transcribed. `Transform` is
+// indexed the way MATRIX_ELEMENT does under row-major packing: element (r, c)
+// is m[r * 4 + c].
+void ScreenXYDepthToViewSpace (float out[3], const float uv[2], float depth, const float proj[16])
+{
+    const float m22 = proj[2 * 4 + 2];
+    const float m32 = proj[3 * 4 + 2];
+    const float m23 = proj[2 * 4 + 3];
+    const float m33 = proj[3 * 4 + 3];
+    // NormalizedDeviceZToCameraZ. D3D depth IS ndc z, so no remap first.
+    const float cameraZ = (m32 - depth * m33) / (depth * m23 - m22);
+
+    const float ndcX = uv[0] * 2.0f - 1.0f;
+    const float ndcY = -(uv[1] * 2.0f - 1.0f);
+    out[0] = cameraZ * ndcX / proj[0];
+    out[1] = cameraZ * ndcY / proj[5];
+    out[2] = cameraZ;
+}
+
+}   // namespace
+
+TEST (MatrixMath, LeftHandedConversionLeavesTheViewProjectionAlone)
+{
+    // ⚠️ THE POINT OF THE WHOLE CONVERSION. If this ever fails, the depth
+    // buffer the post-processes read no longer matches the matrices they are
+    // told about, and the conversion has become the bug it was written to fix.
+    const float eye[3] = {7.0f, -9.0f, 5.0f};
+    const float at[3] = {1.0f, 2.0f, 0.5f};
+    float view[16];
+    float proj[16];
+    LookAtRH (view, eye, at, kUpZ);
+    PerspectiveRH (proj, 45.0f, 16.0f / 9.0f, 0.05f, 20000.0f);
+
+    float viewProj[16];
+    Multiply (viewProj, view, proj);
+
+    float viewLh[16];
+    float projLh[16];
+    ToLeftHandedView (viewLh, view);
+    ToLeftHandedProjection (projLh, proj);
+
+    float viewProjLh[16];
+    Multiply (viewProjLh, viewLh, projLh);
+
+    for (int k = 0; k < 16; ++k)
+        EXPECT_NEAR (viewProjLh[k], viewProj[k], kEps) << "element " << k;
+}
+
+TEST (MatrixMath, LeftHandedPairReconstructsTheViewSpacePositionDiligentFXExpects)
+{
+    const float eye[3] = {7.0f, -9.0f, 5.0f};
+    const float at[3] = {1.0f, 2.0f, 0.5f};
+    float view[16];
+    float proj[16];
+    LookAtRH (view, eye, at, kUpZ);
+    PerspectiveRH (proj, 45.0f, 16.0f / 9.0f, 0.05f, 20000.0f);
+
+    float viewLh[16];
+    float projLh[16];
+    ToLeftHandedView (viewLh, view);
+    ToLeftHandedProjection (projLh, proj);
+
+    // A point in front of the camera, rasterised through the pair the renderer
+    // actually uses -- which, by the test above, is the converted pair too.
+    const float world[4] = {3.1f, -0.4f, 2.2f, 1.0f};
+    float viewProj[16];
+    Multiply (viewProj, view, proj);
+    float clip[4];
+    TransformPoint (clip, world, viewProj);
+    ASSERT_GT (clip[3], 0.0f) << "the sample point must be in front of the camera";
+
+    const float uv[2] = {(clip[0] / clip[3]) * 0.5f + 0.5f, -(clip[1] / clip[3]) * 0.5f + 0.5f};
+    const float depth = clip[2] / clip[3];
+
+    float recovered[3];
+    ScreenXYDepthToViewSpace (recovered, uv, depth, projLh);
+
+    float expected[4];
+    TransformPoint (expected, world, viewLh);
+    for (int k = 0; k < 3; ++k)
+        EXPECT_NEAR (recovered[k], expected[k], 1e-3f) << "component " << k;
+    // ⚠️ POSITIVE, and that is the assertion the whole handedness question comes
+    // down to. Under the unconverted pair this is negative, and every consumer
+    // that divides by it -- the SSR thickness rejection above all -- inverts.
+    EXPECT_GT (recovered[2], 0.0f);
+}
+
+TEST (MatrixMath, TheUnconvertedProjectionMirrorsTheReconstruction)
+{
+    // The bug, pinned as a fact rather than a story: feeding the right-handed
+    // projection to DiligentFX's own reconstruction negates x and y and leaves
+    // z negative. Recorded so that "it looked warped" has a number behind it.
+    float proj[16];
+    PerspectiveRH (proj, 45.0f, 16.0f / 9.0f, 0.05f, 20000.0f);
+
+    const float viewPos[4] = {1.3f, -0.7f, -8.0f, 1.0f};
+    float clip[4];
+    TransformPoint (clip, viewPos, proj);
+    const float uv[2] = {(clip[0] / clip[3]) * 0.5f + 0.5f, -(clip[1] / clip[3]) * 0.5f + 0.5f};
+
+    float recovered[3];
+    ScreenXYDepthToViewSpace (recovered, uv, clip[2] / clip[3], proj);
+
+    EXPECT_NEAR (recovered[0], -viewPos[0], 1e-3f);
+    EXPECT_NEAR (recovered[1], -viewPos[1], 1e-3f);
+    EXPECT_NEAR (recovered[2], viewPos[2], 1e-3f);
+}
+
+// ---- TAA's sub-pixel jitter -------------------------------------------------
+//
+// ⚠️ THE SAME HANDEDNESS TRAP, ONE LEVEL UP, AND EVEN LESS VISIBLE THAN THE
+// SSR ONE. Diligent's TemporalAntiAliasing::GetJitteredProjMatrix says
+// `m20 += Jitter.x`, which is right for its own left-handed projection and
+// backwards for PerspectiveRH. Transcribing it shifted the pixel by -jitter
+// while CameraAttribs::f2Jitter reported +jitter, so the accumulation resolved
+// against a history offset the wrong way. That does not render as a broken
+// projection -- it renders as TAA not working, which is indistinguishable from
+// TAA being badly tuned. Hence: measured here, in NDC, as a number.
+
+namespace {
+
+// The NDC x/y a view-space point lands on under `proj`.
+void ProjectToNdc (float out[2], const float viewPos[3], const float proj[16])
+{
+    const float p[4] = {viewPos[0], viewPos[1], viewPos[2], 1.0f};
+    float clip[4];
+    TransformPoint (clip, p, proj);
+    out[0] = clip[0] / clip[3];
+    out[1] = clip[1] / clip[3];
+}
+
+}   // namespace
+
+TEST (MatrixMath, JitterShiftsThePerspectivePixelByTheOffsetItWasGiven)
+{
+    float proj[16];
+    PerspectiveRH (proj, 45.0f, 16.0f / 9.0f, 0.05f, 20000.0f);
+
+    const float jitterX = 0.0031f;
+    const float jitterY = -0.0017f;
+    float jittered[16];
+    JitterProjection (jittered, proj, jitterX, jitterY);
+
+    // ⚠️ TWO DEPTHS, because under a perspective projection the offset lives in
+    // row 2 and is therefore scaled by z on the way through. The whole reason it
+    // goes there rather than in row 3 is that the NDC shift must come out the
+    // SAME at every depth; one sample could not tell that apart from a shear.
+    const float near[3] = {1.3f, -0.7f, -8.0f};
+    const float far[3] = {-40.0f, 22.0f, -350.0f};
+    for (const float* viewPos : {near, far}) {
+        float base[2];
+        float shifted[2];
+        ProjectToNdc (base, viewPos, proj);
+        ProjectToNdc (shifted, viewPos, jittered);
+        EXPECT_NEAR (shifted[0] - base[0], jitterX, kEps) << "x at z = " << viewPos[2];
+        EXPECT_NEAR (shifted[1] - base[1], jitterY, kEps) << "y at z = " << viewPos[2];
+    }
+}
+
+TEST (MatrixMath, JitterShiftsTheParallelPixelByTheOffsetItWasGiven)
+{
+    // The affine branch. It was already correct before the handedness fix --
+    // the offset is in row 3, which the left-handed conversion does not touch --
+    // and this pins that it stayed correct.
+    float proj[16];
+    OrthographicRH (proj, -10.0f, 10.0f, -6.0f, 6.0f, 0.05f, 400.0f);
+    ASSERT_NE (proj[15], 0.0f) << "an orthographic projection is affine";
+
+    const float jitterX = 0.0031f;
+    const float jitterY = -0.0017f;
+    float jittered[16];
+    JitterProjection (jittered, proj, jitterX, jitterY);
+
+    const float viewPos[3] = {1.3f, -0.7f, -8.0f};
+    float base[2];
+    float shifted[2];
+    ProjectToNdc (base, viewPos, proj);
+    ProjectToNdc (shifted, viewPos, jittered);
+    EXPECT_NEAR (shifted[0] - base[0], jitterX, kEps);
+    EXPECT_NEAR (shifted[1] - base[1], jitterY, kEps);
+}
+
+TEST (MatrixMath, JitterLeavesTheDepthMappingAlone)
+{
+    // ⚠️ A JITTER THAT MOVED DEPTH WOULD DESYNC SSR FROM THE BUFFER IT READS.
+    // The jittered projection is what renders the G-buffer AND what reaches
+    // CameraAttribs::mProj, so a row-2 edit that touched m22 or m23 would put
+    // the depth values and the matrix that decodes them out of step.
+    float proj[16];
+    PerspectiveRH (proj, 45.0f, 16.0f / 9.0f, 0.05f, 20000.0f);
+    float jittered[16];
+    JitterProjection (jittered, proj, 0.0031f, -0.0017f);
+
+    EXPECT_FLOAT_EQ (jittered[10], proj[10]);
+    EXPECT_FLOAT_EQ (jittered[11], proj[11]);
+    EXPECT_FLOAT_EQ (jittered[14], proj[14]);
+
+    const float viewPos[4] = {1.3f, -0.7f, -8.0f, 1.0f};
+    float clip[4];
+    float clipJ[4];
+    TransformPoint (clip, viewPos, proj);
+    TransformPoint (clipJ, viewPos, jittered);
+    EXPECT_NEAR (clipJ[2] / clipJ[3], clip[2] / clip[3], kEps);
+}
+
+TEST (MatrixMath, ZeroJitterIsTheProjectionItself)
+{
+    // What every non-TAA frame passes. A no-op here has to be exactly a no-op,
+    // or SSR and AO see a different matrix depending on whether TAA is enabled.
+    float proj[16];
+    PerspectiveRH (proj, 45.0f, 16.0f / 9.0f, 0.05f, 20000.0f);
+    float jittered[16];
+    JitterProjection (jittered, proj, 0.0f, 0.0f);
+    for (int k = 0; k < 16; ++k)
+        EXPECT_FLOAT_EQ (jittered[k], proj[k]) << "element " << k;
+}

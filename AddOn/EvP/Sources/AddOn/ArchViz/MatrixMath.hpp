@@ -93,6 +93,54 @@ void Multiply (float out[16], const float a[16], const float b[16]);
 // projection makes w meaningful, so it is not dropped.
 void TransformPoint (float out[4], const float v[4], const float m[16]);
 
+// ---- the left-handed pair DiligentFX's post-processing insists on -----------
+//
+// ⚠️ THIS RENDERER IS RIGHT-HANDED AND DILIGENTFX'S PostProcess/ IS NOT. Both
+// facts are settled: Camera.hpp argues the right-handed decision at length, and
+// DiligentCore spells its own convention out in BasicMath.hpp ("Left-handed
+// projection"). CameraAttribs looks like a neutral container and is not -- the
+// shaders that read it assume view-space z is POSITIVE in front of the eye, and
+// `fHandness`, the field that exists to say otherwise, is read by nothing under
+// PostProcess/. So the mismatch compiles, runs, and is silently wrong. See
+// DiligentPostFxCamera.hpp for what it does to a reflection.
+//
+// With S = diag (1, 1, -1, 1),
+//
+//     view_lh = view * S      proj_lh = S * proj      view_lh * proj_lh
+//                                                       == view * proj
+//
+// because S * S is the identity. ⚠️ THE VIEW-PROJECTION IS UNCHANGED, which is
+// the whole reason this belongs at the post-process boundary rather than in the
+// camera: the depth buffer these effects read, and the rasterisation that
+// produced it, are untouched.
+//
+// Safe to alias: out may be m.
+void ToLeftHandedView (float out[16], const float m[16]);
+void ToLeftHandedProjection (float out[16], const float m[16]);
+
+// The projection with TAA's sub-pixel jitter folded in, as an NDC offset.
+//
+// ⚠️ NOT `m20 += jitterX`, WHICH IS WHAT DILIGENT'S OWN HELPER SAYS AND WHAT
+// THIS RENDERER CANNOT COPY. TemporalAntiAliasing::GetJitteredProjMatrix is
+// written for Diligent's left-handed projection, where w = +z and the shift the
+// pixel sees is therefore +jitter. Under PerspectiveRH, w = -z, so the SAME
+// edit shifts the pixel by -jitter -- while CameraAttribs::f2Jitter still
+// reports +jitter, because that is the number TAA was handed. The two disagree
+// by a sign and the accumulation resolves against a history offset the wrong
+// way, which does not look like a broken projection: it looks like TAA is
+// simply not sharpening.
+//
+// So the jitter is applied through the convention the helper was written for:
+// convert, apply it verbatim, convert back. ToLeftHandedProjection is its own
+// inverse, so the round trip costs eight sign flips and needs no case analysis
+// -- ⚠️ INCLUDING THE ORTHOGRAPHIC BRANCH, which is affine, whose offset lives
+// in row 3, and which the conversion therefore does not touch at all. That
+// branch was already right; the round trip leaves it that way rather than
+// requiring anyone to notice.
+//
+// Safe to alias: out may be m.
+void JitterProjection (float out[16], const float m[16], float jitterX, float jitterY);
+
 }   // namespace archviz
 }   // namespace geomsrv
 

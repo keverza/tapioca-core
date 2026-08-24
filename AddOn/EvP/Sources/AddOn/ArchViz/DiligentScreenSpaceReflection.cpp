@@ -1,4 +1,5 @@
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
+#include "ArchViz/DiligentPostFxCamera.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -147,12 +148,21 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     camera.fNearPlaneZ = nearClip;
     camera.fFarPlaneZ = farClip;
 #endif
-    camera.fHandness = 1.0f;
+    // ⚠️ -1 IS "LEFT-HANDED" (BasicStructures.fxh). The matrices below are
+    // converted, so this now describes them honestly. Nothing under PostProcess/
+    // actually reads it -- which is exactly why the mismatch it should have
+    // caught went unnoticed for as long as it did.
+    camera.fHandness = -1.0f;
     camera.uiFrameIndex = frameIndex;
     camera.fFocusDistance = focusDistance;
     camera.f2Jitter = Diligent::float2 { jitter != nullptr ? jitter[0] : 0.0f, jitter != nullptr ? jitter[1] : 0.0f };
-    camera.mView = Diligent::float4x4::MakeMatrix (view);
-    camera.mProj = Diligent::float4x4::MakeMatrix (proj);
+    // ⚠️ CONVERTED TO DILIGENTFX'S LEFT-HANDED CONVENTION, which is not this
+    // renderer's. See DiligentPostFxCamera.hpp for what breaks without it.
+    // mViewProj is deliberately NOT converted: the conversion leaves the
+    // view-projection bit-for-bit identical, which is the whole reason it is
+    // safe to make here rather than in the camera.
+    camera.mView = PostFxViewMatrix (view);
+    camera.mProj = PostFxProjMatrix (proj);
     camera.mViewProj = Diligent::float4x4::MakeMatrix (viewProj);
     camera.mViewInv = camera.mView.Inverse ();
     camera.mProjInv = camera.mProj.Inverse ();
