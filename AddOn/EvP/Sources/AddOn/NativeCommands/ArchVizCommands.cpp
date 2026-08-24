@@ -11,9 +11,7 @@
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/SelectionBridge.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
-#include "Python/CloudCompareRunner.hpp"
 #include "Python/MainThreadGate.hpp"
-#include "Python/RunCancel.hpp"
 
 namespace geomsrv {
 
@@ -27,15 +25,23 @@ av::CameraStart ReadCaptureCamera (const GS::ObjectState& params)
     params.Get ("camera", p);
     av::CameraStart camera;
     double value = 0.0;
-    p.Get ("eyeX", value);    camera.eye[0] = float (value);
-    p.Get ("eyeY", value);    camera.eye[1] = float (value);
-    p.Get ("eyeZ", value);    camera.eye[2] = float (value);
-    p.Get ("targetX", value); camera.target[0] = float (value);
-    p.Get ("targetY", value); camera.target[1] = float (value);
-    p.Get ("targetZ", value); camera.target[2] = float (value);
-    p.Get ("viewConeDegreesHorizontal", value); camera.viewConeDegreesHorizontal = float (value);
+    p.Get ("eyeX", value);
+    camera.eye[0] = float (value);
+    p.Get ("eyeY", value);
+    camera.eye[1] = float (value);
+    p.Get ("eyeZ", value);
+    camera.eye[2] = float (value);
+    p.Get ("targetX", value);
+    camera.target[0] = float (value);
+    p.Get ("targetY", value);
+    camera.target[1] = float (value);
+    p.Get ("targetZ", value);
+    camera.target[2] = float (value);
+    p.Get ("viewConeDegreesHorizontal", value);
+    camera.viewConeDegreesHorizontal = float (value);
     GS::UniString source;
-    p.Get ("source", source); camera.source = source.ToCStr ().Get ();
+    p.Get ("source", source);
+    camera.source = source.ToCStr ().Get ();
     p.Get ("valid", camera.valid);
     p.Get ("orthographic", camera.orthographic);
     p.Get ("viewMoving", camera.viewMoving);
@@ -43,29 +49,44 @@ av::CameraStart ReadCaptureCamera (const GS::ObjectState& params)
 }
 
 class StartDiligentCaptureCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "StartDiligentCapture"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "StartDiligentCapture";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Int32 width = 0, height = 0;
         GS::UniString quality;
-        params.Get ("width", width); params.Get ("height", height); params.Get ("renderQuality", quality);
+        params.Get ("width", width);
+        params.Get ("height", height);
+        params.Get ("renderQuality", quality);
         uint64_t id = 0;
         std::string error;
-        if (!av::DiligentViewport::Get ().StartCapture (uint32_t (width), uint32_t (height),
-                ReadCaptureCamera (params), quality == "realistic" ? 1 : 0, id, error))
+        if (!av::DiligentViewport::Get ().StartCapture (uint32_t (width), uint32_t (height), ReadCaptureCamera (params),
+                                                        quality == "realistic" ? 1 : 0, id, error))
             return NativeCommandResult::Failure (GS::UniString (error.c_str (), CC_UTF8));
         GS::ObjectState os;
-        os.Add ("id", static_cast<GS::Int64> (id)); os.Add ("status", "running");
+        os.Add ("id", static_cast<GS::Int64> (id));
+        os.Add ("status", "running");
         return os;
     }
 };
 
 class DiligentCaptureStateCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "DiligentCaptureState"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "DiligentCaptureState";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Int64 id = 0;
@@ -77,20 +98,29 @@ public:
         os.Add ("id", static_cast<GS::Int64> (stats.id));
         os.Add ("status", GS::UniString (stats.status.c_str (), CC_UTF8));
         os.Add ("stage", GS::UniString (stats.stage.c_str (), CC_UTF8));
-        os.Add ("width", static_cast<GS::Int32> (stats.width)); os.Add ("height", static_cast<GS::Int32> (stats.height));
-        os.Add ("bytes", static_cast<GS::Int64> (stats.bytes)); os.Add ("url", GS::UniString (stats.url.c_str (), CC_UTF8));
+        os.Add ("width", static_cast<GS::Int32> (stats.width));
+        os.Add ("height", static_cast<GS::Int32> (stats.height));
+        os.Add ("bytes", static_cast<GS::Int64> (stats.bytes));
+        os.Add ("url", GS::UniString (stats.url.c_str (), CC_UTF8));
         os.Add ("failureMessage", GS::UniString (stats.failureMessage.c_str (), CC_UTF8));
         return os;
     }
 };
 
 class CancelDiligentCaptureCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "CancelDiligentCapture"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "CancelDiligentCapture";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        GS::Int64 id = 0; params.Get ("id", id);
+        GS::Int64 id = 0;
+        params.Get ("id", id);
         GS::ObjectState os;
         os.Add ("cancelled", av::DiligentViewport::Get ().CancelCapture (static_cast<uint64_t> (id)));
         return os;
@@ -855,132 +885,72 @@ class SetDiligentSunCommand : public MainThreadCommand {
     }
 };
 
-// CloudCompare is deliberately an out-of-process, ACAPI-free operation. The
-// in-process bus calls this command on its HTTP worker because NeedsMainThread
-// is false; no gate hop is allowed to turn a long CLI run into an Archicad UI
-// stall.
-class RunCloudCompareCommand : public MainThreadCommand {
-  public:
-    GS::String GetName () const override
-    {
-        return "RunCloudCompare";
-    }
-
-    bool NeedsMainThread () const override
-    {
-        return false;
-    }
-
-    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
-    {
-        GS::UniString executablePath;
-        GS::UniString inputPath;
-        GS::UniString outputPath;
-        if (!params.Get ("executablePath", executablePath) || executablePath.IsEmpty () ||
-            !params.Get ("inputPath", inputPath) || inputPath.IsEmpty () || !params.Get ("outputPath", outputPath) ||
-            outputPath.IsEmpty ())
-            return NativeCommandResult::Failure (
-                EVP_FAIL ("executablePath, inputPath and outputPath are required", "Tapioca.RunCloudCompare"));
-
-        GS::Array<double> cropPolygon;
-        params.Get ("cropPolygon", cropPolygon);
-        if ((cropPolygon.GetSize () % 2) != 0 || (!cropPolygon.IsEmpty () && cropPolygon.GetSize () < 6))
-            return NativeCommandResult::Failure (EVP_FAIL (
-                "cropPolygon must contain zero values or at least three XY pairs", "Tapioca.RunCloudCompare"));
-
-        bool keepOutside = false;
-        params.Get ("keepOutside", keepOutside);
-        double subsampleStep = 0.0;
-        params.Get ("subsampleStep", subsampleStep);
-        if (subsampleStep < 0.0)
-            return NativeCommandResult::Failure (
-                EVP_FAIL ("subsampleStep cannot be negative", "Tapioca.RunCloudCompare"));
-
-        const evp::CloudCompareResult result = evp::RunCloudCompareCli (
-            executablePath, inputPath, outputPath, cropPolygon.IsEmpty () ? nullptr : cropPolygon.GetContent (),
-            cropPolygon.GetSize () / 2, keepOutside, subsampleStep, evp::RunCancel::Get ().Generation ());
-
-        // A process-level failure is diagnostic domain data, not a transport
-        // failure: the transcript and exact exit code must reach the probe.
-        GS::ObjectState os;
-        os.Add ("succeeded", result.succeeded);
-        os.Add ("cancelled", result.cancelled);
-        os.Add ("exitCode", (GS::Int32) result.exitCode);
-        os.Add ("transcript", result.transcript);
-        os.Add ("outputPath", result.outputPath);
-        os.Add ("logPath", result.logPath);
-        os.Add ("failureReason", result.error);
-        return os;
-    }
+const NativeCommandRegistration kArchVizCommandRegistrations[] = {
+    { "SetOverlayFrameLatency", &MakeRegisteredNativeCommand<SetOverlayFrameLatencyCommand>, false,
+      R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":3}},"additionalProperties":false,"required":["frames"]})json",
+      R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":3}},"additionalProperties":false,"required":["frames"]})json" },
+    { "SetOverlayInstruction", &MakeRegisteredNativeCommand<SetOverlayInstructionCommand>, false,
+      R"json({"type":"object","properties":{"text":{"type":"string"},"seconds":{"type":"number","minimum":-1,"maximum":600}},"additionalProperties":false,"required":["text"]})json",
+      R"json({"type":"object","properties":{"shown":{"type":"boolean"}},"additionalProperties":false,"required":["shown"]})json" },
+    { "DiligentFxState", &MakeRegisteredNativeCommand<DiligentFxStateCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"linked":{"type":"boolean"},"report":{"type":"string"}},"additionalProperties":false,"required":["linked","report"]})json" },
+    { "ProbeDiligentDevice", &MakeRegisteredNativeCommand<ProbeDiligentDeviceCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
+    { "DiligentProbeState", &MakeRegisteredNativeCommand<DiligentProbeStateCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"attempted":{"type":"boolean"},"running":{"type":"boolean"},"succeeded":{"type":"boolean"},"failureMessage":{"type":"string"}},"additionalProperties":false,"required":["attempted","running","succeeded","failureMessage"]})json" },
+    { "StartD3D12FeasibilityProbe", &MakeRegisteredNativeCommand<StartD3D12FeasibilityProbeCommand>, false,
+      R"json({"type":"object","properties":{"confirm":{"type":"boolean"}},"additionalProperties":false,"required":["confirm"]})json",
+      R"json({"type":"object","properties":{"started":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["started","error"]})json" },
+    { "D3D12FeasibilityProbeState", &MakeRegisteredNativeCommand<D3D12FeasibilityProbeStateCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"attempted":{"type":"boolean"},"running":{"type":"boolean"},"completed":{"type":"boolean"},"cancelled":{"type":"boolean"},"cleanTeardown":{"type":"boolean"},"stage":{"type":"string"},"failureMessage":{"type":"string"},"deviceAttempted":{"type":"boolean"},"deviceSucceeded":{"type":"boolean"},"deviceFailure":{"type":"string"},"adapter":{"type":"string"},"hardwarePreflightSucceeded":{"type":"boolean"},"hardwareCreateResult":{"type":"integer"},"hardwareFeatureLevel":{"type":"integer","minimum":0},"d3d12Runtime":{"type":"string"},"childAttempted":{"type":"boolean"},"childSucceeded":{"type":"boolean"},"childPresents":{"type":"integer","minimum":0},"childLastPresentResult":{"type":"integer"},"childFailure":{"type":"string"},"overlayAttempted":{"type":"boolean"},"overlaySucceeded":{"type":"boolean"},"overlayPresents":{"type":"integer","minimum":0},"overlayLastPresentResult":{"type":"integer"},"overlayFailure":{"type":"string"},"rayTracingFeature":{"type":"integer","minimum":0},"rayTracingCaps":{"type":"integer","minimum":0},"rayTracingStandalone":{"type":"boolean"},"rayTracingInline":{"type":"boolean"},"rayTracingIndirect":{"type":"boolean"},"maxRecursionDepth":{"type":"integer","minimum":0},"maxRayGenThreads":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["attempted","running","completed","cancelled","cleanTeardown","stage","failureMessage","deviceAttempted","deviceSucceeded","deviceFailure","adapter","hardwarePreflightSucceeded","hardwareCreateResult","hardwareFeatureLevel","d3d12Runtime","childAttempted","childSucceeded","childPresents","childLastPresentResult","childFailure","overlayAttempted","overlaySucceeded","overlayPresents","overlayLastPresentResult","overlayFailure","rayTracingFeature","rayTracingCaps","rayTracingStandalone","rayTracingInline","rayTracingIndirect","maxRecursionDepth","maxRayGenThreads"]})json" },
+    { "StopD3D12FeasibilityProbe", &MakeRegisteredNativeCommand<StopD3D12FeasibilityProbeCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"stopped":{"type":"boolean"}},"additionalProperties":false,"required":["stopped"]})json" },
+    { "OpenDiligentViewport", &MakeRegisteredNativeCommand<OpenDiligentViewportCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
+    { "CloseDiligentViewport", &MakeRegisteredNativeCommand<CloseDiligentViewportCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
+    { "DiligentViewportState", &MakeRegisteredNativeCommand<DiligentViewportStateCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"running":{"type":"boolean"},"initialized":{"type":"boolean"},"failed":{"type":"boolean"},"failureMessage":{"type":"string"},"frames":{"type":"integer","minimum":0},"fps":{"type":"number","minimum":0},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"resizes":{"type":"integer","minimum":0},"clearChecked":{"type":"boolean"},"diligentClearMatched":{"type":"boolean"},"nativeClearMatched":{"type":"boolean"},"diligentClearReport":{"type":"string"},"nativeClearReport":{"type":"string"},"adapter":{"type":"string"},"featureLevel":{"type":"integer","minimum":0},"presentCount":{"type":"integer","minimum":0},"stalePresents":{"type":"integer","minimum":0},"presentFailures":{"type":"integer","minimum":0},"lastPresentResult":{"type":"integer"},"frameLatency":{"type":"integer","minimum":0},"deviceRemovedReason":{"type":"integer","minimum":0},"sceneReady":{"type":"boolean"},"sceneElements":{"type":"integer","minimum":0},"sceneTriangles":{"type":"integer","minimum":0},"sceneVertices":{"type":"integer","minimum":0},"sceneGpuBytes":{"type":"integer","minimum":0},"scenePending":{"type":"integer","minimum":0},"sceneMaterials":{"type":"integer","minimum":0},"materialMisses":{"type":"integer","minimum":0},"transparentRanges":{"type":"integer","minimum":0},"sunApplied":{"type":"boolean"},"sunBelowHorizon":{"type":"boolean"},"sunX":{"type":"number"},"sunY":{"type":"number"},"sunZ":{"type":"number"},"ambient":{"type":"number","minimum":0,"maximum":1},"sunOverridden":{"type":"boolean"},"sunAzimuthDegrees":{"type":"number"},"sunBearingDegrees":{"type":"number"},"northDegrees":{"type":"number"},"sunAltitudeDegrees":{"type":"number"},"shadowReady":{"type":"boolean"},"shadowFitted":{"type":"boolean"},"shadowResolution":{"type":"integer","minimum":0},"shadowTexelMetres":{"type":"number","minimum":0},"cameraEyeX":{"type":"number"},"cameraEyeY":{"type":"number"},"cameraEyeZ":{"type":"number"},"cameraTargetX":{"type":"number"},"cameraTargetY":{"type":"number"},"cameraTargetZ":{"type":"number"},"cameraFovDegreesVertical":{"type":"number","minimum":0},"cameraSyncs":{"type":"integer","minimum":0},"cameraSource":{"type":"string"},"pickAvailable":{"type":"boolean"},"pickSeq":{"type":"integer","minimum":0},"pickedGuid":{"type":"string"},"selectedCount":{"type":"integer","minimum":0},"planAnchors":{"type":"boolean"},"planAnchorLayerReady":{"type":"boolean"},"planAnchorVertices":{"type":"integer","minimum":0},"planAnchorWidthPixels":{"type":"number","minimum":0},"selectionBridgeMode":{"type":"integer","minimum":0,"maximum":3},"overlay":{"type":"boolean"},"latitudeDegrees":{"type":"number"},"longitudeDegrees":{"type":"number"},"siteAltitudeMetres":{"type":"number"},"sunYear":{"type":"integer","minimum":0},"sunMonth":{"type":"integer","minimum":0},"sunDay":{"type":"integer","minimum":0},"sunHour":{"type":"integer","minimum":0},"sunMinute":{"type":"integer","minimum":0},"summerTime":{"type":"boolean"},"haveComputedSun":{"type":"boolean"},"computedAzimuthDegrees":{"type":"number"},"computedAltitudeDegrees":{"type":"number"},"renderMode":{"type":"integer","minimum":0,"maximum":2},"callout":{"type":"boolean"},"debugView":{"type":"integer","minimum":0,"maximum":13},"environmentLoaded":{"type":"boolean"},"environmentActive":{"type":"boolean"},"environmentMipLevels":{"type":"integer","minimum":0},"environmentAverageR":{"type":"number"},"environmentAverageG":{"type":"number"},"environmentAverageB":{"type":"number"},"environmentPath":{"type":"string"},"environmentError":{"type":"string"},"environmentPrefiltered":{"type":"boolean"},"environmentPrefilteredMips":{"type":"integer","minimum":0},"environmentPrefilterMs":{"type":"number","minimum":0},"environmentPrefilterError":{"type":"string"},"autoExposureEnabled":{"type":"boolean"},"autoExposure":{"type":"number","minimum":0},"appliedExposure":{"type":"number","minimum":0},"fixedExposure":{"type":"number","minimum":0},"sceneLuminance":{"type":"number","minimum":0},"meanAlbedo":{"type":"number","minimum":0},"aoRadiusMetres":{"type":"number","minimum":0},"whiteBalanceR":{"type":"number","minimum":0},"whiteBalanceG":{"type":"number","minimum":0},"whiteBalanceB":{"type":"number","minimum":0},"substanceNamed":{"type":"integer","minimum":0},"substanceCounts":{"type":"object","properties":{"unknown":{"type":"integer","minimum":0},"earth":{"type":"integer","minimum":0},"concrete":{"type":"integer","minimum":0},"metal":{"type":"integer","minimum":0},"plastic":{"type":"integer","minimum":0},"glass":{"type":"integer","minimum":0},"wood":{"type":"integer","minimum":0}},"additionalProperties":false}},"additionalProperties":false,"required":["overlay","latitudeDegrees","longitudeDegrees","siteAltitudeMetres","sunYear","sunMonth","sunDay","sunHour","sunMinute","summerTime","haveComputedSun","computedAzimuthDegrees","computedAltitudeDegrees","renderMode","callout","running","initialized","failed","failureMessage","frames","fps","width","height","resizes","clearChecked","diligentClearMatched","nativeClearMatched","diligentClearReport","nativeClearReport","adapter","featureLevel","presentCount","deviceRemovedReason","sceneReady","sceneElements","sceneTriangles","sceneVertices","sceneGpuBytes","scenePending","sceneMaterials","materialMisses","transparentRanges","sunApplied","sunBelowHorizon","sunX","sunY","sunZ","ambient","sunOverridden","sunAzimuthDegrees","sunBearingDegrees","northDegrees","sunAltitudeDegrees","shadowReady","shadowFitted","shadowResolution","shadowTexelMetres","cameraEyeX","cameraEyeY","cameraEyeZ","cameraTargetX","cameraTargetY","cameraTargetZ","cameraFovDegreesVertical","cameraSyncs","cameraSource","pickAvailable","pickSeq","pickedGuid","selectedCount","planAnchors","planAnchorLayerReady","planAnchorVertices","planAnchorWidthPixels","selectionBridgeMode","debugView"]})json" },
+    { "StartDiligentCapture", &MakeRegisteredNativeCommand<StartDiligentCaptureCommand>, false,
+      R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"renderQuality":{"type":"string","enum":["fast","realistic"]},"camera":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}},"additionalProperties":false,"required":["width","height","renderQuality","camera"]})json", R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","const":"running"}},"additionalProperties":false,"required":["id","status"]})json" },
+    { "DiligentCaptureState", &MakeRegisteredNativeCommand<DiligentCaptureStateCommand>, false,
+      R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json",
+      R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","enum":["running","completed","failed","cancelled"]},"stage":{"type":"string"},"width":{"type":"integer","minimum":16},"height":{"type":"integer","minimum":16},"bytes":{"type":"integer","minimum":0},"url":{"type":"string","minLength":1},"failureMessage":{"type":"string"}},"additionalProperties":false,"required":["id","status","stage","width","height","bytes","url","failureMessage"]})json" },
+    { "CancelDiligentCapture", &MakeRegisteredNativeCommand<CancelDiligentCaptureCommand>, false,
+      R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json",
+      R"json({"type":"object","properties":{"cancelled":{"type":"boolean"}},"additionalProperties":false,"required":["cancelled"]})json" },
+    { "OpenDiligentOverlay", &MakeRegisteredNativeCommand<OpenDiligentOverlayCommand>, false,
+      R"json({"type":"object","properties":{"attach":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
+    { "CloseDiligentOverlay", &MakeRegisteredNativeCommand<CloseDiligentOverlayCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
+    { "DiligentOverlayState",
+      &MakeRegisteredNativeCommand<DiligentOverlayStateCommand>, false, R"json({"type":"object","properties":{},"additionalProperties":false})json", R"json({"type":"object","properties":{"active":{"type":"boolean"},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"left":{"type":"integer"},"top":{"type":"integer"},"targetClass":{"type":"string"},"attach":{"type":"integer"},"how":{"type":"string"},"trackPolls":{"type":"integer","minimum":0},"trackMoves":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["active","width","height","left","top","targetClass","how","trackPolls","trackMoves"]})json" },
+    { "SetDiligentRenderMode", &MakeRegisteredNativeCommand<SetDiligentRenderModeCommand>, false,
+      R"json({"type":"object","properties":{"mode":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false,"required":["mode"]})json",
+      R"json({"type":"object","properties":{"mode":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false,"required":["mode"]})json" },
+    { "SetDiligentCallout", &MakeRegisteredNativeCommand<SetDiligentCalloutCommand>, false,
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json" },
+    { "SetDiligentSun", &MakeRegisteredNativeCommand<SetDiligentSunCommand>, false,
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number"},"altitudeDegrees":{"type":"number"}},"additionalProperties":false,"required":["enabled","azimuthDegrees","altitudeDegrees"]})json" },
+    { "SetDiligentDebugView", &MakeRegisteredNativeCommand<SetDiligentDebugViewCommand>, false,
+      R"json({"type":"object","properties":{"view":{"type":"integer","minimum":0,"maximum":12}},"additionalProperties":false,"required":["view"]})json",
+      R"json({"type":"object","properties":{"view":{"type":"integer","minimum":0,"maximum":12}},"additionalProperties":false,"required":["view"]})json" },
+    { "SetDiligentEnvironmentMap", &MakeRegisteredNativeCommand<SetDiligentEnvironmentMapCommand>, false,
+      R"json({"type":"object","properties":{"path":{"type":"string"},"enabled":{"type":"boolean"},"intensity":{"type":"number","minimum":0,"maximum":20},"rotationDegrees":{"type":"number","minimum":-360,"maximum":360}},"additionalProperties":false,"required":["path"]})json",
+      R"json({"type":"object","properties":{"requested":{"type":"string"},"enabled":{"type":"boolean"},"intensity":{"type":"number"},"rotationDegrees":{"type":"number"}},"additionalProperties":false,"required":["requested","enabled","intensity","rotationDegrees"]})json" },
 };
-
-const NativeCommandRegistration
-    kArchVizCommandRegistrations[] = {
-        { "SetOverlayFrameLatency", &MakeRegisteredNativeCommand<SetOverlayFrameLatencyCommand>, false,
-          R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":3}},"additionalProperties":false,"required":["frames"]})json",
-          R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":3}},"additionalProperties":false,"required":["frames"]})json" },
-        { "SetOverlayInstruction", &MakeRegisteredNativeCommand<SetOverlayInstructionCommand>, false,
-          R"json({"type":"object","properties":{"text":{"type":"string"},"seconds":{"type":"number","minimum":-1,"maximum":600}},"additionalProperties":false,"required":["text"]})json",
-          R"json({"type":"object","properties":{"shown":{"type":"boolean"}},"additionalProperties":false,"required":["shown"]})json" },
-        { "DiligentFxState", &MakeRegisteredNativeCommand<DiligentFxStateCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"linked":{"type":"boolean"},"report":{"type":"string"}},"additionalProperties":false,"required":["linked","report"]})json" },
-        { "ProbeDiligentDevice", &MakeRegisteredNativeCommand<ProbeDiligentDeviceCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
-        { "DiligentProbeState", &MakeRegisteredNativeCommand<DiligentProbeStateCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"attempted":{"type":"boolean"},"running":{"type":"boolean"},"succeeded":{"type":"boolean"},"failureMessage":{"type":"string"}},"additionalProperties":false,"required":["attempted","running","succeeded","failureMessage"]})json" },
-        { "StartD3D12FeasibilityProbe", &MakeRegisteredNativeCommand<StartD3D12FeasibilityProbeCommand>, false,
-          R"json({"type":"object","properties":{"confirm":{"type":"boolean"}},"additionalProperties":false,"required":["confirm"]})json",
-          R"json({"type":"object","properties":{"started":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["started","error"]})json" },
-        { "D3D12FeasibilityProbeState", &MakeRegisteredNativeCommand<D3D12FeasibilityProbeStateCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json", R"json({"type":"object","properties":{"attempted":{"type":"boolean"},"running":{"type":"boolean"},"completed":{"type":"boolean"},"cancelled":{"type":"boolean"},"cleanTeardown":{"type":"boolean"},"stage":{"type":"string"},"failureMessage":{"type":"string"},"deviceAttempted":{"type":"boolean"},"deviceSucceeded":{"type":"boolean"},"deviceFailure":{"type":"string"},"adapter":{"type":"string"},"hardwarePreflightSucceeded":{"type":"boolean"},"hardwareCreateResult":{"type":"integer"},"hardwareFeatureLevel":{"type":"integer","minimum":0},"d3d12Runtime":{"type":"string"},"childAttempted":{"type":"boolean"},"childSucceeded":{"type":"boolean"},"childPresents":{"type":"integer","minimum":0},"childLastPresentResult":{"type":"integer"},"childFailure":{"type":"string"},"overlayAttempted":{"type":"boolean"},"overlaySucceeded":{"type":"boolean"},"overlayPresents":{"type":"integer","minimum":0},"overlayLastPresentResult":{"type":"integer"},"overlayFailure":{"type":"string"},"rayTracingFeature":{"type":"integer","minimum":0},"rayTracingCaps":{"type":"integer","minimum":0},"rayTracingStandalone":{"type":"boolean"},"rayTracingInline":{"type":"boolean"},"rayTracingIndirect":{"type":"boolean"},"maxRecursionDepth":{"type":"integer","minimum":0},"maxRayGenThreads":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["attempted","running","completed","cancelled","cleanTeardown","stage","failureMessage","deviceAttempted","deviceSucceeded","deviceFailure","adapter","hardwarePreflightSucceeded","hardwareCreateResult","hardwareFeatureLevel","d3d12Runtime","childAttempted","childSucceeded","childPresents","childLastPresentResult","childFailure","overlayAttempted","overlaySucceeded","overlayPresents","overlayLastPresentResult","overlayFailure","rayTracingFeature","rayTracingCaps","rayTracingStandalone","rayTracingInline","rayTracingIndirect","maxRecursionDepth","maxRayGenThreads"]})json" },
-        { "StopD3D12FeasibilityProbe", &MakeRegisteredNativeCommand<StopD3D12FeasibilityProbeCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"stopped":{"type":"boolean"}},"additionalProperties":false,"required":["stopped"]})json" },
-        { "OpenDiligentViewport", &MakeRegisteredNativeCommand<OpenDiligentViewportCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
-        { "CloseDiligentViewport", &MakeRegisteredNativeCommand<CloseDiligentViewportCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
-        { "DiligentViewportState", &MakeRegisteredNativeCommand<DiligentViewportStateCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"running":{"type":"boolean"},"initialized":{"type":"boolean"},"failed":{"type":"boolean"},"failureMessage":{"type":"string"},"frames":{"type":"integer","minimum":0},"fps":{"type":"number","minimum":0},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"resizes":{"type":"integer","minimum":0},"clearChecked":{"type":"boolean"},"diligentClearMatched":{"type":"boolean"},"nativeClearMatched":{"type":"boolean"},"diligentClearReport":{"type":"string"},"nativeClearReport":{"type":"string"},"adapter":{"type":"string"},"featureLevel":{"type":"integer","minimum":0},"presentCount":{"type":"integer","minimum":0},"stalePresents":{"type":"integer","minimum":0},"presentFailures":{"type":"integer","minimum":0},"lastPresentResult":{"type":"integer"},"frameLatency":{"type":"integer","minimum":0},"deviceRemovedReason":{"type":"integer","minimum":0},"sceneReady":{"type":"boolean"},"sceneElements":{"type":"integer","minimum":0},"sceneTriangles":{"type":"integer","minimum":0},"sceneVertices":{"type":"integer","minimum":0},"sceneGpuBytes":{"type":"integer","minimum":0},"scenePending":{"type":"integer","minimum":0},"sceneMaterials":{"type":"integer","minimum":0},"materialMisses":{"type":"integer","minimum":0},"transparentRanges":{"type":"integer","minimum":0},"sunApplied":{"type":"boolean"},"sunBelowHorizon":{"type":"boolean"},"sunX":{"type":"number"},"sunY":{"type":"number"},"sunZ":{"type":"number"},"ambient":{"type":"number","minimum":0,"maximum":1},"sunOverridden":{"type":"boolean"},"sunAzimuthDegrees":{"type":"number"},"sunBearingDegrees":{"type":"number"},"northDegrees":{"type":"number"},"sunAltitudeDegrees":{"type":"number"},"shadowReady":{"type":"boolean"},"shadowFitted":{"type":"boolean"},"shadowResolution":{"type":"integer","minimum":0},"shadowTexelMetres":{"type":"number","minimum":0},"cameraEyeX":{"type":"number"},"cameraEyeY":{"type":"number"},"cameraEyeZ":{"type":"number"},"cameraTargetX":{"type":"number"},"cameraTargetY":{"type":"number"},"cameraTargetZ":{"type":"number"},"cameraFovDegreesVertical":{"type":"number","minimum":0},"cameraSyncs":{"type":"integer","minimum":0},"cameraSource":{"type":"string"},"pickAvailable":{"type":"boolean"},"pickSeq":{"type":"integer","minimum":0},"pickedGuid":{"type":"string"},"selectedCount":{"type":"integer","minimum":0},"planAnchors":{"type":"boolean"},"planAnchorLayerReady":{"type":"boolean"},"planAnchorVertices":{"type":"integer","minimum":0},"planAnchorWidthPixels":{"type":"number","minimum":0},"selectionBridgeMode":{"type":"integer","minimum":0,"maximum":3},"overlay":{"type":"boolean"},"latitudeDegrees":{"type":"number"},"longitudeDegrees":{"type":"number"},"siteAltitudeMetres":{"type":"number"},"sunYear":{"type":"integer","minimum":0},"sunMonth":{"type":"integer","minimum":0},"sunDay":{"type":"integer","minimum":0},"sunHour":{"type":"integer","minimum":0},"sunMinute":{"type":"integer","minimum":0},"summerTime":{"type":"boolean"},"haveComputedSun":{"type":"boolean"},"computedAzimuthDegrees":{"type":"number"},"computedAltitudeDegrees":{"type":"number"},"renderMode":{"type":"integer","minimum":0,"maximum":2},"callout":{"type":"boolean"},"debugView":{"type":"integer","minimum":0,"maximum":13},"environmentLoaded":{"type":"boolean"},"environmentActive":{"type":"boolean"},"environmentMipLevels":{"type":"integer","minimum":0},"environmentAverageR":{"type":"number"},"environmentAverageG":{"type":"number"},"environmentAverageB":{"type":"number"},"environmentPath":{"type":"string"},"environmentError":{"type":"string"},"environmentPrefiltered":{"type":"boolean"},"environmentPrefilteredMips":{"type":"integer","minimum":0},"environmentPrefilterMs":{"type":"number","minimum":0},"environmentPrefilterError":{"type":"string"},"autoExposureEnabled":{"type":"boolean"},"autoExposure":{"type":"number","minimum":0},"appliedExposure":{"type":"number","minimum":0},"fixedExposure":{"type":"number","minimum":0},"sceneLuminance":{"type":"number","minimum":0},"meanAlbedo":{"type":"number","minimum":0},"aoRadiusMetres":{"type":"number","minimum":0},"whiteBalanceR":{"type":"number","minimum":0},"whiteBalanceG":{"type":"number","minimum":0},"whiteBalanceB":{"type":"number","minimum":0},"substanceNamed":{"type":"integer","minimum":0},"substanceCounts":{"type":"object","properties":{"unknown":{"type":"integer","minimum":0},"earth":{"type":"integer","minimum":0},"concrete":{"type":"integer","minimum":0},"metal":{"type":"integer","minimum":0},"plastic":{"type":"integer","minimum":0},"glass":{"type":"integer","minimum":0},"wood":{"type":"integer","minimum":0}},"additionalProperties":false}},"additionalProperties":false,"required":["overlay","latitudeDegrees","longitudeDegrees","siteAltitudeMetres","sunYear","sunMonth","sunDay","sunHour","sunMinute","summerTime","haveComputedSun","computedAzimuthDegrees","computedAltitudeDegrees","renderMode","callout","running","initialized","failed","failureMessage","frames","fps","width","height","resizes","clearChecked","diligentClearMatched","nativeClearMatched","diligentClearReport","nativeClearReport","adapter","featureLevel","presentCount","deviceRemovedReason","sceneReady","sceneElements","sceneTriangles","sceneVertices","sceneGpuBytes","scenePending","sceneMaterials","materialMisses","transparentRanges","sunApplied","sunBelowHorizon","sunX","sunY","sunZ","ambient","sunOverridden","sunAzimuthDegrees","sunBearingDegrees","northDegrees","sunAltitudeDegrees","shadowReady","shadowFitted","shadowResolution","shadowTexelMetres","cameraEyeX","cameraEyeY","cameraEyeZ","cameraTargetX","cameraTargetY","cameraTargetZ","cameraFovDegreesVertical","cameraSyncs","cameraSource","pickAvailable","pickSeq","pickedGuid","selectedCount","planAnchors","planAnchorLayerReady","planAnchorVertices","planAnchorWidthPixels","selectionBridgeMode","debugView"]})json" },
-        { "StartDiligentCapture", &MakeRegisteredNativeCommand<StartDiligentCaptureCommand>, false,
-          R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"renderQuality":{"type":"string","enum":["fast","realistic"]},"camera":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}},"additionalProperties":false,"required":["width","height","renderQuality","camera"]})json", R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","const":"running"}},"additionalProperties":false,"required":["id","status"]})json" },
-        { "DiligentCaptureState", &MakeRegisteredNativeCommand<DiligentCaptureStateCommand>, false,
-          R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json", R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","enum":["running","completed","failed","cancelled"]},"stage":{"type":"string"},"width":{"type":"integer","minimum":16},"height":{"type":"integer","minimum":16},"bytes":{"type":"integer","minimum":0},"url":{"type":"string","minLength":1},"failureMessage":{"type":"string"}},"additionalProperties":false,"required":["id","status","stage","width","height","bytes","url","failureMessage"]})json" },
-        { "CancelDiligentCapture", &MakeRegisteredNativeCommand<CancelDiligentCaptureCommand>, false,
-          R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json", R"json({"type":"object","properties":{"cancelled":{"type":"boolean"}},"additionalProperties":false,"required":["cancelled"]})json" },
-        { "OpenDiligentOverlay", &MakeRegisteredNativeCommand<OpenDiligentOverlayCommand>, false,
-          R"json({"type":"object","properties":{"attach":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
-        { "CloseDiligentOverlay", &MakeRegisteredNativeCommand<CloseDiligentOverlayCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
-        { "DiligentOverlayState", &MakeRegisteredNativeCommand<DiligentOverlayStateCommand>, false,
-          R"json({"type":"object","properties":{},"additionalProperties":false})json",
-          R"json({"type":"object","properties":{"active":{"type":"boolean"},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"left":{"type":"integer"},"top":{"type":"integer"},"targetClass":{"type":"string"},"attach":{"type":"integer"},"how":{"type":"string"},"trackPolls":{"type":"integer","minimum":0},"trackMoves":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["active","width","height","left","top","targetClass","how","trackPolls","trackMoves"]})json" },
-        { "SetDiligentRenderMode", &MakeRegisteredNativeCommand<SetDiligentRenderModeCommand>, false,
-          R"json({"type":"object","properties":{"mode":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false,"required":["mode"]})json",
-          R"json({"type":"object","properties":{"mode":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false,"required":["mode"]})json" },
-        { "SetDiligentCallout", &MakeRegisteredNativeCommand<SetDiligentCalloutCommand>, false,
-          R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json",
-          R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json" },
-        { "SetDiligentSun",
-          &MakeRegisteredNativeCommand<SetDiligentSunCommand>, false, R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]})json", R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number"},"altitudeDegrees":{"type":"number"}},"additionalProperties":false,"required":["enabled","azimuthDegrees","altitudeDegrees"]})json" },
-        { "SetDiligentDebugView", &MakeRegisteredNativeCommand<SetDiligentDebugViewCommand>, false,
-          R"json({"type":"object","properties":{"view":{"type":"integer","minimum":0,"maximum":12}},"additionalProperties":false,"required":["view"]})json",
-          R"json({"type":"object","properties":{"view":{"type":"integer","minimum":0,"maximum":12}},"additionalProperties":false,"required":["view"]})json" },
-        { "SetDiligentEnvironmentMap", &MakeRegisteredNativeCommand<SetDiligentEnvironmentMapCommand>, false,
-          R"json({"type":"object","properties":{"path":{"type":"string"},"enabled":{"type":"boolean"},"intensity":{"type":"number","minimum":0,"maximum":20},"rotationDegrees":{"type":"number","minimum":-360,"maximum":360}},"additionalProperties":false,"required":["path"]})json",
-          R"json({"type":"object","properties":{"requested":{"type":"string"},"enabled":{"type":"boolean"},"intensity":{"type":"number"},"rotationDegrees":{"type":"number"}},"additionalProperties":false,"required":["requested","enabled","intensity","rotationDegrees"]})json" },
-        { "RunCloudCompare", &MakeRegisteredNativeCommand<RunCloudCompareCommand>, false,
-          R"json({"type":"object","properties":{"executablePath":{"type":"string","minLength":1},"inputPath":{"type":"string","minLength":1},"outputPath":{"type":"string","minLength":1},"cropPolygon":{"type":"array","items":{"type":"number"},"minItems":0},"keepOutside":{"type":"boolean"},"subsampleStep":{"type":"number","minimum":0}},"additionalProperties":false,"required":["executablePath","inputPath","outputPath"]})json",
-          R"json({"type":"object","properties":{"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"exitCode":{"type":"integer"},"transcript":{"type":"string"},"outputPath":{"type":"string"},"logPath":{"type":"string"},"failureReason":{"type":"string"}},"additionalProperties":false,"required":["succeeded","cancelled","exitCode","transcript","outputPath","logPath","failureReason"]})json" },
-    };
 
 } // namespace
 

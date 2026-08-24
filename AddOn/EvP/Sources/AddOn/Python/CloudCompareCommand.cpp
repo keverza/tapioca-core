@@ -83,6 +83,8 @@ std::wstring BuildCloudCompareCommandLine (const CloudCompareCommandRequest& req
     if (!request.cropPolygon.empty ()) {
         Append (command, L"-CROP2D");
         Append (command, L"Z");
+        Append (command, L"-GLOBAL_SHIFT");
+        Append (command, L"FIRST");
         Append (command, Number (static_cast<double> (request.cropPolygon.size ())));
         for (const CloudComparePoint& point : request.cropPolygon) {
             Append (command, Number (point.x));

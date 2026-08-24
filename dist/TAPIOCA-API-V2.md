@@ -92,6 +92,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.ListLibraryParts` | - | `subtype`: string<br>`nameFilter`: string<br>`limit`: integer | `parts`: object[]<br>`total`: integer<br>`truncated`: boolean |
 | `Tapioca.ListSelectionSets` | - | - | `names`: string[] |
 | `Tapioca.ListViews` | - | `map`: "view" \| "myView" \| "project" \| "layout"<br>`placeableOnly`: boolean | `views`: object[]<br>`count`: integer<br>`note?`: string |
+| `Tapioca.LoadDiligentPointCloud` | `path`: string<br>`layerId`: string | - | `layerId`: string<br>`sourceId`: string<br>`points`: integer<br>`nodes`: integer<br>`queuedBytes`: integer<br>`parseMilliseconds`: number<br>`hierarchyMilliseconds`: number<br>`surveyPointPosition`: number[]<br>`projectOrigin`: number[]<br>`projectBoundsMin`: number[]<br>`projectBoundsMax`: number[]<br>`coordinateUnit`: "m" |
 | `Tapioca.ModelToScreen` | `points`: number[][] | - | `windowType?`: integer<br>`is3DWindow?`: boolean<br>`count`: integer<br>`failed`: integer<br>`screen`: object[]<br>`coord`: object[] |
 | `Tapioca.ModifySelection` | `op`: "add" \| "remove" \| "replace" \| "clear" | `elements`: object[] | `selected`: integer<br>`missing`: object[]<br>`changed`: integer<br>`count`: integer |
 | `Tapioca.ModifySelectionSet` | `name`: string<br>`op`: "update" \| "add" \| "remove" \| "clear" | `current`: boolean<br>`elements`: object[] | `changed`: integer<br>`count`: integer<br>`elements`: object[] |
@@ -122,7 +123,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.RefreshDiligentModel` | - | - | `started`: boolean |
 | `Tapioca.ReleaseSnapshot` | - | - | `freedBytes`: integer<br>`retainedBytes`: integer |
 | `Tapioca.ReselectSelectionSet` | `name`: string | - | `selected`: integer<br>`missing`: object[]<br>`changed`: integer<br>`count`: integer |
-| `Tapioca.RunCloudCompare` | `executablePath`: string<br>`inputPath`: string<br>`outputPath`: string | `cropPolygon`: number[]<br>`keepOutside`: boolean<br>`subsampleStep`: number | `succeeded`: boolean<br>`cancelled`: boolean<br>`exitCode`: integer<br>`transcript`: string<br>`outputPath`: string<br>`logPath`: string<br>`failureReason`: string |
+| `Tapioca.RunCloudCompare` | `executablePath`: string<br>`inputPath`: string<br>`outputPath`: string | `cropPolygon`: number[]<br>`keepOutside`: boolean<br>`subsampleStep`: number | `succeeded`: boolean<br>`cancelled`: boolean<br>`exitCode`: integer<br>`transcript`: string<br>`outputPath`: string<br>`logPath`: string<br>`failureReason`: string<br>`pointCount?`: integer<br>`boundsMin?`: number[]<br>`boundsMax?`: number[] |
 | `Tapioca.RunCommand` | `folder`: string<br>`params`: object | - | `started`: boolean<br>`generation`: integer<br>`title`: string |
 | `Tapioca.Set3DProjection` | - | `azimuthDelta`: number<br>`azimuth`: number<br>`distance`: number<br>`cameraZ`: number<br>`targetZ`: number<br>`viewCone`: number<br>`regenerate`: boolean | `changed`: boolean<br>`before`: object<br>`after`: object<br>`refused?`: string[] |
 | `Tapioca.SetCameraSyncMode` | `mode`: "off" \| "legacy" \| "hideonnav" \| "wake" \| "predict" \| "wakepredict" \| "hookdiag" \| "hookdraw" | `intervalMs`: integer<br>`predictionScale`: number | `mode`: string<br>`intervalMs`: integer<br>`predictionScale?`: number |

@@ -138,6 +138,7 @@ CloudCompareResult RunCloudCompareCli (const GS::UniString& executablePath, cons
     // A stale PLY can make a failed process look successful to a later loader.
     RemovePartialOutput (outputPath);
     const GS::UniString logPath = LogPathFor (outputPath);
+    RemovePartialOutput (logPath);
     result.logPath = logPath;
 
     CloudCompareCommandRequest request;
@@ -196,8 +197,11 @@ CloudCompareResult RunCloudCompareCli (const GS::UniString& executablePath, cons
     startup.hStdOutput = output.write;
     startup.hStdError = output.write;
     PROCESS_INFORMATION process = {};
-    const BOOL started = CreateProcessW ((LPCWSTR) executablePath.ToUStr ().Get (), mutableCommandLine.data (), nullptr,
-                                         nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
+    // Start suspended so CloudCompare cannot create descendants or finish before
+    // the process is contained by the kill-on-close Job Object.
+    const BOOL started =
+        CreateProcessW ((LPCWSTR) executablePath.ToUStr ().Get (), mutableCommandLine.data (), nullptr, nullptr, TRUE,
+                        CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr, nullptr, &startup, &process);
     CloseHandle (nullInput);
     if (!started) {
         result.error = GS::UniString::Printf ("Could not start pinned CloudCompare %T (Win32 error %u).",
@@ -216,14 +220,28 @@ CloudCompareResult RunCloudCompareCli (const GS::UniString& executablePath, cons
                                               (unsigned) error);
         return result;
     }
+    if (ResumeThread (process.hThread) == DWORD (-1)) {
+        const DWORD error = GetLastError ();
+        TerminateProcess (process.hProcess, 1);
+        WaitForSingleObject (process.hProcess, INFINITE);
+        CloseHandle (process.hThread);
+        CloseHandle (process.hProcess);
+        result.error = GS::UniString::Printf ("Could not resume CloudCompare (Win32 error %u).", (unsigned) error);
+        return result;
+    }
 
     std::string transcript;
     bool exited = false;
     bool killed = false;
     for (;;) {
         DWORD available = 0;
-        if (PeekNamedPipe (output.read, nullptr, 0, nullptr, &available, nullptr) == 0)
+        if (PeekNamedPipe (output.read, nullptr, 0, nullptr, &available, nullptr) == 0) {
+            const DWORD error = GetLastError ();
+            if (error != ERROR_BROKEN_PIPE)
+                result.error =
+                    GS::UniString::Printf ("Could not read CloudCompare output (Win32 error %u).", (unsigned) error);
             break;
+        }
 
         if (available > 0) {
             char buffer[4096];
@@ -257,7 +275,7 @@ CloudCompareResult RunCloudCompareCli (const GS::UniString& executablePath, cons
     }
 
     output.CloseRead ();
-    WaitForSingleObject (process.hProcess, 5000);
+    WaitForSingleObject (process.hProcess, INFINITE);
     DWORD exitCode = 0;
     if (!GetExitCodeProcess (process.hProcess, &exitCode))
         result.error = GS::UniString::Printf ("Could not read the CloudCompare exit code (Win32 error %u).",

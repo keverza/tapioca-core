@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 138,
+      "nativeRegistry": 139,
       "dispatcherLocal": 19,
-      "total": 157
+      "total": 158
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -10207,6 +10207,112 @@
       }
     },
     {
+      "name": "Tapioca.LoadDiligentPointCloud",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "layerId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "layerId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "layerId": {
+            "type": "string"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "points": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queuedBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "parseMilliseconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "hierarchyMilliseconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "surveyPointPosition": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "projectOrigin": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "projectBoundsMin": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "projectBoundsMax": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "coordinateUnit": {
+            "type": "string",
+            "enum": [
+              "m"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "layerId",
+          "sourceId",
+          "points",
+          "nodes",
+          "queuedBytes",
+          "parseMilliseconds",
+          "hierarchyMilliseconds",
+          "surveyPointPosition",
+          "projectOrigin",
+          "projectBoundsMin",
+          "projectBoundsMax",
+          "coordinateUnit"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ModelToScreen",
       "implementation": "native-registry",
       "inputScheme": {
@@ -13251,6 +13357,26 @@
           },
           "failureReason": {
             "type": "string"
+          },
+          "pointCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "boundsMin": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "boundsMax": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
           }
         },
         "additionalProperties": false,

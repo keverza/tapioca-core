@@ -28,6 +28,8 @@
 
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/MeshGroups.hpp"
+#include "ArchViz/StorySliceGeometry.hpp"   // StorySliceVertex, StorySliceFillVertex
+#include "ArchViz/PointCloudPly.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -63,6 +65,18 @@ enum class SceneCmdType : uint8_t {
     // establish, and would drift silently the first time a poll was missed.
     // Costs one small vector per change; the selection is tens of elements.
     SetSelection,
+    // Every storey's horizontal cut, unioned, as finished drawables.
+    //
+    // ⚠️ WHOLE, NOT A DELTA, and it does NOT ride inside the element batch. The
+    // union is over a storey's ENTIRE cross-section, so it cannot be computed
+    // until every element has been cut -- there is no per-element contribution to
+    // upsert. The producer accumulates through the batch and pushes this once,
+    // after EndBatch.
+    SetStorySlices,
+    BeginPointLayer,
+    ClearPointLayer,
+    UpsertPointNode,
+    EndPointLayer,
 };
 
 // One element's geometry, ready for the GPU: nothing here needs interpreting,
@@ -81,22 +95,49 @@ struct ElementUpload {
     // later rebase (subtract the snapshot centroid, put it in the view matrix)
     // is possible without re-extracting. NOT done speculatively: measure a real
     // georeferenced project first. Tracked as PLAT-BGFX-P6-PRECISION.
-    std::vector<float>    vertices;   // xyz interleaved, world metres, Z-up
-    std::vector<float>    normals;    // xyz per vertex, Archicad's true per-corner normals
+    std::vector<float> vertices; // xyz interleaved, world metres, Z-up
+    std::vector<float> normals;  // xyz per vertex, Archicad's true per-corner normals
 
     // ⚠️ ALREADY MATERIAL-GROUPED by MeshGroups::BuildMaterialGroups, and the
     // ranges match. Doing it here rather than on the render thread keeps a
     // per-triangle sort off the frame loop, and keeps the one algorithm that has
     // an offline test on the side of the seam the test can reach.
-    std::vector<uint32_t>      indices;
+    std::vector<uint32_t> indices;
     std::vector<MaterialRange> ranges;
 
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
 
-    size_t VertexCount () const { return vertices.size () / 3; }
+    size_t VertexCount () const
+    {
+        return vertices.size () / 3;
+    }
     // Retained heap bytes, so "how much is the viewer holding" is reportable
     // rather than folklore — the same courtesy geomsrv::Mesh::Bytes offers.
+    size_t Bytes () const;
+};
+
+struct PointLayerUpload {
+    std::string layerId;
+    std::string sourceId;
+    std::string sourcePath;
+    double rtcOrigin[3] = {};
+    float boundsMin[3] = {};
+    float boundsMax[3] = {};
+
+    size_t Bytes () const;
+};
+
+struct PointNodeUpload {
+    std::string layerId;
+    uint32_t nodeId = 0;
+    uint32_t parentId = UINT32_MAX;
+    uint32_t level = 0;
+    float boundsMin[3] = {};
+    float boundsMax[3] = {};
+    float geometricError = 0.0f;
+    std::vector<PointCloudVertex> vertices;
+
     size_t Bytes () const;
 };
 
@@ -120,7 +161,7 @@ struct EnvironmentUpload {
     // Below the horizon: the producer still sends the vector (it is where the
     // sun IS), and the consumer may choose to light the model as overcast rather
     // than from underneath. Reported rather than silently clamped.
-    bool  sunBelowHorizon = false;
+    bool sunBelowHorizon = false;
     // Project north as the SAME kind of angle as everything else here:
     // counterclockwise from +X, degrees. Archicad's default is 90, which puts
     // north along +Y.
@@ -157,8 +198,32 @@ struct EnvironmentUpload {
     float computedAltitudeDegrees = 0.0f;
 };
 
+// Every storey's cut, unioned and already turned into triangles.
+//
+// ⚠️ FINISHED GEOMETRY, NOT LOOPS. The union is O(E^2) and the ribbon build is
+// per-segment trigonometry; doing either on the render thread would put a cost
+// that scales with the BUILDING inside the frame loop. The producer is a
+// background thread with the doubles already in hand, so it does all of it and
+// hands over something the consumer only has to memcpy.
+struct StorySliceUpload {
+    std::vector<StorySliceVertex>     outline;
+    std::vector<StorySliceFillVertex> fill;
+
+    // What was cut, for the HUD. ⚠️ `storeys` > 0 with an empty `outline` is the
+    // diagnosis for "I turned slices on and see nothing": the storeys were read
+    // and the cut planes simply missed the model, which is a real answer and a
+    // different one from "the storey read failed".
+    uint32_t storeys  = 0;
+    // Total enclosed area across every storey, square metres. Carried because a
+    // massing feasibility study wants exactly this number and the producer has
+    // already computed the decomposition it falls out of.
+    double   areaM2   = 0.0;
+
+    size_t Bytes () const;
+};
+
 struct SceneCmd {
-    SceneCmdType                   type = SceneCmdType::BeginBatch;
+    SceneCmdType type = SceneCmdType::BeginBatch;
     // Set for UpsertElement, null otherwise.
     std::unique_ptr<ElementUpload> upload;
     // Set for SetMaterials, null otherwise. Owning, same handover rule as
@@ -166,16 +231,24 @@ struct SceneCmd {
     std::unique_ptr<MaterialTable> materials;
     // SetEnvironment only. By value — it is four floats, and a heap node for
     // that would be ceremony.
-    EnvironmentUpload              environment;
+    EnvironmentUpload environment;
     // Set for RemoveElement.
-    std::string                    guid;
+    std::string guid;
     // SetSelection only: the whole selected set, in Archicad's GUID string form.
-    std::vector<std::string>       selection;
+    std::vector<std::string> selection;
+    // Point-cloud layers have their own lifecycle, independent of architectural
+    // BeginBatch(full). Begin/upsert payloads are owned by the consumer.
+    std::unique_ptr<PointLayerUpload> pointLayer;
+    std::unique_ptr<PointNodeUpload> pointNode;
+    // ClearPointLayer and EndPointLayer only.
+    std::string pointLayerId;
+    // SetStorySlices only. Owning, same handover rule as `upload`.
+    std::unique_ptr<StorySliceUpload> storySlices;
     // BeginBatch only: a FULL batch replaces the scene, so the consumer may drop
     // anything not mentioned before EndBatch. A partial batch touches only the
     // elements it names. Getting this backwards on a partial refresh deletes the
     // building and leaves the twelve walls that changed.
-    bool                           full = false;
+    bool full = false;
 };
 
 // Unbounded, mutex-guarded, single-producer/single-consumer by convention.
@@ -191,7 +264,7 @@ struct SceneCmd {
 // the producer can throttle itself; §6.5's slice budget is where that gets
 // tuned, against a measurement rather than a guess.
 class SceneCmdQueue final {
-public:
+  public:
     static SceneCmdQueue& Get ();
 
     // ---- producer ----
@@ -202,6 +275,11 @@ public:
     void PushMaterials (std::unique_ptr<MaterialTable> materials);
     void PushEnvironment (const EnvironmentUpload& environment);
     void PushSelection (std::vector<std::string> guids);
+    void PushStorySlices (std::unique_ptr<StorySliceUpload> slices);
+    void PushBeginPointLayer (std::unique_ptr<PointLayerUpload> layer);
+    void PushClearPointLayer (const std::string& layerId);
+    void PushUpsertPointNode (std::unique_ptr<PointNodeUpload> node);
+    void PushEndPointLayer (const std::string& layerId);
 
     // ---- consumer, on the render thread ----
     // Move out up to `max` commands. Bounded on purpose: draining an entire
@@ -217,17 +295,17 @@ public:
     size_t PendingCount () const;
     size_t PendingBytes () const;
 
-private:
+  private:
     SceneCmdQueue () = default;
     SceneCmdQueue (const SceneCmdQueue&) = delete;
     SceneCmdQueue& operator= (const SceneCmdQueue&) = delete;
 
-    mutable std::mutex    mutex_;
+    mutable std::mutex mutex_;
     std::vector<SceneCmd> queue_;
-    size_t                pendingBytes_ = 0;
+    size_t pendingBytes_ = 0;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

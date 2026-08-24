@@ -24,9 +24,10 @@
 #include "ArchViz/DiligentScene.hpp"
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
+#include "ArchViz/DiligentPointCloudLayer.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
-#include "ArchViz/DiligentShaders.hpp"   // DiligentSceneConstants, for UploadConstants below
+#include "ArchViz/DiligentShaders.hpp" // DiligentSceneConstants, for UploadConstants below
 #include "ArchViz/DiligentDepthRange.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/EnvironmentMap.hpp"
@@ -225,7 +226,7 @@ struct Entry {
 // occlusion that does not line up with the shading it darkens -- which reads as
 // a projection bug rather than as two copies of one loop.
 inline void UploadConstants (Diligent::IDeviceContext* context, Diligent::IBuffer* buffer,
-                      const DiligentSceneConstants& constants)
+                             const DiligentSceneConstants& constants)
 {
     Diligent::PVoid mapped = nullptr;
     context->MapBuffer (buffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
@@ -364,6 +365,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     DiligentAmbientOcclusion ambientOcclusion;
     DiligentScreenSpaceReflection screenSpaceReflection;
     DiligentTemporalAntiAliasing temporalAntiAliasing;
+    DiligentPointCloudLayer pointCloud;
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;

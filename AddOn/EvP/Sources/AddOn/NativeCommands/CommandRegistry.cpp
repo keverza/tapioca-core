@@ -29,6 +29,7 @@
 #include "NativeCommands/PlanGeometryCommands.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp"
 #include "NativeCommands/PlanTrackCommands.hpp"
+#include "NativeCommands/PointCloudCommands.hpp"
 #include "NativeCommands/ProjectCommands.hpp"
 #include "NativeCommands/QueryCommands.hpp"
 #include "NativeCommands/RoofCreateCommands.hpp"
@@ -64,35 +65,16 @@ namespace {
 using DomainRegistrationProvider = NativeCommandRegistrations (*) ();
 
 constexpr DomainRegistrationProvider domainProviders[] = {
-    &GetSnapshotCommandRegistrations,
-    &GetCaptureCommandRegistrations,
-    &GetQueryCommandRegistrations,
-    &GetElementReadCommandRegistrations,
-    &GetElementModifyCommandRegistrations,
-    &GetIdentityCommandRegistrations,
-    &GetAttributeCommandRegistrations,
-    &GetProjectCommandRegistrations,
-    &GetCreateCommandRegistrations,
-    &GetRoofCreateCommandRegistrations,
-    &GetDraftingCommandRegistrations,
-    &GetDrawingCommandRegistrations,
-    &GetLayoutCommandRegistrations,
-    &GetLibraryObjectCommandRegistrations,
-    &GetFavoriteCommandRegistrations,
-    &GetSelectionCommandRegistrations,
-    &GetTopologyCommandRegistrations,
-    &GetIssueCommandRegistrations,
-    &GetSurfaceCommandRegistrations,
-    &GetModelGeometryCommandRegistrations,
-    &GetModelAppearanceCommandRegistrations,
-    &GetNurbsCommandRegistrations,
-    &GetComponent3DCommandRegistrations,
-    &GetCuttingPlaneCommandRegistrations,
-    &GetNotifyCommandRegistrations,
-    &GetPlanGeometryCommandRegistrations,
-    &GetPlanOverlayCommandRegistrations,
-    &GetPlanTrackCommandRegistrations,
-    &GetArchVizCommandRegistrations,
+    &GetSnapshotCommandRegistrations,    &GetCaptureCommandRegistrations,       &GetQueryCommandRegistrations,
+    &GetElementReadCommandRegistrations, &GetElementModifyCommandRegistrations, &GetIdentityCommandRegistrations,
+    &GetAttributeCommandRegistrations,   &GetProjectCommandRegistrations,       &GetCreateCommandRegistrations,
+    &GetRoofCreateCommandRegistrations,  &GetDraftingCommandRegistrations,      &GetDrawingCommandRegistrations,
+    &GetLayoutCommandRegistrations,      &GetLibraryObjectCommandRegistrations, &GetFavoriteCommandRegistrations,
+    &GetSelectionCommandRegistrations,   &GetTopologyCommandRegistrations,      &GetIssueCommandRegistrations,
+    &GetSurfaceCommandRegistrations,     &GetModelGeometryCommandRegistrations, &GetModelAppearanceCommandRegistrations,
+    &GetNurbsCommandRegistrations,       &GetComponent3DCommandRegistrations,   &GetCuttingPlaneCommandRegistrations,
+    &GetNotifyCommandRegistrations,      &GetPlanGeometryCommandRegistrations,  &GetPlanOverlayCommandRegistrations,
+    &GetPlanTrackCommandRegistrations,   &GetArchVizCommandRegistrations,       &GetPointCloudCommandRegistrations,
     &GetViewerSyncCommandRegistrations,
 };
 
@@ -114,7 +96,7 @@ std::unique_ptr<MainThreadCommand> MakeCommand (const GS::String& name)
     return nullptr;
 }
 
-}   // namespace
+} // namespace
 
 GS::Array<NativeCommandInfo> EnumerateNativeCommands ()
 {
@@ -226,10 +208,9 @@ NativeCommandResult ExecuteNativeCommand (const GS::String& name, const GS::Obje
 
     GS::UniString schemaError;
     if (!ValidateObjectStateSchema (params, command->GetInputParametersSchema (), schemaError)) {
-        return NativeCommandResult::Failure (
-            "Tapioca." + GS::UniString (name.ToCStr ()) +
-                " input schema violation: " + schemaError,
-            NativeCommandFailureKind::SchemaValidation);
+        return NativeCommandResult::Failure ("Tapioca." + GS::UniString (name.ToCStr ()) +
+                                                 " input schema violation: " + schemaError,
+                                             NativeCommandFailureKind::SchemaValidation);
     }
 
     // Disregards progress feedback, still honours interrupts. The scripted path
@@ -238,7 +219,8 @@ NativeCommandResult ExecuteNativeCommand (const GS::String& name, const GS::Obje
 
     try {
         result = command->ExecuteNative (params, processControl);
-    } catch (const GS::Exception& ex) {
+    }
+    catch (const GS::Exception& ex) {
         // ⚠️ GetMessage() IS OFTEN EMPTY. A GS exception thrown by a failed
         // internal precondition carries no text at all, and reporting it alone
         // produced literally "EvP.GetModelLights threw: " — an error that names
@@ -249,23 +231,23 @@ NativeCommandResult ExecuteNativeCommand (const GS::String& name, const GS::Obje
         // identifies the bug: GetName() is the exception's CLASS, and the file and
         // line are inside the DevKit, i.e. the throwing accessor itself.
         result.error = "Tapioca." + GS::UniString (name.ToCStr ()) + " threw " +
-                GS::UniString (ex.GetName () != nullptr ? ex.GetName () : "GS::Exception");
+                       GS::UniString (ex.GetName () != nullptr ? ex.GetName () : "GS::Exception");
         const GS::UniString message = ex.GetMessage ();
-        result.error += message.IsEmpty () ? GS::UniString (" (no message)")
-                                    : GS::UniString (": ") + message;
+        result.error += message.IsEmpty () ? GS::UniString (" (no message)") : GS::UniString (": ") + message;
         if (ex.GetErrCode () != NoError)
             result.error += GS::UniString::Printf (" [errCode %d]", (int) ex.GetErrCode ());
         if (ex.GetFileName () != nullptr)
-            result.error += GS::UniString::Printf (" at %s:%u",
-                                            ex.GetFileName (), (unsigned) ex.GetLineNumber ());
+            result.error += GS::UniString::Printf (" at %s:%u", ex.GetFileName (), (unsigned) ex.GetLineNumber ());
         return result;
-    } catch (const std::exception& ex) {
+    }
+    catch (const std::exception& ex) {
         // Not every throw in reach is a GS one, and "unknown exception" for a
         // perfectly self-describing std::exception is thrown-away evidence.
-        result.error = "Tapioca." + GS::UniString (name.ToCStr ()) + " threw std::exception: " +
-                GS::UniString (ex.what () != nullptr ? ex.what () : "(no message)");
+        result.error = "Tapioca." + GS::UniString (name.ToCStr ()) +
+                       " threw std::exception: " + GS::UniString (ex.what () != nullptr ? ex.what () : "(no message)");
         return result;
-    } catch (...) {
+    }
+    catch (...) {
         result.error = "Tapioca." + GS::UniString (name.ToCStr ()) + " threw an unknown exception.";
         return result;
     }
@@ -274,10 +256,9 @@ NativeCommandResult ExecuteNativeCommand (const GS::String& name, const GS::Obje
         return result;
 
     if (!ValidateObjectStateSchema (result.data, command->GetResponseSchema (), schemaError)) {
-        return NativeCommandResult::Failure (
-            "Tapioca." + GS::UniString (name.ToCStr ()) +
-                " response schema violation: " + schemaError,
-            NativeCommandFailureKind::SchemaValidation);
+        return NativeCommandResult::Failure ("Tapioca." + GS::UniString (name.ToCStr ()) +
+                                                 " response schema violation: " + schemaError,
+                                             NativeCommandFailureKind::SchemaValidation);
     }
 
     return result;
@@ -299,10 +280,12 @@ GSErrCode InstallAddOnCommands ()
     // private to their domain .cpp, which is the point of the split. Each
     // function installs only that domain's READ commands.
     const GSErrCode err = InstallSnapshotJsonCommands ();
-    if (err != NoError) return err;
+    if (err != NoError)
+        return err;
 
     GSErrCode err2 = InstallCaptureJsonCommands ();
-    if (err2 != NoError) return err2;
+    if (err2 != NoError)
+        return err2;
 
     return InstallPlanOverlayJsonCommands ();
 

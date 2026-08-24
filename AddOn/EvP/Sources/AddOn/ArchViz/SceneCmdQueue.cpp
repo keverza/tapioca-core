@@ -7,11 +7,24 @@ namespace archviz {
 
 size_t ElementUpload::Bytes () const
 {
-    return guid.capacity ()
-         + vertices.capacity () * sizeof (float)
-         + normals.capacity ()  * sizeof (float)
-         + indices.capacity ()  * sizeof (uint32_t)
-         + ranges.capacity ()   * sizeof (MaterialRange);
+    return guid.capacity () + vertices.capacity () * sizeof (float) + normals.capacity () * sizeof (float) +
+           indices.capacity () * sizeof (uint32_t) + ranges.capacity () * sizeof (MaterialRange);
+}
+
+size_t PointLayerUpload::Bytes () const
+{
+    return layerId.capacity () + sourceId.capacity () + sourcePath.capacity ();
+}
+
+size_t PointNodeUpload::Bytes () const
+{
+    return layerId.capacity () + vertices.capacity () * sizeof (PointCloudVertex);
+}
+
+size_t StorySliceUpload::Bytes () const
+{
+    return outline.capacity () * sizeof (StorySliceVertex) +
+           fill.capacity () * sizeof (StorySliceFillVertex);
 }
 
 SceneCmdQueue& SceneCmdQueue::Get ()
@@ -32,12 +45,12 @@ void SceneCmdQueue::PushBeginBatch (bool full)
 void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
 {
     if (upload == nullptr)
-        return;   // nothing to hand over; a null node would be a consumer crash
+        return; // nothing to hand over; a null node would be a consumer crash
 
     std::lock_guard<std::mutex> lock (mutex_);
     pendingBytes_ += upload->Bytes ();
     SceneCmd cmd;
-    cmd.type   = SceneCmdType::UpsertElement;
+    cmd.type = SceneCmdType::UpsertElement;
     cmd.upload = std::move (upload);
     queue_.push_back (std::move (cmd));
 }
@@ -62,12 +75,12 @@ void SceneCmdQueue::PushEndBatch ()
 void SceneCmdQueue::PushMaterials (std::unique_ptr<MaterialTable> materials)
 {
     if (materials == nullptr)
-        return;   // same rule as PushUpsert: a null node would be a consumer crash
+        return; // same rule as PushUpsert: a null node would be a consumer crash
 
     std::lock_guard<std::mutex> lock (mutex_);
     pendingBytes_ += materials->Bytes ();
     SceneCmd cmd;
-    cmd.type      = SceneCmdType::SetMaterials;
+    cmd.type = SceneCmdType::SetMaterials;
     cmd.materials = std::move (materials);
     queue_.push_back (std::move (cmd));
 }
@@ -76,7 +89,7 @@ void SceneCmdQueue::PushEnvironment (const EnvironmentUpload& environment)
 {
     std::lock_guard<std::mutex> lock (mutex_);
     SceneCmd cmd;
-    cmd.type        = SceneCmdType::SetEnvironment;
+    cmd.type = SceneCmdType::SetEnvironment;
     cmd.environment = environment;
     queue_.push_back (std::move (cmd));
 }
@@ -85,8 +98,65 @@ void SceneCmdQueue::PushSelection (std::vector<std::string> guids)
 {
     std::lock_guard<std::mutex> lock (mutex_);
     SceneCmd cmd;
-    cmd.type      = SceneCmdType::SetSelection;
+    cmd.type = SceneCmdType::SetSelection;
     cmd.selection = std::move (guids);
+    queue_.push_back (std::move (cmd));
+}
+
+void SceneCmdQueue::PushStorySlices (std::unique_ptr<StorySliceUpload> slices)
+{
+    if (slices == nullptr)
+        return; // same rule as PushUpsert: a null node would be a consumer crash
+
+    std::lock_guard<std::mutex> lock (mutex_);
+    pendingBytes_ += slices->Bytes ();
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::SetStorySlices;
+    cmd.storySlices = std::move (slices);
+    queue_.push_back (std::move (cmd));
+}
+
+void SceneCmdQueue::PushBeginPointLayer (std::unique_ptr<PointLayerUpload> layer)
+{
+    if (layer == nullptr)
+        return;
+
+    std::lock_guard<std::mutex> lock (mutex_);
+    pendingBytes_ += layer->Bytes ();
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::BeginPointLayer;
+    cmd.pointLayer = std::move (layer);
+    queue_.push_back (std::move (cmd));
+}
+
+void SceneCmdQueue::PushClearPointLayer (const std::string& layerId)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::ClearPointLayer;
+    cmd.pointLayerId = layerId;
+    queue_.push_back (std::move (cmd));
+}
+
+void SceneCmdQueue::PushUpsertPointNode (std::unique_ptr<PointNodeUpload> node)
+{
+    if (node == nullptr)
+        return;
+
+    std::lock_guard<std::mutex> lock (mutex_);
+    pendingBytes_ += node->Bytes ();
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::UpsertPointNode;
+    cmd.pointNode = std::move (node);
+    queue_.push_back (std::move (cmd));
+}
+
+void SceneCmdQueue::PushEndPointLayer (const std::string& layerId)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::EndPointLayer;
+    cmd.pointLayerId = layerId;
     queue_.push_back (std::move (cmd));
 }
 
@@ -110,6 +180,12 @@ std::vector<SceneCmd> SceneCmdQueue::Take (size_t max)
             bytes += queue_[i].upload->Bytes ();
         if (queue_[i].materials != nullptr)
             bytes += queue_[i].materials->Bytes ();
+        if (queue_[i].pointLayer != nullptr)
+            bytes += queue_[i].pointLayer->Bytes ();
+        if (queue_[i].pointNode != nullptr)
+            bytes += queue_[i].pointNode->Bytes ();
+        if (queue_[i].storySlices != nullptr)
+            bytes += queue_[i].storySlices->Bytes ();
         pendingBytes_ = (pendingBytes_ > bytes) ? (pendingBytes_ - bytes) : 0;
         out.push_back (std::move (queue_[i]));
     }
@@ -141,5 +217,5 @@ size_t SceneCmdQueue::PendingBytes () const
     return pendingBytes_;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

@@ -148,8 +148,7 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     // ⚠️ DO NOT COPY THIS TO ANOTHER CHANNEL. A normal, a roughness or a motion
     // vector put through the sRGB curve is silently corrupted.
     gBufferElements[kGBufferAlbedo].Format = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB;
-    gBufferElements[kGBufferAlbedo].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB, 0.0f, 0.0f, 0.0f,
-                                                         0.0f);
+    gBufferElements[kGBufferAlbedo].ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB, 0.0f, 0.0f, 0.0f, 0.0f);
     gBufferElements[kGBufferRoughness].Format = Diligent::TEX_FORMAT_R16_FLOAT;
     gBufferElements[kGBufferRoughness].ClearValue.SetColor (Diligent::TEX_FORMAT_R16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
     gBufferElements[kGBufferMaterialData].Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
@@ -374,7 +373,7 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
         gp.NumRenderTargets = 5;
         gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
-        gp.RTVFormats[1] = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB;   // albedo; see the G-buffer element
+        gp.RTVFormats[1] = Diligent::TEX_FORMAT_RGBA8_UNORM_SRGB; // albedo; see the G-buffer element
         gp.RTVFormats[2] = Diligent::TEX_FORMAT_R16_FLOAT;
         gp.RTVFormats[3] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
         // ⚠️ RE51.C2. The slot is 4 and the ELEMENT index is 5; see
@@ -955,6 +954,9 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                            impl_->wirePso, impl_->wireSrb))
         return false;
 
+    if (!impl_->pointCloud.Init (device, colorBufferFormat, depthBufferFormat, error))
+        return false;
+
     impl_->ready = true;
     return true;
 }
@@ -1037,6 +1039,7 @@ void DiligentScene::Shutdown ()
     impl_->ambientOcclusion.Shutdown ();
     impl_->screenSpaceReflection.Shutdown ();
     impl_->temporalAntiAliasing.Shutdown ();
+    impl_->pointCloud.Shutdown ();
     impl_->taaView = nullptr;
     impl_->depthRange.Shutdown ();
     impl_->envBackgroundSrb.Release ();

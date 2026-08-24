@@ -69,6 +69,12 @@ struct DiligentSceneStats {
     size_t materials = 0;
     size_t materialMisses = 0;
     size_t transparentRanges = 0;
+    size_t pointLayers = 0;
+    size_t pointNodes = 0;
+    size_t points = 0;
+    size_t visiblePoints = 0;
+    size_t pointGpuBytes = 0;
+    size_t pointDrawCalls = 0;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -268,9 +274,8 @@ class DiligentScene final {
     // shadow pass's and the prepass's contribution to this frame's ordering.
     void Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
                Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
-               const float viewProj[16], const float motionViewProj[16], const float eye[3],
-               const float jitter[2], CullMode cull, int debugView, float nearClip,
-               float farClip, float focusDistance, uint32_t frameIndex);
+               const float viewProj[16], const float motionViewProj[16], const float eye[3], const float jitter[2],
+               CullMode cull, int debugView, float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
 
     // Render opaque geometry into the shader-readable normal/depth G-buffer,
     // then resolve one channel to the viewport target.
@@ -542,16 +547,15 @@ class DiligentScene final {
     // reflection is a diffuse blur that screen-space rays cannot represent.
     void SetScreenSpaceReflection (bool enabled, float intensity, float roughnessThreshold);
     void ClearScreenSpaceReflection ();
-    void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16],
-                                       const float proj[16], const float viewProj[16],
-                                       const float motionViewProj[16], const float eye[3], const float jitter[2],
-                                       float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
+    void PrepareScreenSpaceReflection (Diligent::IDeviceContext* context, const float view[16], const float proj[16],
+                                       const float viewProj[16], const float motionViewProj[16], const float eye[3],
+                                       const float jitter[2], float nearClip, float farClip, float focusDistance,
+                                       uint32_t frameIndex);
 
     // ---- RE51.C8: temporal anti-aliasing on genuine history ----------------
     void SetTemporalAntiAliasing (bool enabled, float stability);
     void PrepareTemporalAntiAliasingFrame (Diligent::IDeviceContext* context, uint32_t frameIndex,
-                                           const float projection[16], float jitteredProjection[16],
-                                           float jitter[2]);
+                                           const float projection[16], float jitteredProjection[16], float jitter[2]);
     void ResetTemporalAntiAliasingHistory ();
 
   private:
@@ -574,10 +578,11 @@ class DiligentScene final {
                                 const float motionViewProj[16], const float eye[3], CullMode cull,
                                 bool appendTransparent = false, bool glassOnly = false);
 
-    Diligent::ITextureView* ExecuteTemporalAntiAliasing (
-        Diligent::IDeviceContext* context, const float view[16], const float proj[16],
-        const float viewProj[16], const float motionViewProj[16], const float eye[3],
-        const float jitter[2], float nearClip, float farClip, float focusDistance, uint32_t frameIndex);
+    Diligent::ITextureView* ExecuteTemporalAntiAliasing (Diligent::IDeviceContext* context, const float view[16],
+                                                         const float proj[16], const float viewProj[16],
+                                                         const float motionViewProj[16], const float eye[3],
+                                                         const float jitter[2], float nearClip, float farClip,
+                                                         float focusDistance, uint32_t frameIndex);
 
     // The occlusion radius in world metres: the HUD's override, or derived from
     // the model's bounds when that is zero. ⚠️ ONE DERIVATION, TWO CALLERS --

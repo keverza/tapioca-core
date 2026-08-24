@@ -6,9 +6,12 @@ $root = Join-Path $repo "AddOn\EvP"
 # Governance is the first build gate when this is the private workspace. The public
 # core deliberately has no task registry, so the same build script must remain usable
 # there without weakening strict validation when the registry is present.
-$governanceTool = Join-Path $repo "tools\tapioca.py"
-if (-not (Test-Path -LiteralPath $governanceTool -PathType Leaf)) {
-    Write-Host "Governance validation skipped: tools/tapioca.py is not present in this checkout." -ForegroundColor Yellow
+$governanceTool = @(
+    (Join-Path $repo "tools\tapioca.py")
+    (Join-Path (Split-Path -Parent $repo) "private\tools\tapioca.py")
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if ($null -eq $governanceTool) {
+    Write-Host "Governance validation skipped: no private Tapioca CLI was found for this checkout." -ForegroundColor Yellow
 } elseif ($null -eq (Get-Command python -ErrorAction SilentlyContinue)) {
     throw "Strict governance validation requires Python on PATH."
 } else {

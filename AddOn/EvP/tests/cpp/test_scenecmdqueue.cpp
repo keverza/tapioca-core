@@ -31,13 +31,49 @@ std::unique_ptr<ElementUpload> MakeUpload (const std::string& guid, size_t verts
     return up;
 }
 
+std::unique_ptr<PointLayerUpload> MakePointLayer (const std::string& layerId)
+{
+    auto layer = std::make_unique<PointLayerUpload> ();
+    layer->layerId = layerId;
+    layer->sourceId = "scan-17";
+    layer->sourcePath = "clouds/site.ply";
+    layer->rtcOrigin[0] = 6384123.25;
+    layer->rtcOrigin[1] = 603123.5;
+    layer->rtcOrigin[2] = 112.75;
+    layer->boundsMin[0] = -10.0f;
+    layer->boundsMax[0] = 20.0f;
+    return layer;
+}
+
+std::unique_ptr<PointNodeUpload> MakePointNode (const std::string& layerId, uint32_t nodeId, size_t count = 4)
+{
+    auto node = std::make_unique<PointNodeUpload> ();
+    node->layerId = layerId;
+    node->nodeId = nodeId;
+    node->parentId = 3;
+    node->level = 2;
+    node->boundsMin[0] = -2.0f;
+    node->boundsMax[0] = 3.0f;
+    node->geometricError = 0.125f;
+    node->vertices.resize (count);
+    node->vertices[0].position[0] = 1.25f;
+    node->vertices[0].rgba = 0xFF332211u;
+    return node;
+}
+
 // The queue is a singleton, so every test starts from a known state.
 struct SceneQueueTest : ::testing::Test {
-    void SetUp () override    { SceneCmdQueue::Get ().Clear (); }
-    void TearDown () override { SceneCmdQueue::Get ().Clear (); }
+    void SetUp () override
+    {
+        SceneCmdQueue::Get ().Clear ();
+    }
+    void TearDown () override
+    {
+        SceneCmdQueue::Get ().Clear ();
+    }
 };
 
-}   // namespace
+} // namespace
 
 TEST_F (SceneQueueTest, PreservesOrderAcrossPartialTakes)
 {
@@ -141,6 +177,79 @@ TEST_F (SceneQueueTest, NullUploadIsIgnored)
     EXPECT_EQ (q.PendingCount (), 0u);
 }
 
+TEST_F (SceneQueueTest, PointLayerCommandsPreserveMetadataAndOrderingOutsideFullBatch)
+{
+    SceneCmdQueue& q = SceneCmdQueue::Get ();
+    q.PushBeginBatch (true);
+    q.PushBeginPointLayer (MakePointLayer ("survey"));
+    q.PushUpsertPointNode (MakePointNode ("survey", 7));
+    q.PushEndBatch ();
+    q.PushClearPointLayer ("old-survey");
+    q.PushEndPointLayer ("survey");
+
+    std::vector<SceneCmd> commands = q.Take (99);
+    ASSERT_EQ (commands.size (), 6u);
+    EXPECT_EQ (commands[0].type, SceneCmdType::BeginBatch);
+    ASSERT_NE (commands[1].pointLayer, nullptr);
+    EXPECT_EQ (commands[1].type, SceneCmdType::BeginPointLayer);
+    EXPECT_EQ (commands[1].pointLayer->layerId, "survey");
+    EXPECT_EQ (commands[1].pointLayer->sourceId, "scan-17");
+    EXPECT_EQ (commands[1].pointLayer->sourcePath, "clouds/site.ply");
+    EXPECT_DOUBLE_EQ (commands[1].pointLayer->rtcOrigin[0], 6384123.25);
+    EXPECT_FLOAT_EQ (commands[1].pointLayer->boundsMin[0], -10.0f);
+    EXPECT_FLOAT_EQ (commands[1].pointLayer->boundsMax[0], 20.0f);
+
+    ASSERT_NE (commands[2].pointNode, nullptr);
+    EXPECT_EQ (commands[2].type, SceneCmdType::UpsertPointNode);
+    EXPECT_EQ (commands[2].pointNode->layerId, "survey");
+    EXPECT_EQ (commands[2].pointNode->nodeId, 7u);
+    EXPECT_EQ (commands[2].pointNode->parentId, 3u);
+    EXPECT_EQ (commands[2].pointNode->level, 2u);
+    EXPECT_FLOAT_EQ (commands[2].pointNode->boundsMin[0], -2.0f);
+    EXPECT_FLOAT_EQ (commands[2].pointNode->boundsMax[0], 3.0f);
+    EXPECT_FLOAT_EQ (commands[2].pointNode->geometricError, 0.125f);
+    ASSERT_EQ (commands[2].pointNode->vertices.size (), 4u);
+    EXPECT_FLOAT_EQ (commands[2].pointNode->vertices[0].position[0], 1.25f);
+    EXPECT_EQ (commands[2].pointNode->vertices[0].rgba, 0xFF332211u);
+
+    EXPECT_EQ (commands[3].type, SceneCmdType::EndBatch);
+    EXPECT_EQ (commands[4].type, SceneCmdType::ClearPointLayer);
+    EXPECT_EQ (commands[4].pointLayerId, "old-survey");
+    EXPECT_EQ (commands[5].type, SceneCmdType::EndPointLayer);
+    EXPECT_EQ (commands[5].pointLayerId, "survey");
+}
+
+TEST_F (SceneQueueTest, PointPayloadsAreOwnedAndIncludedInPendingBytes)
+{
+    SceneCmdQueue& q = SceneCmdQueue::Get ();
+    std::unique_ptr<PointLayerUpload> layer = MakePointLayer ("survey");
+    std::unique_ptr<PointNodeUpload> node = MakePointNode ("survey", 1, 100);
+    const size_t layerBytes = layer->Bytes ();
+    const size_t nodeBytes = node->Bytes ();
+
+    q.PushBeginPointLayer (std::move (layer));
+    q.PushUpsertPointNode (std::move (node));
+    EXPECT_EQ (layer, nullptr);
+    EXPECT_EQ (node, nullptr);
+    EXPECT_EQ (q.PendingBytes (), layerBytes + nodeBytes);
+
+    std::vector<SceneCmd> first = q.Take (1);
+    ASSERT_NE (first[0].pointLayer, nullptr);
+    EXPECT_EQ (q.PendingBytes (), nodeBytes);
+    q.Clear ();
+    EXPECT_EQ (first[0].pointLayer->sourceId, "scan-17");
+    EXPECT_EQ (q.PendingBytes (), 0u);
+}
+
+TEST_F (SceneQueueTest, NullPointPayloadsAreIgnored)
+{
+    SceneCmdQueue& q = SceneCmdQueue::Get ();
+    q.PushBeginPointLayer (nullptr);
+    q.PushUpsertPointNode (nullptr);
+    EXPECT_EQ (q.PendingCount (), 0u);
+    EXPECT_EQ (q.PendingBytes (), 0u);
+}
+
 TEST_F (SceneQueueTest, TakeZeroTakesNothing)
 {
     SceneCmdQueue& q = SceneCmdQueue::Get ();
@@ -166,7 +275,7 @@ TEST_F (SceneQueueTest, SurvivesConcurrentProducerAndConsumer)
     while (seen < kCount) {
         for (SceneCmd& cmd : q.Take (16)) {
             ASSERT_NE (cmd.upload, nullptr);
-            EXPECT_EQ (cmd.upload->guid, "g" + std::to_string (seen));   // order held
+            EXPECT_EQ (cmd.upload->guid, "g" + std::to_string (seen)); // order held
             ++seen;
         }
     }

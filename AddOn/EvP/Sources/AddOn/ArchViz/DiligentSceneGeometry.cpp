@@ -12,9 +12,8 @@
 namespace geomsrv {
 namespace archviz {
 
-bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry& entry,
-                        const void* vertices, size_t vertexBytes,
-                        const void* indices, size_t indexBytes, std::string& error)
+bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry& entry, const void* vertices,
+                        size_t vertexBytes, const void* indices, size_t indexBytes, std::string& error)
 {
     Diligent::BufferDesc vbd;
     vbd.Name = name;
@@ -23,7 +22,7 @@ bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry
     // IMMUTABLE: an element is replaced wholesale, never edited in place. A
     // changed element is a new buffer, exactly as it was a new bgfx handle.
     vbd.Usage = Diligent::USAGE_IMMUTABLE;
-    const Diligent::BufferData vertexData {vertices, vertexBytes};
+    const Diligent::BufferData vertexData { vertices, vertexBytes };
     // ⚠️ RELEASE BEFORE OVERWRITING. An upsert of an already-cached element is
     // the ORDINARY case during live sync; dropping the old buffers on the floor
     // leaks GPU memory once per edit, invisible until a long session runs the
@@ -37,7 +36,7 @@ bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry
     ibd.Size = indexBytes;
     ibd.BindFlags = Diligent::BIND_INDEX_BUFFER;
     ibd.Usage = Diligent::USAGE_IMMUTABLE;
-    const Diligent::BufferData indexData {indices, indexBytes};
+    const Diligent::BufferData indexData { indices, indexBytes };
     device->CreateBuffer (ibd, &indexData, &entry.indexBuffer);
 
     if (entry.vertexBuffer == nullptr || entry.indexBuffer == nullptr) {
@@ -50,52 +49,49 @@ bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry
     return true;
 }
 
-bool DiligentScene::AddStaticMesh (Diligent::IRenderDevice* device, const char* name,
-                                   const ArchVizVertex* vertices, size_t vertexCount,
-                                   const uint16_t* indices, size_t indexCount,
-                                   std::string& error)
+bool DiligentScene::AddStaticMesh (Diligent::IRenderDevice* device, const char* name, const ArchVizVertex* vertices,
+                                   size_t vertexCount, const uint16_t* indices, size_t indexCount, std::string& error)
 {
-    if (device == nullptr || vertices == nullptr || indices == nullptr ||
-        vertexCount == 0 || indexCount == 0) {
+    if (device == nullptr || vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0) {
         error = "DiligentScene::AddStaticMesh got an empty or null mesh";
         return false;
     }
 
     Entry entry;
     entry.indices32 = false;
-    if (!CreateMeshBuffers (device, name, entry, vertices, vertexCount * sizeof (ArchVizVertex),
-                            indices, indexCount * sizeof (uint16_t), error))
+    if (!CreateMeshBuffers (device, name, entry, vertices, vertexCount * sizeof (ArchVizVertex), indices,
+                            indexCount * sizeof (uint16_t), error))
         return false;
     entry.vertexCount = Diligent::Uint32 (vertexCount);
     entry.indexCount = Diligent::Uint32 (indexCount);
     // One range covering everything, material -1 so the table is never consulted
     // and the miss counter is not polluted by geometry that has no material.
-    entry.ranges.push_back (MaterialRange {-1, 0, uint32_t (indexCount)});
+    entry.ranges.push_back (MaterialRange { -1, 0, uint32_t (indexCount) });
     impl_->staticMeshes.push_back (std::move (entry));
     return true;
 }
 
-void DiligentScene::ClearStaticMeshes () { impl_->staticMeshes.clear (); }
-
-bool DiligentScene::AddOverlayMesh (Diligent::IRenderDevice* device, const char* name,
-                                    const ArchVizVertex* vertices, size_t vertexCount,
-                                    const uint16_t* indices, size_t indexCount,
-                                    std::string& error)
+void DiligentScene::ClearStaticMeshes ()
 {
-    if (device == nullptr || vertices == nullptr || indices == nullptr ||
-        vertexCount == 0 || indexCount == 0) {
+    impl_->staticMeshes.clear ();
+}
+
+bool DiligentScene::AddOverlayMesh (Diligent::IRenderDevice* device, const char* name, const ArchVizVertex* vertices,
+                                    size_t vertexCount, const uint16_t* indices, size_t indexCount, std::string& error)
+{
+    if (device == nullptr || vertices == nullptr || indices == nullptr || vertexCount == 0 || indexCount == 0) {
         error = "DiligentScene::AddOverlayMesh got an empty or null mesh";
         return false;
     }
 
     Entry entry;
     entry.indices32 = false;
-    if (!CreateMeshBuffers (device, name, entry, vertices, vertexCount * sizeof (ArchVizVertex),
-                            indices, indexCount * sizeof (uint16_t), error))
+    if (!CreateMeshBuffers (device, name, entry, vertices, vertexCount * sizeof (ArchVizVertex), indices,
+                            indexCount * sizeof (uint16_t), error))
         return false;
     entry.vertexCount = Diligent::Uint32 (vertexCount);
     entry.indexCount = Diligent::Uint32 (indexCount);
-    entry.ranges.push_back (MaterialRange {-1, 0, uint32_t (indexCount)});
+    entry.ranges.push_back (MaterialRange { -1, 0, uint32_t (indexCount) });
     impl_->overlayMeshes.push_back (std::move (entry));
     return true;
 }
@@ -135,13 +131,13 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 // ⚠️ NORMALISED HERE, not by the producer: a sun below the
                 // horizon can arrive as a zero-length vector, and normalize(0)
                 // in a shader is a NaN that renders as black geometry.
-                const float length = std::sqrt (env.sunX * env.sunX + env.sunY * env.sunY +
-                                                env.sunZ * env.sunZ);
+                const float length = std::sqrt (env.sunX * env.sunX + env.sunY * env.sunY + env.sunZ * env.sunZ);
                 if (length > 1e-6f) {
                     impl_->sun[0] = env.sunX / length;
                     impl_->sun[1] = env.sunY / length;
                     impl_->sun[2] = env.sunZ / length;
-                } else {
+                }
+                else {
                     impl_->sun[0] = 0.0f;
                     impl_->sun[1] = 0.0f;
                     impl_->sun[2] = 1.0f;
@@ -198,10 +194,9 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 Entry& e = existing != nullptr ? *existing : fresh;
 
                 std::string error;
-                if (!CreateMeshBuffers (device, "ArchViz element", e,
-                                        interleaved.data (), interleaved.size () * sizeof (ArchVizVertex),
-                                        upload.indices.data (), upload.indices.size () * sizeof (uint32_t),
-                                        error))
+                if (!CreateMeshBuffers (device, "ArchViz element", e, interleaved.data (),
+                                        interleaved.size () * sizeof (ArchVizVertex), upload.indices.data (),
+                                        upload.indices.size () * sizeof (uint32_t), error))
                     break;
 
                 e.guid = upload.guid;
@@ -267,6 +262,24 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
             case SceneCmdType::SetSelection:
                 SetSelection (cmd.selection);
                 break;
+
+            case SceneCmdType::BeginPointLayer:
+                if (cmd.pointLayer != nullptr)
+                    impl_->pointCloud.BeginLayer (*cmd.pointLayer);
+                break;
+
+            case SceneCmdType::ClearPointLayer:
+                impl_->pointCloud.ClearLayer (cmd.pointLayerId);
+                break;
+
+            case SceneCmdType::UpsertPointNode:
+                if (cmd.pointNode != nullptr)
+                    impl_->pointCloud.UpsertNode (device, *cmd.pointNode);
+                break;
+
+            case SceneCmdType::EndPointLayer:
+                impl_->pointCloud.EndLayer (cmd.pointLayerId);
+                break;
         }
     }
 
@@ -321,7 +334,7 @@ DiligentScene::ElementInfo DescribeEntry (const Entry& e)
     return info;
 }
 
-}   // namespace
+} // namespace
 
 DiligentScene::ElementInfo DiligentScene::InfoForId (uint32_t id) const
 {
@@ -436,8 +449,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.shadowTexelMetres = impl_->shadow.texelWorldSize;
 
     s.environmentLoaded = impl_->environment.IsLoaded ();
-    s.environmentActive = s.environmentLoaded && impl_->environmentEnabled &&
-                          impl_->environmentIntensity > 0.0f;
+    s.environmentActive = s.environmentLoaded && impl_->environmentEnabled && impl_->environmentIntensity > 0.0f;
     s.environmentMipLevels = impl_->environment.MipLevels ();
     impl_->environment.AverageRadiance (s.environmentAverage);
     s.environmentPath = impl_->environment.LoadedPath ();
@@ -452,8 +464,7 @@ DiligentSceneStats DiligentScene::Stats () const
     s.sceneLuminance = impl_->lastSceneLuminance;
     s.appliedExposure = impl_->autoExposureEnabled ? impl_->lastAutoExposure : impl_->exposure;
     s.fixedExposure = impl_->exposure;
-    const WhiteBalanceGains gains =
-        ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
+    const WhiteBalanceGains gains = ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
     for (int c = 0; c < 3; ++c)
         s.whiteBalanceGains[c] = gains.rgb[c];
     s.meanAlbedo = MeanPoolAlbedo (impl_->materials);
@@ -469,23 +480,29 @@ DiligentSceneStats DiligentScene::Stats () const
     s.materials = impl_->materials.Size ();
     s.pending = SceneCmdQueue::Get ().PendingCount ();
     s.drawCalls = impl_->drawCalls;
+    const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
+    s.pointLayers = pointStats.layers;
+    s.pointNodes = pointStats.nodes;
+    s.points = pointStats.points;
+    s.visiblePoints = pointStats.visiblePoints;
+    s.pointGpuBytes = pointStats.gpuBytes;
+    s.pointDrawCalls = pointStats.drawCalls;
+    s.gpuBytes += pointStats.gpuBytes;
     s.sunApplied = impl_->sunApplied;
     s.sunBelowHorizon = impl_->sunBelowHorizon;
     impl_->EffectiveSun (s.sun);
     s.sunOverridden = impl_->sunOverride;
     constexpr float kRadToDeg = 180.0f / 3.14159265358979323846f;
-    s.sunAzimuthDegrees = impl_->sunOverride
-                            ? impl_->sunOverrideAzimuth
-                            : std::atan2 (impl_->sun[1], impl_->sun[0]) * kRadToDeg;
+    s.sunAzimuthDegrees =
+        impl_->sunOverride ? impl_->sunOverrideAzimuth : std::atan2 (impl_->sun[1], impl_->sun[0]) * kRadToDeg;
     s.northDegrees = impl_->northDegrees;
     float bearing = impl_->northDegrees - s.sunAzimuthDegrees;
     bearing -= 360.0f * std::floor (bearing / 360.0f);
     s.sunBearingDegrees = bearing;
-    s.sunAltitudeDegrees = impl_->sunOverride
-                             ? impl_->sunOverrideAltitude
-                             : std::asin (impl_->sun[2] < -1.0f ? -1.0f
-                                          : (impl_->sun[2] > 1.0f ? 1.0f : impl_->sun[2]))
-                               * kRadToDeg;
+    s.sunAltitudeDegrees =
+        impl_->sunOverride
+            ? impl_->sunOverrideAltitude
+            : std::asin (impl_->sun[2] < -1.0f ? -1.0f : (impl_->sun[2] > 1.0f ? 1.0f : impl_->sun[2])) * kRadToDeg;
     s.ambient = impl_->ambient;
     s.latitudeDegrees = impl_->latitudeDegrees;
     s.longitudeDegrees = impl_->longitudeDegrees;
@@ -502,5 +519,5 @@ DiligentSceneStats DiligentScene::Stats () const
     return s;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

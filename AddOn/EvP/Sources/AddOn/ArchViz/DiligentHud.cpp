@@ -357,12 +357,10 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 // failing to build and the message names it.
                 if (scene.environmentLoaded) {
                     if (scene.environmentPrefiltered)
-                        ImGui::TextDisabled ("  GGX-prefiltered: %u mips in %.1f ms",
-                                             scene.environmentPrefilteredMips,
+                        ImGui::TextDisabled ("  GGX-prefiltered: %u mips in %.1f ms", scene.environmentPrefilteredMips,
                                              scene.environmentPrefilterMs);
                     else
-                        ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
-                                            "  box-filtered (mirrors will smear): %s",
+                        ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "  box-filtered (mirrors will smear): %s",
                                             scene.environmentPrefilterError.c_str ());
                 }
             }
@@ -414,8 +412,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 // (depth or normals) and debug view 9 is the next look.
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##aoradius", &state.ambientOcclusionRadius, 0.0f, 20.0f, "%.2f m");
-                ImGui::TextDisabled ("AO radius -- 0 derives it from the model; now %.2f m",
-                                     scene.aoRadiusMetres);
+                ImGui::TextDisabled ("AO radius -- 0 derives it from the model; now %.2f m", scene.aoRadiusMetres);
 
                 // ---- RE51.C7: screen-space reflections ----------------------
                 ImGui::Checkbox ("screen-space reflections", &state.screenSpaceReflection);
@@ -435,8 +432,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::TextDisabled ("TAA stability -- higher is steadier; lower rejects history faster");
 
                 ImGui::Checkbox ("auto exposure", &state.autoExposure);
-                ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)",
-                                     scene.autoExposure, scene.sceneLuminance, scene.meanAlbedo);
+                ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)", scene.autoExposure,
+                                     scene.sceneLuminance, scene.meanAlbedo);
 
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##whitebalance", &state.whiteBalanceKelvin, 2000.0f, 12000.0f, "%.0f K");
@@ -469,6 +466,9 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         ImGui::Separator ();
         ImGui::Text ("elements %llu", (unsigned long long) scene.elements);
         ImGui::Text ("triangles %llu", (unsigned long long) scene.triangles);
+        if (scene.pointLayers > 0)
+            ImGui::Text ("point clouds %llu   visible %llu / %llu", (unsigned long long) scene.pointLayers,
+                         (unsigned long long) scene.visiblePoints, (unsigned long long) scene.points);
         ImGui::Text ("materials %llu   misses %llu", (unsigned long long) scene.materials,
                      (unsigned long long) scene.materialMisses);
         if (scene.pending > 0)
@@ -484,30 +484,29 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                          scene.sunBelowHorizon ? ", below horizon" : "");
             ImGui::Text ("  dir %.2f %.2f %.2f   ambient %.2f", scene.sun[0], scene.sun[1], scene.sun[2],
                          scene.ambient);
-        // ⚠️ BOTH AZIMUTHS, BOTH LABELLED. Showing one unlabelled number in
-        // [-180, 180] produced a live report of "Archicad says 240, the viewer
-        // says -120" -- which is not necessarily a disagreement at all: -120 and
-        // 240 are the same direction, and the model-space angle and the compass
-        // bearing are different quantities that only coincide at north = 0.
-        // Whichever of the two Archicad's dialog is showing, one of these lines
-        // now matches it exactly, and the mismatch (if any) is a number rather
-        // than an impression.
+            // ⚠️ BOTH AZIMUTHS, BOTH LABELLED. Showing one unlabelled number in
+            // [-180, 180] produced a live report of "Archicad says 240, the viewer
+            // says -120" -- which is not necessarily a disagreement at all: -120 and
+            // 240 are the same direction, and the model-space angle and the compass
+            // bearing are different quantities that only coincide at north = 0.
+            // Whichever of the two Archicad's dialog is showing, one of these lines
+            // now matches it exactly, and the mismatch (if any) is a number rather
+            // than an impression.
             ImGui::Text ("  model  %.1f deg (CCW from +X)   altitude %.1f deg", scene.sunAzimuthDegrees,
                          scene.sunAltitudeDegrees);
             ImGui::Text ("  compass %.1f deg (CW from north)   north %.1f deg", scene.sunBearingDegrees,
                          scene.northDegrees);
-        // ⚠️ THE PLACE AND MOMENT, because a wrong sun has two very different
-        // causes and they look identical on a building: the CONVERSION is wrong,
-        // or the viewer is reading a sun the user never set. The angles above are
-        // Archicad's STORED ones -- what its own 3D window shades with -- and
-        // this line says what date/place they belong to. If the two lines below
-        // disagree, the project's sun was TYPED into the Sun dialog rather than
-        // computed from its date, which is ordinary and is not a bug in either
-        // number.
-            ImGui::TextDisabled ("  place %.4f, %.4f  alt %.0f m   %04u-%02u-%02u %02u:%02u%s",
-                                 scene.latitudeDegrees, scene.longitudeDegrees, scene.siteAltitudeMetres,
-                                 scene.year, scene.month, scene.day, scene.hour, scene.minute,
-                                 scene.summerTime ? " DST" : "");
+            // ⚠️ THE PLACE AND MOMENT, because a wrong sun has two very different
+            // causes and they look identical on a building: the CONVERSION is wrong,
+            // or the viewer is reading a sun the user never set. The angles above are
+            // Archicad's STORED ones -- what its own 3D window shades with -- and
+            // this line says what date/place they belong to. If the two lines below
+            // disagree, the project's sun was TYPED into the Sun dialog rather than
+            // computed from its date, which is ordinary and is not a bug in either
+            // number.
+            ImGui::TextDisabled ("  place %.4f, %.4f  alt %.0f m   %04u-%02u-%02u %02u:%02u%s", scene.latitudeDegrees,
+                                 scene.longitudeDegrees, scene.siteAltitudeMetres, scene.year, scene.month, scene.day,
+                                 scene.hour, scene.minute, scene.summerTime ? " DST" : "");
             if (scene.haveComputedSun) {
                 const float azGap = std::abs (scene.computedAzimuthDegrees - scene.sunAzimuthDegrees);
                 const float altGap = std::abs (scene.computedAltitudeDegrees - scene.sunAltitudeDegrees);

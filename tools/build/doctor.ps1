@@ -361,14 +361,17 @@ if ($null -eq $clangFormat) {
 }
 
 # ---------------------------------------------------------------- deterministic checks --
-$governanceTool = Join-Path $repoRoot "tools\tapioca.py"
+$governanceTool = @(
+    (Join-Path $repoRoot "tools\tapioca.py")
+    (Join-Path (Split-Path -Parent $repoRoot) "private\tools\tapioca.py")
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $pythonAvailable) {
     Add-Skip -Name "Governance validation" -Reason "Python is unavailable."
     Add-Skip -Name "Architecture checks" -Reason "Python is unavailable."
     Add-Skip -Name "Command palette scan" -Reason "Python is unavailable."
 } else {
-    if (-not (Test-Path -LiteralPath $governanceTool -PathType Leaf)) {
-        Add-Skip -Name "Governance validation" -Reason "tools/tapioca.py is not present; this is a public core checkout without the private registry."
+    if ($null -eq $governanceTool) {
+        Add-Skip -Name "Governance validation" -Reason "No private Tapioca CLI was found; this is a public core checkout without the private registry."
     } elseif (-not $pythonDependencies) {
         Add-Skip -Name "Governance validation" -Reason "PyYAML or jsonschema is unavailable."
     } else {

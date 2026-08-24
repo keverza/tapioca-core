@@ -118,6 +118,9 @@ set (EVP_ARCHVIZ_SOURCES
     # calibration: the RAL measurements that prove Archicad's colours are
     # display-referred are arithmetic, so they can be pinned exactly, offline.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ColourSpace.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudPly.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudHierarchy.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
@@ -173,7 +176,22 @@ set (EVP_ARCHVIZ_SOURCES
     # a positive arcAngle bulges right, polygon_area treats it as bulging left).
     # A test can at least pin down what this file does, so the live run only has
     # to settle which way Archicad means.
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanAnchorRibbon.cpp")
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanAnchorRibbon.cpp"
+    # ArchViz/StorySliceUnion.cpp is the C++ port of the Python overlay's
+    # sliceunion.py, and it is here for a reason the other entries do not have:
+    # there are now TWO implementations of one boolean union -- this one draws in
+    # the viewer, the Python one draws in Archicad -- and they are supposed to
+    # produce the same outline for the same storey. test_storysliceunion.cpp is
+    # deliberately the same cases as test_sliceunion.py so that "the same" is
+    # checked rather than assumed. Without it the two drift, and the symptom is
+    # two pictures of one building that disagree about where a wall is.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceUnion.cpp"
+    # ArchViz/StorySliceGeometry.cpp turns that union into what is actually
+    # drawn. Both halves fail as PICTURES: a mirrored ribbon still outlines the
+    # right walls, and an inside-out fill still covers a plausible region. The
+    # tests assert the AREA the fill covers and the arc length the dash rides on
+    # -- properties an incorrect implementation cannot accidentally satisfy.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceGeometry.cpp")
 
 # The CloudCompare command builder is deliberately DevKit-free. It pins the
 # external CLI contract while the runner itself remains in the ACAPI-free
@@ -182,6 +200,8 @@ set (EVP_CLOUDCOMPARE_SOURCES
      "${EVP_ROOT}/Sources/AddOn/Python/CloudCompareCommand.cpp")
 
 set (EVP_TEST_SOURCES
+    test_storysliceunion.cpp
+    test_storyslicegeometry.cpp
     test_command_filter.cpp
     test_param_layout.cpp
     test_param_visibility.cpp
@@ -208,6 +228,9 @@ set (EVP_TEST_SOURCES
     test_plancameramath.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp
+    test_pointcloudply.cpp
+    test_pointcloudhierarchy.cpp
+    test_pointcloudlod.cpp
     test_cloudcompare.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------

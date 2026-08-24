@@ -32,6 +32,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 HEADER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentShaders.hpp"
+POINT_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentPointCloudLayer.cpp"
 
 # Stage -> shader model. ps_5_0/vs_5_0 is what the D3D11 backend targets at
 # feature level 11; a stage compiled here under a different model would prove
@@ -56,6 +57,8 @@ STAGES = {
     # caps a string literal at 16 KB. Compiling only the first piece would
     # check a shader with no entry point and pass on a truncated file.
     "kArchVizMeshPS": "ps_5_0",
+    "kPointCloudVS": "vs_5_0",
+    "kPointCloudPS": "ps_5_0",
 }
 
 # Stages whose source is more than one literal, in concatenation order.
@@ -108,7 +111,7 @@ def main():
         print("fxc.exe not found (Windows SDK absent) — HLSL check SKIPPED")
         return 0
 
-    source = HEADER.read_text(encoding="utf-8")
+    source = HEADER.read_text(encoding="utf-8") + POINT_LAYER.read_text(encoding="utf-8")
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     if "kArchVizCBuffer" not in blocks:
         print("FAIL  the shared cbuffer literal was not found in %s" % HEADER.name)

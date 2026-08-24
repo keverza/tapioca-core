@@ -159,6 +159,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/PlanOverlayCommands.cpp", "PlanOverlay/OverlayWindow.hpp"),
     ("NativeCommands/PlanTrackCommands.cpp", "Diagnostics/ApiError.hpp"),
     ("NativeCommands/PlanTrackCommands.cpp", "PlanOverlay/OverlayWindow.hpp"),
+    # Narrow bus adapter: parsing and render-queue publication remain owned by
+    # ArchViz rather than moving into the native command registry.
+    ("NativeCommands/PointCloudCommands.cpp", "ArchViz/PointCloudLoader.hpp"),
     ("Notify/BackgroundArm.cpp", "Diagnostics/ApiError.hpp"),
     ("Notify/ChangeTracker.cpp", "Diagnostics/ApiError.hpp"),
     ("Notify/ModelDiff.cpp", "Diagnostics/ApiError.hpp"),

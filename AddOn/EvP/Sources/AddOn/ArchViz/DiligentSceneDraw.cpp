@@ -7,7 +7,7 @@
 #include "ArchViz/DiligentSceneImpl.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog -- a failed bind must say so, not crash
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
 #include "ArchViz/AutoExposure.hpp"
 #include "ArchViz/SurfaceClassifier.hpp"
 
@@ -27,7 +27,6 @@ namespace {
 // ⚠️ UNMAP BEFORE THE DRAW, unconditionally. A dynamic constant buffer still
 // mapped when the draw is issued is a silent no-draw on some drivers rather than
 // an error.
-
 
 } // namespace
 
@@ -194,8 +193,8 @@ void DiligentScene::SetViewportSize (uint32_t width, uint32_t height)
 void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureView* colorTarget,
                           Diligent::ITextureView* depthTarget, const float view[16], const float proj[16],
                           const float viewProj[16], const float motionViewProj[16], const float eye[3],
-                          const float jitter[2], CullMode cull, int debugView, float nearClip,
-                          float farClip, float focusDistance, uint32_t frameIndex)
+                          const float jitter[2], CullMode cull, int debugView, float nearClip, float farClip,
+                          float focusDistance, uint32_t frameIndex)
 {
     if (context == nullptr || !impl_->ready)
         return;
@@ -223,8 +222,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // fails to create the offscreen texture must not take the whole frame with
     // it; the LDR path produces a correct image, just one where each shader
     // tone-maps individually rather than in one resolve.
-    const bool useHdr = (impl_->renderQuality == RenderQuality::Realistic && debugView == 0 &&
-                         EnsureHdrTarget ());
+    const bool useHdr = (impl_->renderQuality == RenderQuality::Realistic && debugView == 0 && EnsureHdrTarget ());
 
     // ⚠️ BOUND HERE, NOT INHERITED. See the header: two passes inside this call
     // rebind the render targets for their own purposes, and inheriting the
@@ -254,8 +252,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // transparent for the overlay) survives wherever no geometry was drawn.
     if (useHdr && impl_->hdrColorRTV != nullptr) {
         const float hdrClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        context->ClearRenderTarget (impl_->hdrColorRTV, hdrClear,
-                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        context->ClearRenderTarget (impl_->hdrColorRTV, hdrClear, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     }
 
     const int index = CullIndex (cull);
@@ -270,8 +267,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // Leaving the field at its identity default would work today and would hand
     // the first consumer added to this path -- TAA, motion blur, anything
     // temporal -- a previous camera at the world origin, silently.
-    std::memcpy (constants.prevViewProj, impl_->havePrevViewProj ? impl_->prevViewProj : viewProj,
-                 sizeof (float) * 16);
+    std::memcpy (constants.prevViewProj, impl_->havePrevViewProj ? impl_->prevViewProj : viewProj, sizeof (float) * 16);
     impl_->EffectiveSun (constants.sunDir);
     constants.ambient = impl_->ambient;
     constants.eyePos[0] = eye[0];
@@ -403,8 +399,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // through every per-range upload, exactly as materialParams[1] does.
     constants.frameControl[0] = useHdr ? 1.0f : 0.0f;
 
-    const WhiteBalanceGains balance =
-        ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
+    const WhiteBalanceGains balance = ComputeWhiteBalance (impl_->whiteBalanceKelvin, impl_->whiteBalanceTint);
     for (int c = 0; c < 3; ++c)
         constants.whiteBalance[c] = balance.rgb[c];
 
@@ -446,7 +441,6 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     constants.gradeParams[1] = impl_->reflectance;
     constants.gradeParams[2] = impl_->roughnessBias;
 
-
     auto uploadConstants = [&] (float r, float g, float b, float a, float roughness = 1.0f, float specular = 0.5f,
                                 float metallic = 0.0f) {
         constants.baseColor[0] = r;
@@ -472,7 +466,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         if (useHdr) {
             pso = blended ? impl_->hdrBlendPso[index] : impl_->hdrOpaquePso[index];
             srb = blended ? impl_->hdrBlendSrb[index] : impl_->hdrOpaqueSrb[index];
-        } else {
+        }
+        else {
             pso = blended ? impl_->blendPso[index] : impl_->opaquePso[index];
             srb = blended ? impl_->blendSrb[index] : impl_->opaqueSrb[index];
         }
@@ -533,10 +528,10 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // blends. Not a sort -- a partition, which needs no comparator and no
     // per-frame allocation, and gets the one ordering that actually matters
     // right for free.
-    for (int pass = 0; drawSurfaces && pass < 2; ++pass) {
+    for (int pass = 0; pass < 2; ++pass) {
         const bool transparentPass = pass == 1;
 
-        if (!transparentPass) {
+        if (drawSurfaces && !transparentPass) {
             // The helper meshes are always opaque and carry their own vertex
             // colours, so the material colour stays white.
             uploadConstants (1.0f, 1.0f, 1.0f, 1.0f);
@@ -549,6 +544,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         }
 
         for (const Entry& e : impl_->elements) {
+            if (!drawSurfaces)
+                break;
             if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
                 continue;
             // ⚠️ ONE DRAW PER MATERIAL RANGE. Drawing the element in one call
@@ -615,6 +612,15 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 drawRange (e, r, blended);
             }
         }
+
+        // Point splats are opaque coverage: they test and write the same main
+        // depth as architecture. Drawing here puts them after opaque ranges and
+        // before transparent glass, while retaining the active HDR/LDR target.
+        if (!transparentPass && debugView == 0) {
+            const size_t pointDraws = impl_->pointCloud.Draw (context, viewProj, proj, eye, impl_->viewportWidth,
+                                                              impl_->viewportHeight, useHdr, frameIndex);
+            impl_->drawCalls += pointDraws;
+        }
     }
 
     // ---- the HDR resolve pass with SSR composition (RE51.C7) ----------------
@@ -642,13 +648,12 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // prepass earlier in the frame; SSR completes it with glass receivers.
         // The HDR colour SRV is available because EnsureHdrTarget succeeded.
         if (impl_->ssrEnabled && impl_->ssrIntensity > 0.0f) {
-            PrepareScreenSpaceReflection (context, view, proj, viewProj, motionViewProj, eye, jitter,
-                                          nearClip, farClip, focusDistance, frameIndex);
+            PrepareScreenSpaceReflection (context, view, proj, viewProj, motionViewProj, eye, jitter, nearClip, farClip,
+                                          focusDistance, frameIndex);
         }
 
         Diligent::ITextureView* resolvedHdr = ExecuteTemporalAntiAliasing (
-            context, view, proj, viewProj, motionViewProj, eye, jitter,
-            nearClip, farClip, focusDistance, frameIndex);
+            context, view, proj, viewProj, motionViewProj, eye, jitter, nearClip, farClip, focusDistance, frameIndex);
         if (resolvedHdr == nullptr)
             resolvedHdr = impl_->hdrColorSRV;
 
@@ -657,8 +662,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // so the lane is repurposed for SSR intensity in the resolve pass.
         constants.gradeParams[3] = (impl_->ssrView != nullptr) ? impl_->ssrIntensity : 0.0f;
         UploadConstants (context, impl_->constants, constants);
-        context->SetRenderTargets (1, &colorTarget, depthTarget,
-                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         context->SetViewports (1, nullptr, 0, 0);
 
         // TAA's alpha is history weight, not coverage. Resolve RGB from the TAA
@@ -700,9 +704,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                 materialView = materialTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
         }
         Diligent::ITextureView* dataFallback =
-            impl_->ssrFallback != nullptr
-                ? impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)
-                : nullptr;
+            impl_->ssrFallback != nullptr ? impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)
+                                          : nullptr;
         if (normalView == nullptr)
             normalView = dataFallback;
         if (albedoView == nullptr)

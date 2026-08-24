@@ -20,8 +20,8 @@ TEST (CloudCompareCommand, PinsReleaseAndBuildsCropExport)
     EXPECT_EQ (evp::kCloudComparePinnedVersion, std::string ("2.13.2"));
     EXPECT_EQ (command, L"\"C:\\Tools\\Cloud Compare\\CloudCompare.exe\" -SILENT -AUTO_SAVE OFF "
                         L"-LOG_FILE \"C:\\Temp\\tile.log\" -O -GLOBAL_SHIFT AUTO "
-                        L"\"C:\\Survey Files\\tile.laz\" -CROP2D Z 3 10 20 30 20 30 40 -OUTSIDE "
-                        L"-C_EXPORT_FMT PLY -PLY_EXPORT_FMT BINARY_LE -NO_TIMESTAMP -SAVE_CLOUDS FILE "
+                        L"\"C:\\Survey Files\\tile.laz\" -CROP2D Z -GLOBAL_SHIFT FIRST 3 10 20 30 20 30 40 "
+                        L"-OUTSIDE -C_EXPORT_FMT PLY -PLY_EXPORT_FMT BINARY_LE -NO_TIMESTAMP -SAVE_CLOUDS FILE "
                         L"\"\\\"C:\\Temp Files\\tile output.ply\\\"\"");
 }
 
