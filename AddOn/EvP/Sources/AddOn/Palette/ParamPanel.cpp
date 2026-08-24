@@ -127,6 +127,7 @@ void ParamPanel::Rebuild (const CommandInfo& info)
         os.Get ("type", pc.type);
         os.Get ("unit", pc.unit);
         os.Get ("extensions", pc.fileExtensions);
+        os.Get ("mode", pc.fileMode);
 
         // Per-param attributes ride in the param's own flat dict (the scanner folds
         // arbitrary annotation kwargs in — evp.Float(..., readonly=True,
@@ -890,7 +891,8 @@ bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
         // ObjectStateProcessor.cpp does AddFilter (type) + SetFilterRoot (group).
         FTM::FileTypeManager fileTypeManager ("Tapioca.FilePath");
         FTM::GroupID filterRoot;
-        DG::FileDialog dialog (DG::FileDialog::OpenFile);
+        const bool saveFile = pc.fileMode == "save";
+        DG::FileDialog dialog (saveFile ? DG::FileDialog::Save : DG::FileDialog::OpenFile);
         if (pc.fileExtensions.IsEmpty ()) {
             filterRoot = FTM::RootGroup;
             dialog.SetFilterRoot (filterRoot);
@@ -914,9 +916,10 @@ bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
         if (!dialog.Invoke ()) {
             // Cancel and refusal look the same from here, so say which one this was —
             // a Browse button that silently does nothing is unreportable.
-            AppendTextLine (ScanLogPath (), GS::UniString::Printf ("  FilePath '%T': the file dialog returned nothing "
+            const GS::UniString dialogMode = saveFile ? "save" : "open";
+            AppendTextLine (ScanLogPath (), GS::UniString::Printf ("  FilePath '%T': the %T dialog returned nothing "
                                                                    "(cancelled, or the selection was refused).",
-                                                                   pc.name.ToPrintf ()));
+                                                                   pc.name.ToPrintf (), dialogMode.ToPrintf ()));
             return true;
         }
 

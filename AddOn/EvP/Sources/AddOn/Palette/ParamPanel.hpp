@@ -24,6 +24,9 @@ struct ParamControl {
     // FilePath only: arbitrary extensions to show in the modal file dialog.
     // An empty list retains the unfiltered Archicad file dialog.
     GS::Array<GS::UniString> fileExtensions;
+    // FilePath only: "open" selects an existing file; "save" selects a
+    // destination and lets the dialog apply the chosen format's extension.
+    GS::UniString fileMode = "open";
 
     std::unique_ptr<DG::LeftText> label;
 
