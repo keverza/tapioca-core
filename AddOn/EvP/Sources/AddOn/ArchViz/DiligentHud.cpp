@@ -446,19 +446,59 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                                      scene.whiteBalanceGains[2]);
             }
 
-            // ⚠️ DISABLED, NOT ABSENT, AND NOT LIVE. Nothing in the viewer reads
-            // Archicad's storeys yet: the heights need an ACAPI read on the main
-            // thread, publishing to the render thread, and a flat unlit layer of
-            // their own (the PlanAnchorLayer shape). Shipping a checkbox that
-            // toggles a bool nobody consumes is the same fault as putting a live
-            // widget on the click-through overlay -- the user ticks it, nothing
-            // happens, and working code looks broken. Showing it greyed says
-            // "planned, not built", which is true and is the one thing a silent
-            // no-op cannot say.
-            ImGui::BeginDisabled (true);
+            // ---- the storey section overlay ----------------------------
+            // Live now: the storeys are read in the extraction pass's acquire
+            // slice, every element is cut against each level, and the union is
+            // drawn by StorySliceLayer.
+            //
+            // ⚠️ TURNING IT ON ASKS FOR A REFRESH, and the widget has to say so.
+            // The cut runs during a FULL pass and only when it was requested
+            // before that pass began -- a union over the elements a pass happened
+            // to reach is a clean outline of part of a building. So the first tick
+            // shows nothing until the refresh lands, and a checkbox that appears
+            // to do nothing for several seconds is indistinguishable from a broken
+            // one unless it explains itself.
+            const bool sliceWasOn = state.showStorySlices;
             ImGui::Checkbox ("story slices", &state.showStorySlices);
-            ImGui::EndDisabled ();
-            ImGui::TextDisabled ("  story slices need the storey read (not built)");
+            if (state.showStorySlices && !sliceWasOn && scene.storeySlices == 0)
+                state.storySlicesNeedRefresh = true;
+            if (state.showStorySlices) {
+                ImGui::Indent ();
+                if (!scene.storeySliceLayerReady) {
+                    ImGui::TextColored (ImVec4 (1.0f, 0.4f, 0.3f, 1.0f),
+                                        "the slice layer failed to create -- see archviz.log");
+                } else if (scene.storeySlices == 0) {
+                    ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
+                                        "no storey set yet -- refresh to cut the model");
+                } else {
+                    ImGui::TextDisabled ("%llu storey(s), %.0f m2 enclosed",
+                                         (unsigned long long) scene.storeySlices,
+                                         scene.storeySliceAreaM2);
+                }
+
+                ImGui::Checkbox ("fill the contour", &state.storySliceFill);
+
+                // ⚠️ THREE STATES, NOT A "HIDE BEHIND GEOMETRY" BOOL. They answer
+                // different questions: hidden reads the storey as a plan, dashed
+                // is the drafting convention for buried linework, and solid is the
+                // register check against something else.
+                int occluded = int (state.storySliceOccluded);
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::Combo ("##sliceoccluded", &occluded, "hidden dashed solid ");
+                state.storySliceOccluded = SliceOccludedStyle (occluded);
+                ImGui::TextDisabled ("behind geometry");
+
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##slicewidth", &state.storySliceWidthPixels, 1.0f, 8.0f, "%.1f px");
+                ImGui::TextDisabled ("line width -- PIXELS, so it holds at every zoom");
+
+                if (state.storySliceOccluded == SliceOccludedStyle::Dashed) {
+                    ImGui::SetNextItemWidth (-1.0f);
+                    ImGui::SliderFloat ("##slicedash", &state.storySliceDashPixels, 2.0f, 40.0f, "%.0f px");
+                    ImGui::TextDisabled ("dash period");
+                }
+                ImGui::Unindent ();
+            }
             ImGui::Checkbox ("callout under the cursor", &state.showCallout);
             ImGui::Checkbox ("selected element properties", &state.showProperties);
         }

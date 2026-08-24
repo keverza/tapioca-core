@@ -33,6 +33,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 HEADER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentShaders.hpp"
 POINT_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentPointCloudLayer.cpp"
+# ⚠️ THE OVERLAY LAYERS KEEP THEIR SHADERS IN THEIR OWN .cpp, not in the shared
+# header, so until they were listed here they were the ONE part of the renderer
+# this check could not see -- exactly the gap it exists to close. A typo in either
+# compiles fine, ships fine, and shows up as an overlay that silently never draws.
+PLAN_ANCHOR_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/PlanAnchorLayer.cpp"
+STORY_SLICE_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/StorySliceLayer.cpp"
 
 # Stage -> shader model. ps_5_0/vs_5_0 is what the D3D11 backend targets at
 # feature level 11; a stage compiled here under a different model would prove
@@ -57,6 +63,12 @@ STAGES = {
     # caps a string literal at 16 KB. Compiling only the first piece would
     # check a shader with no entry point and pass on a truncated file.
     "kArchVizMeshPS": "ps_5_0",
+    "kPlanAnchorVS": "vs_5_0",
+    "kPlanAnchorPS": "ps_5_0",
+    "kStorySliceVS": "vs_5_0",
+    "kStorySlicePS": "ps_5_0",
+    "kStorySliceFillVS": "vs_5_0",
+    "kStorySliceFillPS": "ps_5_0",
     "kPointCloudVS": "vs_5_0",
     "kPointCloudPS": "ps_5_0",
 }
@@ -91,6 +103,24 @@ PRELUDES = {
 }
 
 
+# Stages that declare their OWN cbuffer instead of sharing the scene's.
+#
+# ⚠️ THE SHARED CBUFFER MUST NOT BE PREPENDED TO THESE, and getting it wrong is
+# not a subtle failure: fxc reports "redefinition of g_viewProj" for a shader the
+# add-on compiles and runs perfectly well. The overlay layers are deliberately
+# independent of DiligentScene's uniform block -- they are instruments drawn with
+# four floats of their own, and coupling them to the scene's constants purely to
+# satisfy this check would be the tail wagging the dog.
+SELF_CONTAINED = {
+    "kPlanAnchorVS",
+    "kPlanAnchorPS",
+    "kStorySliceVS",
+    "kStorySlicePS",
+    "kStorySliceFillVS",
+    "kStorySliceFillPS",
+}
+
+
 def find_fxc():
     """The newest x64 fxc in the Windows SDK, or None."""
     roots = [Path(r"C:\Program Files (x86)\Windows Kits\10\bin"),
@@ -111,7 +141,10 @@ def main():
         print("fxc.exe not found (Windows SDK absent) — HLSL check SKIPPED")
         return 0
 
-    source = HEADER.read_text(encoding="utf-8") + POINT_LAYER.read_text(encoding="utf-8")
+    source = (HEADER.read_text(encoding="utf-8")
+              + POINT_LAYER.read_text(encoding="utf-8")
+              + PLAN_ANCHOR_LAYER.read_text(encoding="utf-8")
+              + STORY_SLICE_LAYER.read_text(encoding="utf-8"))
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     if "kArchVizCBuffer" not in blocks:
         print("FAIL  the shared cbuffer literal was not found in %s" % HEADER.name)
@@ -147,7 +180,8 @@ def main():
                 failed += 1
                 break
             body += blocks[extra]
-        path.write_text(cbuffer + body, encoding="utf-8")
+        path.write_text(("" if name in SELF_CONTAINED else cbuffer) + body,
+                        encoding="utf-8")
         result = subprocess.run(
             [str(fxc), "/T", profile, "/E", "main", "/nologo",
              "/Fo", str(out / (name + ".dxbc")), str(path)],

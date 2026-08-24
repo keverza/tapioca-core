@@ -248,9 +248,36 @@ struct HudState {
     bool orthographic = false;
 
     // ---- story slices ------------------------------------------------------
-    // Draw the storey planes as horizontal section markers. The heights come from
-    // Archicad's storeys and are published by the viewport.
+    // Every storey's horizontal cut through the model, boolean-unioned into one
+    // outline per level. The heights come from Archicad's own storey settings,
+    // read in the extraction pass's acquire slice.
+    //
+    // ⚠️ THE TOGGLE DOES NOT BUILD THE SET. The cut runs during a FULL extraction
+    // pass, and only when it was already wanted when that pass began -- a union
+    // over the elements a pass happened to reach is not a rougher outline, it is
+    // a clean and confident WRONG one. So switching this on raises
+    // `storySlicesNeedRefresh` and the overlay stays as it was until the refresh
+    // lands. The HUD says which of those two states it is in, because a checkbox
+    // that does nothing for several seconds is otherwise indistinguishable from a
+    // broken one.
     bool showStorySlices = false;
+    // Raised by the HUD, cleared by the frame loop -- the same one-shot shape as
+    // ViewerSettings::frameScene, and for the same reason.
+    bool storySlicesNeedRefresh = false;
+    // ⚠️ THE FILL IS BUILT WHETHER OR NOT IT IS DRAWN, so this costs nothing to
+    // flip. Making it a build-time choice would put a multi-second re-extraction
+    // behind a checkbox whose entire purpose is quick comparison.
+    bool storySliceFill = false;
+    // Defined in ViewerSettings.hpp so exactly one Diligent-free enum exists;
+    // StorySliceLayer::OccludedStyle mirrors it and the frame loop converts.
+    SliceOccludedStyle storySliceOccluded = SliceOccludedStyle::Dashed;
+    float storySliceWidthPixels = 2.0f;
+    float storySliceDashPixels  = 8.0f;    // one full on+off cycle, in pixels
+    float storySliceDashDuty    = 0.55f;   // the fraction of it that is drawn
+    // RGBA, packed like every other colour here. ⚠️ The FILL's alpha is low on
+    // purpose: it tints the storey rather than hiding the building beneath it.
+    uint32_t storySliceRgba     = 0xFFB300FFu;
+    uint32_t storySliceFillRgba = 0xFFB3002Eu;
 
     // ---- the selected element's properties ---------------------------------
     // ⚠️ SHOWN FOR THE PICK, WHICH IS INSPECTION ONLY. Selecting in the viewer

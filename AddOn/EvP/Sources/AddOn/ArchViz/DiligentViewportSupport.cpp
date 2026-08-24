@@ -15,7 +15,12 @@
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"   // DiligentDebugView, for the pass selector
+#include "ArchViz/DiligentHud.hpp"       // HudState, for the storey overlay's settings
+#include "ArchViz/DiligentViewport.hpp"  // ApplyCaptureSettings is a member
+#include "ArchViz/ExtractionStorySlices.hpp"
+#include "ArchViz/ExtractionThread.hpp"  // the storey overlay's refresh request
 #include "ArchViz/PlanAnchorLayer.hpp"
+#include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 
 #include <atomic>
@@ -302,6 +307,47 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene,
     // Give the caller back the full-surface viewport, so a later pass does not
     // inherit a 110-pixel window.
     context->SetViewports (1, nullptr, 0, 0);
+}
+
+void DiligentViewport::ApplyCaptureSettings (HudState& hudState) const
+{
+    hudState.renderQuality         = captureRenderQuality_.load ();
+    hudState.showStorySlices       = captureStorySlices_.load ();
+    hudState.storySliceFill        = captureStorySliceFill_.load ();
+    hudState.storySliceOccluded    = SliceOccludedStyle (captureStorySliceOccluded_.load ());
+    hudState.storySliceWidthPixels = captureStorySliceWidthPixels_.load ();
+    hudState.storySliceRgba        = captureStorySliceRgba_.load ();
+    hudState.storySliceFillRgba    = captureStorySliceFillRgba_.load ();
+}
+
+void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context,
+                               HudState& hudState, bool blanked, const float viewProj[16],
+                               uint32_t width, uint32_t height,
+                               uint32_t colorFormat, uint32_t depthFormat)
+{
+    if (hudState.showStorySlices && !blanked) {
+        StorySliceLayer::DrawParams params;
+        params.widthPixels = hudState.storySliceWidthPixels;
+        params.rgba        = hudState.storySliceRgba;
+        params.fillRgba    = hudState.storySliceFillRgba;
+        params.drawFill    = hudState.storySliceFill;
+        params.dashPixels  = hudState.storySliceDashPixels;
+        params.dashDuty    = hudState.storySliceDashDuty;
+        params.occluded    = OccludedStyle (hudState.storySliceOccluded);
+        scene.DrawStorySlices (context, viewProj, width, height, colorFormat, depthFormat, params);
+    }
+
+    // ⚠️ THE ONE-SHOT IS CONSUMED HERE, and it asks the EXTRACTION worker for a
+    // pass rather than doing anything itself -- the cut runs during a full pass
+    // and only when it was already wanted when that pass began. Same shape as
+    // ViewerSettings::frameScene, and clearing it UNCONDITIONALLY is what stops a
+    // refused or failed refresh from re-requesting one on every frame.
+    if (hudState.storySlicesNeedRefresh) {
+        hudState.storySlicesNeedRefresh = false;
+        ExtractionWorker::Get ().SetStorySlicesWanted (true);
+        ArchVizLog ("Diligent viewport: story slices turned on - requesting a full re-extraction");
+        ExtractionWorker::Get ().Start (true);
+    }
 }
 
 void UpdateAndDrawPlanAnchors (PlanAnchorLayer& layer, Diligent::IRenderDevice* device,

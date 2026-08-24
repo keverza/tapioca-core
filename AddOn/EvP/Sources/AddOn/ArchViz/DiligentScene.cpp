@@ -1040,6 +1040,7 @@ void DiligentScene::Shutdown ()
     impl_->screenSpaceReflection.Shutdown ();
     impl_->temporalAntiAliasing.Shutdown ();
     impl_->pointCloud.Shutdown ();
+    impl_->ShutdownStorySlices ();
     impl_->taaView = nullptr;
     impl_->depthRange.Shutdown ();
     impl_->envBackgroundSrb.Release ();

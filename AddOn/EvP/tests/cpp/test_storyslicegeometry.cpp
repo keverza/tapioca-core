@@ -54,7 +54,7 @@ double FillArea (const std::vector<SliceChain>& chains)
     BuildSliceFill (chains, 0.0f, tris);
     double area = 0.0;
     for (size_t i = 0; i + 2 < tris.size (); i += 3) {
-        const double ax = tris[i].x,     ay = tris[i].y;
+        const double ax = tris[i].x, ay = tris[i].y;
         const double bx = tris[i + 1].x, by = tris[i + 1].y;
         const double cx = tris[i + 2].x, cy = tris[i + 2].y;
         area += std::fabs ((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) * 0.5;
@@ -62,7 +62,7 @@ double FillArea (const std::vector<SliceChain>& chains)
     return area;
 }
 
-}   // namespace
+} // namespace
 
 // ---- chaining --------------------------------------------------------------
 
@@ -71,7 +71,7 @@ TEST (StorySliceGeometry, ASingleRectangleChainsIntoOneClosedRing)
     const std::vector<SliceChain> chains = ChainsOf ({ Rect (0, 0, 2, 1) });
     ASSERT_EQ (chains.size (), 1u);
     EXPECT_TRUE (chains[0].closed);
-    EXPECT_EQ (chains[0].Count (), 4u);          // no closing repeat is stored
+    EXPECT_EQ (chains[0].Count (), 4u); // no closing repeat is stored
 }
 
 TEST (StorySliceGeometry, DisjointRegionsChainSeparately)
@@ -105,10 +105,10 @@ TEST (StorySliceGeometry, RibbonEmitsSixVerticesPerSegment)
     const std::vector<SliceChain> chains = ChainsOf ({ Rect (0, 0, 2, 1) });
     std::vector<StorySliceVertex> ribbon;
     const size_t added = BuildSliceRibbon (chains, 3.25f, ribbon);
-    EXPECT_EQ (added, 4u * 6u);                  // a closed quad: 4 segments
+    EXPECT_EQ (added, 4u * 6u); // a closed quad: 4 segments
     EXPECT_EQ (ribbon.size (), added);
     for (const StorySliceVertex& v : ribbon)
-        EXPECT_FLOAT_EQ (v.z, 3.25f);            // the storey's plane, reattached
+        EXPECT_FLOAT_EQ (v.z, 3.25f); // the storey's plane, reattached
 }
 
 TEST (StorySliceGeometry, RibbonPushDirectionsAreUnitAndPerpendicular)
@@ -140,7 +140,7 @@ TEST (StorySliceGeometry, ArcLengthRunsContinuouslyAroundAContour)
     float maxArc = 0.0f;
     for (const StorySliceVertex& v : ribbon)
         maxArc = std::max (maxArc, v.arc);
-    EXPECT_NEAR (maxArc, 6.0f, 1e-4f);           // the full perimeter 2*(2+1)
+    EXPECT_NEAR (maxArc, 6.0f, 1e-4f); // the full perimeter 2*(2+1)
 }
 
 TEST (StorySliceGeometry, ADegenerateChainAppendsNothing)
@@ -158,7 +158,7 @@ TEST (StorySliceGeometry, RibbonAppendsRatherThanClears)
     std::vector<StorySliceVertex> ribbon;
     BuildSliceRibbon (chains, 0.0f, ribbon);
     const size_t first = ribbon.size ();
-    BuildSliceRibbon (chains, 3.0f, ribbon);     // a second storey into one buffer
+    BuildSliceRibbon (chains, 3.0f, ribbon); // a second storey into one buffer
     EXPECT_EQ (ribbon.size (), first * 2);
 }
 

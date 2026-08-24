@@ -37,6 +37,7 @@
 
 #include "ArchViz/ArchVizVertex.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/StorySliceLayer.hpp"   // StorySliceLayer::DrawParams
 #include "ArchViz/Uniforms.hpp"
 #include "ArchViz/ViewerSettings.hpp"
 
@@ -75,6 +76,18 @@ struct DiligentSceneStats {
     size_t visiblePoints = 0;
     size_t pointGpuBytes = 0;
     size_t pointDrawCalls = 0;
+    // ---- the storey slices (the section overlay) ---------------------------
+    // ⚠️ THE PAIR IS THE DIAGNOSIS, exactly like `materials`/`materialMisses`
+    // above. `storeySlices` > 0 with `storeySliceVertices` 0 cannot happen;
+    // `storeySlices` 0 while the toggle is on means the extraction pass never
+    // pushed a set -- either the storey read failed, or the pass that would have
+    // built it was partial. Neither is visible in the picture, which shows
+    // nothing in both cases and in the "the planes miss the model" case too.
+    size_t storeySlices = 0;             // storeys that actually produced an outline
+    size_t storeySliceVertices = 0;
+    size_t storeySliceFillVertices = 0;
+    double storeySliceAreaM2 = 0.0;
+    bool   storeySliceLayerReady = false;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -382,6 +395,30 @@ class DiligentScene final {
     // unaffected by the sun: an orientation reference that changes brightness
     // with the time of day is a worse reference.
     void DrawOverlay (Diligent::IDeviceContext* context, const float viewProj[16], const float eye[3]);
+
+    // The storey section overlay: every storey's cut, unioned, as a contour and
+    // an optional low-opacity fill.
+    //
+    // ⚠️ IT UPLOADS LAZILY, HERE, rather than in `Consume`. Consume is handed a
+    // device but no CONTEXT, and a vertex buffer cannot be filled without one --
+    // the same deferred shape the environment map uses, and for the same reason.
+    // The pending set is stashed by Consume and drained on the first draw after
+    // it arrives.
+    //
+    // ⚠️ AND IT IS NOT GATED ON `offscreen`, unlike the plan anchors. A headless
+    // capture is the whole reason the layer exists on the Diligent side -- a
+    // massing feasibility study renders one and needs the storey contours in it.
+    // ⚠️ IT ALSO INITIALISES THE LAYER, ON FIRST USE, which is why it takes the
+    // target's formats. A PSO records what it renders into, so the layer cannot
+    // be built until they are known -- and taking them here rather than caching
+    // them at Init means a target rebuilt at a new format cannot leave the
+    // overlay compiled against the old one. A failure is logged once and leaves
+    // `storeySliceLayerReady` false; it never fails the scene, because the
+    // overlay is an annotation on a building that renders fine without it.
+    void DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16],
+                          uint32_t surfaceWidth, uint32_t surfaceHeight,
+                          uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                          const StorySliceLayer::DrawParams& params);
 
     // ---- picking (PLAT-RE34) -----------------------------------------------
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id

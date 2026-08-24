@@ -85,6 +85,7 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
 
 bool DiligentViewport::StartCapture (uint32_t width, uint32_t height,
                                      const CameraStart& camera, int renderQuality,
+                                     const CaptureOverlays& overlays,
                                      uint64_t& captureId, std::string& error)
 {
     std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
@@ -129,7 +130,19 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height,
     }
     activeCaptureId_.store (captureId);
     captureRenderQuality_.store (renderQuality);
+    captureStorySlices_.store (overlays.storySlices);
+    captureStorySliceFill_.store (overlays.storySliceFill);
+    captureStorySliceOccluded_.store (int (overlays.storySliceOccluded));
+    captureStorySliceWidthPixels_.store (overlays.storySliceWidthPixels);
+    captureStorySliceRgba_.store (overlays.storySliceRgba);
+    captureStorySliceFillRgba_.store (overlays.storySliceFillRgba);
 
+    // ⚠️ BEFORE Start, NOT AFTER. The worker reads this once at the top of a
+    // pass (see ExtractionThread.hpp), so setting it afterwards would arm the
+    // NEXT extraction and leave this capture -- the one that asked for the
+    // contours -- without them. A capture is one pass; there is no second
+    // chance to catch.
+    ExtractionWorker::Get ().SetStorySlicesWanted (overlays.storySlices);
     ExtractionWorker::Get ().Start (true);
     Surface surface;
     surface.mode = SurfaceMode::Offscreen;

@@ -7,6 +7,7 @@
 #include "ArchViz/ExtractionSubstance.hpp"     // ReadProjectSubstances, ObserveElementSubstances
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/MeshGroups.hpp"
+#include "ArchViz/ExtractionStorySlices.hpp"   // ReadStoreys, StorySliceAccumulator
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "Geometry/GeometryExtractor.hpp"
 #include "Notify/ChangeTracker.hpp"   // the viewer is its SECOND consumer - own cursor
@@ -337,11 +338,17 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     // per-project rather than per-element, and a second gate hop would cost a
     // round trip to save nothing. Only a FULL pass needs it.
     auto substances = std::make_shared<ProjectSubstances> ();
+    // The storeys ride along for the same reason the sun does: small, per-project,
+    // and a second gate hop would cost a round trip to save nothing.
+    auto storeys    = std::make_shared<ProjectStoreys> ();
+    // ⚠️ READ ONCE, HERE. Re-reading per element would let a mid-pass toggle
+    // union a storey against only the elements reached so far.
+    const bool wantStorySlices = storySlicesWanted_.load ();
 
     const int64_t acquireStart = NowMs ();
     GS::UniString gateErr;
     const bool acquired = evp::MainThreadGate::Get ().Invoke (
-        [handle, materials, env, haveEnv, substances, full] {
+        [handle, materials, env, haveEnv, substances, storeys, full, wantStorySlices] {
             auto model = std::make_unique<ModelerAPI::Model> ();
             if (!AcquireCurrentModel (*model))
                 return;                       // handle->model stays null: "no 3D model"
@@ -357,6 +364,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
             *materials     = ReadMaterials (*model);
             if (full)
                 *substances = ReadProjectSubstances ();
+            if (full && wantStorySlices)   // FULL only - see StorySliceAccumulator
+                *storeys = ReadStoreys ();
             haveEnv->store (ReadEnvironment (*env));
             handle->model  = model.release (); // ⚠️ ownership moves to the pass
         },
@@ -386,6 +395,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         fail ("this project has no 3D model to show - open the 3D window once, then refresh");
         return false;
     }
+
+    StorySliceAccumulator storeySlices;
+    storeySlices.Begin (*storeys, wantStorySlices && full);
 
     // From here on the model MUST be released through the gate, on every exit
     // path. One lambda, called from each of them.
@@ -584,6 +596,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         for (const Mesh& mesh : st->meshes) {
             if (extractedGuids != nullptr)
                 extractedGuids->push_back (mesh.guid);
+            storeySlices.Cut (mesh);   // no-op unless slices were asked for
+
             std::unique_ptr<ElementUpload> up = MakeUpload (mesh);
             if (up == nullptr)
                 continue;
@@ -662,6 +676,12 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
                     (substances->error.empty () ? std::string ()
                                                 : std::string (" (") + substances->error + ")"));
     }
+
+    // ---- the storey slices --------------------------------------------------
+    // ⚠️ ONLY ON A PASS THAT FINISHED -- the substance vote's rule, sharper; see
+    // StorySliceAccumulator::FinishAndPush.
+    if (storeySlices.Active () && !gaveUp && cursor > handle->count)
+        storeySlices.FinishAndPush ();
 
     // ---- close the batch ----------------------------------------------------
     // EndBatch even on a stop or a give-up. The consumer clears at BEGIN, not at

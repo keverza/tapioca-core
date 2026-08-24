@@ -25,6 +25,7 @@
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
 #include "ArchViz/DiligentPointCloudLayer.hpp"
+#include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
 #include "ArchViz/DiligentShaders.hpp" // DiligentSceneConstants, for UploadConstants below
@@ -366,6 +367,32 @@ struct geomsrv::archviz::DiligentScene::Impl {
     DiligentScreenSpaceReflection screenSpaceReflection;
     DiligentTemporalAntiAliasing temporalAntiAliasing;
     DiligentPointCloudLayer pointCloud;
+    // ---- the storey section overlay ----------------------------------------
+    // ⚠️ THE PENDING SET IS HELD HERE RATHER THAN UPLOADED ON ARRIVAL, because
+    // Consume has a device but no context (see DiligentScene::DrawStorySlices).
+    // `storySlicesDirty` rather than "is the pointer null": an EMPTY set is a
+    // real answer -- the storeys were read and the planes missed the model --
+    // and it must replace the previous one rather than leave it on screen.
+    StorySliceLayer storySlices;
+    std::unique_ptr<StorySliceUpload> pendingStorySlices;
+    bool storySlicesDirty = false;
+    bool storySliceInitFailed = false;
+    uint32_t storeySliceCount = 0;
+    double storeySliceAreaM2 = 0.0;
+
+    // ⚠️ ONE METHOD RATHER THAN FIVE LINES AT THE CALL SITE, because the call
+    // site is DiligentScene.cpp -- a file the architecture gate has FROZEN at its
+    // current size. Teardown that belongs together should live together anyway;
+    // this just makes the rule and the taste agree.
+    void ShutdownStorySlices ()
+    {
+        storySlices.Shutdown ();
+        pendingStorySlices.reset ();
+        storySlicesDirty = false;
+        storySliceInitFailed = false;
+        storeySliceCount = 0;
+        storeySliceAreaM2 = 0.0;
+    }
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;

@@ -272,6 +272,20 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
                   Diligent::ITextureView* rtv, Diligent::ITextureView* dsv,
                   std::mutex& mutex, DiligentViewportStats& stats);
 
+// The storey section overlay: turn the HUD's (or the capture's) settings into
+// StorySliceLayer::DrawParams, draw the layer, and service the one-shot refresh
+// request that switching it on raises.
+//
+// ⚠️ IT IS NOT GATED ON `offscreen`, unlike the plan anchors, and the caller must
+// not add such a gate. A headless capture is the reason this layer exists on the
+// Diligent side at all: a massing feasibility study renders one and needs the
+// storey contours in it. The anchors' gate is about an instrument for checking
+// register against a live Archicad window, which a capture does not have.
+void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context,
+                               HudState& hudState, bool blanked, const float viewProj[16],
+                               uint32_t width, uint32_t height,
+                               uint32_t colorFormat, uint32_t depthFormat);
+
 void UpdateAndDrawPlanAnchors (PlanAnchorLayer& layer, Diligent::IRenderDevice* device,
                                Diligent::IDeviceContext* context,
                                std::mutex& mutex, std::vector<PlanAnchorVertex>& pending,

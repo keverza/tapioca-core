@@ -45,6 +45,37 @@ struct SliceResult {
     std::vector<ElementSlice> elements;
 };
 
+// Cut ONE element's triangle soup at z -> its polylines, welded and chained.
+//
+// ⚠️ THIS IS THE WHOLE ALGORITHM; `SliceZ` below is a loop over it plus the
+// snapshot's filtering and tangency lift. It is exposed because the ArchViz
+// viewer needs the same cut and must NOT pay for a second model read to get it:
+// the extraction thread already walks every element's world-space doubles on its
+// way to the GPU, so it slices there and shares this core rather than acquiring
+// a `Snapshot` the viewer otherwise never builds. Two copies of a plane cut is
+// exactly the drift the offline suite could not catch — one would be tested and
+// the other would be the one drawing.
+//
+// ⚠️ DOUBLES, AND THAT IS NOT INCIDENTAL. A survey-placed model sits at
+// coordinates in the millions, where float32 has ~10 cm of resolution and the
+// 1e-6 m weld tolerance below becomes meaningless — every endpoint welds to
+// every other, or none do. Callers holding float geometry must slice BEFORE
+// they narrow it.
+//
+// `vertices` is xyz interleaved; `triangles` is 3 vertex indices per triangle;
+// `weld` is the endpoint-merge tolerance in metres. No tangency lift is applied
+// here — the caller decides, because tangency is a property of the whole set of
+// elements being cut, not of one of them.
+std::vector<Polyline> SliceMesh (const double* vertices, size_t vertexCount,
+                                 const uint32_t* triangles, size_t triangleCount,
+                                 double z, double weld = 1e-6);
+
+// Does the plane land exactly on a vertex of this element (within `eps`)? A
+// tangent element has no cross-section, so a caller cutting at storey level —
+// where every wall starts — lifts the plane a micron. Split out of `SliceZ` so
+// the ArchViz path can make the same decision over its own element set.
+bool IsTangentToPlane (const double* vertices, size_t vertexCount, double z);
+
 // Cut the snapshot at z. If `types` is non-empty, only those ModelerAPI element
 // types are cut; if `guids` is non-empty, only those elements. `weld` is the
 // endpoint-merge tolerance in meters.

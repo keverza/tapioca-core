@@ -64,13 +64,13 @@ bool OnBoundary (double x, double y, const std::vector<UnionSegment>& segs, doub
     return false;
 }
 
-}   // namespace
+} // namespace
 
 TEST (StorySliceUnion, SingleRectangleSurvivesAsFourEdges)
 {
     const std::vector<UnionSegment> segs = UnionLoops ({ Rect (0, 0, 2, 1) });
     EXPECT_EQ (segs.size (), 4u);
-    EXPECT_NEAR (TotalLength (segs), 6.0, 1e-6);        // perimeter 2*(2+1)
+    EXPECT_NEAR (TotalLength (segs), 6.0, 1e-6); // perimeter 2*(2+1)
 }
 
 TEST (StorySliceUnion, TwoOffsetOverlappingRectanglesUnion)
@@ -89,17 +89,17 @@ TEST (StorySliceUnion, TwoOffsetOverlappingRectanglesUnion)
 TEST (StorySliceUnion, FullyContainedRectangleVanishes)
 {
     const std::vector<UnionSegment> segs = UnionLoops ({ Rect (0, 0, 10, 10), Rect (3, 3, 6, 6) });
-    EXPECT_FALSE (OnBoundary (4.5, 4.5, segs));         // inner interior, no line
-    EXPECT_FALSE (OnBoundary (3.0, 3.0, segs));         // the inner edge is gone
-    EXPECT_NEAR (TotalLength (segs), 40.0, 1e-4);       // only the outer square remains
+    EXPECT_FALSE (OnBoundary (4.5, 4.5, segs));   // inner interior, no line
+    EXPECT_FALSE (OnBoundary (3.0, 3.0, segs));   // the inner edge is gone
+    EXPECT_NEAR (TotalLength (segs), 40.0, 1e-4); // only the outer square remains
 }
 
 TEST (StorySliceUnion, AbuttingRectanglesMergeSharedEdge)
 {
     // Two rooms sharing a wall line -> the union drops the shared edge.
     const std::vector<UnionSegment> segs = UnionLoops ({ Rect (0, 0, 2, 2), Rect (2, 0, 4, 2) });
-    EXPECT_FALSE (OnBoundary (2.0, 1.0, segs));         // shared edge is interior -> gone
-    EXPECT_NEAR (TotalLength (segs), 12.0, 1e-4);       // perimeter of the 4x2 union
+    EXPECT_FALSE (OnBoundary (2.0, 1.0, segs));   // shared edge is interior -> gone
+    EXPECT_NEAR (TotalLength (segs), 12.0, 1e-4); // perimeter of the 4x2 union
 }
 
 TEST (StorySliceUnion, OpenPolylinePassesThroughAsPairs)
@@ -135,7 +135,7 @@ TEST (StorySliceUnion, HoleInARingIsKeptAsBoundary)
 TEST (StorySliceUnion, DisjointRectanglesBothSurvive)
 {
     const std::vector<UnionSegment> segs = UnionLoops ({ Rect (0, 0, 1, 1), Rect (5, 5, 6, 6) });
-    EXPECT_NEAR (TotalLength (segs), 8.0, 1e-6);        // two separate perimeters
+    EXPECT_NEAR (TotalLength (segs), 8.0, 1e-6); // two separate perimeters
     EXPECT_TRUE (OnBoundary (0.5, 0.0, segs));
     EXPECT_TRUE (OnBoundary (5.5, 5.0, segs));
 }
@@ -147,11 +147,11 @@ TEST (StorySliceUnion, EmptyInputIsEmptyNotACrash)
 
 TEST (StorySliceUnion, DegenerateLoopsDoNotCrash)
 {
-    Polyline single;                                    // one point
+    Polyline single; // one point
     single.pts = { 1.0, 2.0, 3.0 };
     single.closed = false;
 
-    Polyline zeroArea;                                  // a closed ring with no area
+    Polyline zeroArea; // a closed ring with no area
     for (int i = 0; i < 4; ++i) {
         zeroArea.pts.push_back (0.0);
         zeroArea.pts.push_back (0.0);
@@ -168,8 +168,7 @@ TEST (StorySliceUnion, OutputIsStableAcrossRuns)
     // unordered_map, so without it two runs over one unchanged storey emit the
     // same segments in a different order — and two captures of an unchanged model
     // then differ byte-for-byte, which is the cheapest regression signal there is.
-    const std::vector<Polyline> loops = { Rect (0, 0, 3, 2), Rect (2, 1, 5, 3),
-                                          Rect (7, 0, 9, 4) };
+    const std::vector<Polyline> loops = { Rect (0, 0, 3, 2), Rect (2, 1, 5, 3), Rect (7, 0, 9, 4) };
     const std::vector<UnionSegment> a = UnionLoops (loops);
     const std::vector<UnionSegment> b = UnionLoops (loops);
     ASSERT_EQ (a.size (), b.size ());

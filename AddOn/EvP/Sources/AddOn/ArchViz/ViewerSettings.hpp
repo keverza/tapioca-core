@@ -73,6 +73,18 @@ enum class RenderQuality : uint8_t {
     Realistic = 1,
 };
 
+// What happens to the parts of a storey contour that lie BEHIND geometry.
+//
+// ⚠️ MIRRORS StorySliceLayer::OccludedStyle RATHER THAN INCLUDING IT. This header
+// is deliberately free of Diligent (see the file header), and StorySliceLayer.hpp
+// is a GPU header. The two enums have the same three cases in the same order and
+// the frame loop converts; a case added to one must be added to the other.
+enum class SliceOccludedStyle : uint8_t {
+    Hidden = 0,
+    Dashed = 1,
+    Solid  = 2,
+};
+
 struct ViewerSettings {
     // ⚠️ THIS DEFAULT MOVED WITH THE HANDEDNESS FIX, AND HAD TO. The run said
     // CCW showed the outside — while Camera was still handing bgfx left-handed
@@ -89,6 +101,7 @@ struct ViewerSettings {
     // and a callback would only hide the ordering.
     bool resetPanelPos = false;   // the HUD escaped; put it back at 12,12
     bool frameScene    = false;   // "zoom to fit", same action as double-clicking the wheel
+
 
     // ---- THE FLICKER MATRIX ------------------------------------------------
     //

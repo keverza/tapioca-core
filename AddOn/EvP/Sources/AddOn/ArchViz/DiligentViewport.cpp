@@ -266,7 +266,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             hudState.renderMode = renderMode_.load ();
             hudState.showCallout = showCallout_.load ();
             if (offscreen)
-                hudState.renderQuality = captureRenderQuality_.load ();
+                ApplyCaptureSettings (hudState);   // ⚠️ the REQUEST's settings, not the viewer's
             // ⚠️ THE OVERLAY'S HUD IS A READOUT, NOT A CONTROL SURFACE. Its
             // window is WS_EX_TRANSPARENT, so every widget would draw and none
             // could be clicked (PLAT-RE55) -- and a dead control reads as a hung
@@ -843,6 +843,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 gpuTimings.End (context, GpuTimingStage::Shading);
             }
 
+            // Under the anchors; ⚠️ NOT gated on `offscreen` -- see the helper.
+            UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height,
+                                      target.ColorFormat (), target.DepthFormat ());
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
             if (!offscreen)

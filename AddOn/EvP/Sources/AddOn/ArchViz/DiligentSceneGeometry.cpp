@@ -263,6 +263,21 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 SetSelection (cmd.selection);
                 break;
 
+            case SceneCmdType::SetStorySlices:
+                // ⚠️ STASHED, NOT UPLOADED. There is no context here; the first
+                // DrawStorySlices after this drains it. The dirty flag rather
+                // than the pointer's nullness is deliberate -- see the Impl.
+                impl_->pendingStorySlices = std::move (cmd.storySlices);
+                impl_->storySlicesDirty = true;
+                if (impl_->pendingStorySlices != nullptr) {
+                    impl_->storeySliceCount = impl_->pendingStorySlices->storeys;
+                    impl_->storeySliceAreaM2 = impl_->pendingStorySlices->areaM2;
+                } else {
+                    impl_->storeySliceCount = 0;
+                    impl_->storeySliceAreaM2 = 0.0;
+                }
+                break;
+
             case SceneCmdType::BeginPointLayer:
                 if (cmd.pointLayer != nullptr)
                     impl_->pointCloud.BeginLayer (*cmd.pointLayer);
@@ -480,6 +495,12 @@ DiligentSceneStats DiligentScene::Stats () const
     s.materials = impl_->materials.Size ();
     s.pending = SceneCmdQueue::Get ().PendingCount ();
     s.drawCalls = impl_->drawCalls;
+    s.storeySlices             = impl_->storeySliceCount;
+    s.storeySliceVertices      = impl_->storySlices.OutlineVertexCount ();
+    s.storeySliceFillVertices  = impl_->storySlices.FillVertexCount ();
+    s.storeySliceAreaM2        = impl_->storeySliceAreaM2;
+    s.storeySliceLayerReady    = impl_->storySlices.IsReady ();
+
     const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
     s.pointLayers = pointStats.layers;
     s.pointNodes = pointStats.nodes;

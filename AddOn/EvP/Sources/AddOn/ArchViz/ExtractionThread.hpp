@@ -205,6 +205,21 @@ public:
     bool     IsRunning () const { return running_.load (); }
     Progress Snapshot () const;
 
+    // Whether a FULL pass should also cut every storey and union the result.
+    //
+    // ⚠️ A FLAG RATHER THAN ALWAYS-ON, because the cut is not free: it is a
+    // plane test against every triangle in the project plus an O(E^2) union per
+    // storey, and a user who never opens the overlay should not pay for it on
+    // every refresh.
+    //
+    // ⚠️ AND IT IS READ AT THE START OF A PASS, NOT PER ELEMENT. Turning it on
+    // mid-pass would union the storeys against the elements the pass had reached
+    // so far, which is a confident outline of part of a building. The viewer
+    // turns it on and asks for a refresh; until that refresh lands the overlay
+    // keeps whatever it last had, which is honest.
+    void SetStorySlicesWanted (bool wanted) { storySlicesWanted_.store (wanted); }
+    bool StorySlicesWanted () const { return storySlicesWanted_.load (); }
+
 private:
     ExtractionWorker () = default;
     ~ExtractionWorker ();
@@ -264,6 +279,7 @@ private:
     std::thread        worker_;
     std::atomic<bool>  stopFlag_ { false };
     std::atomic<bool>  running_  { false };
+    std::atomic<bool>  storySlicesWanted_ { false };
     mutable std::mutex mutex_;
     Progress           progress_;
 };

@@ -4,6 +4,7 @@
 #include "ArchViz/InstructionBanner.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp"
 #include "ArchViz/ViewerHost.hpp"
+#include "ArchViz/ViewerSettings.hpp"   // SliceOccludedStyle
 
 #include <atomic>
 #include <chrono>
@@ -14,6 +15,8 @@
 #include <vector>
 
 namespace geomsrv::archviz {
+
+struct HudState;
 
 struct DiligentViewportStats {
     bool running = false;
@@ -242,8 +245,20 @@ public:
     static DiligentViewport& Get ();
 
     bool Start (const Surface& surface, const CameraStart& camera = CameraStart {});
+    // What a headless capture should draw beyond the model itself. Defaults are
+    // "just the building", so an existing caller is unaffected.
+    struct CaptureOverlays {
+        bool               storySlices = false;
+        bool               storySliceFill = false;
+        SliceOccludedStyle storySliceOccluded = SliceOccludedStyle::Dashed;
+        float              storySliceWidthPixels = 2.0f;
+        uint32_t           storySliceRgba = 0xFFB300FFu;
+        uint32_t           storySliceFillRgba = 0xFFB3002Eu;
+    };
+
     bool StartCapture (uint32_t width, uint32_t height, const CameraStart& camera,
-                       int renderQuality, uint64_t& captureId, std::string& error);
+                       int renderQuality, const CaptureOverlays& overlays,
+                       uint64_t& captureId, std::string& error);
     bool CancelCapture (uint64_t captureId);
     DiligentCaptureStats CaptureStats () const;
     bool CurrentCamera (CameraStart& camera) const;
@@ -450,7 +465,27 @@ private:
     // lingering afterimage. Set 0 to restore DXGI's default and A/B it.
     std::atomic<uint32_t> requestedFrameLatency_ {1};
     std::atomic<uint64_t> activeCaptureId_ {0};
+    // Copies this run's capture request into the frame loop's HUD-less state.
+    // ⚠️ RENDER THREAD, and defined in DiligentViewportSupport.cpp rather than in
+    // DiligentViewportControl.cpp -- that file is the MAIN thread's half and may
+    // not touch anything the frame loop owns.
+    void ApplyCaptureSettings (HudState& hudState) const;
+
     std::atomic<int> captureRenderQuality_ {1};
+    // ---- what a HEADLESS CAPTURE draws of the storey overlay ----------------
+    //
+    // ⚠️ PARAMETERS OF THE CAPTURE, NOT THE VIEWER'S PERSISTED TOGGLES, and that
+    // is the whole point of them existing separately. A capture is SCRIPTED --
+    // MassingFeasibility asks for one and expects the same image every run -- so
+    // inheriting whatever a human last left ticked in the HUD would make the
+    // output depend on invisible prior UI state. They are set by StartCapture and
+    // read once when the offscreen frame loop fills its HUD-less state.
+    std::atomic<bool>     captureStorySlices_ {false};
+    std::atomic<bool>     captureStorySliceFill_ {false};
+    std::atomic<int>      captureStorySliceOccluded_ {int (SliceOccludedStyle::Dashed)};
+    std::atomic<float>    captureStorySliceWidthPixels_ {2.0f};
+    std::atomic<uint32_t> captureStorySliceRgba_ {0xFFB300FFu};
+    std::atomic<uint32_t> captureStorySliceFillRgba_ {0xFFB3002Eu};
 
     // ---- camera generation (PLAT-RE99) -------------------------------------
     // ⚠️ IT ANSWERS A QUESTION THE DESYNC MEASUREMENT STRUCTURALLY CANNOT. That
