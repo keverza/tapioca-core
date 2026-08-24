@@ -46,6 +46,16 @@ struct StorySliceVertex {
     // The pixel shader converts it to screen pixels to place the dashes; see the
     // header's note on why a per-segment value cannot work.
     float arc;
+    // Which side of the centreline this corner is pushed to: -1 or +1.
+    //
+    // ⚠️ THIS IS THE ANTIALIASING, and it is the reason the ribbon is built one
+    // pixel WIDER than the line it draws. Interpolated across the quad it is the
+    // signed position across the line, so the pixel shader can measure its own
+    // distance from the centre in pixels and fade the outermost pixel instead of
+    // ending on a hard triangle edge. Without it a near-horizontal contour
+    // staircases, which on a section line reads as bad geometry rather than as
+    // the missing MSAA it actually is -- this target has none.
+    float side;
 };
 
 // One triangle corner of the low-opacity fill. Position only — the colour is one

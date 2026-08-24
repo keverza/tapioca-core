@@ -30,8 +30,12 @@ namespace {
 // odd building.
 struct StorySliceConstants {
     float viewProj[16];
-    float expand[4]; // xy = the line width as NDC, zw unused
-    float color[4];  // the outline colour
+    // xy = the PUSHED half-width as NDC (the line plus its one-pixel feather),
+    // z  = that same pushed half-width in PIXELS,
+    // w  = the half-width of the line ITSELF in pixels, which is where the
+    //      coverage ramp is centred. z and w differ by exactly the feather.
+    float expand[4];
+    float color[4]; // the outline colour
     float fillColor[4];
     float dash[4]; // x = period in pixels, y = duty cycle, z = on/off, w unused
 };
@@ -54,12 +58,14 @@ struct VSInput
     float2 acrossDir : ATTRIB1;
     float2 alongDir  : ATTRIB2;
     float  arc       : ATTRIB3;
+    float  side      : ATTRIB4;
 };
 
 struct PSInput
 {
     float4 position : SV_POSITION;
     float  arc      : TEXCOORD0;
+    float  side     : TEXCOORD1;
 };
 
 void main (in VSInput vsIn, out PSInput psIn)
@@ -87,6 +93,7 @@ void main (in VSInput vsIn, out PSInput psIn)
 
     psIn.position = clipPos;
     psIn.arc      = vsIn.arc;
+    psIn.side     = vsIn.side;
 }
 )hlsl";
 
@@ -104,6 +111,7 @@ struct PSInput
 {
     float4 position : SV_POSITION;
     float  arc      : TEXCOORD0;
+    float  side     : TEXCOORD1;
 };
 
 struct PSOutput
@@ -113,6 +121,17 @@ struct PSOutput
 
 void main (in PSInput psIn, out PSOutput psOut)
 {
+    // ⚠️ COVERAGE ACROSS THE WIDTH -- THE ANTIALIASING. This target has no MSAA,
+    // so a triangle edge is a hard staircase, and on a near-horizontal contour
+    // that reads as broken geometry rather than as a missing render setting. The
+    // ribbon is built one pixel wider than the line on each side (see g_expand);
+    // `side` interpolates -1..+1 across that, so |side| * g_expand.z is this
+    // fragment's distance from the centreline in PIXELS. Ramping coverage over
+    // the last pixel around g_expand.w -- the real half-width -- puts a soft edge
+    // exactly where the hard one used to be, without making the line any thinner.
+    float distPixels = abs (psIn.side) * g_expand.z;
+    float coverage   = saturate (g_expand.w - distPixels + 0.5);
+
     if (g_dash.z > 0.5)
     {
         // ⚠️ THE DASH PERIOD IS CONVERTED TO SCREEN SPACE HERE, and fwidth is
@@ -123,11 +142,26 @@ void main (in PSInput psIn, out PSOutput psOut)
         // it read as "this part is hidden" rather than as a texture.
         float metresPerPixel = max (fwidth (psIn.arc), 1e-9);
         float pixels         = psIn.arc / metresPerPixel;
-        float phase          = frac (pixels / max (g_dash.x, 1.0));
-        if (phase > g_dash.y)
-            discard;
+        float period         = max (g_dash.x, 1.0);
+        float phase          = frac (pixels / period);
+
+        // ⚠️ AND THE DASH ENDS ARE RAMPED TOO, for the same reason the sides are.
+        // A hard cutoff along the line crawls as the camera moves -- the most
+        // visible aliasing of the lot, because it is the only edge that MOVES
+        // against the geometry it sits on. `phase * period` is pixels since this
+        // dash began and `(duty - phase) * period` is pixels until it ends; one
+        // pixel of ramp at each.
+        float intoDash   = phase * period;
+        float untilEnd   = (g_dash.y - phase) * period;
+        coverage *= saturate (min (intoDash, untilEnd) + 0.5);
     }
-    psOut.color = g_color;
+
+    // Nothing to blend, and the depth/blend cost is worth skipping on the roughly
+    // half of a dashed contour that is gap.
+    if (coverage <= 0.001)
+        discard;
+
+    psOut.color = float4 (g_color.rgb, g_color.a * coverage);
 }
 )hlsl";
 
@@ -303,6 +337,7 @@ bool StorySliceLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffe
         Diligent::LayoutElement { 1, 0, 2, Diligent::VT_FLOAT32, Diligent::False }, // across
         Diligent::LayoutElement { 2, 0, 2, Diligent::VT_FLOAT32, Diligent::False }, // along
         Diligent::LayoutElement { 3, 0, 1, Diligent::VT_FLOAT32, Diligent::False }, // arc
+        Diligent::LayoutElement { 4, 0, 1, Diligent::VT_FLOAT32, Diligent::False }, // side
     };
     const Diligent::LayoutElement fillLayout[] = {
         Diligent::LayoutElement { 0, 0, 3, Diligent::VT_FLOAT32, Diligent::False }, // position
@@ -476,8 +511,18 @@ void StorySliceLayer::Draw (Diligent::IDeviceContext* context, const float viewP
     std::memcpy (constants.viewProj, viewProj, sizeof (constants.viewProj));
     // NDC spans 2 across the surface and the shader pushes each way, so half the
     // width in pixels becomes (half / size) * 2 == width / size.
-    constants.expand[0] = params.widthPixels / float (surfaceWidth);
-    constants.expand[1] = params.widthPixels / float (surfaceHeight);
+    // ⚠️ ONE PIXEL WIDER EACH SIDE THAN THE LINE BEING DRAWN. That extra is the
+    // feather the pixel shader fades across; without widening, antialiasing would
+    // eat into the line and a 1 px contour would come out grey and half-there.
+    // The line keeps its requested weight and grows a soft edge outside it.
+    const float coreHalfPixels = params.widthPixels * 0.5f;
+    const float pushedHalfPixels = coreHalfPixels + 1.0f;
+    // NDC spans 2 across the surface, so pushing by (2 * halfPixels / size) NDC
+    // moves the vertex exactly halfPixels pixels.
+    constants.expand[0] = 2.0f * pushedHalfPixels / float (surfaceWidth);
+    constants.expand[1] = 2.0f * pushedHalfPixels / float (surfaceHeight);
+    constants.expand[2] = pushedHalfPixels;
+    constants.expand[3] = coreHalfPixels;
     UnpackRgba (params.rgba, constants.color);
     UnpackRgba (params.fillRgba, constants.fillColor);
     constants.dash[0] = params.dashPixels;

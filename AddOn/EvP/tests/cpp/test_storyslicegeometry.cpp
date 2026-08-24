@@ -143,6 +143,52 @@ TEST (StorySliceGeometry, ArcLengthRunsContinuouslyAroundAContour)
     EXPECT_NEAR (maxArc, 6.0f, 1e-4f); // the full perimeter 2*(2+1)
 }
 
+TEST (StorySliceGeometry, RibbonCarriesBothSidesOfTheCentreline)
+{
+    // ⚠️ THE ANTIALIASING RIDES ON THIS. `side` must be exactly -1 or +1 and both
+    // must appear in every quad: the pixel shader reads the INTERPOLATED value as
+    // "how far across the line am I", so a quad with the same sign at all four
+    // corners never crosses zero and the whole line fades to its edge colour.
+    const std::vector<SliceChain> chains = ChainsOf ({ Rect (0, 0, 2, 1) });
+    std::vector<StorySliceVertex> ribbon;
+    BuildSliceRibbon (chains, 0.0f, ribbon);
+    ASSERT_FALSE (ribbon.empty ());
+
+    for (const StorySliceVertex& v : ribbon)
+        EXPECT_TRUE (v.side == 1.0f || v.side == -1.0f);
+
+    // Per quad (6 vertices, two triangles over 4 corners) both signs are present.
+    for (size_t i = 0; i + 5 < ribbon.size (); i += 6) {
+        bool positive = false, negative = false;
+        for (size_t k = i; k < i + 6; ++k) {
+            positive = positive || ribbon[k].side > 0.0f;
+            negative = negative || ribbon[k].side < 0.0f;
+        }
+        EXPECT_TRUE (positive) << "quad at " << i << " has no +1 side";
+        EXPECT_TRUE (negative) << "quad at " << i << " has no -1 side";
+    }
+}
+
+TEST (StorySliceGeometry, SideAgreesWithTheAcrossDirection)
+{
+    // The sign must track the push direction, not be assigned arbitrarily: the
+    // shader assumes |side| == 1 at the pushed edge, so a corner pushed to -n
+    // carrying side +1 measures its distance from the centre with the wrong sign
+    // and the feather lands inside the line instead of outside it.
+    const std::vector<SliceChain> chains = ChainsOf ({ Rect (0, 0, 2, 1) });
+    std::vector<StorySliceVertex> ribbon;
+    BuildSliceRibbon (chains, 0.0f, ribbon);
+    ASSERT_GE (ribbon.size (), 6u);
+
+    // Within one quad the two distinct corner positions share an across-direction
+    // up to sign; the +1 corners must all carry the SAME normal as each other.
+    const StorySliceVertex& plus = ribbon[0];
+    for (const StorySliceVertex& v : ribbon) {
+        if (v.side > 0.0f && std::fabs (v.arc - plus.arc) < 1e-6f)
+            EXPECT_NEAR (v.nx * plus.nx + v.ny * plus.ny, 1.0f, 1e-5f);
+    }
+}
+
 TEST (StorySliceGeometry, ADegenerateChainAppendsNothing)
 {
     SliceChain single;

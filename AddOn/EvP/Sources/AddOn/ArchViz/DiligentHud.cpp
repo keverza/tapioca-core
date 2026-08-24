@@ -467,12 +467,13 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 if (!scene.storeySliceLayerReady) {
                     ImGui::TextColored (ImVec4 (1.0f, 0.4f, 0.3f, 1.0f),
                                         "the slice layer failed to create -- see archviz.log");
-                } else if (scene.storeySlices == 0) {
+                }
+                else if (scene.storeySlices == 0) {
                     ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
                                         "no storey set yet -- refresh to cut the model");
-                } else {
-                    ImGui::TextDisabled ("%llu storey(s), %.0f m2 enclosed",
-                                         (unsigned long long) scene.storeySlices,
+                }
+                else {
+                    ImGui::TextDisabled ("%llu storey(s), %.0f m2 enclosed", (unsigned long long) scene.storeySlices,
                                          scene.storeySliceAreaM2);
                 }
 
@@ -484,7 +485,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 // register check against something else.
                 int occluded = int (state.storySliceOccluded);
                 ImGui::SetNextItemWidth (-1.0f);
-                ImGui::Combo ("##sliceoccluded", &occluded, "hidden dashed solid ");
+                static const char* const kOccludedNames[] = { "hidden", "dashed", "solid" };
+                ImGui::Combo ("##sliceoccluded", &occluded, kOccludedNames, IM_ARRAYSIZE (kOccludedNames));
                 state.storySliceOccluded = SliceOccludedStyle (occluded);
                 ImGui::TextDisabled ("behind geometry");
 

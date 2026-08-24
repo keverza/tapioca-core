@@ -169,10 +169,18 @@ size_t BuildSliceRibbon (const std::vector<SliceChain>& chains, float z, std::ve
 
             // Four corners of the quad. `tx,ty` is negated at the start cap and
             // kept at the end cap, so both ends grow OUTWARD by half a width.
-            const StorySliceVertex a { static_cast<float> (x0), static_cast<float> (y0), z, nx, ny, -tx, -ty, arc0 };
-            const StorySliceVertex b { static_cast<float> (x0), static_cast<float> (y0), z, -nx, -ny, -tx, -ty, arc0 };
-            const StorySliceVertex c { static_cast<float> (x1), static_cast<float> (y1), z, nx, ny, tx, ty, arc1 };
-            const StorySliceVertex d { static_cast<float> (x1), static_cast<float> (y1), z, -nx, -ny, tx, ty, arc1 };
+            const StorySliceVertex a {
+                static_cast<float> (x0), static_cast<float> (y0), z, nx, ny, -tx, -ty, arc0, 1.0f
+            };
+            const StorySliceVertex b {
+                static_cast<float> (x0), static_cast<float> (y0), z, -nx, -ny, -tx, -ty, arc0, -1.0f
+            };
+            const StorySliceVertex c {
+                static_cast<float> (x1), static_cast<float> (y1), z, nx, ny, tx, ty, arc1, 1.0f
+            };
+            const StorySliceVertex d {
+                static_cast<float> (x1), static_cast<float> (y1), z, -nx, -ny, tx, ty, arc1, -1.0f
+            };
 
             out.push_back (a);
             out.push_back (b);

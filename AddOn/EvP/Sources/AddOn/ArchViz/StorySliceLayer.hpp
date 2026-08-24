@@ -95,8 +95,8 @@ class StorySliceLayer final {
 
     struct DrawParams {
         float widthPixels = 2.0f;
-        uint32_t rgba = 0xFFB300FFu;     // the outline colour
-        uint32_t fillRgba = 0xFFB3002Eu; // the fill, alpha already low
+        uint32_t rgba = 0x3C3C3CFFu;     // the outline colour
+        uint32_t fillRgba = 0xC8C8C84Du; // the fill, alpha already low
         bool drawFill = false;
         OccludedStyle occluded = OccludedStyle::Dashed;
         float dashPixels = 8.0f; // one full on+off cycle

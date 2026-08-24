@@ -4,7 +4,7 @@
 #include "ArchViz/InstructionBanner.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp"
 #include "ArchViz/ViewerHost.hpp"
-#include "ArchViz/ViewerSettings.hpp"   // SliceOccludedStyle
+#include "ArchViz/ViewerSettings.hpp" // SliceOccludedStyle
 
 #include <atomic>
 #include <chrono>
@@ -43,15 +43,15 @@ struct DiligentViewportStats {
     bool nativeClearMatched = false;
     std::string diligentClearReport;
     std::string nativeClearReport;
-    std::string adapter;            // GraphicsAdapterInfo::Description
-    uint32_t featureLevel = 0;      // D3D_FEATURE_LEVEL as a raw number
-    uint64_t presentCount = 0;      // IDXGISwapChain::GetLastPresentCount
+    std::string adapter;       // GraphicsAdapterInfo::Description
+    uint32_t featureLevel = 0; // D3D_FEATURE_LEVEL as a raw number
+    uint64_t presentCount = 0; // IDXGISwapChain::GetLastPresentCount
     // ---- PLAT-RE99: what the desync measurement cannot see -----------------
-    uint64_t stalePresents = 0;     // frames presented carrying a superseded camera
-    uint64_t presentFailures = 0;   // Present returned a failure HRESULT
-    uint32_t lastPresentResult = 0; // the last non-S_OK one, e.g. DXGI_STATUS_OCCLUDED
-    uint32_t frameLatency = 0;      // 0 = DXGI's default of 3
-    uint32_t deviceRemovedReason = 0;   // 0 == S_OK == the device is alive
+    uint64_t stalePresents = 0;       // frames presented carrying a superseded camera
+    uint64_t presentFailures = 0;     // Present returned a failure HRESULT
+    uint32_t lastPresentResult = 0;   // the last non-S_OK one, e.g. DXGI_STATUS_OCCLUDED
+    uint32_t frameLatency = 0;        // 0 = DXGI's default of 3
+    uint32_t deviceRemovedReason = 0; // 0 == S_OK == the device is alive
 
     // The scene, once the shaders and pipeline states are up. ⚠️ `sceneReady`
     // false with `initialized` true is the interesting state: the device and
@@ -71,15 +71,15 @@ struct DiligentViewportStats {
     // sun, and it is the first thing to check when the model reads flat.
     bool sunApplied = false;
     bool sunBelowHorizon = false;
-    float sun[3] = {0.0f, 0.0f, 1.0f};
+    float sun[3] = { 0.0f, 0.0f, 1.0f };
     float ambient = 0.35f;
     // The sun ACTUALLY IN USE, and whether the HUD's slider replaced
     // Archicad's. ⚠️ Reported separately so a log can never claim
     // Archicad's sun while an overridden one is on screen.
     bool sunOverridden = false;
     // Two different quantities -- see DiligentSceneStats for which is which.
-    float sunAzimuthDegrees = 0.0f;   // model space, CCW from +X
-    float sunBearingDegrees = 0.0f;   // compass, CW from north
+    float sunAzimuthDegrees = 0.0f; // model space, CCW from +X
+    float sunBearingDegrees = 0.0f; // compass, CW from north
     float northDegrees = 90.0f;
     float sunAltitudeDegrees = 0.0f;
     // ⚠️ WHERE THAT SUN CAME FROM. `sunAzimuth/AltitudeDegrees` are Archicad's
@@ -115,7 +115,7 @@ struct DiligentViewportStats {
     bool environmentLoaded = false;
     bool environmentActive = false;
     uint64_t environmentMipLevels = 0;
-    float environmentAverage[3] = {0.0f, 0.0f, 0.0f};
+    float environmentAverage[3] = { 0.0f, 0.0f, 0.0f };
     std::string environmentPath;
     std::string environmentError;
     // ---- RE51.B6: is the mip chain a real GGX prefilter, or the box fallback?
@@ -142,22 +142,22 @@ struct DiligentViewportStats {
     // unless the HUD overrides it -- an invisible number, and the first one
     // to suspect when contact shadows are too subtle or the image just dims.
     float aoRadiusMetres = 0.0f;
-    float whiteBalanceGains[3] = {1.0f, 1.0f, 1.0f};
+    float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
 
     // ---- RE51.B2: the substance join's coverage ------------------------------
     uint64_t substanceNamed = 0;
     uint64_t substanceCounts[7] = {};
 
-    std::string cameraSource;   // where the starting view came from
+    std::string cameraSource; // where the starting view came from
     // ---- the live camera, for the overlay path -----------------------------
     // What the viewport is ACTUALLY looking through, this frame. The overlay
     // sync test compares these against Archicad's own numbers; without them
     // "the two views agree" can only be judged by eye, which is exactly the
     // judgement that cannot detect a slow drift or a fixed offset.
-    float cameraEye[3] = {0.0f, 0.0f, 0.0f};
-    float cameraTarget[3] = {0.0f, 0.0f, 0.0f};
+    float cameraEye[3] = { 0.0f, 0.0f, 0.0f };
+    float cameraTarget[3] = { 0.0f, 0.0f, 0.0f };
     float cameraFovDegreesVertical = 0.0f;
-    uint64_t cameraSyncs = 0;   // how many pushed cameras have been adopted
+    uint64_t cameraSyncs = 0; // how many pushed cameras have been adopted
 
     // ---- picking and selection (PLAT-RE34) ---------------------------------
     // ⚠️ `pickSeq` IS THE SIGNAL, NOT `pickedGuid`. Clicking the same element
@@ -174,8 +174,8 @@ struct DiligentViewportStats {
     // reported alongside so a probe can say WHICH of the two a click produced --
     // the difference between "picking is broken for stairs" and "picking works
     // and the bridge dropped it" is otherwise invisible.
-    bool pickAvailable = false;   // false = the pick target did not come up
-    uint64_t selectedCount = 0;   // how many elements draw highlighted
+    bool pickAvailable = false; // false = the pick target did not come up
+    uint64_t selectedCount = 0; // how many elements draw highlighted
     // PLAT-RE65's plan anchors -- Archicad's OWN 2D outlines drawn over the
     // plan so the overlay's register can be checked. ⚠️ `planAnchorVertices` 0
     // with `planAnchors` true is the diagnosis for "I turned them on and see
@@ -199,11 +199,11 @@ struct DiligentViewportStats {
 // camera's is VERTICAL. The conversion needs the aspect ratio, so it happens in
 // the render thread once the viewport size is known -- not here.
 struct CameraStart {
-    bool valid = false;         // false: no perspective camera to copy; frame the scene instead
-    float target[3] = {0.0f, 0.0f, 0.0f};
-    float eye[3] = {0.0f, 0.0f, 0.0f};
+    bool valid = false; // false: no perspective camera to copy; frame the scene instead
+    float target[3] = { 0.0f, 0.0f, 0.0f };
+    float eye[3] = { 0.0f, 0.0f, 0.0f };
     float viewConeDegreesHorizontal = 0.0f;
-    std::string source;         // "perspective", "axonometric", or why it failed
+    std::string source; // "perspective", "axonometric", or why it failed
 
     // ---- a 2D drawing window (the plan overlay) ----------------------------
     // ⚠️ WHEN THIS IS SET, `eye` AND `viewCone` ARE MEANINGLESS and must not be
@@ -213,8 +213,8 @@ struct CameraStart {
     // ArchViz/PlanCameraMath.hpp for where they come from and why they are
     // measured rather than derived from the zoom box.
     bool orthographic = false;
-    float orthoHalfHeightMetres = 0.0f;   // half the window's height, in model metres
-    float planRotationRadians = 0.0f;     // CCW angle of the screen's +X in model space
+    float orthoHalfHeightMetres = 0.0f; // half the window's height, in model metres
+    float planRotationRadians = 0.0f;   // CCW angle of the screen's +X in model space
 
     // ⚠️ THE VIEW WAS PROVABLY MOVING WHILE THIS WAS READ (PLAT-RE82). Set when
     // the plan reader's tear check catches Archicad scrolling BETWEEN its corner
@@ -241,37 +241,48 @@ struct DiligentCaptureStats {
 // HWND plus the starting camera, and communicates only through atomics, the
 // lock-free queues (SceneCmdQueue, InputRingBuffer) and copied stats.
 class DiligentViewport final {
-public:
+  public:
     static DiligentViewport& Get ();
 
     bool Start (const Surface& surface, const CameraStart& camera = CameraStart {});
     // What a headless capture should draw beyond the model itself. Defaults are
     // "just the building", so an existing caller is unaffected.
     struct CaptureOverlays {
-        bool               storySlices = false;
-        bool               storySliceFill = false;
+        bool storySlices = false;
+        bool storySliceFill = false;
         SliceOccludedStyle storySliceOccluded = SliceOccludedStyle::Dashed;
-        float              storySliceWidthPixels = 2.0f;
-        uint32_t           storySliceRgba = 0xFFB300FFu;
-        uint32_t           storySliceFillRgba = 0xFFB3002Eu;
+        float storySliceWidthPixels = 2.0f;
+        uint32_t storySliceRgba = 0x3C3C3CFFu;
+        uint32_t storySliceFillRgba = 0xC8C8C84Du;
     };
 
-    bool StartCapture (uint32_t width, uint32_t height, const CameraStart& camera,
-                       int renderQuality, const CaptureOverlays& overlays,
-                       uint64_t& captureId, std::string& error);
+    bool StartCapture (uint32_t width, uint32_t height, const CameraStart& camera, int renderQuality,
+                       const CaptureOverlays& overlays, uint64_t& captureId, std::string& error);
     bool CancelCapture (uint64_t captureId);
     DiligentCaptureStats CaptureStats () const;
     bool CurrentCamera (CameraStart& camera) const;
     void Stop ();
     void RequestResize (uint32_t width, uint32_t height);
-    void SetDebugView (int view) { debugView_.store (view); }
-    int  DebugView () const { return debugView_.load (); }
+    void SetDebugView (int view)
+    {
+        debugView_.store (view);
+    }
+    int DebugView () const
+    {
+        return debugView_.load ();
+    }
     // SceneRenderMode as an int: shaded, wireframe, or both. ⚠️ WIREFRAME IS THE
     // OVERLAY'S REQUIREMENT -- a shaded viewer over Archicad's own 3D window
     // simply HIDES it, so "do the two agree" stops being answerable at the moment
     // it is being asked.
-    void SetRenderMode (int mode) { renderMode_.store (mode); }
-    int  RenderMode () const { return renderMode_.load (); }
+    void SetRenderMode (int mode)
+    {
+        renderMode_.store (mode);
+    }
+    int RenderMode () const
+    {
+        return renderMode_.load ();
+    }
     // ---- the sun override, from a COMMAND as well as the HUD ----------------
     // ⚠️ IT IS A MEASURING INSTRUMENT, NOT A LIGHTING CONTROL (HudState says
     // why), AND THE HUD CANNOT BE CLICKED ON THE OVERLAY. The overlay surface is
@@ -315,10 +326,8 @@ public:
     // THREAD. It is pure arithmetic over data the caller already holds, and
     // doing it in the frame loop would put a whole storey's tessellation
     // between two presents.
-    void SetPlanAnchors (const std::vector<std::vector<float>>& outlines,
-                         const std::vector<std::vector<float>>& arcs,
-                         bool enabled, float widthPixels, uint32_t rgba,
-                         float arcSign, float planZ);
+    void SetPlanAnchors (const std::vector<std::vector<float>>& outlines, const std::vector<std::vector<float>>& arcs,
+                         bool enabled, float widthPixels, uint32_t rgba, float arcSign, float planZ);
 
     // The mouse-following element callout.
     // ⚠️ BLANK IS NOT HIDE, AND THE DIFFERENCE IS THE POINT (PLAT-RE83). The
@@ -334,11 +343,23 @@ public:
     // If following can never keep up during motion, not drawing during motion is
     // the honest alternative -- and whether that FEELS better is a question only
     // a live look can answer.
-    void SetBlanked (bool on) { blanked_.store (on); }
-    bool Blanked () const { return blanked_.load (); }
+    void SetBlanked (bool on)
+    {
+        blanked_.store (on);
+    }
+    bool Blanked () const
+    {
+        return blanked_.load ();
+    }
 
-    void SetCallout (bool on) { showCallout_.store (on); }
-    bool Callout () const { return showCallout_.load (); }
+    void SetCallout (bool on)
+    {
+        showCallout_.store (on);
+    }
+    bool Callout () const
+    {
+        return showCallout_.load ();
+    }
 
     // The instruction banner across the top of the overlay (PLAT-RE111). Empty
     // text hides it; a negative `seconds` shows the text with no countdown.
@@ -355,8 +376,13 @@ public:
     // caller that stops sending leaves a banner that finishes counting down and
     // clears itself rather than one frozen at "4".
     void SetInstruction (const std::string& text, double seconds)
-    { instruction_.Set (text, seconds); }
-    bool IsRunning () const { return running_.load (); }
+    {
+        instruction_.Set (text, seconds);
+    }
+    bool IsRunning () const
+    {
+        return running_.load ();
+    }
     DiligentViewportStats Stats () const;
 
     // ---- the overlay path: Archicad drives the camera ----------------------
@@ -394,16 +420,25 @@ public:
     void AdoptCamera (const CameraStart& camera);
 
     // WHERE this run's frames are going. Meaningful only while IsRunning().
-    SurfaceMode Mode () const { return mode_.load (); }
+    SurfaceMode Mode () const
+    {
+        return mode_.load ();
+    }
 
     // How many finished frames DXGI may queue before showing one. 0 leaves
     // DXGI's default of 3 -- see DiligentViewportTarget.hpp for why this is the
     // one lever prediction cannot substitute for. Main thread; the render thread
     // applies it.
-    void SetFrameLatency (uint32_t frames) { requestedFrameLatency_.store (frames); }
-    uint32_t RequestedFrameLatency () const { return requestedFrameLatency_.load (); }
+    void SetFrameLatency (uint32_t frames)
+    {
+        requestedFrameLatency_.store (frames);
+    }
+    uint32_t RequestedFrameLatency () const
+    {
+        return requestedFrameLatency_.load ();
+    }
 
-private:
+  private:
     DiligentViewport () = default;
     ~DiligentViewport ();
     bool StartUnlocked (const Surface& surface, const CameraStart& camera);
@@ -414,23 +449,23 @@ private:
     void PublishCamera (const CameraStart& camera, bool discontinuity);
 
     std::thread worker_;
-    std::atomic<bool> running_ {false};
+    std::atomic<bool> running_ { false };
     // Set by Start before the worker exists and read by SyncCamera from the main
     // thread, so it cannot be a plain member of the render thread's frame loop.
-    std::atomic<SurfaceMode> mode_ {SurfaceMode::PaletteChild};
-    std::atomic<bool> stopRequested_ {false};
-    std::atomic<bool> resizePending_ {false};
-    std::atomic<uint32_t> pendingWidth_ {0};
-    std::atomic<uint32_t> pendingHeight_ {0};
+    std::atomic<SurfaceMode> mode_ { SurfaceMode::PaletteChild };
+    std::atomic<bool> stopRequested_ { false };
+    std::atomic<bool> resizePending_ { false };
+    std::atomic<uint32_t> pendingWidth_ { 0 };
+    std::atomic<uint32_t> pendingHeight_ { 0 };
     // The shader's debug view (DiligentShaders.hpp -> DiligentDebugView), set
     // from a command while the viewport runs. Atomic because it is written from
     // the bus thread and read by the render thread every frame.
-    std::atomic<int> debugView_ {0};
+    std::atomic<int> debugView_ { 0 };
     // Same shape and the same two-writer rule as debugView_: a bus command and
     // the HUD both set these, and the reconciliation is in the frame loop.
-    std::atomic<int> renderMode_ {0};
-    std::atomic<bool> showCallout_ {false};
-    std::atomic<bool> blanked_ {false};
+    std::atomic<int> renderMode_ { 0 };
+    std::atomic<bool> showCallout_ { false };
+    std::atomic<bool> blanked_ { false };
     // The banner, with its own mutex and its own expiry -- see
     // InstructionBanner.hpp. It carries a std::string, so it cannot be an
     // atomic, and it is deliberately NOT under `mutex_`: nothing about a line of
@@ -440,38 +475,38 @@ private:
     // values: setting the same azimuth twice must still be adopted, because the
     // HUD may have moved it in between and "put it back where I asked" is the
     // whole point of an A/B.
-    std::atomic<bool> sunOverrideOn_ {false};
+    std::atomic<bool> sunOverrideOn_ { false };
     // ---- the HDR environment ------------------------------------------------
     // The path is under `mutex_` (see SetEnvironmentMap); the settings are
     // atomics with a sequence counter, following the sun override's rule that a
     // command wins only on the frame it CHANGES so the HUD owns it otherwise.
     std::string pendingEnvironmentPath_;
-    std::atomic<bool> environmentLoadPending_ {false};
-    std::atomic<bool> environmentEnabled_ {true};
-    std::atomic<float> environmentIntensity_ {1.0f};
-    std::atomic<float> environmentRotationDegrees_ {0.0f};
-    std::atomic<uint32_t> environmentSettingsSeq_ {0};
+    std::atomic<bool> environmentLoadPending_ { false };
+    std::atomic<bool> environmentEnabled_ { true };
+    std::atomic<float> environmentIntensity_ { 1.0f };
+    std::atomic<float> environmentRotationDegrees_ { 0.0f };
+    std::atomic<uint32_t> environmentSettingsSeq_ { 0 };
 
-    std::atomic<float> sunOverrideAzimuth_ {135.0f};
-    std::atomic<float> sunOverrideAltitude_ {45.0f};
-    std::atomic<uint64_t> sunOverrideSeq_ {0};
+    std::atomic<float> sunOverrideAzimuth_ { 135.0f };
+    std::atomic<float> sunOverrideAltitude_ { 45.0f };
+    std::atomic<uint64_t> sunOverrideSeq_ { 0 };
     // A camera pushed in from outside, waiting for the render thread. Guarded by
     // `mutex_` rather than being an atomic, because a CameraStart is seven floats
     // and a string: a torn read here would point the camera at a position from
     // one frame and a target from another, which is a jitter nobody would
     // attribute to a data race.
-    std::atomic<bool> cameraSyncPending_ {false};
+    std::atomic<bool> cameraSyncPending_ { false };
     // 1 by default: the 2026-08-14 review's cheapest candidate fix for the
     // lingering afterimage. Set 0 to restore DXGI's default and A/B it.
-    std::atomic<uint32_t> requestedFrameLatency_ {1};
-    std::atomic<uint64_t> activeCaptureId_ {0};
+    std::atomic<uint32_t> requestedFrameLatency_ { 1 };
+    std::atomic<uint64_t> activeCaptureId_ { 0 };
     // Copies this run's capture request into the frame loop's HUD-less state.
     // ⚠️ RENDER THREAD, and defined in DiligentViewportSupport.cpp rather than in
     // DiligentViewportControl.cpp -- that file is the MAIN thread's half and may
     // not touch anything the frame loop owns.
     void ApplyCaptureSettings (HudState& hudState) const;
 
-    std::atomic<int> captureRenderQuality_ {1};
+    std::atomic<int> captureRenderQuality_ { 1 };
     // ---- what a HEADLESS CAPTURE draws of the storey overlay ----------------
     //
     // ⚠️ PARAMETERS OF THE CAPTURE, NOT THE VIEWER'S PERSISTED TOGGLES, and that
@@ -480,12 +515,12 @@ private:
     // inheriting whatever a human last left ticked in the HUD would make the
     // output depend on invisible prior UI state. They are set by StartCapture and
     // read once when the offscreen frame loop fills its HUD-less state.
-    std::atomic<bool>     captureStorySlices_ {false};
-    std::atomic<bool>     captureStorySliceFill_ {false};
-    std::atomic<int>      captureStorySliceOccluded_ {int (SliceOccludedStyle::Dashed)};
-    std::atomic<float>    captureStorySliceWidthPixels_ {2.0f};
-    std::atomic<uint32_t> captureStorySliceRgba_ {0xFFB300FFu};
-    std::atomic<uint32_t> captureStorySliceFillRgba_ {0xFFB3002Eu};
+    std::atomic<bool> captureStorySlices_ { false };
+    std::atomic<bool> captureStorySliceFill_ { false };
+    std::atomic<int> captureStorySliceOccluded_ { int (SliceOccludedStyle::Dashed) };
+    std::atomic<float> captureStorySliceWidthPixels_ { 2.0f };
+    std::atomic<uint32_t> captureStorySliceRgba_ { 0x3C3C3CFFu };
+    std::atomic<uint32_t> captureStorySliceFillRgba_ { 0xC8C8C84Du };
 
     // ---- camera generation (PLAT-RE99) -------------------------------------
     // ⚠️ IT ANSWERS A QUESTION THE DESYNC MEASUREMENT STRUCTURALLY CANNOT. That
@@ -497,21 +532,21 @@ private:
     // pushed; the render thread records which one it adopted, and comparing the
     // two immediately before Present says how often we present a camera we
     // already knew was out of date.
-    std::atomic<uint64_t> publishedCameraGeneration_ {0};
+    std::atomic<uint64_t> publishedCameraGeneration_ { 0 };
     // The generation of whatever is sitting in `pendingCamera_`, written
     // under the same lock so the pair can never be torn apart.
     uint64_t pendingCameraGeneration_ = 0;
     bool pendingCameraDiscontinuity_ = false;
-    std::atomic<uint64_t> presentedCameraGeneration_ {0};
-    std::atomic<uint64_t> stalePresents_ {0};
+    std::atomic<uint64_t> presentedCameraGeneration_ { 0 };
+    std::atomic<uint64_t> stalePresents_ { 0 };
     // PLAT-RE65's plan anchors. Same generation rule as the sun override: the
     // SEQUENCE is the signal, so re-sending the same walls still redraws them —
     // which is what a "refresh the anchors" command has to mean after the user
     // has edited a wall.
-    std::atomic<bool> planAnchorsOn_ {false};
-    std::atomic<float> planAnchorWidthPixels_ {2.0f};
-    std::atomic<uint32_t> planAnchorRgba_ {0xFF3B30C0u};
-    std::atomic<uint64_t> planAnchorSeq_ {0};
+    std::atomic<bool> planAnchorsOn_ { false };
+    std::atomic<float> planAnchorWidthPixels_ { 2.0f };
+    std::atomic<uint32_t> planAnchorRgba_ { 0xFF3B30C0u };
+    std::atomic<uint64_t> planAnchorSeq_ { 0 };
 
     mutable std::mutex lifecycleMutex_;
     mutable std::mutex mutex_;

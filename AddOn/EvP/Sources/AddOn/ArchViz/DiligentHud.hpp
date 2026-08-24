@@ -27,7 +27,7 @@
 // the mouse is down. The cost is that ImGui gets mouse and modifiers but no text
 // entry, which a diagnostic HUD does not need.
 
-#include "ArchViz/DiligentScene.hpp"   // ElementInfo, for the hover callout
+#include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
 
 #include <cstdint>
 #include <string>
@@ -36,7 +36,7 @@ namespace Diligent {
 struct IDeviceContext;
 struct IRenderDevice;
 struct ISwapChain;
-}   // namespace Diligent
+} // namespace Diligent
 
 namespace geomsrv {
 namespace archviz {
@@ -75,7 +75,7 @@ struct HudState {
     bool sunOverride = false;
     float sunAzimuthDegrees = 135.0f;
     float sunAltitudeDegrees = 45.0f;
-    bool wantsMouse = false;   // ⚠️ ASK THIS BEFORE THE CAMERA READS THE MOUSE
+    bool wantsMouse = false; // ⚠️ ASK THIS BEFORE THE CAMERA READS THE MOUSE
 
     // SceneRenderMode as an int, for the same reason `debugView` is: this struct
     // crosses no seam, but keeping the two knobs the same shape means the
@@ -272,12 +272,20 @@ struct HudState {
     // StorySliceLayer::OccludedStyle mirrors it and the frame loop converts.
     SliceOccludedStyle storySliceOccluded = SliceOccludedStyle::Dashed;
     float storySliceWidthPixels = 2.0f;
-    float storySliceDashPixels  = 8.0f;    // one full on+off cycle, in pixels
-    float storySliceDashDuty    = 0.55f;   // the fraction of it that is drawn
-    // RGBA, packed like every other colour here. ⚠️ The FILL's alpha is low on
-    // purpose: it tints the storey rather than hiding the building beneath it.
-    uint32_t storySliceRgba     = 0xFFB300FFu;
-    uint32_t storySliceFillRgba = 0xFFB3002Eu;
+    float storySliceDashPixels = 8.0f; // one full on+off cycle, in pixels
+    float storySliceDashDuty = 0.55f;  // the fraction of it that is drawn
+    // RGBA, packed like every other colour here: dark grey line, light grey fill.
+    //
+    // ⚠️ GREY RATHER THAN A HUE, because a section contour is DRAFTING, not a
+    // highlight. The building underneath is already full of colour from its own
+    // surfaces, and a saturated overlay competes with it -- the eye reads the line
+    // as another material instead of as an annotation drawn on top.
+    //
+    // ⚠️ AND THE FILL'S ALPHA IS LOW ON PURPOSE: it tints the storey rather than
+    // hiding the building beneath it. Raising it to opaque turns the overlay into
+    // a floor plan that happens to float in 3D, which is a different instrument.
+    uint32_t storySliceRgba = 0x3C3C3CFFu;
+    uint32_t storySliceFillRgba = 0xC8C8C84Du;
 
     // ---- the selected element's properties ---------------------------------
     // ⚠️ SHOWN FOR THE PICK, WHICH IS INSPECTION ONLY. Selecting in the viewer
@@ -310,8 +318,8 @@ struct HudState {
     // one is the failure worth avoiding.
     int32_t cursorX = 0;
     int32_t cursorY = 0;
-    bool cursorGroundValid = false;   // false when the ray runs parallel to z=0 or away from it
-    float cursorGround[3] = {0.0f, 0.0f, 0.0f};
+    bool cursorGroundValid = false; // false when the ray runs parallel to z=0 or away from it
+    float cursorGround[3] = { 0.0f, 0.0f, 0.0f };
 
     // ---- the instruction banner (PLAT-RE111) -------------------------------
     // ⚠️ THIS IS THE ONLY TEXT THE USER CAN READ WHILE NAVIGATING. Archicad's DG
@@ -328,7 +336,7 @@ struct HudState {
 };
 
 class DiligentHud final {
-public:
+  public:
     DiligentHud ();
     ~DiligentHud ();
     DiligentHud (const DiligentHud&) = delete;
@@ -339,24 +347,23 @@ public:
     // asking one for its SwapChainDesc would work in the palette and be null on
     // the overlay. Both are raw `Diligent::TEXTURE_FORMAT` values, from
     // DiligentViewportTarget.
-    bool Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
-               uint32_t depthBufferFormat, std::string& error);
+    bool Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+               std::string& error);
     void Shutdown ();
     bool IsReady () const;
 
     // One frame. `input` is the SAME snapshot the camera is about to read;
     // `state.wantsMouse` comes back true when the pointer is over a panel, and
     // the caller must then not let the camera consume the same click.
-    void Draw (Diligent::IDeviceContext* context, uint32_t width, uint32_t height,
-               const InputSnapshot& input, const DiligentSceneStats& scene,
-               HudState& state);
+    void Draw (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, const InputSnapshot& input,
+               const DiligentSceneStats& scene, HudState& state);
 
-private:
+  private:
     struct Impl;
     Impl* impl_;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif
