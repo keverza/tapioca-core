@@ -8,27 +8,28 @@
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/SharedOverlaySurface.hpp"
 
-#include "ArchViz/NavLog.hpp"   // the presented-frame half of the desync measurement
+#include "ArchViz/NavLog.hpp" // the presented-frame half of the desync measurement
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/DiligentScene.hpp"
-#include "ArchViz/DiligentShaders.hpp"   // DiligentDebugView, for the pass selector
-#include "ArchViz/DiligentHud.hpp"       // HudState, for the storey overlay's settings
-#include "ArchViz/DiligentViewport.hpp"  // ApplyCaptureSettings is a member
+#include "ArchViz/DiligentShaders.hpp"  // DiligentDebugView, for the pass selector
+#include "ArchViz/DiligentHud.hpp"      // HudState, for the storey overlay's settings
+#include "ArchViz/DiligentViewport.hpp" // ApplyCaptureSettings is a member
 #include "ArchViz/ExtractionStorySlices.hpp"
-#include "ArchViz/ExtractionThread.hpp"  // the storey overlay's refresh request
+#include "ArchViz/ExtractionThread.hpp" // the storey overlay's refresh request
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 
 #include <windows.h>
-#include <d3d11.h>   // Must precede any Diligent D3D11 interop header (Probe 1a).
-#include <DebugOutput.h>   // SetDebugMessageCallback, DEBUG_MESSAGE_SEVERITY
+#include <d3d11.h>       // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <DebugOutput.h> // SetDebugMessageCallback, DEBUG_MESSAGE_SEVERITY
 #include <DeviceContext.h>
 #include <DeviceContextD3D11.h>
 #include <RefCntAutoPtr.hpp>
@@ -42,6 +43,27 @@
 namespace geomsrv {
 namespace archviz {
 
+void ApplyShadowSettings (DiligentScene& scene, const HudState& hud)
+{
+    DiligentShadowSettings settings;
+    settings.resolution = static_cast<uint32_t> ((std::max) (512, hud.shadowResolution));
+    settings.cascadeCount = static_cast<uint32_t> ((std::max) (1, hud.shadowCascades));
+    settings.mode = static_cast<DiligentShadowMode> ((std::max) (1, (std::min) (4, hud.shadowMode)));
+    settings.fixedFilterSize = hud.shadowFilterSize;
+    settings.partitioningFactor = hud.shadowPartitioning;
+    settings.filterWorldSize = hud.shadowFilterWorldSize;
+    settings.fixedDepthBias = hud.shadowDepthBias;
+    settings.receiverPlaneBiasClamp = hud.shadowReceiverBiasClamp;
+    settings.cascadeTransition = hud.shadowCascadeTransition;
+    settings.lightBleedingReduction = hud.shadowLightBleeding;
+    settings.vsmBias = hud.shadowVsmBias;
+    settings.evsmPositiveExponent = hud.shadowEvsmPositiveExponent;
+    settings.evsmNegativeExponent = hud.shadowEvsmNegativeExponent;
+    settings.visualizeCascades = hud.shadowVisualizeCascades;
+    settings.shadowsOnly = hud.shadowOnly;
+    scene.SetShadowSettings (settings);
+}
+
 namespace {
 
 // Diligent's OWN diagnostics, into archviz.log.
@@ -51,20 +73,24 @@ namespace {
 // had the HRESULT and the reason the whole time and was writing them to a
 // callback nobody had installed. Every Diligent failure from here on says what
 // Diligent thinks happened.
-void DILIGENT_CALL_TYPE DiligentDebugMessage (Diligent::DEBUG_MESSAGE_SEVERITY severity,
-                                              const Diligent::Char* message,
-                                              const Diligent::Char* function,
-                                              const Diligent::Char* file, int line)
+void DILIGENT_CALL_TYPE DiligentDebugMessage (Diligent::DEBUG_MESSAGE_SEVERITY severity, const Diligent::Char* message,
+                                              const Diligent::Char* function, const Diligent::Char* file, int line)
 {
     const char* level = "info";
     switch (severity) {
-        case Diligent::DEBUG_MESSAGE_SEVERITY_WARNING:     level = "WARNING"; break;
-        case Diligent::DEBUG_MESSAGE_SEVERITY_ERROR:       level = "ERROR"; break;
-        case Diligent::DEBUG_MESSAGE_SEVERITY_FATAL_ERROR: level = "FATAL"; break;
-        default: break;
+        case Diligent::DEBUG_MESSAGE_SEVERITY_WARNING:
+            level = "WARNING";
+            break;
+        case Diligent::DEBUG_MESSAGE_SEVERITY_ERROR:
+            level = "ERROR";
+            break;
+        case Diligent::DEBUG_MESSAGE_SEVERITY_FATAL_ERROR:
+            level = "FATAL";
+            break;
+        default:
+            break;
     }
-    std::string text = std::string ("Diligent [") + level + "] " +
-                       (message != nullptr ? message : "(no message)");
+    std::string text = std::string ("Diligent [") + level + "] " + (message != nullptr ? message : "(no message)");
     if (function != nullptr)
         text += std::string ("  in ") + function;
     if (file != nullptr)
@@ -72,7 +98,7 @@ void DILIGENT_CALL_TYPE DiligentDebugMessage (Diligent::DEBUG_MESSAGE_SEVERITY s
     ArchVizLog (text);
 }
 
-}   // namespace
+} // namespace
 
 void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDeviceContext* context,
                            const SceneDrawRequest& request, int& lastLoggedGBufferView)
@@ -120,12 +146,11 @@ void DrawSceneOrDebugView (DiligentScene& scene, Camera& camera, Diligent::IDevi
     // the cost is switchable rather than imposed.
     scene.SetAmbientOcclusion (request.ambientOcclusion, request.ambientOcclusionIntensity,
                                request.ambientOcclusionRadius);
-    scene.SetScreenSpaceReflection (request.screenSpaceReflection, request.ssrIntensity,
-                                     request.ssrRoughnessThreshold);
+    scene.SetScreenSpaceReflection (request.screenSpaceReflection, request.ssrIntensity, request.ssrRoughnessThreshold);
     scene.SetTemporalAntiAliasing (request.temporalAntiAliasing, request.taaStability);
-    scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj,
-                                   request.motionViewProj, request.eye, request.jitter, Camera::NearClip (),
-                                   camera.FarClip (), camera.Distance (), request.frameIndex, CullMode::Cw);
+    scene.PrepareAmbientOcclusion (context, request.view, request.proj, request.viewProj, request.motionViewProj,
+                                   request.eye, request.jitter, Camera::NearClip (), camera.FarClip (),
+                                   camera.Distance (), request.frameIndex, CullMode::Cw);
     scene.Draw (context, request.target, request.depth, request.view, request.proj, request.viewProj,
                 request.motionViewProj, request.eye, request.jitter, CullMode::Cw, request.debugView,
                 Camera::NearClip (), camera.FarClip (), camera.Distance (), request.frameIndex);
@@ -147,8 +172,7 @@ void InstallDiligentDebugCallback ()
 //
 // Returns false when there is no perspective camera to copy; the caller then
 // frames the model instead of inventing one.
-bool ApplyArchicadCamera (Camera& camera, const CameraStart& start,
-                          uint32_t width, uint32_t height, float* outDistance)
+bool ApplyArchicadCamera (Camera& camera, const CameraStart& start, uint32_t width, uint32_t height, float* outDistance)
 {
     if (!start.valid)
         return false;
@@ -203,8 +227,7 @@ bool ApplyArchicadCamera (Camera& camera, const CameraStart& start,
     return true;
 }
 
-bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t height,
-                                CameraStart& snapshot)
+bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t height, CameraStart& snapshot)
 {
     snapshot = {};
     snapshot.source = "viewer";
@@ -216,8 +239,7 @@ bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t h
     constexpr float kPi = 3.14159265358979323846f;
     const float aspect = float (width) / float (height);
     const float halfV = camera.FovDegreesVertical () * 0.5f * (kPi / 180.0f);
-    snapshot.viewConeDegreesHorizontal =
-        2.0f * std::atan (std::tan (halfV) * aspect) * (180.0f / kPi);
+    snapshot.viewConeDegreesHorizontal = 2.0f * std::atan (std::tan (halfV) * aspect) * (180.0f / kPi);
     snapshot.valid = true;
     return true;
 }
@@ -228,7 +250,7 @@ namespace {
 constexpr int kGnomonBoxPixels = 110;
 constexpr int kGnomonMarginPixels = 12;
 
-}   // namespace
+} // namespace
 
 // The gnomon, in a small square viewport in the bottom-left corner.
 //
@@ -237,30 +259,27 @@ constexpr int kGnomonMarginPixels = 12;
 // size when the user zooms; slaving it to the whole camera would put it
 // kilometres away on a site model and inside the arrows on a detail. So: a fixed
 // eye at a fixed distance, orbited by the scene camera's own yaw and pitch.
-void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene,
-                       Diligent::ITextureView* rtv, Diligent::ITextureView* dsv,
-                       const Camera& camera, uint32_t width, uint32_t height)
+void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene, Diligent::ITextureView* rtv,
+                       Diligent::ITextureView* dsv, const Camera& camera, uint32_t width, uint32_t height)
 {
     if (context == nullptr || rtv == nullptr)
         return;
     const int box = kGnomonBoxPixels;
-    if (width < uint32_t (box + kGnomonMarginPixels) ||
-        height < uint32_t (box + kGnomonMarginPixels))
-        return;   // the palette is too small to spare the corner
+    if (width < uint32_t (box + kGnomonMarginPixels) || height < uint32_t (box + kGnomonMarginPixels))
+        return; // the palette is too small to spare the corner
 
     Camera gnomonCamera;
     gnomonCamera.SetTarget (0.0f, 0.0f, 0.0f);
     gnomonCamera.SetDistance (6.5f);
     gnomonCamera.SetFovDegreesVertical (35.0f);
     constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
-    gnomonCamera.SetOrbit (camera.YawDegrees () * kDegToRad,
-                           camera.PitchDegrees () * kDegToRad);
+    gnomonCamera.SetOrbit (camera.YawDegrees () * kDegToRad, camera.PitchDegrees () * kDegToRad);
 
     float view[16];
     float proj[16];
     float viewProj[16];
     gnomonCamera.GetViewMatrix (view);
-    gnomonCamera.GetProjMatrix (proj, 1.0f);   // the viewport is square
+    gnomonCamera.GetProjMatrix (proj, 1.0f); // the viewport is square
     Multiply (viewProj, view, proj);
 
     // ⚠️ THE TARGETS ARE BOUND FIRST AND THE VIEWPORT SET AFTER, AND THE ORDER
@@ -275,8 +294,7 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene,
     // change and the box was thrown away. The symptom is not a missing gnomon
     // but a full-screen one -- its camera sits 6.5 m from the origin, so the
     // arrows fill the whole viewport and read as world geometry.
-    context->SetRenderTargets (1, &rtv, dsv,
-                               Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetRenderTargets (1, &rtv, dsv, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     Diligent::Viewport viewport;
     viewport.TopLeftX = float (kGnomonMarginPixels);
@@ -311,29 +329,28 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene,
 
 void DiligentViewport::ApplyCaptureSettings (HudState& hudState) const
 {
-    hudState.renderQuality         = captureRenderQuality_.load ();
-    hudState.showStorySlices       = captureStorySlices_.load ();
-    hudState.storySliceFill        = captureStorySliceFill_.load ();
-    hudState.storySliceOccluded    = SliceOccludedStyle (captureStorySliceOccluded_.load ());
+    hudState.renderQuality = captureRenderQuality_.load ();
+    hudState.showStorySlices = captureStorySlices_.load ();
+    hudState.storySliceFill = captureStorySliceFill_.load ();
+    hudState.storySliceOccluded = SliceOccludedStyle (captureStorySliceOccluded_.load ());
     hudState.storySliceWidthPixels = captureStorySliceWidthPixels_.load ();
-    hudState.storySliceRgba        = captureStorySliceRgba_.load ();
-    hudState.storySliceFillRgba    = captureStorySliceFillRgba_.load ();
+    hudState.storySliceRgba = captureStorySliceRgba_.load ();
+    hudState.storySliceFillRgba = captureStorySliceFillRgba_.load ();
 }
 
-void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context,
-                               HudState& hudState, bool blanked, const float viewProj[16],
-                               uint32_t width, uint32_t height,
+void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
+                               bool blanked, const float viewProj[16], uint32_t width, uint32_t height,
                                uint32_t colorFormat, uint32_t depthFormat)
 {
     if (hudState.showStorySlices && !blanked) {
         StorySliceLayer::DrawParams params;
         params.widthPixels = hudState.storySliceWidthPixels;
-        params.rgba        = hudState.storySliceRgba;
-        params.fillRgba    = hudState.storySliceFillRgba;
-        params.drawFill    = hudState.storySliceFill;
-        params.dashPixels  = hudState.storySliceDashPixels;
-        params.dashDuty    = hudState.storySliceDashDuty;
-        params.occluded    = OccludedStyle (hudState.storySliceOccluded);
+        params.rgba = hudState.storySliceRgba;
+        params.fillRgba = hudState.storySliceFillRgba;
+        params.drawFill = hudState.storySliceFill;
+        params.dashPixels = hudState.storySliceDashPixels;
+        params.dashDuty = hudState.storySliceDashDuty;
+        params.occluded = OccludedStyle (hudState.storySliceOccluded);
         scene.DrawStorySlices (context, viewProj, width, height, colorFormat, depthFormat, params);
     }
 
@@ -351,11 +368,9 @@ void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* c
 }
 
 void UpdateAndDrawPlanAnchors (PlanAnchorLayer& layer, Diligent::IRenderDevice* device,
-                               Diligent::IDeviceContext* context,
-                               std::mutex& mutex, std::vector<PlanAnchorVertex>& pending,
-                               uint64_t commandedSeq, uint64_t& lastSeq,
-                               bool enabled, const float viewProj[16],
-                               uint32_t width, uint32_t height,
+                               Diligent::IDeviceContext* context, std::mutex& mutex,
+                               std::vector<PlanAnchorVertex>& pending, uint64_t commandedSeq, uint64_t& lastSeq,
+                               bool enabled, const float viewProj[16], uint32_t width, uint32_t height,
                                float widthPixels, uint32_t rgba)
 {
     if (commandedSeq != lastSeq) {
@@ -375,20 +390,19 @@ void UpdateAndDrawPlanAnchors (PlanAnchorLayer& layer, Diligent::IRenderDevice* 
         layer.Draw (context, viewProj, width, height, widthPixels, rgba);
 }
 
-void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t heightPx,
-                            uint64_t frameIndex)
+void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t heightPx, uint64_t frameIndex)
 {
     if (!navlog::IsRunning ())
         return;
 
-    float cameraTarget[3] = {0.0f, 0.0f, 0.0f};
+    float cameraTarget[3] = { 0.0f, 0.0f, 0.0f };
     camera.GetTarget (cameraTarget);
 
     // ⚠️ THE 3D HALF USED TO BE A BARE `return`, which is why no `path=3d` run
     // has ever produced a comparable pair. A perspective camera is logged in
     // ITS terms rather than skipped.
     if (!camera.IsOrthographic ()) {
-        float eye[3] = {0.0f, 0.0f, 0.0f};
+        float eye[3] = { 0.0f, 0.0f, 0.0f };
         camera.GetEyePosition (eye);
         // Archicad reports a HORIZONTAL cone; the camera holds a vertical FOV.
         // Converting here keeps both streams in one convention -- see NavLog.hpp.
@@ -397,15 +411,13 @@ void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t hei
         const double fovHorizontalDeg =
             2.0 * std::atan (std::tan (fovVerticalRad * 0.5) * aspect) * 180.0 / 3.14159265358979323846;
         const double eyeD[3] = { double (eye[0]), double (eye[1]), double (eye[2]) };
-        const double targetD[3] = { double (cameraTarget[0]), double (cameraTarget[1]),
-                                    double (cameraTarget[2]) };
+        const double targetD[3] = { double (cameraTarget[0]), double (cameraTarget[1]), double (cameraTarget[2]) };
         navlog::LogViewerPersp (eyeD, targetD, fovHorizontalDeg, widthPx, heightPx, frameIndex);
         return;
     }
     const double centre[2] = { double (cameraTarget[0]), double (cameraTarget[1]) };
-    navlog::LogViewerPlan (centre, double (camera.OrthoHalfHeightMetres ()),
-                           double (camera.TopDownRotationRadians ()), widthPx, heightPx,
-                           frameIndex);
+    navlog::LogViewerPlan (centre, double (camera.OrthoHalfHeightMetres ()), double (camera.TopDownRotationRadians ()),
+                           widthPx, heightPx, frameIndex);
 }
 
 // A pick's readback, once the GPU has finished with it.
@@ -418,9 +430,8 @@ void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t hei
 // ⚠️ ONLY A CLICK PUBLISHES. A hover that bumped `pickSeq` would make the
 // selection bridge re-select whatever the mouse passed over, so simply moving
 // the cursor across the viewport would rewrite Archicad's selection.
-void PublishCompletedPick (DiligentPickBuffer& pick, Diligent::IDeviceContext* context,
-                           uint64_t frames, DiligentScene& scene, uint32_t& hoverId,
-                           std::mutex& mutex, DiligentViewportStats& stats)
+void PublishCompletedPick (DiligentPickBuffer& pick, Diligent::IDeviceContext* context, uint64_t frames,
+                           DiligentScene& scene, uint32_t& hoverId, std::mutex& mutex, DiligentViewportStats& stats)
 {
     uint32_t pickedId = 0;
     uint32_t pickTag = kPickTagHover;
@@ -449,20 +460,17 @@ void PublishCompletedPick (DiligentPickBuffer& pick, Diligent::IDeviceContext* c
     //
     // An empty guid is the sky, and clearing the selection is what clicking the
     // sky should do.
-    scene.SetSelection (picked.empty () ? std::vector<std::string> {}
-                                        : std::vector<std::string> {picked});
+    scene.SetSelection (picked.empty () ? std::vector<std::string> {} : std::vector<std::string> { picked });
 
     std::lock_guard<std::mutex> lock (mutex);
-    stats.pickedGuid = picked;   // empty = the sky, i.e. deselect
+    stats.pickedGuid = picked; // empty = the sky, i.e. deselect
     ++stats.pickSeq;
 }
 
-void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
-                  Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                  DiligentScene& scene, const InputSnapshot& input, uint64_t frames,
-                  uint32_t width, uint32_t height, const float viewProj[16],
-                  Diligent::ITextureView* rtv, Diligent::ITextureView* dsv,
-                  std::mutex& mutex, DiligentViewportStats& stats)
+void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Diligent::IRenderDevice* device,
+                  Diligent::IDeviceContext* context, DiligentScene& scene, const InputSnapshot& input, uint64_t frames,
+                  uint32_t width, uint32_t height, const float viewProj[16], Diligent::ITextureView* rtv,
+                  Diligent::ITextureView* dsv, std::mutex& mutex, DiligentViewportStats& stats)
 {
     if (!pick.IsReady () || !enabled) {
         // Picking did not run this frame -- it is unavailable, the cursor is over
@@ -474,7 +482,7 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
         return;
     }
 
-    bool clicked = state.clickPending;   // a click an earlier frame could not issue
+    bool clicked = state.clickPending; // a click an earlier frame could not issue
     // ⚠️ THE TRANSITIONS, NOT `buttons`. A press and release inside one 16 ms
     // frame is an ordinary fast click and collapses to "nothing happened" in the
     // held-state byte -- which is exactly the click a user makes when they mean
@@ -492,7 +500,8 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
             // absorbs.
             state.leftDownX = input.x;
             state.leftDownY = input.y;
-        } else if (state.leftDown) {
+        }
+        else if (state.leftDown) {
             state.leftDown = false;
             if (!state.leftDragged && input.inside)
                 clicked = true;
@@ -500,8 +509,7 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
     }
     // A few pixels of slack: a click is never perfectly still, and treating any
     // movement as a drag makes picking feel broken.
-    if (state.leftDown && (std::abs (input.x - state.leftDownX) > 3 ||
-                           std::abs (input.y - state.leftDownY) > 3))
+    if (state.leftDown && (std::abs (input.x - state.leftDownX) > 3 || std::abs (input.y - state.leftDownY) > 3))
         state.leftDragged = true;
 
     // ⚠️ A CLICK THAT CANNOT BE ISSUED IS REMEMBERED, NOT DROPPED, AND THAT IS A
@@ -536,10 +544,8 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
     // geometry streams in underneath it. `lastHoverX` starts at -1 so the first
     // hover of a session still fires; after that the user moves the mouse a
     // pixel and gets it. That is the cheaper side of the trade.
-    const bool cursorMoved = std::abs (input.x - state.lastHoverX) > 1 ||
-                             std::abs (input.y - state.lastHoverY) > 1;
-    const bool wantHover = input.inside && !clicked && cursorMoved &&
-                           frames >= state.nextHoverFrame;
+    const bool cursorMoved = std::abs (input.x - state.lastHoverX) > 1 || std::abs (input.y - state.lastHoverY) > 1;
+    const bool wantHover = input.inside && !clicked && cursorMoved && frames >= state.nextHoverFrame;
 
     // ⚠️ THE CURSOR LEAVING IS AN ANSWER, AND IT NEEDS NO GPU. No hover pick is
     // issued from outside the viewport, so without this the last id stays and the
@@ -563,11 +569,12 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
         std::string sizeError;
         if (!pick.EnsureSize (device, width, height, sizeError)) {
             if (!state.sizeReported) {
-                ArchVizLog ("Diligent viewport: the pick id target could not be sized (" +
-                            sizeError + "); picking is off until the next resize");
+                ArchVizLog ("Diligent viewport: the pick id target could not be sized (" + sizeError +
+                            "); picking is off until the next resize");
                 state.sizeReported = true;
             }
-        } else {
+        }
+        else {
             state.sizeReported = false;
             pick.Begin (context);
             // ⚠️ THE FRAME'S OWN viewProj, THE ONE scene.Draw IS GIVEN -- that
@@ -579,8 +586,7 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
             // bound for output, and it says so in a validation message rather
             // than by failing.
             pick.End (context);
-            if (pick.Request (context, aimX, aimY, frames,
-                              clicked ? kPickTagClick : kPickTagHover)) {
+            if (pick.Request (context, aimX, aimY, frames, clicked ? kPickTagClick : kPickTagHover)) {
                 if (!clicked) {
                     state.lastHoverX = input.x;
                     state.lastHoverY = input.y;
@@ -597,8 +603,7 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
             // viewport shows only the clear colour on every frame the user
             // clicks. The depth buffer is NOT re-cleared -- the caller cleared it
             // and the pick pass used its own.
-            context->SetRenderTargets (1, &rtv, dsv,
-                                       Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            context->SetRenderTargets (1, &rtv, dsv, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         }
     }
 
@@ -623,8 +628,8 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
 // asynchronous -- the request is an atomic the render thread picks up later --
 // so a probe that echoed its own parameter would report success before anything
 // had happened. This is the acknowledgement.
-void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents,
-                               std::mutex& mutex, DiligentViewportStats& stats);
+void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents, std::mutex& mutex,
+                               DiligentViewportStats& stats);
 
 void MirrorOverlayToHost (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                           DiligentViewportTarget& target, const Camera& camera)
@@ -635,16 +640,13 @@ void MirrorOverlayToHost (Diligent::IRenderDevice* device, Diligent::IDeviceCont
     if (device == nullptr || context == nullptr || chain == nullptr)
         return;
 
-    Diligent::RefCntAutoPtr<Diligent::IRenderDeviceD3D11> nativeDevice {
-        device, Diligent::IID_RenderDeviceD3D11};
-    Diligent::RefCntAutoPtr<Diligent::IDeviceContextD3D11> nativeContext {
-        context, Diligent::IID_DeviceContextD3D11};
+    Diligent::RefCntAutoPtr<Diligent::IRenderDeviceD3D11> nativeDevice { device, Diligent::IID_RenderDeviceD3D11 };
+    Diligent::RefCntAutoPtr<Diligent::IDeviceContextD3D11> nativeContext { context, Diligent::IID_DeviceContextD3D11 };
     if (!nativeDevice || !nativeContext)
         return;
 
     std::string error;
-    if (!dxgi::EnsureSharedOverlaySurface (nativeDevice->GetD3D11Device (), target.Width (),
-                                           target.Height (), error)) {
+    if (!dxgi::EnsureSharedOverlaySurface (nativeDevice->GetD3D11Device (), target.Width (), target.Height (), error)) {
         // Once per change of reason, not once per frame: this runs at 60 Hz and
         // a repeated line would bury the log it shares with everything else.
         static std::string lastError;
@@ -673,18 +675,15 @@ void MirrorOverlayToHost (Diligent::IRenderDevice* device, Diligent::IDeviceCont
     }
 
     ID3D11Texture2D* frame = nullptr;
-    if (SUCCEEDED (chain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &frame)) &&
-        frame != nullptr) {
+    if (SUCCEEDED (chain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &frame)) && frame != nullptr) {
         dxgi::PublishSharedOverlayFrame (nativeContext->GetD3D11DeviceContext (), frame, pose);
         frame->Release ();
     }
 }
 
-void PresentAndAccount (DiligentViewportTarget& target,
-                        const std::atomic<uint64_t>& publishedGeneration,
+void PresentAndAccount (DiligentViewportTarget& target, const std::atomic<uint64_t>& publishedGeneration,
                         uint64_t adoptedGeneration, std::atomic<uint64_t>& stalePresents,
-                        std::atomic<uint64_t>& presentedGeneration, std::mutex& mutex,
-                        DiligentViewportStats& stats)
+                        std::atomic<uint64_t>& presentedGeneration, std::mutex& mutex, DiligentViewportStats& stats)
 {
     // ⚠️ CHECKED IMMEDIATELY BEFORE Present, WHICH IS THE ONLY HONEST PLACE. A
     // camera that arrived after this frame adopted one is already too late for
@@ -695,12 +694,11 @@ void PresentAndAccount (DiligentViewportTarget& target,
         stalePresents.fetch_add (1, std::memory_order_relaxed);
     presentedGeneration.store (adoptedGeneration, std::memory_order_release);
     target.Present ();
-    PublishPresentAccounting (target, stalePresents.load (std::memory_order_relaxed),
-                              mutex, stats);
+    PublishPresentAccounting (target, stalePresents.load (std::memory_order_relaxed), mutex, stats);
 }
 
-void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents,
-                               std::mutex& mutex, DiligentViewportStats& stats)
+void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents, std::mutex& mutex,
+                               DiligentViewportStats& stats)
 {
     std::lock_guard<std::mutex> lock (mutex);
     stats.stalePresents = stalePresents;
@@ -709,8 +707,7 @@ void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePre
     stats.frameLatency = target.FrameLatency ();
 }
 
-void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t requested,
-                                 uint32_t& applied)
+void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t requested, uint32_t& applied)
 {
     // ⚠️ 0 DOES NOT MEAN "RESTORE THE DEFAULT", AND PRETENDING IT DID BROKE THE
     // WHOLE A/B. There is no DXGI call that un-sets a frame latency, so the old
@@ -728,7 +725,8 @@ void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t reques
         applied = requested;
         ArchVizLog ("overlay frame latency set to " + std::to_string (requested) +
                     " (DXGI's default is 3, i.e. up to three finished frames may wait)");
-    } else {
+    }
+    else {
         // ⚠️ RECORDED AS APPLIED EVEN ON FAILURE. Otherwise this retries on every
         // frame forever, logging every time, on a driver that will never support
         // it -- turning a missing optimisation into a flood.
@@ -749,12 +747,11 @@ void IdentifyOwnSwapChain (IDXGISwapChain* swapChain)
 
     DXGI_SWAP_CHAIN_DESC nativeDesc {};
     if (swapChain != nullptr && SUCCEEDED (swapChain->GetDesc (&nativeDesc)))
-        ArchVizLog ("Diligent viewport DXGI: format=" +
-                    std::to_string ((uint32_t) nativeDesc.BufferDesc.Format) + " effect=" +
-                    std::to_string ((uint32_t) nativeDesc.SwapEffect) + " buffers=" +
-                    std::to_string (nativeDesc.BufferCount) + " windowed=" +
-                    std::to_string (nativeDesc.Windowed != FALSE));
+        ArchVizLog ("Diligent viewport DXGI: format=" + std::to_string ((uint32_t) nativeDesc.BufferDesc.Format) +
+                    " effect=" + std::to_string ((uint32_t) nativeDesc.SwapEffect) +
+                    " buffers=" + std::to_string (nativeDesc.BufferCount) +
+                    " windowed=" + std::to_string (nativeDesc.Windowed != FALSE));
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

@@ -272,7 +272,8 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 if (impl_->pendingStorySlices != nullptr) {
                     impl_->storeySliceCount = impl_->pendingStorySlices->storeys;
                     impl_->storeySliceAreaM2 = impl_->pendingStorySlices->areaM2;
-                } else {
+                }
+                else {
                     impl_->storeySliceCount = 0;
                     impl_->storeySliceAreaM2 = 0.0;
                 }
@@ -459,9 +460,12 @@ DiligentSceneStats DiligentScene::Stats () const
         s.gpuBytes += e.gpuBytes;
     }
     s.shadowReady = impl_->shadowMap.IsReady ();
-    s.shadowFitted = impl_->shadow.valid;
+    s.shadowFitted = impl_->shadowMap.IsFitted ();
     s.shadowResolution = impl_->shadowMap.Resolution ();
-    s.shadowTexelMetres = impl_->shadow.texelWorldSize;
+    s.shadowTexelMetres = impl_->shadowMap.FirstCascadeTexelMetres ();
+    s.shadowCascades = impl_->shadowMap.CascadeCount ();
+    s.shadowMode = static_cast<uint32_t> (impl_->shadowMap.Settings ().mode);
+    s.shadowFilterSize = impl_->shadowMap.Settings ().fixedFilterSize;
 
     s.environmentLoaded = impl_->environment.IsLoaded ();
     s.environmentActive = s.environmentLoaded && impl_->environmentEnabled && impl_->environmentIntensity > 0.0f;
@@ -495,11 +499,11 @@ DiligentSceneStats DiligentScene::Stats () const
     s.materials = impl_->materials.Size ();
     s.pending = SceneCmdQueue::Get ().PendingCount ();
     s.drawCalls = impl_->drawCalls;
-    s.storeySlices             = impl_->storeySliceCount;
-    s.storeySliceVertices      = impl_->storySlices.OutlineVertexCount ();
-    s.storeySliceFillVertices  = impl_->storySlices.FillVertexCount ();
-    s.storeySliceAreaM2        = impl_->storeySliceAreaM2;
-    s.storeySliceLayerReady    = impl_->storySlices.IsReady ();
+    s.storeySlices = impl_->storeySliceCount;
+    s.storeySliceVertices = impl_->storySlices.OutlineVertexCount ();
+    s.storeySliceFillVertices = impl_->storySlices.FillVertexCount ();
+    s.storeySliceAreaM2 = impl_->storeySliceAreaM2;
+    s.storeySliceLayerReady = impl_->storySlices.IsReady ();
 
     const DiligentPointCloudStats pointStats = impl_->pointCloud.Stats ();
     s.pointLayers = pointStats.layers;

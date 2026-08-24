@@ -30,43 +30,17 @@ namespace {
 
 } // namespace
 
-bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context)
+bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context, const float view[16],
+                                     const float projection[16])
 {
-    if (impl_ != nullptr)
-        impl_->shadow = SunShadow {};
     if (impl_ == nullptr || context == nullptr || !impl_->ready || !impl_->shadowsEnabled ||
         !impl_->shadowMap.IsReady ())
         return false;
 
-    // ⚠️ FITTED TO THE ELEMENTS ONLY. Anything larger spends the shadow map's
-    // resolution on empty space, and a building's shadow rendered through a
-    // quarter of the texels it should have reads as a low-quality shadow rather
-    // than as a fitting mistake.
-    float boundsMin[3];
-    float boundsMax[3];
-    if (!SceneBounds (boundsMin, boundsMax))
-        return false;
-
-    // A little headroom below the model, so a surface exactly at its lowest
-    // point is inside the light's depth range rather than on its boundary.
-    boundsMin[2] -= 0.05f;
-
-    // ⚠️ THE SAME SUN THE PIXEL SHADER WILL USE. Fitting the shadow to Archicad's
-    // sun while shading with the override would put the shadow somewhere the
-    // light plainly is not coming from -- which reads as a broken shadow map
-    // rather than as two sources of one value.
     float shadowSun[3];
     impl_->EffectiveSun (shadowSun);
-    const SunShadow fit = FitSunShadow (boundsMin, boundsMax, shadowSun, impl_->shadowMap.Resolution ());
-    if (!fit.valid)
+    if (!impl_->shadowMap.Prepare (context, view, projection, shadowSun))
         return false;
-    impl_->shadow = fit;
-
-    DiligentSceneConstants constants;
-    std::memcpy (constants.lightViewProj, fit.lightViewProj, sizeof (float) * 16);
-    UploadConstants (context, impl_->constants, constants);
-
-    impl_->shadowMap.Begin (context);
 
     // ⚠️ OPAQUE RANGES ONLY. A pane of glass that writes into the shadow map
     // casts a solid black shadow, and a curtain-walled facade then shadows the
@@ -86,10 +60,17 @@ bool DiligentScene::RenderShadowMap (Diligent::IDeviceContext* context)
         }
     };
 
-    for (const Entry& e : impl_->elements)
-        shadowCastRanges (e, true);
-    for (const Entry& e : impl_->staticMeshes)
-        shadowCastRanges (e, false);
+    for (uint32_t cascade = 0; cascade < impl_->shadowMap.CascadeCount (); ++cascade) {
+        DiligentSceneConstants constants;
+        impl_->shadowMap.CopyCascadeViewProjection (cascade, constants.lightViewProj);
+        UploadConstants (context, impl_->constants, constants);
+        impl_->shadowMap.BeginCascade (context, cascade);
+
+        for (const Entry& e : impl_->elements)
+            shadowCastRanges (e, true);
+        for (const Entry& e : impl_->staticMeshes)
+            shadowCastRanges (e, false);
+    }
     // ⚠️ THE OVERLAY GNOMON DOES NOT CAST -- it is not in the world.
 
     impl_->shadowMap.End (context);
@@ -102,7 +83,16 @@ void DiligentScene::SetShadowsEnabled (bool enabled)
         return;
     impl_->shadowsEnabled = enabled;
     if (!enabled)
-        impl_->shadow = SunShadow {};
+        return;
+}
+
+void DiligentScene::SetShadowSettings (const DiligentShadowSettings& settings)
+{
+    if (impl_ == nullptr)
+        return;
+    std::string error;
+    if (!impl_->shadowMap.SetSettings (settings, error))
+        ArchVizLog ("DiligentFX shadows: " + error);
 }
 
 void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float viewProj[16], CullMode cull)
@@ -147,9 +137,8 @@ void DiligentScene::DrawIds (Diligent::IDeviceContext* context, const float view
     }
 }
 
-void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16],
-                                     uint32_t surfaceWidth, uint32_t surfaceHeight,
-                                     uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                     uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                                      const StorySliceLayer::DrawParams& params)
 {
     if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
@@ -181,9 +170,9 @@ void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const fl
     // waits here until the first frame that can actually fill a buffer.
     if (impl_->storySlicesDirty) {
         impl_->storySlicesDirty = false;
-        static const std::vector<StorySliceVertex>     kNoOutline;
+        static const std::vector<StorySliceVertex> kNoOutline;
         static const std::vector<StorySliceFillVertex> kNoFill;
-        const std::vector<StorySliceVertex>&     outline =
+        const std::vector<StorySliceVertex>& outline =
             impl_->pendingStorySlices != nullptr ? impl_->pendingStorySlices->outline : kNoOutline;
         const std::vector<StorySliceFillVertex>& fill =
             impl_->pendingStorySlices != nullptr ? impl_->pendingStorySlices->fill : kNoFill;
@@ -223,8 +212,10 @@ void DiligentScene::DrawOverlay (Diligent::IDeviceContext* context, const float 
     UploadConstants (context, impl_->constants, constants);
 
     const int index = CullIndex (CullMode::Cw);
-    context->SetPipelineState (impl_->opaquePso[index]);
-    context->CommitShaderResources (impl_->opaqueSrb[index], Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    const int shadowMode = ShadowModeIndex (impl_->shadowMap.Settings ().mode);
+    context->SetPipelineState (impl_->opaquePso[shadowMode][index]);
+    context->CommitShaderResources (impl_->opaqueSrb[shadowMode][index],
+                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     for (const Entry& e : impl_->overlayMeshes) {
         if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
             continue;
@@ -332,10 +323,9 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // silently disagree on the frame where geometry arrived between the two
     // calls -- a shadow that slides off the building for one frame per element
     // during a live extraction. RenderShadowMap stores it; this reads it.
-    std::memcpy (constants.lightViewProj, impl_->shadow.lightViewProj, sizeof (float) * 16);
-    constants.shadowParams[0] = impl_->shadow.texelWorldSize;
-    constants.shadowParams[1] = impl_->shadow.depthRange;
-    constants.shadowParams[2] = impl_->shadow.valid && impl_->shadowMap.IsReady () ? 1.0f : 0.0f;
+    constants.shadowParams[0] = impl_->shadowMap.FirstCascadeTexelMetres ();
+    constants.shadowParams[1] = 0.0f;
+    constants.shadowParams[2] = impl_->shadowsEnabled && impl_->shadowMap.IsFitted () ? 1.0f : 0.0f;
     constants.shadowParams[3] =
         impl_->shadowMap.Resolution () > 0 ? 1.0f / float (impl_->shadowMap.Resolution ()) : 0.0f;
 
@@ -509,6 +499,7 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         UploadConstants (context, impl_->constants, constants);
     };
 
+    const int shadowMode = ShadowModeIndex (impl_->shadowMap.Settings ().mode);
     auto drawRange = [&] (const Entry& e, const MaterialRange& r, bool blended) {
         // ⚠️ HDR PATH SELECTS THE HDR PSO SET. Same shaders, same SRB layout,
         // different RTV format (RGBA16_FLOAT). The pixel shader branches on
@@ -516,12 +507,12 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         Diligent::IPipelineState* pso;
         Diligent::IShaderResourceBinding* srb;
         if (useHdr) {
-            pso = blended ? impl_->hdrBlendPso[index] : impl_->hdrOpaquePso[index];
-            srb = blended ? impl_->hdrBlendSrb[index] : impl_->hdrOpaqueSrb[index];
+            pso = blended ? impl_->hdrBlendPso[shadowMode][index] : impl_->hdrOpaquePso[shadowMode][index];
+            srb = blended ? impl_->hdrBlendSrb[shadowMode][index] : impl_->hdrOpaqueSrb[shadowMode][index];
         }
         else {
-            pso = blended ? impl_->blendPso[index] : impl_->opaquePso[index];
-            srb = blended ? impl_->blendSrb[index] : impl_->opaqueSrb[index];
+            pso = blended ? impl_->blendPso[shadowMode][index] : impl_->opaquePso[shadowMode][index];
+            srb = blended ? impl_->blendSrb[shadowMode][index] : impl_->opaqueSrb[shadowMode][index];
         }
         context->SetPipelineState (pso);
         context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
@@ -559,13 +550,36 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
             // SRBs carry the same DYNAMIC g_ambientOcclusion variable -- and the
             // same validation failure if it is left unset.
             for (Diligent::IShaderResourceBinding* srb :
-                 { impl_->opaqueSrb[cullIdx].RawPtr (), impl_->blendSrb[cullIdx].RawPtr (),
-                   impl_->hdrOpaqueSrb[cullIdx].RawPtr (), impl_->hdrBlendSrb[cullIdx].RawPtr () }) {
+                 { impl_->opaqueSrb[shadowMode][cullIdx].RawPtr (), impl_->blendSrb[shadowMode][cullIdx].RawPtr (),
+                   impl_->hdrOpaqueSrb[shadowMode][cullIdx].RawPtr (),
+                   impl_->hdrBlendSrb[shadowMode][cullIdx].RawPtr () }) {
                 if (srb == nullptr)
                     continue;
                 if (Diligent::IShaderResourceVariable* var =
                         srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion"))
                     var->Set (occlusionView);
+            }
+        }
+    }
+
+    // ShadowMapManager recreates its atlas when mode, resolution or cascade
+    // count changes, so the texture views are dynamic and must follow it.
+    Diligent::ITextureView* shadowView = impl_->shadowMap.Settings ().mode == DiligentShadowMode::Pcf
+                                             ? impl_->shadowMap.ShaderView ()
+                                             : impl_->shadowMap.FilterableShaderView ();
+    if (shadowView != nullptr) {
+        const char* variableName =
+            impl_->shadowMap.Settings ().mode == DiligentShadowMode::Pcf ? "g_shadowMap" : "g_filterableShadowMap";
+        for (int cullIdx = 0; cullIdx < kCullModeCount; ++cullIdx) {
+            for (Diligent::IShaderResourceBinding* srb :
+                 { impl_->opaqueSrb[shadowMode][cullIdx].RawPtr (), impl_->blendSrb[shadowMode][cullIdx].RawPtr (),
+                   impl_->hdrOpaqueSrb[shadowMode][cullIdx].RawPtr (),
+                   impl_->hdrBlendSrb[shadowMode][cullIdx].RawPtr () }) {
+                if (srb == nullptr)
+                    continue;
+                if (Diligent::IShaderResourceVariable* variable =
+                        srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, variableName))
+                    variable->Set (shadowView);
             }
         }
     }

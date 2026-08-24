@@ -16,10 +16,10 @@
 // STRUCT must have been filled on the main thread, because reading it is ACAPI.
 // Applying it is not.
 
-#include "ArchViz/DiligentViewport.hpp"   // CameraStart, PlanAnchorVertex
-#include "ArchViz/DiligentPickBuffer.hpp"        // PublishCompletedPick
-#include "ArchViz/DiligentViewportTarget.hpp"   // ApplyRequestedFrameLatency
-#include "ArchViz/InputRingBuffer.hpp"           // InputSnapshot, for ServicePick
+#include "ArchViz/DiligentViewport.hpp"       // CameraStart, PlanAnchorVertex
+#include "ArchViz/DiligentPickBuffer.hpp"     // PublishCompletedPick
+#include "ArchViz/DiligentViewportTarget.hpp" // ApplyRequestedFrameLatency
+#include "ArchViz/InputRingBuffer.hpp"        // InputSnapshot, for ServicePick
 
 #include <atomic>
 #include <cstdint>
@@ -30,7 +30,7 @@ namespace Diligent {
 struct IDeviceContext;
 struct IRenderDevice;
 struct ITextureView;
-}   // namespace Diligent
+} // namespace Diligent
 
 namespace geomsrv {
 namespace archviz {
@@ -38,6 +38,9 @@ namespace archviz {
 class Camera;
 class DiligentScene;
 class PlanAnchorLayer;
+struct HudState;
+
+void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
 
 // Which of the scene's two passes this frame runs, and running it.
 //
@@ -58,14 +61,14 @@ struct SceneDrawRequest {
     // that necessary. It is bound, never cleared: the frame loop clears it once,
     // before navigation.
     Diligent::ITextureView* depth = nullptr;
-    const float* view = nullptr;        // 16
-    const float* proj = nullptr;        // 16
-    const float* viewProj = nullptr;    // 16
+    const float* view = nullptr;     // 16
+    const float* proj = nullptr;     // 16
+    const float* viewProj = nullptr; // 16
     // Unjittered current camera, used only to write motion vectors. Visible
     // geometry uses viewProj above.
     const float* motionViewProj = nullptr; // 16
-    const float* eye = nullptr;         // 3
-    const float* jitter = nullptr;      // 2
+    const float* eye = nullptr;            // 3
+    const float* jitter = nullptr;         // 2
     int debugView = 0;
     uint32_t frameIndex = 0;
     // RE51.C3. `intensity` scales the darkening only, never the effect's radius.
@@ -106,11 +109,10 @@ void InstallDiligentDebugCallback ();
 //
 // Returns false when there is no perspective camera to copy; the caller then
 // frames the model instead of inventing one.
-bool ApplyArchicadCamera (Camera& camera, const CameraStart& start,
-                          uint32_t width, uint32_t height, float* outDistance = nullptr);
+bool ApplyArchicadCamera (Camera& camera, const CameraStart& start, uint32_t width, uint32_t height,
+                          float* outDistance = nullptr);
 
-bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t height,
-                                CameraStart& snapshot);
+bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t height, CameraStart& snapshot);
 
 // The axis gnomon, in a small square viewport in the bottom-left corner.
 //
@@ -126,9 +128,8 @@ bool SnapshotPerspectiveCamera (const Camera& camera, uint32_t width, uint32_t h
 // `ISwapChain` at all -- the composition path wraps back buffers it did not
 // create and owns a depth texture of its own -- so anything that reached for
 // `GetCurrentBackBufferRTV` would work in the palette and be null on the overlay.
-void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene,
-                       Diligent::ITextureView* rtv, Diligent::ITextureView* dsv,
-                       const Camera& camera, uint32_t width, uint32_t height);
+void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene, Diligent::ITextureView* rtv,
+                       Diligent::ITextureView* dsv, const Camera& camera, uint32_t width, uint32_t height);
 
 // PLAT-RE65's anchors, once per frame: adopt a newly published set, then draw.
 //
@@ -156,8 +157,7 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene,
 // Plan path only -- it no-ops on a perspective camera, because the 3D path has
 // no ground-truth stream to pair against yet. Also no-ops when the nav log is
 // off, which it is by default.
-void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t heightPx,
-                            uint64_t frameIndex);
+void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t heightPx, uint64_t frameIndex);
 
 // Register our swap chain with the DXGI Present hook and log its format.
 // Render thread, once the target exists. See the .cpp for why the hook needs it.
@@ -202,25 +202,21 @@ constexpr uint32_t kPickTagHover = 2;
 void MirrorOverlayToHost (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                           DiligentViewportTarget& target, const Camera& camera);
 
-void PresentAndAccount (DiligentViewportTarget& target,
-                        const std::atomic<uint64_t>& publishedGeneration,
+void PresentAndAccount (DiligentViewportTarget& target, const std::atomic<uint64_t>& publishedGeneration,
                         uint64_t adoptedGeneration, std::atomic<uint64_t>& stalePresents,
-                        std::atomic<uint64_t>& presentedGeneration, std::mutex& mutex,
-                        DiligentViewportStats& stats);
+                        std::atomic<uint64_t>& presentedGeneration, std::mutex& mutex, DiligentViewportStats& stats);
 
 // Copy the live present counters into the stats. Render thread, every frame --
 // see the .cpp for why "every frame" is the whole point.
-void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents,
-                               std::mutex& mutex, DiligentViewportStats& stats);
+void PublishPresentAccounting (DiligentViewportTarget& target, uint64_t stalePresents, std::mutex& mutex,
+                               DiligentViewportStats& stats);
 
-void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t requested,
-                                 uint32_t& applied);
+void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t requested, uint32_t& applied);
 
 // Publish a finished pick readback. Render thread; takes the viewport's mutex
 // only for the moment it writes the stats.
-void PublishCompletedPick (DiligentPickBuffer& pick, Diligent::IDeviceContext* context,
-                           uint64_t frames, DiligentScene& scene, uint32_t& hoverId,
-                           std::mutex& mutex, DiligentViewportStats& stats);
+void PublishCompletedPick (DiligentPickBuffer& pick, Diligent::IDeviceContext* context, uint64_t frames,
+                           DiligentScene& scene, uint32_t& hoverId, std::mutex& mutex, DiligentViewportStats& stats);
 
 // What a click and a hover have to REMEMBER between frames.
 //
@@ -265,12 +261,10 @@ struct PickState {
 // `enabled` is the caller's "the model is actually on screen and the mouse is
 // mine" test. ⚠️ IT STILL HAS TO BE CALLED WHEN FALSE: clearing the hover is an
 // answer, and skipping the call leaves the last outline burned on the screen.
-void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
-                  Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                  DiligentScene& scene, const InputSnapshot& input, uint64_t frames,
-                  uint32_t width, uint32_t height, const float viewProj[16],
-                  Diligent::ITextureView* rtv, Diligent::ITextureView* dsv,
-                  std::mutex& mutex, DiligentViewportStats& stats);
+void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Diligent::IRenderDevice* device,
+                  Diligent::IDeviceContext* context, DiligentScene& scene, const InputSnapshot& input, uint64_t frames,
+                  uint32_t width, uint32_t height, const float viewProj[16], Diligent::ITextureView* rtv,
+                  Diligent::ITextureView* dsv, std::mutex& mutex, DiligentViewportStats& stats);
 
 // The storey section overlay: turn the HUD's (or the capture's) settings into
 // StorySliceLayer::DrawParams, draw the layer, and service the one-shot refresh
@@ -281,20 +275,17 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled,
 // Diligent side at all: a massing feasibility study renders one and needs the
 // storey contours in it. The anchors' gate is about an instrument for checking
 // register against a live Archicad window, which a capture does not have.
-void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context,
-                               HudState& hudState, bool blanked, const float viewProj[16],
-                               uint32_t width, uint32_t height,
+void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
+                               bool blanked, const float viewProj[16], uint32_t width, uint32_t height,
                                uint32_t colorFormat, uint32_t depthFormat);
 
 void UpdateAndDrawPlanAnchors (PlanAnchorLayer& layer, Diligent::IRenderDevice* device,
-                               Diligent::IDeviceContext* context,
-                               std::mutex& mutex, std::vector<PlanAnchorVertex>& pending,
-                               uint64_t commandedSeq, uint64_t& lastSeq,
-                               bool enabled, const float viewProj[16],
-                               uint32_t width, uint32_t height,
+                               Diligent::IDeviceContext* context, std::mutex& mutex,
+                               std::vector<PlanAnchorVertex>& pending, uint64_t commandedSeq, uint64_t& lastSeq,
+                               bool enabled, const float viewProj[16], uint32_t width, uint32_t height,
                                float widthPixels, uint32_t rgba);
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -312,7 +312,8 @@ enum class DiligentDebugView : int {
     MotionVectors = 13,
 };
 
-static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64,
+static_assert (sizeof (DiligentSceneConstants) ==
+                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -1268,14 +1269,86 @@ float3 Grade (float3 radiance)
 
 )hlsl";
 
+// One mesh pixel shader per DiligentFX representation. ShadowMapManager changes
+// the atlas format with the mode, and Shadows.fxh deliberately resolves that
+// texture type at compile time.
+constexpr const char* kArchVizShadowModePcf = R"hlsl(
+#define SHADOW_MODE 1
+#ifndef _HLSL_DEFINITIONS_
+#define _HLSL_DEFINITIONS_
+#define NDC_MIN_Z 0.0
+#define F3NDC_XYZ_TO_UVD_SCALE float3(0.5, -0.5, 1.0)
+float2 NormalizedDeviceXYToTexUV (float2 p) { return float2(0.5, 0.5) + float2(0.5, -0.5) * p; }
+float NormalizedDeviceZToDepth (float z) { return z; }
+#endif
+#define PCF_FILTER_SIZE 0
+#define FILTER_ACROSS_CASCADES 1
+#define BEST_CASCADE_SEARCH 1
+#include "BasicStructures.fxh"
+#include "Shadows.fxh"
+)hlsl";
+
+constexpr const char* kArchVizShadowModeVsm = R"hlsl(
+#define SHADOW_MODE 2
+#ifndef _HLSL_DEFINITIONS_
+#define _HLSL_DEFINITIONS_
+#define NDC_MIN_Z 0.0
+#define F3NDC_XYZ_TO_UVD_SCALE float3(0.5, -0.5, 1.0)
+float2 NormalizedDeviceXYToTexUV (float2 p) { return float2(0.5, 0.5) + float2(0.5, -0.5) * p; }
+float NormalizedDeviceZToDepth (float z) { return z; }
+#endif
+#define FILTER_ACROSS_CASCADES 1
+#define BEST_CASCADE_SEARCH 1
+#include "BasicStructures.fxh"
+#include "Shadows.fxh"
+)hlsl";
+
+constexpr const char* kArchVizShadowModeEvsm2 = R"hlsl(
+#define SHADOW_MODE 3
+#ifndef _HLSL_DEFINITIONS_
+#define _HLSL_DEFINITIONS_
+#define NDC_MIN_Z 0.0
+#define F3NDC_XYZ_TO_UVD_SCALE float3(0.5, -0.5, 1.0)
+float2 NormalizedDeviceXYToTexUV (float2 p) { return float2(0.5, 0.5) + float2(0.5, -0.5) * p; }
+float NormalizedDeviceZToDepth (float z) { return z; }
+#endif
+#define FILTER_ACROSS_CASCADES 1
+#define BEST_CASCADE_SEARCH 1
+#include "BasicStructures.fxh"
+#include "Shadows.fxh"
+)hlsl";
+
+constexpr const char* kArchVizShadowModeEvsm4 = R"hlsl(
+#define SHADOW_MODE 4
+#ifndef _HLSL_DEFINITIONS_
+#define _HLSL_DEFINITIONS_
+#define NDC_MIN_Z 0.0
+#define F3NDC_XYZ_TO_UVD_SCALE float3(0.5, -0.5, 1.0)
+float2 NormalizedDeviceXYToTexUV (float2 p) { return float2(0.5, 0.5) + float2(0.5, -0.5) * p; }
+float NormalizedDeviceZToDepth (float z) { return z; }
+#endif
+#define FILTER_ACROSS_CASCADES 1
+#define BEST_CASCADE_SEARCH 1
+#include "BasicStructures.fxh"
+#include "Shadows.fxh"
+)hlsl";
+
 constexpr const char* kArchVizMeshPS = R"hlsl(
-// ⚠️ THE SHADOW MAP IS DECLARED HERE AND THE ENVIRONMENT IS NOT. The env
-// texture and EnvUv live in kArchVizEnvCommonPS, prepended to this stage,
-// because the sky BACKGROUND shader needs the identical lookup. The shadow map
-// has only one consumer, so putting it in the shared prelude would hand the
-// background shader a texture it never reads.
-Texture2D    g_shadowMap;
-SamplerState g_shadowMap_sampler;
+// ShadowMapAttribs and the sampling functions are DiligentFX's own definitions.
+// kArchVizShadowMode* is prepended before this literal and selects the matching
+// resource representation at shader compile time.
+cbuffer ArchVizShadowConstants
+{
+    ShadowMapAttribs g_shadowAttribs;
+};
+
+#if SHADOW_MODE == SHADOW_MODE_PCF
+Texture2DArray<float>  g_shadowMap;
+SamplerComparisonState g_shadowMap_sampler;
+#else
+Texture2DArray<float4> g_filterableShadowMap;
+SamplerState           g_filterableShadowMap_sampler;
+#endif
 
 // ---- RE51.C3: the frame's ambient occlusion --------------------------------
 //
@@ -1326,112 +1399,28 @@ struct PSOutput
     float4 color : SV_TARGET;
 };
 
-// 1 = fully lit, 0 = fully occluded.
-//
-// ⚠️ A MANUAL COMPARISON, NOT SampleCmp. A comparison sampler is faster and
-// gives free 2x2 filtering, but it needs a matching immutable sampler declared
-// in the PSO and a depth SRV bound as a comparison resource, and when any part
-// of that is wrong the result is silently 0 or 1 everywhere -- which is exactly
-// the failure mode the Shadow debug view exists to catch, so it should not also
-// be the failure mode of the setup. A 3x3 loop over an ordinary point-sampled
-// R32_FLOAT view has no such states to get wrong, and one building is nowhere
-// near the cost where it matters.
-float SampleSunShadow (float3 worldPos, float3 normal)
+// x = light amount; yzw = DiligentFX's cascade debug colour.
+float4 SampleSunShadow (float3 worldPos, float3 normal)
 {
     if (g_shadowParams.z < 0.5)
-        return 1.0;
+        return float4 (1.0, 1.0, 1.0, 1.0);
 
-    // Normal offset: move the sample point off the surface by a texel or so
-    // before projecting. This is the bias that scales correctly with both model
-    // size and map resolution and needs no slope term -- the surfaces that
-    // acne worst are the ones facing away from the light, and those are exactly
-    // the ones this moves furthest along their own normal.
-    // ⚠️ THE OFFSET MUST SCALE WITH THE KERNEL'S REACH, AND NOT SCALING IT IS
-    // WHAT PUT MOIRE RINGS ON THE GROUND (PLAT-RE138).
-    //
-    // The normal offset exists to push the sampled point far enough along the
-    // surface normal that the shadow map's own quantisation cannot report the
-    // surface as shadowing itself. How far is "far enough" depends on how far
-    // the KERNEL reaches: a 3x3 at one texel looks at most 1.4 texels away, but
-    // the wide 5x5 below reaches 3.2 -- and at that distance a receding surface
-    // has moved further in depth than a fixed 1.5-texel offset covers. The
-    // result is self-shadowing that comes and goes with the point-sampled taps,
-    // which is to say regular interference rings rather than honest acne.
-    //
-    // So the offset is derived from the reach rather than being a constant that
-    // happens to suit one kernel. Same for the depth bias below.
-    float kernelReachTexels = (g_outline.z > 0.5) ? 3.2 : 1.4;
-    float3 offsetPos = worldPos + normal * (g_shadowParams.x * (kernelReachTexels + 0.5));
+    float3 offsetPos = worldPos + normal * (g_shadowParams.x * 2.0);
+    float4 lightPosition = mul (g_shadowAttribs.mWorldToLightView, float4 (offsetPos, 1.0));
+    float3 lightViewPosition = lightPosition.xyz / lightPosition.w;
+    float cameraDepth = mul (g_viewProj, float4 (worldPos, 1.0)).w;
 
-    float4 lightClip = mul (g_lightViewProj, float4 (offsetPos, 1.0));
-    if (lightClip.w <= 0.0)
-        return 1.0;
-    float3 ndc = lightClip.xyz / lightClip.w;
-
-    // ⚠️ Y IS FLIPPED. Clip space is +Y up, texture space is +Y down. Without
-    // this the shadow appears mirrored about the light's horizontal axis, which
-    // on a symmetrical building looks like a plausible shadow in the wrong place.
-    float2 uv = float2 (ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
-
-    // Outside the light's frustum is UNSHADOWED, not shadowed. The frustum is
-    // fitted to the model's bounds, so anything outside it is by construction
-    // something the fit did not know about; darkening it would put a hard black
-    // rectangle around the model.
-    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || ndc.z > 1.0)
-        return 1.0;
-
-    // A small depth bias on top of the normal offset, expressed in metres and
-    // converted to the map's 0..1 depth, for surfaces nearly edge-on to the sun
-    // where the normal offset alone leaves acne.
-    //
-    // ⚠️ IT SCALES WITH THE KERNEL TOO, for the reason above: the wide kernel
-    // compares against texels further away, whose depth differs more.
-    float biasMetres = 0.02 * (kernelReachTexels / 1.4);
-    float depthBias = (g_shadowParams.y > 0.0) ? (biasMetres / g_shadowParams.y) : 0.0;
-    float reference = ndc.z - depthBias;
-
-    float texel = g_shadowParams.w;
-
-    // ---- REALISTIC: a wider, softer penumbra ------------------------------
-    //
-    // ⚠️ THE SUN IS NOT A POINT. A 3x3 kernel at one-texel spacing gives an edge
-    // one shadow texel wide, which on a massing model reads as cut paper -- the
-    // single most "computer-generated" thing left in the picture after the flat
-    // ambient. The real sun subtends about half a degree, so a shadow's edge
-    // softens with distance from whatever casts it.
-    //
-    // ⚠️ THIS IS A WIDER BLUR, NOT PCSS. A true contact-hardening penumbra needs
-    // a blocker-distance search first, and that wants the depth buffer the
-    // G-Buffer work will provide. A fixed wider kernel is honestly just a softer
-    // edge everywhere -- better than a hard one on a massing study, and NOT the
-    // physically-varying penumbra it will eventually be replaced by.
-    if (g_outline.z > 0.5)
-    {
-        float spread = texel * 1.6;
-        float lit = 0.0;
-        [unroll] for (int y = -2; y <= 2; ++y)
-        {
-            [unroll] for (int x = -2; x <= 2; ++x)
-            {
-                float stored = g_shadowMap.SampleLevel (
-                    g_shadowMap_sampler, uv + float2 (x, y) * spread, 0).r;
-                lit += (reference <= stored) ? 1.0 : 0.0;
-            }
-        }
-        return lit / 25.0;
-    }
-
-    float lit = 0.0;
-    [unroll] for (int y = -1; y <= 1; ++y)
-    {
-        [unroll] for (int x = -1; x <= 1; ++x)
-        {
-            float stored = g_shadowMap.SampleLevel (
-                g_shadowMap_sampler, uv + float2 (x, y) * texel, 0).r;
-            lit += (reference <= stored) ? 1.0 : 0.0;
-        }
-    }
-    return lit / 9.0;
+    FilteredShadow shadow;
+#if SHADOW_MODE == SHADOW_MODE_PCF
+    shadow = FilterShadowMap (g_shadowAttribs, g_shadowMap, g_shadowMap_sampler,
+                              lightViewPosition, ddx (lightViewPosition), ddy (lightViewPosition),
+                              cameraDepth);
+#else
+    shadow = SampleFilterableShadowMap (g_shadowAttribs, g_filterableShadowMap,
+                                        g_filterableShadowMap_sampler, lightViewPosition,
+                                        ddx (lightViewPosition), ddy (lightViewPosition), cameraDepth);
+#endif
+    return float4 (shadow.fLightAmount, GetCascadeColor (shadow));
 }
 
 )hlsl";
@@ -1537,10 +1526,14 @@ void main (in PSInput psIn, out PSOutput psOut)
 
     // ---- direct: the sun, occluded by the shadow map ----------------------
     float ndotl  = max (dot (n, g_sunAndAmbient.xyz), 0.0);
-    float shadow = SampleSunShadow (psIn.worldPos, n);
-    float direct = directWeight * ndotl * shadow;
+    float4 shadow = SampleSunShadow (psIn.worldPos, n);
+    float direct = directWeight * ndotl * shadow.x;
 
     float3 lighting = ambientTerm + direct.xxx * g_skyColor.w;
+    if (g_shadowAttribs.bVisualizeShadowing != 0)
+        lighting = shadow.xxx;
+    if (g_shadowAttribs.bVisualizeCascades != 0)
+        lighting = lerp (lighting, shadow.yzw, 0.18);
     float4 base = psIn.color * g_baseColor;
 
     // ---- RenderQuality::Realistic (PLAT-RE126) ----------------------------
@@ -1790,7 +1783,7 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
     else if (view == 4)
         psOut.color = float4 (g_sunAndAmbient.xyz * 0.5 + 0.5, 1.0);
     else if (view == 5)
-        psOut.color = float4 (shadow, shadow, shadow, 1.0);
+        psOut.color = float4 (shadow.xxx, 1.0);
     else if (view == 6)
     {
         // ⚠️ THE RAW UPLOADED VALUE, NOT THE CLAMPED ONE the GGX branch uses,
@@ -1821,7 +1814,7 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
 // separately keeps the limit a property of THIS file rather than something
 // every caller has to know about.
 inline std::string ArchVizShaderSource (const char* body, const char* more = nullptr, const char* evenMore = nullptr,
-                                        const char* last = nullptr)
+                                        const char* last = nullptr, const char* final = nullptr)
 {
     std::string source = std::string (kArchVizCBuffer) + body;
     if (more != nullptr)
@@ -1830,6 +1823,8 @@ inline std::string ArchVizShaderSource (const char* body, const char* more = nul
         source += evenMore;
     if (last != nullptr)
         source += last;
+    if (final != nullptr)
+        source += final;
     return source;
 }
 

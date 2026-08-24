@@ -575,8 +575,49 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
 
         const bool showShadowSettings = state.readOnly || ImGui::CollapsingHeader ("shadow settings");
         if (showShadowSettings) {
-            if (!state.readOnly)
+            if (!state.readOnly) {
                 ImGui::Checkbox ("cast shadows", &state.shadowsEnabled);
+                const char* resolutions[] = { "512", "1024", "2048", "4096" };
+                int resolutionIndex =
+                    state.shadowResolution <= 512
+                        ? 0
+                        : (state.shadowResolution <= 1024 ? 1 : (state.shadowResolution <= 2048 ? 2 : 3));
+                if (ImGui::Combo ("resolution", &resolutionIndex, resolutions, 4))
+                    state.shadowResolution = 512 << resolutionIndex;
+                ImGui::SliderInt ("cascades", &state.shadowCascades, 1, 8);
+                const char* modes[] = { "PCF", "VSM", "EVSM2", "EVSM4" };
+                int modeIndex = state.shadowMode - 1;
+                if (ImGui::Combo ("mode", &modeIndex, modes, 4))
+                    state.shadowMode = modeIndex + 1;
+                ImGui::SliderFloat ("partitioning", &state.shadowPartitioning, 0.0f, 1.0f, "%.3f");
+                ImGui::SliderFloat ("filter size (m)", &state.shadowFilterWorldSize, 0.001f, 0.5f, "%.3f");
+                if (state.shadowMode != int (DiligentShadowMode::Pcf)) {
+                    const int filterSizes[] = { 2, 3, 5, 7 };
+                    const char* filterLabels[] = { "2 x 2", "3 x 3", "5 x 5", "7 x 7" };
+                    int filterIndex = state.shadowFilterSize <= 2
+                                          ? 0
+                                          : (state.shadowFilterSize <= 3 ? 1 : (state.shadowFilterSize <= 5 ? 2 : 3));
+                    if (ImGui::Combo ("conversion filter", &filterIndex, filterLabels, 4))
+                        state.shadowFilterSize = filterSizes[filterIndex];
+                }
+                if (state.shadowMode == int (DiligentShadowMode::Pcf)) {
+                    ImGui::SliderFloat ("depth bias", &state.shadowDepthBias, 0.00001f, 0.02f, "%.5f",
+                                        ImGuiSliderFlags_Logarithmic);
+                    ImGui::SliderFloat ("receiver bias clamp", &state.shadowReceiverBiasClamp, 0.0f, 20.0f);
+                }
+                else {
+                    ImGui::SliderFloat ("light bleeding reduction", &state.shadowLightBleeding, 0.0f, 0.99f);
+                    ImGui::SliderFloat ("variance bias", &state.shadowVsmBias, 0.00001f, 0.1f, "%.5f",
+                                        ImGuiSliderFlags_Logarithmic);
+                }
+                if (state.shadowMode >= int (DiligentShadowMode::Evsm2))
+                    ImGui::SliderFloat ("positive exponent", &state.shadowEvsmPositiveExponent, 0.1f, 40.0f);
+                if (state.shadowMode == int (DiligentShadowMode::Evsm4))
+                    ImGui::SliderFloat ("negative exponent", &state.shadowEvsmNegativeExponent, 0.1f, 40.0f);
+                ImGui::SliderFloat ("cascade transition", &state.shadowCascadeTransition, 0.0f, 0.5f);
+                ImGui::Checkbox ("visualize cascades", &state.shadowVisualizeCascades);
+                ImGui::Checkbox ("shadows only", &state.shadowOnly);
+            }
             if (!state.shadowsEnabled)
                 ImGui::TextDisabled ("shadow rendering disabled");
             else if (scene.shadowResolution == 0)
@@ -585,9 +626,15 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "shadow map %u, not fitted yet",
                                     scene.shadowResolution);
             else
-                ImGui::Text ("shadow %u   texel %.3f m", scene.shadowResolution, scene.shadowTexelMetres);
-            ImGui::TextDisabled (state.renderQuality == int (RenderQuality::Realistic) ? "filter: realistic 5 x 5"
-                                                                                       : "filter: fast 3 x 3");
+                ImGui::Text ("shadow %u x %u   texel %.3f m", scene.shadowResolution, scene.shadowCascades,
+                             scene.shadowTexelMetres);
+            const char* activeMode =
+                scene.shadowMode >= 1 && scene.shadowMode <= 4
+                    ? (scene.shadowMode == 1
+                           ? "PCF"
+                           : (scene.shadowMode == 2 ? "VSM" : (scene.shadowMode == 3 ? "EVSM2" : "EVSM4")))
+                    : "unknown";
+            ImGui::TextDisabled ("DiligentFX %s", activeMode);
         }
         ImGui::Text ("draws %llu   materials in pool %llu", (unsigned long long) scene.drawCalls,
                      (unsigned long long) scene.materials);

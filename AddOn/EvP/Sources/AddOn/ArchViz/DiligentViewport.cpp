@@ -151,9 +151,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             stats_.overlay = surface.mode == SurfaceMode::Overlay;
         }
         ArchVizLog (std::string ("Diligent viewport: device, immediate context and ") +
-                     (surface.mode == SurfaceMode::Overlay ? "COMPOSITION OVERLAY surface" :
-                      offscreen ? "OFFSCREEN surface" : "HWND swap chain") +
-                     " initialized");
+                    (surface.mode == SurfaceMode::Overlay ? "COMPOSITION OVERLAY surface"
+                     : offscreen                          ? "OFFSCREEN surface"
+                                                          : "HWND swap chain") +
+                    " initialized");
 
         // ---- the scene ------------------------------------------------------
         // The real one: SceneCmdQueue's elements, with Archicad's own materials
@@ -266,7 +267,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             hudState.renderMode = renderMode_.load ();
             hudState.showCallout = showCallout_.load ();
             if (offscreen)
-                ApplyCaptureSettings (hudState);   // ⚠️ the REQUEST's settings, not the viewer's
+                ApplyCaptureSettings (hudState); // ⚠️ the REQUEST's settings, not the viewer's
             // ⚠️ THE OVERLAY'S HUD IS A READOUT, NOT A CONTROL SURFACE. Its
             // window is WS_EX_TRANSPARENT, so every widget would draw and none
             // could be clicked (PLAT-RE55) -- and a dead control reads as a hung
@@ -470,22 +471,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 }
             }
 
-            // ⚠️ THE SHADOW PASS GOES HERE, BEFORE THE MAIN TARGETS ARE BOUND,
-            // and it deliberately leaves nothing bound afterwards. It swaps the
-            // render targets to its own depth texture; doing it after the
-            // SetRenderTargets below would silently undo that binding and render
-            // the whole frame into the shadow map.
-            //
-            // Skipped entirely over the floor plan: the only thing that samples
-            // this map is the mesh shader, and the model is not drawn there (see
-            // the note at the Draw call). Filling it anyway would be a whole
-            // depth pass over the model, every frame, for a texture nothing
-            // reads -- on the one path whose entire budget belongs to Archicad.
             scene.SetShadowsEnabled (hudState.shadowsEnabled);
-            gpuTimings.Begin (context, GpuTimingStage::VisibilityGBuffer);
-            if (!camera.IsOrthographic ())
-                scene.RenderShadowMap (context);
-            gpuTimings.End (context, GpuTimingStage::VisibilityGBuffer);
 
             // ⚠️ THE DEPTH BUFFER IS BOUND HERE AND NOWHERE ELSE. The clear
             // above deliberately takes a null DSV -- clearing colour is the
@@ -594,14 +580,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             camera.GetViewMatrix (view);
             camera.GetProjMatrix (stableProj, height > 0 ? float (width) / float (height) : 1.0f);
 
-            const bool taaActive = hudState.temporalAntiAliasing &&
-                                   hudState.renderQuality == int (RenderQuality::Realistic) &&
-                                   hudState.debugView == int (DiligentDebugView::Final) &&
-                                   debugView_.load () == int (DiligentDebugView::Final) &&
-                                   !camera.IsOrthographic () && !blanked;
+            const bool taaActive =
+                hudState.temporalAntiAliasing && hudState.renderQuality == int (RenderQuality::Realistic) &&
+                hudState.debugView == int (DiligentDebugView::Final) &&
+                debugView_.load () == int (DiligentDebugView::Final) && !camera.IsOrthographic () && !blanked;
             scene.SetTemporalAntiAliasing (taaActive, hudState.taaStability);
-            scene.PrepareTemporalAntiAliasingFrame (context, static_cast<uint32_t> (frames), stableProj, proj,
-                                                     jitter);
+            scene.PrepareTemporalAntiAliasingFrame (context, static_cast<uint32_t> (frames), stableProj, proj, jitter);
             Multiply (motionViewProj, view, stableProj);
             Multiply (viewProj, view, proj);
 
@@ -644,6 +628,13 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             const bool drawingOverThePlan = camera.IsOrthographic ();
             const bool modelIsDrawn = !drawingOverThePlan && !blanked;
 
+            ApplyShadowSettings (scene, hudState);
+
+            gpuTimings.Begin (context, GpuTimingStage::VisibilityGBuffer);
+            if (modelIsDrawn)
+                scene.RenderShadowMap (context, view, stableProj);
+            gpuTimings.End (context, GpuTimingStage::VisibilityGBuffer);
+
             // ---- picking (PLAT-RE34, PLAT-RE136) -----------------------------
             // ⚠️ AFTER the camera has consumed this frame's input, and only when
             // ImGui does not want the mouse -- a click on the HUD is a click on
@@ -652,8 +643,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ⚠️ CALLED EVEN WHEN IT CANNOT PICK, because clearing the hover is
             // one of its answers. See ServicePick.
             if (!offscreen)
-                ServicePick (pick, pickState, !hudState.wantsMouse && modelIsDrawn, device, context, scene, input, frames,
-                             width, height, motionViewProj, rtv, dsv, mutex_, stats_);
+                ServicePick (pick, pickState, !hudState.wantsMouse && modelIsDrawn, device, context, scene, input,
+                             frames, width, height, motionViewProj, rtv, dsv, mutex_, stats_);
             const uint32_t hoverId = pickState.hoverId;
 
             // What the callout shows. Looked up every frame rather than cached
@@ -844,14 +835,15 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             }
 
             // Under the anchors; ⚠️ NOT gated on `offscreen` -- see the helper.
-            UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height,
-                                      target.ColorFormat (), target.DepthFormat ());
+            UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height, target.ColorFormat (),
+                                      target.DepthFormat ());
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
             if (!offscreen)
-                UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_, planAnchorSeq_.load (),
-                                          lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked, viewProj, width, height,
-                                          planAnchorWidthPixels_.load (), planAnchorRgba_.load ());
+                UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
+                                          planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
+                                          viewProj, width, height, planAnchorWidthPixels_.load (),
+                                          planAnchorRgba_.load ());
 
             if (!offscreen && !blanked)
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
@@ -1081,9 +1073,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     if (offscreen && activeCaptureId_.load () == (std::numeric_limits<uint64_t>::max) ()) {
         captureStats_.status = captureStats_.stage = "cancelled";
         activeCaptureId_.store (0);
-    } else if (offscreen && captureStats_.status == "running" && captureStats_.bytes > 0) {
+    }
+    else if (offscreen && captureStats_.status == "running" && captureStats_.bytes > 0) {
         captureStats_.status = captureStats_.stage = "completed";
-    } else if (offscreen && captureStats_.status == "running") {
+    }
+    else if (offscreen && captureStats_.status == "running") {
         captureStats_.status = captureStats_.stage = "failed";
         captureStats_.failureMessage = "capture stopped before the frame was encoded";
         activeCaptureId_.store (0);

@@ -73,9 +73,11 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
 
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz mesh VS", kArchVizMeshVS, impl_->vs))
         return false;
-    if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz mesh PS", kArchVizEnvCommonPS, impl_->ps, kArchVizMeshPS,
-                  kArchVizMeshPSMain, kArchVizMeshPSMainTail))
-        return false;
+    for (int mode = 0; mode < kShadowModeCount; ++mode) {
+        if (!CompileDiligentShadowPixelShader (device, static_cast<DiligentShadowMode> (mode + 1), &impl_->ps[mode],
+                                               error))
+            return false;
+    }
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz shadow VS", kArchVizShadowVS, impl_->shadowVs))
         return false;
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz flat PS", kArchVizFlatPS, impl_->flatPs))
@@ -160,49 +162,39 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     gBufferElements[kGBufferMotion].ClearValue.SetColor (Diligent::TEX_FORMAT_RG16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
     impl_->gBuffer = std::make_unique<Diligent::GBuffer> (gBufferElements, _countof (gBufferElements));
 
-    // ⚠️ THE SHADOW MAP GOES UP BEFORE THE MESH PIPELINES DO, because its shader
-    // view is bound to them as a STATIC variable. Its failure is not fatal: a
-    // viewer with no shadows is worth far more than no viewer, so the reason is
-    // reported through the stats and the scene renders unshadowed.
     std::string shadowError;
-    if (!impl_->shadowMap.Init (device, impl_->shadowVs, impl_->constants, layout, _countof (layout), kShadowResolution,
-                                shadowError)) {
-        // Not returned as `error` -- that would fail Init and leave a black
-        // viewport for a missing shadow.
+    DiligentShadowSettings initialShadowSettings;
+    initialShadowSettings.resolution = kShadowResolution;
+    if (!impl_->shadowMap.Init (device, impl_->shadowVs, impl_->constants, layout, _countof (layout),
+                                initialShadowSettings, shadowError)) {
         impl_->shadowMap.Shutdown ();
     }
 
-    // ⚠️ AND SO DOES THE ENVIRONMENT MAP, FOR THE SAME REASON AND WITH THE SAME
-    // FAILURE POLICY. Its texture is allocated here, empty; nothing is loaded
-    // until a path arrives over the bus. A viewer with no sky is worth far more
-    // than no viewer, so a failure is recorded and the scene renders on the
-    // two-colour ambient it has always had.
     std::string environmentError;
     if (!impl_->environment.Init (device, environmentError)) {
         impl_->environment.Shutdown ();
         impl_->environmentError = environmentError;
     }
 
-    // Point sampling, clamped. ⚠️ CLAMP, NOT WRAP. A fragment just outside the
-    // light's frustum would otherwise read the depth of something on the far
-    // side of the model and be shadowed by it -- a shadow that appears in mid-air
-    // with nothing casting it. The pixel shader also rejects out-of-range uv, so
-    // this is the second of two guards, and both are cheap.
+    // The PCF representation is a comparison texture; VSM/EVSM are ordinary
+    // filterable arrays. Their sampler types are part of the shader signature.
     Diligent::SamplerDesc shadowSampler;
-    shadowSampler.MinFilter = Diligent::FILTER_TYPE_POINT;
-    shadowSampler.MagFilter = Diligent::FILTER_TYPE_POINT;
-    shadowSampler.MipFilter = Diligent::FILTER_TYPE_POINT;
+    shadowSampler.MinFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+    shadowSampler.MagFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+    shadowSampler.MipFilter = Diligent::FILTER_TYPE_COMPARISON_LINEAR;
     shadowSampler.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
     shadowSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
     shadowSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
-    // ⚠️ THE NAME IS THE SAMPLER'S OWN, NOT THE TEXTURE'S. Diligent only folds
-    // `g_shadowMap_sampler` into `g_shadowMap` when a shader is created with
-    // UseCombinedTextureSamplers, and these are not -- so an immutable sampler
-    // named "g_shadowMap" matches nothing. That mismatch is not a failure: the
-    // pipeline is created, the sampler falls back to the D3D11 default, shadows
-    // still appear, and the only trace is six "No resource is assigned to static
-    // shader variable 'g_shadowMap_sampler'" errors per launch. Which means the
-    // CLAMP addressing reasoned about above was not actually in effect.
+    shadowSampler.ComparisonFunc = Diligent::COMPARISON_FUNC_LESS;
+
+    Diligent::SamplerDesc filterableShadowSampler;
+    filterableShadowSampler.MinFilter = Diligent::FILTER_TYPE_ANISOTROPIC;
+    filterableShadowSampler.MagFilter = Diligent::FILTER_TYPE_ANISOTROPIC;
+    filterableShadowSampler.MipFilter = Diligent::FILTER_TYPE_ANISOTROPIC;
+    filterableShadowSampler.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
+    filterableShadowSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
+    filterableShadowSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
+    filterableShadowSampler.MaxAnisotropy = 4;
 
     // The environment's sampler is a DIFFERENT one, and every field differs for
     // a reason. ⚠️ U WRAPS AND V CLAMPS, WHICH IS NOT A DETAIL: an
@@ -220,144 +212,144 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     envSampler.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
     envSampler.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
 
-    const Diligent::ImmutableSamplerDesc immutableSamplers[] = {
+    const Diligent::ImmutableSamplerDesc pcfSamplers[] = {
         { Diligent::SHADER_TYPE_PIXEL, "g_shadowMap_sampler", shadowSampler },
+        { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
+    };
+    const Diligent::ImmutableSamplerDesc filterableSamplers[] = {
+        { Diligent::SHADER_TYPE_PIXEL, "g_filterableShadowMap_sampler", filterableShadowSampler },
         { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
     };
 
     // See the ⚠️ at the mesh PSO's resource layout for why this one variable is
     // not STATIC like everything else the mesh shader reads.
-    const Diligent::ShaderResourceVariableDesc meshVariables[] = {
+    const Diligent::ShaderResourceVariableDesc pcfVariables[] = {
         { Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        { Diligent::SHADER_TYPE_PIXEL, "g_shadowMap", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+    };
+    const Diligent::ShaderResourceVariableDesc filterableVariables[] = {
+        { Diligent::SHADER_TYPE_PIXEL, "g_ambientOcclusion", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        { Diligent::SHADER_TYPE_PIXEL, "g_filterableShadowMap", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
     };
 
-    for (int i = 0; i < kCullModeCount; ++i) {
-        // ⚠️ THIS ORDER IS CullIndex's, INVERTED. See DiligentSceneImpl.hpp.
-        const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
+    for (int mode = 0; mode < kShadowModeCount; ++mode) {
+        for (int i = 0; i < kCullModeCount; ++i) {
+            // ⚠️ THIS ORDER IS CullIndex's, INVERTED. See DiligentSceneImpl.hpp.
+            const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
 
-        for (int blended = 0; blended < 2; ++blended) {
-            Diligent::GraphicsPipelineStateCreateInfo pci;
-            pci.PSODesc.Name = blended ? "ArchViz mesh PSO (blend)" : "ArchViz mesh PSO";
-            Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
-            gp.NumRenderTargets = 1;
-            // ⚠️ THE PSO RECORDS THE FORMATS IT WILL RENDER INTO. Passing the
-            // swap chain's actual formats rather than a guess turns a mismatch
-            // into a creation-time failure instead of a draw-time validation
-            // error nobody reads.
-            gp.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
-            gp.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
-            gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            gp.RasterizerDesc.CullMode = ToDiligentCull (cull);
-            gp.RasterizerDesc.FrontCounterClockwise = Diligent::False; // bgfx's setting
-            gp.DepthStencilDesc.DepthEnable = Diligent::True;
-            // ⚠️ THE TRANSPARENT PASS DOES NOT WRITE DEPTH. See the header: a
-            // pane of glass that writes depth hides the room behind it.
-            gp.DepthStencilDesc.DepthWriteEnable = blended ? Diligent::False : Diligent::True;
-            gp.InputLayout.LayoutElements = layout;
-            gp.InputLayout.NumElements = _countof (layout);
+            for (int blended = 0; blended < 2; ++blended) {
+                Diligent::GraphicsPipelineStateCreateInfo pci;
+                pci.PSODesc.Name = blended ? "ArchViz mesh PSO (blend)" : "ArchViz mesh PSO";
+                Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+                gp.NumRenderTargets = 1;
+                // ⚠️ THE PSO RECORDS THE FORMATS IT WILL RENDER INTO. Passing the
+                // swap chain's actual formats rather than a guess turns a mismatch
+                // into a creation-time failure instead of a draw-time validation
+                // error nobody reads.
+                gp.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
+                gp.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
+                gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                gp.RasterizerDesc.CullMode = ToDiligentCull (cull);
+                gp.RasterizerDesc.FrontCounterClockwise = Diligent::False; // bgfx's setting
+                gp.DepthStencilDesc.DepthEnable = Diligent::True;
+                // ⚠️ THE TRANSPARENT PASS DOES NOT WRITE DEPTH. See the header: a
+                // pane of glass that writes depth hides the room behind it.
+                gp.DepthStencilDesc.DepthWriteEnable = blended ? Diligent::False : Diligent::True;
+                gp.InputLayout.LayoutElements = layout;
+                gp.InputLayout.NumElements = _countof (layout);
 
-            Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
-            rt.BlendEnable = blended ? Diligent::True : Diligent::False;
-            if (blended) {
-                // ⚠️ PREMULTIPLIED (ONE / INV_SRC_ALPHA), NOT SRC_ALPHA, AND
-                // THE REASON IS GLASS REFLECTIONS. With SRC_ALPHA the hardware
-                // scales EVERYTHING the shader returns by the surface's own
-                // opacity -- including the sky reflected off it. This project's
-                // clear glass is 69% transparent, so its reflection arrived at
-                // 31% strength on top of an already-subtle 8% Fresnel, which is
-                // to say invisible; and the relationship is backwards, because a
-                // window reflects MORE as it gets clearer, not less. Reported
-                // live as "no reflections on glass, even with an HDR loaded".
-                //
-                // Premultiplied lets the shader decide per TERM: it attenuates
-                // what is seen THROUGH the surface by alpha and leaves what
-                // bounces OFF it alone. kArchVizMeshPSMain does that and must
-                // stay in step -- the two halves are one decision.
-                rt.SrcBlend = Diligent::BLEND_FACTOR_ONE;
-                rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
-                rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
-                rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
-                rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
-                rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
-            }
+                Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
+                rt.BlendEnable = blended ? Diligent::True : Diligent::False;
+                if (blended) {
+                    // ⚠️ PREMULTIPLIED (ONE / INV_SRC_ALPHA), NOT SRC_ALPHA, AND
+                    // THE REASON IS GLASS REFLECTIONS. With SRC_ALPHA the hardware
+                    // scales EVERYTHING the shader returns by the surface's own
+                    // opacity -- including the sky reflected off it. This project's
+                    // clear glass is 69% transparent, so its reflection arrived at
+                    // 31% strength on top of an already-subtle 8% Fresnel, which is
+                    // to say invisible; and the relationship is backwards, because a
+                    // window reflects MORE as it gets clearer, not less. Reported
+                    // live as "no reflections on glass, even with an HDR loaded".
+                    //
+                    // Premultiplied lets the shader decide per TERM: it attenuates
+                    // what is seen THROUGH the surface by alpha and leaves what
+                    // bounces OFF it alone. kArchVizMeshPSMain does that and must
+                    // stay in step -- the two halves are one decision.
+                    rt.SrcBlend = Diligent::BLEND_FACTOR_ONE;
+                    rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+                    rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
+                    rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
+                    rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+                    rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
+                }
 
-            pci.pVS = impl_->vs;
-            pci.pPS = impl_->ps;
-            pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
-            // ⚠️ THE AMBIENT OCCLUSION IS THE ONE MUTABLE TEXTURE IN THIS
-            // PIPELINE, AND IT HAS TO BE (RE51.C3). Every other resource here is
-            // STATIC because it is allocated once and refilled -- that is the
-            // whole reason EnvironmentMap fixes its own size. The AO texture is
-            // owned by DiligentFX's PostFXContext, which REALLOCATES it on every
-            // viewport resize, so a static binding would capture a view that is
-            // freed the first time the panel is dragged wider. DYNAMIC lets Draw
-            // re-point it per frame.
-            pci.PSODesc.ResourceLayout.Variables = meshVariables;
-            pci.PSODesc.ResourceLayout.NumVariables = _countof (meshVariables);
-            pci.PSODesc.ResourceLayout.ImmutableSamplers = immutableSamplers;
-            pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (immutableSamplers);
+                pci.pVS = impl_->vs;
+                pci.pPS = impl_->ps[mode];
+                pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+                // ⚠️ THE AMBIENT OCCLUSION IS THE ONE MUTABLE TEXTURE IN THIS
+                // PIPELINE, AND IT HAS TO BE (RE51.C3). Every other resource here is
+                // STATIC because it is allocated once and refilled -- that is the
+                // whole reason EnvironmentMap fixes its own size. The AO texture is
+                // owned by DiligentFX's PostFXContext, which REALLOCATES it on every
+                // viewport resize, so a static binding would capture a view that is
+                // freed the first time the panel is dragged wider. DYNAMIC lets Draw
+                // re-point it per frame.
+                pci.PSODesc.ResourceLayout.Variables = mode == 0 ? pcfVariables : filterableVariables;
+                pci.PSODesc.ResourceLayout.NumVariables = _countof (pcfVariables);
+                pci.PSODesc.ResourceLayout.ImmutableSamplers = mode == 0 ? pcfSamplers : filterableSamplers;
+                pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (pcfSamplers);
 
-            RefCntAutoPtr<Diligent::IPipelineState>& pso = blended ? impl_->blendPso[i] : impl_->opaquePso[i];
-            RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb = blended ? impl_->blendSrb[i] : impl_->opaqueSrb[i];
+                RefCntAutoPtr<Diligent::IPipelineState>& pso =
+                    blended ? impl_->blendPso[mode][i] : impl_->opaquePso[mode][i];
+                RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb =
+                    blended ? impl_->blendSrb[mode][i] : impl_->opaqueSrb[mode][i];
 
-            device->CreateGraphicsPipelineState (pci, &pso);
-            if (pso == nullptr) {
-                error = "Diligent CreateGraphicsPipelineState(ArchViz mesh) failed";
-                return false;
-            }
-
-            // Automatic resource binding: the cbuffer is resolved BY NAME from
-            // shader reflection, with no register slot named on this side. Both
-            // stages declare it and both must find it -- a stage that silently
-            // missed would render with whatever was last in the buffer.
-            const Diligent::SHADER_TYPE stages[2] = { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL };
-            for (Diligent::SHADER_TYPE stage : stages) {
-                Diligent::IShaderResourceVariable* variable = pso->GetStaticVariableByName (stage, "ArchVizConstants");
-                if (variable == nullptr) {
-                    error = "Diligent could not resolve the `ArchVizConstants` constant buffer "
-                            "by name in the ";
-                    error += (stage == Diligent::SHADER_TYPE_VERTEX ? "vertex" : "pixel");
-                    error += " shader (automatic resource binding did not find it)";
+                device->CreateGraphicsPipelineState (pci, &pso);
+                if (pso == nullptr) {
+                    error = "Diligent CreateGraphicsPipelineState(ArchViz mesh) failed";
                     return false;
                 }
-                variable->Set (impl_->constants);
-            }
 
-            // The shadow map itself. STATIC because the texture is created once
-            // and never replaced -- only its CONTENTS change, every frame, which
-            // a binding does not care about.
-            //
-            // ⚠️ ITS ABSENCE IS NOT AN ERROR, in either direction. When the map
-            // failed to initialise there is nothing to bind, and the pixel
-            // shader's `g_shadowParams.z` gate keeps it from sampling an unbound
-            // texture. When the map exists but the variable does not, the HLSL
-            // compiler optimised the sampling away -- which would mean the gate
-            // is permanently off, and that is worth knowing rather than
-            // crashing over, so it is left to the Shadow debug view to show.
-            if (Diligent::ITextureView* shadowView = impl_->shadowMap.ShaderView ()) {
-                Diligent::IShaderResourceVariable* shadowVar =
-                    pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_shadowMap");
-                if (shadowVar != nullptr)
-                    shadowVar->Set (shadowView);
-            }
+                // Automatic resource binding: the cbuffer is resolved BY NAME from
+                // shader reflection, with no register slot named on this side. Both
+                // stages declare it and both must find it -- a stage that silently
+                // missed would render with whatever was last in the buffer.
+                const Diligent::SHADER_TYPE stages[2] = { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL };
+                for (Diligent::SHADER_TYPE stage : stages) {
+                    Diligent::IShaderResourceVariable* variable =
+                        pso->GetStaticVariableByName (stage, "ArchVizConstants");
+                    if (variable == nullptr) {
+                        error = "Diligent could not resolve the `ArchVizConstants` constant buffer "
+                                "by name in the ";
+                        error += (stage == Diligent::SHADER_TYPE_VERTEX ? "vertex" : "pixel");
+                        error += " shader (automatic resource binding did not find it)";
+                        return false;
+                    }
+                    variable->Set (impl_->constants);
+                }
 
-            // The environment map, on exactly the same terms as the shadow map
-            // above -- allocated once, contents replaced on load, absence not an
-            // error. ⚠️ THIS IS WHY EnvironmentMap FIXES ITS OWN SIZE: the view
-            // bound here is captured by every SRB created below, so a texture
-            // recreated at a different size on the next load would leave all of
-            // them pointing at the freed one.
-            if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
-                Diligent::IShaderResourceVariable* envVar =
-                    pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap");
-                if (envVar != nullptr)
-                    envVar->Set (envView);
-            }
+                if (Diligent::IShaderResourceVariable* shadowConstants =
+                        pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "ArchVizShadowConstants"))
+                    shadowConstants->Set (impl_->shadowMap.AttribsBuffer ());
 
-            pso->CreateShaderResourceBinding (&srb, true);
-            if (srb == nullptr) {
-                error = "Diligent CreateShaderResourceBinding(ArchViz mesh) failed";
-                return false;
+                // The environment map, on exactly the same terms as the shadow map
+                // above -- allocated once, contents replaced on load, absence not an
+                // error. ⚠️ THIS IS WHY EnvironmentMap FIXES ITS OWN SIZE: the view
+                // bound here is captured by every SRB created below, so a texture
+                // recreated at a different size on the next load would leave all of
+                // them pointing at the freed one.
+                if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
+                    Diligent::IShaderResourceVariable* envVar =
+                        pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap");
+                    if (envVar != nullptr)
+                        envVar->Set (envView);
+                }
+
+                pso->CreateShaderResourceBinding (&srb, true);
+                if (srb == nullptr) {
+                    error = "Diligent CreateShaderResourceBinding(ArchViz mesh) failed";
+                    return false;
+                }
             }
         }
     }
@@ -532,80 +524,81 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     // g_shadowMap, g_envMap) and every dynamic one (g_ambientOcclusion) is
     // identical, so the two cannot disagree about what the model looks like --
     // only about where the tone curve happens.
-    for (int i = 0; i < kCullModeCount; ++i) {
-        const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
+    for (int mode = 0; mode < kShadowModeCount; ++mode) {
+        for (int i = 0; i < kCullModeCount; ++i) {
+            const CullMode cull = i == 0 ? CullMode::Ccw : (i == 1 ? CullMode::Cw : CullMode::None);
 
-        for (int blended = 0; blended < 2; ++blended) {
-            Diligent::GraphicsPipelineStateCreateInfo pci;
-            pci.PSODesc.Name = blended ? "ArchViz mesh HDR PSO (blend)" : "ArchViz mesh HDR PSO";
-            Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
-            gp.NumRenderTargets = 1;
-            gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
-            gp.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
-            gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            gp.RasterizerDesc.CullMode = ToDiligentCull (cull);
-            gp.RasterizerDesc.FrontCounterClockwise = Diligent::False;
-            gp.DepthStencilDesc.DepthEnable = Diligent::True;
-            gp.DepthStencilDesc.DepthWriteEnable = blended ? Diligent::False : Diligent::True;
-            gp.InputLayout.LayoutElements = layout;
-            gp.InputLayout.NumElements = _countof (layout);
+            for (int blended = 0; blended < 2; ++blended) {
+                Diligent::GraphicsPipelineStateCreateInfo pci;
+                pci.PSODesc.Name = blended ? "ArchViz mesh HDR PSO (blend)" : "ArchViz mesh HDR PSO";
+                Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+                gp.NumRenderTargets = 1;
+                gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+                gp.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
+                gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+                gp.RasterizerDesc.CullMode = ToDiligentCull (cull);
+                gp.RasterizerDesc.FrontCounterClockwise = Diligent::False;
+                gp.DepthStencilDesc.DepthEnable = Diligent::True;
+                gp.DepthStencilDesc.DepthWriteEnable = blended ? Diligent::False : Diligent::True;
+                gp.InputLayout.LayoutElements = layout;
+                gp.InputLayout.NumElements = _countof (layout);
 
-            Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
-            rt.BlendEnable = blended ? Diligent::True : Diligent::False;
-            if (blended) {
-                // ⚠️ SAME PREMULTIPLIED BLEND AS THE LDR PATH. The transparent
-                // pass composites into the HDR target the same way it composites
-                // into the swap chain -- ONE / INV_SRC_ALPHA -- so what the
-                // resolve pass tone-maps is the composited scene rather than
-                // each surface individually. That is the physically correct
-                // order and it is different from the LDR path, where each
-                // surface is tone-mapped before blending. The difference shows
-                // on glass and is an improvement, not a regression.
-                rt.SrcBlend = Diligent::BLEND_FACTOR_ONE;
-                rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
-                rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
-                rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
-                rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
-                rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
-            }
+                Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
+                rt.BlendEnable = blended ? Diligent::True : Diligent::False;
+                if (blended) {
+                    // ⚠️ SAME PREMULTIPLIED BLEND AS THE LDR PATH. The transparent
+                    // pass composites into the HDR target the same way it composites
+                    // into the swap chain -- ONE / INV_SRC_ALPHA -- so what the
+                    // resolve pass tone-maps is the composited scene rather than
+                    // each surface individually. That is the physically correct
+                    // order and it is different from the LDR path, where each
+                    // surface is tone-mapped before blending. The difference shows
+                    // on glass and is an improvement, not a regression.
+                    rt.SrcBlend = Diligent::BLEND_FACTOR_ONE;
+                    rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+                    rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
+                    rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
+                    rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+                    rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
+                }
 
-            pci.pVS = impl_->vs;
-            pci.pPS = impl_->ps;
-            pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
-            pci.PSODesc.ResourceLayout.Variables = meshVariables;
-            pci.PSODesc.ResourceLayout.NumVariables = _countof (meshVariables);
-            pci.PSODesc.ResourceLayout.ImmutableSamplers = immutableSamplers;
-            pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (immutableSamplers);
+                pci.pVS = impl_->vs;
+                pci.pPS = impl_->ps[mode];
+                pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+                pci.PSODesc.ResourceLayout.Variables = mode == 0 ? pcfVariables : filterableVariables;
+                pci.PSODesc.ResourceLayout.NumVariables = _countof (pcfVariables);
+                pci.PSODesc.ResourceLayout.ImmutableSamplers = mode == 0 ? pcfSamplers : filterableSamplers;
+                pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (pcfSamplers);
 
-            RefCntAutoPtr<Diligent::IPipelineState>& pso = blended ? impl_->hdrBlendPso[i] : impl_->hdrOpaquePso[i];
-            RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb =
-                blended ? impl_->hdrBlendSrb[i] : impl_->hdrOpaqueSrb[i];
+                RefCntAutoPtr<Diligent::IPipelineState>& pso =
+                    blended ? impl_->hdrBlendPso[mode][i] : impl_->hdrOpaquePso[mode][i];
+                RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb =
+                    blended ? impl_->hdrBlendSrb[mode][i] : impl_->hdrOpaqueSrb[mode][i];
 
-            device->CreateGraphicsPipelineState (pci, &pso);
-            if (pso == nullptr) {
-                error = "Diligent CreateGraphicsPipelineState(ArchViz mesh HDR) failed";
-                return false;
-            }
+                device->CreateGraphicsPipelineState (pci, &pso);
+                if (pso == nullptr) {
+                    error = "Diligent CreateGraphicsPipelineState(ArchViz mesh HDR) failed";
+                    return false;
+                }
 
-            for (Diligent::SHADER_TYPE stage : { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL }) {
-                if (Diligent::IShaderResourceVariable* variable =
-                        pso->GetStaticVariableByName (stage, "ArchVizConstants"))
-                    variable->Set (impl_->constants);
-            }
-            if (Diligent::ITextureView* shadowView = impl_->shadowMap.ShaderView ()) {
-                if (Diligent::IShaderResourceVariable* shadowVar =
-                        pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_shadowMap"))
-                    shadowVar->Set (shadowView);
-            }
-            if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
-                if (Diligent::IShaderResourceVariable* envVar =
-                        pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap"))
-                    envVar->Set (envView);
-            }
-            pso->CreateShaderResourceBinding (&srb, true);
-            if (srb == nullptr) {
-                error = "Diligent CreateShaderResourceBinding(ArchViz mesh HDR) failed";
-                return false;
+                for (Diligent::SHADER_TYPE stage : { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_PIXEL }) {
+                    if (Diligent::IShaderResourceVariable* variable =
+                            pso->GetStaticVariableByName (stage, "ArchVizConstants"))
+                        variable->Set (impl_->constants);
+                }
+                if (Diligent::IShaderResourceVariable* shadowConstants =
+                        pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "ArchVizShadowConstants"))
+                    shadowConstants->Set (impl_->shadowMap.AttribsBuffer ());
+                if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
+                    if (Diligent::IShaderResourceVariable* envVar =
+                            pso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap"))
+                        envVar->Set (envView);
+                }
+                pso->CreateShaderResourceBinding (&srb, true);
+                if (srb == nullptr) {
+                    error = "Diligent CreateShaderResourceBinding(ArchViz mesh HDR) failed";
+                    return false;
+                }
             }
         }
     }
@@ -1049,11 +1042,13 @@ void DiligentScene::Shutdown ()
     impl_->resolvePso.Release ();
     impl_->hdrEnvBackgroundSrb.Release ();
     impl_->hdrEnvBackgroundPso.Release ();
-    for (int i = 0; i < kCullModeCount; ++i) {
-        impl_->hdrOpaqueSrb[i].Release ();
-        impl_->hdrBlendSrb[i].Release ();
-        impl_->hdrOpaquePso[i].Release ();
-        impl_->hdrBlendPso[i].Release ();
+    for (int mode = 0; mode < kShadowModeCount; ++mode) {
+        for (int i = 0; i < kCullModeCount; ++i) {
+            impl_->hdrOpaqueSrb[mode][i].Release ();
+            impl_->hdrBlendSrb[mode][i].Release ();
+            impl_->hdrOpaquePso[mode][i].Release ();
+            impl_->hdrBlendPso[mode][i].Release ();
+        }
     }
     impl_->hdrColorTexture.Release ();
     impl_->hdrColorRTV = nullptr;
@@ -1067,14 +1062,18 @@ void DiligentScene::Shutdown ()
     impl_->ambientOcclusionDebugPso.Release ();
     impl_->gBufferDebugSrb.Release ();
     impl_->gBufferDebugPso.Release ();
+    for (int mode = 0; mode < kShadowModeCount; ++mode) {
+        for (int i = 0; i < kCullModeCount; ++i) {
+            impl_->opaqueSrb[mode][i].Release ();
+            impl_->blendSrb[mode][i].Release ();
+            impl_->opaquePso[mode][i].Release ();
+            impl_->blendPso[mode][i].Release ();
+        }
+    }
     for (int i = 0; i < kCullModeCount; ++i) {
-        impl_->opaqueSrb[i].Release ();
-        impl_->blendSrb[i].Release ();
         impl_->pickSrb[i].Release ();
         impl_->outlineSrb[i].Release ();
         impl_->gBufferSrb[i].Release ();
-        impl_->opaquePso[i].Release ();
-        impl_->blendPso[i].Release ();
         impl_->pickPso[i].Release ();
         impl_->outlinePso[i].Release ();
         impl_->gBufferPso[i].Release ();
@@ -1093,7 +1092,8 @@ void DiligentScene::Shutdown ()
     impl_->gBufferPs.Release ();
     impl_->flatPs.Release ();
     impl_->shadowVs.Release ();
-    impl_->ps.Release ();
+    for (RefCntAutoPtr<Diligent::IShader>& ps : impl_->ps)
+        ps.Release ();
     impl_->vs.Release ();
     impl_->ready = false;
 }

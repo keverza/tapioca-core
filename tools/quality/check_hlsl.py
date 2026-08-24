@@ -32,6 +32,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 HEADER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentShaders.hpp"
+FX_SHADERS = REPO / "AddOn/reference/DiligentEngine-master/DiligentFX/Shaders/Common/public"
 POINT_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentPointCloudLayer.cpp"
 # ⚠️ THE OVERLAY LAYERS KEEP THEIR SHADERS IN THEIR OWN .cpp, not in the shared
 # header, so until they were listed here they were the ONE part of the renderer
@@ -78,6 +79,13 @@ CONTINUATIONS = {
     "kArchVizMeshPS": ["kArchVizMeshPSMain", "kArchVizMeshPSMainTail"],
 }
 
+MESH_SHADOW_VARIANTS = [
+    "kArchVizShadowModePcf",
+    "kArchVizShadowModeVsm",
+    "kArchVizShadowModeEvsm2",
+    "kArchVizShadowModeEvsm4",
+]
+
 # Literals prepended AFTER the cbuffer and BEFORE the stage's own body, matching
 # the extra arguments the stage passes to ArchVizShaderSource.
 #
@@ -87,7 +95,7 @@ CONTINUATIONS = {
 # from DiligentScene::Init's concatenation, and then the gate compiles something
 # the add-on never does.
 PRELUDES = {
-    "kArchVizMeshPS": ["kArchVizEnvCommonPS"],
+    "kArchVizMeshPS": ["kArchVizShadowModePcf", "kArchVizEnvCommonPS"],
     "kArchVizEnvBackgroundVS": ["kArchVizEnvCommonPS"],
     "kArchVizEnvBackgroundPS": ["kArchVizEnvCommonPS"],
     # ⚠️ THE PREFILTER PIXEL SHADER NEEDS THE SAME PRELUDE AS THE BACKGROUND,
@@ -123,8 +131,7 @@ SELF_CONTAINED = {
 
 def find_fxc():
     """The newest x64 fxc in the Windows SDK, or None."""
-    roots = [Path(r"C:\Program Files (x86)\Windows Kits\10\bin"),
-             Path(r"C:\Program Files\Windows Kits\10\bin")]
+    roots = [Path(r"C:\Program Files (x86)\Windows Kits\10\bin"), Path(r"C:\Program Files\Windows Kits\10\bin")]
     found = []
     for root in roots:
         if root.is_dir():
@@ -141,10 +148,12 @@ def main():
         print("fxc.exe not found (Windows SDK absent) — HLSL check SKIPPED")
         return 0
 
-    source = (HEADER.read_text(encoding="utf-8")
-              + POINT_LAYER.read_text(encoding="utf-8")
-              + PLAN_ANCHOR_LAYER.read_text(encoding="utf-8")
-              + STORY_SLICE_LAYER.read_text(encoding="utf-8"))
+    source = (
+        HEADER.read_text(encoding="utf-8")
+        + POINT_LAYER.read_text(encoding="utf-8")
+        + PLAN_ANCHOR_LAYER.read_text(encoding="utf-8")
+        + STORY_SLICE_LAYER.read_text(encoding="utf-8")
+    )
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     if "kArchVizCBuffer" not in blocks:
         print("FAIL  the shared cbuffer literal was not found in %s" % HEADER.name)
@@ -180,14 +189,25 @@ def main():
                 failed += 1
                 break
             body += blocks[extra]
-        path.write_text(("" if name in SELF_CONTAINED else cbuffer) + body,
-                        encoding="utf-8")
+        path.write_text(("" if name in SELF_CONTAINED else cbuffer) + body, encoding="utf-8")
         result = subprocess.run(
-            [str(fxc), "/T", profile, "/E", "main", "/nologo",
-             "/Fo", str(out / (name + ".dxbc")), str(path)],
-            capture_output=True, text=True)
-        print("%s  %-22s %s" % ("ok  " if result.returncode == 0 else "FAIL",
-                                name, profile))
+            [
+                str(fxc),
+                "/T",
+                profile,
+                "/E",
+                "main",
+                "/nologo",
+                "/I",
+                str(FX_SHADERS),
+                "/Fo",
+                str(out / (name + ".dxbc")),
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        print("%s  %-22s %s" % ("ok  " if result.returncode == 0 else "FAIL", name, profile))
         if result.returncode != 0:
             failed += 1
             # The line numbers fxc reports are into the CONCATENATED file, which
@@ -195,7 +215,45 @@ def main():
             print((result.stdout + result.stderr).strip())
             print("      source: %s" % path)
 
-    print("\n%d stage(s) compiled, %d failed" % (len(STAGES), failed))
+    # The mesh stage is compiled four times at runtime because each DiligentFX
+    # shadow representation has a different texture type. Check every variant,
+    # not only the PCF default assembled by PRELUDES above.
+    for mode in MESH_SHADOW_VARIANTS[1:]:
+        name = "kArchVizMeshPS_" + mode.removeprefix("kArchVizShadowMode")
+        path = out / (name + ".hlsl")
+        body = (
+            blocks[mode]
+            + blocks["kArchVizEnvCommonPS"]
+            + blocks["kArchVizMeshPS"]
+            + blocks["kArchVizMeshPSMain"]
+            + blocks["kArchVizMeshPSMainTail"]
+        )
+        path.write_text(cbuffer + body, encoding="utf-8")
+        result = subprocess.run(
+            [
+                str(fxc),
+                "/T",
+                "ps_5_0",
+                "/E",
+                "main",
+                "/nologo",
+                "/I",
+                str(FX_SHADERS),
+                "/Fo",
+                str(out / (name + ".dxbc")),
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        print("%s  %-22s %s" % ("ok  " if result.returncode == 0 else "FAIL", name, "ps_5_0"))
+        if result.returncode != 0:
+            failed += 1
+            print((result.stdout + result.stderr).strip())
+            print("      source: %s" % path)
+
+    total = len(STAGES) + len(MESH_SHADOW_VARIANTS) - 1
+    print("\n%d stage(s) compiled, %d failed" % (total, failed))
     return 1 if failed else 0
 
 

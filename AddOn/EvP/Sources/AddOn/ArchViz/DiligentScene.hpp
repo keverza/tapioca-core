@@ -36,8 +36,9 @@
 // command hold one of these without pulling in Diligent's headers.
 
 #include "ArchViz/ArchVizVertex.hpp"
+#include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
-#include "ArchViz/StorySliceLayer.hpp"   // StorySliceLayer::DrawParams
+#include "ArchViz/StorySliceLayer.hpp" // StorySliceLayer::DrawParams
 #include "ArchViz/Uniforms.hpp"
 #include "ArchViz/ViewerSettings.hpp"
 
@@ -83,11 +84,11 @@ struct DiligentSceneStats {
     // pushed a set -- either the storey read failed, or the pass that would have
     // built it was partial. Neither is visible in the picture, which shows
     // nothing in both cases and in the "the planes miss the model" case too.
-    size_t storeySlices = 0;             // storeys that actually produced an outline
+    size_t storeySlices = 0; // storeys that actually produced an outline
     size_t storeySliceVertices = 0;
     size_t storeySliceFillVertices = 0;
     double storeySliceAreaM2 = 0.0;
-    bool   storeySliceLayerReady = false;
+    bool storeySliceLayerReady = false;
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
@@ -136,6 +137,9 @@ struct DiligentSceneStats {
     bool shadowFitted = false;
     uint32_t shadowResolution = 0;
     float shadowTexelMetres = 0.0f;
+    uint32_t shadowCascades = 0;
+    uint32_t shadowMode = 0;
+    int shadowFilterSize = 0;
 
     // ---- the HDR environment ------------------------------------------------
     // ⚠️ `environmentAverage` IS NOT DECORATION. A sky that loads, resamples and
@@ -263,10 +267,11 @@ class DiligentScene final {
     // NOTHING bound: it swaps the render targets to the shadow map and unbinds
     // them again. Returns false when there was nothing to fit a frustum to, in
     // which case Draw renders unshadowed rather than wrong.
-    bool RenderShadowMap (Diligent::IDeviceContext* context);
+    bool RenderShadowMap (Diligent::IDeviceContext* context, const float view[16], const float projection[16]);
     // Disabling clears the current fit so Draw cannot sample the previous
     // frame's shadow while leaving the map resource ready for re-enabling.
     void SetShadowsEnabled (bool enabled);
+    void SetShadowSettings (const DiligentShadowSettings& settings);
 
     // ⚠️ `colorTarget` AND `depthTarget` ARE PARAMETERS BECAUSE THIS FUNCTION
     // NOW BINDS THEM ITSELF, AND IT DOES THAT BECAUSE NOT DOING SO PRODUCED A
@@ -415,9 +420,8 @@ class DiligentScene final {
     // overlay compiled against the old one. A failure is logged once and leaves
     // `storeySliceLayerReady` false; it never fails the scene, because the
     // overlay is an annotation on a building that renders fine without it.
-    void DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16],
-                          uint32_t surfaceWidth, uint32_t surfaceHeight,
-                          uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+    void DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                          uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                           const StorySliceLayer::DrawParams& params);
 
     // ---- picking (PLAT-RE34) -----------------------------------------------

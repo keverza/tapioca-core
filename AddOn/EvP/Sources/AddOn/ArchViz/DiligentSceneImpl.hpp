@@ -66,6 +66,13 @@ using Diligent::RefCntAutoPtr;
 // blend.
 
 constexpr int kCullModeCount = 3;
+constexpr int kShadowModeCount = 4;
+
+inline int ShadowModeIndex (DiligentShadowMode mode)
+{
+    const int index = int (mode) - int (DiligentShadowMode::Pcf);
+    return index >= 0 && index < kShadowModeCount ? index : 0;
+}
 // Keep the render-target elements contiguous. GBuffer::Bind uses an element's
 // index as its MRT slot by default, while depth is selected as the DSV and the
 // motion target remains cleared-only until RE51.C2 supplies real vectors.
@@ -274,16 +281,16 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // alive past its own teardown and the viewport could then only be opened once.
     Diligent::IRenderDevice* device = nullptr;
     RefCntAutoPtr<Diligent::IShader> vs;
-    RefCntAutoPtr<Diligent::IShader> ps;
+    RefCntAutoPtr<Diligent::IShader> ps[kShadowModeCount];
     RefCntAutoPtr<Diligent::IShader> shadowVs;
     RefCntAutoPtr<Diligent::IBuffer> constants;
     // One PSO per cull mode, twice: opaque and blended. A PSO is immutable, so
     // a state toggle is a different object rather than a state change -- the
     // whole stateless-design difference from bgfx::setState.
-    RefCntAutoPtr<Diligent::IPipelineState> opaquePso[kCullModeCount];
-    RefCntAutoPtr<Diligent::IPipelineState> blendPso[kCullModeCount];
-    RefCntAutoPtr<Diligent::IShaderResourceBinding> opaqueSrb[kCullModeCount];
-    RefCntAutoPtr<Diligent::IShaderResourceBinding> blendSrb[kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> opaquePso[kShadowModeCount][kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> blendPso[kShadowModeCount][kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> opaqueSrb[kShadowModeCount][kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> blendSrb[kShadowModeCount][kCullModeCount];
     // The pick pass. A THIRD set rather than a reuse of the opaque one, because
     // a PSO records the formats it renders into and the pick target is an 8x8
     // RGBA8_UNORM, not the swap chain's sRGB back buffer.
@@ -327,10 +334,10 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // g_frameControl.x to skip Grade() when writing into HDR; the resolve PS
     // applies Grade() once when copying HDR back to the swap chain.
     RefCntAutoPtr<Diligent::IShader> resolvePs;
-    RefCntAutoPtr<Diligent::IPipelineState> hdrOpaquePso[kCullModeCount];
-    RefCntAutoPtr<Diligent::IPipelineState> hdrBlendPso[kCullModeCount];
-    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrOpaqueSrb[kCullModeCount];
-    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrBlendSrb[kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> hdrOpaquePso[kShadowModeCount][kCullModeCount];
+    RefCntAutoPtr<Diligent::IPipelineState> hdrBlendPso[kShadowModeCount][kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrOpaqueSrb[kShadowModeCount][kCullModeCount];
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrBlendSrb[kShadowModeCount][kCullModeCount];
     RefCntAutoPtr<Diligent::IPipelineState> hdrEnvBackgroundPso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrEnvBackgroundSrb;
     RefCntAutoPtr<Diligent::IPipelineState> resolvePso;
@@ -571,7 +578,6 @@ struct geomsrv::archviz::DiligentScene::Impl {
     std::string pendingEnvironmentPath;
     bool environmentLoadPending = false;
     std::string environmentError;
-    SunShadow shadow; // this frame's fit; `valid` false means render unshadowed
 
     SceneRenderMode renderMode = SceneRenderMode::Shaded;
     // ⚠️ Fast BY DEFAULT, and the overlay never leaves it: the overlay's frame

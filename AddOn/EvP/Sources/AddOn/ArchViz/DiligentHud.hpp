@@ -205,6 +205,21 @@ struct HudState {
     // Keep the map allocated and gate fitting/sampling. Re-enabling therefore
     // restores shadows without rebuilding GPU resources.
     bool shadowsEnabled = true;
+    int shadowResolution = 2048;
+    int shadowCascades = 4;
+    int shadowMode = int (DiligentShadowMode::Pcf);
+    int shadowFilterSize = 3;
+    float shadowPartitioning = 0.95f;
+    float shadowFilterWorldSize = 0.05f;
+    float shadowDepthBias = 0.0025f;
+    float shadowReceiverBiasClamp = 10.0f;
+    float shadowCascadeTransition = 0.1f;
+    float shadowLightBleeding = 0.1f;
+    float shadowVsmBias = 0.0001f;
+    float shadowEvsmPositiveExponent = 40.0f;
+    float shadowEvsmNegativeExponent = 5.0f;
+    bool shadowVisualizeCascades = false;
+    bool shadowOnly = false;
 
     // ---- RE51.C7: screen-space reflections --------------------------------
     // ⚠️ OFF BY DEFAULT. SSR is a port of DiligentFX's ScreenSpaceReflection,
