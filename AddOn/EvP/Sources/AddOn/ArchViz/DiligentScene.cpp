@@ -104,6 +104,11 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     // compile it against a prelude it does not use.
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz coverage PS", kArchVizCoveragePS, impl_->coveragePs))
         return false;
+    // Takes the env prelude: the composite needs EnvUv for the reflection
+    // lookup, exactly as the resolve did when this code lived inside it.
+    if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz SSR composite PS", kArchVizEnvCommonPS,
+                  impl_->ssrCompositePs, kArchVizSsrCompositePS))
+        return false;
     // ⚠️ BOTH TAKE kArchVizEnvCommonPS AS THEIR PRELUDE, and so does the mesh PS
     // above -- that is the single copy of EnvUv. tools/quality/check_hlsl.py's
     // PRELUDES table mirrors these three lines; a stage added here and not
@@ -1019,6 +1024,13 @@ void DiligentScene::Shutdown ()
     impl_->coverageWidth = 0;
     impl_->coverageHeight = 0;
     impl_->taaCoverageView = nullptr;
+    impl_->ssrCompositeSrb.Release ();
+    impl_->ssrCompositePso.Release ();
+    impl_->ssrCompositeTexture.Release ();
+    impl_->ssrCompositeRTV = nullptr;
+    impl_->ssrCompositeSRV = nullptr;
+    impl_->ssrCompositeWidth = 0;
+    impl_->ssrCompositeHeight = 0;
     impl_->hdrEnvBackgroundSrb.Release ();
     impl_->hdrEnvBackgroundPso.Release ();
     for (int mode = 0; mode < kShadowModeCount; ++mode) {

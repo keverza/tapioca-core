@@ -44,6 +44,11 @@ class DiligentScreenSpaceReflection final {
         const float viewProj[16], const float eye[3], const float jitter[2],
         float nearClip, float farClip, float focusDistance, float roughnessThreshold);
 
+    // RE51.C7. Remember the radiance next frame's rays should read. ⚠️ CALL IT
+    // AFTER TAA, with the ACCUMULATED frame -- see the definition for what
+    // handing it the raw jittered target costs.
+    void RememberFrame (Diligent::IDeviceContext* context, Diligent::ITextureView* resolved);
+
     // Throw the history away on a discontinuity -- camera teleport, rebuilt
     // model, resize. Same contract as DiligentAmbientOcclusion::ResetHistory.
     void ResetHistory ();

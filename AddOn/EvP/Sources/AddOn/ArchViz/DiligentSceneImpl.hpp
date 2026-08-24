@@ -336,6 +336,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // applies Grade() once when copying HDR back to the swap chain.
     RefCntAutoPtr<Diligent::IShader> resolvePs;
     RefCntAutoPtr<Diligent::IShader> coveragePs;
+    RefCntAutoPtr<Diligent::IShader> ssrCompositePs;
     RefCntAutoPtr<Diligent::IPipelineState> hdrOpaquePso[kShadowModeCount][kCullModeCount];
     RefCntAutoPtr<Diligent::IPipelineState> hdrBlendPso[kShadowModeCount][kCullModeCount];
     RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrOpaqueSrb[kShadowModeCount][kCullModeCount];
@@ -368,6 +369,19 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // not produce one this frame -- in which case the resolve falls back to the
     // raw HDR alpha, which is correct precisely because no jitter was applied.
     Diligent::ITextureView* taaCoverageView = nullptr;
+
+    // ---- RE51.C7: the SSR composite, which must land BEFORE TAA -----------
+    // ⚠️ A SECOND HDR TARGET, BECAUSE A PASS CANNOT READ AND WRITE ONE TEXTURE.
+    // The composite reads the scene colour and writes the same image with the
+    // reflections folded in; TAA then accumulates THAT. Only allocated when SSR
+    // is actually running -- see EnsureSsrCompositeTarget.
+    Diligent::RefCntAutoPtr<Diligent::ITexture> ssrCompositeTexture;
+    Diligent::ITextureView* ssrCompositeRTV = nullptr;
+    Diligent::ITextureView* ssrCompositeSRV = nullptr;
+    uint32_t ssrCompositeWidth = 0;
+    uint32_t ssrCompositeHeight = 0;
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> ssrCompositePso;
+    Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> ssrCompositeSrb;
     // ---- RE51.C7: the SSR composition PSO and state --------------------------
     //
     // ⚠️ THE COMPOSITION HAPPENS IN THE RESOLVE PASS, NOT AS A SEPARATE PASS.

@@ -58,6 +58,10 @@ struct SamplerDesc;
 namespace geomsrv {
 namespace archviz {
 
+// Defined in DiligentShaders.hpp, which this header deliberately does not pull
+// in: it carries every shader source string in the renderer.
+struct DiligentSceneConstants;
+
 struct DiligentSceneStats {
     size_t elements = 0;
     size_t triangles = 0;
@@ -634,12 +638,22 @@ class DiligentScene final {
     bool EnsureHdrTarget ();
 
     bool EnsureCoverageTarget ();
+    bool EnsureSsrCompositeTarget ();
     // The opaque geometry, into the G-buffer's MRTs. The SSR call follows with
     // transparent glass receivers without clearing, after AO has consumed the
     // opaque-only buffers.
     void RenderGBufferGeometry (Diligent::IDeviceContext* context, const float viewProj[16],
                                 const float motionViewProj[16], const float eye[3], CullMode cull,
                                 bool appendTransparent = false, bool glassOnly = false);
+
+    void RememberScreenSpaceReflectionFrame (Diligent::IDeviceContext* context, Diligent::ITextureView* resolved);
+
+    // RE51.C7. Composites SSR into the HDR colour and returns the texture the
+    // rest of the frame must read. See the definition for why it is not part of
+    // the resolve any more.
+    Diligent::ITextureView* CompositeScreenSpaceReflection (Diligent::IDeviceContext* context,
+                                                            DiligentSceneConstants& constants,
+                                                            Diligent::ITextureView* sourceColor);
 
     Diligent::ITextureView* ExecuteAtmosphere (Diligent::IDeviceContext* context, Diligent::ITextureView* sourceColor,
                                                const float view[16], const float proj[16], const float viewProj[16],

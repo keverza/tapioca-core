@@ -24,15 +24,13 @@ bool DiligentScene::CreateResolvePipelines (Diligent::IRenderDevice* device, uin
     // Full-screen triangle, no depth; the HDR target is DYNAMIC because it
     // is recreated on resize.
     {
+        // ⚠️ ONLY THE TWO THE SHADER STILL DECLARES. The SSR and G-buffer
+        // entries moved to the composite PSO with the code that read them; a
+        // layout naming variables the shader does not have is not an error, it
+        // is just a lie that outlives the next reader's patience.
         Diligent::ShaderResourceVariableDesc resolveVariables[] = {
             { Diligent::SHADER_TYPE_PIXEL, "g_hdrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
             { Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_ssrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
         };
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = "ArchViz HDR resolve PSO";
@@ -107,6 +105,98 @@ bool DiligentScene::CreateResolvePipelines (Diligent::IRenderDevice* device, uin
             return false;
         }
     }
+    // ---- RE51.C7: the SSR composite PSO -------------------------------------
+    // Writes HDR, not display-referred colour, so its target format is the HDR
+    // one rather than the swap chain's -- see kArchVizSsrCompositePS for why
+    // this pass exists separately from the resolve at all.
+    {
+        Diligent::ShaderResourceVariableDesc compositeVariables[] = {
+            { Diligent::SHADER_TYPE_PIXEL, "g_hdrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_ssrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        };
+        Diligent::GraphicsPipelineStateCreateInfo pci;
+        pci.PSODesc.Name = "ArchViz SSR composite PSO";
+        pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+        pci.PSODesc.ResourceLayout.Variables = compositeVariables;
+        pci.PSODesc.ResourceLayout.NumVariables = _countof (compositeVariables);
+        const Diligent::ImmutableSamplerDesc compositeSamplers[] = {
+            { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
+        };
+        pci.PSODesc.ResourceLayout.ImmutableSamplers = compositeSamplers;
+        pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (compositeSamplers);
+        Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+        gp.NumRenderTargets = 1;
+        gp.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+        gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        gp.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+        gp.DepthStencilDesc.DepthEnable = Diligent::False;
+        pci.pVS = impl_->fullScreenVs;
+        pci.pPS = impl_->ssrCompositePs;
+        device->CreateGraphicsPipelineState (pci, &impl_->ssrCompositePso);
+        if (impl_->ssrCompositePso == nullptr) {
+            error = "Diligent CreateGraphicsPipelineState(ArchViz SSR composite) failed";
+            return false;
+        }
+        if (Diligent::IShaderResourceVariable* cb =
+                impl_->ssrCompositePso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "ArchVizConstants"))
+            cb->Set (impl_->constants);
+        if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
+            if (Diligent::IShaderResourceVariable* envVar =
+                    impl_->ssrCompositePso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap"))
+                envVar->Set (envView);
+        }
+        impl_->ssrCompositePso->CreateShaderResourceBinding (&impl_->ssrCompositeSrb, true);
+        if (impl_->ssrCompositeSrb == nullptr) {
+            error = "Diligent CreateShaderResourceBinding(ArchViz SSR composite) failed";
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// RE51.C7. The target the SSR composite writes into. Same shape and reasoning
+// as EnsureCoverageTarget: allocated only when the pass that needs it runs.
+bool DiligentScene::EnsureSsrCompositeTarget ()
+{
+    if (impl_ == nullptr || impl_->device == nullptr)
+        return false;
+    if (impl_->ssrCompositeWidth == impl_->viewportWidth && impl_->ssrCompositeHeight == impl_->viewportHeight &&
+        impl_->ssrCompositeTexture != nullptr)
+        return true;
+
+    impl_->ssrCompositeTexture.Release ();
+    impl_->ssrCompositeRTV = nullptr;
+    impl_->ssrCompositeSRV = nullptr;
+    impl_->ssrCompositeWidth = 0;
+    impl_->ssrCompositeHeight = 0;
+
+    if (impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
+        return false;
+
+    Diligent::TextureDesc td;
+    td.Name = "ArchViz HDR scene colour with SSR composited";
+    td.Type = Diligent::RESOURCE_DIM_TEX_2D;
+    td.Width = impl_->viewportWidth;
+    td.Height = impl_->viewportHeight;
+    td.Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
+    td.MipLevels = 1;
+    td.Usage = Diligent::USAGE_DEFAULT;
+    td.BindFlags = Diligent::BIND_RENDER_TARGET | Diligent::BIND_SHADER_RESOURCE;
+    td.ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
+
+    impl_->device->CreateTexture (td, nullptr, &impl_->ssrCompositeTexture);
+    if (impl_->ssrCompositeTexture == nullptr)
+        return false;
+
+    impl_->ssrCompositeRTV = impl_->ssrCompositeTexture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
+    impl_->ssrCompositeSRV = impl_->ssrCompositeTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    impl_->ssrCompositeWidth = impl_->viewportWidth;
+    impl_->ssrCompositeHeight = impl_->viewportHeight;
     return true;
 }
 

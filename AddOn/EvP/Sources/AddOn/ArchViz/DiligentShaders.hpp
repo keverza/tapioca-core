@@ -1091,12 +1091,23 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 }
 )hlsl";
 
-constexpr const char* kArchVizResolvePS = R"hlsl(
+// ---- RE51.C7/C8: SSR composited into the HDR radiance, BEFORE TAA ----------
+//
+// ⚠️ THE ORDER IS THE WHOLE POINT OF THIS PASS EXISTING. This code used to be a
+// branch inside the resolve, which runs AFTER temporal anti-aliasing -- so the
+// reflections were the one part of the image TAA could not touch, and they
+// jittered at every stability setting while everything around them was steady.
+// Tutorial27_PostProcessing composites SSR into the radiance in ComputeLighting
+// and only then calls ComputeTAA; this pass restores that order.
+//
+// ⚠️ IT WRITES HDR, NOT DISPLAY-REFERRED COLOUR. No Grade() here -- the resolve
+// still owns tone mapping, and applying it twice would crush the image. Alpha
+// is carried through untouched because it is the geometric coverage the resolve
+// and the coverage accumulation both depend on.
+constexpr const char* kArchVizSsrCompositePS = R"hlsl(
 Texture2D<float4> g_hdrColor;
-Texture2D<float4> g_hdrCoverage;
 Texture2D<float4> g_ssrColor;
 Texture2D<float>  g_gbufferRoughness;
-Texture2D<float>  g_gbufferDepth;
 Texture2D<float4> g_gbufferNormal;
 Texture2D<float4> g_gbufferAlbedo;
 Texture2D<float4> g_gbufferMaterialData;
@@ -1105,28 +1116,8 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 {
     int2 pixel = int2 (position.xy);
     float4 hdr = g_hdrColor.Load (int3 (pixel, 0));
-    float4 coverageTexel = g_hdrCoverage.Load (int3 (pixel, 0));
-
-    // ⚠️ THE CHANNEL DEPENDS ON WHICH TEXTURE IS BOUND, AND g_frameControl.y
-    // SAYS WHICH. DiligentFX TAA stores its history weight in output alpha, so
-    // TAA-resolved coverage cannot live there: kArchVizCoveragePS broadcasts it
-    // into RGB before the accumulation and it comes back in RED. When TAA is
-    // off there is no jitter to resolve, nothing runs that pass, and this frame's
-    // own HDR target is bound with coverage still in ALPHA.
-    float coverage = g_frameControl.y > 0.5 ? coverageTexel.r : coverageTexel.a;
-
-    // ⚠️ A THRESHOLD, NOT `> 0`, ON THE RESOLVED PATH. Accumulated coverage is
-    // FRACTIONAL at a silhouette -- that is the whole point of resolving it --
-    // so testing against zero would keep every pixel the edge has touched in the
-    // last dozen frames and fatten the model by a pixel. Half a pixel of
-    // coverage is the same rule the rasteriser itself uses.
-    if (coverage <= (g_frameControl.y > 0.5 ? 0.5 : 0.0))
-        discard;
-
     float3 radiance = hdr.rgb;
 
-    // ---- RE51.C7: compose SSR over the HDR scene colour -------------------
-    //
     // Match Tutorial27_PostProcessing's ComputeSpecularIBL: interpolate between
     // the prefiltered environment radiance and SSR first, then apply the
     // split-sum BRDF. The HDR pixel already contains the environment term, so
@@ -1139,12 +1130,10 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
     // The SSR's own alpha is its confidence; where it is zero, the HDR colour
     // survives unchanged.
     //
-    // ⚠️ g_gradeParams.w IS REUSED AS THE SSR INTENSITY HERE. In the mesh
-    // shader it is the AO intensity; in the resolve pass AO is already baked
-    // into the HDR colour, so the lane is free. This is deliberate and
-    // documented: the resolve pass is the one place where both effects'
-    // intensities need to live, and the cbuffer has no spare float4 for a
-    // second control. The value is set by Draw before the resolve draw.
+    // ⚠️ g_gradeParams.w IS THE SSR INTENSITY IN THIS PASS. In the mesh shader
+    // the same lane is the AO intensity; AO is already baked into the HDR colour
+    // by the time this runs, so the lane is free. Draw uploads it before the
+    // composite draw and again before the resolve.
     float roughness = g_gbufferRoughness.Load (int3 (pixel, 0));
     if (roughness < 1.0 && g_gradeParams.w > 0.0)
     {
@@ -1190,6 +1179,44 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
         radiance += (ssr.rgb - envColor) * envBrdf * g_gradeParams.y * g_skyColor.w * ssrWeight;
     }
 
+    color = float4 (radiance, hdr.a);
+}
+)hlsl";
+
+constexpr const char* kArchVizResolvePS = R"hlsl(
+Texture2D<float4> g_hdrColor;
+Texture2D<float4> g_hdrCoverage;
+
+void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
+{
+    int2 pixel = int2 (position.xy);
+    float4 hdr = g_hdrColor.Load (int3 (pixel, 0));
+    float4 coverageTexel = g_hdrCoverage.Load (int3 (pixel, 0));
+
+    // ⚠️ THE CHANNEL DEPENDS ON WHICH TEXTURE IS BOUND, AND g_frameControl.y
+    // SAYS WHICH. DiligentFX TAA stores its history weight in output alpha, so
+    // TAA-resolved coverage cannot live there: kArchVizCoveragePS broadcasts it
+    // into RGB before the accumulation and it comes back in RED. When TAA is
+    // off there is no jitter to resolve, nothing runs that pass, and this frame's
+    // own HDR target is bound with coverage still in ALPHA.
+    float coverage = g_frameControl.y > 0.5 ? coverageTexel.r : coverageTexel.a;
+
+    // ⚠️ A THRESHOLD, NOT `> 0`, ON THE RESOLVED PATH. Accumulated coverage is
+    // FRACTIONAL at a silhouette -- that is the whole point of resolving it --
+    // so testing against zero would keep every pixel the edge has touched in the
+    // last dozen frames and fatten the model by a pixel. Half a pixel of
+    // coverage is the same rule the rasteriser itself uses.
+    if (coverage <= (g_frameControl.y > 0.5 ? 0.5 : 0.0))
+        discard;
+
+    float3 radiance = hdr.rgb;
+
+    // ⚠️ THE SSR COMPOSITION USED TO LIVE HERE AND DELIBERATELY NO LONGER DOES.
+    // It ran AFTER temporal anti-aliasing, so nothing could stabilise it: the
+    // reflections jittered at every stability setting while the rest of the
+    // image was steady, reported live on 2026-08-24. Tutorial27_PostProcessing
+    // composites SSR into the radiance BEFORE ComputeTAA for exactly this
+    // reason. kArchVizSsrCompositePS is that pass; this one now only tone-maps.
     color = float4 (Grade (radiance), coverage);
 }
 )hlsl";

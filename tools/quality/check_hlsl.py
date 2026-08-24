@@ -108,6 +108,11 @@ PRELUDES = {
     # point of the PRELUDES table: a stage that needs a prelude and does not
     # declare it here fails loudly rather than compiling a half-shader.
     "kArchVizResolvePS": ["kArchVizEnvCommonPS"],
+    # ⚠️ THE SSR COMPOSITE NEEDS IT FOR EnvUv, not for Grade. It was a branch
+    # inside the resolve until RE51.C7's ordering fix moved it ahead of TAA; it
+    # carried the environment lookup across with it, so it carries the prelude
+    # that declares it too.
+    "kArchVizSsrCompositePS": ["kArchVizEnvCommonPS"],
 }
 
 

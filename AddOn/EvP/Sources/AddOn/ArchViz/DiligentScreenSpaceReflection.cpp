@@ -40,7 +40,26 @@ struct DiligentScreenSpaceReflection::Impl {
     uint32_t prevWidth = 0;
     uint32_t prevHeight = 0;
     Diligent::HLSL::CameraAttribs prevCamera {};
-    bool haveHistory = false;
+    // ⚠️ TWO HISTORIES, AND CONFLATING THEM COST A DAY. They are stored at
+    // different points in the frame and govern different things:
+    //
+    //   haveDepthHistory  set at the END OF Execute, when prevDepth and
+    //                     prevCamera are written. Governs what PostFXContext is
+    //                     told about the previous frame.
+    //   haveColorHistory  set in RememberFrame, at the END OF THE FRAME, once
+    //                     the accumulated radiance exists. Governs only which
+    //                     texture SSR samples its reflections FROM.
+    //
+    // ⚠️ NEITHER OF THEM GATES DILIGENTFX'S OWN TEMPORAL ACCUMULATION any more.
+    // A single flag used to, and when RememberFrame took over setting it the
+    // denoiser silently switched off for good: TemporalRadianceStabilityFactor
+    // pinned at 0 means `lerp(current, history, 0)` -- the history is computed
+    // and discarded every frame, which is precisely "the jitter is very large
+    // and does not settle". SSR runs its own reprojection and disocclusion test
+    // (SSR_ComputeTemporalAccumulation's ComputeReprojection); second-guessing
+    // it from out here was never this code's business.
+    bool haveDepthHistory = false;
+    bool haveColorHistory = false;
 };
 
 DiligentScreenSpaceReflection::DiligentScreenSpaceReflection () : impl_ (std::make_unique<Impl> ())
@@ -77,13 +96,16 @@ void DiligentScreenSpaceReflection::Shutdown ()
     impl_->prevDepth.Release ();
     impl_->prevWidth = 0;
     impl_->prevHeight = 0;
-    impl_->haveHistory = false;
+    impl_->haveDepthHistory = false;
+    impl_->haveColorHistory = false;
 }
 
 void DiligentScreenSpaceReflection::ResetHistory ()
 {
-    if (impl_ != nullptr)
-        impl_->haveHistory = false;
+    if (impl_ != nullptr) {
+        impl_->haveDepthHistory = false;
+        impl_->haveColorHistory = false;
+    }
 }
 
 Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
@@ -130,7 +152,8 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
 
         impl_->prevWidth = width;
         impl_->prevHeight = height;
-        impl_->haveHistory = false;
+        impl_->haveDepthHistory = false;
+        impl_->haveColorHistory = false;
     }
     if (impl_->prevColor == nullptr || impl_->prevDepth == nullptr)
         return nullptr;
@@ -190,10 +213,10 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     // ⚠️ WITHOUT HISTORY, BOTH SIDES ARE THIS FRAME. Reprojecting from the
     // current frame is the only honest thing to do on the first frame or after
     // a resize -- invented history ghosts. Same contract as the AO pass.
-    postFxAttributes.pPrevDepthBufferSRV = impl_->haveHistory ? prevDepthSrv : depth;
+    postFxAttributes.pPrevDepthBufferSRV = impl_->haveDepthHistory ? prevDepthSrv : depth;
     postFxAttributes.pMotionVectorsSRV = motion;
     postFxAttributes.pCurrCamera = &camera;
-    postFxAttributes.pPrevCamera = impl_->haveHistory ? &impl_->prevCamera : &camera;
+    postFxAttributes.pPrevCamera = impl_->haveDepthHistory ? &impl_->prevCamera : &camera;
     impl_->postFx->Execute (postFxAttributes);
 
     Diligent::HLSL::ScreenSpaceReflectionAttribs settings {};
@@ -206,10 +229,20 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     settings.IsRoughnessPerceptual = TRUE;
     settings.RoughnessChannel = 0;
     settings.MaxTraversalIntersections = 128;
-    // ⚠️ RESET ACCUMULATION WHEN THERE IS NO HISTORY. The temporal pass ghosts
-    // if it reprojects from a frame that does not exist.
-    settings.TemporalRadianceStabilityFactor = impl_->haveHistory ? 1.0f : 0.0f;
-    settings.TemporalVarianceStabilityFactor = impl_->haveHistory ? 0.9f : 0.0f;
+    // ⚠️ DILIGENTFX'S DEFAULTS, UNCONDITIONALLY, AND THE "UNCONDITIONALLY" IS
+    // THE FIX. These used to be zeroed whenever this class thought it had no
+    // history -- but 0 does not mean "reset", it means `lerp(current, history,
+    // 0)`: the accumulation still runs and its result is thrown away every
+    // frame. SSR then shows the raw one-ray-per-pixel trace forever, which on a
+    // near-mirror surface is violent, because a reflection MAGNIFIES the
+    // sub-pixel jitter of the surface it came off.
+    //
+    // ⚠️ THE FIRST FRAME NEEDS NO SPECIAL CASE. SSR_ComputeTemporalAccumulation
+    // reprojects and tests disocclusion itself (ComputeReprojection ->
+    // SSR_DISOCCLUSION_THRESHOLD) and falls back to the current radiance when
+    // that fails, which is exactly what a first frame is.
+    settings.TemporalRadianceStabilityFactor = 1.0f;
+    settings.TemporalVarianceStabilityFactor = 0.9f;
     // Intensity belongs to the composition pass. AlphaInterpolation scales the
     // effect's confidence output; values above one make a later lerp extrapolate
     // past the reflected radiance and produce bright streaks.
@@ -219,7 +252,7 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     // SSR's temporal mode looks up what the reflected pixel showed LAST frame
     // and reprojects it. On the first frame it is the current frame's, which is
     // the only honest thing to do when no previous frame exists.
-    Diligent::ITextureView* colorInput = impl_->haveHistory ? prevColorSrv : color;
+    Diligent::ITextureView* colorInput = impl_->haveColorHistory ? prevColorSrv : color;
 
     Diligent::ScreenSpaceReflection::RenderAttributes ssrAttributes;
     ssrAttributes.pDevice = device;
@@ -233,15 +266,15 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     ssrAttributes.pSSRAttribs = &settings;
     impl_->ssr->Execute (ssrAttributes);
 
-    // ⚠️ COPY CURRENT COLOUR AND DEPTH FOR NEXT FRAME, after everything has
-    // read the old ones. Same ordering as the AO's prevDepth copy.
-    Diligent::CopyTextureAttribs copyColor;
-    copyColor.pSrcTexture = color->GetTexture ();
-    copyColor.pDstTexture = impl_->prevColor;
-    copyColor.SrcTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-    copyColor.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-    context->CopyTexture (copyColor);
-
+    // ⚠️ THE COLOUR COPY IS NOT HERE ANY MORE -- SEE RememberFrame. It used to
+    // copy this frame's RAW HDR target, which is the JITTERED, un-accumulated
+    // image, so the radiance every reflection was drawn from shimmered before
+    // the ray even hit it. Tutorial27_PostProcessing calls UpdateSSRSourceColor
+    // with the TAA-ACCUMULATED frame, after TAA has run; RememberFrame is that
+    // call, and it cannot happen here because TAA has not run yet.
+    //
+    // ⚠️ THE DEPTH COPY STAYS, because depth is not accumulated by anything and
+    // this is still the right moment for it: after every reader of the old one.
     Diligent::CopyTextureAttribs copyDepth;
     copyDepth.pSrcTexture = depth->GetTexture ();
     copyDepth.pDstTexture = impl_->prevDepth;
@@ -250,9 +283,47 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     context->CopyTexture (copyDepth);
 
     impl_->prevCamera = camera;
-    impl_->haveHistory = true;
+    // The depth and camera for next frame are stored NOW; the colour is not,
+    // and cannot be -- it does not exist until TAA has run. See RememberFrame.
+    impl_->haveDepthHistory = true;
 
     return impl_->ssr->GetSSRRadianceSRV ();
+}
+
+// The radiance next frame's rays will read, remembered at the END of the frame.
+//
+// ⚠️ IT MUST BE THE ACCUMULATED IMAGE, NOT THE RAW ONE. SSR's
+// FEATURE_FLAG_PREVIOUS_FRAME mode looks up what the reflected pixel showed last
+// frame; handing it the raw jittered target means every reflection samples a
+// shimmering source and the effect's own denoiser spends itself fighting noise
+// the renderer introduced. Tutorial27_PostProcessing feeds UpdateSSRSourceColor
+// the post-TAA frame for exactly this reason.
+//
+// ⚠️ IT SETS ONLY THE COLOUR HISTORY. A frame that resolves but never gets here
+// -- the pass failed, the view was null -- must not claim a colour it never
+// stored, or the next frame reflects whatever the uninitialised copy held. It
+// must equally NOT hold back the depth history or the denoiser, which is the
+// mistake the two-flag split above exists to prevent.
+void DiligentScreenSpaceReflection::RememberFrame (Diligent::IDeviceContext* context, Diligent::ITextureView* resolved)
+{
+    if (context == nullptr || resolved == nullptr || impl_->prevColor == nullptr)
+        return;
+
+    Diligent::ITexture* src = resolved->GetTexture ();
+    if (src == nullptr)
+        return;
+    const Diligent::TextureDesc& desc = src->GetDesc ();
+    if (desc.Width != impl_->prevWidth || desc.Height != impl_->prevHeight)
+        return;
+
+    Diligent::CopyTextureAttribs copyColor;
+    copyColor.pSrcTexture = src;
+    copyColor.pDstTexture = impl_->prevColor;
+    copyColor.SrcTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    copyColor.DstTextureTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+    context->CopyTexture (copyColor);
+
+    impl_->haveColorHistory = true;
 }
 
 } // namespace archviz

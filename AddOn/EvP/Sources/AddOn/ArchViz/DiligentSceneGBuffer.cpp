@@ -364,6 +364,115 @@ void DiligentScene::PrepareScreenSpaceReflection (Diligent::IDeviceContext* cont
         impl_->ssrRoughnessThreshold);
 }
 
+// RE51.C7. Fold the screen-space reflections into the HDR scene colour.
+//
+// ⚠️ IT RETURNS A DIFFERENT TEXTURE THAN IT WAS GIVEN, and the caller must use
+// it: everything downstream -- the atmosphere, TAA, the resolve -- has to read
+// the composited image or the reflections are silently dropped. Returning the
+// input unchanged is the honest failure, and that is what happens when the
+// target or the pipeline is missing.
+//
+// ⚠️ IT UPLOADS THE CONSTANTS ITSELF, because g_gradeParams.w carries the AO
+// intensity everywhere else and the SSR intensity only here. The caller uploads
+// again before the resolve; the two values are never in flight at once.
+// RE51.C7. Hand SSR the frame its next rays should sample. See
+// DiligentScreenSpaceReflection::RememberFrame for why this is the LAST thing
+// the HDR path does rather than part of the SSR pass itself.
+void DiligentScene::RememberScreenSpaceReflectionFrame (Diligent::IDeviceContext* context,
+                                                        Diligent::ITextureView* resolved)
+{
+    if (impl_ == nullptr || context == nullptr || resolved == nullptr)
+        return;
+    impl_->screenSpaceReflection.RememberFrame (context, resolved);
+}
+
+Diligent::ITextureView* DiligentScene::CompositeScreenSpaceReflection (Diligent::IDeviceContext* context,
+                                                                       DiligentSceneConstants& constants,
+                                                                       Diligent::ITextureView* sourceColor)
+{
+    if (context == nullptr || sourceColor == nullptr || impl_->ssrCompositePso == nullptr ||
+        impl_->gBuffer == nullptr || !EnsureSsrCompositeTarget ())
+        return sourceColor;
+
+    Diligent::ITextureView* ssrColorView = impl_->ssrView;
+    if (ssrColorView == nullptr && impl_->ssrFallback != nullptr)
+        ssrColorView = impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* roughnessView = nullptr;
+    if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
+        Diligent::ITexture* roughnessTex = impl_->gBuffer->GetBuffer (kGBufferRoughness);
+        if (roughnessTex != nullptr)
+            roughnessView = roughnessTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    }
+    if (roughnessView == nullptr && impl_->ssrRoughnessFallback != nullptr)
+        roughnessView = impl_->ssrRoughnessFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* normalView = nullptr;
+    Diligent::ITextureView* albedoView = nullptr;
+    Diligent::ITextureView* materialView = nullptr;
+    if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
+        Diligent::ITexture* normalTex = impl_->gBuffer->GetBuffer (kGBufferNormal);
+        Diligent::ITexture* albedoTex = impl_->gBuffer->GetBuffer (kGBufferAlbedo);
+        Diligent::ITexture* materialTex = impl_->gBuffer->GetBuffer (kGBufferMaterialData);
+        if (normalTex != nullptr)
+            normalView = normalTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        if (albedoTex != nullptr)
+            albedoView = albedoTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        if (materialTex != nullptr)
+            materialView = materialTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    }
+    Diligent::ITextureView* dataFallback =
+        impl_->ssrFallback != nullptr ? impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)
+                                      : nullptr;
+    if (normalView == nullptr)
+        normalView = dataFallback;
+    if (albedoView == nullptr)
+        albedoView = dataFallback;
+    if (materialView == nullptr)
+        materialView = dataFallback;
+    if (ssrColorView != nullptr) {
+        if (Diligent::IShaderResourceVariable* var =
+                impl_->ssrCompositeSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ssrColor"))
+            var->Set (ssrColorView);
+    }
+    if (roughnessView != nullptr) {
+        if (Diligent::IShaderResourceVariable* var =
+                impl_->ssrCompositeSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness"))
+            var->Set (roughnessView);
+    }
+    const auto bindCompositeTexture = [&] (const char* name, Diligent::ITextureView* view) {
+        if (view == nullptr)
+            return;
+        if (Diligent::IShaderResourceVariable* var =
+                impl_->ssrCompositeSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, name))
+            var->Set (view);
+    };
+    bindCompositeTexture ("g_gbufferNormal", normalView);
+    bindCompositeTexture ("g_gbufferAlbedo", albedoView);
+    bindCompositeTexture ("g_gbufferMaterialData", materialView);
+
+
+    const float savedSsrLane = constants.gradeParams[3];
+    constants.gradeParams[3] = impl_->ssrIntensity;
+    UploadConstants (context, impl_->constants, constants);
+    constants.gradeParams[3] = savedSsrLane;
+
+    if (Diligent::IShaderResourceVariable* hdrVar =
+            impl_->ssrCompositeSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
+        hdrVar->Set (sourceColor);
+
+    context->SetRenderTargets (1, &impl_->ssrCompositeRTV, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    context->SetViewports (1, nullptr, 0, 0);
+    context->SetPipelineState (impl_->ssrCompositePso);
+    context->CommitShaderResources (impl_->ssrCompositeSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    Diligent::DrawAttribs composite;
+    composite.NumVertices = 3;
+    composite.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+    context->Draw (composite);
+    ++impl_->drawCalls;
+    context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+
+    return impl_->ssrCompositeSRV;
+}
+
 Diligent::ITextureView* DiligentScene::ExecuteAtmosphere (Diligent::IDeviceContext* context,
                                                           Diligent::ITextureView* sourceColor, const float view[16],
                                                           const float proj[16], const float viewProj[16],

@@ -740,7 +740,17 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                                           focusDistance, frameIndex);
         }
 
+        // ---- RE51.C7: fold the reflections in BEFORE anything temporal -----
+        //
+        // ⚠️ THIS USED TO HAPPEN IN THE RESOLVE, WHICH IS AFTER TAA, and that
+        // is why the reflections jittered at every stability setting while the
+        // rest of the image was steady (reported live 2026-08-24).
+        // Tutorial27_PostProcessing composites SSR in ComputeLighting and only
+        // then calls ComputeTAA; this is that order. The composite writes into
+        // its own target because a pass cannot read and write one texture.
         Diligent::ITextureView* postProcessedHdr = impl_->hdrColorSRV;
+        if (impl_->ssrView != nullptr && impl_->ssrIntensity > 0.0f)
+            postProcessedHdr = CompositeScreenSpaceReflection (context, constants, postProcessedHdr);
         if (Diligent::ITextureView* atmosphere =
                 ExecuteAtmosphere (context, postProcessedHdr, view, proj, viewProj, eye, nearClip, farClip, frameIndex))
             postProcessedHdr = atmosphere;
@@ -751,6 +761,15 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         if (resolvedHdr == nullptr)
             resolvedHdr = postProcessedHdr;
 
+        // ⚠️ HERE, AND NOT INSIDE THE SSR PASS. This is the first point in the
+        // frame where the finished radiance exists -- reflections composited,
+        // atmosphere applied, TAA accumulated -- and it is what next frame's
+        // rays must sample. Copying the raw target inside SSR::Execute instead
+        // (which is what this used to do) hands every reflection a jittering
+        // source. Tutorial27_PostProcessing calls UpdateSSRSourceColor at the
+        // same point, for the same reason.
+        RememberScreenSpaceReflectionFrame (context, resolvedHdr);
+
         constants.frameControl[0] = 0.0f;
         // ⚠️ SET HERE, WITH THE OTHER CONSTANTS AND BEFORE UploadConstants. The
         // texture it describes is bound further down, after the upload; writing
@@ -758,9 +777,6 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         // value against this frame's texture, and the two disagree exactly on
         // the frame TAA starts or stops resolving.
         constants.frameControl[1] = (impl_->taaCoverageView != nullptr) ? 1.0f : 0.0f;
-        // ⚠️ gradeParams.w: AO intensity was already applied in the mesh shader,
-        // so the lane is repurposed for SSR intensity in the resolve pass.
-        constants.gradeParams[3] = (impl_->ssrView != nullptr) ? impl_->ssrIntensity : 0.0f;
         UploadConstants (context, impl_->constants, constants);
         context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         context->SetViewports (1, nullptr, 0, 0);
@@ -782,70 +798,6 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         if (Diligent::IShaderResourceVariable* coverageVar =
                 impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage"))
             coverageVar->Set (coverageResolved ? impl_->taaCoverageView : impl_->hdrColorSRV);
-        Diligent::ITextureView* ssrColorView = impl_->ssrView;
-        if (ssrColorView == nullptr && impl_->ssrFallback != nullptr)
-            ssrColorView = impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-        Diligent::ITextureView* roughnessView = nullptr;
-        if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
-            Diligent::ITexture* roughnessTex = impl_->gBuffer->GetBuffer (kGBufferRoughness);
-            if (roughnessTex != nullptr)
-                roughnessView = roughnessTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-        }
-        if (roughnessView == nullptr && impl_->ssrRoughnessFallback != nullptr)
-            roughnessView = impl_->ssrRoughnessFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-        Diligent::ITextureView* depthView = nullptr;
-        Diligent::ITextureView* normalView = nullptr;
-        Diligent::ITextureView* albedoView = nullptr;
-        Diligent::ITextureView* materialView = nullptr;
-        if (impl_->ssrView != nullptr && impl_->gBuffer != nullptr) {
-            Diligent::ITexture* depthTex = impl_->gBuffer->GetBuffer (kGBufferDepth);
-            if (depthTex != nullptr)
-                depthView = depthTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-            Diligent::ITexture* normalTex = impl_->gBuffer->GetBuffer (kGBufferNormal);
-            Diligent::ITexture* albedoTex = impl_->gBuffer->GetBuffer (kGBufferAlbedo);
-            Diligent::ITexture* materialTex = impl_->gBuffer->GetBuffer (kGBufferMaterialData);
-            if (normalTex != nullptr)
-                normalView = normalTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-            if (albedoTex != nullptr)
-                albedoView = albedoTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-            if (materialTex != nullptr)
-                materialView = materialTex->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-        }
-        Diligent::ITextureView* dataFallback =
-            impl_->ssrFallback != nullptr ? impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE)
-                                          : nullptr;
-        if (normalView == nullptr)
-            normalView = dataFallback;
-        if (albedoView == nullptr)
-            albedoView = dataFallback;
-        if (materialView == nullptr)
-            materialView = dataFallback;
-        if (ssrColorView != nullptr) {
-            if (Diligent::IShaderResourceVariable* var =
-                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_ssrColor"))
-                var->Set (ssrColorView);
-        }
-        if (roughnessView != nullptr) {
-            if (Diligent::IShaderResourceVariable* var =
-                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness"))
-                var->Set (roughnessView);
-        }
-        if (depthView != nullptr) {
-            if (Diligent::IShaderResourceVariable* var =
-                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth"))
-                var->Set (depthView);
-        }
-        const auto bindResolveTexture = [&] (const char* name, Diligent::ITextureView* view) {
-            if (view == nullptr)
-                return;
-            if (Diligent::IShaderResourceVariable* var =
-                    impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, name))
-                var->Set (view);
-        };
-        bindResolveTexture ("g_gbufferNormal", normalView);
-        bindResolveTexture ("g_gbufferAlbedo", albedoView);
-        bindResolveTexture ("g_gbufferMaterialData", materialView);
-
         context->SetPipelineState (impl_->resolvePso);
         context->CommitShaderResources (impl_->resolveSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         Diligent::DrawAttribs resolve;
