@@ -14,6 +14,7 @@ wire-level dry run.
 | Example | What it demonstrates |
 | --- | --- |
 | `HelloCommand` | Palette text and bounded scalar inputs. |
+| `CloudCompareConvert` | An out-of-process CloudCompare call that converts a point cloud to binary PLY. |
 | `ArchicadAndTapirInfo` | Official Archicad Python API and Tapir calls through the Tapioca command bus. |
 | `SelectionReport` | Selection reads, mixed-type Element IDs, and optional CSV output. |
 | `PropertySummary` | Property resolution, one batched value read, missing values, and aggregation. |
