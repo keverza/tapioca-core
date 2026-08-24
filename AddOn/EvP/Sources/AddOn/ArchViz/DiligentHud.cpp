@@ -430,6 +430,17 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##taastability", &state.taaStability, 0.0f, 1.0f, "%.2f");
                 ImGui::TextDisabled ("TAA stability -- higher is steadier; lower rejects history faster");
+                // ⚠️ THE ONE READOUT THAT SEPARATES "TAA IS WEAK" FROM "TAA
+                // NEVER RAN". Draw falls back to the raw JITTERED target when
+                // the TAA pass produces nothing, so that failure does not look
+                // like a missing effect -- it looks like the image shakes. If
+                // this says the jitter is non-zero and TAA is NOT resolving,
+                // stop adjusting the slider above: nothing it does can reach
+                // the screen.
+                if (state.temporalAntiAliasing) {
+                    ImGui::TextDisabled ("TAA jitter %+.2f, %+.2f px -- resolved: %s", scene.taaJitterPixels[0],
+                                         scene.taaJitterPixels[1], scene.taaResolved ? "yes" : "NO");
+                }
 
                 ImGui::Checkbox ("auto exposure", &state.autoExposure);
                 ImGui::TextDisabled ("  auto would pick %.2f (scene luminance %.4f, albedo %.3f)", scene.autoExposure,

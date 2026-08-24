@@ -978,6 +978,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 stats_.sceneLuminance = sceneStats.sceneLuminance;
                 stats_.meanAlbedo = sceneStats.meanAlbedo;
                 stats_.aoRadiusMetres = sceneStats.aoRadiusMetres;
+                stats_.taaResolved = sceneStats.taaResolved;
+                stats_.taaJitterPixels[0] = sceneStats.taaJitterPixels[0];
+                stats_.taaJitterPixels[1] = sceneStats.taaJitterPixels[1];
                 for (int c = 0; c < 3; ++c)
                     stats_.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
                 stats_.substanceNamed = sceneStats.substanceNamed;

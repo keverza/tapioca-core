@@ -142,6 +142,10 @@ struct DiligentViewportStats {
     // unless the HUD overrides it -- an invisible number, and the first one
     // to suspect when contact shadows are too subtle or the image just dims.
     float aoRadiusMetres = 0.0f;
+    // RE51.C8. Mirrors DiligentSceneStats; see there for why the PAIR is the
+    // diagnosis and a single "TAA on" flag would not be.
+    bool taaResolved = false;
+    float taaJitterPixels[2] = { 0.0f, 0.0f };
     float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
 
     // ---- RE51.B2: the substance join's coverage ------------------------------

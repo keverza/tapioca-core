@@ -63,6 +63,10 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (
     std::memcpy (jitteredProjection, projection, sizeof (float) * 16);
     jitter[0] = 0.0f;
     jitter[1] = 0.0f;
+    if (impl_ != nullptr) {
+        impl_->taaJitterInUse[0] = 0.0f;
+        impl_->taaJitterInUse[1] = 0.0f;
+    }
     if (impl_ == nullptr || !impl_->taaEnabled || context == nullptr)
         return;
     // Jitter is enabled only after every resource needed by both the HDR source
@@ -75,6 +79,13 @@ void DiligentScene::PrepareTemporalAntiAliasingFrame (
     impl_->temporalAntiAliasing.Prepare (
         impl_->device, context, impl_->viewportWidth, impl_->viewportHeight,
         frameIndex, projection, jitteredProjection, jitter);
+    // ⚠️ IN PIXELS, NOT NDC. DiligentFX's offset is (halton - 0.5) / (0.5 * W),
+    // so multiplying back by half the viewport recovers the sub-pixel shift the
+    // rasteriser actually receives -- which is the number a live run needs, and
+    // it should sit inside +/-0.5. Zero here with TAA on means GetJitterOffset
+    // is still returning nothing because its PSOs are not ready.
+    impl_->taaJitterInUse[0] = jitter[0] * 0.5f * float (impl_->viewportWidth);
+    impl_->taaJitterInUse[1] = jitter[1] * 0.5f * float (impl_->viewportHeight);
 }
 
 void DiligentScene::ResetTemporalAntiAliasingHistory ()
@@ -359,6 +370,7 @@ Diligent::ITextureView* DiligentScene::ExecuteTemporalAntiAliasing (
     const float jitter[2], float nearClip, float farClip, float focusDistance, uint32_t frameIndex)
 {
     impl_->taaView = nullptr;
+    impl_->taaResolvedThisFrame = false;
     if (context == nullptr || !impl_->ready || !impl_->taaEnabled || impl_->hdrColorSRV == nullptr ||
         impl_->gBuffer == nullptr || impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
         return nullptr;
@@ -387,6 +399,7 @@ Diligent::ITextureView* DiligentScene::ExecuteTemporalAntiAliasing (
         impl_->device, context, impl_->hdrColorSRV, depthSrv, motionSrv,
         impl_->viewportWidth, impl_->viewportHeight, frameIndex, view, proj, viewProj, eye,
         nearClip, farClip, focusDistance, jitter, impl_->taaStability);
+    impl_->taaResolvedThisFrame = impl_->taaView != nullptr;
     return impl_->taaView;
 }
 

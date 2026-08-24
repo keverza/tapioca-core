@@ -403,6 +403,13 @@ struct geomsrv::archviz::DiligentScene::Impl {
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;
     float taaStability = 0.9f;
+    // ⚠️ REPORTED BECAUSE THE FALLBACK IS SILENT. Draw falls back to the raw
+    // HDR target whenever the TAA pass returns nothing, and the raw target is
+    // the JITTERED one -- so a TAA that never runs does not look like a missing
+    // effect, it looks like the renderer developed a shake. These two say which
+    // of those is happening without needing a debug view.
+    bool taaResolvedThisFrame = false;
+    float taaJitterInUse[2] = { 0.0f, 0.0f };
     DiligentDepthRange depthRange;
     uint32_t gBufferWidth = 0;
     uint32_t gBufferHeight = 0;

@@ -190,6 +190,18 @@ struct DiligentSceneStats {
     // suspect when the contact shadows are too subtle or the whole image dims.
     float aoRadiusMetres = 0.0f;
 
+    // ---- RE51.C8: whether temporal anti-aliasing actually ran ---------------
+    // ⚠️ THE PAIR IS THE DIAGNOSIS, like `materials`/`materialMisses` above.
+    // Jitter is applied to the projection by a pass that runs BEFORE the one
+    // that resolves it, and the resolve falls back to the raw jittered target
+    // without saying so. `taaJitterPixels` non-zero with `taaResolved` false is
+    // therefore the exact signature of "the image shakes and TAA is not fixing
+    // it" -- and it is otherwise indistinguishable, by eye, from TAA running
+    // badly. Both zero with the toggle on means the jitter never reached
+    // rasterisation, which is a different fault with a different cause.
+    bool taaResolved = false;
+    float taaJitterPixels[2] = { 0.0f, 0.0f };
+
     // ---- RE51.B2: how far the substance join actually got --------------------
     // ⚠️ COVERAGE IS THE WHOLE MEASUREMENT AND IT IS NOT A SUCCESS RATE.
     // BuildingMaterialSignal refuses whenever its two signals disagree, and

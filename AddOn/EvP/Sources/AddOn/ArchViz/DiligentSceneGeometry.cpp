@@ -488,6 +488,9 @@ DiligentSceneStats DiligentScene::Stats () const
         s.whiteBalanceGains[c] = gains.rgb[c];
     s.meanAlbedo = MeanPoolAlbedo (impl_->materials);
     s.aoRadiusMetres = impl_->aoRadiusInUse;
+    s.taaResolved = impl_->taaResolvedThisFrame;
+    s.taaJitterPixels[0] = impl_->taaJitterInUse[0];
+    s.taaJitterPixels[1] = impl_->taaJitterInUse[1];
     for (const SurfaceMaterial& surface : impl_->materials.All ()) {
         const size_t slot = size_t (surface.substance);
         if (slot < 7)
