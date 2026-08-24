@@ -33,9 +33,45 @@ using Diligent::RefCntAutoPtr;
 
 namespace {
 
+struct ShadowConstants {
+    Diligent::ShadowMapAttribs attribs;
+    Diligent::float4 pcssParams;
+};
+
+static_assert (sizeof (ShadowConstants) % 16 == 0, "shadow constants must preserve HLSL cbuffer packing");
+
 bool RequiresRebuild (const DiligentShadowSettings& a, const DiligentShadowSettings& b)
 {
     return a.resolution != b.resolution || a.cascadeCount != b.cascadeCount || a.mode != b.mode;
+}
+
+// ---- RE51.C6a: the same sampling floor the PCSS shader applies --------------
+//
+// ⚠️ KEEP IN STEP WITH kPcssMinFilterTexels IN DiligentShaders.hpp. That value
+// floors the PCSS filter in the shader; this one floors the ORDINARY PCF path,
+// and the two have to agree or the HUD's PCSS toggle changes how aliased the
+// image is instead of only how the penumbrae behave.
+//
+// ⚠️ WHY THE FLOOR IS NEEDED ON THIS PATH AT ALL: fFilterWorldSize is in
+// METRES, and DiligentFX's varying PCF (PCF.fxh, FilterShadowMapVaryingPCF)
+// clamps the resulting filter to a MINIMUM OF ONE TEXEL. A world-constant
+// 0.05 m is about three texels of a 2048 map over a typical first cascade and
+// LESS THAN ONE of a 512 map over the same cascade -- so at low resolutions the
+// filter silently collapsed to a single texel and every edge staircased. The
+// setting stays in metres, because that is what keeps a penumbra the same
+// physical width as the cascades change scale; the floor just stops it
+// resolving to nothing.
+constexpr float kMinFilterTexels = 2.0f;
+
+// The world size of one first-cascade texel, from a distribution that has
+// already run. DistributeCascades fills f4LightSpaceScale; before it does, this
+// reads a zeroed attribs block and correctly reports 0.
+float FirstCascadeTexelMetresOf (const Diligent::ShadowMapAttribs& attribs, uint32_t resolution)
+{
+    if (resolution == 0)
+        return 0.0f;
+    const float scale = std::abs (attribs.Cascades[0].f4LightSpaceScale.x);
+    return scale > 1e-8f ? (2.0f / scale) / float (resolution) : 0.0f;
 }
 
 } // namespace
@@ -106,7 +142,7 @@ bool DiligentShadowMap::Init (Diligent::IRenderDevice* device, Diligent::IShader
 
     Diligent::BufferDesc bufferDesc;
     bufferDesc.Name = "ArchViz DiligentFX shadow attributes";
-    bufferDesc.Size = sizeof (Diligent::ShadowMapAttribs);
+    bufferDesc.Size = sizeof (ShadowConstants);
     bufferDesc.Usage = Diligent::USAGE_DYNAMIC;
     bufferDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
     bufferDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
@@ -195,6 +231,9 @@ bool DiligentShadowMap::SetSettings (const DiligentShadowSettings& requested, st
                    ? 2
                    : (settings.fixedFilterSize <= 3 ? 3 : (settings.fixedFilterSize <= 5 ? 5 : 7)));
     settings.partitioningFactor = (std::max) (0.0f, (std::min) (settings.partitioningFactor, 1.0f));
+    settings.pcssLightAngularDiameter = (std::max) (0.01f, (std::min) (settings.pcssLightAngularDiameter, 20.0f));
+    settings.pcssBlockerSearch = (std::max) (0.01f, (std::min) (settings.pcssBlockerSearch, 20.0f));
+    settings.pcssMaxPenumbra = (std::max) (0.01f, (std::min) (settings.pcssMaxPenumbra, 20.0f));
 
     if (impl_->manager == nullptr || RequiresRebuild (settings, impl_->settings)) {
         auto manager = std::make_unique<Diligent::ShadowMapManager> ();
@@ -236,6 +275,15 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     Diligent::float4x4 cameraProjection;
     std::memcpy (&cameraView, view, sizeof (cameraView));
     std::memcpy (&cameraProjection, projection, sizeof (cameraProjection));
+
+    // ShadowMapManager extracts positive camera-space near/far distances from
+    // the projection. ArchViz is right-handed and looks down negative Z, while
+    // the manager's cascade math follows the positive-Z convention used by the
+    // Shadows sample. Flip view Z and cancel that flip in projection: the
+    // world-to-clip product is unchanged, but the manager sees valid ranges.
+    const Diligent::float4x4 flipViewZ = Diligent::float4x4::Scale (1.0f, 1.0f, -1.0f);
+    cameraView = cameraView * flipViewZ;
+    cameraProjection = flipViewZ * cameraProjection;
     const Diligent::float3 lightDirection { -towardSun[0] / length, -towardSun[1] / length, -towardSun[2] / length };
 
     impl_->shadowAttribs = Diligent::ShadowMapAttribs {};
@@ -244,7 +292,9 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     // pass's fixed kernel.
     impl_->shadowAttribs.iFixedFilterSize =
         impl_->settings.mode == DiligentShadowMode::Pcf ? 0 : impl_->settings.fixedFilterSize;
-    impl_->shadowAttribs.fFilterWorldSize = impl_->settings.filterWorldSize;
+    // fFilterWorldSize is assigned below, after DistributeCascades: the floor it
+    // is subject to is expressed in texels, and a texel has no world size until
+    // the cascades have been fitted.
     impl_->shadowAttribs.fReceiverPlaneDepthBiasClamp = impl_->settings.receiverPlaneBiasClamp;
     impl_->shadowAttribs.fFixedDepthBias = impl_->settings.fixedDepthBias;
     impl_->shadowAttribs.fCascadeTransitionRegion = impl_->settings.cascadeTransition;
@@ -270,9 +320,22 @@ bool DiligentShadowMap::Prepare (Diligent::IDeviceContext* context, const float 
     distribute.PackMatrixRowMajor = true;
     impl_->manager->DistributeCascades (distribute, impl_->shadowAttribs);
 
-    if (Diligent::MapHelper<Diligent::ShadowMapAttribs> mapped { context, impl_->attribs, Diligent::MAP_WRITE,
-                                                                 Diligent::MAP_FLAG_DISCARD })
-        *mapped = impl_->shadowAttribs;
+    // ⚠️ AFTER DistributeCascades, BECAUSE IT NEEDS THE FITTED CASCADE. See
+    // kMinFilterTexels: the configured metres are a lower bound on the penumbra
+    // width, not a promise that it survives quantisation to the map's grid.
+    const float texelMetres = FirstCascadeTexelMetresOf (impl_->shadowAttribs, impl_->settings.resolution);
+    impl_->shadowAttribs.fFilterWorldSize =
+        (std::max) (impl_->settings.filterWorldSize, kMinFilterTexels * texelMetres);
+
+    ShadowConstants constants;
+    constants.attribs = impl_->shadowAttribs;
+    constexpr float kPi = 3.14159265358979323846f;
+    const float lightRadiusTangent = std::tan (impl_->settings.pcssLightAngularDiameter * kPi / 360.0f);
+    constants.pcssParams = Diligent::float4 { impl_->settings.pcssEnabled ? 1.0f : 0.0f, lightRadiusTangent,
+                                              impl_->settings.pcssBlockerSearch, impl_->settings.pcssMaxPenumbra };
+    if (Diligent::MapHelper<ShadowConstants> mapped { context, impl_->attribs, Diligent::MAP_WRITE,
+                                                      Diligent::MAP_FLAG_DISCARD })
+        *mapped = constants;
     else
         return false;
 
@@ -346,10 +409,9 @@ const DiligentShadowSettings& DiligentShadowMap::Settings () const
 
 float DiligentShadowMap::FirstCascadeTexelMetres () const
 {
-    if (impl_ == nullptr || !impl_->fitted || impl_->settings.resolution == 0)
+    if (impl_ == nullptr || !impl_->fitted)
         return 0.0f;
-    const float scale = impl_->shadowAttribs.Cascades[0].f4LightSpaceScale.x;
-    return std::abs (scale) > 1e-8f ? (2.0f / std::abs (scale)) / float (impl_->settings.resolution) : 0.0f;
+    return FirstCascadeTexelMetresOf (impl_->shadowAttribs, impl_->settings.resolution);
 }
 
 void DiligentShadowMap::CopyCascadeViewProjection (uint32_t cascade, float out[16]) const

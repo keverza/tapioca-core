@@ -323,8 +323,30 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // silently disagree on the frame where geometry arrived between the two
     // calls -- a shadow that slides off the building for one frame per element
     // during a live extraction. RenderShadowMap stores it; this reads it.
-    constants.shadowParams[0] = impl_->shadowMap.FirstCascadeTexelMetres ();
-    constants.shadowParams[1] = 0.0f;
+    // ⚠️ LANE x IS DELIBERATELY ZERO NOW. It used to carry the first cascade's
+    // texel size, which the mesh shader multiplied into its normal offset for
+    // EVERY cascade. The shader derives that per cascade from f3LightSpaceScale
+    // and f4ShadowMapDim instead (see kNormalOffsetTexels), so uploading it here
+    // would be a value nothing reads. FirstCascadeTexelMetres still exists and is
+    // still reported through the geometry statistics -- see DiligentSceneGeometry.
+    constants.shadowParams[0] = 0.0f;
+
+    // ---- RE51.C6a: the PCSS dither's frame phase ---------------------------
+    //
+    // ⚠️ THIS LANE IS ZERO WHENEVER TAA IS NOT ACTUALLY RUNNING, AND THE GATE IS
+    // NOT `taaEnabled` ALONE. The shader rotates its Vogel disk by a phase that
+    // advances with this value, which turns 16 taps into an effective few
+    // hundred once the temporal history averages them -- and into visible
+    // per-pixel CRAWL if nothing downstream ever averages anything. TAA only
+    // executes on the HDR path (Realistic quality, final view, HDR target
+    // allocated), so `useHdr` is half the condition and omitting it would make
+    // the shadows crawl in Fast quality and in every debug view.
+    //
+    // ⚠️ MODULO 8, NOT THE RAW FRAME INDEX. TAA at 0.9 stability retains
+    // roughly ten frames, so more than eight distinct phases buys nothing, and
+    // a counter that climbs for the life of the session eventually loses
+    // integer precision in a float and quietly stops advancing.
+    constants.shadowParams[1] = (impl_->taaEnabled && useHdr) ? float (frameIndex % 8u) : 0.0f;
     constants.shadowParams[2] = impl_->shadowsEnabled && impl_->shadowMap.IsFitted () ? 1.0f : 0.0f;
     constants.shadowParams[3] =
         impl_->shadowMap.Resolution () > 0 ? 1.0f / float (impl_->shadowMap.Resolution ()) : 0.0f;

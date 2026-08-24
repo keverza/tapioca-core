@@ -35,8 +35,26 @@ struct DiligentShadowSettings {
     bool snapCascades = true;
     bool stabilizeExtents = true;
     bool equalizeExtents = true;
-    bool searchBestCascade = true;
-    bool filterAcrossCascades = true;
+    // ⚠️ THERE ARE DELIBERATELY NO `searchBestCascade` / `filterAcrossCascades`
+    // FIELDS HERE, AND THAT IS A DECISION RATHER THAN AN OVERSIGHT. Both were
+    // carried as bools for a while and neither was ever read: DiligentFX selects
+    // them with BEST_CASCADE_SEARCH and FILTER_ACROSS_CASCADES, which are
+    // PREPROCESSOR defines resolved when the mesh pixel shader is compiled (see
+    // kArchVizShadowMode* in DiligentShaders.hpp), so no value written after
+    // shader creation can reach them.
+    //
+    // Making them real would mean a pixel-shader permutation per combination --
+    // four shadow modes x four flag states instead of four -- and a matching
+    // widening of every PSO and SRB array in DiligentSceneImpl. That is a
+    // material build-time and startup cost for two flags that should never be
+    // off: cascade search costs a short loop and picks a tighter cascade, and
+    // cross-cascade filtering is what hides the seam between them. Turning
+    // either off makes the image worse for no gain, which is why they are
+    // compiled in rather than exposed.
+    //
+    // For LOOKING at cascade placement, which is the one honest reason to want
+    // the seam visible, use `visualizeCascades` below -- it exists for exactly
+    // that and it is a real runtime uniform.
     bool visualizeCascades = false;
     bool shadowsOnly = false;
     float fixedDepthBias = 0.0025f;
@@ -47,6 +65,10 @@ struct DiligentShadowSettings {
     float evsmNegativeExponent = 5.0f;
     float lightBleedingReduction = 0.1f;
     float vsmBias = 0.0001f;
+    bool pcssEnabled = true;
+    float pcssLightAngularDiameter = 2.0f;
+    float pcssBlockerSearch = 2.0f;
+    float pcssMaxPenumbra = 1.0f;
 };
 
 bool CompileDiligentShadowPixelShader (Diligent::IRenderDevice* device, DiligentShadowMode mode,

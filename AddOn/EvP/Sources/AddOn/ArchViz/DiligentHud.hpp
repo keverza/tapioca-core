@@ -201,7 +201,7 @@ struct HudState {
     // rather than from an arbitrary number.
     float ambientOcclusionRadius = 0.0f;
 
-    // ---- RE51.C9: shadow settings -----------------------------------------
+    // ---- RE51.C5/C6/C9: shadow settings -----------------------------------
     // Keep the map allocated and gate fitting/sampling. Re-enabling therefore
     // restores shadows without rebuilding GPU resources.
     bool shadowsEnabled = true;
@@ -218,6 +218,10 @@ struct HudState {
     float shadowVsmBias = 0.0001f;
     float shadowEvsmPositiveExponent = 40.0f;
     float shadowEvsmNegativeExponent = 5.0f;
+    bool shadowPcss = true;
+    float shadowPcssLightAngularDiameter = 2.0f;
+    float shadowPcssBlockerSearch = 2.0f;
+    float shadowPcssMaxPenumbra = 1.0f;
     bool shadowVisualizeCascades = false;
     bool shadowOnly = false;
 

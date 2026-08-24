@@ -601,6 +601,15 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                         state.shadowFilterSize = filterSizes[filterIndex];
                 }
                 if (state.shadowMode == int (DiligentShadowMode::Pcf)) {
+                    ImGui::Checkbox ("contact hardening (PCSS)", &state.shadowPcss);
+                    if (state.shadowPcss) {
+                        ImGui::SliderFloat ("sun diameter", &state.shadowPcssLightAngularDiameter, 0.1f, 5.0f,
+                                            "%.2f deg");
+                        ImGui::SliderFloat ("blocker search (m)", &state.shadowPcssBlockerSearch, 0.1f, 10.0f, "%.2f",
+                                            ImGuiSliderFlags_Logarithmic);
+                        ImGui::SliderFloat ("max penumbra (m)", &state.shadowPcssMaxPenumbra, 0.05f, 5.0f, "%.2f",
+                                            ImGuiSliderFlags_Logarithmic);
+                    }
                     ImGui::SliderFloat ("depth bias", &state.shadowDepthBias, 0.00001f, 0.02f, "%.5f",
                                         ImGuiSliderFlags_Logarithmic);
                     ImGui::SliderFloat ("receiver bias clamp", &state.shadowReceiverBiasClamp, 0.0f, 20.0f);

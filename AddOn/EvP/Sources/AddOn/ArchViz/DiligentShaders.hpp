@@ -1340,7 +1340,26 @@ constexpr const char* kArchVizMeshPS = R"hlsl(
 cbuffer ArchVizShadowConstants
 {
     ShadowMapAttribs g_shadowAttribs;
+    // x = enabled; y = tan(light angular radius); z = blocker-search metres;
+    // w = maximum penumbra radius in metres.
+    float4 g_pcssParams;
 };
+
+// ---- RE51.C5a: how far along the normal a receiver is pushed ---------------
+//
+// ⚠️ IN TEXELS, AND THE TEXEL IS THE ONE BELONGING TO THE CASCADE THAT WILL
+// ACTUALLY BE SAMPLED. See SampleSunShadow: this used to be multiplied by
+// cascade ZERO's texel size for every cascade, which is correct only for the
+// nearest one. With four cascades at a 0.95 partitioning factor the outermost
+// texel is well over an order of magnitude larger, so distant receivers were
+// offset by a small fraction of the distance they needed and leaned entirely on
+// the global fFixedDepthBias to hide the acne -- which is a flat depth offset,
+// so buying enough of it to clean the far cascades detaches contact shadows in
+// the near one. Sizing the offset per cascade is what lets that bias stay small.
+//
+// 2.0 reproduces the previous near-field behaviour exactly, because the old
+// expression was cascade-0 texel metres times two.
+static const float kNormalOffsetTexels = 2.0;
 
 #if SHADOW_MODE == SHADOW_MODE_PCF
 Texture2DArray<float>  g_shadowMap;
@@ -1399,22 +1418,226 @@ struct PSOutput
     float4 color : SV_TARGET;
 };
 
+#if SHADOW_MODE == SHADOW_MODE_PCF
+// ---- RE51.C6a: the sampling floor, the dither and the disk ------------------
+//
+// The three constants below are why low-resolution shadows stopped being jagged.
+// They are stated here rather than buried in the filter because each one has a
+// counterpart on the CPU or in DiligentFX that must not drift from it.
+
+// ⚠️ THE MINIMUM FILTER RADIUS IS IN TEXELS, NOT METRES, AND THAT IS THE WHOLE
+// POINT. The penumbra this shader computes is a physical quantity: at a contact
+// edge it is genuinely near zero, and the previous code honoured that by
+// collapsing to ONE hardware comparison sample. One 2x2 comparison tap is a
+// staircase -- so contact hardening, which exists to make that edge crisp, was
+// what made it jagged, and worse the lower the resolution.
+//
+// A shadow map cannot resolve detail below its own texel either way, so
+// filtering across a couple of texels there throws away NO real information; it
+// only replaces a hard staircase with the gradient the map can actually
+// represent. Because the floor is expressed in texels it tightens automatically
+// as resolution rises: at 4096 it is a fraction of the penumbra and invisible,
+// at 512 it is what stops the edge aliasing.
+//
+// ⚠️ KEEP IN STEP WITH kMinFilterTexels IN DiligentShadowMap.cpp, which applies
+// the same floor to fFilterWorldSize for the non-PCSS PCF path. The two paths
+// looking different at the same resolution is a bug, not a mode.
+static const float kPcssMinFilterTexels = 2.0;
+
+// Below this radius the wide filter buys nothing that eight taps do not already
+// resolve, so the tap count drops with it. Contact edges are the common case and
+// are now the CHEAP case -- the old code spent 16 taps on wide penumbrae and 1
+// on contacts, which is backwards for both quality and cost.
+static const float kPcssNarrowFilterTexels = 3.0;
+static const int   kPcssNarrowTaps = 8;
+static const int   kPcssWideTaps = 16;
+static const int   kPcssBlockerTaps = 12;
+
+// ⚠️ THE DITHER IS KEYED ON THE SCREEN PIXEL, NOT ON THE SHADOW-MAP UV. The
+// previous hash read `uv * f4ShadowMapDim.xy`, which is constant within a shadow
+// texel -- so at 512 every screen pixel covered by one texel drew the SAME
+// rotation and the dither correlated into blocks instead of dispersing. That is
+// the second half of the jaggedness, and it got worse exactly where the map got
+// coarser.
+//
+// ⚠️ AND IT ADVANCES WITH THE FRAME, WHICH IS WHAT MAKES THE TAP BUDGET GO
+// FURTHER THAN IT LOOKS. g_shadowParams.y carries a frame phase when TAA is
+// running and ZERO when it is not (see DiligentSceneDraw). With TAA at 0.9 the
+// history averages roughly ten frames of DIFFERENT rotations, so 16 taps resolve
+// like far more; without it the term vanishes and the dither is merely spatial,
+// which is still strictly better than the block-correlated hash it replaces.
+// Cycling the phase with no temporal filter downstream would be visible crawl,
+// so the gate belongs on the CPU where TAA's real state is known.
+//
+// Interleaved gradient noise rather than frac(sin(dot(...))): the same cost, a
+// far more even distribution over a pixel neighbourhood, and no dependence on
+// sin() precision at the large coordinates a 2048-texel map produces.
+float PcssDitherPhase (float2 screenPixel)
+{
+    float2 p = screenPixel + 5.588238 * g_shadowParams.y;
+    return frac (52.9829189 * frac (dot (p, float2 (0.06711056, 0.00583715)))) * 6.2831853;
+}
+
+// A Vogel (golden-angle) disk, generated rather than tabulated. It is uniform at
+// EVERY tap count, which is what lets the count vary with the penumbra above --
+// a fixed 16-entry table sampled 8 times is not a disk, it is half a disk. The
+// per-pixel phase is the rotation, so no separate rotate step is needed.
+float2 VogelDisk (int index, int count, float phase)
+{
+    float radius = sqrt ((float (index) + 0.5) / float (count));
+    float theta = float (index) * 2.39996323 + phase;
+    float sine;
+    float cosine;
+    sincos (theta, sine, cosine);
+    return float2 (cosine, sine) * radius;
+}
+
+float FilterPcssCascade (float3 ddxLightPosition, float3 ddyLightPosition, CascadeSamplingInfo sampling,
+                         float2 screenPixel)
+{
+    float3 ddxShadow = ddxLightPosition * sampling.f3LightSpaceScale * F3NDC_XYZ_TO_UVD_SCALE;
+    float3 ddyShadow = ddyLightPosition * sampling.f3LightSpaceScale * F3NDC_XYZ_TO_UVD_SCALE;
+    float2 receiverBias = ComputeReceiverPlaneDepthBias (ddxShadow, ddyShadow);
+    float2 biasClamp = abs ((sampling.f3LightSpaceScale.z * F3NDC_XYZ_TO_UVD_SCALE.z) /
+                            (sampling.f3LightSpaceScale.xy * F3NDC_XYZ_TO_UVD_SCALE.xy)) *
+                       g_shadowAttribs.fReceiverPlaneDepthBiasClamp;
+    receiverBias = clamp (receiverBias, -biasClamp, biasClamp) * g_shadowAttribs.f4ShadowMapDim.zw;
+    float receiverDepth = sampling.fDepth - dot (1.0.xx, abs (receiverBias)) - g_shadowAttribs.fFixedDepthBias;
+
+    // ⚠️ THE BLOCKER SEARCH AND THE FILTER USE THE SAME DITHER WITH A HALF-TURN
+    // BETWEEN THEM. Sharing one phase outright correlates the estimate with the
+    // samples taken from it, which biases the penumbra; the offset decorrelates
+    // them for free.
+    float phase = PcssDitherPhase (screenPixel);
+
+    float2 searchRadius = g_pcssParams.z * abs (sampling.f3LightSpaceScale.xy) * 0.5;
+    float blockerDepth = 0.0;
+    float blockerCount = 0.0;
+    [unroll]
+    for (int i = 0; i < kPcssBlockerTaps; ++i) {
+        float2 offset = VogelDisk (i, kPcssBlockerTaps, phase + 3.14159265) * searchRadius;
+        int2 texel = int2 ((sampling.f2UV + offset) * g_shadowAttribs.f4ShadowMapDim.xy);
+        texel = clamp (texel, int2 (0, 0), int2 (g_shadowAttribs.f4ShadowMapDim.xy) - 1);
+        float depth = g_shadowMap.Load (int4 (texel, sampling.iCascadeIdx, 0));
+        if (depth < receiverDepth) {
+            blockerDepth += depth;
+            blockerCount += 1.0;
+        }
+    }
+    if (blockerCount < 0.5)
+        return 1.0;
+
+    float averageBlockerDepth = blockerDepth / blockerCount;
+    float blockerSeparation = (receiverDepth - averageBlockerDepth) /
+                              max (abs (sampling.f3LightSpaceScale.z), 1e-6);
+    float penumbraMetres = min (blockerSeparation * g_pcssParams.y, g_pcssParams.w);
+    float2 filterRadius = penumbraMetres * abs (sampling.f3LightSpaceScale.xy) * 0.5;
+
+    // ⚠️ THE FLOOR IS APPLIED AS A max() IN UV, NOT AS A SCALE FACTOR. Dividing
+    // to rescale a radius that can legitimately be zero at a contact edge
+    // produces inf * 0 -- a NaN that survives the average and paints a black
+    // pixel. See kPcssMinFilterTexels for why the floor exists at all.
+    filterRadius = max (filterRadius, kPcssMinFilterTexels * g_shadowAttribs.f4ShadowMapDim.zw);
+    float2 filterRadiusTexels = filterRadius * g_shadowAttribs.f4ShadowMapDim.xy;
+
+    // The tap count follows the radius: eight taps cover a two-to-three texel
+    // disk as evenly as sixteen do, and the Vogel sequence stays uniform at both.
+    int tapCount = max (filterRadiusTexels.x, filterRadiusTexels.y) <= kPcssNarrowFilterTexels
+                       ? kPcssNarrowTaps
+                       : kPcssWideTaps;
+
+    float lightAmount = 0.0;
+    // ⚠️ [loop], NOT [unroll]. The trip count is a per-pixel value now, so an
+    // unroll request against it either fails to compile or forces the maximum
+    // and throws the saving away.
+    [loop]
+    for (int j = 0; j < tapCount; ++j) {
+        float2 offset = VogelDisk (j, tapCount, phase) * filterRadius;
+        float sampleDepth = receiverDepth + dot (offset * g_shadowAttribs.f4ShadowMapDim.xy, receiverBias);
+        lightAmount += g_shadowMap.SampleCmpLevelZero (
+            g_shadowMap_sampler, float3 (sampling.f2UV + offset, sampling.iCascadeIdx), sampleDepth);
+    }
+    return lightAmount / float (tapCount);
+}
+
+FilteredShadow FilterPcssShadowMap (float3 lightPosition, float3 ddxLightPosition,
+                                    float3 ddyLightPosition, float cameraDepth, float2 screenPixel)
+{
+    CascadeSamplingInfo sampling = FindCascade (g_shadowAttribs, lightPosition, cameraDepth);
+    FilteredShadow shadow;
+    shadow.iCascadeIdx = sampling.iCascadeIdx;
+    shadow.fNextCascadeBlendAmount = 0.0;
+    shadow.fLightAmount = 1.0;
+    if (sampling.iCascadeIdx == g_shadowAttribs.iNumCascades)
+        return shadow;
+
+    shadow.fLightAmount = FilterPcssCascade (ddxLightPosition, ddyLightPosition, sampling, screenPixel);
+    if (sampling.iCascadeIdx + 1 < g_shadowAttribs.iNumCascades) {
+        CascadeSamplingInfo nextSampling = GetCascadeSamplingInfo (
+            g_shadowAttribs, lightPosition, sampling.iCascadeIdx + 1);
+        shadow.fNextCascadeBlendAmount = GetNextCascadeBlendAmount (
+            g_shadowAttribs, cameraDepth, sampling, nextSampling);
+        if (shadow.fNextCascadeBlendAmount > 0.0) {
+            float nextLightAmount =
+                FilterPcssCascade (ddxLightPosition, ddyLightPosition, nextSampling, screenPixel);
+            shadow.fLightAmount = lerp (shadow.fLightAmount, nextLightAmount,
+                                        shadow.fNextCascadeBlendAmount);
+        }
+    }
+    return shadow;
+}
+#endif
+
 // x = light amount; yzw = DiligentFX's cascade debug colour.
-float4 SampleSunShadow (float3 worldPos, float3 normal)
+float4 SampleSunShadow (float3 worldPos, float3 normal, float2 screenPixel)
 {
     if (g_shadowParams.z < 0.5)
         return float4 (1.0, 1.0, 1.0, 1.0);
 
-    float3 offsetPos = worldPos + normal * (g_shadowParams.x * 2.0);
+    float cameraDepth = mul (g_viewProj, float4 (worldPos, 1.0)).w;
+
+    // ---- which cascade, before deciding how far to push off the surface -----
+    //
+    // ⚠️ THE CASCADE IS RESOLVED TWICE ON PURPOSE, AND THE ORDER IS THE POINT.
+    // The offset has to be sized by the cascade's texel, but the cascade is
+    // chosen from the position the offset produces -- so this probe finds the
+    // cascade with the UNSHIFTED position first, and the real lookup below runs
+    // with the shifted one. FindCascade is a short loop over at most eight
+    // margin tests and no texture reads; paying for it twice is far cheaper
+    // than the fFixedDepthBias increase that the alternative demands.
+    //
+    // ⚠️ AND THE OFFSET IS ZERO WHEN THE PROBE FALLS OUTSIDE EVERY CASCADE.
+    // Scaling by a stale f3LightSpaceScale there could shift the point back
+    // INTO a cascade and shadow a receiver that the shadow map never covered.
+    // Zero leaves it outside, which is what the un-offset path already decided.
+    float4 probePosition = mul (g_shadowAttribs.mWorldToLightView, float4 (worldPos, 1.0));
+    CascadeSamplingInfo probe =
+        FindCascade (g_shadowAttribs, probePosition.xyz / probePosition.w, cameraDepth);
+
+    float offsetMetres = 0.0;
+    if (probe.iCascadeIdx < g_shadowAttribs.iNumCascades) {
+        // f3LightSpaceScale maps world units into NDC's [-1, 1], so the cascade
+        // spans 2 / |scale.x| metres across f4ShadowMapDim.x texels. This is the
+        // shader-side twin of FirstCascadeTexelMetresOf in DiligentShadowMap.cpp,
+        // generalised to any cascade rather than only the first.
+        float texelMetres =
+            2.0 / max (abs (probe.f3LightSpaceScale.x) * g_shadowAttribs.f4ShadowMapDim.x, 1e-6);
+        offsetMetres = texelMetres * kNormalOffsetTexels;
+    }
+
+    float3 offsetPos = worldPos + normal * offsetMetres;
     float4 lightPosition = mul (g_shadowAttribs.mWorldToLightView, float4 (offsetPos, 1.0));
     float3 lightViewPosition = lightPosition.xyz / lightPosition.w;
-    float cameraDepth = mul (g_viewProj, float4 (worldPos, 1.0)).w;
 
     FilteredShadow shadow;
 #if SHADOW_MODE == SHADOW_MODE_PCF
-    shadow = FilterShadowMap (g_shadowAttribs, g_shadowMap, g_shadowMap_sampler,
-                              lightViewPosition, ddx (lightViewPosition), ddy (lightViewPosition),
-                              cameraDepth);
+    if (g_pcssParams.x > 0.5)
+        shadow = FilterPcssShadowMap (lightViewPosition, ddx (lightViewPosition),
+                                      ddy (lightViewPosition), cameraDepth, screenPixel);
+    else
+        shadow = FilterShadowMap (g_shadowAttribs, g_shadowMap, g_shadowMap_sampler,
+                                  lightViewPosition, ddx (lightViewPosition), ddy (lightViewPosition),
+                                  cameraDepth);
 #else
     shadow = SampleFilterableShadowMap (g_shadowAttribs, g_filterableShadowMap,
                                         g_filterableShadowMap_sampler, lightViewPosition,
@@ -1526,14 +1749,14 @@ void main (in PSInput psIn, out PSOutput psOut)
 
     // ---- direct: the sun, occluded by the shadow map ----------------------
     float ndotl  = max (dot (n, g_sunAndAmbient.xyz), 0.0);
-    float4 shadow = SampleSunShadow (psIn.worldPos, n);
+    // ⚠️ psIn.position IS ALREADY IN PIXELS HERE. The hardware divided by w and
+    // mapped SV_POSITION to the viewport before the pixel shader saw it, which is
+    // exactly the space the PCSS dither wants: one distinct phase per screen
+    // pixel, independent of how many pixels a shadow texel covers.
+    float4 shadow = SampleSunShadow (psIn.worldPos, n, psIn.position.xy);
     float direct = directWeight * ndotl * shadow.x;
 
     float3 lighting = ambientTerm + direct.xxx * g_skyColor.w;
-    if (g_shadowAttribs.bVisualizeShadowing != 0)
-        lighting = shadow.xxx;
-    if (g_shadowAttribs.bVisualizeCascades != 0)
-        lighting = lerp (lighting, shadow.yzw, 0.18);
     float4 base = psIn.color * g_baseColor;
 
     // ---- RenderQuality::Realistic (PLAT-RE126) ----------------------------
@@ -1802,6 +2025,13 @@ constexpr const char* kArchVizMeshPSMainTail = R"hlsl(
         // behind it. The opaque pass is unaffected either way: alpha is 1 there
         // and the multiply is the identity.
         float3 shaded = premultiplied ? base.rgb : base.rgb * lighting * base.a;
+        // Apply diagnostics after both quality paths. Realistic has already
+        // folded lighting into base.rgb, so applying these earlier is silently
+        // overwritten by its GGX branch.
+        if (g_shadowAttribs.bVisualizeShadowing != 0)
+            shaded = shadow.xxx;
+        if (g_shadowAttribs.bVisualizeCascades != 0)
+            shaded = lerp (shaded, shadow.yzw, 0.18);
         psOut.color = float4 (shaded, base.a);
     }
 }

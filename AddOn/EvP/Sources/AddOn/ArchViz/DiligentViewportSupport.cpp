@@ -59,6 +59,10 @@ void ApplyShadowSettings (DiligentScene& scene, const HudState& hud)
     settings.vsmBias = hud.shadowVsmBias;
     settings.evsmPositiveExponent = hud.shadowEvsmPositiveExponent;
     settings.evsmNegativeExponent = hud.shadowEvsmNegativeExponent;
+    settings.pcssEnabled = hud.shadowPcss;
+    settings.pcssLightAngularDiameter = hud.shadowPcssLightAngularDiameter;
+    settings.pcssBlockerSearch = hud.shadowPcssBlockerSearch;
+    settings.pcssMaxPenumbra = hud.shadowPcssMaxPenumbra;
     settings.visualizeCascades = hud.shadowVisualizeCascades;
     settings.shadowsOnly = hud.shadowOnly;
     scene.SetShadowSettings (settings);
