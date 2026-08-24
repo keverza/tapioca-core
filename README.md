@@ -6,6 +6,37 @@ Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD pyt
 
 [![Build](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml/badge.svg)](https://github.com/keverza/tapioca-core/actions/workflows/addon_build_check.yml)
 
+## Architecture and dependencies
+
+```mermaid
+flowchart LR
+    Command["Python command<br/><code>import tapioca</code>"] --> Bus["Tapioca command bus<br/>embedded or loopback HTTP"]
+
+    subgraph AC["Archicad 29 process"]
+        Bus -->|"Tapioca.*"| Native["Tapioca.apx<br/>native C++ commands"]
+        Bus -->|"API.*"| JSON["Official Archicad<br/>JSON command API"]
+        Bus -.->|"Tapir.* when installed"| Tapir["Tapir.apx"]
+
+        Native -->|"main-thread ACAPI calls"| BIM["Archicad C++ API<br/>authoritative BIM model"]
+        JSON --> BIM
+        Tapir --> BIM
+
+        Native --> Snapshot["Task-shaped geometry<br/>and property snapshots"]
+        Snapshot --> Diligent["Diligent Engine<br/>native viewer, overlays,<br/>GPU cache and captures"]
+        Command --> Browser["Embedded browser UI<br/>or exported HTML"]
+    end
+
+    Snapshot -.->|"serialized geometry/data"| Browser
+    Three["three.js<br/>optional CDN WebGL renderer"] -.-> Browser
+    CPython["CPython 3.12 runtime"] -->|"executes"| Command
+    Support["cpp-httplib, MessagePack,<br/>nanort and native libraries"] --> Native
+```
+
+Archicad remains the source of truth. Tapioca copies only the data required by a
+command before downstream rendering or analysis. Diligent is compiled into the
+native add-on; three.js is used only by browser-based viewers. Tapir extends the
+available command surface when its add-on is installed.
+
 ## Download and install
 
 Prebuilt AC29 Tapioca.apx is on Releases page. Download the asset and clone this repository for the python runtime installer and example commands. With Archicad closed, run these commands from the repository root in Windows PowerShell:
