@@ -1,0 +1,29 @@
+---
+config:
+  layout: fixed
+---
+flowchart TB
+ subgraph AC["Archicad 29 process"]
+        Native["Tapioca.apx<br>native C++ commands"]
+        Bus["Archicad<br>JSON API"]
+        JSON["Official Archicad<br>JSON command API"]
+        Tapir["Tapir.apx"]
+        BIM["Archicad C++ API<br>authoritative BIM model"]
+        Snapshot["Task-shaped geometry<br>and property snapshots"]
+        Diligent["Diligent Engine<br>native viewer, overlays,<br>GPU cache and captures"]
+        Browser["Embedded browser UI<br>or exported HTML"]
+        Command["Python command<br><code>s1</code>"]
+  end
+    Command --> Bus & Browser
+    Bus -- "Tapioca.*" --> Native
+    Bus -- "API.*" --> JSON
+    Bus -. "Tapir.* when installed" .-> Tapir
+    Native -- "main-thread ACAPI calls" --> BIM
+    JSON --> BIM
+    Tapir --> BIM
+    Native --> Snapshot
+    Snapshot --> Diligent
+    Snapshot -. serialized geometry/data .-> Browser
+    Three["three.js<br>optional CDN WebGL renderer"] -.-> Browser
+    CPython["CPython 3.12 runtime"] -- executes --> Command
+    Support["cpp-httplib, MessagePack,<br>nanort and native libraries"] --> Native
