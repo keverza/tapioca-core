@@ -210,7 +210,7 @@ def ports_from_schema(schema, labels=None, explicit_titles=None):
         # UI metadata that JSON Schema has no vocabulary for. `readonly` and
         # `numeric` stay booleans; the C++ side reads them with os.Get(bool).
         for key in ("unit", "default_from", "readonly", "subtype", "numeric",
-                    "element_type"):
+                    "element_type", "mode", "extensions"):
             if key in spec:
                 entry[key] = spec[key]
 

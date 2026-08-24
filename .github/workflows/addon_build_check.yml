@@ -33,11 +33,11 @@ jobs:
 
       - name: Provision build references
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile build
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile build -CacheRoot "${{ runner.temp }}\tapioca-reference-cache"
 
       - name: Provision test references
         shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile test
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile test -CacheRoot "${{ runner.temp }}\tapioca-reference-cache"
 
       - name: Build AC29 add-on
         shell: pwsh

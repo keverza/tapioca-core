@@ -129,6 +129,7 @@ import evp
 def run(
     executable: evp.FilePath(extensions=("exe",)) = "CloudCompare.exe",
     tile: evp.FilePath(extensions=("e57", "las", "laz", "ply")) = "tile.e57",
+    report: evp.FilePath(mode="save", extensions=("json", "csv")) = "report.json",
 ):
     pass
 '''
@@ -137,6 +138,23 @@ def run(
     assert params["executable"]["type"] == "FilePath"
     assert params["executable"]["extensions"] == ("exe",)
     assert params["tile"]["extensions"] == ("e57", "las", "laz", "ply")
+    assert params["report"]["mode"] == "save"
+    assert params["report"]["extensions"] == ("json", "csv")
+
+
+@pytest.mark.parametrize("mode", ["read", "write", "", 3])
+def test_file_path_rejects_invalid_mode(tmp_path, mode):
+    source = '''
+import evp
+
+
+@evp.command()
+def run(path: evp.FilePath(mode=%r) = ""):
+    pass
+''' % mode
+
+    with pytest.raises(scanner.ScanError, match="FilePath mode must be 'open' or 'save'"):
+        scan(source, tmp_path)
 
 
 def test_selection_sets_are_preserved_in_declaration_order(tmp_path):

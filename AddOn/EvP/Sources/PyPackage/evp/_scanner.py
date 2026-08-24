@@ -124,6 +124,26 @@ def _describe_annotation(node):
                     "annotation argument '%s' is not a literal (line %d)" % (kw.arg, node.lineno),
                     node.lineno,
                 ) from None
+        if name == "FilePath":
+            mode = extra.get("mode", "open")
+            if mode not in ("open", "save"):
+                raise ScanError(
+                    "FilePath mode must be 'open' or 'save' (line %d)" % node.lineno,
+                    node.lineno,
+                )
+            extensions = extra.get("extensions", ())
+            if not isinstance(extensions, (list, tuple)) or any(
+                not isinstance(extension, str)
+                or not extension.lstrip(".")
+                or "/" in extension
+                or "\\" in extension
+                for extension in extensions
+            ):
+                raise ScanError(
+                    "FilePath extensions must be a literal list or tuple of file suffixes "
+                    "(line %d)" % node.lineno,
+                    node.lineno,
+                )
         return name, extra
     return "any", {}
 

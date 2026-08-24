@@ -151,7 +151,8 @@ PORT_UNITS = ("m", "m2", "m3", "rad")
 
 
 def port(control=None, unit=None, default_from=None, readonly=None,
-         show_when=None, subtype=None, numeric=None, element_type=None):
+         show_when=None, subtype=None, numeric=None, element_type=None,
+         mode=None, extensions=None):
     """Build the `json_schema_extra` payload the palette reads off a field.
 
     Everything here is UI metadata that JSON Schema itself has no vocabulary
@@ -184,12 +185,27 @@ def port(control=None, unit=None, default_from=None, readonly=None,
             "converts to the project's Working Units itself, so a display unit "
             "here would be applied twice." % (unit, ", ".join(PORT_UNITS))
         )
+    if mode is not None and mode not in ("open", "save"):
+        raise ValueError("file path mode must be 'open' or 'save'")
+    if mode is not None and control != "filepath":
+        raise ValueError("mode is only valid for control='filepath'")
+    if extensions is not None:
+        if control != "filepath":
+            raise ValueError("extensions are only valid for control='filepath'")
+        if not isinstance(extensions, (list, tuple)) or any(
+                not isinstance(extension, str)
+                or not extension.lstrip(".")
+                or "/" in extension
+                or "\\" in extension
+                for extension in extensions):
+            raise ValueError("extensions must be a list or tuple of file suffixes")
 
     spec = {}
     for key, value in (("control", control), ("unit", unit),
                        ("default_from", default_from), ("readonly", readonly),
-                       ("show_when", show_when), ("subtype", subtype),
-                       ("numeric", numeric), ("element_type", element_type)):
+                        ("show_when", show_when), ("subtype", subtype),
+                        ("numeric", numeric), ("element_type", element_type),
+                        ("mode", mode), ("extensions", extensions)):
         if value is not None:
             spec[key] = value
     return {"x-port": spec}

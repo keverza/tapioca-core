@@ -36,6 +36,12 @@
 .PARAMETER CatalogPath
     Catalog to read. Defaults to AddOn/reference/CATALOG.yaml in this checkout.
 
+.PARAMETER CacheRoot
+    Directory used for downloaded archives and Git clones. Defaults to the persistent
+    Tapioca cache under LOCALAPPDATA, or the system temporary directory when LOCALAPPDATA
+    is unavailable. CI should use a short path because recursive dependencies contain
+    filenames that approach the Windows path-length limit.
+
 .PARAMETER Profile
     Catalog profile to provision. 'all' copies every entry; otherwise the profile must
     be declared by CATALOG.yaml.
@@ -58,6 +64,7 @@ param (
     [string] $SourceRoot,
     [string] $DestinationRoot,
     [string] $CatalogPath,
+    [string] $CacheRoot,
     [string] $Profile = "",
     [switch] $ValidateOnly,
     [switch] $FromUpstream
@@ -605,11 +612,14 @@ if ($FromUpstream -and -not $ValidateOnly) {
         throw "Profile '$Profile' has no upstream download metadata for: $($unsupportedEntries.path -join ', '). Use -SourceRoot for these reference entries."
     }
 
-    $cacheRoot = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-        Join-Path ([IO.Path]::GetTempPath()) "tapioca-reference-cache"
-    } else {
-        Join-Path $env:LOCALAPPDATA "Tapioca\_provision-cache"
+    if ([string]::IsNullOrWhiteSpace($CacheRoot)) {
+        $CacheRoot = if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            Join-Path ([IO.Path]::GetTempPath()) "tapioca-reference-cache"
+        } else {
+            Join-Path $env:LOCALAPPDATA "Tapioca\_provision-cache"
+        }
     }
+    $cacheRoot = Get-AbsolutePath $CacheRoot
     if (-not (Test-Path -LiteralPath $destinationRoot -PathType Container) -and -not $WhatIfPreference) {
         New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
     }
