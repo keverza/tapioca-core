@@ -145,6 +145,12 @@ struct DiligentViewportStats {
     // RE51.C8. Mirrors DiligentSceneStats; see there for why the PAIR is the
     // diagnosis and a single "TAA on" flag would not be.
     bool taaResolved = false;
+    // RE51.C7. ⚠️ THE PAIR IS THE DIAGNOSIS, like taaResolved/taaJitterPixels.
+    // Depth history without colour history means SSR is sampling the CURRENT
+    // frame for every reflection and can never converge -- reflections still
+    // appear, so nothing in the picture says so.
+    bool ssrDepthHistory = false;
+    bool ssrColorHistory = false;
     float taaJitterPixels[2] = { 0.0f, 0.0f };
     float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
 

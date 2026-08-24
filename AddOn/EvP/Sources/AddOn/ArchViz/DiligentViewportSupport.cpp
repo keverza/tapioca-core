@@ -757,5 +757,58 @@ void IdentifyOwnSwapChain (IDXGISwapChain* swapChain)
                     " windowed=" + std::to_string (nativeDesc.Windowed != FALSE));
 }
 
+// The scene's per-frame numbers, into the viewport's published copy.
+//
+// ⚠️ A FLAT RUN OF FIELD COPIES AND NOTHING ELSE. It carries no ordering and no
+// decisions, which is exactly why it is the part of the frame body that could be
+// lifted out: DiligentViewport.cpp's size exception exists to stop the ORDERED
+// frame code growing, and this was never ordered code. Fields whose source is
+// the viewport rather than the scene stay at the call site.
+void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats& sceneStats)
+{
+        stats.month = sceneStats.month;
+        stats.day = sceneStats.day;
+        stats.hour = sceneStats.hour;
+        stats.minute = sceneStats.minute;
+        stats.summerTime = sceneStats.summerTime;
+        stats.haveComputedSun = sceneStats.haveComputedSun;
+        stats.computedAzimuthDegrees = sceneStats.computedAzimuthDegrees;
+        stats.computedAltitudeDegrees = sceneStats.computedAltitudeDegrees;
+        stats.shadowReady = sceneStats.shadowReady;
+        stats.shadowFitted = sceneStats.shadowFitted;
+        stats.shadowResolution = sceneStats.shadowResolution;
+        stats.shadowTexelMetres = sceneStats.shadowTexelMetres;
+        stats.environmentLoaded = sceneStats.environmentLoaded;
+        stats.environmentActive = sceneStats.environmentActive;
+        stats.environmentMipLevels = sceneStats.environmentMipLevels;
+        stats.environmentAverage[0] = sceneStats.environmentAverage[0];
+        stats.environmentAverage[1] = sceneStats.environmentAverage[1];
+        stats.environmentAverage[2] = sceneStats.environmentAverage[2];
+        stats.environmentPrefiltered = sceneStats.environmentPrefiltered;
+        stats.environmentPrefilteredMips = sceneStats.environmentPrefilteredMips;
+        stats.environmentPrefilterMs = sceneStats.environmentPrefilterMs;
+        stats.environmentPrefilterError = sceneStats.environmentPrefilterError;
+        stats.autoExposureEnabled = sceneStats.autoExposureEnabled;
+        stats.autoExposure = sceneStats.autoExposure;
+        stats.appliedExposure = sceneStats.appliedExposure;
+        stats.fixedExposure = sceneStats.fixedExposure;
+        stats.sceneLuminance = sceneStats.sceneLuminance;
+        stats.meanAlbedo = sceneStats.meanAlbedo;
+        stats.aoRadiusMetres = sceneStats.aoRadiusMetres;
+        stats.taaResolved = sceneStats.taaResolved;
+        stats.ssrDepthHistory = sceneStats.ssrDepthHistory;
+        stats.ssrColorHistory = sceneStats.ssrColorHistory;
+        stats.taaJitterPixels[0] = sceneStats.taaJitterPixels[0];
+        stats.taaJitterPixels[1] = sceneStats.taaJitterPixels[1];
+        for (int c = 0; c < 3; ++c)
+            stats.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
+        stats.substanceNamed = sceneStats.substanceNamed;
+        for (int i = 0; i < 7; ++i)
+            stats.substanceCounts[i] = sceneStats.substanceCounts[i];
+        stats.environmentPath = sceneStats.environmentPath;
+        stats.environmentError = sceneStats.environmentError;
+        stats.selectedCount = sceneStats.selected;
+}
+
 } // namespace archviz
 } // namespace geomsrv

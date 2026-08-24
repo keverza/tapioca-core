@@ -33,13 +33,13 @@ std::vector<uint32_t> Triangles (size_t count)
     return t;
 }
 
-}   // namespace
+} // namespace
 
 // Mirrors test_material_groups_are_contiguous_and_cover_everything.
 TEST (MeshGroups, ContiguousAndCoversEverything)
 {
     const std::vector<int32_t> mats = { 3, 1, 3, 2, 1, 1 };
-    std::vector<uint32_t>      idx;
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (mats.size ()), mats, idx, ranges);
 
@@ -74,7 +74,7 @@ TEST (MeshGroups, ContiguousAndCoversEverything)
 TEST (MeshGroups, EveryTriangleInARangeHasThatMaterial)
 {
     const std::vector<int32_t> mats = { 5, 0, 5, 0, 7 };
-    std::vector<uint32_t>      idx;
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (mats.size ()), mats, idx, ranges);
 
@@ -90,7 +90,7 @@ TEST (MeshGroups, EveryTriangleInARangeHasThatMaterial)
 // Mirrors test_material_groups_empty.
 TEST (MeshGroups, Empty)
 {
-    std::vector<uint32_t>      idx    = { 1, 2, 3 };   // pre-dirtied, must be cleared
+    std::vector<uint32_t> idx = { 1, 2, 3 }; // pre-dirtied, must be cleared
     std::vector<MaterialRange> ranges = { MaterialRange { 9, 9, 9 } };
     BuildMaterialGroups ({}, {}, idx, ranges);
     EXPECT_TRUE (idx.empty ());
@@ -103,7 +103,7 @@ TEST (MeshGroups, Empty)
 TEST (MeshGroups, LastRunIsEmitted)
 {
     const std::vector<int32_t> mats = { 0, 0, 1 };
-    std::vector<uint32_t>      idx;
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (mats.size ()), mats, idx, ranges);
 
@@ -119,7 +119,7 @@ TEST (MeshGroups, LastRunIsEmitted)
 TEST (MeshGroups, SingleMaterialIsOneRange)
 {
     const std::vector<int32_t> mats = { 4, 4, 4, 4 };
-    std::vector<uint32_t>      idx;
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (mats.size ()), mats, idx, ranges);
 
@@ -137,7 +137,7 @@ TEST (MeshGroups, SingleMaterialIsOneRange)
 TEST (MeshGroups, StableWithinAGroup)
 {
     const std::vector<int32_t> mats = { 1, 0, 1, 0, 1 };
-    std::vector<uint32_t>      idx;
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (mats.size ()), mats, idx, ranges);
 
@@ -156,16 +156,16 @@ TEST (MeshGroups, StableWithinAGroup)
 // and under ASan an over-read here would be a hard failure, which is the point.
 TEST (MeshGroups, TruncatedMaterialArrayIsTreatedAsZero)
 {
-    const std::vector<int32_t> mats = { 2 };            // 1 entry for 3 triangles
-    std::vector<uint32_t>      idx;
+    const std::vector<int32_t> mats = { 2 }; // 1 entry for 3 triangles
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (3), mats, idx, ranges);
 
     ASSERT_EQ (ranges.size (), 2u);
     EXPECT_EQ (ranges[0].material, 0);
-    EXPECT_EQ (ranges[0].indexCount, 6u);   // triangles 1 and 2
+    EXPECT_EQ (ranges[0].indexCount, 6u); // triangles 1 and 2
     EXPECT_EQ (ranges[1].material, 2);
-    EXPECT_EQ (ranges[1].indexCount, 3u);   // triangle 0
+    EXPECT_EQ (ranges[1].indexCount, 3u); // triangle 0
     EXPECT_EQ (idx.size (), 9u);
 }
 
@@ -173,7 +173,7 @@ TEST (MeshGroups, TruncatedMaterialArrayIsTreatedAsZero)
 // reordering. The degenerate input a snapshot of an untextured element gives.
 TEST (MeshGroups, NoMaterialsAtAll)
 {
-    std::vector<uint32_t>      idx;
+    std::vector<uint32_t> idx;
     std::vector<MaterialRange> ranges;
     BuildMaterialGroups (Triangles (2), {}, idx, ranges);
 
@@ -181,4 +181,19 @@ TEST (MeshGroups, NoMaterialsAtAll)
     EXPECT_EQ (ranges[0].material, 0);
     EXPECT_EQ (ranges[0].firstIndex, 0u);
     EXPECT_EQ (ranges[0].indexCount, 6u);
+}
+
+TEST (MeshGroups, WireEdgesFollowMaterialPermutation)
+{
+    const std::vector<int32_t> mats = { 2, 1, 2 };
+    const std::vector<uint8_t> wire = { 1, 2, 4 };
+    std::vector<uint32_t> idx;
+    std::vector<uint32_t> reorderedWire;
+    std::vector<MaterialRange> ranges;
+    BuildMaterialGroups (Triangles (3), mats, idx, ranges, &wire, &reorderedWire);
+
+    EXPECT_EQ (reorderedWire, (std::vector<uint32_t> { 2, 1, 4 }));
+    EXPECT_EQ (idx[0] / 3, 1u);
+    EXPECT_EQ (idx[3] / 3, 0u);
+    EXPECT_EQ (idx[6] / 3, 2u);
 }

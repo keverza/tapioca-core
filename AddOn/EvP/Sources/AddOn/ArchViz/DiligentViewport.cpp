@@ -124,6 +124,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         InstallDiligentDebugCallback ();
 
         Diligent::EngineD3D11CreateInfo engineCI;
+        engineCI.Features.Tessellation = Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
+        engineCI.Features.GeometryShaders = Diligent::DEVICE_FEATURE_STATE_OPTIONAL;
         Diligent::IEngineFactoryD3D11* factory = Diligent::GetEngineFactoryD3D11 ();
         factory->CreateDeviceAndContextsD3D11 (engineCI, &device, &context);
         if (device == nullptr || context == nullptr)
@@ -799,6 +801,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 lastCommandedCallout = hudState.showCallout;
             }
             scene.SetRenderMode (static_cast<SceneRenderMode> (hudState.renderMode));
+            scene.SetWireframeSettings (float (hudState.wireTessellation), hudState.wireLineWidth);
             // Quality has no command yet, so the HUD is its only source and needs
             // no reconciliation -- unlike the three above, which two things set.
             scene.SetRenderQuality (hudState.renderQuality == int (RenderQuality::Realistic) ? RenderQuality::Realistic
@@ -952,46 +955,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 stats_.longitudeDegrees = sceneStats.longitudeDegrees;
                 stats_.siteAltitudeMetres = sceneStats.siteAltitudeMetres;
                 stats_.year = sceneStats.year;
-                stats_.month = sceneStats.month;
-                stats_.day = sceneStats.day;
-                stats_.hour = sceneStats.hour;
-                stats_.minute = sceneStats.minute;
-                stats_.summerTime = sceneStats.summerTime;
-                stats_.haveComputedSun = sceneStats.haveComputedSun;
-                stats_.computedAzimuthDegrees = sceneStats.computedAzimuthDegrees;
-                stats_.computedAltitudeDegrees = sceneStats.computedAltitudeDegrees;
-                stats_.shadowReady = sceneStats.shadowReady;
-                stats_.shadowFitted = sceneStats.shadowFitted;
-                stats_.shadowResolution = sceneStats.shadowResolution;
-                stats_.shadowTexelMetres = sceneStats.shadowTexelMetres;
-                stats_.environmentLoaded = sceneStats.environmentLoaded;
-                stats_.environmentActive = sceneStats.environmentActive;
-                stats_.environmentMipLevels = sceneStats.environmentMipLevels;
-                stats_.environmentAverage[0] = sceneStats.environmentAverage[0];
-                stats_.environmentAverage[1] = sceneStats.environmentAverage[1];
-                stats_.environmentAverage[2] = sceneStats.environmentAverage[2];
-                stats_.environmentPrefiltered = sceneStats.environmentPrefiltered;
-                stats_.environmentPrefilteredMips = sceneStats.environmentPrefilteredMips;
-                stats_.environmentPrefilterMs = sceneStats.environmentPrefilterMs;
-                stats_.environmentPrefilterError = sceneStats.environmentPrefilterError;
-                stats_.autoExposureEnabled = sceneStats.autoExposureEnabled;
-                stats_.autoExposure = sceneStats.autoExposure;
-                stats_.appliedExposure = sceneStats.appliedExposure;
-                stats_.fixedExposure = sceneStats.fixedExposure;
-                stats_.sceneLuminance = sceneStats.sceneLuminance;
-                stats_.meanAlbedo = sceneStats.meanAlbedo;
-                stats_.aoRadiusMetres = sceneStats.aoRadiusMetres;
-                stats_.taaResolved = sceneStats.taaResolved;
-                stats_.taaJitterPixels[0] = sceneStats.taaJitterPixels[0];
-                stats_.taaJitterPixels[1] = sceneStats.taaJitterPixels[1];
-                for (int c = 0; c < 3; ++c)
-                    stats_.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
-                stats_.substanceNamed = sceneStats.substanceNamed;
-                for (int i = 0; i < 7; ++i)
-                    stats_.substanceCounts[i] = sceneStats.substanceCounts[i];
-                stats_.environmentPath = sceneStats.environmentPath;
-                stats_.environmentError = sceneStats.environmentError;
-                stats_.selectedCount = sceneStats.selected;
+                // ⚠️ EXTRACTED, NOT INLINED, AND check_cpp.py's exception for this
+                // file is why: it freezes the size so "future work must extract
+                // rather than grow it". A flat run of field copies is the most
+                // extractable thing in the frame body and carries no ordering.
+                CopySceneStatsInto (stats_, sceneStats);
                 stats_.planAnchors = planAnchorsOn_.load ();
                 stats_.planAnchorLayerReady = planAnchors.IsReady ();
                 stats_.planAnchorVertices = uint64_t (planAnchors.VertexCount ());

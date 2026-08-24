@@ -49,6 +49,26 @@ bool CreateMeshBuffers (Diligent::IRenderDevice* device, const char* name, Entry
     return true;
 }
 
+bool CreateWireEdgeBuffer (Diligent::IRenderDevice* device, Entry& entry, const std::vector<uint32_t>& edgeMasks)
+{
+    entry.wireEdgeBuffer.Release ();
+    if (edgeMasks.empty ())
+        return false;
+
+    Diligent::BufferDesc desc;
+    desc.Name = "ArchViz wire edge masks";
+    desc.Size = edgeMasks.size () * sizeof (uint32_t);
+    desc.Usage = Diligent::USAGE_IMMUTABLE;
+    desc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+    desc.Mode = Diligent::BUFFER_MODE_STRUCTURED;
+    desc.ElementByteStride = sizeof (uint32_t);
+    const Diligent::BufferData data { edgeMasks.data (), desc.Size };
+    device->CreateBuffer (desc, &data, &entry.wireEdgeBuffer);
+    if (entry.wireEdgeBuffer != nullptr)
+        entry.gpuBytes += desc.Size;
+    return entry.wireEdgeBuffer != nullptr;
+}
+
 bool DiligentScene::AddStaticMesh (Diligent::IRenderDevice* device, const char* name, const ArchVizVertex* vertices,
                                    size_t vertexCount, const uint16_t* indices, size_t indexCount, std::string& error)
 {
@@ -198,6 +218,8 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                                         interleaved.size () * sizeof (ArchVizVertex), upload.indices.data (),
                                         upload.indices.size () * sizeof (uint32_t), error))
                     break;
+
+                CreateWireEdgeBuffer (device, e, upload.wireEdges);
 
                 e.guid = upload.guid;
                 // ⚠️ ASSIGNED ONCE, AND ONLY ONCE. An upsert of an element that
@@ -489,6 +511,8 @@ DiligentSceneStats DiligentScene::Stats () const
     s.meanAlbedo = MeanPoolAlbedo (impl_->materials);
     s.aoRadiusMetres = impl_->aoRadiusInUse;
     s.taaResolved = impl_->taaResolvedThisFrame;
+    s.ssrDepthHistory = impl_->screenSpaceReflection.HasDepthHistory ();
+    s.ssrColorHistory = impl_->screenSpaceReflection.HasColorHistory ();
     s.taaJitterPixels[0] = impl_->taaJitterInUse[0];
     s.taaJitterPixels[1] = impl_->taaJitterInUse[1];
     for (const SurfaceMaterial& surface : impl_->materials.All ()) {

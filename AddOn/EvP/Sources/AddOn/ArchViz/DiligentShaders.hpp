@@ -273,6 +273,8 @@ struct DiligentSceneConstants {
     // Current UNJITTERED view-projection. Visible geometry uses `viewProj`, but
     // temporal reprojection must not report the Halton sample offset as motion.
     float motionViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+    // x tessellation factor, y line width in pixels, zw viewport size.
+    float wireParams[4] = { 4.0f, 1.25f, 1.0f, 1.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -313,7 +315,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) ==
-                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64,
+                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -361,6 +363,7 @@ cbuffer ArchVizConstants
                                 // y = 1 when g_hdrCoverage is TAA-resolved (coverage in RED,
                                 //     not ALPHA -- see kArchVizCoveragePS)
     float4x4 g_motionViewProj;  // RE51.C8: current camera without projection jitter
+    float4   g_wireParams;      // x tess factor, y line width px, zw viewport px
 };
 )hlsl";
 
@@ -529,6 +532,188 @@ void main (in PSInput psIn, out PSOutput psOut)
     // this round-trips exactly. For the outline and wireframe passes the alpha is
     // the line's own, and those PSOs blend with it.
     psOut.color = g_baseColor;
+}
+)hlsl";
+
+// Face-aware wireframe: source triangles become patches, but their internal
+// triangulation edges are masked. The tessellator's new interior edges remain.
+constexpr const char* kArchVizWireVS = R"hlsl(
+struct VSInput
+{
+    float3 position : ATTRIB0;
+    float3 normal   : ATTRIB1;
+    float4 color    : ATTRIB2;
+};
+
+struct WireControlPoint
+{
+    float3 worldPos : WORLDPOS;
+};
+
+WireControlPoint main (VSInput input)
+{
+    WireControlPoint output;
+    output.worldPos = input.position;
+    return output;
+}
+)hlsl";
+
+constexpr const char* kArchVizWireHS = R"hlsl(
+StructuredBuffer<uint> g_wirePatchFlags;
+
+struct WireControlPoint
+{
+    float3 worldPos : WORLDPOS;
+};
+
+struct WirePatchConstants
+{
+    float edges[3] : SV_TessFactor;
+    float inside   : SV_InsideTessFactor;
+    uint edgeMask  : EDGEMASK;
+};
+
+WirePatchConstants PatchConstants (InputPatch<WireControlPoint, 3> patch,
+                                   uint patchId : SV_PrimitiveID)
+{
+    WirePatchConstants output;
+    float factor = clamp (round (g_wireParams.x), 1.0, 16.0);
+    output.edges[0] = factor;
+    output.edges[1] = factor;
+    output.edges[2] = factor;
+    output.inside = factor;
+    output.edgeMask = g_wirePatchFlags[patchId] & 7u;
+    return output;
+}
+
+[domain("tri")]
+[partitioning("integer")]
+[outputtopology("triangle_cw")]
+[outputcontrolpoints(3)]
+[patchconstantfunc("PatchConstants")]
+[maxtessfactor(16.0)]
+WireControlPoint main (InputPatch<WireControlPoint, 3> patch,
+                       uint pointId : SV_OutputControlPointID)
+{
+    return patch[pointId];
+}
+)hlsl";
+
+constexpr const char* kArchVizWireDS = R"hlsl(
+struct WireControlPoint
+{
+    float3 worldPos : WORLDPOS;
+};
+
+struct WirePatchConstants
+{
+    float edges[3] : SV_TessFactor;
+    float inside   : SV_InsideTessFactor;
+    uint edgeMask  : EDGEMASK;
+};
+
+struct WireDomainOutput
+{
+    float4 position : SV_POSITION;
+    float3 domain   : DOMAINCOORD;
+    nointerpolation uint edgeMask : EDGEMASK;
+};
+
+[domain("tri")]
+WireDomainOutput main (WirePatchConstants constants,
+                       float3 domain : SV_DomainLocation,
+                       const OutputPatch<WireControlPoint, 3> patch)
+{
+    WireDomainOutput output;
+    float3 worldPos = patch[0].worldPos * domain.x +
+                      patch[1].worldPos * domain.y +
+                      patch[2].worldPos * domain.z;
+    output.position = mul (g_viewProj, float4 (worldPos, 1.0));
+    output.domain = domain;
+    output.edgeMask = constants.edgeMask;
+    return output;
+}
+)hlsl";
+
+constexpr const char* kArchVizWireGS = R"hlsl(
+struct WireDomainOutput
+{
+    float4 position : SV_POSITION;
+    float3 domain   : DOMAINCOORD;
+    nointerpolation uint edgeMask : EDGEMASK;
+};
+
+struct WirePixelInput
+{
+    float4 position : SV_POSITION;
+    noperspective float3 distanceToEdges : EDGEDISTANCE;
+};
+
+bool GeneratedEdgeIsVisible (float3 domainA, float3 domainB, uint edgeMask)
+{
+    const float epsilon = 1e-5;
+    if (abs (domainA.x) < epsilon && abs (domainB.x) < epsilon)
+        return (edgeMask & 1u) != 0u;
+    if (abs (domainA.y) < epsilon && abs (domainB.y) < epsilon)
+        return (edgeMask & 2u) != 0u;
+    if (abs (domainA.z) < epsilon && abs (domainB.z) < epsilon)
+        return (edgeMask & 4u) != 0u;
+    return true;
+}
+
+[maxvertexcount(3)]
+void main (triangle WireDomainOutput input[3], inout TriangleStream<WirePixelInput> stream)
+{
+    float2 viewport = max (g_wireParams.zw, float2 (1.0, 1.0));
+    float2 p0 = 0.5 * viewport * input[0].position.xy / input[0].position.w;
+    float2 p1 = 0.5 * viewport * input[1].position.xy / input[1].position.w;
+    float2 p2 = 0.5 * viewport * input[2].position.xy / input[2].position.w;
+    float2 edge0 = p2 - p1;
+    float2 edge1 = p0 - p2;
+    float2 edge2 = p1 - p0;
+    float area = abs (edge1.x * edge2.y - edge1.y * edge2.x);
+    float3 heights = area / max (float3 (length (edge0), length (edge1), length (edge2)), 1e-5);
+
+    float3 d0 = float3 (heights.x, 0.0, 0.0);
+    float3 d1 = float3 (0.0, heights.y, 0.0);
+    float3 d2 = float3 (0.0, 0.0, heights.z);
+    uint mask = input[0].edgeMask;
+    const float disabled = 1e6;
+    if (!GeneratedEdgeIsVisible (input[1].domain, input[2].domain, mask))
+        d0.x = d1.x = d2.x = disabled;
+    if (!GeneratedEdgeIsVisible (input[2].domain, input[0].domain, mask))
+        d0.y = d1.y = d2.y = disabled;
+    if (!GeneratedEdgeIsVisible (input[0].domain, input[1].domain, mask))
+        d0.z = d1.z = d2.z = disabled;
+
+    WirePixelInput output;
+    output.position = input[0].position;
+    output.distanceToEdges = d0;
+    stream.Append (output);
+    output.position = input[1].position;
+    output.distanceToEdges = d1;
+    stream.Append (output);
+    output.position = input[2].position;
+    output.distanceToEdges = d2;
+    stream.Append (output);
+}
+)hlsl";
+
+constexpr const char* kArchVizWirePS = R"hlsl(
+struct WirePixelInput
+{
+    float4 position : SV_POSITION;
+    noperspective float3 distanceToEdges : EDGEDISTANCE;
+};
+
+float4 main (WirePixelInput input) : SV_TARGET
+{
+    float distanceToEdge = min (input.distanceToEdges.x,
+                                min (input.distanceToEdges.y, input.distanceToEdges.z));
+    float halfWidth = max (0.5 * g_wireParams.y, 0.25);
+    float coverage = 1.0 - smoothstep (halfWidth - 0.75, halfWidth + 0.75, distanceToEdge);
+    clip (coverage - 0.001);
+    return float4 (g_baseColor.rgb, g_baseColor.a * coverage);
 }
 )hlsl";
 

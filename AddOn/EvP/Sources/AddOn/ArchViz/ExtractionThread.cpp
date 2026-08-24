@@ -2,17 +2,17 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/ExtractionThread.hpp"
-#include "ArchViz/ArchVizLog.hpp"       // ArchVizLog
-#include "ArchViz/ExtractionEnvironment.hpp"   // ReadMaterials, ReadEnvironment
-#include "ArchViz/ExtractionSubstance.hpp"     // ReadProjectSubstances, ObserveElementSubstances
+#include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
+#include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
+#include "ArchViz/ExtractionSubstance.hpp"   // ReadProjectSubstances, ObserveElementSubstances
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/MeshGroups.hpp"
-#include "ArchViz/ExtractionStorySlices.hpp"   // ReadStoreys, StorySliceAccumulator
+#include "ArchViz/ExtractionStorySlices.hpp" // ReadStoreys, StorySliceAccumulator
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "Geometry/GeometryExtractor.hpp"
-#include "Notify/ChangeTracker.hpp"   // the viewer is its SECOND consumer - own cursor
+#include "Notify/ChangeTracker.hpp" // the viewer is its SECOND consumer - own cursor
 #include "Python/MainThreadGate.hpp"
-#include "Diagnostics/ApiError.hpp"   // DescribeErr - never print a bare GSErrCode
+#include "Diagnostics/ApiError.hpp" // DescribeErr - never print a bare GSErrCode
 
 #include <Model.hpp>
 
@@ -84,11 +84,11 @@ constexpr size_t MaxPendingBytes = 96u * 1024u * 1024u;
 // a slice that timed out is ABANDONED whole, never harvested, and the shared_ptr
 // keeps it alive for the late writer.
 struct SliceState {
-    std::atomic<int32_t>  next      { 1 };   // 1-BASED: ModelerAPI indices are
-    std::atomic<uint32_t> empty     { 0 };
-    std::atomic<int64_t>  holdMs    { 0 };
-    std::atomic<bool>     completed { false };
-    std::vector<Mesh>     meshes;
+    std::atomic<int32_t> next { 1 }; // 1-BASED: ModelerAPI indices are
+    std::atomic<uint32_t> empty { 0 };
+    std::atomic<int64_t> holdMs { 0 };
+    std::atomic<bool> completed { false };
+    std::vector<Mesh> meshes;
     // RE51: what this slice saw about which surfaces sit on which substances.
     // ⚠️ PLAIN, LIKE `meshes`, AND HARVESTED ON THE SAME TERMS -- only when the
     // slice completed AND the Invoke returned ok. A timed-out slice is abandoned
@@ -111,7 +111,7 @@ struct SliceState {
 // along.
 struct ModelHandle {
     ModelerAPI::Model* model = nullptr;
-    int32_t            count = 0;
+    int32_t count = 0;
 
     // ⚠️ SET WHEN THE ACQUIRE TIMES OUT, AND THE LAMBDA MUST CHECK IT. A gate
     // Invoke that reports a timeout may STILL RUN LATER — the contract says so
@@ -119,7 +119,7 @@ struct ModelHandle {
     // the late job would hand a freshly generated model to nobody and leak it,
     // once per abandoned refresh. Checked on the MAIN thread, inside the job, so
     // the delete happens where it is legal.
-    std::atomic<bool>  abandoned { false };
+    std::atomic<bool> abandoned { false };
 };
 
 // One extracted Mesh -> one ElementUpload, ready for the GPU.
@@ -143,11 +143,11 @@ std::unique_ptr<ElementUpload> MakeUpload (const Mesh& mesh)
     for (size_t i = 0; i < mesh.vertices.size (); ++i)
         up->vertices[i] = static_cast<float> (mesh.vertices[i]);
 
-    up->normals = mesh.normals;   // already float, already per-corner
+    up->normals = mesh.normals; // already float, already per-corner
 
     // ⚠️ THE ONE ALGORITHM THAT FAILS SILENTLY (plan §6.3). Skipping it renders
     // every surface of an element in the first material's colour.
-    BuildMaterialGroups (mesh.triangles, mesh.triMaterial, up->indices, up->ranges);
+    BuildMaterialGroups (mesh.triangles, mesh.triMaterial, up->indices, up->ranges, &mesh.triWireEdges, &up->wireEdges);
     if (up->indices.empty ())
         return nullptr;
 
@@ -156,12 +156,13 @@ std::unique_ptr<ElementUpload> MakeUpload (const Mesh& mesh)
             up->boundsMin[k] = static_cast<float> (mesh.bounds.mn[k]);
             up->boundsMax[k] = static_cast<float> (mesh.bounds.mx[k]);
         }
-    } else {
+    }
+    else {
         // An element whose AABB never got expanded still has vertices; deriving
         // the box here keeps it out of the world bounds' "zoom to fit" as a
         // point at infinity, which would frame the camera on nothing.
         for (int k = 0; k < 3; ++k) {
-            up->boundsMin[k] =  1e30f;
+            up->boundsMin[k] = 1e30f;
             up->boundsMax[k] = -1e30f;
         }
         for (size_t i = 0; i + 2 < up->vertices.size (); i += 3) {
@@ -174,7 +175,7 @@ std::unique_ptr<ElementUpload> MakeUpload (const Mesh& mesh)
     return up;
 }
 
-}   // namespace
+} // namespace
 
 ExtractionWorker& ExtractionWorker::Get ()
 {
@@ -190,25 +191,24 @@ ExtractionWorker::~ExtractionWorker ()
 void ExtractionWorker::Start (bool full, int64_t sliceMs, int64_t gapMs, int64_t maxSeconds)
 {
     Options opt;
-    opt.mode       = Mode::Once;
-    opt.full       = full;
-    opt.sliceMs    = sliceMs;
-    opt.gapMs      = gapMs;
+    opt.mode = Mode::Once;
+    opt.full = full;
+    opt.sliceMs = sliceMs;
+    opt.gapMs = gapMs;
     opt.maxSeconds = maxSeconds;
     StartWith (opt);
 }
 
-void ExtractionWorker::StartLive (int64_t settleMs, int64_t pollMs,
-                                  int64_t sliceMs, int64_t gapMs, bool armObservers)
+void ExtractionWorker::StartLive (int64_t settleMs, int64_t pollMs, int64_t sliceMs, int64_t gapMs, bool armObservers)
 {
     Options opt;
-    opt.mode     = Mode::Live;
+    opt.mode = Mode::Live;
     opt.armObservers = armObservers;
-    opt.full     = true;        // live sync begins from a known-complete scene
-    opt.sliceMs  = sliceMs;
-    opt.gapMs    = gapMs;
+    opt.full = true; // live sync begins from a known-complete scene
+    opt.sliceMs = sliceMs;
+    opt.gapMs = gapMs;
     opt.settleMs = settleMs;
-    opt.pollMs   = pollMs;
+    opt.pollMs = pollMs;
     // No wall clock: a watch loop is meant to run for as long as the viewer is
     // open. The per-PASS budget below is what bounds any single re-extraction.
     opt.maxSeconds = 24 * 60 * 60;
@@ -217,7 +217,7 @@ void ExtractionWorker::StartLive (int64_t settleMs, int64_t pollMs,
 
 void ExtractionWorker::StartWith (const Options& opt)
 {
-    Stop ();                    // a restart supersedes the pass in flight
+    Stop (); // a restart supersedes the pass in flight
 
     stopFlag_.store (false);
     running_.store (true);
@@ -225,8 +225,8 @@ void ExtractionWorker::StartWith (const Options& opt)
         std::lock_guard<std::mutex> lock (mutex_);
         progress_ = Progress ();
         progress_.running = true;
-        progress_.live    = (opt.mode == Mode::Live);
-        progress_.phase   = "starting";
+        progress_.live = (opt.mode == Mode::Live);
+        progress_.phase = "starting";
     }
 
     worker_ = std::thread ([this, opt] { Run (opt); });
@@ -241,12 +241,12 @@ void ExtractionWorker::Stop ()
 {
     stopFlag_.store (true);
     if (worker_.joinable ())
-        worker_.join ();        // bounded by SliceTimeoutMs — see the header
+        worker_.join (); // bounded by SliceTimeoutMs — see the header
     running_.store (false);
     {
         std::lock_guard<std::mutex> lock (mutex_);
         progress_.running = false;
-        progress_.live    = false;
+        progress_.live = false;
     }
 }
 
@@ -276,7 +276,8 @@ void ExtractionWorker::Run (Options opt)
                         "refresh it.");
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.phase = "one pass (live refresh disabled: see archviz.log)";
-        } else {
+        }
+        else {
             ArmObservers (extracted, opt);
             RunLiveLoop (opt);
         }
@@ -286,7 +287,7 @@ void ExtractionWorker::Run (Options opt)
     {
         std::lock_guard<std::mutex> lock (mutex_);
         progress_.running = false;
-        progress_.live    = false;
+        progress_.live = false;
     }
 }
 
@@ -296,16 +297,15 @@ void ExtractionWorker::Run (Options opt)
 // REMOVAL — which is how a deleted element leaves the scene without anything
 // having to interpret Archicad's event ids.
 // ---------------------------------------------------------------------------
-bool ExtractionWorker::RunPass (const Options& opt, bool full,
-                                const std::set<std::string>& filter,
+bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<std::string>& filter,
                                 std::vector<std::string>* extractedGuids)
 {
-    const int64_t started  = NowMs ();
-    const bool    partial  = !filter.empty ();
+    const int64_t started = NowMs ();
+    const bool partial = !filter.empty ();
 
     const auto fail = [this, started] (const std::string& why) {
         std::lock_guard<std::mutex> lock (mutex_);
-        progress_.phase     = why;
+        progress_.phase = why;
         progress_.elapsedMs = NowMs () - started;
         ArchVizLog ("extraction: " + why);
     };
@@ -318,7 +318,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         std::lock_guard<std::mutex> lock (mutex_);
         progress_.total = progress_.extracted = progress_.empty = progress_.pushed = 0;
         progress_.triangles = 0;
-        progress_.slices    = 0;
+        progress_.slices = 0;
         progress_.longestHoldMs = progress_.longestRoundTripMs = 0;
         progress_.acquireMs = progress_.throttledMs = 0;
         progress_.done = progress_.gaveUp = false;
@@ -329,10 +329,10 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     // ONE slice, because AcquireCurrentModel is one uninterruptible call. The
     // pool and the sun ride along: both are small, both are ModelerAPI/ACAPI,
     // and a second gate hop for them would cost a round trip to save nothing.
-    auto handle    = std::make_shared<ModelHandle> ();
+    auto handle = std::make_shared<ModelHandle> ();
     auto materials = std::make_shared<std::unique_ptr<MaterialTable>> ();
-    auto env       = std::make_shared<EnvironmentUpload> ();
-    auto haveEnv   = std::make_shared<std::atomic<bool>> (false);
+    auto env = std::make_shared<EnvironmentUpload> ();
+    auto haveEnv = std::make_shared<std::atomic<bool>> (false);
     // RE51: the project's building materials, classified. Read here with the
     // surface pool for exactly the same reason -- both are small, both are
     // per-project rather than per-element, and a second gate hop would cost a
@@ -340,7 +340,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     auto substances = std::make_shared<ProjectSubstances> ();
     // The storeys ride along for the same reason the sun does: small, per-project,
     // and a second gate hop would cost a round trip to save nothing.
-    auto storeys    = std::make_shared<ProjectStoreys> ();
+    auto storeys = std::make_shared<ProjectStoreys> ();
     // ⚠️ READ ONCE, HERE. Re-reading per element would let a mid-pass toggle
     // union a storey against only the elements reached so far.
     const bool wantStorySlices = storySlicesWanted_.load ();
@@ -351,7 +351,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         [handle, materials, env, haveEnv, substances, storeys, full, wantStorySlices] {
             auto model = std::make_unique<ModelerAPI::Model> ();
             if (!AcquireCurrentModel (*model))
-                return;                       // handle->model stays null: "no 3D model"
+                return; // handle->model stays null: "no 3D model"
 
             // ⚠️ BEFORE ANYTHING ELSE IS DONE WITH IT. If the pass gave up while
             // Archicad was generating, this job is now the model's only owner
@@ -360,22 +360,22 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
             if (handle->abandoned.load ())
                 return;
 
-            handle->count  = ModelElementCount (*model);
-            *materials     = ReadMaterials (*model);
+            handle->count = ModelElementCount (*model);
+            *materials = ReadMaterials (*model);
             if (full)
                 *substances = ReadProjectSubstances ();
-            if (full && wantStorySlices)   // FULL only - see StorySliceAccumulator
+            if (full && wantStorySlices) // FULL only - see StorySliceAccumulator
                 *storeys = ReadStoreys ();
             haveEnv->store (ReadEnvironment (*env));
-            handle->model  = model.release (); // ⚠️ ownership moves to the pass
+            handle->model = model.release (); // ⚠️ ownership moves to the pass
         },
         AcquireTimeoutMs, gateErr);
     const int64_t acquireMs = NowMs () - acquireStart;
 
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        progress_.acquireMs          = acquireMs;
-        progress_.longestHoldMs      = std::max (progress_.longestHoldMs, acquireMs);
+        progress_.acquireMs = acquireMs;
+        progress_.longestHoldMs = std::max (progress_.longestHoldMs, acquireMs);
         progress_.longestRoundTripMs = std::max (progress_.longestRoundTripMs, acquireMs);
     }
 
@@ -413,8 +413,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         // entirely (the add-on is unloading) this leaks one model rather than
         // calling a DevKit destructor from a worker thread, which is the trade
         // this file makes deliberately.
-        if (!evp::MainThreadGate::Get ().Invoke ([doomed] { delete doomed; },
-                                                 SliceTimeoutMs, err))
+        if (!evp::MainThreadGate::Get ().Invoke ([doomed] { delete doomed; }, SliceTimeoutMs, err))
             ArchVizLog ("extraction: the gate refused the model release; it will be freed when "
                         "the job dispatches, or leaked if it never does (" +
                         std::string (err.ToCStr ().Get ()) + ")");
@@ -436,9 +435,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
 
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        progress_.total     = uint32_t (handle->count > 0 ? handle->count : 0);
+        progress_.total = uint32_t (handle->count > 0 ? handle->count : 0);
         progress_.materials = (*materials != nullptr) ? uint32_t ((*materials)->Size ()) : 0;
-        progress_.phase     = partial ? "re-extracting" : "extracting";
+        progress_.phase = partial ? "re-extracting" : "extracting";
     }
 
     // ---- the batch opens ----------------------------------------------------
@@ -475,18 +474,18 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     std::set<std::string> found;
     std::vector<SurfaceSubstanceObservation> observations;
 
-    int32_t  cursor              = 1;        // 1-BASED
-    int      consecutiveTimeouts = 0;
-    bool     gaveUp              = false;
-    int64_t  throttledMs         = 0;
+    int32_t cursor = 1; // 1-BASED
+    int consecutiveTimeouts = 0;
+    bool gaveUp = false;
+    int64_t throttledMs = 0;
 
     while (cursor <= handle->count && !stopFlag_.load ()) {
         if (NowMs () - started >= opt.maxSeconds * 1000) {
             gaveUp = true;
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.phase = "gave up after " + std::to_string (opt.maxSeconds) + "s with " +
-                              std::to_string (progress_.pushed) + " of " +
-                              std::to_string (progress_.total) + " elements sent";
+                              std::to_string (progress_.pushed) + " of " + std::to_string (progress_.total) +
+                              " elements sent";
             break;
         }
 
@@ -506,8 +505,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         st->next.store (cursor);
 
         ModelerAPI::Model* model = handle->model;
-        const int32_t      count = handle->count;
-        const int64_t   sliceMs  = opt.sliceMs;
+        const int32_t count = handle->count;
+        const int64_t sliceMs = opt.sliceMs;
         const int64_t sliceStart = NowMs ();
         GS::UniString sliceErr;
         // RE51: observe substances only when there is something to observe them
@@ -533,8 +532,9 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
                         if (ExtractElementAt (*model, i, mesh))
                             st->meshes.push_back (std::move (mesh));
                         else
-                            st->empty.fetch_add (1);   // a 2D-only element, ordinary
-                    } else {
+                            st->empty.fetch_add (1); // a 2D-only element, ordinary
+                    }
+                    else {
                         // ⚠️ THE GUID FIRST, THE GEOMETRY ONLY IF IT MATCHES.
                         // Tessellating an element to discover it was not the one
                         // that changed is the entire cost of the pass, spent on
@@ -591,12 +591,12 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
 
         // ---- the worker's own half: convert, group, hand over ---------------
         // Off the main thread, while Archicad has it back.
-        uint32_t pushed    = 0;
+        uint32_t pushed = 0;
         uint64_t triangles = 0;
         for (const Mesh& mesh : st->meshes) {
             if (extractedGuids != nullptr)
                 extractedGuids->push_back (mesh.guid);
-            storeySlices.Cut (mesh);   // no-op unless slices were asked for
+            storeySlices.Cut (mesh); // no-op unless slices were asked for
 
             std::unique_ptr<ElementUpload> up = MakeUpload (mesh);
             if (up == nullptr)
@@ -613,17 +613,17 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         {
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.extracted += uint32_t (st->meshes.size ());
-            progress_.empty     += st->empty.load ();
-            progress_.pushed    += pushed;
+            progress_.empty += st->empty.load ();
+            progress_.pushed += pushed;
             progress_.triangles += triangles;
             ++progress_.slices;
-            progress_.longestHoldMs      = std::max (progress_.longestHoldMs, st->holdMs.load ());
+            progress_.longestHoldMs = std::max (progress_.longestHoldMs, st->holdMs.load ());
             progress_.longestRoundTripMs = std::max (progress_.longestRoundTripMs, sliceElapsed);
-            progress_.elapsedMs          = NowMs () - started;
-            progress_.throttledMs        = throttledMs;
+            progress_.elapsedMs = NowMs () - started;
+            progress_.throttledMs = throttledMs;
         }
 
-        if (advanced <= cursor)     // no forward progress: refuse to spin forever
+        if (advanced <= cursor) // no forward progress: refuse to spin forever
             break;
         cursor = advanced;
 
@@ -665,16 +665,13 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
     // far a cancelled refresh happened to get.
     if (full && !gaveUp && !observations.empty () && cursor > handle->count) {
         int named = 0;
-        SceneCmdQueue::Get ().PushMaterials (
-            BuildSubstanceTable (surfaces, observations, substanceMemory_, named));
+        SceneCmdQueue::Get ().PushMaterials (BuildSubstanceTable (surfaces, observations, substanceMemory_, named));
 
-        ArchVizLog ("extraction: substance join - " + std::to_string (named) + "/" +
-                    std::to_string (surfaces.size ()) + " surfaces named from " +
-                    std::to_string (substances->classified) + "/" +
+        ArchVizLog ("extraction: substance join - " + std::to_string (named) + "/" + std::to_string (surfaces.size ()) +
+                    " surfaces named from " + std::to_string (substances->classified) + "/" +
                     std::to_string (substances->total) + " classified building materials, " +
                     std::to_string (observations.size ()) + " observations" +
-                    (substances->error.empty () ? std::string ()
-                                                : std::string (" (") + substances->error + ")"));
+                    (substances->error.empty () ? std::string () : std::string (" (") + substances->error + ")"));
     }
 
     // ---- the storey slices --------------------------------------------------
@@ -694,11 +691,11 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
 
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        progress_.done        = (cursor > handle->count) && !gaveUp;
-        progress_.gaveUp      = gaveUp;
-        progress_.removed    += removed;
-        progress_.elapsedMs   = NowMs () - started;
-        progress_.lastPassMs  = NowMs () - started;
+        progress_.done = (cursor > handle->count) && !gaveUp;
+        progress_.gaveUp = gaveUp;
+        progress_.removed += removed;
+        progress_.elapsedMs = NowMs () - started;
+        progress_.lastPassMs = NowMs () - started;
         progress_.throttledMs = throttledMs;
         if (partial)
             ++progress_.partialPasses;
@@ -707,17 +704,14 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full,
         if (progress_.phase == "extracting" || progress_.phase == "re-extracting")
             progress_.phase = progress_.done ? "idle" : "stopped";
 
-        ArchVizLog ("extraction: " + progress_.phase +
-                    (partial ? " (partial)" : " (full)") +
-                    " - " + std::to_string (progress_.pushed) + "/" +
-                    std::to_string (partial ? filter.size () : (size_t) progress_.total) +
-                    " elements, " + std::to_string (removed) + " removed, " +
-                    std::to_string (progress_.triangles) + " triangles, " +
-                    std::to_string (progress_.materials) + " surfaces, " +
-                    std::to_string (progress_.slices) + " slices, longest hold " +
-                    std::to_string (progress_.longestHoldMs) + " ms, acquire " +
-                    std::to_string (progress_.acquireMs) + " ms, total " +
-                    std::to_string (progress_.elapsedMs) + " ms");
+        ArchVizLog ("extraction: " + progress_.phase + (partial ? " (partial)" : " (full)") + " - " +
+                    std::to_string (progress_.pushed) + "/" +
+                    std::to_string (partial ? filter.size () : (size_t) progress_.total) + " elements, " +
+                    std::to_string (removed) + " removed, " + std::to_string (progress_.triangles) + " triangles, " +
+                    std::to_string (progress_.materials) + " surfaces, " + std::to_string (progress_.slices) +
+                    " slices, longest hold " + std::to_string (progress_.longestHoldMs) + " ms, acquire " +
+                    std::to_string (progress_.acquireMs) + " ms, total " + std::to_string (progress_.elapsedMs) +
+                    " ms");
     }
     return true;
 }
@@ -757,32 +751,30 @@ void ExtractionWorker::ArmObservers (const std::vector<std::string>& guids, cons
     auto installErr = std::make_shared<std::atomic<GSErrCode>> (NoError);
     {
         GS::UniString err;
-        if (!evp::MainThreadGate::Get ().Invoke (
-                [installErr] { installErr->store (InstallChangeObserver ()); },
-                SliceTimeoutMs, err) ||
+        if (!evp::MainThreadGate::Get ().Invoke ([installErr] { installErr->store (InstallChangeObserver ()); },
+                                                 SliceTimeoutMs, err) ||
             installErr->load () != NoError) {
             ChangeTracker::Get ().SetWatching (false, 0);
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.armed = 0;
-            progress_.phase =
-                "the change observer could not be INSTALLED, so no edit can ever be "
-                "reported however many elements are attached (" +
-                std::string (evp::DescribeErr (installErr->load ()).ToCStr ().Get ()) + ")";
+            progress_.phase = "the change observer could not be INSTALLED, so no edit can ever be "
+                              "reported however many elements are attached (" +
+                              std::string (evp::DescribeErr (installErr->load ()).ToCStr ().Get ()) + ")";
             ArchVizLog ("extraction: " + progress_.phase);
             return;
         }
     }
 
     auto all = std::make_shared<std::vector<std::string>> (guids);
-    size_t   cursor   = 0;
+    size_t cursor = 0;
     uint32_t attached = 0;
-    uint32_t refused  = 0;
+    uint32_t refused = 0;
 
     while (cursor < all->size () && !stopFlag_.load ()) {
-        auto next        = std::make_shared<std::atomic<size_t>> (cursor);
+        auto next = std::make_shared<std::atomic<size_t>> (cursor);
         auto attachedNow = std::make_shared<std::atomic<uint32_t>> (0);
-        auto refusedNow  = std::make_shared<std::atomic<uint32_t>> (0);
-        auto completed   = std::make_shared<std::atomic<bool>> (false);
+        auto refusedNow = std::make_shared<std::atomic<uint32_t>> (0);
+        auto completed = std::make_shared<std::atomic<bool>> (false);
         const int64_t sliceMs = opt.sliceMs;
 
         GS::UniString err;
@@ -814,11 +806,11 @@ void ExtractionWorker::ArmObservers (const std::vector<std::string>& guids, cons
             SliceTimeoutMs, err);
 
         if (!ok || !completed->load ())
-            break;                      // same discipline as an extraction slice
+            break; // same discipline as an extraction slice
 
         const size_t advanced = next->load ();
         attached += attachedNow->load ();
-        refused  += refusedNow->load ();
+        refused += refusedNow->load ();
         if (advanced <= cursor)
             break;
         cursor = advanced;
@@ -833,14 +825,13 @@ void ExtractionWorker::ArmObservers (const std::vector<std::string>& guids, cons
     ChangeTracker::Get ().SetWatching (attached > 0, attached);
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        progress_.armed        = attached;
-        progress_.armRefused   = refused;
+        progress_.armed = attached;
+        progress_.armRefused = refused;
         progress_.handlersInstalled = true;
         progress_.phase = (attached > 0) ? "watching" : "watching nothing - no elements armed";
     }
-    ArchVizLog ("extraction: handlers installed; armed " + std::to_string (attached) +
-                " of " + std::to_string (all->size ()) + " extracted elements (" +
-                std::to_string (refused) + " refused)");
+    ArchVizLog ("extraction: handlers installed; armed " + std::to_string (attached) + " of " +
+                std::to_string (all->size ()) + " extracted elements (" + std::to_string (refused) + " refused)");
 }
 
 // ---------------------------------------------------------------------------
@@ -873,8 +864,8 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
             break;
 
         std::vector<ChangeTracker::Entry> entries;
-        size_t remaining  = 0;
-        bool   overflowed = false;
+        size_t remaining = 0;
+        bool overflowed = false;
         tracker.TakeDirtyFor (me, 4096, /*peek*/ true, entries, remaining, overflowed);
 
         {
@@ -889,8 +880,7 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
             // perfectly healthy. A full pass rebuilds and re-arms.
             if (!tracker.IsWatching ()) {
                 std::vector<std::string> extracted;
-                if (RunPass (opt, /*full*/ true, std::set<std::string> (), &extracted) &&
-                    !stopFlag_.load ())
+                if (RunPass (opt, /*full*/ true, std::set<std::string> (), &extracted) && !stopFlag_.load ())
                     ArmObservers (extracted, opt);
             }
             continue;
@@ -931,11 +921,10 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
         // repeatedly without telling anyone.
         if (lastAcquireMs > LiveAcquireBudgetMs) {
             std::lock_guard<std::mutex> lock (mutex_);
-            progress_.phase =
-                "live sync PAUSED: the last refresh spent " +
-                std::to_string (lastAcquireMs) + " ms waiting for Archicad to regenerate "
-                "its 3D model, and every edit would cost that again. Work with the 3D "
-                "window open (it stays generated), then start live sync again.";
+            progress_.phase = "live sync PAUSED: the last refresh spent " + std::to_string (lastAcquireMs) +
+                              " ms waiting for Archicad to regenerate "
+                              "its 3D model, and every edit would cost that again. Work with the 3D "
+                              "window open (it stays generated), then start live sync again.";
             ArchVizLog ("extraction: " + progress_.phase);
             break;
         }
@@ -946,14 +935,15 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
             ok = RunPass (opt, /*full*/ true, std::set<std::string> (), &extracted);
             if (ok && !stopFlag_.load ())
                 ArmObservers (extracted, opt);
-        } else {
+        }
+        else {
             // ⚠️ EXPAND TO SUB-PARTS FIRST. Archicad notifies about the PARENT
             // stair / railing / curtain wall; the modeler only ever yields its
             // sub-parts, under different GUIDs. Without this the pass looks up a
             // GUID the model does not contain, finds nothing, removes nothing,
             // and leaves the old stair on screen while reporting success.
             auto expanded = std::make_shared<std::set<std::string>> ();
-            auto guids    = std::make_shared<std::vector<API_Guid>> ();
+            auto guids = std::make_shared<std::vector<API_Guid>> ();
             for (const ChangeTracker::Entry& e : entries)
                 guids->push_back (e.guid);
 
@@ -965,7 +955,7 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
                 },
                 SliceTimeoutMs, err);
             if (!gated)
-                continue;               // try again next tick; nothing was drained
+                continue; // try again next tick; nothing was drained
 
             ok = RunPass (opt, /*full*/ false, *expanded, nullptr);
         }
@@ -977,14 +967,15 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
         if (ok) {
             std::vector<ChangeTracker::Entry> drained;
             size_t rest = 0;
-            bool   of   = false;
+            bool of = false;
             tracker.TakeDirtyFor (me, entries.size (), /*peek*/ false, drained, rest, of);
 
             std::lock_guard<std::mutex> lock (mutex_);
-            progress_.lastSyncMs   = NowMs () - changedAt;
+            progress_.lastSyncMs = NowMs () - changedAt;
             progress_.dirtyPending = uint32_t (rest);
-            lastAcquireMs          = progress_.acquireMs;
-        } else {
+            lastAcquireMs = progress_.acquireMs;
+        }
+        else {
             // A pass that could not run at all — the acquire timed out, or the
             // model came back empty. Both are already spelled out in `phase`,
             // and both will repeat on the next tick, so the loop stops rather
@@ -1002,10 +993,10 @@ void ExtractionWorker::RunLiveLoop (const Options& opt)
     tracker.UnregisterConsumer (me);
     {
         std::lock_guard<std::mutex> lock (mutex_);
-        progress_.live  = false;
+        progress_.live = false;
         progress_.phase = "stopped watching";
     }
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

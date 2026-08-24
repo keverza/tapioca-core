@@ -6,13 +6,14 @@
 namespace geomsrv {
 namespace archviz {
 
-void BuildMaterialGroups (const std::vector<uint32_t>& triangles,
-                          const std::vector<int32_t>&  triMaterial,
-                          std::vector<uint32_t>&       outIndices,
-                          std::vector<MaterialRange>&  outRanges)
+void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vector<int32_t>& triMaterial,
+                          std::vector<uint32_t>& outIndices, std::vector<MaterialRange>& outRanges,
+                          const std::vector<uint8_t>* triWireEdges, std::vector<uint32_t>* outWireEdges)
 {
     outIndices.clear ();
     outRanges.clear ();
+    if (outWireEdges != nullptr)
+        outWireEdges->clear ();
 
     const size_t triCount = triangles.size () / 3;
     if (triCount == 0)
@@ -33,14 +34,14 @@ void BuildMaterialGroups (const std::vector<uint32_t>& triangles,
     // output is reproducible and a checked-in fixture does not rot when the
     // standard library changes its introsort pivot.
     std::stable_sort (order.begin (), order.end (),
-                      [&MaterialOf] (size_t a, size_t b) {
-                          return MaterialOf (a) < MaterialOf (b);
-                      });
+                      [&MaterialOf] (size_t a, size_t b) { return MaterialOf (a) < MaterialOf (b); });
 
     outIndices.resize (triCount * 3);
+    if (outWireEdges != nullptr)
+        outWireEdges->resize (triCount);
     outRanges.reserve (8);
 
-    int32_t  runMaterial = MaterialOf (order[0]);
+    int32_t runMaterial = MaterialOf (order[0]);
     uint32_t runStartTri = 0;
 
     for (size_t i = 0; i < triCount; ++i) {
@@ -48,11 +49,16 @@ void BuildMaterialGroups (const std::vector<uint32_t>& triangles,
         outIndices[i * 3 + 0] = triangles[src * 3 + 0];
         outIndices[i * 3 + 1] = triangles[src * 3 + 1];
         outIndices[i * 3 + 2] = triangles[src * 3 + 2];
+        if (outWireEdges != nullptr) {
+            // Missing metadata falls back to all source edges visible rather
+            // than making an older or malformed upload disappear.
+            (*outWireEdges)[i] =
+                triWireEdges != nullptr && src < triWireEdges->size () ? uint32_t ((*triWireEdges)[src] & 0x7u) : 0x7u;
+        }
 
         const int32_t mat = MaterialOf (src);
         if (mat != runMaterial) {
-            outRanges.push_back (MaterialRange {
-                runMaterial, runStartTri * 3, (uint32_t (i) - runStartTri) * 3 });
+            outRanges.push_back (MaterialRange { runMaterial, runStartTri * 3, (uint32_t (i) - runStartTri) * 3 });
             runMaterial = mat;
             runStartTri = uint32_t (i);
         }
@@ -60,9 +66,8 @@ void BuildMaterialGroups (const std::vector<uint32_t>& triangles,
     // The final run is never closed by the loop — it has no successor to
     // differ from. Forgetting this drops the LAST material entirely, which
     // looks like one missing surface rather than a loop bug.
-    outRanges.push_back (MaterialRange {
-        runMaterial, runStartTri * 3, (uint32_t (triCount) - runStartTri) * 3 });
+    outRanges.push_back (MaterialRange { runMaterial, runStartTri * 3, (uint32_t (triCount) - runStartTri) * 3 });
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

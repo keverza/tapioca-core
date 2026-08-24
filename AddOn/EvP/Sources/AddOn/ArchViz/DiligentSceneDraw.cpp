@@ -362,6 +362,10 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // The render quality, riding the same float4's spare lane -- see
     // DiligentSceneConstants. The pixel shader branches on it; no second PSO.
     constants.outlineParams[2] = (impl_->renderQuality == RenderQuality::Realistic) ? 1.0f : 0.0f;
+    constants.wireParams[0] = impl_->wireTessellation;
+    constants.wireParams[1] = impl_->wireLineWidth;
+    constants.wireParams[2] = float (impl_->viewportWidth);
+    constants.wireParams[3] = float (impl_->viewportHeight);
 
     // ---- the HDR sky --------------------------------------------------------
     //
@@ -610,7 +614,8 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
 
     const bool drawSurfaces = impl_->renderMode != SceneRenderMode::Wireframe;
-    const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded && impl_->wirePso != nullptr;
+    const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded &&
+                               (impl_->semanticWirePso != nullptr || impl_->wirePso != nullptr);
 
     // Two passes over the same ranges: opaque first, then everything that
     // blends. Not a sort -- a partition, which needs no comparator and no
@@ -819,13 +824,24 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     // pass: they are not the model, and in the overlay's wireframe they would be
     // the only things NOT matching Archicad's window.
     if (drawWireframe) {
-        context->SetPipelineState (impl_->wirePso);
-        context->CommitShaderResources (impl_->wireSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         uploadConstants (kWireframeColor[0], kWireframeColor[1], kWireframeColor[2], kWireframeColor[3]);
         for (const Entry& e : impl_->elements) {
             if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
                 continue;
             BindMesh (context, e);
+            if (impl_->semanticWirePso != nullptr && e.wireEdgeBuffer != nullptr) {
+                Diligent::IShaderResourceVariable* edgeVariable =
+                    impl_->semanticWireSrb->GetVariableByName (Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags");
+                if (edgeVariable != nullptr)
+                    edgeVariable->Set (e.wireEdgeBuffer->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
+                context->SetPipelineState (impl_->semanticWirePso);
+                context->CommitShaderResources (impl_->semanticWireSrb,
+                                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
+            else {
+                context->SetPipelineState (impl_->wirePso);
+                context->CommitShaderResources (impl_->wireSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
             const MaterialRange whole { -1, 0, e.indexCount };
             DrawEntryRange (context, e, whole);
             ++impl_->drawCalls;

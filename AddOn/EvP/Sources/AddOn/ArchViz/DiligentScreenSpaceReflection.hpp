@@ -49,6 +49,13 @@ class DiligentScreenSpaceReflection final {
     // handing it the raw jittered target costs.
     void RememberFrame (Diligent::IDeviceContext* context, Diligent::ITextureView* resolved);
 
+    // RE51.C7 diagnostics. ⚠️ THE PAIR IS THE DIAGNOSIS. Depth history without
+    // colour history means RememberFrame is not being reached, so every
+    // reflection samples the current frame and the effect cannot converge --
+    // and that is invisible in the picture, which shows reflections either way.
+    bool HasDepthHistory () const;
+    bool HasColorHistory () const;
+
     // Throw the history away on a discontinuity -- camera teleport, rebuilt
     // model, resize. Same contract as DiligentAmbientOcclusion::ResetHistory.
     void ResetHistory ();

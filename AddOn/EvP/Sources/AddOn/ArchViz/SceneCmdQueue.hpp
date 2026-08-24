@@ -28,7 +28,7 @@
 
 #include "ArchViz/MaterialTable.hpp"
 #include "ArchViz/MeshGroups.hpp"
-#include "ArchViz/StorySliceGeometry.hpp"   // StorySliceVertex, StorySliceFillVertex
+#include "ArchViz/StorySliceGeometry.hpp" // StorySliceVertex, StorySliceFillVertex
 #include "ArchViz/PointCloudPly.hpp"
 
 #include <cstdint>
@@ -104,6 +104,9 @@ struct ElementUpload {
     // an offline test on the side of the seam the test can reach.
     std::vector<uint32_t> indices;
     std::vector<MaterialRange> ranges;
+    // One 3-bit mask per material-reordered triangle, widened to uint for a
+    // StructuredBuffer<uint> in the hull shader.
+    std::vector<uint32_t> wireEdges;
 
     float boundsMin[3] = { 0.0f, 0.0f, 0.0f };
     float boundsMax[3] = { 0.0f, 0.0f, 0.0f };
@@ -206,18 +209,18 @@ struct EnvironmentUpload {
 // background thread with the doubles already in hand, so it does all of it and
 // hands over something the consumer only has to memcpy.
 struct StorySliceUpload {
-    std::vector<StorySliceVertex>     outline;
+    std::vector<StorySliceVertex> outline;
     std::vector<StorySliceFillVertex> fill;
 
     // What was cut, for the HUD. ⚠️ `storeys` > 0 with an empty `outline` is the
     // diagnosis for "I turned slices on and see nothing": the storeys were read
     // and the cut planes simply missed the model, which is a real answer and a
     // different one from "the storey read failed".
-    uint32_t storeys  = 0;
+    uint32_t storeys = 0;
     // Total enclosed area across every storey, square metres. Carried because a
     // massing feasibility study wants exactly this number and the producer has
     // already computed the decomposition it falls out of.
-    double   areaM2   = 0.0;
+    double areaM2 = 0.0;
 
     size_t Bytes () const;
 };

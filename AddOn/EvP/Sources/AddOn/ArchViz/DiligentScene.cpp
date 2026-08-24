@@ -86,6 +86,17 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         return false;
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz outline VS", kArchVizOutlineVS, impl_->outlineVs))
         return false;
+    const Diligent::DeviceFeatures& features = device->GetDeviceInfo ().Features;
+    impl_->semanticWireSupported = features.Tessellation == Diligent::DEVICE_FEATURE_STATE_ENABLED &&
+                                   features.GeometryShaders == Diligent::DEVICE_FEATURE_STATE_ENABLED;
+    if (impl_->semanticWireSupported) {
+        if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz wire VS", kArchVizWireVS, impl_->wireVs) ||
+            !compile (Diligent::SHADER_TYPE_HULL, "ArchViz wire HS", kArchVizWireHS, impl_->wireHs) ||
+            !compile (Diligent::SHADER_TYPE_DOMAIN, "ArchViz wire DS", kArchVizWireDS, impl_->wireDs) ||
+            !compile (Diligent::SHADER_TYPE_GEOMETRY, "ArchViz wire GS", kArchVizWireGS, impl_->wireGs) ||
+            !compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz wire PS", kArchVizWirePS, impl_->wirePs))
+            return false;
+    }
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz G-buffer PS", kArchVizGBufferPS, impl_->gBufferPs))
         return false;
     if (!compile (Diligent::SHADER_TYPE_VERTEX, "ArchViz full-screen VS", kArchVizFullScreenVS, impl_->fullScreenVs))
@@ -106,8 +117,8 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         return false;
     // Takes the env prelude: the composite needs EnvUv for the reflection
     // lookup, exactly as the resolve did when this code lived inside it.
-    if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz SSR composite PS", kArchVizEnvCommonPS,
-                  impl_->ssrCompositePs, kArchVizSsrCompositePS))
+    if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz SSR composite PS", kArchVizEnvCommonPS, impl_->ssrCompositePs,
+                  kArchVizSsrCompositePS))
         return false;
     // ⚠️ BOTH TAKE kArchVizEnvCommonPS AS THEIR PRELUDE, and so does the mesh PS
     // above -- that is the single copy of EnvUv. tools/quality/check_hlsl.py's
@@ -912,6 +923,10 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
                            impl_->wirePso, impl_->wireSrb))
         return false;
 
+    if (impl_->semanticWireSupported &&
+        !CreateSemanticWirePipeline (device, colorBufferFormat, depthBufferFormat, error))
+        return false;
+
     if (!impl_->pointCloud.Init (device, colorBufferFormat, depthBufferFormat, error))
         return false;
 
@@ -1075,6 +1090,14 @@ void DiligentScene::Shutdown ()
     impl_->gBufferFrameValid = false;
     impl_->wireSrb.Release ();
     impl_->wirePso.Release ();
+    impl_->semanticWireSrb.Release ();
+    impl_->semanticWirePso.Release ();
+    impl_->wirePs.Release ();
+    impl_->wireGs.Release ();
+    impl_->wireDs.Release ();
+    impl_->wireHs.Release ();
+    impl_->wireVs.Release ();
+    impl_->semanticWireSupported = false;
     impl_->constants.Release ();
     impl_->outlineVs.Release ();
     impl_->gBufferDebugPs.Release ();
@@ -1098,6 +1121,14 @@ void DiligentScene::SetRenderMode (SceneRenderMode mode)
 SceneRenderMode DiligentScene::RenderMode () const
 {
     return impl_ != nullptr ? impl_->renderMode : SceneRenderMode::Shaded;
+}
+
+void DiligentScene::SetWireframeSettings (float tessellationFactor, float lineWidthPixels)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->wireTessellation = std::clamp (tessellationFactor, 1.0f, 16.0f);
+    impl_->wireLineWidth = std::clamp (lineWidthPixels, 0.5f, 3.0f);
 }
 
 void DiligentScene::SetRenderQuality (RenderQuality quality)

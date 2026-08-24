@@ -205,6 +205,12 @@ struct DiligentSceneStats {
     // badly. Both zero with the toggle on means the jitter never reached
     // rasterisation, which is a different fault with a different cause.
     bool taaResolved = false;
+    // RE51.C7. ⚠️ THE PAIR IS THE DIAGNOSIS, like taaResolved/taaJitterPixels.
+    // Depth history without colour history means SSR is sampling the CURRENT
+    // frame for every reflection and can never converge -- reflections still
+    // appear, so nothing in the picture says so.
+    bool ssrDepthHistory = false;
+    bool ssrColorHistory = false;
     float taaJitterPixels[2] = { 0.0f, 0.0f };
 
     // ---- RE51.B2: how far the substance join actually got --------------------
@@ -323,6 +329,7 @@ class DiligentScene final {
     // STYLE -- see SceneRenderMode in ViewerSettings.hpp for why.
     void SetRenderMode (SceneRenderMode mode);
     SceneRenderMode RenderMode () const;
+    void SetWireframeSettings (float tessellationFactor, float lineWidthPixels);
 
     // How well surfaces are lit. ⚠️ A SEPARATE AXIS FROM RenderMode, not more
     // cases of it -- ViewerSettings.hpp says why, and it is the CameraSyncMode
@@ -635,6 +642,8 @@ class DiligentScene final {
     // Implemented in DiligentScenePso.cpp, with the offscreen targets it feeds.
     bool CreateResolvePipelines (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                  const Diligent::SamplerDesc& envSampler, std::string& error);
+    bool CreateSemanticWirePipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                     uint32_t depthBufferFormat, std::string& error);
     bool EnsureHdrTarget ();
 
     bool EnsureCoverageTarget ();

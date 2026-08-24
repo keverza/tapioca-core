@@ -308,6 +308,10 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
             ImGui::SetNextItemWidth (-1.0f);
             ImGui::Combo ("##rendermode", &state.renderMode, kRenderModeNames, kRenderModeCount);
             ImGui::TextDisabled ("surfaces -- wireframe is what makes the OVERLAY readable");
+            if (state.renderMode != int (SceneRenderMode::Shaded)) {
+                ImGui::SliderInt ("wire subdivisions", &state.wireTessellation, 1, 16);
+                ImGui::SliderFloat ("wire width", &state.wireLineWidth, 0.5f, 3.0f, "%.2f px");
+            }
 
             // ⚠️ A SEPARATE COMBO FROM THE ONE ABOVE, not more entries in it.
             // Quality and surfaces are independent axes and every pairing is
@@ -431,6 +435,15 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##ssrroughness", &state.ssrRoughnessThreshold, 0.0f, 1.0f, "%.2f");
                 ImGui::TextDisabled ("SSR roughness threshold -- surfaces rougher than this get no rays");
+                // ⚠️ "colour: NO" WHILE SSR IS ON IS THE CONVERGENCE FAULT.
+                // It means every reflection is sampling the CURRENT frame, so
+                // the effect restarts from scratch each frame and the jitter
+                // never settles -- and the picture cannot show it, because
+                // reflections appear either way.
+                if (state.screenSpaceReflection) {
+                    ImGui::TextDisabled ("SSR history -- depth: %s, colour: %s", scene.ssrDepthHistory ? "yes" : "NO",
+                                         scene.ssrColorHistory ? "yes" : "NO");
+                }
 
                 // ---- RE51.C8: temporal anti-aliasing ------------------------
                 ImGui::Checkbox ("temporal anti-aliasing", &state.temporalAntiAliasing);

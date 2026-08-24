@@ -90,7 +90,8 @@ artifacts such as screenshots record their source state but never become BIM aut
 - `BuildSnapshot` and the existing geometry extraction path remain the source of model
   geometry; ArchViz does not duplicate ACAPI tessellation.
 - The scene cache owns one vertex/index buffer pair per element GUID and submits one draw per
-  contiguous material range.
+  contiguous material range. It may retain compact derived GPU metadata beside that pair for
+  render-only passes.
 - Indices are 32-bit. Opaque ranges draw before transparent ranges.
 - Transparent ranges do not write depth and are submitted after opaque geometry.
 - The material table arrives before element upserts that refer to it.
@@ -98,6 +99,11 @@ artifacts such as screenshots record their source state but never become BIM aut
   write to the project just to watch it.
 - Selection maps modeler sub-parts back through the selectable-owner chain before applying the
   Archicad selection bridge.
+- Wireframe uses Modeler polygon boundaries rather than every extracted triangle edge. Internal
+  convex-decomposition and fan-triangulation edges remain hidden; hardware tessellation may add
+  display-only edges within flat or smooth source faces without moving the extracted surface or
+  changing shaded, shadow, picking, G-buffer, bounds, or query geometry. Devices without hull,
+  domain, and geometry shader support fall back to rasterizer wireframe.
 
 The plan surface is an analysis layer, not a top-down copy of the 3D model. Wall outlines are
 registration anchors. The anchor pipeline is separate from the lit scene pipeline, unlit, with

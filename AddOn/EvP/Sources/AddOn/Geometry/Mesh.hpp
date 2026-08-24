@@ -13,43 +13,52 @@
 namespace geomsrv {
 
 struct Mesh {
-    std::string           guid;         // element GUID (Archicad string form)
-    int32_t               elemType = 0; // ModelerAPI::Element::Type
-    std::vector<double>   vertices;     // xyz interleaved
-    std::vector<float>    normals;      // per-vertex xyz (smooth), same count as vertices
-    std::vector<uint32_t> triangles;    // 3 vertex indices per triangle
-    std::vector<int32_t>  triMaterial;  // one material index per triangle
-    Aabb                  bounds;       // element AABB (server-side spatial index)
+    std::string guid;                 // element GUID (Archicad string form)
+    int32_t elemType = 0;             // ModelerAPI::Element::Type
+    std::vector<double> vertices;     // xyz interleaved
+    std::vector<float> normals;       // per-vertex xyz (smooth), same count as vertices
+    std::vector<uint32_t> triangles;  // 3 vertex indices per triangle
+    std::vector<int32_t> triMaterial; // one material index per triangle
+    // Three source-face boundary bits per triangle. Internal triangulation
+    // edges stay clear so the wire pass can omit them without changing geometry.
+    std::vector<uint8_t> triWireEdges;
+    Aabb bounds; // element AABB (server-side spatial index)
 
-    size_t VertexCount ()   const { return vertices.size () / 3; }
-    size_t TriangleCount () const { return triangles.size () / 3; }
+    size_t VertexCount () const
+    {
+        return vertices.size () / 3;
+    }
+    size_t TriangleCount () const
+    {
+        return triangles.size () / 3;
+    }
 
     // Retained heap bytes — so memory held is reportable, not folklore.
     size_t Bytes () const
     {
-        return guid.capacity ()
-             + vertices.capacity ()    * sizeof (double)
-             + normals.capacity ()     * sizeof (float)
-             + triangles.capacity ()   * sizeof (uint32_t)
-             + triMaterial.capacity () * sizeof (int32_t);
+        return guid.capacity () + vertices.capacity () * sizeof (double) + normals.capacity () * sizeof (float) +
+               triangles.capacity () * sizeof (uint32_t) + triMaterial.capacity () * sizeof (int32_t) +
+               triWireEdges.capacity () * sizeof (uint8_t);
     }
 };
 
 struct Snapshot {
-    uint64_t          id = 0;
-    std::string       scope = "all";   // "all" (whole 3D model) or "selection"
+    uint64_t id = 0;
+    std::string scope = "all"; // "all" (whole 3D model) or "selection"
     std::vector<Mesh> meshes;
 
     size_t TotalTriangles () const
     {
         size_t n = 0;
-        for (const auto& m : meshes) n += m.TriangleCount ();
+        for (const auto& m : meshes)
+            n += m.TriangleCount ();
         return n;
     }
     size_t TotalVertices () const
     {
         size_t n = 0;
-        for (const auto& m : meshes) n += m.VertexCount ();
+        for (const auto& m : meshes)
+            n += m.VertexCount ();
         return n;
     }
 
@@ -57,14 +66,16 @@ struct Snapshot {
     const Mesh* FindMesh (const std::string& guid) const
     {
         for (const auto& m : meshes)
-            if (m.guid == guid) return &m;
+            if (m.guid == guid)
+                return &m;
         return nullptr;
     }
 
     size_t Bytes () const
     {
         size_t n = sizeof (Snapshot) + scope.capacity ();
-        for (const auto& m : meshes) n += sizeof (Mesh) + m.Bytes ();
+        for (const auto& m : meshes)
+            n += sizeof (Mesh) + m.Bytes ();
         return n;
     }
 };

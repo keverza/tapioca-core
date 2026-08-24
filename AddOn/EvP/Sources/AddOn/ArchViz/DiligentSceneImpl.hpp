@@ -206,6 +206,7 @@ struct Entry {
     std::string guid; // empty for a static mesh
     RefCntAutoPtr<Diligent::IBuffer> vertexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> indexBuffer;
+    RefCntAutoPtr<Diligent::IBuffer> wireEdgeBuffer;
     Diligent::Uint32 vertexCount = 0;
     Diligent::Uint32 indexCount = 0;
     bool indices32 = true;
@@ -310,6 +311,14 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // broken mesh rather than as a cull setting. CULL_MODE_NONE always.
     RefCntAutoPtr<Diligent::IPipelineState> wirePso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> wireSrb;
+    RefCntAutoPtr<Diligent::IShader> wireVs;
+    RefCntAutoPtr<Diligent::IShader> wireHs;
+    RefCntAutoPtr<Diligent::IShader> wireDs;
+    RefCntAutoPtr<Diligent::IShader> wireGs;
+    RefCntAutoPtr<Diligent::IShader> wirePs;
+    RefCntAutoPtr<Diligent::IPipelineState> semanticWirePso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> semanticWireSrb;
+    bool semanticWireSupported = false;
 
     std::unique_ptr<Diligent::GBuffer> gBuffer;
     RefCntAutoPtr<Diligent::IShader> gBufferPs;
@@ -627,6 +636,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     std::string environmentError;
 
     SceneRenderMode renderMode = SceneRenderMode::Shaded;
+    float wireTessellation = 4.0f;
+    float wireLineWidth = 1.25f;
     // ⚠️ Fast BY DEFAULT, and the overlay never leaves it: the overlay's frame
     // budget belongs to Archicad, and it exists to be compared AGAINST
     // Archicad's shading rather than to out-render it.

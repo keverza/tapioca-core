@@ -8,7 +8,8 @@ namespace archviz {
 size_t ElementUpload::Bytes () const
 {
     return guid.capacity () + vertices.capacity () * sizeof (float) + normals.capacity () * sizeof (float) +
-           indices.capacity () * sizeof (uint32_t) + ranges.capacity () * sizeof (MaterialRange);
+           indices.capacity () * sizeof (uint32_t) + ranges.capacity () * sizeof (MaterialRange) +
+           wireEdges.capacity () * sizeof (uint32_t);
 }
 
 size_t PointLayerUpload::Bytes () const
@@ -23,8 +24,7 @@ size_t PointNodeUpload::Bytes () const
 
 size_t StorySliceUpload::Bytes () const
 {
-    return outline.capacity () * sizeof (StorySliceVertex) +
-           fill.capacity () * sizeof (StorySliceFillVertex);
+    return outline.capacity () * sizeof (StorySliceVertex) + fill.capacity () * sizeof (StorySliceFillVertex);
 }
 
 SceneCmdQueue& SceneCmdQueue::Get ()

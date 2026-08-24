@@ -17,6 +17,7 @@
 // Applying it is not.
 
 #include "ArchViz/DiligentViewport.hpp"       // CameraStart, PlanAnchorVertex
+#include "ArchViz/DiligentScene.hpp"          // DiligentSceneStats, for CopySceneStatsInto
 #include "ArchViz/DiligentPickBuffer.hpp"     // PublishCompletedPick
 #include "ArchViz/DiligentViewportTarget.hpp" // ApplyRequestedFrameLatency
 #include "ArchViz/InputRingBuffer.hpp"        // InputSnapshot, for ServicePick
@@ -157,6 +158,10 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene, 
 // Plan path only -- it no-ops on a perspective camera, because the 3D path has
 // no ground-truth stream to pair against yet. Also no-ops when the nav log is
 // off, which it is by default.
+// Copy the scene's per-frame numbers into the viewport's published stats. See
+// the definition for why this lives here rather than in the frame body.
+void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats& sceneStats);
+
 void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t heightPx, uint64_t frameIndex);
 
 // Register our swap chain with the DXGI Present hook and log its format.

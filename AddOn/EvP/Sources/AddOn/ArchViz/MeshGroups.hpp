@@ -29,7 +29,7 @@ namespace archviz {
 
 // One draw call's worth of the reordered index buffer.
 struct MaterialRange {
-    int32_t  material   = 0;
+    int32_t material = 0;
     // ⚠️ INDEX-BUFFER UNITS, NOT TRIANGLES — 3 per triangle. bgfx's
     // setIndexBuffer takes a first-index and a count in indices, so storing
     // triangles here would put a factor of three at every call site, which is
@@ -54,12 +54,12 @@ struct MaterialRange {
 // triangle count is treated as material 0 for the remainder rather than read out
 // of bounds: a truncated material array is a bad extraction, and drawing it in
 // one colour is recoverable where a crash is not.
-void BuildMaterialGroups (const std::vector<uint32_t>& triangles,
-                          const std::vector<int32_t>&  triMaterial,
-                          std::vector<uint32_t>&       outIndices,
-                          std::vector<MaterialRange>&  outRanges);
+void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vector<int32_t>& triMaterial,
+                          std::vector<uint32_t>& outIndices, std::vector<MaterialRange>& outRanges,
+                          const std::vector<uint8_t>* triWireEdges = nullptr,
+                          std::vector<uint32_t>* outWireEdges = nullptr);
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

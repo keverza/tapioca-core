@@ -47,6 +47,7 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
     "${GEOM_DIR}/VertexWeld.cpp")
+list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
 # Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
 # string work with no DevKit and no DG, and a search ranking is exactly what cannot
@@ -213,6 +214,7 @@ set (EVP_TEST_SOURCES
     test_render.cpp
     test_normals.cpp
     test_meshgroups.cpp
+    test_wireframeedges.cpp
     test_scenecmdqueue.cpp
     test_materialtable.cpp
     test_surfaceclassifier.cpp

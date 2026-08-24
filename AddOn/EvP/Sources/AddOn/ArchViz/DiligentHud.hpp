@@ -82,6 +82,8 @@ struct HudState {
     // HUD-versus-command reconciliation in the frame loop is one pattern rather
     // than two.
     int renderMode = 0;
+    int wireTessellation = 4;
+    float wireLineWidth = 1.25f;
 
     // ---- READ-ONLY ON THE OVERLAY (the click-through rule) -----------------
     //

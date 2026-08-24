@@ -326,5 +326,15 @@ void DiligentScreenSpaceReflection::RememberFrame (Diligent::IDeviceContext* con
     impl_->haveColorHistory = true;
 }
 
+bool DiligentScreenSpaceReflection::HasDepthHistory () const
+{
+    return impl_ != nullptr && impl_->haveDepthHistory;
+}
+
+bool DiligentScreenSpaceReflection::HasColorHistory () const
+{
+    return impl_ != nullptr && impl_->haveColorHistory;
+}
+
 } // namespace archviz
 } // namespace geomsrv

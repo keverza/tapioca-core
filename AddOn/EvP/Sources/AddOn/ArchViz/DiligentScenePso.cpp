@@ -17,6 +17,71 @@
 namespace geomsrv {
 namespace archviz {
 
+bool DiligentScene::CreateSemanticWirePipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                                uint32_t depthBufferFormat, std::string& error)
+{
+    const Diligent::LayoutElement layout[] = {
+        Diligent::LayoutElement { 0, 0, 3, Diligent::VT_FLOAT32, Diligent::False },
+        Diligent::LayoutElement { 1, 0, 3, Diligent::VT_FLOAT32, Diligent::False },
+        Diligent::LayoutElement { 2, 0, 4, Diligent::VT_UINT8, Diligent::True },
+    };
+    Diligent::GraphicsPipelineStateCreateInfo pci;
+    pci.PSODesc.Name = "ArchViz face-aware tessellated wire PSO";
+    Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
+    gp.NumRenderTargets = 1;
+    gp.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
+    gp.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
+    gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    gp.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+    gp.RasterizerDesc.FillMode = Diligent::FILL_MODE_SOLID;
+    gp.RasterizerDesc.FrontCounterClockwise = Diligent::False;
+    gp.DepthStencilDesc.DepthEnable = Diligent::True;
+    gp.DepthStencilDesc.DepthWriteEnable = Diligent::True;
+    gp.InputLayout.LayoutElements = layout;
+    gp.InputLayout.NumElements = _countof (layout);
+
+    Diligent::RenderTargetBlendDesc& rt = gp.BlendDesc.RenderTargets[0];
+    rt.BlendEnable = Diligent::True;
+    rt.SrcBlend = Diligent::BLEND_FACTOR_SRC_ALPHA;
+    rt.DestBlend = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+    rt.BlendOp = Diligent::BLEND_OPERATION_ADD;
+    rt.SrcBlendAlpha = Diligent::BLEND_FACTOR_ONE;
+    rt.DestBlendAlpha = Diligent::BLEND_FACTOR_INV_SRC_ALPHA;
+    rt.BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
+
+    pci.pVS = impl_->wireVs;
+    pci.pHS = impl_->wireHs;
+    pci.pDS = impl_->wireDs;
+    pci.pGS = impl_->wireGs;
+    pci.pPS = impl_->wirePs;
+    pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
+    const Diligent::ShaderResourceVariableDesc variables[] = {
+        { Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+    };
+    pci.PSODesc.ResourceLayout.Variables = variables;
+    pci.PSODesc.ResourceLayout.NumVariables = _countof (variables);
+    device->CreateGraphicsPipelineState (pci, &impl_->semanticWirePso);
+    if (impl_->semanticWirePso == nullptr) {
+        error = "Diligent CreateGraphicsPipelineState(face-aware tessellated wire) failed";
+        return false;
+    }
+
+    const Diligent::SHADER_TYPE stages[] = { Diligent::SHADER_TYPE_VERTEX, Diligent::SHADER_TYPE_HULL,
+                                             Diligent::SHADER_TYPE_DOMAIN, Diligent::SHADER_TYPE_GEOMETRY,
+                                             Diligent::SHADER_TYPE_PIXEL };
+    for (Diligent::SHADER_TYPE stage : stages) {
+        if (Diligent::IShaderResourceVariable* variable =
+                impl_->semanticWirePso->GetStaticVariableByName (stage, "ArchVizConstants"))
+            variable->Set (impl_->constants);
+    }
+    impl_->semanticWirePso->CreateShaderResourceBinding (&impl_->semanticWireSrb, true);
+    if (impl_->semanticWireSrb == nullptr) {
+        error = "Diligent CreateShaderResourceBinding(face-aware tessellated wire) failed";
+        return false;
+    }
+    return true;
+}
+
 bool DiligentScene::CreateResolvePipelines (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                             const Diligent::SamplerDesc& envSampler, std::string& error)
 {

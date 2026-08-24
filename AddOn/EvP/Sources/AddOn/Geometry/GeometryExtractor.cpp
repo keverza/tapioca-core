@@ -3,16 +3,19 @@
 
 #include "GeometryExtractor.hpp"
 #include "VertexWeld.hpp"
+#include "WireframeEdges.hpp"
 
 #include <exp.h>
 #include <Sight.hpp>
 #include <Model.hpp>
 #include <ModelElement.hpp>
 #include <ModelMeshBody.hpp>
+#include <ModelEdge.hpp>
 #include <Polygon.hpp>
 #include <ConvexPolygon.hpp>
 #include <AttributeIndex.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <string>
@@ -38,18 +41,18 @@ namespace {
 // face, vertices get split (VertexWelder). Positions and the surface itself
 // are unchanged — only the vertex count and the indices differ.
 struct Corner {
-    Int32  vertex;          // body-local, 0-based
+    Int32 vertex; // body-local, 0-based
     double nx, ny, nz;
 };
 
 bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
 {
-    mesh.guid     = APIGuidToString (GSGuid2APIGuid (elem.GetElemGuid ())).ToCStr ().Get ();
+    mesh.guid = APIGuidToString (GSGuid2APIGuid (elem.GetElemGuid ())).ToCStr ().Get ();
     mesh.elemType = static_cast<int32_t> (elem.GetType ());
 
-    VertexWelder        welder (mesh);
+    VertexWelder welder (mesh);
     std::vector<Corner> corners;
-    size_t              degenerateNormals = 0;
+    size_t degenerateNormals = 0;
 
     const Int32 nBodies = elem.GetTessellatedBodyCount ();
     for (Int32 iBody = 1; iBody <= nBodies; ++iBody) {
@@ -68,7 +71,7 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
         bodyPos.reserve (static_cast<size_t> (nVert) * 3);
         for (Int32 iVert = 1; iVert <= nVert; ++iVert) {
             ModelerAPI::Vertex v;
-            body.GetVertex (iVert, &v);   // default CoordinateSystem::World
+            body.GetVertex (iVert, &v); // default CoordinateSystem::World
             bodyPos.push_back (v.x);
             bodyPos.push_back (v.y);
             bodyPos.push_back (v.z);
@@ -77,11 +80,28 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
             mesh.bounds.Expand (v.x, v.y, v.z);
         }
 
-        welder.Reset ();   // source indices below are body-local
+        welder.Reset (); // source indices below are body-local
 
         for (Int32 iPoly = 1; iPoly <= nPoly; ++iPoly) {
             ModelerAPI::Polygon polygon;
             body.GetPolygon (iPoly, &polygon);
+
+            // Preserve only the source polygon's visible boundary. Convex
+            // decomposition seams and fan diagonals are absent from this set.
+            std::vector<WireEdgeKey> visibleEdges;
+            visibleEdges.reserve (static_cast<size_t> (std::max<Int32> (polygon.GetEdgeCount (), 0)));
+            for (Int32 iEdge = 1; iEdge <= polygon.GetEdgeCount (); ++iEdge) {
+                ModelerAPI::Edge edge;
+                body.GetEdge (polygon.GetEdgeIndex (iEdge), &edge);
+                if (edge.IsInvisible () && !edge.IsVisibleIfContour ())
+                    continue;
+                const Int32 v1 = edge.GetVertexIndex1 () - 1;
+                const Int32 v2 = edge.GetVertexIndex2 () - 1;
+                if (v1 >= 0 && v2 >= 0)
+                    visibleEdges.push_back (MakeWireEdgeKey (uint32_t (v1), uint32_t (v2)));
+            }
+            std::sort (visibleEdges.begin (), visibleEdges.end ());
+            visibleEdges.erase (std::unique (visibleEdges.begin (), visibleEdges.end ()), visibleEdges.end ());
 
             ModelerAPI::AttributeIndex matIdx;
             polygon.GetMaterialIndex (matIdx);
@@ -102,8 +122,11 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                     corners.clear ();
                     bool indicesOk = true;
                     for (Int32 k = 1; k <= nCV; ++k) {
-                        const Int32 bi = convex.GetVertexIndex (k) - 1;   // 1-based
-                        if (bi < 0 || bi >= nVert) { indicesOk = false; break; }
+                        const Int32 bi = convex.GetVertexIndex (k) - 1; // 1-based
+                        if (bi < 0 || bi >= nVert) {
+                            indicesOk = false;
+                            break;
+                        }
                         const ModelerAPI::Vector n = convex.GetNormalVectorByVertex (k);
                         corners.push_back (Corner { bi, n.x, n.y, n.z });
                     }
@@ -114,16 +137,19 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                     // one on a sliver) falls back to the polygon's geometric
                     // normal rather than shipping a zero vector to the shader.
                     double fnx = 0.0, fny = 0.0, fnz = 0.0;
-                    TriangleNormal (&bodyPos[corners[0].vertex * 3],
-                                    &bodyPos[corners[1].vertex * 3],
-                                    &bodyPos[corners[2].vertex * 3],
-                                    fnx, fny, fnz);
+                    TriangleNormal (&bodyPos[corners[0].vertex * 3], &bodyPos[corners[1].vertex * 3],
+                                    &bodyPos[corners[2].vertex * 3], fnx, fny, fnz);
                     const bool faceOk = NormalizeVector (fnx, fny, fnz);
 
                     for (Corner& c : corners) {
                         if (!NormalizeVector (c.nx, c.ny, c.nz)) {
-                            if (!faceOk) { indicesOk = false; break; }
-                            c.nx = fnx; c.ny = fny; c.nz = fnz;
+                            if (!faceOk) {
+                                indicesOk = false;
+                                break;
+                            }
+                            c.nx = fnx;
+                            c.ny = fny;
+                            c.nz = fnz;
                             ++degenerateNormals;
                         }
                     }
@@ -132,21 +158,22 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
 
                     // Fan-triangulate: (1, k, k+1) over the gathered corners.
                     const auto emit = [&] (const Corner& c) {
-                        return welder.Add (c.vertex,
-                                           bodyPos[c.vertex * 3],
-                                           bodyPos[c.vertex * 3 + 1],
-                                           bodyPos[c.vertex * 3 + 2],
-                                           c.nx, c.ny, c.nz);
+                        return welder.Add (c.vertex, bodyPos[c.vertex * 3], bodyPos[c.vertex * 3 + 1],
+                                           bodyPos[c.vertex * 3 + 2], c.nx, c.ny, c.nz);
                     };
                     const uint32_t i0 = emit (corners[0]);
                     for (size_t k = 1; k + 1 < corners.size (); ++k) {
+                        const uint32_t sourceVertices[3] = { uint32_t (corners[0].vertex), uint32_t (corners[k].vertex),
+                                                             uint32_t (corners[k + 1].vertex) };
                         mesh.triangles.push_back (i0);
                         mesh.triangles.push_back (emit (corners[k]));
                         mesh.triangles.push_back (emit (corners[k + 1]));
                         mesh.triMaterial.push_back (material);
+                        mesh.triWireEdges.push_back (BuildTriangleWireEdgeMask (sourceVertices, visibleEdges));
                     }
-                } catch (const GS::Exception&) {
-                    continue;   // skip degenerate / self-intersecting polygon
+                }
+                catch (const GS::Exception&) {
+                    continue; // skip degenerate / self-intersecting polygon
                 }
             }
         }
@@ -171,8 +198,7 @@ std::string ElemGuidString (const ModelerAPI::Element& elem)
 
 // Walk a model and build a snapshot. If `filter` is non-null, only elements
 // whose GUID is in the set are kept. Shared by "all" and "selection".
-std::shared_ptr<const Snapshot> BuildSnapshot (const ModelerAPI::Model& model,
-                                               uint64_t snapshotId, const char* scope,
+std::shared_ptr<const Snapshot> BuildSnapshot (const ModelerAPI::Model& model, uint64_t snapshotId, const char* scope,
                                                const std::set<std::string>* filter)
 {
     auto snap = std::make_shared<Snapshot> ();
@@ -197,8 +223,7 @@ std::shared_ptr<const Snapshot> BuildSnapshot (const ModelerAPI::Model& model,
 }
 
 // Add every GUID in a memo sub-part array. Each part struct carries a .head.guid.
-template <typename T>
-void AddPartGuids (T* parts, std::set<std::string>& out)
+template <typename T> void AddPartGuids (T* parts, std::set<std::string>& out)
 {
     if (parts == nullptr)
         return;
@@ -213,7 +238,7 @@ void AddPartGuids (T* parts, std::set<std::string>& out)
 // selection-scoped extraction matches them. (Mirrors Speckle's CollectPartIDs.)
 void AddSelectedElementAndParts (const API_Guid& guid, std::set<std::string>& out)
 {
-    out.insert (APIGuidToString (guid).ToCStr ().Get ());   // the element itself
+    out.insert (APIGuidToString (guid).ToCStr ().Get ()); // the element itself
 
     API_Element elem;
     BNZeroMemory (&elem, sizeof (elem));
@@ -222,8 +247,8 @@ void AddSelectedElementAndParts (const API_Guid& guid, std::set<std::string>& ou
         return;
 
     const API_ElemTypeID typeID = elem.header.type.typeID;
-    if (typeID != API_StairID && typeID != API_RailingID && typeID != API_CurtainWallID &&
-        typeID != API_ColumnID && typeID != API_BeamID)
+    if (typeID != API_StairID && typeID != API_RailingID && typeID != API_CurtainWallID && typeID != API_ColumnID &&
+        typeID != API_BeamID)
         return;
 
     API_ElementMemo memo;
@@ -302,7 +327,7 @@ bool AcquireCurrentModel (ModelerAPI::Model& model)
 
     if (switched && prevSight != nullptr) {
         void* dummy = nullptr;
-        ACAPI_Sight_SelectSight (prevSight, &dummy);   // restore previous selection
+        ACAPI_Sight_SelectSight (prevSight, &dummy); // restore previous selection
     }
 
     if (err == NoError)
@@ -358,40 +383,96 @@ API_Guid ResolveSelectableOwner (const API_Guid& guid)
         // walls, slabs, objects and everything else.
         API_Guid owner = APINULLGuid;
         switch (elem.header.type.typeID) {
-            case API_CurtainWallSegmentID:   owner = elem.cwSegment.owner; break;
-            case API_CurtainWallFrameID:     owner = elem.cwFrame.owner; break;
-            case API_CurtainWallPanelID:     owner = elem.cwPanel.owner; break;
-            case API_CurtainWallJunctionID:  owner = elem.cwJunction.owner; break;
-            case API_CurtainWallAccessoryID: owner = elem.cwAccessory.owner; break;
+            case API_CurtainWallSegmentID:
+                owner = elem.cwSegment.owner;
+                break;
+            case API_CurtainWallFrameID:
+                owner = elem.cwFrame.owner;
+                break;
+            case API_CurtainWallPanelID:
+                owner = elem.cwPanel.owner;
+                break;
+            case API_CurtainWallJunctionID:
+                owner = elem.cwJunction.owner;
+                break;
+            case API_CurtainWallAccessoryID:
+                owner = elem.cwAccessory.owner;
+                break;
 
-            case API_RiserID:                owner = elem.stairRiser.owner; break;
-            case API_TreadID:                owner = elem.stairTread.owner; break;
-            case API_StairStructureID:       owner = elem.stairStructure.owner; break;
+            case API_RiserID:
+                owner = elem.stairRiser.owner;
+                break;
+            case API_TreadID:
+                owner = elem.stairTread.owner;
+                break;
+            case API_StairStructureID:
+                owner = elem.stairStructure.owner;
+                break;
 
-            case API_RailingToprailID:            owner = elem.railingToprail.owner; break;
-            case API_RailingHandrailID:           owner = elem.railingHandrail.owner; break;
-            case API_RailingRailID:               owner = elem.railingRail.owner; break;
-            case API_RailingToprailEndID:         owner = elem.railingToprailEnd.owner; break;
-            case API_RailingHandrailEndID:        owner = elem.railingHandrailEnd.owner; break;
-            case API_RailingRailEndID:            owner = elem.railingRailEnd.owner; break;
-            case API_RailingEndFinishID:          owner = elem.railingEndFinish.owner; break;
-            case API_RailingToprailConnectionID:  owner = elem.railingToprailConnection.owner; break;
-            case API_RailingHandrailConnectionID: owner = elem.railingHandrailConnection.owner; break;
-            case API_RailingRailConnectionID:     owner = elem.railingRailConnection.owner; break;
-            case API_RailingPostID:               owner = elem.railingPost.owner; break;
-            case API_RailingInnerPostID:          owner = elem.railingInnerPost.owner; break;
-            case API_RailingBalusterSetID:        owner = elem.railingBalusterSet.owner; break;
-            case API_RailingBalusterID:           owner = elem.railingBaluster.owner; break;
-            case API_RailingPanelID:              owner = elem.railingPanel.owner; break;
-            case API_RailingNodeID:               owner = elem.railingNode.owner; break;
-            case API_RailingSegmentID:            owner = elem.railingSegment.owner; break;
-            case API_RailingPatternID:            owner = elem.railingPattern.owner; break;
+            case API_RailingToprailID:
+                owner = elem.railingToprail.owner;
+                break;
+            case API_RailingHandrailID:
+                owner = elem.railingHandrail.owner;
+                break;
+            case API_RailingRailID:
+                owner = elem.railingRail.owner;
+                break;
+            case API_RailingToprailEndID:
+                owner = elem.railingToprailEnd.owner;
+                break;
+            case API_RailingHandrailEndID:
+                owner = elem.railingHandrailEnd.owner;
+                break;
+            case API_RailingRailEndID:
+                owner = elem.railingRailEnd.owner;
+                break;
+            case API_RailingEndFinishID:
+                owner = elem.railingEndFinish.owner;
+                break;
+            case API_RailingToprailConnectionID:
+                owner = elem.railingToprailConnection.owner;
+                break;
+            case API_RailingHandrailConnectionID:
+                owner = elem.railingHandrailConnection.owner;
+                break;
+            case API_RailingRailConnectionID:
+                owner = elem.railingRailConnection.owner;
+                break;
+            case API_RailingPostID:
+                owner = elem.railingPost.owner;
+                break;
+            case API_RailingInnerPostID:
+                owner = elem.railingInnerPost.owner;
+                break;
+            case API_RailingBalusterSetID:
+                owner = elem.railingBalusterSet.owner;
+                break;
+            case API_RailingBalusterID:
+                owner = elem.railingBaluster.owner;
+                break;
+            case API_RailingPanelID:
+                owner = elem.railingPanel.owner;
+                break;
+            case API_RailingNodeID:
+                owner = elem.railingNode.owner;
+                break;
+            case API_RailingSegmentID:
+                owner = elem.railingSegment.owner;
+                break;
+            case API_RailingPatternID:
+                owner = elem.railingPattern.owner;
+                break;
 
-            case API_ColumnSegmentID:        owner = elem.columnSegment.owner; break;
-            case API_BeamSegmentID:          owner = elem.beamSegment.owner; break;
+            case API_ColumnSegmentID:
+                owner = elem.columnSegment.owner;
+                break;
+            case API_BeamSegmentID:
+                owner = elem.beamSegment.owner;
+                break;
 
             default:
-                return current;   // already a selectable element
+                return current; // already a selectable element
         }
 
         // A sub-part whose owner is null is a database inconsistency, not a
