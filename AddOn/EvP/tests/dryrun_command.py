@@ -1236,6 +1236,12 @@ def _one(command, params):
     if handled is not None:
         return handled
 
+    if command == "API.GetProductInfo":
+        return _v2({"version": 29, "buildNumber": 3000, "languageCode": "INT"})
+
+    if command == "Tapir.GetCurrentWindowType":
+        return _v2({"currentWindowType": "FloorPlan"})
+
     if command == "EvP.GetSelection":
         if _SCENARIO == "polyline":
             guids = list(_POLY_DETAILS.keys())

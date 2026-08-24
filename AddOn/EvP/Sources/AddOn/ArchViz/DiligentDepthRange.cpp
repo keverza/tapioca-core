@@ -10,6 +10,7 @@
 
 #include <Buffer.h>
 #include <BufferView.h>
+#include <DeviceContext.h>
 #include <PipelineState.h>
 #include <RefCntAutoPtr.hpp>
 #include <RenderDevice.h>
@@ -77,8 +78,7 @@ bool DiligentDepthRange::Init (Diligent::IRenderDevice* device, std::string& err
     if (impl_->pso != nullptr)
         return true;
 
-    auto compile = [&] (const char* name, const char* body,
-                        Diligent::RefCntAutoPtr<Diligent::IShader>& out) -> bool {
+    auto compile = [&] (const char* name, const char* body, Diligent::RefCntAutoPtr<Diligent::IShader>& out) -> bool {
         const std::string source = ArchVizShaderSource (body);
         Diligent::ShaderCreateInfo sci;
         sci.Desc.Name = name;

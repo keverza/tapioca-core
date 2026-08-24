@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3d11.h>
 
+#include <APIInfo.h>
 #include <RefCntAutoPtr.hpp>
 #include <Texture.h>
 #include <TextureView.h>
@@ -85,17 +86,15 @@ void DiligentScreenSpaceReflection::ResetHistory ()
 }
 
 Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
-    Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-    Diligent::ITextureView* color, Diligent::ITextureView* depth,
-    Diligent::ITextureView* normal, Diligent::ITextureView* material,
-    Diligent::ITextureView* motion, uint32_t width, uint32_t height,
-    uint32_t frameIndex, const float view[16], const float proj[16],
-    const float viewProj[16], const float eye[3], const float jitter[2],
-    float nearClip, float farClip, float focusDistance, float roughnessThreshold)
+    Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* color,
+    Diligent::ITextureView* depth, Diligent::ITextureView* normal, Diligent::ITextureView* material,
+    Diligent::ITextureView* motion, uint32_t width, uint32_t height, uint32_t frameIndex, const float view[16],
+    const float proj[16], const float viewProj[16], const float eye[3], const float jitter[2], float nearClip,
+    float farClip, float focusDistance, float roughnessThreshold)
 {
-    if (device == nullptr || context == nullptr || color == nullptr || depth == nullptr ||
-        normal == nullptr || material == nullptr || motion == nullptr ||
-        width == 0 || height == 0 || impl_->postFx == nullptr || impl_->ssr == nullptr)
+    if (device == nullptr || context == nullptr || color == nullptr || depth == nullptr || normal == nullptr ||
+        material == nullptr || motion == nullptr || width == 0 || height == 0 || impl_->postFx == nullptr ||
+        impl_->ssr == nullptr)
         return nullptr;
 
     // ⚠️ PREVIOUS-FRAME COLOUR AND DEPTH, reallocated on resize. The SSR's
@@ -135,21 +134,23 @@ Diligent::ITextureView* DiligentScreenSpaceReflection::Execute (
     if (impl_->prevColor == nullptr || impl_->prevDepth == nullptr)
         return nullptr;
 
-    Diligent::ITextureView* prevColorSrv =
-        impl_->prevColor->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-    Diligent::ITextureView* prevDepthSrv =
-        impl_->prevDepth->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* prevColorSrv = impl_->prevColor->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* prevDepthSrv = impl_->prevDepth->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 
     Diligent::HLSL::CameraAttribs camera {};
     camera.f4Position = Diligent::float4 { eye[0], eye[1], eye[2], 1.0f };
     camera.f4ViewportSize =
         Diligent::float4 { float (width), float (height), 1.0f / float (width), 1.0f / float (height) };
+#if DILIGENT_API_VERSION >= 256020
     camera.SetClipPlanes (nearClip, farClip);
+#else
+    camera.fNearPlaneZ = nearClip;
+    camera.fFarPlaneZ = farClip;
+#endif
     camera.fHandness = 1.0f;
     camera.uiFrameIndex = frameIndex;
     camera.fFocusDistance = focusDistance;
-    camera.f2Jitter = Diligent::float2 { jitter != nullptr ? jitter[0] : 0.0f,
-                                        jitter != nullptr ? jitter[1] : 0.0f };
+    camera.f2Jitter = Diligent::float2 { jitter != nullptr ? jitter[0] : 0.0f, jitter != nullptr ? jitter[1] : 0.0f };
     camera.mView = Diligent::float4x4::MakeMatrix (view);
     camera.mProj = Diligent::float4x4::MakeMatrix (proj);
     camera.mViewProj = Diligent::float4x4::MakeMatrix (viewProj);

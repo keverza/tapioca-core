@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3d11.h>
 
+#include <APIInfo.h>
 #include <RefCntAutoPtr.hpp>
 #include <Texture.h>
 #include <TextureView.h>
@@ -81,9 +82,9 @@ void DiligentAmbientOcclusion::ResetHistory ()
 
 Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* normal,
-    Diligent::ITextureView* depth, Diligent::ITextureView* motion, uint32_t width, uint32_t height,
-    uint32_t frameIndex, const float view[16], const float proj[16], const float viewProj[16], const float eye[3],
-    const float jitter[2], float nearClip, float farClip, float focusDistance, float effectRadiusMetres)
+    Diligent::ITextureView* depth, Diligent::ITextureView* motion, uint32_t width, uint32_t height, uint32_t frameIndex,
+    const float view[16], const float proj[16], const float viewProj[16], const float eye[3], const float jitter[2],
+    float nearClip, float farClip, float focusDistance, float effectRadiusMetres)
 {
     if (device == nullptr || context == nullptr || normal == nullptr || depth == nullptr || motion == nullptr ||
         width == 0 || height == 0 || impl_->postFx == nullptr || impl_->ssao == nullptr)
@@ -124,12 +125,16 @@ Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     camera.f4Position = Diligent::float4 { eye[0], eye[1], eye[2], 1.0f };
     camera.f4ViewportSize =
         Diligent::float4 { float (width), float (height), 1.0f / float (width), 1.0f / float (height) };
+#if DILIGENT_API_VERSION >= 256020
     camera.SetClipPlanes (nearClip, farClip);
+#else
+    camera.fNearPlaneZ = nearClip;
+    camera.fFarPlaneZ = farClip;
+#endif
     camera.fHandness = 1.0f;
     camera.uiFrameIndex = frameIndex;
     camera.fFocusDistance = focusDistance;
-    camera.f2Jitter = Diligent::float2 { jitter != nullptr ? jitter[0] : 0.0f,
-                                        jitter != nullptr ? jitter[1] : 0.0f };
+    camera.f2Jitter = Diligent::float2 { jitter != nullptr ? jitter[0] : 0.0f, jitter != nullptr ? jitter[1] : 0.0f };
     camera.mView = Diligent::float4x4::MakeMatrix (view);
     camera.mProj = Diligent::float4x4::MakeMatrix (proj);
     camera.mViewProj = Diligent::float4x4::MakeMatrix (viewProj);
@@ -151,8 +156,7 @@ Diligent::ITextureView* DiligentAmbientOcclusion::Execute (
     // where the old always-reset behaviour is still correct: the first frame,
     // and the first frame after a resize or a reset. Anything else feeds
     // reprojection a depth buffer that describes a different image.
-    Diligent::ITextureView* prevDepthSrv =
-        impl_->prevDepth->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* prevDepthSrv = impl_->prevDepth->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 
     Diligent::PostFXContext::RenderAttributes postFxAttributes;
     postFxAttributes.pDevice = device;

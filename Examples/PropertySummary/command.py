@@ -1,4 +1,4 @@
-"""Read one built-in quantity from the current selection."""
+"""Read and total a built-in area property for the current selection."""
 
 import tapioca
 
@@ -6,7 +6,7 @@ import tapioca
 @tapioca.command(
     title="Property Summary",
     category="Examples",
-    description="Demonstrates resolving and reading a built-in property in one batch.",
+    description="Reads General Area in one batch and reports missing values and a total.",
     needs_selection=True,
 )
 def run():
@@ -21,8 +21,23 @@ def run():
         return
 
     values = tapioca.properties.values(guids, [property_id])
-    rows = []
-    for guid, value in zip(guids, values):
+    identities = tapioca.elements.ids(guids)
+    lines = []
+    total = 0.0
+    measured = 0
+    for identity, value in zip(identities, values):
         amount = value[0] if value else None
-        rows.append([guid, "" if amount is None else amount])
-    tapioca.ui.table(["Element GUID", "General Area"], rows, row_ids=guids)
+        label = identity["element_id"] or identity["guid"]
+        if isinstance(amount, (int, float)):
+            total += float(amount)
+            measured += 1
+            lines.append("%s: %.2f m2" % (label, amount))
+        else:
+            lines.append("%s: no General Area value" % label)
+
+    lines.extend([
+        "",
+        "Measured elements: %d of %d" % (measured, len(guids)),
+        "Total General Area: %.2f m2" % total,
+    ])
+    tapioca.ui.text("\n".join(lines))

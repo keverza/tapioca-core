@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <d3d11.h>
 
+#include <APIInfo.h>
 #include <RefCntAutoPtr.hpp>
 #include <Texture.h>
 #include <TextureView.h>
@@ -83,10 +84,9 @@ void DiligentTemporalAntiAliasing::ResetHistory ()
     }
 }
 
-bool DiligentTemporalAntiAliasing::Prepare (
-    Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-    uint32_t width, uint32_t height, uint32_t frameIndex,
-    const float projection[16], float jitteredProjection[16], float jitter[2])
+bool DiligentTemporalAntiAliasing::Prepare (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                                            uint32_t width, uint32_t height, uint32_t frameIndex,
+                                            const float projection[16], float jitteredProjection[16], float jitter[2])
 {
     if (projection != nullptr && jitteredProjection != nullptr)
         std::memcpy (jitteredProjection, projection, sizeof (float) * 16);
@@ -132,7 +132,15 @@ bool DiligentTemporalAntiAliasing::Prepare (
         return false;
     const Diligent::float2 offset = impl_->taa->GetJitterOffset ();
     const Diligent::float4x4 base = Diligent::float4x4::MakeMatrix (projection);
-    const Diligent::float4x4 jittered = Diligent::TemporalAntiAliasing::GetJitteredProjMatrix (base, offset);
+    Diligent::float4x4 jittered = base;
+    if (jittered.m33 == 0.0f) {
+        jittered.m20 += offset.x;
+        jittered.m21 += offset.y;
+    }
+    else {
+        jittered.m30 += offset.x;
+        jittered.m31 += offset.y;
+    }
     std::memcpy (jitteredProjection, jittered.Data (), sizeof (float) * 16);
     jitter[0] = offset.x;
     jitter[1] = offset.y;
@@ -141,11 +149,9 @@ bool DiligentTemporalAntiAliasing::Prepare (
 }
 
 Diligent::ITextureView* DiligentTemporalAntiAliasing::Execute (
-    Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-    Diligent::ITextureView* color, Diligent::ITextureView* depth,
-    Diligent::ITextureView* motion, uint32_t width, uint32_t height,
-    uint32_t frameIndex, const float view[16], const float proj[16],
-    const float viewProj[16], const float eye[3], float nearClip,
+    Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* color,
+    Diligent::ITextureView* depth, Diligent::ITextureView* motion, uint32_t width, uint32_t height, uint32_t frameIndex,
+    const float view[16], const float proj[16], const float viewProj[16], const float eye[3], float nearClip,
     float farClip, float focusDistance, const float jitter[2], float stability)
 {
     if (device == nullptr || context == nullptr || color == nullptr || depth == nullptr || motion == nullptr ||
@@ -160,7 +166,12 @@ Diligent::ITextureView* DiligentTemporalAntiAliasing::Execute (
     camera.f4Position = Diligent::float4 { eye[0], eye[1], eye[2], 1.0f };
     camera.f4ViewportSize =
         Diligent::float4 { float (width), float (height), 1.0f / float (width), 1.0f / float (height) };
+#if DILIGENT_API_VERSION >= 256020
     camera.SetClipPlanes (nearClip, farClip);
+#else
+    camera.fNearPlaneZ = nearClip;
+    camera.fFarPlaneZ = farClip;
+#endif
     camera.fHandness = 1.0f;
     camera.uiFrameIndex = frameIndex;
     camera.fFocusDistance = focusDistance;
@@ -172,8 +183,7 @@ Diligent::ITextureView* DiligentTemporalAntiAliasing::Execute (
     camera.mProjInv = camera.mProj.Inverse ();
     camera.mViewProjInv = camera.mViewProj.Inverse ();
 
-    Diligent::ITextureView* prevDepthSrv =
-        impl_->prevDepth->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+    Diligent::ITextureView* prevDepthSrv = impl_->prevDepth->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
     Diligent::PostFXContext::RenderAttributes postFxAttributes;
     postFxAttributes.pDevice = device;
     postFxAttributes.pDeviceContext = context;
