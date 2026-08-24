@@ -6,7 +6,7 @@ export default defineConfig({
   base: '/tapioca-core',
   integrations: [
     starlight({
-      title: 'Tapioca Documentation',
+      title: 'Tapioca',
       description: 'Python automation for Archicad 29.',
       logo: {
         src: './src/assets/tapioca-mark.svg',
@@ -25,16 +25,17 @@ export default defineConfig({
       },
       customCss: ['./src/styles/custom.css'],
       sidebar: [
+        { link: '/', label: 'Overview' },
+        { link: 'getting-started', label: 'Getting started' },
         {
-          label: 'Start here',
-          items: [
-            { link: '/', label: 'Overview' },
-            'getting-started',
-          ],
+          link: 'https://github.com/keverza/tapioca-core/releases',
+          label: 'Releases',
         },
         {
           label: 'Authoring',
-          items: ['commands'],
+          items: [
+            'commands',
+          ],
         },
         {
           label: 'API',
@@ -50,10 +51,6 @@ export default defineConfig({
             {
               label: 'Source repository',
               link: 'https://github.com/keverza/tapioca-core',
-            },
-            {
-              label: 'Releases',
-              link: 'https://github.com/keverza/tapioca-core/releases',
             },
           ],
         },

@@ -1,17 +1,10 @@
 ---
 title: Overview
 description: Python automation for Archicad 29.
-template: splash
-hero:
-  title: Automate Archicad with Python.
-  tagline: Tapioca keeps Archicad integration in a native add-on while giving command authors a small, readable Python surface.
-  actions:
-    - text: Start with the quickstart
-      link: /getting-started/
-    - text: Write a command
-      link: /commands/
-      variant: minimal
 ---
+
+Tapioca is a Python command host for Archicad 29 with a small, readable Python
+surface and a native add-on boundary that keeps Archicad in control.
 
 ## Python at the edge. Archicad in control.
 
