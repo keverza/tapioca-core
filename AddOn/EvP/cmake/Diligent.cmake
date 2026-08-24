@@ -69,6 +69,18 @@ if (NOT CMAKE_C_COMPILER)
     set (CMAKE_C_COMPILER "${CMAKE_CXX_COMPILER}" CACHE FILEPATH "DiligentCore C compiler" FORCE)
 endif ()
 
+# CMake 3.31 added CMP0177 (install() DESTINATION paths are normalized). Every
+# vendored DiligentEngine CMakeLists still declares an older minimum, so each of
+# their ~28 install() calls warns once per configure. The sources live in the
+# reference tree outside both repositories, so patching them there would be
+# undone by the next provision -- set the default for the subdirectories
+# instead. Nothing here is behaviourally affected: DILIGENT_INSTALL_CORE is OFF
+# and every module is EXCLUDE_FROM_ALL, so no Diligent install rule ever runs.
+# The guard keeps this a no-op on a CMake that predates the policy.
+if (POLICY CMP0177)
+    set (CMAKE_POLICY_DEFAULT_CMP0177 NEW)
+endif ()
+
 add_subdirectory ("${DILIGENT_DIR}/DiligentCore" "${CMAKE_BINARY_DIR}/DiligentCore" EXCLUDE_FROM_ALL)
 
 # ---- Tools and FX ----------------------------------------------------------
