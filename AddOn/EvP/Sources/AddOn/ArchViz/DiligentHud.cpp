@@ -414,6 +414,14 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SliderFloat ("##aoradius", &state.ambientOcclusionRadius, 0.0f, 20.0f, "%.2f m");
                 ImGui::TextDisabled ("AO radius -- 0 derives it from the model; now %.2f m", scene.aoRadiusMetres);
 
+                ImGui::Checkbox ("epipolar atmosphere", &state.epipolarAtmosphere);
+                ImGui::TextDisabled ("  physical aerial perspective -- needs Realistic quality");
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##atmosphereintensity", &state.atmosphereIntensity, 0.0f, 20.0f, "%.1f");
+                ImGui::TextDisabled ("extraterrestrial sun intensity");
+                ImGui::Checkbox ("atmospheric light shafts", &state.atmosphereLightShafts);
+                ImGui::Checkbox ("atmospheric lighting only", &state.atmosphereLightingOnly);
+
                 // ---- RE51.C7: screen-space reflections ----------------------
                 ImGui::Checkbox ("screen-space reflections", &state.screenSpaceReflection);
                 ImGui::TextDisabled ("  neighbouring-object reflections -- needs Realistic quality");

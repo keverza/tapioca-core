@@ -24,6 +24,7 @@
 #include "ArchViz/DiligentScene.hpp"
 
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
+#include "ArchViz/DiligentEpipolarLightScattering.hpp"
 #include "ArchViz/DiligentPointCloudLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
@@ -334,6 +335,7 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // g_frameControl.x to skip Grade() when writing into HDR; the resolve PS
     // applies Grade() once when copying HDR back to the swap chain.
     RefCntAutoPtr<Diligent::IShader> resolvePs;
+    RefCntAutoPtr<Diligent::IShader> coveragePs;
     RefCntAutoPtr<Diligent::IPipelineState> hdrOpaquePso[kShadowModeCount][kCullModeCount];
     RefCntAutoPtr<Diligent::IPipelineState> hdrBlendPso[kShadowModeCount][kCullModeCount];
     RefCntAutoPtr<Diligent::IShaderResourceBinding> hdrOpaqueSrb[kShadowModeCount][kCullModeCount];
@@ -347,6 +349,25 @@ struct geomsrv::archviz::DiligentScene::Impl {
     Diligent::ITextureView* hdrColorSRV = nullptr;
     uint32_t hdrWidth = 0;
     uint32_t hdrHeight = 0;
+
+    // ---- RE51.C8: coverage, so TAA can resolve it -------------------------
+    // ⚠️ A WHOLE TEXTURE FOR ONE CHANNEL, AND IT IS NOT WASTE. DiligentFX's TAA
+    // reads Texture2D<float3> and writes its history weight into alpha, so the
+    // coverage that lives in the HDR target's alpha cannot pass through it
+    // where it is. kArchVizCoveragePS broadcasts it into RGB here and TAA's
+    // SECOND accumulation buffer resolves it beside the radiance. Only ever
+    // allocated on the HDR path with TAA on; see EnsureCoverageTarget.
+    Diligent::RefCntAutoPtr<Diligent::ITexture> coverageTexture;
+    Diligent::ITextureView* coverageRTV = nullptr;
+    Diligent::ITextureView* coverageSRV = nullptr;
+    uint32_t coverageWidth = 0;
+    uint32_t coverageHeight = 0;
+    Diligent::RefCntAutoPtr<Diligent::IPipelineState> coveragePso;
+    Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> coverageSrb;
+    // The accumulated coverage the resolve should read, or null when TAA did
+    // not produce one this frame -- in which case the resolve falls back to the
+    // raw HDR alpha, which is correct precisely because no jitter was applied.
+    Diligent::ITextureView* taaCoverageView = nullptr;
     // ---- RE51.C7: the SSR composition PSO and state --------------------------
     //
     // ⚠️ THE COMPOSITION HAPPENS IN THE RESOLVE PASS, NOT AS A SEPARATE PASS.
@@ -371,6 +392,11 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // is off, so the shader's `roughness < 1.0` check skips the SSR branch.
     RefCntAutoPtr<Diligent::ITexture> ssrRoughnessFallback;
     DiligentAmbientOcclusion ambientOcclusion;
+    DiligentEpipolarLightScattering epipolarLightScattering;
+    bool atmosphereEnabled = false;
+    bool atmosphereLightShafts = true;
+    bool atmosphereLightingOnly = false;
+    float atmosphereIntensity = 10.0f;
     DiligentScreenSpaceReflection screenSpaceReflection;
     DiligentTemporalAntiAliasing temporalAntiAliasing;
     DiligentPointCloudLayer pointCloud;

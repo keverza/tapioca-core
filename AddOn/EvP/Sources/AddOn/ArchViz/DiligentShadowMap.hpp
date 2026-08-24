@@ -14,6 +14,7 @@ struct IRenderDevice;
 struct IShader;
 struct IShaderResourceBinding;
 struct ITextureView;
+struct ShadowMapAttribs;
 } // namespace Diligent
 
 namespace geomsrv {
@@ -100,6 +101,7 @@ class DiligentShadowMap final {
     uint32_t CascadeCount () const;
     float FirstCascadeTexelMetres () const;
     void CopyCascadeViewProjection (uint32_t cascade, float out[16]) const;
+    void CopyAttribs (Diligent::ShadowMapAttribs& out) const;
 
     Diligent::IBuffer* AttribsBuffer () const;
     Diligent::ITextureView* ShaderView () const;

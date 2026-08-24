@@ -40,6 +40,20 @@ class DiligentTemporalAntiAliasing final {
         const float viewProj[16], const float eye[3], float nearClip,
         float farClip, float focusDistance, const float jitter[2], float stability);
 
+    // RE51.C8. The SECOND accumulation buffer, resolving coverage beside the
+    // radiance. Must be called after Execute in the same frame: it reuses the
+    // PostFXContext that call already populated with this frame's motion,
+    // depth and camera pair, so running it first would accumulate coverage
+    // against the previous frame's reprojection.
+    //
+    // ⚠️ NOT A SECOND TemporalAntiAliasing OBJECT. DiligentFX keys its
+    // accumulation buffers by index (RenderAttributes::AccumulationBufferIdx),
+    // so index 1 shares this one's compiled pipelines and adds only the pair of
+    // history textures it genuinely needs.
+    Diligent::ITextureView* ExecuteCoverage (
+        Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+        Diligent::ITextureView* coverage, uint32_t frameIndex, float stability);
+
   private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

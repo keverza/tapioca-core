@@ -358,6 +358,8 @@ cbuffer ArchVizConstants
     float4   g_whiteBalance;    // rgb linear gains, applied before the exposure
     float4x4 g_prevViewProj;    // RE51.C2: last frame's camera, for motion
     float4   g_frameControl;    // x = 1 for HDR output (skip Grade, resolve pass tone-maps)
+                                // y = 1 when g_hdrCoverage is TAA-resolved (coverage in RED,
+                                //     not ALPHA -- see kArchVizCoveragePS)
     float4x4 g_motionViewProj;  // RE51.C8: current camera without projection jitter
 };
 )hlsl";
@@ -1058,6 +1060,37 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 // ⚠️ LOAD, NOT SAMPLE. The HDR target is exactly the viewport's own resolution,
 // so pixel (x,y) maps 1:1 to texel (x,y). Filtering would only blur edges that
 // the resolve has no reason to blur.
+// ---- RE51.C8: coverage, lifted out of the HDR alpha so TAA can resolve it ----
+//
+// ⚠️ THIS PASS EXISTS BECAUSE DILIGENTFX'S TAA READS Texture2D<float3> AND
+// WRITES ITS OWN HISTORY WEIGHT INTO ALPHA. Coverage cannot ride through it in
+// the channel it already lives in, so it is broadcast into RGB here and run
+// through a SECOND accumulation buffer (index 1) with the same motion vectors,
+// depth and cameras as the colour. What comes back is coverage that has been
+// reprojected and disocclusion-rejected exactly like the radiance beside it.
+//
+// ⚠️ WHY IT MATTERS AT ALL, given that the resolve only tests `> 0`. Coverage
+// is BINARY per pixel and the projection is JITTERED, so a silhouette pixel
+// flips covered/uncovered every frame and the resolve's discard flips with it.
+// That is not aliasing TAA can fix from the colour side -- the pixel is either
+// in the image or it is not -- and it reads as the whole edge crawling. It was
+// reported live on 2026-08-24 as "jitters quite a lot and is very distracting",
+// with TAA confirmed resolving, which is exactly the signature: the interior is
+// steady and the edges are not.
+constexpr const char* kArchVizCoveragePS = R"hlsl(
+Texture2D<float4> g_hdrColor;
+
+void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
+{
+    // ⚠️ BROADCAST TO ALL FOUR CHANNELS, not just red. TAA overwrites alpha
+    // with its history weight, so alpha here is discarded -- but the copy TAA
+    // makes on a reset frame keeps whatever it was handed, and a coverage that
+    // reads back as zero on those frames would blink the whole image out.
+    float coverage = g_hdrColor.Load (int3 (int2 (position.xy), 0)).a;
+    color = float4 (coverage, coverage, coverage, coverage);
+}
+)hlsl";
+
 constexpr const char* kArchVizResolvePS = R"hlsl(
 Texture2D<float4> g_hdrColor;
 Texture2D<float4> g_hdrCoverage;
@@ -1072,11 +1105,22 @@ void main (float4 position : SV_POSITION, out float4 color : SV_TARGET)
 {
     int2 pixel = int2 (position.xy);
     float4 hdr = g_hdrColor.Load (int3 (pixel, 0));
-    float coverage = g_hdrCoverage.Load (int3 (pixel, 0)).a;
+    float4 coverageTexel = g_hdrCoverage.Load (int3 (pixel, 0));
 
-    // DiligentFX TAA stores history weight in output alpha. Coverage therefore
-    // comes from this frame's original HDR target, never from the TAA result.
-    if (coverage <= 0.0)
+    // ⚠️ THE CHANNEL DEPENDS ON WHICH TEXTURE IS BOUND, AND g_frameControl.y
+    // SAYS WHICH. DiligentFX TAA stores its history weight in output alpha, so
+    // TAA-resolved coverage cannot live there: kArchVizCoveragePS broadcasts it
+    // into RGB before the accumulation and it comes back in RED. When TAA is
+    // off there is no jitter to resolve, nothing runs that pass, and this frame's
+    // own HDR target is bound with coverage still in ALPHA.
+    float coverage = g_frameControl.y > 0.5 ? coverageTexel.r : coverageTexel.a;
+
+    // ⚠️ A THRESHOLD, NOT `> 0`, ON THE RESOLVED PATH. Accumulated coverage is
+    // FRACTIONAL at a silhouette -- that is the whole point of resolving it --
+    // so testing against zero would keep every pixel the edge has touched in the
+    // last dozen frames and fatten the model by a pixel. Half a pixel of
+    // coverage is the same rule the rasteriser itself uses.
+    if (coverage <= (g_frameControl.y > 0.5 ? 0.5 : 0.0))
         discard;
 
     float3 radiance = hdr.rgb;

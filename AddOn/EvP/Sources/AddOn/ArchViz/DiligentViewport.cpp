@@ -773,6 +773,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             scene.SetGrading (hudState.exposure, hudState.reflectance, hudState.roughnessBias);
             scene.SetAutoExposure (hudState.autoExposure);
             scene.SetWhiteBalance (hudState.whiteBalanceKelvin, hudState.whiteBalanceTint);
+            scene.SetAtmosphere (hudState.epipolarAtmosphere && surface.mode != SurfaceMode::Overlay,
+                                 hudState.atmosphereIntensity, hudState.atmosphereLightShafts,
+                                 hudState.atmosphereLightingOnly);
 
             // ⚠️ THE HUD AND THE COMMAND SHARE THE RENDER MODE, exactly as they
             // share the debug view, and with the same rule: the COMMAND wins

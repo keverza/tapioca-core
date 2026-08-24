@@ -740,12 +740,24 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
                                           focusDistance, frameIndex);
         }
 
-        Diligent::ITextureView* resolvedHdr = ExecuteTemporalAntiAliasing (
-            context, view, proj, viewProj, motionViewProj, eye, jitter, nearClip, farClip, focusDistance, frameIndex);
+        Diligent::ITextureView* postProcessedHdr = impl_->hdrColorSRV;
+        if (Diligent::ITextureView* atmosphere =
+                ExecuteAtmosphere (context, postProcessedHdr, view, proj, viewProj, eye, nearClip, farClip, frameIndex))
+            postProcessedHdr = atmosphere;
+
+        Diligent::ITextureView* resolvedHdr =
+            ExecuteTemporalAntiAliasing (context, postProcessedHdr, view, proj, viewProj, motionViewProj, eye, jitter,
+                                         nearClip, farClip, focusDistance, frameIndex);
         if (resolvedHdr == nullptr)
-            resolvedHdr = impl_->hdrColorSRV;
+            resolvedHdr = postProcessedHdr;
 
         constants.frameControl[0] = 0.0f;
+        // ⚠️ SET HERE, WITH THE OTHER CONSTANTS AND BEFORE UploadConstants. The
+        // texture it describes is bound further down, after the upload; writing
+        // the lane down there instead leaves the shader reading last frame's
+        // value against this frame's texture, and the two disagree exactly on
+        // the frame TAA starts or stops resolving.
+        constants.frameControl[1] = (impl_->taaCoverageView != nullptr) ? 1.0f : 0.0f;
         // ⚠️ gradeParams.w: AO intensity was already applied in the mesh shader,
         // so the lane is repurposed for SSR intensity in the resolve pass.
         constants.gradeParams[3] = (impl_->ssrView != nullptr) ? impl_->ssrIntensity : 0.0f;
@@ -759,9 +771,17 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         if (Diligent::IShaderResourceVariable* hdrVar =
                 impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
             hdrVar->Set (resolvedHdr);
+        // ⚠️ THE TAA-RESOLVED COVERAGE WHEN THERE IS ONE, and this frame's raw
+        // HDR target otherwise. The two carry coverage in DIFFERENT CHANNELS --
+        // red after the accumulation, alpha before it -- because DiligentFX TAA
+        // overwrites alpha with its own history weight. g_frameControl.y tells
+        // the shader which it was given; getting that lane wrong reads back the
+        // history weight as coverage, which is non-zero everywhere and paints
+        // the sky over Archicad's window.
+        const bool coverageResolved = impl_->taaCoverageView != nullptr;
         if (Diligent::IShaderResourceVariable* coverageVar =
                 impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage"))
-            coverageVar->Set (impl_->hdrColorSRV);
+            coverageVar->Set (coverageResolved ? impl_->taaCoverageView : impl_->hdrColorSRV);
         Diligent::ITextureView* ssrColorView = impl_->ssrView;
         if (ssrColorView == nullptr && impl_->ssrFallback != nullptr)
             ssrColorView = impl_->ssrFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);

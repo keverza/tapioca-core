@@ -422,6 +422,11 @@ void DiligentShadowMap::CopyCascadeViewProjection (uint32_t cascade, float out[1
     std::memcpy (out, &matrix, sizeof (matrix));
 }
 
+void DiligentShadowMap::CopyAttribs (Diligent::ShadowMapAttribs& out) const
+{
+    out = impl_ != nullptr && impl_->fitted ? impl_->shadowAttribs : Diligent::ShadowMapAttribs {};
+}
+
 Diligent::IBuffer* DiligentShadowMap::AttribsBuffer () const
 {
     return impl_ != nullptr ? impl_->attribs.RawPtr () : nullptr;

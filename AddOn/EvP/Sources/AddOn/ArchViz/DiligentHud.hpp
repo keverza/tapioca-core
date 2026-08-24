@@ -201,6 +201,13 @@ struct HudState {
     // rather than from an arbitrary number.
     float ambientOcclusionRadius = 0.0f;
 
+    // DiligentFX's Atmosphere-sample port. Opt-in until its Z-up/site-altitude
+    // convention and cost have been judged in a live Archicad model.
+    bool epipolarAtmosphere = false;
+    float atmosphereIntensity = 10.0f;
+    bool atmosphereLightShafts = true;
+    bool atmosphereLightingOnly = false;
+
     // ---- RE51.C5/C6/C9: shadow settings -----------------------------------
     // Keep the map allocated and gate fitting/sampling. Re-enabling therefore
     // restores shadows without rebuilding GPU resources.

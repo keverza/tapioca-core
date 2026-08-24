@@ -10,6 +10,8 @@
 
 #include <Sampler.h>
 
+#include <algorithm>
+
 namespace geomsrv {
 namespace archviz {
 
@@ -96,6 +98,11 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         return false;
     if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz resolve PS", kArchVizEnvCommonPS, impl_->resolvePs,
                   kArchVizResolvePS))
+        return false;
+    // ⚠️ NO PRELUDE. It reads one channel of one texture and needs neither
+    // EnvUv nor Grade; adding it to the PRELUDES table in check_hlsl.py would
+    // compile it against a prelude it does not use.
+    if (!compile (Diligent::SHADER_TYPE_PIXEL, "ArchViz coverage PS", kArchVizCoveragePS, impl_->coveragePs))
         return false;
     // ⚠️ BOTH TAKE kArchVizEnvCommonPS AS THEIR PRELUDE, and so does the mesh PS
     // above -- that is the single copy of EnvUv. tools/quality/check_hlsl.py's
@@ -647,57 +654,10 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
         }
     }
 
-    // ---- the resolve PSO ----------------------------------------------------
-    // Full-screen triangle, no depth; the HDR target is DYNAMIC because it
-    // is recreated on resize.
-    {
-        Diligent::ShaderResourceVariableDesc resolveVariables[] = {
-            { Diligent::SHADER_TYPE_PIXEL, "g_hdrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_ssrColor", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferRoughness", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferDepth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferNormal", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferAlbedo", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-            { Diligent::SHADER_TYPE_PIXEL, "g_gbufferMaterialData", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
-        };
-        Diligent::GraphicsPipelineStateCreateInfo pci;
-        pci.PSODesc.Name = "ArchViz HDR resolve PSO";
-        pci.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
-        pci.PSODesc.ResourceLayout.Variables = resolveVariables;
-        pci.PSODesc.ResourceLayout.NumVariables = _countof (resolveVariables);
-        const Diligent::ImmutableSamplerDesc resolveSamplers[] = {
-            { Diligent::SHADER_TYPE_PIXEL, "g_envMap_sampler", envSampler },
-        };
-        pci.PSODesc.ResourceLayout.ImmutableSamplers = resolveSamplers;
-        pci.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (resolveSamplers);
-        Diligent::GraphicsPipelineDesc& gp = pci.GraphicsPipeline;
-        gp.NumRenderTargets = 1;
-        gp.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
-        gp.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        gp.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
-        gp.DepthStencilDesc.DepthEnable = Diligent::False;
-        pci.pVS = impl_->fullScreenVs;
-        pci.pPS = impl_->resolvePs;
-        device->CreateGraphicsPipelineState (pci, &impl_->resolvePso);
-        if (impl_->resolvePso == nullptr) {
-            error = "Diligent CreateGraphicsPipelineState(ArchViz HDR resolve) failed";
-            return false;
-        }
-        if (Diligent::IShaderResourceVariable* cb =
-                impl_->resolvePso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "ArchVizConstants"))
-            cb->Set (impl_->constants);
-        if (Diligent::ITextureView* envView = impl_->environment.ShaderView ()) {
-            if (Diligent::IShaderResourceVariable* envVar =
-                    impl_->resolvePso->GetStaticVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_envMap"))
-                envVar->Set (envView);
-        }
-        impl_->resolvePso->CreateShaderResourceBinding (&impl_->resolveSrb, true);
-        if (impl_->resolveSrb == nullptr) {
-            error = "Diligent CreateShaderResourceBinding(ArchViz HDR resolve) failed";
-            return false;
-        }
-    }
+    // The resolve, coverage-extract and offscreen-target code that used to sit
+    // here lives in DiligentScenePso.cpp. See the note at the top of that file.
+    if (!CreateResolvePipelines (device, colorBufferFormat, envSampler, error))
+        return false;
 
     // ---- the "nothing is occluded" fallback (RE51.C3) ----------------------
     // See DiligentSceneImpl's ⚠️ on why this exists and why it is white rather
@@ -1008,6 +968,16 @@ void DiligentScene::SetWhiteBalance (float kelvin, float tint)
     impl_->whiteBalanceTint = tint;
 }
 
+void DiligentScene::SetAtmosphere (bool enabled, float intensity, bool lightShafts, bool lightingOnly)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->atmosphereEnabled = enabled;
+    impl_->atmosphereIntensity = (std::max) (0.0f, intensity);
+    impl_->atmosphereLightShafts = lightShafts;
+    impl_->atmosphereLightingOnly = lightingOnly;
+}
+
 void DiligentScene::SetCameraRays (const float right[3], const float up[3], const float forward[3])
 {
     if (impl_ == nullptr)
@@ -1030,6 +1000,7 @@ void DiligentScene::Shutdown ()
     impl_->shadowMap.Shutdown ();
     impl_->environment.Shutdown ();
     impl_->ambientOcclusion.Shutdown ();
+    impl_->epipolarLightScattering.Shutdown ();
     impl_->screenSpaceReflection.Shutdown ();
     impl_->temporalAntiAliasing.Shutdown ();
     impl_->pointCloud.Shutdown ();
@@ -1040,6 +1011,14 @@ void DiligentScene::Shutdown ()
     impl_->envBackgroundPso.Release ();
     impl_->resolveSrb.Release ();
     impl_->resolvePso.Release ();
+    impl_->coverageSrb.Release ();
+    impl_->coveragePso.Release ();
+    impl_->coverageTexture.Release ();
+    impl_->coverageRTV = nullptr;
+    impl_->coverageSRV = nullptr;
+    impl_->coverageWidth = 0;
+    impl_->coverageHeight = 0;
+    impl_->taaCoverageView = nullptr;
     impl_->hdrEnvBackgroundSrb.Release ();
     impl_->hdrEnvBackgroundPso.Release ();
     for (int mode = 0; mode < kShadowModeCount; ++mode) {
@@ -1127,58 +1106,6 @@ void DiligentScene::SetSunOverride (bool enabled, float azimuthDegrees, float al
     impl_->sunOverride = enabled;
     impl_->sunOverrideAzimuth = azimuthDegrees;
     impl_->sunOverrideAltitude = altitudeDegrees;
-}
-
-bool DiligentScene::EnsureHdrTarget ()
-{
-    if (impl_ == nullptr || impl_->device == nullptr)
-        return false;
-    if (impl_->hdrWidth == impl_->viewportWidth && impl_->hdrHeight == impl_->viewportHeight &&
-        impl_->hdrColorTexture != nullptr)
-        return true;
-
-    impl_->hdrColorTexture.Release ();
-    impl_->hdrColorRTV = nullptr;
-    impl_->hdrColorSRV = nullptr;
-
-    if (impl_->viewportWidth == 0 || impl_->viewportHeight == 0)
-        return false;
-
-    Diligent::TextureDesc td;
-    td.Name = "ArchViz HDR scene colour";
-    td.Type = Diligent::RESOURCE_DIM_TEX_2D;
-    td.Width = impl_->viewportWidth;
-    td.Height = impl_->viewportHeight;
-    td.Format = Diligent::TEX_FORMAT_RGBA16_FLOAT;
-    td.MipLevels = 1;
-    td.Usage = Diligent::USAGE_DEFAULT;
-    td.BindFlags = Diligent::BIND_RENDER_TARGET | Diligent::BIND_SHADER_RESOURCE;
-    td.ClearValue.SetColor (Diligent::TEX_FORMAT_RGBA16_FLOAT, 0.0f, 0.0f, 0.0f, 0.0f);
-
-    impl_->device->CreateTexture (td, nullptr, &impl_->hdrColorTexture);
-    if (impl_->hdrColorTexture == nullptr)
-        return false;
-
-    impl_->hdrColorRTV = impl_->hdrColorTexture->GetDefaultView (Diligent::TEXTURE_VIEW_RENDER_TARGET);
-    impl_->hdrColorSRV = impl_->hdrColorTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
-    impl_->hdrWidth = impl_->viewportWidth;
-    impl_->hdrHeight = impl_->viewportHeight;
-
-    // ⚠️ RE-BIND THE RESOLVE SRB ON EVERY RESIZE. The HDR texture is DYNAMIC in
-    // the resolve PSO's resource layout, so the SRB's variable survives the
-    // resize -- but it points at the OLD texture's SRV, which was just released.
-    // This is the same lesson as the G-buffer's resize rebind, and the same
-    // shape: a DYNAMIC variable whose value is invalidated by the very event
-    // that made it DYNAMIC in the first place.
-    if (impl_->resolveSrb != nullptr) {
-        if (Diligent::IShaderResourceVariable* var =
-                impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrColor"))
-            var->Set (impl_->hdrColorSRV);
-        if (Diligent::IShaderResourceVariable* var =
-                impl_->resolveSrb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_hdrCoverage"))
-            var->Set (impl_->hdrColorSRV);
-    }
-    return true;
 }
 
 } // namespace archviz

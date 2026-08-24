@@ -52,6 +52,7 @@ namespace Diligent {
 struct IRenderDevice;
 struct IDeviceContext;
 struct ITextureView;
+struct SamplerDesc;
 } // namespace Diligent
 
 namespace geomsrv {
@@ -379,6 +380,10 @@ class DiligentScene final {
     // 6500 K and tint 0 is the exact identity -- see AutoExposure.hpp.
     void SetWhiteBalance (float kelvin, float tint);
 
+    // Physically based aerial perspective and sun shafts from DiligentFX's
+    // epipolar scattering pass. It runs only on the Realistic HDR final path.
+    void SetAtmosphere (bool enabled, float intensity, bool lightShafts, bool lightingOnly);
+
     // The camera's view-ray basis, for the sky background. Supplied rather than
     // derived because the scene has no camera — only the frame loop does.
     // `right` and `up` must already carry the projection plane's half-extent,
@@ -622,8 +627,13 @@ class DiligentScene final {
     // the resolve SRB. False when the target could not be allocated, in which
     // case Draw falls back to the LDR path. ⚠️ RENDER THREAD ONLY -- it creates
     // a GPU texture.
+
+    // Implemented in DiligentScenePso.cpp, with the offscreen targets it feeds.
+    bool CreateResolvePipelines (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                 const Diligent::SamplerDesc& envSampler, std::string& error);
     bool EnsureHdrTarget ();
 
+    bool EnsureCoverageTarget ();
     // The opaque geometry, into the G-buffer's MRTs. The SSR call follows with
     // transparent glass receivers without clearing, after AO has consumed the
     // opaque-only buffers.
@@ -631,7 +641,12 @@ class DiligentScene final {
                                 const float motionViewProj[16], const float eye[3], CullMode cull,
                                 bool appendTransparent = false, bool glassOnly = false);
 
-    Diligent::ITextureView* ExecuteTemporalAntiAliasing (Diligent::IDeviceContext* context, const float view[16],
+    Diligent::ITextureView* ExecuteAtmosphere (Diligent::IDeviceContext* context, Diligent::ITextureView* sourceColor,
+                                               const float view[16], const float proj[16], const float viewProj[16],
+                                               const float eye[3], float nearClip, float farClip, uint32_t frameIndex);
+
+    Diligent::ITextureView* ExecuteTemporalAntiAliasing (Diligent::IDeviceContext* context,
+                                                         Diligent::ITextureView* sourceColor, const float view[16],
                                                          const float proj[16], const float viewProj[16],
                                                          const float motionViewProj[16], const float eye[3],
                                                          const float jitter[2], float nearClip, float farClip,

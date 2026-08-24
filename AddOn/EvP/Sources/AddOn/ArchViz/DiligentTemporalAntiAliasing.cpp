@@ -28,6 +28,9 @@ namespace HLSL {
 namespace geomsrv {
 namespace archviz {
 
+// The accumulation buffer index coverage uses. 0 is the radiance.
+constexpr Diligent::Uint32 kCoverageAccumulationIdx = 1;
+
 struct DiligentTemporalAntiAliasing::Impl {
     std::unique_ptr<Diligent::PostFXContext> postFx;
     std::unique_ptr<Diligent::TemporalAntiAliasing> taa;
@@ -38,6 +41,8 @@ struct DiligentTemporalAntiAliasing::Impl {
     uint32_t lastExecutedFrame = ~0u;
     Diligent::HLSL::CameraAttribs prevCamera {};
     bool haveHistory = false;
+    // What Execute told DiligentFX this frame, so ExecuteCoverage says the same.
+    bool resetAccumulationThisFrame = true;
 };
 
 DiligentTemporalAntiAliasing::DiligentTemporalAntiAliasing () : impl_ (std::make_unique<Impl> ())
@@ -130,6 +135,11 @@ bool DiligentTemporalAntiAliasing::Prepare (Diligent::IRenderDevice* device, Dil
 
     const auto flags = Diligent::TemporalAntiAliasing::FEATURE_FLAG_BICUBIC_FILTER;
     impl_->taa->PrepareResources (device, context, impl_->postFx.get (), flags);
+    // ⚠️ INDEX 1 IS PREPARED HERE TOO, not lazily in ExecuteCoverage. Its
+    // accumulation buffers have to exist before Execute is allowed to name the
+    // index, and preparing it beside index 0 keeps the two frame counters --
+    // which DiligentFX advances per buffer -- from ever drifting apart.
+    impl_->taa->PrepareResources (device, context, impl_->postFx.get (), flags, kCoverageAccumulationIdx);
     if (impl_->taa->GetAccumulatedFrameSRV () == nullptr)
         return false;
     const Diligent::float2 offset = impl_->taa->GetJitterOffset ();
@@ -207,6 +217,7 @@ Diligent::ITextureView* DiligentTemporalAntiAliasing::Execute (
     Diligent::HLSL::TemporalAntiAliasingAttribs settings {};
     settings.TemporalStabilityFactor = stability < 0.0f ? 0.0f : (stability > 1.0f ? 1.0f : stability);
     settings.ResetAccumulation = impl_->haveHistory ? FALSE : TRUE;
+    impl_->resetAccumulationThisFrame = !impl_->haveHistory;
 
     Diligent::TemporalAntiAliasing::RenderAttributes attributes;
     attributes.pDevice = device;
@@ -227,6 +238,35 @@ Diligent::ITextureView* DiligentTemporalAntiAliasing::Execute (
     impl_->haveHistory = true;
     impl_->lastExecutedFrame = frameIndex;
     return impl_->taa->GetAccumulatedFrameSRV ();
+}
+
+Diligent::ITextureView* DiligentTemporalAntiAliasing::ExecuteCoverage (
+    Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* coverage,
+    uint32_t frameIndex, float stability)
+{
+    if (device == nullptr || context == nullptr || coverage == nullptr || impl_->postFx == nullptr ||
+        impl_->taa == nullptr || impl_->lastExecutedFrame != frameIndex)
+        return nullptr;
+
+    Diligent::HLSL::TemporalAntiAliasingAttribs settings {};
+    settings.TemporalStabilityFactor = stability < 0.0f ? 0.0f : (stability > 1.0f ? 1.0f : stability);
+    // ⚠️ THE RESET FLAG MIRRORS THE RADIANCE PASS'S, and it is read from the
+    // state Execute left behind rather than recomputed. Coverage that reset on
+    // a different frame from the colour would discard pixels the colour pass
+    // still considers accumulated, which shows up as the silhouette tearing for
+    // one frame after every history break.
+    settings.ResetAccumulation = impl_->resetAccumulationThisFrame ? TRUE : FALSE;
+
+    Diligent::TemporalAntiAliasing::RenderAttributes attributes;
+    attributes.pDevice = device;
+    attributes.pDeviceContext = context;
+    attributes.pPostFXContext = impl_->postFx.get ();
+    attributes.pColorBufferSRV = coverage;
+    attributes.pTAAAttribs = &settings;
+    attributes.AccumulationBufferIdx = kCoverageAccumulationIdx;
+    impl_->taa->Execute (attributes);
+
+    return impl_->taa->GetAccumulatedFrameSRV (false, kCoverageAccumulationIdx);
 }
 
 } // namespace archviz
