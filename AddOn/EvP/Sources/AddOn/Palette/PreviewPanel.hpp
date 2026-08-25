@@ -7,6 +7,7 @@
 
 #include "Annotation/DrawList.hpp"
 #include "Palette/PreviewPanelState.hpp"
+#include "Palette/PreviewPlanCamera.hpp"
 #include "PlanOverlay/PlanCanvasHost.hpp"
 
 #include <cstdint>
@@ -39,6 +40,7 @@ class PreviewPanel {
     bool HandleScrollBarTracked (const DG::ScrollBarTrackEvent& event);
     bool HandleUserItemUpdate (const DG::UserItemUpdateEvent& event);
     bool HandleUserItemMouseDown (const DG::UserItemMouseDownEvent& event);
+    bool HandleUserItemDoubleClicked (const DG::UserItemDoubleClickEvent& event);
     bool HandleUserItemMouseUp (const DG::UserItemMouseUpEvent& event);
     bool HandleUserItemMouseEntered (const DG::UserItemMouseEnteredEvent& event);
     bool HandleUserItemMouseMoved (const DG::UserItemMouseMoveEvent& event);
@@ -64,6 +66,8 @@ class PreviewPanel {
     void* CanvasWindow () const;
     bool RefreshPointerInput ();
     void ReleaseMouseInput ();
+    bool PlanInputAvailable () const;
+    void FitSelectedPlanFrame ();
 
     const DG::Panel& panel;
     DG::CheckItemObserver& checkObserver;
@@ -94,7 +98,12 @@ class PreviewPanel {
     bool overlayActive = false;
     bool collapsed = false;
     previewpanel::CanvasInputState inputState;
+    previewpanel::PreviewPlanCamera planCamera;
     void* capturedWindow = nullptr;
+    bool planFitPending = false;
+    bool planCameraSelectionValid = false;
+    size_t planCameraNode = 0;
+    size_t planCameraFrame = 0;
     uint64_t freshAfterGeneration = 0;
     previewpanel::HostState host;
 };

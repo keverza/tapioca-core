@@ -6,6 +6,7 @@ _ADDON = Path(__file__).parents[1] / "Sources" / "AddOn"
 _PANEL = _ADDON / "Palette" / "PreviewPanel.cpp"
 _VIEWPORT_CONTROL = _ADDON / "ArchViz" / "DiligentViewportControl.cpp"
 _PLAN_HOST = _ADDON / "PlanOverlay" / "PlanCanvasHost.cpp"
+_PLAN_OVERLAY = _ADDON / "PlanOverlay" / "OverlayWindow.cpp"
 _PLAN_COMMANDS = _ADDON / "NativeCommands" / "PlanOverlayCommands.cpp"
 _RUNTIME = _ADDON / "Preview" / "PreviewRuntimeState.hpp"
 
@@ -114,6 +115,18 @@ def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():
     assert "DescendWindowChain" in commands
 
 
+def test_plan_overlay_uses_prompt_idle_and_fast_active_tracking_cadences():
+    source = _PLAN_OVERLAY.read_text(encoding="utf-8")
+    cadence = source[source.index("void SetTimerCadence") :]
+    cadence = cadence[: cadence.index("LRESULT CALLBACK OverlayWndProc")]
+
+    assert "TRACK_FAST_INTERVAL_MS = 16" in source
+    assert "TRACK_STABLE_INTERVAL_MS = 33" in source
+    assert "(std::min) (s_requestedIntervalMs, TRACK_FAST_INTERVAL_MS)" in cadence
+    assert "(std::max) (s_requestedIntervalMs, TRACK_STABLE_INTERVAL_MS)" in cadence
+    assert "SetTimerCadence (hwnd, torn || now - s_lastActivityTick < 250)" in source
+
+
 def test_plan_overlay_return_releases_the_explicit_watch_session():
     panel = _PANEL.read_text(encoding="utf-8")
     clear = panel[panel.index("void PreviewPanel::ClearOverlay") :]
@@ -183,3 +196,20 @@ def test_band_resize_has_neutral_fallback_and_duplicate_requests_are_coalesced()
     assert resize.index("pendingWidth_.load () == width") < resize.index(
         "resizePending_.store (true)"
     )
+
+
+def test_plan_band_uses_persistent_camera_and_canvas_scoped_input():
+    panel = _PANEL.read_text(encoding="utf-8")
+    paint = panel[panel.index("bool PreviewPanel::HandleUserItemUpdate") :]
+    paint = paint[: paint.index("bool PreviewPanel::HandleUserItemMouseDown")]
+    select = panel[panel.index("void PreviewPanel::SelectFrame") :]
+    select = select[: select.index("void PreviewPanel::UpdateLabels")]
+    wheel = panel[panel.index("bool PreviewPanel::HandleWheelTracked") :]
+    wheel = wheel[: wheel.index("bool PreviewPanel::EmbeddedInputAvailable")]
+
+    assert "planCamera.Transform ()" in paint
+    assert "FitFrame" not in paint
+    assert "planCameraSelectionValid" in select
+    assert 'event.GetItem () == canvas.get ()' in wheel
+    assert "planCamera.ZoomAt" in wheel
+    assert "HandleUserItemDoubleClicked" in panel

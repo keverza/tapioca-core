@@ -184,6 +184,7 @@ class ControlPalette final : public DG::Palette,
     // The command combo's arrow cell: pressed, and painted. Both belong to the
     // command band; this only forwards and reflows.
     virtual void UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed) override;
+    virtual void UserItemDoubleClicked (const DG::UserItemDoubleClickEvent& ev) override;
     virtual void UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* processed) override;
     virtual void UserItemUpdate (const DG::UserItemUpdateEvent& ev) override;
     virtual void UserItemMouseEntered (const DG::UserItemMouseEnteredEvent& ev) override;

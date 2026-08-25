@@ -110,10 +110,8 @@ Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCo
     if (canvasCollapsed)
         return layout;
 
-    const int canvasSide = std::max (1, std::min ({ right - left, CanvasSlotHeight, 224 }));
-    const int canvasLeft = left + (right - left - canvasSide) / 2;
-    const int canvasTop = top + ControlHeight + Gap + (CanvasSlotHeight - canvasSide) / 2;
-    layout.canvas = { canvasLeft, canvasTop, canvasLeft + canvasSide, canvasTop + canvasSide };
+    const int canvasTop = top + ControlHeight + Gap;
+    layout.canvas = { left, canvasTop, right, canvasTop + CanvasSlotHeight };
 
     const int footerTop = top + ControlHeight + Gap + CanvasSlotHeight + Gap;
     const int width = right - left;

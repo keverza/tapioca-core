@@ -119,13 +119,17 @@ bool BuildArchitecturalAngleGlyph (const ScreenPoint& center, const ScreenPoint&
     secondX /= secondLength;
     secondY /= secondLength;
 
-    const double cosine = std::clamp (firstX * secondX + firstY * secondY, -1.0, 1.0);
+    const double dot = std::clamp (firstX * secondX + firstY * secondY, -1.0, 1.0);
     const double cross = firstX * secondY - firstY * secondX;
-    double sweep = std::atan2 (cross, cosine);
-    if (std::fabs (sweep) <= kMinLength)
+    const double minorAngle = std::atan2 (std::fabs (cross), dot);
+    if (minorAngle <= kMinLength)
         return false;
-    if (std::fabs (cross) <= kMinLength && cosine < 0.0)
-        sweep = kPi;
+    double sweepSign = cross > 0.0 ? 1.0 : -1.0;
+    if (cross == 0.0 && dot < 0.0) {
+        const bool firstBeforeSecond = firstX < secondX || (firstX == secondX && firstY < secondY);
+        sweepSign = firstBeforeSecond ? 1.0 : -1.0;
+    }
+    const double sweep = minorAngle * sweepSign;
 
     ArchitecturalAngleGlyph next;
     const double radius = 30.0 * dpiScale;
@@ -138,6 +142,8 @@ bool BuildArchitecturalAngleGlyph (const ScreenPoint& center, const ScreenPoint&
         const double radialY = firstX * std::sin (angle) + firstY * std::cos (angle);
         next.arc.push_back ({ center.x + radialX * radius, center.y + radialY * radius });
     }
+    next.arc.front () = { center.x + firstX * radius, center.y + firstY * radius };
+    next.arc.back () = { center.x + secondX * radius, center.y + secondY * radius };
 
     const auto makeArrow = [arrowLength, arrowHalfWidth] (const ScreenPoint& tip, double directionX,
                                                           double directionY) {
@@ -148,22 +154,18 @@ bool BuildArchitecturalAngleGlyph (const ScreenPoint& center, const ScreenPoint&
                                 { base.x + normalX * arrowHalfWidth, base.y + normalY * arrowHalfWidth },
                                 { base.x - normalX * arrowHalfWidth, base.y - normalY * arrowHalfWidth } };
     };
-    const double sweepSign = sweep > 0.0 ? 1.0 : -1.0;
     const double firstTangentX = -firstY * sweepSign;
     const double firstTangentY = firstX * sweepSign;
-    const double endAngle = sweep;
-    const double endRadialX = firstX * std::cos (endAngle) - firstY * std::sin (endAngle);
-    const double endRadialY = firstX * std::sin (endAngle) + firstY * std::cos (endAngle);
-    const double endTangentX = -endRadialY * sweepSign;
-    const double endTangentY = endRadialX * sweepSign;
+    const double endTangentX = -secondY * sweepSign;
+    const double endTangentY = secondX * sweepSign;
     next.arrowheads[0] = makeArrow (next.arc.front (), -firstTangentX, -firstTangentY);
     next.arrowheads[1] = makeArrow (next.arc.back (), endTangentX, endTangentY);
 
-    const ScreenPoint& middle = next.arc[next.arc.size () / 2];
-    double maximumY = next.arc.front ().y;
-    for (const ScreenPoint& point : next.arc)
-        maximumY = std::max (maximumY, point.y);
-    next.labelAnchor = { middle.x, maximumY + 12.0 * dpiScale };
+    const double halfAngle = sweep * 0.5;
+    const double bisectorX = firstX * std::cos (halfAngle) - firstY * std::sin (halfAngle);
+    const double bisectorY = firstX * std::sin (halfAngle) + firstY * std::cos (halfAngle);
+    const double labelRadius = radius + 12.0 * dpiScale;
+    next.labelAnchor = { center.x + bisectorX * labelRadius, center.y + bisectorY * labelRadius };
     next.degrees = std::fabs (sweep) * 180.0 / kPi;
     next.arcWidthPixels = std::max (1.0, dpiScale);
     next.fontSizePixels = 18.0 * dpiScale;

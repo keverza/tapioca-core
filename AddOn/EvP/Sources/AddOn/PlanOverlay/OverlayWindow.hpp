@@ -53,6 +53,7 @@ using Polyline = std::vector<Point2>;
 struct Transform {
     bool valid = false;
     double scaleX = 0.0, scaleY = 0.0;
+    double xFromY = 0.0, yFromX = 0.0;
     double offX = 0.0, offY = 0.0;
     // The two reference points it was derived from, as returned by
     // ACAPI_View_CoordToPoint. Reported so a wrong projection is diagnosable
@@ -74,10 +75,8 @@ struct Transform {
     // the plan — which is what "the grid moves at a different speed than the
     // drag" was.
     //
-    // The factor is MEASURED, not asked of the DPI API: canvasW / impliedW. That
-    // is self-calibrating, so it is right regardless of the process's DPI
-    // awareness mode, which monitor the window is on, or what Archicad does
-    // internally — and it follows the window if it is dragged to another screen.
+    // The API takes logical points while Win32 sizes the canvas in physical
+    // pixels. This factor comes explicitly from GetDpiForWindow.
     double dpiX = 1.0, dpiY = 1.0;
     bool dpiApplied = false;
 };

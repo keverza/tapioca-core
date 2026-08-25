@@ -182,10 +182,8 @@ void ControlPalette::Layout ()
     RedrawItems ();
 }
 
-// ---------------------------------------------------------------------------
-// The command combo's drop arrow. Opening or closing the dropdown changes the
-// column's height, so the whole panel reflows — and the rows the list vacates
-// keep their old pixels without the redraw.
+// Opening or closing the command combo reflows the column, including rows the
+// list vacates and DG does not redraw itself.
 void ControlPalette::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed)
 {
     if (preview.HandleUserItemMouseDown (ev)) {
@@ -208,8 +206,12 @@ void ControlPalette::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* 
         *processed = true;
 }
 
-// The preview's 3D canvas owns wheel input; elsewhere the wheel scrolls the
-// column unless a nested list owns it.
+void ControlPalette::UserItemDoubleClicked (const DG::UserItemDoubleClickEvent& ev)
+{
+    preview.HandleUserItemDoubleClicked (ev);
+}
+
+// The preview canvas owns its wheel; elsewhere the wheel scrolls the column.
 void ControlPalette::PanelWheelTracked (const DG::PanelWheelTrackEvent& ev, bool* processed)
 {
     if (preview.HandleWheelTracked (ev)) {

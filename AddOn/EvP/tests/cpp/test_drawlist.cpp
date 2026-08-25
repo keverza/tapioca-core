@@ -237,19 +237,87 @@ TEST (DrawList, CanonicalRolePaletteIncludesDarkRedDefault)
         EXPECT_EQ (geomsrv::annotation::PackRgba (RoleColour (static_cast<SemanticRole> (index))), expected[index]);
 }
 
-TEST (DrawList, ArchitecturalAngleGlyphHasExactEndpointsTangentHeadsAndOutsideLabel)
+TEST (DrawList, ArchitecturalAngleGlyphUsesMinorSweepExactRayEndpointsAndRadialLabelInEveryQuadrant)
+{
+    const ScreenPoint rays[] = { { 1.0, 0.0 }, { 0.0, 1.0 }, { -1.0, 0.0 }, { 0.0, -1.0 } };
+    const double rootHalf = 1.0 / std::sqrt (2.0);
+    for (size_t index = 0; index < std::size (rays); ++index) {
+        const ScreenPoint first = rays[index];
+        const ScreenPoint second = rays[(index + 1) % std::size (rays)];
+        ArchitecturalAngleGlyph glyph;
+        ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 0.0, 0.0 }, first, second, 1.0, glyph));
+
+        ASSERT_EQ (glyph.arc.size (), 33u);
+        EXPECT_DOUBLE_EQ (glyph.arc.front ().x, first.x * 30.0);
+        EXPECT_DOUBLE_EQ (glyph.arc.front ().y, first.y * 30.0);
+        EXPECT_DOUBLE_EQ (glyph.arc.back ().x, second.x * 30.0);
+        EXPECT_DOUBLE_EQ (glyph.arc.back ().y, second.y * 30.0);
+        EXPECT_DOUBLE_EQ (glyph.degrees, 90.0);
+        EXPECT_NEAR (glyph.labelAnchor.x, (first.x + second.x) * rootHalf * 42.0, 1.0e-12);
+        EXPECT_NEAR (glyph.labelAnchor.y, (first.y + second.y) * rootHalf * 42.0, 1.0e-12);
+
+        const ScreenPoint labelRadius { glyph.labelAnchor.x, glyph.labelAnchor.y };
+        const ScreenPoint arcTangent { -glyph.arc[16].y, glyph.arc[16].x };
+        EXPECT_NEAR (labelRadius.x * arcTangent.x + labelRadius.y * arcTangent.y, 0.0, 1.0e-10);
+    }
+}
+
+TEST (DrawList, ArchitecturalAngleGlyphSwapReversesTheSameArcAndPreservesTheLabel)
+{
+    ArchitecturalAngleGlyph forward;
+    ArchitecturalAngleGlyph reverse;
+    ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 3.0, -4.0 }, { 8.0, -4.0 }, { 3.0, 2.0 }, 1.0, forward));
+    ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 3.0, -4.0 }, { 3.0, 2.0 }, { 8.0, -4.0 }, 1.0, reverse));
+
+    ASSERT_EQ (forward.arc.size (), reverse.arc.size ());
+    for (size_t index = 0; index < forward.arc.size (); ++index) {
+        EXPECT_NEAR (forward.arc[index].x, reverse.arc[reverse.arc.size () - 1 - index].x, 1.0e-12);
+        EXPECT_NEAR (forward.arc[index].y, reverse.arc[reverse.arc.size () - 1 - index].y, 1.0e-12);
+    }
+    EXPECT_NEAR (forward.labelAnchor.x, reverse.labelAnchor.x, 1.0e-12);
+    EXPECT_NEAR (forward.labelAnchor.y, reverse.labelAnchor.y, 1.0e-12);
+}
+
+TEST (DrawList, ArchitecturalAngleGlyphKeepsNearStraightSweepSignAndActualRayEndpoints)
+{
+    constexpr double epsilon = 1.0e-9;
+    const ScreenPoint second { -std::cos (epsilon), std::sin (epsilon) };
+    const double secondLength = std::hypot (second.x, second.y);
+    ArchitecturalAngleGlyph glyph;
+    ASSERT_TRUE (
+        BuildArchitecturalAngleGlyph ({ 7.0, 11.0 }, { 9.0, 11.0 }, { 7.0 + second.x, 11.0 + second.y }, 1.0, glyph));
+
+    EXPECT_NEAR (glyph.degrees, (kPi - epsilon) * 180.0 / kPi, 1.0e-12);
+    EXPECT_DOUBLE_EQ (glyph.arc.front ().x, 37.0);
+    EXPECT_DOUBLE_EQ (glyph.arc.front ().y, 11.0);
+    EXPECT_DOUBLE_EQ (glyph.arc.back ().x, 7.0 + second.x / secondLength * 30.0);
+    EXPECT_DOUBLE_EQ (glyph.arc.back ().y, 11.0 + second.y / secondLength * 30.0);
+    EXPECT_GT (glyph.arc[glyph.arc.size () / 2].y, 11.0);
+}
+
+TEST (DrawList, ArchitecturalAngleGlyphExactOppositeTieIsOrderAntisymmetric)
+{
+    ArchitecturalAngleGlyph forward;
+    ArchitecturalAngleGlyph reverse;
+    ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 0.0, 0.0 }, { 1.0, 0.0 }, { -1.0, 0.0 }, 1.0, forward));
+    ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 0.0, 0.0 }, { -1.0, 0.0 }, { 1.0, 0.0 }, 1.0, reverse));
+
+    EXPECT_DOUBLE_EQ (forward.degrees, 180.0);
+    EXPECT_DOUBLE_EQ (reverse.degrees, 180.0);
+    EXPECT_NEAR (forward.arc[16].y, -30.0, 1.0e-12);
+    EXPECT_NEAR (reverse.arc[16].y, -30.0, 1.0e-12);
+    EXPECT_NEAR (forward.labelAnchor.y, -42.0, 1.0e-12);
+    EXPECT_NEAR (reverse.labelAnchor.y, -42.0, 1.0e-12);
+    for (size_t index = 0; index < forward.arc.size (); ++index) {
+        EXPECT_NEAR (forward.arc[index].x, reverse.arc[reverse.arc.size () - 1 - index].x, 1.0e-12);
+        EXPECT_NEAR (forward.arc[index].y, reverse.arc[reverse.arc.size () - 1 - index].y, 1.0e-12);
+    }
+}
+
+TEST (DrawList, ArchitecturalAngleGlyphArrowheadsHaveSignedEndpointTangents)
 {
     ArchitecturalAngleGlyph glyph;
     ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 100.0, 100.0 }, { 200.0, 100.0 }, { 100.0, 0.0 }, 1.0, glyph));
-
-    ASSERT_EQ (glyph.arc.size (), 33u);
-    EXPECT_NEAR (glyph.arc.front ().x, 130.0, 1.0e-12);
-    EXPECT_NEAR (glyph.arc.front ().y, 100.0, 1.0e-12);
-    EXPECT_NEAR (glyph.arc.back ().x, 100.0, 1.0e-12);
-    EXPECT_NEAR (glyph.arc.back ().y, 70.0, 1.0e-12);
-    EXPECT_DOUBLE_EQ (glyph.degrees, 90.0);
-    EXPECT_NEAR (glyph.labelAnchor.x, 100.0 + 30.0 / std::sqrt (2.0), 1.0e-12);
-    EXPECT_DOUBLE_EQ (glyph.labelAnchor.y, 112.0);
 
     for (size_t index = 0; index < 2; ++index) {
         const auto& arrow = glyph.arrowheads[index];
@@ -257,12 +325,13 @@ TEST (DrawList, ArchitecturalAngleGlyphHasExactEndpointsTangentHeadsAndOutsideLa
         const ScreenPoint radial { arrow.first.x - 100.0, arrow.first.y - 100.0 };
         const ScreenPoint axis { arrow.first.x - base.x, arrow.first.y - base.y };
         EXPECT_NEAR (radial.x * axis.x + radial.y * axis.y, 0.0, 1.0e-10);
+        EXPECT_NEAR (radial.x * axis.y - radial.y * axis.x, index == 0 ? 240.0 : -240.0, 1.0e-10);
         EXPECT_NEAR (std::hypot (axis.x, axis.y), 8.0, 1.0e-12);
         EXPECT_NEAR (std::hypot (arrow.second.x - arrow.third.x, arrow.second.y - arrow.third.y), 7.0, 1.0e-12);
     }
 }
 
-TEST (DrawList, ArchitecturalAngleGlyphMetricsScaleWithDpiButAngleDoesNot)
+TEST (DrawList, ArchitecturalAngleGlyphMetricsAndRadialLabelScaleWithDpiButAngleDoesNot)
 {
     ArchitecturalAngleGlyph one;
     ArchitecturalAngleGlyph two;
@@ -270,6 +339,7 @@ TEST (DrawList, ArchitecturalAngleGlyphMetricsScaleWithDpiButAngleDoesNot)
     ASSERT_TRUE (BuildArchitecturalAngleGlyph ({ 0.0, 0.0 }, { 1.0, 0.0 }, { 0.0, 1.0 }, 2.0, two));
 
     EXPECT_DOUBLE_EQ (two.arc.front ().x, one.arc.front ().x * 2.0);
+    EXPECT_DOUBLE_EQ (two.labelAnchor.x, one.labelAnchor.x * 2.0);
     EXPECT_DOUBLE_EQ (two.labelAnchor.y, one.labelAnchor.y * 2.0);
     EXPECT_DOUBLE_EQ (two.arcWidthPixels, one.arcWidthPixels * 2.0);
     EXPECT_DOUBLE_EQ (two.fontSizePixels, one.fontSizePixels * 2.0);

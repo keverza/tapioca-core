@@ -61,6 +61,7 @@ set (EVP_PALETTE_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Palette/CommandFilter.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamLayout.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamVisibility.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPlanCamera.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPanelState.cpp")
 
 set (EVP_COMMAND_SOURCES
@@ -213,7 +214,8 @@ set (EVP_PREVIEW_SOURCES
      "${EVP_ROOT}/Sources/AddOn/Preview/RetainedPreviewStore.cpp"
      "${EVP_ROOT}/Sources/AddOn/Preview/RetainedTraceSelection.cpp"
      "${EVP_ROOT}/Sources/AddOn/Preview/PreviewRuntimeState.cpp"
-     "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp")
+     "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp"
+     "${EVP_ROOT}/Sources/AddOn/PlanOverlay/PlanTransformMath.cpp")
 
 set (EVP_TEST_SOURCES
     test_drawlist.cpp
@@ -221,6 +223,8 @@ set (EVP_TEST_SOURCES
     test_retainedpreviewstore.cpp
     test_watchdrawlist.cpp
     test_overlayownership.cpp
+    test_planoverlaytransform.cpp
+    test_previewplancamera.cpp
     test_previewpanelstate.cpp
     test_storysliceunion.cpp
     test_storyslicegeometry.cpp

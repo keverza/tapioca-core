@@ -238,6 +238,11 @@ void PreviewPanel::PlaceAt (short left, short right, short bottom)
     }
 
     canvas->SetRect (rect (layout.canvas));
+    if (kind == "plan2d") {
+        planCamera.SetViewport (layout.canvas.Width (), layout.canvas.Height ());
+        if (planFitPending && planCamera.Fit ())
+            planFitPending = false;
+    }
     nodeSelector->SetRect (rect (layout.nodeSelector));
     frameScrubber->SetRect (rect (layout.scrubber));
     frameLabel->SetRect (rect (layout.frameLabel));
@@ -267,6 +272,7 @@ bool PreviewPanel::PollRetained ()
             retainedGeneration = snapshot->generation;
             drawList = preview::ToDrawList (snapshot->trace);
             selectedNode = selectedFrame = 0;
+            planCameraSelectionValid = false;
             RebuildNodes ();
             const bool haveFrame = SelectFirstAvailableFrame ();
             if (!haveFrame) {
@@ -323,6 +329,9 @@ bool PreviewPanel::SelectFirstAvailableFrame ()
 void PreviewPanel::ClearTrace ()
 {
     drawList = {};
+    planCamera.SetBounds ({});
+    planFitPending = false;
+    planCameraSelectionValid = false;
     selectedNode = selectedFrame = 0;
     if (IsEnabled ())
         preview::RetainedPreviewStore::Get ().ClearWatchSelection ();
@@ -341,6 +350,13 @@ void PreviewPanel::SelectFrame (size_t frameIndex)
         return;
     selectedFrame = frameIndex;
     drawList.SelectFrame (selectedNode, selectedFrame);
+    if (kind == "plan2d" &&
+        (!planCameraSelectionValid || planCameraNode != selectedNode || planCameraFrame != selectedFrame)) {
+        FitSelectedPlanFrame ();
+        planCameraSelectionValid = true;
+        planCameraNode = selectedNode;
+        planCameraFrame = selectedFrame;
+    }
     preview::RetainedPreviewStore::Get ().SelectWatchFrame (selectedNode, selectedFrame);
     frameScrubber->SetValue ((Int32) selectedFrame);
     UpdateLabels ();
@@ -740,15 +756,29 @@ bool PreviewPanel::HandleUserItemUpdate (const DG::UserItemUpdateEvent& event)
     RECT rect { 0, 0, canvas->GetWidth (), canvas->GetHeight () };
     FillRect (hdc, &rect, static_cast<HBRUSH> (GetStockObject (WHITE_BRUSH)));
     const geomsrv::annotation::Frame* frame = drawList.SelectedFrame ();
-    geomsrv::annotation::Transform2D transform;
-    if (frame &&
-        geomsrv::annotation::FitFrame (*frame, rect.right - rect.left, rect.bottom - rect.top, 12.0, transform))
-        geomsrv::annotation::PaintFrameGdi (hdc, *frame, transform);
+    if (frame)
+        geomsrv::annotation::PaintFrameGdi (hdc, *frame, planCamera.Transform ());
     return true;
 }
 
 bool PreviewPanel::HandleUserItemMouseDown (const DG::UserItemMouseDownEvent& event)
 {
+    if (PlanInputAvailable () && event.GetSource () == canvas.get ()) {
+        if (!event.IsWheelButton ())
+            return false;
+        const DG::Point point = event.GetMouseOffset ();
+        const previewpanel::PlanPointerAction action =
+            planCamera.MiddleDown (point.GetX (), point.GetY (), ::GetTickCount64 ());
+        if (action == previewpanel::PlanPointerAction::Fitted)
+            canvas->Redraw ();
+        HWND const hwnd = static_cast<HWND> (CanvasWindow ());
+        if (planCamera.IsCaptured () && hwnd != nullptr) {
+            ::SetCapture (hwnd);
+            if (::GetCapture () == hwnd)
+                capturedWindow = hwnd;
+        }
+        return action != previewpanel::PlanPointerAction::None;
+    }
     if (!EmbeddedInputAvailable () || event.GetSource () != canvas.get () || !RefreshPointerInput ())
         return false;
     unsigned pressed = 0;
@@ -780,6 +810,13 @@ bool PreviewPanel::HandleUserItemMouseDown (const DG::UserItemMouseDownEvent& ev
 
 bool PreviewPanel::HandleUserItemMouseUp (const DG::UserItemMouseUpEvent& event)
 {
+    if (PlanInputAvailable () && event.GetSource () == canvas.get () && event.IsWheelButton ()) {
+        planCamera.EndPan ();
+        if (capturedWindow != nullptr && ::GetCapture () == static_cast<HWND> (capturedWindow))
+            ::ReleaseCapture ();
+        capturedWindow = nullptr;
+        return true;
+    }
     if (!EmbeddedInputAvailable () || event.GetSource () != canvas.get ())
         return false;
     unsigned released = 0;
@@ -809,8 +846,22 @@ bool PreviewPanel::HandleUserItemMouseUp (const DG::UserItemMouseUpEvent& event)
     return true;
 }
 
+bool PreviewPanel::HandleUserItemDoubleClicked (const DG::UserItemDoubleClickEvent& event)
+{
+    if (!PlanInputAvailable () || event.GetSource () != canvas.get () || !event.IsWheelButton ())
+        return false;
+    if (planCamera.DoubleClickFit ())
+        canvas->Redraw ();
+    if (capturedWindow != nullptr && ::GetCapture () == static_cast<HWND> (capturedWindow))
+        ::ReleaseCapture ();
+    capturedWindow = nullptr;
+    return true;
+}
+
 bool PreviewPanel::HandleUserItemMouseEntered (const DG::UserItemMouseEnteredEvent& event)
 {
+    if (PlanInputAvailable () && event.GetSource () == canvas.get ())
+        return true;
     if (!EmbeddedInputAvailable () || event.GetSource () != canvas.get ())
         return false;
     RefreshPointerInput ();
@@ -819,6 +870,14 @@ bool PreviewPanel::HandleUserItemMouseEntered (const DG::UserItemMouseEnteredEve
 
 bool PreviewPanel::HandleUserItemMouseMoved (const DG::UserItemMouseMoveEvent& event)
 {
+    if (PlanInputAvailable () && event.GetSource () == canvas.get ()) {
+        if (planCamera.IsCaptured ()) {
+            const DG::Point point = event.GetMouseOffset ();
+            if (planCamera.PanTo (point.GetX (), point.GetY ()))
+                canvas->Redraw ();
+        }
+        return true;
+    }
     if (!EmbeddedInputAvailable () || event.GetSource () != canvas.get ())
         return false;
     if (!RefreshPointerInput ())
@@ -830,12 +889,22 @@ bool PreviewPanel::HandleUserItemMouseExited (const DG::UserItemMouseExitedEvent
 {
     if (!canvas || event.GetSource () != canvas.get ())
         return false;
+    if (PlanInputAvailable () && planCamera.IsCaptured ())
+        return true;
     ReleaseMouseInput ();
     return true;
 }
 
 bool PreviewPanel::HandleWheelTracked (const DG::PanelWheelTrackEvent& event)
 {
+    if (PlanInputAvailable () && event.GetItem () == canvas.get ()) {
+        geomsrv::archviz::HardwarePointerPosition pointer;
+        if (!geomsrv::archviz::ReadHardwarePointer (CanvasWindow (), pointer) || !pointer.inside)
+            return false;
+        if (planCamera.ZoomAt (pointer.x, pointer.y, event.GetYTrackValue ()))
+            canvas->Redraw ();
+        return event.GetYTrackValue () != 0;
+    }
     if (!EmbeddedInputAvailable () || !RefreshPointerInput ())
         return false;
     geomsrv::archviz::InputRingBuffer::Get ().PushWheel (event.GetYTrackValue ());
@@ -846,6 +915,25 @@ bool PreviewPanel::EmbeddedInputAvailable () const
 {
     return IsEnabled () && paletteVisible && kind == "3d" && canvas && host.current == Host::Band && !host.transition &&
            !collapsed;
+}
+
+bool PreviewPanel::PlanInputAvailable () const
+{
+    return IsEnabled () && paletteVisible && kind == "plan2d" && canvas && !collapsed;
+}
+
+void PreviewPanel::FitSelectedPlanFrame ()
+{
+    geomsrv::annotation::Point3 minimum;
+    geomsrv::annotation::Point3 maximum;
+    const geomsrv::annotation::Frame* const frame = drawList.SelectedFrame ();
+    if (frame == nullptr || !geomsrv::annotation::GetBounds (*frame, minimum, maximum)) {
+        planCamera.SetBounds ({});
+        planFitPending = false;
+        return;
+    }
+    planCamera.SetBounds ({ minimum.x, minimum.y, maximum.x, maximum.y, true });
+    planFitPending = !planCamera.Fit ();
 }
 
 void* PreviewPanel::CanvasWindow () const
@@ -871,6 +959,7 @@ bool PreviewPanel::RefreshPointerInput ()
 void PreviewPanel::ReleaseMouseInput ()
 {
     const bool embeddedHost = host.current == Host::Band;
+    planCamera.Cancel ();
     inputState.ReleaseAll ();
     inputState.SetAvailable (false);
     if (embeddedHost) {

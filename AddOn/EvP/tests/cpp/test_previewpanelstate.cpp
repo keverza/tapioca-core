@@ -5,16 +5,17 @@
 
 using evp::previewpanel::Host;
 
-TEST (PreviewPanelState, ExpandedCanvasIsCenteredSquareAndCapped)
+TEST (PreviewPanelState, ExpandedCanvasUsesFullWidthAndFixedHeight)
 {
     const auto layout = evp::previewpanel::BuildLayout (10, 410, 600, true, false);
 
     EXPECT_GT (layout.height, 118);
     EXPECT_LT (layout.height, 400);
     EXPECT_TRUE (layout.showCanvas);
-    EXPECT_EQ (layout.canvas.Width (), layout.canvas.Height ());
-    EXPECT_LE (layout.canvas.Width (), 224);
-    EXPECT_EQ (layout.canvas.left + layout.canvas.right, 10 + 410);
+    EXPECT_EQ (layout.canvas.left, 10);
+    EXPECT_EQ (layout.canvas.right, 410);
+    EXPECT_EQ (layout.canvas.Width (), 400);
+    EXPECT_EQ (layout.canvas.Height (), 224);
     EXPECT_LE (layout.canvas.bottom, layout.nodeSelector.top);
     EXPECT_LE (layout.nodeSelector.bottom, layout.overlayButton.top);
 }

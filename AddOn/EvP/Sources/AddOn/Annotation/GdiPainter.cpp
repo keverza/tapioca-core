@@ -10,8 +10,10 @@ namespace {
 
 POINT Project (const Point3& point, const Transform2D& transform, const GdiPaintOptions& options)
 {
-    return { options.originX + static_cast<LONG> (std::lround (transform.offX + point.x * transform.scaleX)),
-             options.originY + static_cast<LONG> (std::lround (transform.offY + point.y * transform.scaleY)) };
+    return { options.originX + static_cast<LONG> (std::lround (transform.offX + point.x * transform.scaleX +
+                                                               point.y * transform.xFromY)),
+             options.originY + static_cast<LONG> (std::lround (transform.offY + point.x * transform.yFromX +
+                                                               point.y * transform.scaleY)) };
 }
 
 void Line (HDC hdc, POINT from, POINT to)
@@ -149,7 +151,8 @@ void PaintFrameGdi (HDC hdc, const Frame& frame, const Transform2D& transform, c
             const double dx = static_cast<double> (points[1].x - points[0].x);
             const double dy = static_cast<double> (points[1].y - points[0].y);
             const double length = std::hypot (dx, dy);
-            const double offset = primitive.offset != 0.0 ? primitive.offset * std::fabs (transform.scaleX) : 14.0;
+            const double modelScale = std::hypot (transform.scaleX, transform.yFromX);
+            const double offset = primitive.offset != 0.0 ? primitive.offset * modelScale : 14.0;
             const double nx = length > 0.0 ? -dy / length : 0.0, ny = length > 0.0 ? dx / length : 0.0;
             POINT a = { static_cast<LONG> (std::lround (points[0].x + nx * offset)),
                         static_cast<LONG> (std::lround (points[0].y + ny * offset)) };

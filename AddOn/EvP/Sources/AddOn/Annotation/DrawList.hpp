@@ -56,7 +56,7 @@ struct ArchitecturalAngleGlyph {
 };
 
 // Constructs fixed-pixel annotation furniture from already projected anchors.
-// Arrowheads are tangent to the arc and the label anchor is centered below it.
+// Arrowheads are tangent to the signed minor arc and the label lies on its radial bisector.
 bool BuildArchitecturalAngleGlyph (const ScreenPoint& center, const ScreenPoint& firstRayPoint,
                                    const ScreenPoint& secondRayPoint, double dpiScale, ArchitecturalAngleGlyph& glyph);
 
@@ -120,6 +120,8 @@ struct Transform2D {
     double scaleY = -1.0;
     double offX = 0.0;
     double offY = 0.0;
+    double xFromY = 0.0;
+    double yFromX = 0.0;
 };
 
 // Fits drawable XY geometry inside a pixel surface without stretching it.

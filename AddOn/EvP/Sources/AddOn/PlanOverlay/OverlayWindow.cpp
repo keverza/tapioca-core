@@ -3,7 +3,9 @@
 
 #include "PlanOverlay/OverlayWindow.hpp"
 #include "Annotation/GdiPainter.hpp"
+#include "PlanOverlay/PlanTransformMath.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cwchar>
 
@@ -25,6 +27,9 @@ constexpr COLORREF INK_COLOUR = RGB (255, 0, 255);
 constexpr int BAND = 14;
 
 constexpr UINT_PTR TRACK_TIMER_ID = 0xE7B1;
+constexpr UINT TRACK_FAST_INTERVAL_MS = 16;
+// Stable views still poll near 30 Hz so motion onset is observed promptly.
+constexpr UINT TRACK_STABLE_INTERVAL_MS = 33;
 
 HWND s_overlay = nullptr;
 Owner s_owner = Owner::None;
@@ -56,26 +61,12 @@ std::vector<Polyline> s_geometry;
 std::shared_ptr<const annotation::Frame> s_annotationFrame;
 bool s_annotationLayerClaimed = false;
 Transform s_transform;
+PlanTransform s_paintedTransform;
+PlanTransform s_acceptedTransform;
 TrackStats s_stats;
-
-// The display-scaling factor, and the canvas size it was measured at.
-//
-// ⚠️ MEASURED ONCE PER CANVAS SIZE, not per tick. k is a property of the
-// DISPLAY, not of the view, and re-deriving it every poll from the zoom box made
-// it a function of the view after all. Two symptoms, both reported live:
-//
-//   * Zooming made the geometry lurch diagonally and snap back. Archicad's zoom
-//     is not instantaneous, so mid-gesture the zoom box and the canvas rect are
-//     transiently inconsistent; k came out wrong for those frames and the error
-//     is radial from the projection origin, which reads as a diagonal slide.
-//   * Holding still produced 35 recomputes and 35 repaints in 84 polls. The zoom
-//     box wobbles in its last digits, k wobbled with it, and every wobble looked
-//     like the view had moved.
-//
-// Re-measured when the canvas is resized, which is also when a move to a
-// different-DPI monitor shows up.
-double s_dpiX = 0.0, s_dpiY = 0.0;
-long s_dpiForW = 0, s_dpiForH = 0;
+UINT s_requestedIntervalMs = TRACK_STABLE_INTERVAL_MS;
+bool s_fastTimer = false;
+ULONGLONG s_lastActivityTick = 0;
 
 bool HasOverlayClass (HWND hwnd)
 {
@@ -94,14 +85,14 @@ HMODULE OwnModule ();
 // The transform
 // -------------------------------------------------------------------------
 //
-// Derived from TWO reference points, asked of Archicad, rather than assembled
-// from the zoom box, the drawing scale and the tranmat.
+// Derived from three corners and a repeated first corner, rather than assembled
+// from the zoom box, drawing scale and tranmat.
 //
 // ⚠️ Deliberate. Reconstructing the projection from its parts means getting the
 // model box, the drawing scale, the transformation matrix AND their interaction
 // right, and being wrong in any one of them looks exactly like being wrong in
 // the others. Asking Archicad where two reference points land makes the
-// projection self-evident: exact by construction, 2 ACAPI calls per RECOMPUTE
+// projection self-evident: exact by construction, 4 ACAPI calls per observation
 // rather than per vertex (the rule that matters, §15.1), and when it is wrong
 // the reference pairs are in the log to say why.
 //
@@ -110,144 +101,85 @@ HMODULE OwnModule ();
 // ±32767 at any serious zoom and silently overflow — a projection that works on
 // the test file and breaks when somebody zooms in. Screen points are bounded by
 // the window, always, so the inputs cannot overflow and the outputs are doubles.
-Transform DeriveTransform ()
+struct TransformObservation {
+    PlanTransform affine;
+    Transform reported;
+};
+
+bool SampleModelCoord (long x, long y, PlanPoint& model)
 {
-    Transform t;
+    API_Point point = {};
+    point.h = static_cast<short> (x);
+    point.v = static_cast<short> (y);
+    API_Coord coord = {};
+    if (ACAPI_View_PointToCoord (&point, &coord) != NoError)
+        return false;
+    model = { coord.x, coord.y };
+    return true;
+}
+
+TransformObservation DeriveTransform ()
+{
+    TransformObservation observation;
 
     if (Current () == nullptr || s_canvas == nullptr || !IsWindow (s_canvas))
-        return t;
+        return observation;
 
     RECT cr = {};
     GetClientRect (s_canvas, &cr);
-    const short w = static_cast<short> (cr.right - cr.left);
-    const short h = static_cast<short> (cr.bottom - cr.top);
-    if (w < 8 || h < 8)
-        return t;
+    const double physicalWidth = double (cr.right - cr.left);
+    const double physicalHeight = double (cr.bottom - cr.top);
+    const UINT dpi = GetDpiForWindow (s_canvas);
+    if (dpi == 0)
+        return observation;
+    const LogicalSampleRect sampleRect = MakeLogicalSampleRect (physicalWidth, physicalHeight, double (dpi) / 96.0);
+    if (!sampleRect.valid || sampleRect.right > 32000 || sampleRect.bottom > 32000)
+        return observation;
 
-    // Inset from the edges: the corners of a window are where a projection is
-    // most likely to be clamped or special-cased.
-    API_Point pa = { static_cast<short> (h / 8), static_cast<short> (w / 8) };
-    API_Point pb = { static_cast<short> (h - h / 8), static_cast<short> (w - w / 8) };
-    API_Coord ca = {}, cb = {};
+    PlanPoint topLeft, topRight, bottomLeft, topLeftAgain;
+    if (!SampleModelCoord (0, 0, topLeft) || !SampleModelCoord (sampleRect.right, 0, topRight) ||
+        !SampleModelCoord (0, sampleRect.bottom, bottomLeft) || !SampleModelCoord (0, 0, topLeftAgain))
+        return observation;
 
-    if (ACAPI_View_PointToCoord (&pa, &ca) != NoError || ACAPI_View_PointToCoord (&pb, &cb) != NoError) {
-        return t; // invalid
-    }
-
-    t.refPointA = { static_cast<double> (pa.h), static_cast<double> (pa.v) };
-    t.refPointB = { static_cast<double> (pb.h), static_cast<double> (pb.v) };
-    t.refModelA = { ca.x, ca.y };
-    t.refModelB = { cb.x, cb.y };
-
-    const double mdx = cb.x - ca.x;
-    const double mdy = cb.y - ca.y;
-    if (std::fabs (mdx) < 1e-12 || std::fabs (mdy) < 1e-12)
-        return t; // degenerate
-
-    t.scaleX = (t.refPointB.x - t.refPointA.x) / mdx;
-    t.scaleY = (t.refPointB.y - t.refPointA.y) / mdy; // negative: model Y up
-    t.offX = t.refPointA.x - (ca.x * t.scaleX);
-    t.offY = t.refPointA.y - (ca.y * t.scaleY);
-    t.valid = true;
-
-    // WHICH window's client space does PointToCoord speak in? The DevKit says
-    // "the local coordinates of the window" without saying which, and guessing
-    // is what put the geometry in the wrong place once already. So measure it:
-    // the zoom box is the model extent of the whole drawing window, so pushing
-    // its corners through the affine yields that window's pixel size. Compare
-    // against the canvas and the document window and the ambiguity is settled by
-    // data rather than by reading.
-    API_Box zoom = {};
-    if (ACAPI_View_GetZoom (&zoom, nullptr) == NoError) {
-        const double x0 = t.offX + (zoom.xMin * t.scaleX);
-        const double x1 = t.offX + (zoom.xMax * t.scaleX);
-        const double y0 = t.offY + (zoom.yMin * t.scaleY);
-        const double y1 = t.offY + (zoom.yMax * t.scaleY);
-        t.impliedW = std::fabs (x1 - x0);
-        t.impliedH = std::fabs (y1 - y0);
-        t.canvasW = static_cast<double> (cr.right - cr.left);
-        t.canvasH = static_cast<double> (cr.bottom - cr.top);
-
-        // ⚠️ Correct for DISPLAY SCALING, and MEASURE the factor rather than
-        // asking the DPI API for it.
-        //
-        // Archicad's API_Point is in LOGICAL pixels and our client rect is in
-        // PHYSICAL ones. Measured live at 150% scaling: canvas 3281x1854,
-        // implied 2187x1236, ratios 1.5002 and 1.5000. Uncorrected, everything
-        // drawn is 1/1.5 too small and pans at two-thirds the speed of the plan.
-        //
-        // canvasW/impliedW is self-calibrating: right regardless of the process's
-        // DPI-awareness mode, right on a mixed-DPI desktop, and it FOLLOWS the
-        // window to another monitor because it is recomputed every time. A
-        // GetDpiForWindow constant would be none of those things.
-        const long cw = static_cast<long> (t.canvasW);
-        const long ch = static_cast<long> (t.canvasH);
-        if (s_dpiX <= 0.0 || cw != s_dpiForW || ch != s_dpiForH) {
-            if (t.impliedW > 1.0 && t.impliedH > 1.0) {
-                const double kx = t.canvasW / t.impliedW;
-                const double ky = t.canvasH / t.impliedH;
-                // Sanity: the two axes must agree and the factor must be a
-                // plausible scaling. If they do not, the reference window is
-                // wrong, and scaling by a bogus number would turn a diagnosable
-                // error into a subtle one.
-                const bool agree = std::fabs (kx - ky) < 0.01 * kx;
-                const bool plausible = (kx > 0.4 && kx < 8.0);
-                if (agree && plausible) {
-                    s_dpiX = kx;
-                    s_dpiY = ky;
-                    s_dpiForW = cw;
-                    s_dpiForH = ch;
-                }
-                else {
-                    // Report it, do not apply it, and do not cache it either —
-                    // a transient mid-zoom reading must not become the constant.
-                    t.dpiX = kx;
-                    t.dpiY = ky;
-                }
-            }
-        }
-        if (s_dpiX > 0.0) {
-            t.dpiX = s_dpiX;
-            t.dpiY = s_dpiY;
-            t.scaleX *= s_dpiX;
-            t.scaleY *= s_dpiY;
-            t.offX *= s_dpiX;
-            t.offY *= s_dpiY;
-            t.dpiApplied = true;
-        }
-    }
-    return t;
+    observation.affine = ObservePlanTransform (sampleRect, topLeft, topRight, bottomLeft, topLeftAgain);
+    Transform& t = observation.reported;
+    t.valid = observation.affine.valid;
+    t.scaleX = observation.affine.xx;
+    t.xFromY = observation.affine.xy;
+    t.yFromX = observation.affine.yx;
+    t.scaleY = observation.affine.yy;
+    t.offX = observation.affine.offsetX;
+    t.offY = observation.affine.offsetY;
+    t.refModelA = { topLeft.x, topLeft.y };
+    t.refModelB = { topRight.x, topRight.y };
+    t.refPointA = { 0.0, 0.0 };
+    t.refPointB = { double (sampleRect.right), 0.0 };
+    t.canvasW = physicalWidth;
+    t.canvasH = physicalHeight;
+    t.impliedW = double (sampleRect.right);
+    t.impliedH = double (sampleRect.bottom);
+    t.dpiX = sampleRect.dpiScale;
+    t.dpiY = sampleRect.dpiScale;
+    t.dpiApplied = true;
+    return observation;
 }
 
-// Would anything actually MOVE on screen?
-//
-// ⚠️ Ask it in pixels, not by comparing the coefficients. Comparing scaleX to
-// 1e-9 sounds strict and is meaningless: the scale is a quotient of doubles that
-// wobbles in its last bits from one sample to the next, so the test failed
-// constantly and the overlay repainted 35 times in 84 idle polls. Projecting two
-// far-apart model points through both transforms and asking whether either
-// landed more than a quarter-pixel away is the question the screen actually
-// cares about. §16.3 is a budget, not a hope.
-bool SameTransform (const Transform& a, const Transform& b)
+std::vector<PlanPoint> PaintedGeometry ()
 {
-    if (a.valid != b.valid)
-        return false;
-    if (!a.valid)
-        return true;
-
-    const double eps = 0.25; // quarter of a pixel
-    // Two probes far apart in model space: near ones cannot reveal a scale
-    // change, only a translation.
-    const double probes[2][2] = { { 0.0, 0.0 }, { 1000.0, 1000.0 } };
-    for (const auto& p : probes) {
-        const double ax = a.offX + (p[0] * a.scaleX);
-        const double ay = a.offY + (p[1] * a.scaleY);
-        const double bx = b.offX + (p[0] * b.scaleX);
-        const double by = b.offY + (p[1] * b.scaleY);
-        if (std::fabs (ax - bx) > eps || std::fabs (ay - by) > eps)
-            return false;
+    std::vector<PlanPoint> points;
+    for (const Polyline& polyline : s_geometry) {
+        for (const Point2& point : polyline)
+            points.push_back ({ point.x, point.y });
     }
-    return true;
+    if (s_annotationFrame) {
+        for (const annotation::Primitive& primitive : s_annotationFrame->primitives) {
+            if (!annotation::IsDrawable (primitive) || primitive.kind == annotation::PrimitiveKind::Element)
+                continue;
+            for (const annotation::Point3& point : primitive.points)
+                points.push_back ({ point.x, point.y });
+        }
+    }
+    return points;
 }
 
 // -------------------------------------------------------------------------
@@ -313,6 +245,8 @@ void PaintGeometry (HDC hdc, HWND hwnd, const RECT& rc)
     if (s_annotationFrame) {
         annotation::Transform2D transform;
         transform.scaleX = s_transform.scaleX;
+        transform.xFromY = s_transform.xFromY;
+        transform.yFromX = s_transform.yFromX;
         transform.scaleY = s_transform.scaleY;
         transform.offX = s_transform.offX;
         transform.offY = s_transform.offY;
@@ -333,10 +267,12 @@ void PaintGeometry (HDC hdc, HWND hwnd, const RECT& rc)
             // lround, not a cast: truncation is toward zero, so it biases
             // opposite ways either side of the origin and shows up as the
             // geometry shifting by a pixel as it crosses.
-            const int px =
-                static_cast<int> (std::lround (s_transform.offX + (poly[i].x * s_transform.scaleX))) + shiftX;
-            const int py =
-                static_cast<int> (std::lround (s_transform.offY + (poly[i].y * s_transform.scaleY))) + shiftY;
+            const int px = static_cast<int> (std::lround (s_transform.offX + poly[i].x * s_transform.scaleX +
+                                                          poly[i].y * s_transform.xFromY)) +
+                           shiftX;
+            const int py = static_cast<int> (std::lround (s_transform.offY + poly[i].x * s_transform.yFromX +
+                                                          poly[i].y * s_transform.scaleY)) +
+                           shiftY;
             if (i == 0)
                 MoveToEx (hdc, px, py, nullptr);
             else
@@ -346,6 +282,35 @@ void PaintGeometry (HDC hdc, HWND hwnd, const RECT& rc)
 
     SelectObject (hdc, oldPen);
     DeleteObject (pen);
+}
+
+bool RepositionOverCanvas (HWND overlay)
+{
+    HWND parent = GetParent (overlay);
+    if (parent == nullptr || s_canvas == nullptr)
+        return false;
+    RECT wanted = {};
+    GetWindowRect (s_canvas, &wanted);
+    MapWindowPoints (HWND_DESKTOP, parent, reinterpret_cast<POINT*> (&wanted), 2);
+    RECT current = {};
+    GetWindowRect (overlay, &current);
+    MapWindowPoints (HWND_DESKTOP, parent, reinterpret_cast<POINT*> (&current), 2);
+    if (EqualRect (&wanted, &current))
+        return false;
+    SetWindowPos (overlay, HWND_TOP, wanted.left, wanted.top, wanted.right - wanted.left, wanted.bottom - wanted.top,
+                  SWP_NOACTIVATE);
+    return true;
+}
+
+void SetTimerCadence (HWND overlay, bool fast)
+{
+    if (s_fastTimer == fast)
+        return;
+    s_fastTimer = fast;
+    const UINT interval = fast ? (std::min) (s_requestedIntervalMs, TRACK_FAST_INTERVAL_MS)
+                               : (std::max) (s_requestedIntervalMs, TRACK_STABLE_INTERVAL_MS);
+    SetTimer (overlay, TRACK_TIMER_ID, interval, nullptr);
+    s_stats.intervalMs = interval;
 }
 
 LRESULT CALLBACK OverlayWndProc (HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -362,11 +327,18 @@ LRESULT CALLBACK OverlayWndProc (HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 // Archicad's UI thread. This is the main thread; it is not a worker
                 // and must never become one.
                 ++s_stats.polls;
-                const Transform now = DeriveTransform ();
-                if (!now.valid)
+                const bool rectChanged = RepositionOverCanvas (hwnd);
+                const TransformObservation observation = DeriveTransform ();
+                if (!observation.affine.valid)
                     ++s_stats.acapiFailures;
-                if (!SameTransform (now, s_transform)) {
-                    s_transform = now;
+                const std::vector<PlanPoint> geometry = PaintedGeometry ();
+                const bool pixelsChanged =
+                    RoundedProjectedPixelsChanged (s_paintedTransform, observation.affine, geometry);
+                if (observation.affine.valid) {
+                    AdoptPlanTransform (observation.affine, s_acceptedTransform);
+                    s_transform = observation.reported;
+                }
+                if (pixelsChanged || rectChanged) {
                     ++s_stats.recomputes;
                     // Repaint only when the view actually moved — an unconditional
                     // repaint at the poll rate would burn a frame per tick drawing
@@ -381,6 +353,11 @@ LRESULT CALLBACK OverlayWndProc (HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                     // symptom rather than two.
                     RedrawWindow (hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
                 }
+                const ULONGLONG now = GetTickCount64 ();
+                const bool torn = !observation.affine.valid && observation.affine.tearPixels > 0.25;
+                if (pixelsChanged || rectChanged || torn)
+                    s_lastActivityTick = now;
+                SetTimerCadence (hwnd, torn || now - s_lastActivityTick < 250);
                 return 0;
             }
             break;
@@ -395,6 +372,8 @@ LRESULT CALLBACK OverlayWndProc (HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 PaintTestPattern (hdc, rc);
             else
                 PaintGeometry (hdc, hwnd, rc);
+
+            s_paintedTransform = s_acceptedTransform;
 
             EndPaint (hwnd, &ps);
 
@@ -464,6 +443,9 @@ HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& st
     s_paintCount = 0;
     s_lastPaintTick = 0;
     s_stats = TrackStats {};
+    s_transform = Transform {};
+    s_acceptedTransform = PlanTransform {};
+    s_paintedTransform = PlanTransform {};
     return hwnd;
 }
 
@@ -478,9 +460,8 @@ void DestroyAll ()
     s_owner = Owner::None;
     s_canvas = nullptr;
     s_stats.tracking = false;
-    // Forget the measured scaling: the next overlay may be on another monitor.
-    s_dpiX = s_dpiY = 0.0;
-    s_dpiForW = s_dpiForH = 0;
+    s_acceptedTransform = PlanTransform {};
+    s_paintedTransform = PlanTransform {};
 }
 
 bool DestroyOwned (Owner owner)
@@ -556,10 +537,16 @@ void SetTracking (bool enable, UINT intervalMs)
     if (enable) {
         if (intervalMs < 10)
             intervalMs = 10;
-        s_transform = DeriveTransform ();
+        s_requestedIntervalMs = intervalMs;
+        const TransformObservation observation = DeriveTransform ();
+        if (observation.affine.valid) {
+            AdoptPlanTransform (observation.affine, s_acceptedTransform);
+            s_transform = observation.reported;
+        }
         s_stats.tracking = true;
-        s_stats.intervalMs = intervalMs;
-        SetTimer (h, TRACK_TIMER_ID, intervalMs, nullptr);
+        s_fastTimer = false;
+        s_lastActivityTick = GetTickCount64 ();
+        SetTimerCadence (h, true);
         InvalidateRect (h, nullptr, TRUE);
     }
     else {
@@ -577,7 +564,11 @@ TrackStats GetTrackStats ()
 
 Transform ComputeTransform ()
 {
-    s_transform = DeriveTransform ();
+    const TransformObservation observation = DeriveTransform ();
+    if (observation.affine.valid) {
+        AdoptPlanTransform (observation.affine, s_acceptedTransform);
+        s_transform = observation.reported;
+    }
     return s_transform;
 }
 
