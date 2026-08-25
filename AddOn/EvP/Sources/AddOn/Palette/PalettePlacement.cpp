@@ -1,5 +1,5 @@
 #include "Palette/PalettePlacement.hpp"
-#include "Python/PathUtils.hpp"        // EvpDataDir, ReadTextFile, WriteTextFile
+#include "Python/PathUtils.hpp" // EvpDataDir, ReadTextFile, WriteTextFile
 
 #include "ObjectState.hpp"
 #include "ObjectStateJSONConversion.hpp"
@@ -11,7 +11,7 @@ GS::UniString PlacementFilePath ()
     return evp::EvpDataDir () + GS::UniString ("\\palette.json");
 }
 
-}   // namespace
+} // namespace
 
 namespace evp {
 
@@ -24,23 +24,22 @@ void SavePalettePlacement (const PalettePlacement& p)
     WriteTextFile (PlacementFilePath (),
                    GS::UniString::Printf ("{\"left\":%d,\"top\":%d,\"width\":%d,\"height\":%d,"
                                           "\"listHeight\":%d,\"resultsHeight\":%d,"
-                                          "\"descriptionHeight\":%d,\"descriptionCollapsed\":%s}",
-                                          (int) p.left, (int) p.top,
-                                          (int) p.width, (int) p.height,
-                                          (int) p.listHeight, (int) p.resultsHeight,
-                                          (int) p.descriptionHeight,
-                                          p.descriptionCollapsed ? "true" : "false"),
+                                          "\"descriptionHeight\":%d,\"descriptionCollapsed\":%s,"
+                                          "\"previewsEnabled\":%s}",
+                                          (int) p.left, (int) p.top, (int) p.width, (int) p.height, (int) p.listHeight,
+                                          (int) p.resultsHeight, (int) p.descriptionHeight,
+                                          p.descriptionCollapsed ? "true" : "false",
+                                          p.previewsEnabled ? "true" : "false"),
                    error);
 }
 
-PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeight,
-                                       short minDescriptionHeight)
+PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeight, short minDescriptionHeight)
 {
     PalettePlacement p;
 
     GS::UniString text;
     if (!ReadTextFile (PlacementFilePath (), text))
-        return p;                       // first run — every field stays 0
+        return p; // first run — every field stays 0
 
     GS::ObjectState os;
     if (JSON::ConvertToObjectState (text, os) != NoError)
@@ -51,7 +50,7 @@ PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeig
     // 200x200 is the "did someone save a collapsed window" floor: below it the
     // palette would open with no room for the command list at all.
     if (os.Get ("width", width) && os.Get ("height", height) && width > 200 && height > 200) {
-        p.width  = (short) width;
+        p.width = (short) width;
         p.height = (short) height;
     }
     if (os.Get ("listHeight", listH) && listH >= minListHeight)
@@ -65,14 +64,15 @@ PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeig
     // Read WITHOUT a floor: false is the default and a legitimate saved value,
     // so there is nothing here that "failing validation" could mean.
     os.Get ("descriptionCollapsed", p.descriptionCollapsed);
+    os.Get ("previewsEnabled", p.previewsEnabled);
 
     if (os.Get ("left", left) && os.Get ("top", top)) {
-        p.left        = (short) left;
-        p.top         = (short) top;
+        p.left = (short) left;
+        p.top = (short) top;
         p.hasPosition = true;
     }
 
     return p;
 }
 
-}   // namespace evp
+} // namespace evp

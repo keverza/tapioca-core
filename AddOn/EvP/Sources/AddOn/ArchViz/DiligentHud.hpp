@@ -28,6 +28,7 @@
 // entry, which a diagnostic HUD does not need.
 
 #include "ArchViz/DiligentScene.hpp" // ElementInfo, for the hover callout
+#include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <cstdint>
 #include <string>
@@ -384,7 +385,8 @@ class DiligentHud final {
     // `state.wantsMouse` comes back true when the pointer is over a panel, and
     // the caller must then not let the camera consume the same click.
     void Draw (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, const InputSnapshot& input,
-               const DiligentSceneStats& scene, HudState& state);
+               const DiligentSceneStats& scene, const ProjectedDrawList& annotations, HudState& state,
+               bool showControls = true);
 
   private:
     struct Impl;

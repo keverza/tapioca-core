@@ -17,7 +17,7 @@
 // keeping its types free of Archicad's is how that rule stays checkable by
 // reading the includes rather than by discipline.
 
-#include "ArchViz/DiligentViewportTarget.hpp"   // SurfaceMode
+#include "ArchViz/DiligentViewportTarget.hpp" // SurfaceMode
 
 #include <cstdint>
 
@@ -35,22 +35,24 @@ struct Surface {
     SurfaceMode mode = SurfaceMode::PaletteChild;
     // HWND on Windows, wrapped by Diligent's NativeWindow at the presentation
     // boundary. `void*` keeps this header independent of <windows.h>.
-    void*    nwh    = nullptr;
+    void* nwh = nullptr;
     // PHYSICAL pixels — what the backbuffer is sized in. The host is
     // responsible for the logical->physical conversion; getting that wrong is
     // what made the plan overlay pan at two-thirds speed on a 150% display
     // (PlanOverlay/OverlayWindow.hpp's DISPLAY SCALING note).
-    uint32_t width  = 0;
+    uint32_t width = 0;
     uint32_t height = 0;
+    // Embedded command preview: render retained watch annotations, but never
+    // consume the shared full-model queue or add viewer helper geometry/HUD.
+    bool retainedAnnotationsOnly = false;
 
     bool IsValid () const
     {
-        return width > 0 && height > 0 &&
-               (mode == SurfaceMode::Offscreen || nwh != nullptr);
+        return width > 0 && height > 0 && (mode == SurfaceMode::Offscreen || nwh != nullptr);
     }
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

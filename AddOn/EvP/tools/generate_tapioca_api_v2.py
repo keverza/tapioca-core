@@ -35,9 +35,11 @@ from typing import Any
 # and the visible viewer camera snapshot used by reusable presets.
 # 2026-08-24, RE51.G2-G5: +1 for LoadDiligentPointCloud, the worker-side PLY,
 # hierarchy and owning render-queue producer.
-EXPECTED_REGISTRY_COMMANDS = 139
+# 2026-08-25, PLAT-WATCH-API: +2 for retained preview-scene and watch-trace
+# ingestion. Both are host-independent native store writes, not model writes.
+EXPECTED_REGISTRY_COMMANDS = 141
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 158
+EXPECTED_TOTAL_COMMANDS = 160
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

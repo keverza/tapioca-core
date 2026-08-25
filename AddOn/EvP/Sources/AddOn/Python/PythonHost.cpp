@@ -594,7 +594,7 @@ bool PythonHost::ScanCommands (const GS::UniString& root, GS::UniString& json, G
 
 bool PythonHost::RunCommand (const GS::UniString& path, const GS::UniString& moduleName,
                              const GS::UniString& paramsJson, const GS::UniString& action,
-                             const GS::UniString& menuRegion, bool& cancelled, GS::UniString& error)
+                             const GS::UniString& menuRegion, bool watchArmed, bool& cancelled, GS::UniString& error)
 {
     cancelled = false;
     if (!EnsureInitialized (error))
@@ -612,8 +612,8 @@ bool PythonHost::RunCommand (const GS::UniString& path, const GS::UniString& mod
     // this was the call in flight.
     StartupTrace ("PythonHost: entering the EvPPy bridge");
     const int code = ((EvpPy_RunCommandFn) runCommandFn) (path.ToUStr ().Get (), moduleUtf8.Get (), paramsUtf8.Get (),
-                                                          actionUtf8.Get (), regionUtf8.Get (), errorBuffer,
-                                                          (int) sizeof (errorBuffer));
+                                                          actionUtf8.Get (), regionUtf8.Get (), watchArmed ? 1 : 0,
+                                                          errorBuffer, (int) sizeof (errorBuffer));
 
     StartupTrace ("PythonHost: returned from the EvPPy bridge");
 

@@ -198,7 +198,8 @@ void DiligentHud::Shutdown ()
 }
 
 void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint32_t height, const InputSnapshot& input,
-                        const DiligentSceneStats& scene, HudState& state)
+                        const DiligentSceneStats& scene, const ProjectedDrawList& annotations, HudState& state,
+                        bool showControls)
 {
     if (context == nullptr || !impl_->ready || width == 0 || height == 0)
         return;
@@ -236,6 +237,43 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
 
     impl_->renderer->NewFrame (width, height, Diligent::SURFACE_TRANSFORM_IDENTITY);
     ImGui::NewFrame ();
+
+    ImDrawList* annotationDrawList = ImGui::GetBackgroundDrawList ();
+    for (const ScreenTriangle& triangle : annotations.triangles) {
+        const uint32_t rgba = triangle.rgba;
+        annotationDrawList->AddTriangleFilled (
+            { triangle.points[0].x, triangle.points[0].y }, { triangle.points[1].x, triangle.points[1].y },
+            { triangle.points[2].x, triangle.points[2].y },
+            IM_COL32 ((rgba >> 24) & 0xFFu, (rgba >> 16) & 0xFFu, (rgba >> 8) & 0xFFu, rgba & 0xFFu));
+    }
+    for (const ScreenLine& line : annotations.lines) {
+        const uint32_t rgba = line.rgba;
+        annotationDrawList->AddLine (
+            { line.from.x, line.from.y }, { line.to.x, line.to.y },
+            IM_COL32 ((rgba >> 24) & 0xFFu, (rgba >> 16) & 0xFFu, (rgba >> 8) & 0xFFu, rgba & 0xFFu), line.width);
+    }
+    for (const ScreenLabel& label : annotations.labels) {
+        const uint32_t rgba = label.rgba;
+        const float fontSize = label.fontSize > 0.0f ? label.fontSize : ImGui::GetFontSize ();
+        const ImVec2 extent = ImGui::GetFont ()->CalcTextSizeA (fontSize, FLT_MAX, 0.0f, label.text.c_str ());
+        const ImVec2 position = label.centered ? ImVec2 { label.anchor.x - extent.x * 0.5f, label.anchor.y }
+                                               : ImVec2 { label.anchor.x + 4.0f, label.anchor.y - extent.y - 3.0f };
+        annotationDrawList->AddRectFilled ({ position.x - 3.0f, position.y - 2.0f },
+                                           { position.x + extent.x + 3.0f, position.y + extent.y + 2.0f },
+                                           IM_COL32 (255, 255, 255, 224), 2.0f);
+        annotationDrawList->AddText (
+            ImGui::GetFont (), fontSize, position,
+            IM_COL32 ((rgba >> 24) & 0xFFu, (rgba >> 16) & 0xFFu, (rgba >> 8) & 0xFFu, rgba & 0xFFu),
+            label.text.c_str ());
+    }
+
+    if (!showControls) {
+        ImGui::Render ();
+        impl_->renderer->RenderDrawData (context, ImGui::GetDrawData ());
+        impl_->renderer->EndFrame ();
+        state.wantsMouse = false;
+        return;
+    }
 
     // ---- the instruction banner (PLAT-RE111) -------------------------------
     //

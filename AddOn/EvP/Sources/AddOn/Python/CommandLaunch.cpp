@@ -48,6 +48,7 @@ void LaunchCommand (const CommandLaunchRequest& request, std::function<void (uin
                           request.requiresApi,
                           request.requiresTapir,
                           request.requirements, // E7: installed before the command imports
+                          request.watchArmed,
                           request.external,
                           request.port,
                           request.generation };

@@ -30,6 +30,7 @@
 #include "NativeCommands/PlanOverlayCommands.hpp"
 #include "NativeCommands/PlanTrackCommands.hpp"
 #include "NativeCommands/PointCloudCommands.hpp"
+#include "NativeCommands/PreviewCommands.hpp"
 #include "NativeCommands/ProjectCommands.hpp"
 #include "NativeCommands/QueryCommands.hpp"
 #include "NativeCommands/RoofCreateCommands.hpp"
@@ -75,7 +76,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetNurbsCommandRegistrations,       &GetComponent3DCommandRegistrations,   &GetCuttingPlaneCommandRegistrations,
     &GetNotifyCommandRegistrations,      &GetPlanGeometryCommandRegistrations,  &GetPlanOverlayCommandRegistrations,
     &GetPlanTrackCommandRegistrations,   &GetArchVizCommandRegistrations,       &GetPointCloudCommandRegistrations,
-    &GetViewerSyncCommandRegistrations,
+    &GetViewerSyncCommandRegistrations,  &GetPreviewCommandRegistrations,
 };
 
 // ---------------------------------------------------------------------------

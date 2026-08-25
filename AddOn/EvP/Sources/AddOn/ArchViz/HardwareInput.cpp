@@ -2,10 +2,16 @@
 
 #include <windows.h>
 
+#include <mutex>
+
 namespace geomsrv {
 namespace archviz {
 
 namespace {
+
+std::mutex s_inputGateMutex;
+void* s_inputGateWindow = nullptr;
+bool s_inputGateEnabled = true;
 
 // Rect containment AND nothing covering us. See the header for what the rect
 // test alone let through.
@@ -28,28 +34,65 @@ bool CursorIsOverUs (HWND hwnd, POINT screenPt, POINT clientPt)
     return ::GetAncestor (under, GA_ROOT) == ::GetAncestor (hwnd, GA_ROOT);
 }
 
-}   // namespace
-
-void PollHardwareInput (void* nwh, InputSnapshot& io)
+bool HardwareInputEnabled (void* nwh)
 {
-    HWND const hwnd = (HWND) nwh;
+    std::lock_guard<std::mutex> lock (s_inputGateMutex);
+    return s_inputGateWindow != nwh || s_inputGateEnabled;
+}
+
+} // namespace
+
+bool ReadHardwarePointer (void* nwh, HardwarePointerPosition& position)
+{
+    const HWND hwnd = static_cast<HWND> (nwh);
     POINT screenPt = {};
-    if (hwnd == nullptr || ::GetCursorPos (&screenPt) == FALSE)
-        return;
+    if (hwnd == nullptr || ::IsWindow (hwnd) == FALSE || ::GetCursorPos (&screenPt) == FALSE)
+        return false;
 
     POINT clientPt = screenPt;
     if (::ScreenToClient (hwnd, &clientPt) == FALSE)
+        return false;
+
+    position.x = int32_t (clientPt.x);
+    position.y = int32_t (clientPt.y);
+    position.inside = CursorIsOverUs (hwnd, screenPt, clientPt);
+    return true;
+}
+
+void SetHardwareInputEnabled (void* nwh, bool enabled)
+{
+    if (nwh == nullptr)
+        return;
+    std::lock_guard<std::mutex> lock (s_inputGateMutex);
+    s_inputGateWindow = nwh;
+    s_inputGateEnabled = enabled;
+}
+
+void ForgetHardwareInputWindow (void* nwh)
+{
+    std::lock_guard<std::mutex> lock (s_inputGateMutex);
+    if (s_inputGateWindow == nwh) {
+        s_inputGateWindow = nullptr;
+        s_inputGateEnabled = true;
+    }
+}
+
+void PollHardwareInput (void* nwh, InputSnapshot& io)
+{
+    HardwarePointerPosition pointer;
+    if (!ReadHardwarePointer (nwh, pointer))
         return;
 
-    io.x = int32_t (clientPt.x);
-    io.y = int32_t (clientPt.y);
-    io.inside = CursorIsOverUs (hwnd, screenPt, clientPt);
+    io.x = pointer.x;
+    io.y = pointer.y;
+    const bool enabled = HardwareInputEnabled (nwh);
+    io.inside = enabled && pointer.inside;
     // The high bit is "down now"; the low bit is "pressed since the last call"
     // and is explicitly NOT wanted -- it is per-thread and would report a press
     // this thread never saw.
-    io.shift = (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
-    io.navButton = (::GetAsyncKeyState (VK_MBUTTON) & 0x8000) != 0;
+    io.shift = enabled && (::GetAsyncKeyState (VK_SHIFT) & 0x8000) != 0;
+    io.navButton = enabled && (::GetAsyncKeyState (VK_MBUTTON) & 0x8000) != 0;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

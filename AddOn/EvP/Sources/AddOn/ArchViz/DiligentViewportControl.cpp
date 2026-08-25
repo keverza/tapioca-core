@@ -24,7 +24,7 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
-#include "ArchViz/PlanAnchorRibbon.hpp"   // BuildAnchorRibbonSet
+#include "ArchViz/PlanAnchorRibbon.hpp" // BuildAnchorRibbonSet
 #include "ArchViz/SceneCmdQueue.hpp"
 
 #include <cmath>
@@ -42,7 +42,10 @@ DiligentViewport& DiligentViewport::Get ()
     return viewport;
 }
 
-DiligentViewport::~DiligentViewport () { Stop (); }
+DiligentViewport::~DiligentViewport ()
+{
+    Stop ();
+}
 
 bool DiligentViewport::Start (const Surface& surface, const CameraStart& camera)
 {
@@ -60,6 +63,8 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
 
     stopRequested_.store (false);
     resizePending_.store (false);
+    pendingWidth_.store (surface.width);
+    pendingHeight_.store (surface.height);
     // Before the worker starts, so a SyncCamera arriving on the first tick of a
     // sync timer already sees this run's mode rather than the previous run's.
     mode_.store (surface.mode);
@@ -83,10 +88,8 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
     return true;
 }
 
-bool DiligentViewport::StartCapture (uint32_t width, uint32_t height,
-                                     const CameraStart& camera, int renderQuality,
-                                     const CaptureOverlays& overlays,
-                                     uint64_t& captureId, std::string& error)
+bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, const CameraStart& camera, int renderQuality,
+                                     const CaptureOverlays& overlays, uint64_t& captureId, std::string& error)
 {
     std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
     captureId = 0;
@@ -104,8 +107,8 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height,
     const double dx = double (camera.eye[0]) - double (camera.target[0]);
     const double dy = double (camera.eye[1]) - double (camera.target[1]);
     const double dz = double (camera.eye[2]) - double (camera.target[2]);
-    if (dx * dx + dy * dy + dz * dz <= 1e-8f ||
-        camera.viewConeDegreesHorizontal <= 1.0f || camera.viewConeDegreesHorizontal >= 179.0f) {
+    if (dx * dx + dy * dy + dz * dz <= 1e-8f || camera.viewConeDegreesHorizontal <= 1.0f ||
+        camera.viewConeDegreesHorizontal >= 179.0f) {
         error = "headless capture requires distinct eye/target points and a horizontal field of view in (1, 179)";
         return false;
     }
@@ -165,8 +168,7 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height,
 bool DiligentViewport::CancelCapture (uint64_t captureId)
 {
     uint64_t expected = captureId;
-    if (captureId == 0 || !activeCaptureId_.compare_exchange_strong (
-                              expected, (std::numeric_limits<uint64_t>::max) ()))
+    if (captureId == 0 || !activeCaptureId_.compare_exchange_strong (expected, (std::numeric_limits<uint64_t>::max) ()))
         return false;
     ExtractionWorker::Get ().RequestStop ();
     stopRequested_.store (true);
@@ -190,6 +192,11 @@ bool DiligentViewport::CurrentCamera (CameraStart& camera) const
     return true;
 }
 
+void DiligentViewport::RequestStop ()
+{
+    stopRequested_.store (true);
+}
+
 void DiligentViewport::Stop ()
 {
     std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
@@ -204,6 +211,10 @@ void DiligentViewport::Stop ()
 void DiligentViewport::RequestResize (uint32_t width, uint32_t height)
 {
     if (width == 0 || height == 0)
+        return;
+    // Keep the latest requested dimensions after the render thread consumes the
+    // flag, so repeated DG layouts do not enqueue the same swap-chain resize.
+    if (pendingWidth_.load () == width && pendingHeight_.load () == height)
         return;
     pendingWidth_.store (width);
     pendingHeight_.store (height);
@@ -276,8 +287,7 @@ void DiligentViewport::SetEnvironmentMap (const std::string& path)
     environmentLoadPending_.store (true);
 }
 
-void DiligentViewport::SetEnvironmentSettings (bool enabled, float intensity,
-                                               float rotationDegrees)
+void DiligentViewport::SetEnvironmentSettings (bool enabled, float intensity, float rotationDegrees)
 {
     environmentEnabled_.store (enabled);
     environmentIntensity_.store (intensity);
@@ -286,9 +296,8 @@ void DiligentViewport::SetEnvironmentSettings (bool enabled, float intensity,
 }
 
 void DiligentViewport::SetPlanAnchors (const std::vector<std::vector<float>>& outlines,
-                                       const std::vector<std::vector<float>>& arcs,
-                                       bool enabled, float widthPixels, uint32_t rgba,
-                                       float arcSign, float planZ)
+                                       const std::vector<std::vector<float>>& arcs, bool enabled, float widthPixels,
+                                       uint32_t rgba, float arcSign, float planZ)
 {
     // Built HERE rather than in the frame loop -- see the header. It is pure
     // arithmetic (and tested as such, in tests/cpp), and the render thread

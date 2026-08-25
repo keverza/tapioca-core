@@ -107,8 +107,10 @@ typedef int (*EvpPy_ScanCommandsFn) (const uint16_t* root, char** jsonOut, char*
 // reasoning: it is set only when the action was dispatched from the palette's
 // right-click menu, and says WHERE the click landed ("panel", "params",
 // "param:<name>", "commands", "results"). The command reads it as `ctx.region`.
+// `watchArmed` is 0 or 1 and explicitly controls diagnostic capture for this run.
 typedef int (*EvpPy_RunCommandFn) (const uint16_t* scriptPath, const char* moduleName, const char* paramsJson,
-                                   const char* actionName, const char* menuRegion, char* errorUtf8, int errorSize);
+                                   const char* actionName, const char* menuRegion, int watchArmed, char* errorUtf8,
+                                   int errorSize);
 typedef void (*EvpPy_FreeStringFn) (char* text);
 
 #define EVPPY_SETAPICALL_SYMBOL "EvpPy_SetApiCall"

@@ -9,8 +9,8 @@ namespace evp {
 
 using namespace evp::palette;
 
-SelectionSetPanel::SelectionSetPanel (const DG::Panel& panel_, DG::ButtonItemObserver& observer_) :
-    panel (panel_), observer (observer_)
+SelectionSetPanel::SelectionSetPanel (const DG::Panel& panel_, DG::ButtonItemObserver& observer_)
+    : panel (panel_), observer (observer_)
 {
 }
 
@@ -66,21 +66,28 @@ short SelectionSetPanel::PlaceAt (short top, short left, short right, const Pale
         y += 18;
         constexpr short gap = 4;
         const short width = (short) ((right - left - 4 * gap) / 5);
-        DG::ButtonItem* buttons[] = { row.update.get (), row.add.get (), row.remove.get (), row.reselect.get (), row.clear.get () };
+        DG::ButtonItem* buttons[] = { row.update.get (), row.add.get (), row.remove.get (), row.reselect.get (),
+                                      row.clear.get () };
         for (short i = 0; i < 5; ++i) {
             const short x = (short) (left + i * (width + gap));
             clip.Place (buttons[i], DG::Rect (x, y, (short) (x + width), (short) (y + RowHeight)));
-            if (titleVisible && clip.IsVisible (y, (short) (y + RowHeight))) buttons[i]->Show ();
-            else buttons[i]->Hide ();
+            if (titleVisible && clip.IsVisible (y, (short) (y + RowHeight)))
+                buttons[i]->Show ();
+            else
+                buttons[i]->Hide ();
         }
         y += RowHeight + 2;
-        if (titleVisible) row.label->Show (); else row.label->Hide ();
+        if (titleVisible)
+            row.label->Show ();
+        else
+            row.label->Hide ();
     }
     return rows.empty () ? 0 : (short) (y - top + 4);
 }
 
-bool SelectionSetPanel::Apply (Row& row, Action action)
+bool SelectionSetPanel::Apply (Row& row, Action action, bool& contentsChanged)
 {
+    contentsChanged = false;
     GS::ObjectState params;
     params.Add ("name", row.name);
     GS::String command;
@@ -88,15 +95,20 @@ bool SelectionSetPanel::Apply (Row& row, Action action)
     if (action == Action::Reselect) {
         command = "ReselectSelectionSet";
         verb = "Reselected";
-    } else {
+    }
+    else {
         command = "ModifySelectionSet";
-        const char* op = action == Action::Update ? "update" : action == Action::Add ? "add"
-                       : action == Action::Remove ? "remove" : "clear";
+        const char* op = action == Action::Update   ? "update"
+                         : action == Action::Add    ? "add"
+                         : action == Action::Remove ? "remove"
+                                                    : "clear";
         params.Add ("op", GS::UniString (op));
         if (action != Action::Clear)
             params.Add ("current", true);
-        verb = action == Action::Update ? "Updated" : action == Action::Add ? "Added"
-             : action == Action::Remove ? "Removed" : "Cleared";
+        verb = action == Action::Update   ? "Updated"
+               : action == Action::Add    ? "Added"
+               : action == Action::Remove ? "Removed"
+                                          : "Cleared";
     }
     const geomsrv::NativeCommandResult result = geomsrv::ExecuteNativeCommand (command, params);
     if (!result.ok) {
@@ -109,25 +121,42 @@ bool SelectionSetPanel::Apply (Row& row, Action action)
     GS::Int32 changed = 0;
     response.Get ("count", count);
     response.Get ("changed", changed);
+    contentsChanged = action != Action::Reselect && changed > 0;
     GS::Array<GS::UniString> missing;
     response.Get ("missing", missing);
-    row.lastAction = GS::UniString::Printf ("%s: %d this batch, %d saved",
-                                             verb, (int) changed, (int) count);
+    row.lastAction = GS::UniString::Printf ("%s: %d this batch, %d saved", verb, (int) changed, (int) count);
     if (!missing.IsEmpty ())
         row.lastAction += GS::UniString::Printf (", %d missing", (int) missing.GetSize ());
     return true;
 }
 
-bool SelectionSetPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
+bool SelectionSetPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, bool& contentsChanged)
 {
+    contentsChanged = false;
     for (Row& row : rows) {
-        if (ev.GetSource () == row.update.get ()) return Apply (row, Action::Update);
-        if (ev.GetSource () == row.add.get ()) return Apply (row, Action::Add);
-        if (ev.GetSource () == row.remove.get ()) return Apply (row, Action::Remove);
-        if (ev.GetSource () == row.reselect.get ()) return Apply (row, Action::Reselect);
-        if (ev.GetSource () == row.clear.get ()) return Apply (row, Action::Clear);
+        if (ev.GetSource () == row.update.get ())
+            return Apply (row, Action::Update, contentsChanged);
+        if (ev.GetSource () == row.add.get ())
+            return Apply (row, Action::Add, contentsChanged);
+        if (ev.GetSource () == row.remove.get ())
+            return Apply (row, Action::Remove, contentsChanged);
+        if (ev.GetSource () == row.reselect.get ())
+            return Apply (row, Action::Reselect, contentsChanged);
+        if (ev.GetSource () == row.clear.get ())
+            return Apply (row, Action::Clear, contentsChanged);
     }
     return false;
+}
+
+bool SelectionSetPanel::AllRolesNonEmpty () const
+{
+    if (rows.empty ())
+        return false;
+    for (const Row& row : rows) {
+        if (geomsrv::SelectionSetStore::Get ().Values (row.name).IsEmpty ())
+            return false;
+    }
+    return true;
 }
 
 } // namespace evp

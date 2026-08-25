@@ -66,6 +66,8 @@ ScanOutcome ScanCommandFolders ()
         os.Get ("requires", info.requirements);
         os.Get ("tags", info.tags);
         os.Get ("selection_sets", info.selectionSets);
+        os.Get ("preview_on_selection", info.previewOnSelection);
+        os.Get ("preview_overrides_json", info.previewOverridesJson);
         os.Get ("needs_selection", info.needsSelection);
         os.Get ("needs_preview", info.needsPreview);
         os.Get ("preview_kind", info.previewKind);
@@ -122,6 +124,8 @@ GS::UniString CommandInfoJson (const CommandInfo& info)
     command.Add ("requires", info.requirements);
     command.Add ("tags", info.tags);
     command.Add ("selection_sets", info.selectionSets);
+    command.Add ("preview_on_selection", info.previewOnSelection);
+    command.Add ("preview_overrides_json", info.previewOverridesJson);
     command.Add ("needs_selection", info.needsSelection);
     command.Add ("needs_preview", info.needsPreview);
     command.Add ("preview_kind", info.previewKind);

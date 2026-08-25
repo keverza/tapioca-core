@@ -45,7 +45,10 @@ void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names)
     }
 }
 
-void SelectionSetStore::Clear () { entries.Clear (); }
+void SelectionSetStore::Clear ()
+{
+    entries.Clear ();
+}
 
 SelectionSetStore::Entry* SelectionSetStore::Find (const GS::UniString& name)
 {
@@ -62,7 +65,10 @@ const SelectionSetStore::Entry* SelectionSetStore::Find (const GS::UniString& na
     return const_cast<SelectionSetStore*> (this)->Find (name);
 }
 
-bool SelectionSetStore::IsDeclared (const GS::UniString& name) const { return Find (name) != nullptr; }
+bool SelectionSetStore::IsDeclared (const GS::UniString& name) const
+{
+    return Find (name) != nullptr;
+}
 
 GS::Array<GS::UniString> SelectionSetStore::Names () const
 {
@@ -81,8 +87,8 @@ GS::Array<GS::UniString> SelectionSetStore::Values (const GS::UniString& name) c
     return values;
 }
 
-bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::UniString>& guids,
-                                Mutation mutation, GS::Int32& changed, GS::UniString& error)
+bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::UniString>& guids, Mutation mutation,
+                                GS::Int32& changed, GS::UniString& error)
 {
     Entry* entry = Find (name);
     if (entry == nullptr) {
@@ -97,7 +103,14 @@ bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::U
             if (!Contains (unique, guid))
                 unique.Push (guid);
         }
-        changed = (GS::Int32) unique.GetSize ();
+        for (const GS::UniString& oldGuid : entry->guids) {
+            if (!Contains (unique, oldGuid))
+                ++changed;
+        }
+        for (const GS::UniString& newGuid : unique) {
+            if (!Contains (entry->guids, newGuid))
+                ++changed;
+        }
         entry->guids = unique;
         return true;
     }

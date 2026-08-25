@@ -25,6 +25,8 @@
 #include "Python/MainThreadGate.hpp"
 #include "Python/PythonHost.hpp"
 #include "Python/RunCancel.hpp" // E9 — the running command's cancel token
+#include "Python/ForcedParamMerge.hpp"
+#include "Preview/PreviewRuntimeState.hpp"
 
 // E3 — enter/leave the selection-prompt state. Both run on the main thread (the
 // dispatcher Posts them); the worker thread only reads the atomic flags.
@@ -57,6 +59,16 @@ void ControlPalette::FinishRun (uint64_t generation, const GS::UniString& status
     if (generation != runGeneration)
         return; // a stale completion — the live run owns the UI
 
+    const bool wasAutomaticPreview = generation == automaticPreviewGeneration;
+    if (wasAutomaticPreview) {
+        automaticPreview.Finished (generation);
+        automaticPreviewGeneration = 0;
+        const evp::CommandInfo* const selected = SelectedCommand ();
+        if (selected == nullptr || selected->folder != automaticPreviewFolder)
+            preview.SetKind (selected != nullptr ? selected->previewKind : GS::UniString ("text"));
+        automaticPreviewFolder.Clear ();
+    }
+
     runActive.store (false);
     stopRequested.store (false); // F1 — clear the third state, whatever ended the
                                  // run: press, timeout, panel close or completion
@@ -66,7 +78,8 @@ void ControlPalette::FinishRun (uint64_t generation, const GS::UniString& status
     // Enabled whatever the outcome: a run that failed part way through still wrote
     // whatever it wrote, and refusing to let the user export that is refusing them
     // the evidence. The Python side says so by name when there is nothing stored.
-    actionBar.SetEnabled (true);
+    if (!wasAutomaticPreview)
+        actionBar.SetEnabled (true);
     Layout ();         // reflows back up if the prompt row was showing
     RefreshRunGate (); // Cancel/Stopping... becomes Run again
     Redraw ();         // repaint the reflow — see BeginSelectionPrompt
@@ -167,7 +180,8 @@ void ControlPalette::RefreshRunGate ()
             commandStatus.SetText (message);
     }
 }
-void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniString& menuRegion)
+void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniString& menuRegion,
+                                  bool automaticPreviewRun)
 {
     // BREADCRUMBS, flushed per line into logs\startup.log. A hard crash leaves
     // nothing behind but what was already on disk, and this path now has three
@@ -178,6 +192,8 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     // E9 re-entrancy guard. Nothing stopped a second Run press from spawning a
     // second detached worker, and two runs sharing one cancel token would mean Stop
     // could only ever reach the newer one. One run at a time, said out loud.
+    if (!automaticPreviewRun)
+        CancelAutomaticPreview (false);
     if (runActive.load ()) {
         SetCommandStatus ("A command is already running — press Cancel to end it first.");
         return;
@@ -204,7 +220,9 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     // "Running Element Info Panel..." while exporting a CSV describes the wrong
     // thing and looks like the command being run a second time - which is
     // exactly the misunderstanding the stored-result rule exists to prevent.
-    const GS::UniString title = action.IsEmpty () ? info->title : info->title + " - " + action;
+    const GS::UniString title = automaticPreviewRun ? info->title + " preview"
+                                : action.IsEmpty () ? info->title
+                                                    : info->title + " - " + action;
 
     // Zone C. The subprocess's ONLY way back to Archicad is the HTTP bus, so the
     // server is not optional here — start it rather than fail, and say so.
@@ -232,7 +250,14 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     stopRequested.store (false);
     RefreshRunGate (); // F1 — Run becomes Cancel; restored by FinishRun
 
-    SetCommandStatus ("Running " + title + (external ? " (external)..." : "...") + "  — press Cancel to stop it.");
+    if (automaticPreviewRun) {
+        automaticPreview.Started (generation);
+        automaticPreviewGeneration = generation;
+        automaticPreviewFolder = info->folder;
+        SetCommandStatus ("Generating preview for " + info->title + "...  — press Cancel to stop it.");
+    }
+    else
+        SetCommandStatus ("Running " + title + (external ? " (external)..." : "...") + "  — press Cancel to stop it.");
 
     // Zone B: the button handler must return so the event loop stays free — it is
     // what dispatches this worker's gate traffic. Zone C needs the same thread for a
@@ -242,18 +267,19 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     // supplies only what it alone knows.
     evp::StartupTrace ("RunSelected: params collected, composing the run");
 
-    const evp::CommandLaunchRequest request { info->path,
-                                              info->folder,
-                                              title,
-                                              params.CollectJson (),
-                                              action,
-                                              menuRegion,
-                                              info->requiresApi,
-                                              info->requiresTapir,
-                                              info->requirements,
-                                              external,
-                                              port,
-                                              generation };
+    const bool watchArmed = automaticPreviewRun || (evp::preview::PreviewRuntimeState::Get ().IsEnabled () &&
+                                                    (info->previewKind == "plan2d" || info->previewKind == "3d"));
+    GS::UniString paramsJson = params.CollectJson ();
+    if (automaticPreviewRun) {
+        const std::string merged =
+            evp::MergeForcedParams (paramsJson.ToCStr (0, MaxUSize, CC_UTF8).Get (),
+                                    info->previewOverridesJson.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+        paramsJson = GS::UniString (merged.c_str (), CC_UTF8);
+    }
+    const evp::CommandLaunchRequest request {
+        info->path,          info->folder,       title,      paramsJson, action, menuRegion, info->requiresApi,
+        info->requiresTapir, info->requirements, watchArmed, external,   port,   generation
+    };
 
     // Where the outcome lands is the PALETTE's business, so the callback stays here.
     // If the gate could not take the Post, the event loop is dead or gone — but the

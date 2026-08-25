@@ -145,16 +145,18 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.SetOverlayInstruction` | `text`: string | `seconds`: number | `shown`: boolean |
 | `Tapioca.SetOverlayTracking` | `enable`: boolean | `intervalMs`: integer | `tracking`: boolean<br>`intervalMs`: integer |
 | `Tapioca.SetPlanAnchors` | `elements`: Elements<br>`enabled`: boolean | `widthPixels`: number<br>`color`: string<br>`arcSign`: -1 \| 1<br>`planZ`: number | `count`: integer<br>`rings`: integer<br>`vertices`: integer<br>`accepted`: boolean |
+| `Tapioca.SetPreviewScene` | `kind`: "3d" \| "plan2d"<br>`meshes`: string[]<br>`lines`: string[]<br>`notes`: string[] | `boundsMin`: number[]<br>`boundsMax`: number[] | `generation`: integer<br>`meshes`: integer<br>`lines`: integer |
 | `Tapioca.SetSelection` | `elements`: object[] | `add`: boolean | `selected`: integer<br>`missing`: object[]<br>`count`: integer |
 | `Tapioca.SetStatus` | `message`: string | - | `shown`: string |
 | `Tapioca.SetTracing` | - | `enabled`: boolean | `enabled`: boolean |
+| `Tapioca.SetWatchTrace` | `version`: 1<br>`nodes`: string[] | - | `generation`: integer<br>`nodes`: integer<br>`frames`: integer<br>`points`: integer |
 | `Tapioca.ShowAlert` | `message`: string | - | `shown`: string |
 | `Tapioca.ShowResultText` | `text`: string | - | `shown`: string |
 | `Tapioca.ShowResults` | `headers`: string[]<br>`rows`: string[] | - | `rows`: integer |
 | `Tapioca.ShowSelectionPrompt` | `message`: string | - | `shown`: true |
 | `Tapioca.SliceZ` | `z`: number | `types`: integer[]<br>`elements`: object[]<br>`weld`: number<br>`nudge`: boolean | `zUsed`: number<br>`nudged`: boolean<br>`loopCount`: integer<br>`coords`: number[]<br>`loopPointCounts`: integer[]<br>`loopClosed`: boolean[]<br>`loopGuids`: string[]<br>`loopElemTypes`: integer[] |
 | `Tapioca.StartD3D12FeasibilityProbe` | `confirm`: boolean | - | `started`: boolean<br>`error`: string |
-| `Tapioca.StartDiligentCapture` | `width`: integer<br>`height`: integer<br>`renderQuality`: "fast" \| "realistic"<br>`camera`: object | - | `id`: integer<br>`status`: "running" |
+| `Tapioca.StartDiligentCapture` | `width`: integer<br>`height`: integer<br>`renderQuality`: "fast" \| "realistic"<br>`camera`: object | `storySlices`: boolean<br>`storySliceFill`: boolean<br>`storySliceOccluded`: "hidden" \| "dashed" \| "solid"<br>`storySliceWidthPixels`: number<br>`storySliceRgba`: integer<br>`storySliceFillRgba`: integer | `id`: integer<br>`status`: "running" |
 | `Tapioca.StartServer` | - | - | `started`: boolean<br>`port`: integer |
 | `Tapioca.StopD3D12FeasibilityProbe` | - | - | `stopped`: boolean |
 | `Tapioca.StopServer` | - | - | `stopped`: boolean |

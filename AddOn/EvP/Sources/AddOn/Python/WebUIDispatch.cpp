@@ -7,6 +7,7 @@
 #include "PythonHost.hpp"
 #include "RunCancel.hpp"
 #include "WebUIRunState.hpp"
+#include "Preview/PreviewRuntimeState.hpp"
 #include "Server/HttpServer.hpp"
 #include "Server/ServerState.hpp"
 
@@ -114,17 +115,12 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
                 // starts RUNS, never output actions — those are the control
                 // palette's action bar and right-click menu, which act on a stored
                 // result the WebUI has no equivalent of.
-                const CommandLaunchRequest request { info.path,
-                                                     info.folder,
-                                                     info.title,
-                                                     requestedParams,
-                                                     GS::UniString (),
-                                                     GS::UniString (),
-                                                     info.requiresApi,
-                                                     info.requiresTapir,
-                                                     info.requirements,
-                                                     external,
-                                                     port,
+                const bool watchArmed = preview::PreviewRuntimeState::Get ().IsEnabled () &&
+                                        (info.previewKind == "plan2d" || info.previewKind == "3d");
+                const CommandLaunchRequest request { info.path,        info.folder,        info.title,
+                                                     requestedParams,  GS::UniString (),   GS::UniString (),
+                                                     info.requiresApi, info.requiresTapir, info.requirements,
+                                                     watchArmed,       external,           port,
                                                      generation };
                 LaunchCommand (request, [] (uint64_t finishedGeneration, const GS::UniString& status) {
                     WebUIRunState::Get ().Finish (finishedGeneration, status);

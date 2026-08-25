@@ -32,13 +32,28 @@
 namespace geomsrv {
 namespace archviz {
 
+struct HardwarePointerPosition {
+    int32_t x = 0;
+    int32_t y = 0;
+    bool inside = false;
+};
+
+// Reads canvas-local physical coordinates directly from the HWND. The palette
+// uses the same measurement to gate hover/wheel routing that the renderer uses.
+bool ReadHardwarePointer (void* nwh, HardwarePointerPosition& position);
+
+// Embedded hosts disable polling on every explicit input-release path. Other
+// viewer hosts have no gate and retain the existing hover behaviour.
+void SetHardwareInputEnabled (void* nwh, bool enabled);
+void ForgetHardwareInputWindow (void* nwh);
+
 // Fills the polled fields of `io` (x, y, inside, shift, navButton) for the
 // window `nwh`. The queued fields (wheel, button transitions) are DG's and are
 // left alone -- call this immediately after InputRingBuffer::Take, before
 // anything consumes the snapshot, or the consumer sees the cursor at 0,0.
 void PollHardwareInput (void* nwh, InputSnapshot& io);
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

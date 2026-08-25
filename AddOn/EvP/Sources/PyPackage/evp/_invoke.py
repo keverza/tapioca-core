@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 
-from . import _planstore
+from . import _planstore, _watchstore
 from .context import Context
 
 __all__ = ["invoke", "build_plan", "build_preview", "run_action", "InvokeError"]
@@ -37,7 +37,7 @@ def _meta(fn):
     return meta
 
 
-def invoke(fn, params, folder=None, mode="run", previous_plan=None):
+def invoke(fn, params, folder=None, mode="run", previous_plan=None, watch_armed=None):
     """Run `fn` with `params` (the dict the palette collected).
 
     Signature-style commands are called `fn(**params)`, exactly as before —
@@ -49,6 +49,41 @@ def invoke(fn, params, folder=None, mode="run", previous_plan=None):
     declared output shape and an unvalidated return is a shape that drifts
     silently.
     """
+    if watch_armed is None:
+        watch_armed = os.environ.get("EVP_WATCH", "").strip().lower() not in (
+            "", "0", "false", "no", "off")
+    if not watch_armed:
+        return _invoke_command(fn, params, folder, mode, previous_plan)
+
+    # Import the module explicitly: evp.__init__ exports ``watch`` as the
+    # callable compatibility namespace, so ``from . import watch`` names that
+    # function rather than the implementation module.
+    import importlib
+    watch_module = importlib.import_module(".watch", __package__)
+    token = watch_module._start()
+    try:
+        result = _invoke_command(fn, params, folder, mode, previous_plan)
+    except BaseException:
+        watch_module._abandon(token)
+        raise
+    payload = watch_module._complete(token)
+
+    # Both destinations are instrumentation. A full disk, stale transport, or
+    # palette without watch support must never turn a successful command into a
+    # failed one.
+    try:
+        _watchstore.save(folder, payload)
+    except Exception:
+        pass
+    try:
+        from .api import call
+        call("Tapioca.SetWatchTrace", payload, raise_on_error=False)
+    except Exception:
+        pass
+    return result
+
+
+def _invoke_command(fn, params, folder=None, mode="run", previous_plan=None):
     meta = _meta(fn)
     model = meta.get("inputs")
     if model is None:

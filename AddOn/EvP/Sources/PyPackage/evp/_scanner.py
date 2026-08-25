@@ -33,6 +33,7 @@ one that reports why it is broken.
 
 import ast
 import json
+import math
 import os
 import re
 
@@ -72,6 +73,36 @@ def _literal(node, what):
             "so the scanner can read them without executing the script."
             % (what, getattr(node, "lineno", 0)),
             getattr(node, "lineno", 0),
+        ) from None
+
+
+def _json_literal(value, what, line):
+    """Accept only values JSON can represent exactly and safely."""
+    def validate(item):
+        if item is None or isinstance(item, (str, bool, int)):
+            return
+        if isinstance(item, float):
+            if not math.isfinite(item):
+                raise TypeError
+            return
+        if isinstance(item, list):
+            for child in item:
+                validate(child)
+            return
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str):
+                    raise TypeError
+                validate(child)
+            return
+        raise TypeError
+
+    try:
+        validate(value)
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (TypeError, ValueError):
+        raise ScanError(
+            "%s must be an AST-literal JSON-compatible object (line %d)" % (what, line), line
         ) from None
 
 
@@ -593,6 +624,10 @@ def scan_file(path, folder_name):
                 # Ordered role names for the optional selection-set panel. Kept flat
                 # because C++ can reliably read string arrays from ObjectState.
                 "selection_sets": [],
+                # Explicit opt-in plus forced safety values for normal-run previews
+                # triggered by complete selection-role changes.
+                "preview_on_selection": False,
+                "preview_overrides_json": "{}",
                 # Which preview band to size, if any. "text" is the free one: the
                 # Plan.diff() rendered into the results panel, no command code.
                 # ALWAYS emitted, so the C++ side never has to guess at a default.
@@ -618,6 +653,7 @@ def scan_file(path, folder_name):
                     decorator.lineno,
                 )
             selection_sets_specified = False
+            preview_overrides = None
             for kw in decorator.keywords:
                 if kw.arg == "selection_sets":
                     selection_sets_specified = True
@@ -630,7 +666,11 @@ def scan_file(path, folder_name):
                 if kw.arg in _MODEL_ARGS:
                     meta[kw.arg] = _model_name(kw.value, kw.arg, decorator.lineno)
                     continue
-                meta[kw.arg] = _literal(kw.value, "@evp.command(%s=...)" % kw.arg)
+                value = _literal(kw.value, "@evp.command(%s=...)" % kw.arg)
+                if kw.arg == "preview_overrides":
+                    preview_overrides = value
+                    continue
+                meta[kw.arg] = value
 
             # `timeout_s=30` is the natural way to write it, but the C++ reader asks
             # ObjectState for a double and a JSON integer is a different type to it —
@@ -679,6 +719,28 @@ def scan_file(path, folder_name):
                 seen.add(key)
                 normalized.append(role.strip())
             meta["selection_sets"] = normalized
+
+            preview_on_selection = meta.get("preview_on_selection", False)
+            if not isinstance(preview_on_selection, bool):
+                raise ScanError(
+                    "@evp.command(preview_on_selection=...) must be True or False "
+                    "(line %d)" % decorator.lineno, decorator.lineno)
+            if preview_overrides is None:
+                preview_overrides = {}
+            if not isinstance(preview_overrides, dict):
+                raise ScanError(
+                    "@evp.command(preview_overrides=...) must be a dict of forced parameter values "
+                    "(line %d)" % decorator.lineno, decorator.lineno)
+            if preview_on_selection and not normalized:
+                raise ScanError(
+                    "@evp.command(preview_on_selection=True) requires selection_sets=... "
+                    "(line %d)" % decorator.lineno, decorator.lineno)
+            if preview_on_selection and not preview_overrides:
+                raise ScanError(
+                    "@evp.command(preview_on_selection=True) requires non-empty preview_overrides=... "
+                    "(line %d)" % decorator.lineno, decorator.lineno)
+            meta["preview_overrides_json"] = _json_literal(
+                preview_overrides, "@evp.command(preview_overrides=...)", decorator.lineno)
             _resolve_actions(meta, tree, decorator.lineno)
 
             if isinstance(node, ast.AsyncFunctionDef):

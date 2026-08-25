@@ -91,7 +91,7 @@ struct Pipe {
 // out of them.
 std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::UniString& commandDir,
                                        const GS::UniString& packageDir, const GS::UniString& action,
-                                       const GS::UniString& menuRegion)
+                                       const GS::UniString& menuRegion, bool watchArmed)
 {
     std::vector<wchar_t> block;
 
@@ -102,9 +102,10 @@ std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::
             const size_t length = wcslen (cursor);
             // Drop any inherited copies of the names we are about to set, so ours
             // are unambiguous rather than duplicated.
-            const bool ours =
-                _wcsnicmp (cursor, L"EVP_ENDPOINT=", 13) == 0 || _wcsnicmp (cursor, L"EVP_COMMAND_DIR=", 16) == 0 ||
-                _wcsnicmp (cursor, L"EVP_ACTION=", 11) == 0 || _wcsnicmp (cursor, L"PYTHONPATH=", 11) == 0;
+            const bool ours = _wcsnicmp (cursor, L"EVP_ENDPOINT=", 13) == 0 ||
+                              _wcsnicmp (cursor, L"EVP_COMMAND_DIR=", 16) == 0 ||
+                              _wcsnicmp (cursor, L"EVP_ACTION=", 11) == 0 ||
+                              _wcsnicmp (cursor, L"EVP_WATCH=", 10) == 0 || _wcsnicmp (cursor, L"PYTHONPATH=", 11) == 0;
             if (!ours)
                 block.insert (block.end (), cursor, cursor + length + 1);
             cursor += length + 1;
@@ -123,6 +124,7 @@ std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::
     // never turn a Run into an export.
     append (GS::UniString ("EVP_ACTION=") + action);
     append (GS::UniString ("EVP_MENU_REGION=") + menuRegion);
+    append (GS::UniString (watchArmed ? "EVP_WATCH=1" : "EVP_WATCH=0"));
     // PYTHONPATH carries ONLY the package dir. The command folder is appended to
     // sys.path by the entry script instead, so it lands AFTER this one and can
     // never shadow `evp` itself.
@@ -135,9 +137,9 @@ std::vector<wchar_t> BuildEnvironment (const GS::UniString& endpoint, const GS::
 } // namespace
 
 bool RunCommandExternal (const GS::UniString& folder, const GS::UniString& paramsJson, const GS::UniString& action,
-                         const GS::UniString& menuRegion, unsigned short port, const GS::UniString& runtimeHome,
-                         const GS::UniString& packageDir, uint64_t runGeneration, GS::UniString& output,
-                         bool& cancelled, GS::UniString& error)
+                         const GS::UniString& menuRegion, bool watchArmed, unsigned short port,
+                         const GS::UniString& runtimeHome, const GS::UniString& packageDir, uint64_t runGeneration,
+                         GS::UniString& output, bool& cancelled, GS::UniString& error)
 {
     cancelled = false;
 
@@ -179,7 +181,7 @@ bool RunCommandExternal (const GS::UniString& folder, const GS::UniString& param
     }
 
     std::vector<wchar_t> environment = BuildEnvironment (GS::UniString::Printf ("http://127.0.0.1:%d", (int) port),
-                                                         folder, packageDir, action, menuRegion);
+                                                         folder, packageDir, action, menuRegion, watchArmed);
 
     STARTUPINFOW startup = {};
     startup.cb = sizeof (startup);

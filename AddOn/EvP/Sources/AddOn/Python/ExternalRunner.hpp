@@ -63,7 +63,7 @@ bool RunEnvManager (const GS::UniString& op, const GS::Array<GS::UniString>& req
 bool RunCommandExternal (const GS::UniString& folder, const GS::UniString& paramsJson,
                          const GS::UniString& action,     // empty for an ordinary run
                          const GS::UniString& menuRegion, // set only from the right-click menu
-                         unsigned short port,
+                         bool watchArmed, unsigned short port,
                          const GS::UniString& runtimeHome, // holds python.exe
                          const GS::UniString& packageDir,  // holds evp\ + _evp_external_main.py
                          uint64_t runGeneration, GS::UniString& output, bool& cancelled, GS::UniString& error);

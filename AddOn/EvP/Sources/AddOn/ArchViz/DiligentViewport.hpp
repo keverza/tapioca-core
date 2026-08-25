@@ -254,6 +254,9 @@ class DiligentViewport final {
   public:
     static DiligentViewport& Get ();
 
+    // A running viewport is not retargeted to another HWND. Switching between
+    // the palette child and overlay remains Stop/Start and recreates the device;
+    // retained trace data lives outside the viewport and appears in the new host.
     bool Start (const Surface& surface, const CameraStart& camera = CameraStart {});
     // What a headless capture should draw beyond the model itself. Defaults are
     // "just the building", so an existing caller is unaffected.
@@ -271,6 +274,9 @@ class DiligentViewport final {
     bool CancelCapture (uint64_t captureId);
     DiligentCaptureStats CaptureStats () const;
     bool CurrentCamera (CameraStart& camera) const;
+    // Flag-only stop for DG hosts. The render thread publishes running=false
+    // after releasing the swap chain; a later Stop() may then join immediately.
+    void RequestStop ();
     void Stop ();
     void RequestResize (uint32_t width, uint32_t height);
     void SetDebugView (int view)

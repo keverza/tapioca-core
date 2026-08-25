@@ -28,15 +28,16 @@ class PaletteScroll;
 // action it is ("Pasirinkti blokus"), so a trailing ": n saved" read as a second
 // sentence about a label that was already one.
 class SelectionSetPanel {
-public:
+  public:
     SelectionSetPanel (const DG::Panel& panel, DG::ButtonItemObserver& observer);
 
     void Rebuild (const GS::Array<GS::UniString>& names);
     void Clear ();
     short PlaceAt (short top, short left, short right, const PaletteScroll& clip);
-    bool HandleButtonClicked (const DG::ButtonClickEvent& ev);
+    bool HandleButtonClicked (const DG::ButtonClickEvent& ev, bool& contentsChanged);
+    bool AllRolesNonEmpty () const;
 
-private:
+  private:
     enum class Action { Update, Add, Remove, Reselect, Clear };
     struct Row {
         GS::UniString name;
@@ -50,7 +51,7 @@ private:
     };
 
     void RefreshLabel (Row& row);
-    bool Apply (Row& row, Action action);
+    bool Apply (Row& row, Action action, bool& contentsChanged);
 
     const DG::Panel& panel;
     DG::ButtonItemObserver& observer;

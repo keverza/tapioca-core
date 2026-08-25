@@ -18,6 +18,7 @@ struct CommandRunSpec {
     GS::UniString menuRegion;
     GS::UniString requiresApi, requiresTapir;
     GS::Array<GS::UniString> requirements;
+    bool watchArmed = false;
     bool external = false;
     unsigned short port = 0;
     uint64_t generation = 0;

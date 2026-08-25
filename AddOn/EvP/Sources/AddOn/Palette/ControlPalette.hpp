@@ -17,6 +17,7 @@
 #include "Palette/PaletteContextMenu.hpp"
 #include "Palette/ServerBand.hpp"
 #include "Palette/PaletteScroll.hpp"
+#include "Palette/AutomaticPreviewState.hpp"
 // evp::CommandInfo and the scan that produces it — likewise not here.
 #include "Palette/CommandScan.hpp"
 // EVP_PRODUCT_NAME / ADDON_VERSION for the shell's user-facing status text and the
@@ -157,7 +158,10 @@ class ControlPalette final : public DG::Palette,
     // `menuRegion` is set only when that name came from the right-click menu — it
     // is where the click landed, and the command reads it as `ctx.region`.
     void RunSelected (const GS::UniString& action = GS::UniString (),
-                      const GS::UniString& menuRegion = GS::UniString ());
+                      const GS::UniString& menuRegion = GS::UniString (), bool automaticPreviewRun = false);
+    void CancelAutomaticPreview (bool cancelInFlight);
+    bool AutomaticPreviewEligible () const;
+    void PollAutomaticPreview ();
 
     // NOTE: the command's wrapped description is NOT here — it is part of the
     // command block, so ParamPanel builds and places it (evp::ParamPanel::Rebuild).
@@ -315,6 +319,9 @@ class ControlPalette final : public DG::Palette,
     std::atomic<bool> runActive { false };
     std::atomic<bool> stopRequested { false };
     uint64_t runGeneration = 0; // main thread only
+    evp::AutomaticPreviewState automaticPreview;
+    uint64_t automaticPreviewGeneration = 0;
+    GS::UniString automaticPreviewFolder;
 
     // Feature D — the one-shot results table (evp.ui.table). It owns its list box,
     // its cached content, its height and its visibility; this shell owns the band it

@@ -22,23 +22,24 @@ namespace evp {
 struct PalettePlacement {
     // 0 means "not saved, or not usable" for every size field, so the caller keeps
     // its own default instead of getting a wedged palette out of a stale file.
-    short width         = 0;
-    short height        = 0;
-    short listHeight    = 0;
+    short width = 0;
+    short height = 0;
+    short listHeight = 0;
     short resultsHeight = 0;
     // PLAT-F13 — the description band. `descriptionHeight` is the TEXT height,
     // excluding the fold header. `descriptionCollapsed` is a real preference,
     // not a size, so unlike every field above it 0/false is a meaningful value
     // and not "unset" — a user who folded the description away meant it.
-    short descriptionHeight    = 0;
-    bool  descriptionCollapsed = false;
+    short descriptionHeight = 0;
+    bool descriptionCollapsed = false;
+    bool previewsEnabled = true;
 
     // Position is trusted verbatim when present: it is where the user last put the
     // palette, on whichever monitor. If that monitor is gone, Archicad clamps it
     // back on screen for us — better than second-guessing a multi-monitor layout.
-    short left        = 0;
-    short top         = 0;
-    bool  hasPosition = false;
+    short left = 0;
+    short top = 0;
+    bool hasPosition = false;
 };
 
 void SavePalettePlacement (const PalettePlacement& placement);
@@ -46,9 +47,8 @@ void SavePalettePlacement (const PalettePlacement& placement);
 // Reads AND validates. The minimums are the same ones the splitter drags clamp
 // to, so a hand-edited or stale file can never wedge a band open too far or shut
 // too small; anything failing them comes back as 0.
-PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeight,
-                                       short minDescriptionHeight);
+PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeight, short minDescriptionHeight);
 
-}   // namespace evp
+} // namespace evp
 
 #endif

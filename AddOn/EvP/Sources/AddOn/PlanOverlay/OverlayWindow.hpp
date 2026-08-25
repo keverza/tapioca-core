@@ -25,16 +25,20 @@
 // all. Nothing in this file may be called from a worker.
 
 #include <vector>
+#include <memory>
 
 #include <windows.h>
+
+#include "Annotation/DrawList.hpp"
+#include "PlanOverlay/OverlayOwnership.hpp"
 
 namespace geomsrv {
 namespace planoverlay {
 
 struct Style {
-    bool layered = true;    // see the header comment — effectively mandatory
-    int  alpha   = 140;     // 0-255. 255 hides the plan and everything drawn on it
-    bool hatch   = true;    // keyed-out interior + band/cross, instead of a fill
+    bool layered = true; // see the header comment — effectively mandatory
+    int alpha = 140;     // 0-255. 255 hides the plan and everything drawn on it
+    bool hatch = true;   // keyed-out interior + band/cross, instead of a fill
 };
 
 struct Point2 {
@@ -47,9 +51,9 @@ using Polyline = std::vector<Point2>;
 
 // The affine the tracker derived, model -> client pixels, plus how it got there.
 struct Transform {
-    bool   valid  = false;
+    bool valid = false;
     double scaleX = 0.0, scaleY = 0.0;
-    double offX   = 0.0, offY   = 0.0;
+    double offX = 0.0, offY = 0.0;
     // The two reference points it was derived from, as returned by
     // ACAPI_View_CoordToPoint. Reported so a wrong projection is diagnosable
     // instead of merely wrong.
@@ -62,7 +66,7 @@ struct Transform {
     // pushing the zoom box through the affine — that is the drawing window's
     // pixel size. If it matches canvasW/H, the canvas is the space.
     double impliedW = 0.0, impliedH = 0.0;
-    double canvasW  = 0.0, canvasH  = 0.0;
+    double canvasW = 0.0, canvasH = 0.0;
 
     // ⚠️ DISPLAY SCALING. Archicad's API_Point is in LOGICAL pixels; our window's
     // client rect is in PHYSICAL ones. At 150% scaling everything drawn from an
@@ -75,7 +79,7 @@ struct Transform {
     // awareness mode, which monitor the window is on, or what Archicad does
     // internally — and it follows the window if it is dragged to another screen.
     double dpiX = 1.0, dpiY = 1.0;
-    bool   dpiApplied = false;
+    bool dpiApplied = false;
 };
 
 // One row of the calibration sweep: what the projection would look like if it
@@ -84,17 +88,17 @@ struct CalibRow {
     const char* label = "";
     double clientW = 0.0, clientH = 0.0;
     double impliedW = 0.0, impliedH = 0.0;
-    double kx = 0.0, ky = 0.0;   // clientW/impliedW — the scale factor implied
-    double disagree = 0.0;       // |kx-ky|/kx — 0 means this window is the space
+    double kx = 0.0, ky = 0.0; // clientW/impliedW — the scale factor implied
+    double disagree = 0.0;     // |kx-ky|/kx — 0 means this window is the space
 };
 
 struct TrackStats {
-    bool     tracking     = false;
-    UINT     intervalMs   = 0;
-    long     polls        = 0;   // timer ticks
-    long     recomputes   = 0;   // ticks where the transform actually changed
-    long     repaints     = 0;
-    long     acapiFailures = 0;
+    bool tracking = false;
+    UINT intervalMs = 0;
+    long polls = 0;      // timer ticks
+    long recomputes = 0; // ticks where the transform actually changed
+    long repaints = 0;
+    long acapiFailures = 0;
     Transform transform;
 };
 
@@ -103,9 +107,20 @@ struct TrackStats {
 // `canvas` is the window the transform is expressed in — the plan canvas the
 // overlay covers. NOT `parent`: the overlay is a SIBLING of the canvas, so its
 // parent is the document window and using that offsets every pinned coordinate.
-HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& style);
+HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& style, Owner owner);
 void DestroyAll ();
+bool DestroyOwned (Owner owner);
 HWND Current ();
+HWND Canvas ();
+Owner CurrentOwner ();
+
+// Identifies this module's overlay without repeating its window-class contract
+// in every host-discovery caller.
+bool IsOverlayWindow (HWND window);
+
+// Shared Win32 descent used by the supported host opener and the native window
+// inspection command. excludeOverlay reveals Archicad's underlying canvas.
+std::vector<HWND> DescendWindowChain (HWND root, POINT screenPoint, bool skipTransparent, bool excludeOverlay);
 
 // Destroy every window we created and unregister the class. MUST run from
 // FreeData: a window whose WndProc lives in this DLL outliving the unload takes
@@ -114,7 +129,7 @@ void Shutdown ();
 
 // --- diagnostics -----------------------------------------------------------
 
-LONG  PaintCount ();
+LONG PaintCount ();
 DWORD LastPaintTick ();
 
 // --- content ---------------------------------------------------------------
@@ -123,17 +138,21 @@ DWORD LastPaintTick ();
 // which is what "is the overlay alive" is measured against.
 void SetGeometry (const std::vector<Polyline>& polylines);
 
+// A watch frame is an independent layer over legacy geometry. Passing null
+// clears only that layer, so Return never destroys command-owned polylines.
+void SetAnnotationFrame (std::shared_ptr<const annotation::Frame> frame);
+
 // --- tracking --------------------------------------------------------------
 
 // Start/stop the pan+zoom poll. There is NO notification for pan or zoom in the
 // DevKit — the window tree does not change and no callback fires — so a poll is
 // the only mechanism available. See §15.
-void       SetTracking (bool enable, UINT intervalMs);
+void SetTracking (bool enable, UINT intervalMs);
 TrackStats GetTrackStats ();
 
 // Recompute the transform once, now, and report it. Used by the probe to
 // establish the projection convention before anything is built on it.
-Transform  ComputeTransform ();
+Transform ComputeTransform ();
 
 // Sweep the candidate reference windows in ONE pass and report each one's
 // implied scaling. The window the projection is really expressed in is the one
@@ -141,7 +160,7 @@ Transform  ComputeTransform ();
 // the two axes, because it differs from the right one by unequal insets.
 std::vector<CalibRow> Calibrate ();
 
-}   // namespace planoverlay
-}   // namespace geomsrv
+} // namespace planoverlay
+} // namespace geomsrv
 
 #endif

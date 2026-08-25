@@ -28,6 +28,7 @@ struct CommandLaunchRequest {
     GS::UniString menuRegion;
     GS::UniString requiresApi, requiresTapir;
     GS::Array<GS::UniString> requirements;
+    bool watchArmed = false;
     bool external = false;
     unsigned short port = 0; // Zone C only, and only while running
     uint64_t generation = 0; // the run's cancel-token generation

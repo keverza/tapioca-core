@@ -73,7 +73,7 @@ class PythonHost {
     // same reasoning as `action`: paramsJson is the user's values and nothing else
     // should ever have to be filtered back out of it.
     bool RunCommand (const GS::UniString& path, const GS::UniString& moduleName, const GS::UniString& paramsJson,
-                     const GS::UniString& action, const GS::UniString& menuRegion, bool& cancelled,
+                     const GS::UniString& action, const GS::UniString& menuRegion, bool watchArmed, bool& cancelled,
                      GS::UniString& error);
 
   private:

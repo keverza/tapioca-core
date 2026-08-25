@@ -117,6 +117,7 @@ OVERSIZED = {
 TIERS = ("lifecycle", "UI", "features", "services")
 TIER_ASSIGNMENTS = {
     "": "lifecycle",
+    "Annotation": "services",
     "ArchViz": "features",
     "ArchViz/Dxgi": "features",
     # Registry history lives under the ArchViz module; it is not compiled, but it
@@ -130,6 +131,7 @@ TIER_ASSIGNMENTS = {
     "Notify": "services",
     "Palette": "UI",
     "PlanOverlay": "features",
+    "Preview": "services",
     "Python": "services",
     "Screenshot": "services",
     "Server": "services",
@@ -603,6 +605,7 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
     shell_implementation_files = {
         "ControlPalette.cpp",
         "ControlPalette.hpp",
+        "ControlPaletteAutoPreview.cpp",
         "ControlPaletteLayout.cpp",
         "ControlPaletteMenu.cpp",
         "ControlPaletteParams.cpp",

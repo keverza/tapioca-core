@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 
 #include "PlanOverlay/OverlayWindow.hpp"
+#include "Annotation/GdiPainter.hpp"
 
 #include <cmath>
 #include <cwchar>
@@ -25,7 +26,8 @@ constexpr int BAND = 14;
 
 constexpr UINT_PTR TRACK_TIMER_ID = 0xE7B1;
 
-HWND  s_overlay = nullptr;
+HWND s_overlay = nullptr;
+Owner s_owner = Owner::None;
 
 // ⚠️ The CANVAS, remembered — NOT GetParent(overlay).
 //
@@ -35,9 +37,9 @@ HWND  s_overlay = nullptr;
 // which put every pinned coordinate off by the canvas's inset inside the
 // document window — the geometry tracked the view correctly and sat in the wrong
 // place, which reads as "it did not pin to the origin".
-HWND  s_canvas = nullptr;
+HWND s_canvas = nullptr;
 
-bool  s_classRegistered = false;
+bool s_classRegistered = false;
 Style s_style;
 
 // Every overlay we have created and not destroyed ourselves. s_overlay alone is
@@ -51,7 +53,9 @@ volatile LONG s_paintCount = 0;
 DWORD s_lastPaintTick = 0;
 
 std::vector<Polyline> s_geometry;
-Transform  s_transform;
+std::shared_ptr<const annotation::Frame> s_annotationFrame;
+bool s_annotationLayerClaimed = false;
+Transform s_transform;
 TrackStats s_stats;
 
 // The display-scaling factor, and the canvas size it was measured at.
@@ -71,9 +75,9 @@ TrackStats s_stats;
 // Re-measured when the canvas is resized, which is also when a move to a
 // different-DPI monitor shows up.
 double s_dpiX = 0.0, s_dpiY = 0.0;
-long   s_dpiForW = 0, s_dpiForH = 0;
+long s_dpiForW = 0, s_dpiForH = 0;
 
-bool IsOurs (HWND hwnd)
+bool HasOverlayClass (HWND hwnd)
 {
     wchar_t cls[256] = {};
     GetClassNameW (hwnd, cls, 255);
@@ -126,9 +130,8 @@ Transform DeriveTransform ()
     API_Point pb = { static_cast<short> (h - h / 8), static_cast<short> (w - w / 8) };
     API_Coord ca = {}, cb = {};
 
-    if (ACAPI_View_PointToCoord (&pa, &ca) != NoError ||
-        ACAPI_View_PointToCoord (&pb, &cb) != NoError) {
-        return t;   // invalid
+    if (ACAPI_View_PointToCoord (&pa, &ca) != NoError || ACAPI_View_PointToCoord (&pb, &cb) != NoError) {
+        return t; // invalid
     }
 
     t.refPointA = { static_cast<double> (pa.h), static_cast<double> (pa.v) };
@@ -139,13 +142,13 @@ Transform DeriveTransform ()
     const double mdx = cb.x - ca.x;
     const double mdy = cb.y - ca.y;
     if (std::fabs (mdx) < 1e-12 || std::fabs (mdy) < 1e-12)
-        return t;   // degenerate
+        return t; // degenerate
 
     t.scaleX = (t.refPointB.x - t.refPointA.x) / mdx;
-    t.scaleY = (t.refPointB.y - t.refPointA.y) / mdy;   // negative: model Y up
-    t.offX   = t.refPointA.x - (ca.x * t.scaleX);
-    t.offY   = t.refPointA.y - (ca.y * t.scaleY);
-    t.valid  = true;
+    t.scaleY = (t.refPointB.y - t.refPointA.y) / mdy; // negative: model Y up
+    t.offX = t.refPointA.x - (ca.x * t.scaleX);
+    t.offY = t.refPointA.y - (ca.y * t.scaleY);
+    t.valid = true;
 
     // WHICH window's client space does PointToCoord speak in? The DevKit says
     // "the local coordinates of the window" without saying which, and guessing
@@ -162,8 +165,8 @@ Transform DeriveTransform ()
         const double y1 = t.offY + (zoom.yMax * t.scaleY);
         t.impliedW = std::fabs (x1 - x0);
         t.impliedH = std::fabs (y1 - y0);
-        t.canvasW  = static_cast<double> (cr.right - cr.left);
-        t.canvasH  = static_cast<double> (cr.bottom - cr.top);
+        t.canvasW = static_cast<double> (cr.right - cr.left);
+        t.canvasH = static_cast<double> (cr.bottom - cr.top);
 
         // ⚠️ Correct for DISPLAY SCALING, and MEASURE the factor rather than
         // asking the DPI API for it.
@@ -187,14 +190,15 @@ Transform DeriveTransform ()
                 // plausible scaling. If they do not, the reference window is
                 // wrong, and scaling by a bogus number would turn a diagnosable
                 // error into a subtle one.
-                const bool agree     = std::fabs (kx - ky) < 0.01 * kx;
+                const bool agree = std::fabs (kx - ky) < 0.01 * kx;
                 const bool plausible = (kx > 0.4 && kx < 8.0);
                 if (agree && plausible) {
                     s_dpiX = kx;
                     s_dpiY = ky;
                     s_dpiForW = cw;
                     s_dpiForH = ch;
-                } else {
+                }
+                else {
                     // Report it, do not apply it, and do not cache it either —
                     // a transient mid-zoom reading must not become the constant.
                     t.dpiX = kx;
@@ -207,8 +211,8 @@ Transform DeriveTransform ()
             t.dpiY = s_dpiY;
             t.scaleX *= s_dpiX;
             t.scaleY *= s_dpiY;
-            t.offX   *= s_dpiX;
-            t.offY   *= s_dpiY;
+            t.offX *= s_dpiX;
+            t.offY *= s_dpiY;
             t.dpiApplied = true;
         }
     }
@@ -231,7 +235,7 @@ bool SameTransform (const Transform& a, const Transform& b)
     if (!a.valid)
         return true;
 
-    const double eps = 0.25;   // quarter of a pixel
+    const double eps = 0.25; // quarter of a pixel
     // Two probes far apart in model space: near ones cannot reveal a scale
     // change, only a translation.
     const double probes[2][2] = { { 0.0, 0.0 }, { 1000.0, 1000.0 } };
@@ -271,7 +275,8 @@ void PaintTestPattern (HDC hdc, const RECT& rc)
         RECT v = { cx - BAND / 2, rc.top, cx + BAND / 2, rc.bottom };
         FillRect (hdc, &h, ink);
         FillRect (hdc, &v, ink);
-    } else {
+    }
+    else {
         FillRect (hdc, &rc, ink);
         HBRUSH border = CreateSolidBrush (RGB (0, 0, 0));
         FrameRect (hdc, &rc, border);
@@ -305,6 +310,19 @@ void PaintGeometry (HDC hdc, HWND hwnd, const RECT& rc)
     const int shiftX = canvasOrigin.x - origin.x;
     const int shiftY = canvasOrigin.y - origin.y;
 
+    if (s_annotationFrame) {
+        annotation::Transform2D transform;
+        transform.scaleX = s_transform.scaleX;
+        transform.scaleY = s_transform.scaleY;
+        transform.offX = s_transform.offX;
+        transform.offY = s_transform.offY;
+        annotation::GdiPaintOptions options;
+        options.originX = shiftX;
+        options.originY = shiftY;
+        options.textColour = RGB (255, 255, 255);
+        annotation::PaintFrameGdi (hdc, *s_annotationFrame, transform, options);
+    }
+
     HPEN pen = CreatePen (PS_SOLID, 2, INK_COLOUR);
     HGDIOBJ oldPen = SelectObject (hdc, pen);
 
@@ -315,10 +333,10 @@ void PaintGeometry (HDC hdc, HWND hwnd, const RECT& rc)
             // lround, not a cast: truncation is toward zero, so it biases
             // opposite ways either side of the origin and shows up as the
             // geometry shifting by a pixel as it crosses.
-            const int px = static_cast<int> (std::lround (
-                s_transform.offX + (poly[i].x * s_transform.scaleX))) + shiftX;
-            const int py = static_cast<int> (std::lround (
-                s_transform.offY + (poly[i].y * s_transform.scaleY))) + shiftY;
+            const int px =
+                static_cast<int> (std::lround (s_transform.offX + (poly[i].x * s_transform.scaleX))) + shiftX;
+            const int py =
+                static_cast<int> (std::lround (s_transform.offY + (poly[i].y * s_transform.scaleY))) + shiftY;
             if (i == 0)
                 MoveToEx (hdc, px, py, nullptr);
             else
@@ -333,59 +351,58 @@ void PaintGeometry (HDC hdc, HWND hwnd, const RECT& rc)
 LRESULT CALLBACK OverlayWndProc (HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
-    case WM_NCHITTEST:
-        return HTTRANSPARENT;
-    case WM_ERASEBKGND:
-        return TRUE;
+        case WM_NCHITTEST:
+            return HTTRANSPARENT;
+        case WM_ERASEBKGND:
+            return TRUE;
 
-    case WM_TIMER:
-        if (wp == TRACK_TIMER_ID) {
-            // ⚠️ ACAPI from a WM_TIMER is legal ONLY because a WndProc runs on
-            // Archicad's UI thread. This is the main thread; it is not a worker
-            // and must never become one.
-            ++s_stats.polls;
-            const Transform now = DeriveTransform ();
-            if (!now.valid)
-                ++s_stats.acapiFailures;
-            if (!SameTransform (now, s_transform)) {
-                s_transform = now;
-                ++s_stats.recomputes;
-                // Repaint only when the view actually moved — an unconditional
-                // repaint at the poll rate would burn a frame per tick drawing
-                // the identical image (§16.3).
-                //
-                // ⚠️ RDW_UPDATENOW, not a bare InvalidateRect. InvalidateRect
-                // merely marks the window dirty; the WM_PAINT is then delivered
-                // only when the message queue runs dry, and during a continuous
-                // pan Archicad's own messages never let it. The overlay would
-                // arrive whole frames late and appear to swim against the plan —
-                // which is exactly the reported "wobble" and "slight lag", one
-                // symptom rather than two.
-                RedrawWindow (hwnd, nullptr, nullptr,
-                              RDW_INVALIDATE | RDW_UPDATENOW);
+        case WM_TIMER:
+            if (wp == TRACK_TIMER_ID) {
+                // ⚠️ ACAPI from a WM_TIMER is legal ONLY because a WndProc runs on
+                // Archicad's UI thread. This is the main thread; it is not a worker
+                // and must never become one.
+                ++s_stats.polls;
+                const Transform now = DeriveTransform ();
+                if (!now.valid)
+                    ++s_stats.acapiFailures;
+                if (!SameTransform (now, s_transform)) {
+                    s_transform = now;
+                    ++s_stats.recomputes;
+                    // Repaint only when the view actually moved — an unconditional
+                    // repaint at the poll rate would burn a frame per tick drawing
+                    // the identical image (§16.3).
+                    //
+                    // ⚠️ RDW_UPDATENOW, not a bare InvalidateRect. InvalidateRect
+                    // merely marks the window dirty; the WM_PAINT is then delivered
+                    // only when the message queue runs dry, and during a continuous
+                    // pan Archicad's own messages never let it. The overlay would
+                    // arrive whole frames late and appear to swim against the plan —
+                    // which is exactly the reported "wobble" and "slight lag", one
+                    // symptom rather than two.
+                    RedrawWindow (hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
+                }
+                return 0;
             }
+            break;
+
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC hdc = BeginPaint (hwnd, &ps);
+            RECT rc;
+            GetClientRect (hwnd, &rc);
+
+            if (s_geometry.empty () && !s_annotationFrame && !s_annotationLayerClaimed)
+                PaintTestPattern (hdc, rc);
+            else
+                PaintGeometry (hdc, hwnd, rc);
+
+            EndPaint (hwnd, &ps);
+
+            InterlockedIncrement (&s_paintCount);
+            ++s_stats.repaints;
+            s_lastPaintTick = GetTickCount ();
             return 0;
         }
-        break;
-
-    case WM_PAINT: {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint (hwnd, &ps);
-        RECT rc;
-        GetClientRect (hwnd, &rc);
-
-        if (s_geometry.empty ())
-            PaintTestPattern (hdc, rc);
-        else
-            PaintGeometry (hdc, hwnd, rc);
-
-        EndPaint (hwnd, &ps);
-
-        InterlockedIncrement (&s_paintCount);
-        ++s_stats.repaints;
-        s_lastPaintTick = GetTickCount ();
-        return 0;
-    }
     }
     return DefWindowProcW (hwnd, msg, wp, lp);
 }
@@ -394,31 +411,30 @@ HMODULE OwnModule ()
 {
     static HMODULE mod = nullptr;
     if (mod == nullptr) {
-        GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
-                            | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+        GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                             reinterpret_cast<LPCWSTR> (&OverlayWndProc), &mod);
     }
     return mod;
 }
 
-}   // namespace
+} // namespace
 
 // ---------------------------------------------------------------------------
 
-HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& style)
+HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& style, Owner owner)
 {
     DestroyAll ();
-    s_style  = style;
+    s_style = style;
     s_canvas = canvas;
 
     if (!s_classRegistered) {
         WNDCLASSEXW wc = {};
-        wc.cbSize        = sizeof (wc);
-        wc.lpfnWndProc   = OverlayWndProc;
-        wc.hInstance     = OwnModule ();
+        wc.cbSize = sizeof (wc);
+        wc.lpfnWndProc = OverlayWndProc;
+        wc.hInstance = OwnModule ();
         wc.lpszClassName = OVERLAY_CLASS;
         wc.hbrBackground = reinterpret_cast<HBRUSH> (GetStockObject (NULL_BRUSH));
-        wc.style         = CS_HREDRAW | CS_VREDRAW;
+        wc.style = CS_HREDRAW | CS_VREDRAW;
         RegisterClassExW (&wc);
         s_classRegistered = true;
     }
@@ -427,13 +443,9 @@ HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& st
     if (style.layered)
         ex |= WS_EX_LAYERED;
 
-    HWND hwnd = CreateWindowExW (
-        ex, OVERLAY_CLASS, L"EvP Probe Overlay",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-        rectInParent.left, rectInParent.top,
-        rectInParent.right - rectInParent.left,
-        rectInParent.bottom - rectInParent.top,
-        parent, nullptr, OwnModule (), nullptr);
+    HWND hwnd = CreateWindowExW (ex, OVERLAY_CLASS, L"EvP Probe Overlay", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+                                 rectInParent.left, rectInParent.top, rectInParent.right - rectInParent.left,
+                                 rectInParent.bottom - rectInParent.top, parent, nullptr, OwnModule (), nullptr);
 
     if (hwnd == nullptr)
         return nullptr;
@@ -442,15 +454,14 @@ HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& st
         DWORD flags = LWA_ALPHA;
         if (style.hatch)
             flags |= LWA_COLORKEY;
-        SetLayeredWindowAttributes (hwnd, KEY_COLOUR,
-                                    static_cast<BYTE> (style.alpha), flags);
+        SetLayeredWindowAttributes (hwnd, KEY_COLOUR, static_cast<BYTE> (style.alpha), flags);
     }
-    SetWindowPos (hwnd, HWND_TOP, 0, 0, 0, 0,
-                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    SetWindowPos (hwnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
 
     s_overlay = hwnd;
+    s_owner = owner;
     s_created.push_back (hwnd);
-    s_paintCount    = 0;
+    s_paintCount = 0;
     s_lastPaintTick = 0;
     s_stats = TrackStats {};
     return hwnd;
@@ -459,16 +470,25 @@ HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& st
 void DestroyAll ()
 {
     for (HWND h : s_created) {
-        if (h != nullptr && IsWindow (h) && IsOurs (h))
+        if (h != nullptr && IsWindow (h) && HasOverlayClass (h))
             DestroyWindow (h);
     }
     s_created.clear ();
     s_overlay = nullptr;
-    s_canvas  = nullptr;
+    s_owner = Owner::None;
+    s_canvas = nullptr;
     s_stats.tracking = false;
     // Forget the measured scaling: the next overlay may be on another monitor.
     s_dpiX = s_dpiY = 0.0;
     s_dpiForW = s_dpiForH = 0;
+}
+
+bool DestroyOwned (Owner owner)
+{
+    if (Current () == nullptr || s_owner != owner)
+        return false;
+    DestroyAll ();
+    return true;
 }
 
 HWND Current ()
@@ -476,22 +496,53 @@ HWND Current ()
     return (s_overlay != nullptr && IsWindow (s_overlay)) ? s_overlay : nullptr;
 }
 
+HWND Canvas ()
+{
+    return Current () != nullptr && s_canvas != nullptr && IsWindow (s_canvas) ? s_canvas : nullptr;
+}
+
+Owner CurrentOwner ()
+{
+    return Current () != nullptr ? s_owner : Owner::None;
+}
+
+bool IsOverlayWindow (HWND window)
+{
+    return window != nullptr && IsWindow (window) && HasOverlayClass (window);
+}
+
 void Shutdown ()
 {
     DestroyAll ();
     s_geometry.clear ();
+    s_annotationFrame.reset ();
+    s_annotationLayerClaimed = false;
     if (s_classRegistered) {
         UnregisterClassW (OVERLAY_CLASS, OwnModule ());
         s_classRegistered = false;
     }
 }
 
-LONG  PaintCount ()    { return s_paintCount; }
-DWORD LastPaintTick () { return s_lastPaintTick; }
+LONG PaintCount ()
+{
+    return s_paintCount;
+}
+DWORD LastPaintTick ()
+{
+    return s_lastPaintTick;
+}
 
 void SetGeometry (const std::vector<Polyline>& polylines)
 {
     s_geometry = polylines;
+    if (HWND h = Current ())
+        InvalidateRect (h, nullptr, TRUE);
+}
+
+void SetAnnotationFrame (std::shared_ptr<const annotation::Frame> frame)
+{
+    s_annotationLayerClaimed = true;
+    s_annotationFrame = std::move (frame);
     if (HWND h = Current ())
         InvalidateRect (h, nullptr, TRUE);
 }
@@ -506,11 +557,12 @@ void SetTracking (bool enable, UINT intervalMs)
         if (intervalMs < 10)
             intervalMs = 10;
         s_transform = DeriveTransform ();
-        s_stats.tracking   = true;
+        s_stats.tracking = true;
         s_stats.intervalMs = intervalMs;
         SetTimer (h, TRACK_TIMER_ID, intervalMs, nullptr);
         InvalidateRect (h, nullptr, TRUE);
-    } else {
+    }
+    else {
         KillTimer (h, TRACK_TIMER_ID);
         s_stats.tracking = false;
     }
@@ -550,8 +602,7 @@ std::vector<CalibRow> Calibrate ()
     API_Point pb = { static_cast<short> (h - h / 8), static_cast<short> (w - w / 8) };
     API_Coord ca = {}, cb = {};
     API_Box zoom = {};
-    if (ACAPI_View_PointToCoord (&pa, &ca) != NoError ||
-        ACAPI_View_PointToCoord (&pb, &cb) != NoError ||
+    if (ACAPI_View_PointToCoord (&pa, &ca) != NoError || ACAPI_View_PointToCoord (&pb, &cb) != NoError ||
         ACAPI_View_GetZoom (&zoom, nullptr) != NoError) {
         return rows;
     }
@@ -572,16 +623,15 @@ std::vector<CalibRow> Calibrate ()
     // Every window the projection could plausibly be expressed in. The one it IS
     // expressed in is the one whose two axes agree — a wrong window differs from
     // the right one by UNEQUAL insets, so its kx and ky come apart.
-    struct Candidate { const char* label; HWND hwnd; };
-    HWND doc   = GetParent (overlay);
+    struct Candidate {
+        const char* label;
+        HWND hwnd;
+    };
+    HWND doc = GetParent (overlay);
     HWND frame = doc != nullptr ? GetParent (doc) : nullptr;
-    HWND top   = frame != nullptr ? GetParent (frame) : nullptr;
+    HWND top = frame != nullptr ? GetParent (frame) : nullptr;
     const Candidate candidates[] = {
-        { "canvas",   s_canvas },
-        { "document", doc },
-        { "mdiclient", frame },
-        { "frame",    top },
-        { "overlay",  overlay },
+        { "canvas", s_canvas }, { "document", doc }, { "mdiclient", frame }, { "frame", top }, { "overlay", overlay },
     };
 
     for (const Candidate& c : candidates) {
@@ -590,9 +640,9 @@ std::vector<CalibRow> Calibrate ()
         RECT r = {};
         GetClientRect (c.hwnd, &r);
         CalibRow row;
-        row.label    = c.label;
-        row.clientW  = static_cast<double> (r.right - r.left);
-        row.clientH  = static_cast<double> (r.bottom - r.top);
+        row.label = c.label;
+        row.clientW = static_cast<double> (r.right - r.left);
+        row.clientH = static_cast<double> (r.bottom - r.top);
         row.impliedW = impliedW;
         row.impliedH = impliedH;
         row.kx = (impliedW > 1.0) ? row.clientW / impliedW : 0.0;
@@ -601,9 +651,10 @@ std::vector<CalibRow> Calibrate ()
         rows.push_back (row);
     }
 
-    (void) ox; (void) oy;
+    (void) ox;
+    (void) oy;
     return rows;
 }
 
-}   // namespace planoverlay
-}   // namespace geomsrv
+} // namespace planoverlay
+} // namespace geomsrv

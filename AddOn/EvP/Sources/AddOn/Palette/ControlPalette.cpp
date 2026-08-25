@@ -41,7 +41,7 @@ ControlPalette::ControlPalette ()
       // Create () calls in the body. `params` borrows the pen pool, `commandsPanel`
       // the .grc list box and `serverBand` the toggle and the address line — see the
       // header.
-      serverBand (runToggle, urlText), results (*this, *this), preview (*this, *this, *this, *this, *this),
+      serverBand (runToggle, urlText), results (*this, *this), preview (*this, *this, *this, *this, *this, *this),
       actionBar (*this, *this), selectionSets (*this, *this), description (*this, *this), scroll (*this, *this),
       commandsPanel (*this, *this, commandList), params (*this, *this, penPool)
 {
@@ -193,12 +193,15 @@ void ControlPalette::DestroyInstance ()
 }
 void ControlPalette::Show (bool focusSearch)
 {
+    preview.SetPaletteVisible (true);
     DG::Palette::Show ();
     if (focusSearch)
         commandsPanel.FocusSearch ();
 }
 void ControlPalette::Hide ()
 {
+    CancelAutomaticPreview (true);
+    preview.SetPaletteVisible (false);
     DG::Palette::Hide ();
 }
 
@@ -227,7 +230,7 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
     RefreshRunGate ();
 
     RefreshSearchFilter ();
-    preview.PollRetained ();
+    PollAutomaticPreview ();
 }
 
 // F2 — see the header. One string compare per idle is the whole cost.
@@ -385,6 +388,7 @@ void ControlPalette::SavePlacement () const
     p.resultsHeight = results.Height ();
     p.descriptionHeight = description.Height ();
     p.descriptionCollapsed = description.IsCollapsed ();
+    p.previewsEnabled = preview.IsEnabled ();
     evp::SavePalettePlacement (p);
 }
 
@@ -404,6 +408,7 @@ void ControlPalette::RestorePlacement ()
         description.SetHeight (p.descriptionHeight);
     // No `> 0` guard: false is a real saved value, not "unset".
     description.SetCollapsed (p.descriptionCollapsed);
+    preview.SetEnabled (p.previewsEnabled);
     if (p.hasPosition)
         SetClientPosition (DG::NativeUnit (p.left), DG::NativeUnit (p.top));
 }
@@ -412,6 +417,7 @@ void ControlPalette::RestorePlacement ()
 // clears what the previous command left behind and shows the band's answer.
 void ControlPalette::Rescan ()
 {
+    CancelAutomaticPreview (true);
     params.Clear ();
     selectionSets.Clear ();
     // A table belongs to the command that produced it, and a rescan can change
@@ -429,6 +435,7 @@ void ControlPalette::Rescan ()
 // carries the command's name) and the parameter rows built from the scan.
 void ControlPalette::RebuildCommandBlock ()
 {
+    CancelAutomaticPreview (true);
     params.Clear ();
     selectionSets.Clear ();
     description.Clear ();
@@ -490,6 +497,14 @@ void ControlPalette::ShowResultText (const GS::UniString& text)
 
 void ControlPalette::CheckItemChanged (const DG::CheckItemChangeEvent& ev)
 {
+    if (preview.HandleCheckItemChanged (ev)) {
+        if (!preview.IsEnabled ())
+            CancelAutomaticPreview (true);
+        Layout ();
+        SavePlacement ();
+        Redraw ();
+        return;
+    }
     // A generated row's control (a checkbox, or an attribute picker's PushCheck
     // host) — the panel that built it handles it and says so.
     bool reflow = false;
@@ -559,7 +574,10 @@ void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
         return;
     }
 
-    if (selectionSets.HandleButtonClicked (ev)) {
+    bool selectionContentsChanged = false;
+    if (selectionSets.HandleButtonClicked (ev, selectionContentsChanged)) {
+        if (selectionContentsChanged)
+            automaticPreview.SelectionChanged (evp::AutomaticPreviewState::Clock::now ());
         Layout ();
         Redraw ();
         return;

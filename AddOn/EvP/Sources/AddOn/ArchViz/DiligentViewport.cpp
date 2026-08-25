@@ -10,6 +10,7 @@
 
 #include "ArchViz/DiligentViewport.hpp"
 
+#include "Annotation/RetainedTraceSelection.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DebugCubeMesh.hpp"
@@ -21,6 +22,7 @@
 #include "ArchViz/DiligentGpuTimings.hpp"
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/TraceAnnotationLayer.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp"
@@ -54,6 +56,7 @@ namespace geomsrv::archviz {
 void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 {
     const bool offscreen = surface.mode == SurfaceMode::Offscreen;
+    const bool annotationsOnly = surface.retainedAnnotationsOnly;
     const uint64_t runCaptureId = offscreen ? activeCaptureId_.load () : 0;
     // ⚠️ DECLARED OUTSIDE THE try SO THE FAILURE PATH CAN RELEASE THEM PROPERLY.
     // An exception thrown after the swap chain exists -- a shader that does not
@@ -174,7 +177,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // and an opaque background would hide the very thing the overlay
             // exists to annotate -- the same reason the HUD goes read-only in
             // that mode a few lines below.
-            scene.SetEnvironmentBackground (surface.mode != SurfaceMode::Overlay);
+            scene.SetEnvironmentBackground (surface.mode != SurfaceMode::Overlay && !annotationsOnly);
 
             // ⚠️ THE GNOMON IS NOT DECORATION. A mirrored image is the one
             // rendering fault that otherwise looks perfectly fine. Red east,
@@ -186,7 +189,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // because the project origin is inside the ground floor slab. It now
             // lives in a fixed corner of the screen at a fixed size, which is
             // also what every DCC does and for the same reason.
-            if (!offscreen) {
+            if (!offscreen && !annotationsOnly) {
                 std::vector<ArchVizVertex> gnomonVertices;
                 std::vector<uint16_t> gnomonIndices;
                 axisgnomon::Build (gnomonVertices, gnomonIndices);
@@ -199,12 +202,14 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // project and a broken extraction do not look the same. NEUTRAL
             // now: the gnomon carries orientation, so the cube can answer the
             // shading question instead of competing with it.
-            ArchVizVertex cubeVertices[debugcubemesh::kVertexCount];
-            uint16_t cubeIndices[debugcubemesh::kIndexCount];
-            debugcubemesh::Build (cubeVertices, cubeIndices, debugcubemesh::Palette::Neutral);
-            if (!scene.AddStaticMesh (device, "debug cube", cubeVertices, debugcubemesh::kVertexCount, cubeIndices,
-                                      debugcubemesh::kIndexCount, sceneError))
-                ArchVizLog ("Diligent viewport: the debug cube did not upload: " + sceneError);
+            if (!annotationsOnly) {
+                ArchVizVertex cubeVertices[debugcubemesh::kVertexCount];
+                uint16_t cubeIndices[debugcubemesh::kIndexCount];
+                debugcubemesh::Build (cubeVertices, cubeIndices, debugcubemesh::Palette::Neutral);
+                if (!scene.AddStaticMesh (device, "debug cube", cubeVertices, debugcubemesh::kVertexCount, cubeIndices,
+                                          debugcubemesh::kIndexCount, sceneError))
+                    ArchVizLog ("Diligent viewport: the debug cube did not upload: " + sceneError);
+            }
 
             // ---- where the camera starts ------------------------------------
             float distance = 0.0f;
@@ -414,7 +419,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // elements; uploading them all at once stops the viewer presenting
             // for a second and takes that second out of Archicad's UI thread
             // with it. 32 is the same starting point the bgfx path uses.
-            const size_t consumed = scene.Consume (device, 32);
+            const size_t consumed = annotationsOnly ? 0 : scene.Consume (device, 32);
             if (consumed > 0)
                 scene.ResetTemporalAntiAliasingHistory ();
 
@@ -841,17 +846,18 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             }
 
             // Under the anchors; ⚠️ NOT gated on `offscreen` -- see the helper.
-            UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height, target.ColorFormat (),
-                                      target.DepthFormat ());
+            if (!annotationsOnly)
+                UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height,
+                                          target.ColorFormat (), target.DepthFormat ());
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
-            if (!offscreen)
+            if (!offscreen && !annotationsOnly)
                 UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
 
-            if (!offscreen && !blanked)
+            if (!offscreen && !annotationsOnly && !blanked)
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
 
             // Last, over everything, into the full-surface viewport the gnomon
@@ -870,7 +876,19 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.frames = frames;
                 hudState.width = width;
                 hudState.height = height;
-                hud.Draw (context, width, height, input, hudScene, hudState);
+                ProjectedDrawList annotations;
+                const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
+                if (selected.has_value ()) {
+                    float annotationDpiScale = 1.0f;
+                    if (!offscreen && surface.nwh != nullptr) {
+                        const UINT dpi = GetDpiForWindow (static_cast<HWND> (surface.nwh));
+                        if (dpi != 0)
+                            annotationDpiScale = float (dpi) / 96.0f;
+                    }
+                    annotations = BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height,
+                                                         annotationDpiScale, annotationsOnly);
+                }
+                hud.Draw (context, width, height, input, hudScene, annotations, hudState, !annotationsOnly);
             }
             gpuTimings.End (context, GpuTimingStage::Post);
             // The current renderer is a single-sample forward raster path. Keep

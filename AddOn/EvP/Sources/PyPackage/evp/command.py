@@ -420,7 +420,8 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
              description=None, requires=None, needs_selection=False, labels=None,
              timeout_s=0, tags=None, selection_sets=None,
              inputs=None, outputs=None, plan=None, needs_preview=False,
-             preview=None, preview_kind=None, actions=None):
+             preview=None, preview_kind=None, actions=None,
+             preview_on_selection=False, preview_overrides=None):
     """Mark `run` as an EvP command.
 
     title        shown in the palette (defaults to the folder name)
@@ -462,7 +463,16 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
     selection_sets
                   ordered role names for the optional selection-manager panel,
                   e.g. ("Targets", "Operators"). The command reads those saved
-                  sets through evp.selection.sets; the panel is absent when omitted.
+                   sets through evp.selection.sets; the panel is absent when omitted.
+    preview_on_selection
+                  explicitly opts this command into a debounced normal run whenever
+                  one of its declared selection sets changes and every role is
+                  non-empty. `preview_overrides` is mandatory for this mode and is
+                  applied after the palette values, so safety settings cannot be
+                  overridden by stale UI state.
+    preview_overrides
+                  non-empty JSON-compatible literal parameter overrides forced onto
+                  every automatic selection preview, e.g. {"apply_changes": False}.
 
     inputs       a tapioca.schema.NodeModel subclass declaring the command's
                  ports. Declaring one moves the UI contract out of run()'s
@@ -531,6 +541,8 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
             "timeout_s": float(timeout_s or 0),
             "labels": dict(labels) if labels else {},
             "selection_sets": list(selection_sets) if selection_sets else [],
+            "preview_on_selection": bool(preview_on_selection),
+            "preview_overrides": dict(preview_overrides) if preview_overrides else {},
             "needs_preview": bool(needs_preview) or preview is not None,
             "preview_kind": _preview_kind(preview_kind, preview),
             "actions": [str(name) for name in actions] if actions else [],

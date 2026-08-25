@@ -24,6 +24,11 @@ struct CommandInfo {
     GS::Array<GS::UniString> requirements;
     GS::Array<GS::UniString> tags;
     GS::Array<GS::UniString> selectionSets;
+    // Automatic selection previews are opt-in and always carry forced values.
+    // The object stays JSON because ObjectState does not preserve arbitrary nested
+    // decorator values reliably.
+    GS::UniString previewOverridesJson = "{}";
+    bool previewOnSelection = false;
     GS::Array<GS::UniString> paramJsons;
     // Names from evp.outputs.STANDARD_ACTIONS the palette offers as buttons under
     // the results ("csv", "pdf", "bake", ...). A named action needs no command

@@ -68,6 +68,106 @@ def test_a_signature_command_gets_no_ctx():
     assert _invoke.invoke(run, {"count": 3}) == 3
 
 
+def test_an_armed_signature_command_persists_and_publishes_its_watch_trace(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv("EVP_HOME", str(tmp_path))
+    folder = str(tmp_path / "Watched")
+    sent = []
+    monkeypatch.setattr(evp.api, "call", lambda command, payload, **kwargs:
+                        sent.append((command, payload, kwargs)))
+
+    @evp.command(title="Watched")
+    def run(value: int = 1):
+        evp.watch("value", (value, 0, 0))
+        return value
+
+    assert _invoke.invoke(run, {"value": 7}, folder=folder, watch_armed=True) == 7
+
+    from evp import _watchstore
+    import json
+
+    stored = _watchstore.load(folder)
+    node = json.loads(stored["nodes"][0])
+    frame = json.loads(node["frames"][0])
+    assert frame["primitives"][0]["points"] == [7.0, 0.0, 0.0]
+    assert sent == [("Tapioca.SetWatchTrace", stored, {"raise_on_error": False})]
+
+
+def test_evp_watch_environment_default_arms_capture(monkeypatch, tmp_path):
+    monkeypatch.setenv("EVP_HOME", str(tmp_path))
+    monkeypatch.setenv("EVP_WATCH", "yes")
+    monkeypatch.setattr(evp.api, "call", lambda *args, **kwargs: None)
+
+    @evp.command(title="Environment Watched")
+    def run():
+        evp.watch.point((1, 2, 3))
+
+    folder = str(tmp_path / "EnvironmentWatched")
+    _invoke.invoke(run, {}, folder=folder)
+
+    from evp import _watchstore
+    assert _watchstore.load(folder)["version"] == 1
+
+
+def test_an_unarmed_invocation_does_not_store_or_publish(monkeypatch, tmp_path):
+    monkeypatch.setenv("EVP_HOME", str(tmp_path))
+    monkeypatch.setenv("EVP_WATCH", "0")
+    monkeypatch.setattr(evp.api, "call", lambda *args, **kwargs:
+                        pytest.fail("an unarmed invocation must not publish"))
+
+    @evp.command(title="Unwatched")
+    def run():
+        # This invalid value proves unarmed watch calls skip normalization too.
+        evp.watch.point(object())
+        return "ok"
+
+    folder = str(tmp_path / "Unwatched")
+    assert _invoke.invoke(run, {}, folder=folder) == "ok"
+
+    from evp import _watchstore
+    assert _watchstore.load(folder) is None
+
+
+def test_a_failed_armed_invocation_preserves_the_prior_trace(monkeypatch, tmp_path):
+    monkeypatch.setenv("EVP_HOME", str(tmp_path))
+    monkeypatch.setattr(evp.api, "call", lambda *args, **kwargs: None)
+    folder = str(tmp_path / "Watched")
+
+    @evp.command(title="Watched")
+    def succeeds():
+        evp.watch.point((1, 0, 0), name="prior")
+
+    @evp.command(title="Watched")
+    def fails():
+        evp.watch.point((2, 0, 0), name="replacement")
+        raise RuntimeError("boom")
+
+    _invoke.invoke(succeeds, {}, folder=folder, watch_armed=True)
+    from evp import _watchstore
+    prior = _watchstore.load(folder)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        _invoke.invoke(fails, {}, folder=folder, watch_armed=True)
+    assert _watchstore.load(folder) == prior
+
+
+def test_watch_store_and_transport_errors_never_fail_a_command(monkeypatch, tmp_path):
+    monkeypatch.setenv("EVP_HOME", str(tmp_path))
+    from evp import _watchstore
+    monkeypatch.setattr(_watchstore, "save", lambda *args, **kwargs:
+                        (_ for _ in ()).throw(OSError("disk")))
+    monkeypatch.setattr(evp.api, "call", lambda *args, **kwargs:
+                        (_ for _ in ()).throw(RuntimeError("transport")))
+
+    @evp.command(title="Resilient")
+    def run():
+        evp.watch.point((0, 0, 0))
+        return "completed"
+
+    assert _invoke.invoke(run, {}, folder=str(tmp_path / "Resilient"),
+                          watch_armed=True) == "completed"
+
+
 # --------------------------------------------------------------------------
 # The schema form
 # --------------------------------------------------------------------------

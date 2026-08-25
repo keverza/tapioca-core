@@ -62,8 +62,7 @@ def _handshake():
     if theirs.split(".")[0] != evp.API_VERSION.split(".")[0]:
         raise RuntimeError(
             "evp API major mismatch: this package is %s, the add-on serves %s. "
-            "The bundled evp package and EvP.apx are from different builds."
-            % (evp.API_VERSION, theirs)
+            "The bundled evp package and EvP.apx are from different builds." % (evp.API_VERSION, theirs)
         )
 
 
@@ -73,6 +72,7 @@ def main():
     params_json = sys.stdin.read().lstrip("﻿").strip() or "{}"
 
     action = os.environ.get("EVP_ACTION") or ""
+    watch_armed = os.environ.get("EVP_WATCH", "").strip().lower() not in ("", "0", "false", "no", "off")
     # Set only when the palette dispatched a @evp.menu entry: where the click
     # landed. Rides in the environment for the same reason EVP_ACTION does —
     # stdin carries the user's parameter values and nothing else should have to
@@ -98,6 +98,7 @@ def main():
     # still reports as one. No `deactivate` as in Zone B: this is a one-shot
     # subprocess, so sys.modules starts fresh each run anyway.
     from evp import _commandpath
+
     _commandpath.activate(folder)
 
     name = "evp_command_" + os.path.basename(folder.rstrip("\\/"))
@@ -118,6 +119,7 @@ def main():
         # dry-run harness call too. Spelling `fn(**params)` here again is how the
         # two conventions drift apart with nothing to report the difference.
         from evp import _invoke
+
         # An ACTION is not a run: it acts on what the LAST run stored, because
         # re-running the command to export its result would repeat every write
         # that run performed. Mirrored in EvPPy.cpp's runner -- change one,
@@ -125,7 +127,7 @@ def main():
         if action:
             _invoke.run_action(fn, action, folder=folder, region=region)
         else:
-            _invoke.invoke(fn, json.loads(params_json), folder=folder)
+            _invoke.invoke(fn, json.loads(params_json), folder=folder, watch_armed=watch_armed)
     except Exception as exc:
         # E9 -- a cancel is a CLEAN exit, not a crash. Stop, a palette close and
         # timeout_s all arrive here as evp.Cancelled (every bus call is refused once

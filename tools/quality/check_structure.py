@@ -1,7 +1,7 @@
 """Check the ControlPalette shell/sub-object seam.
 
 The shell owns DG event dispatch, band layout, splitters, and run orchestration.
-ParamPanel, ResultsTable, SelectionSetPanel, and CommandListPanel own their own
+ParamPanel, ResultsTable, PreviewPanel, SelectionSetPanel, and CommandListPanel own their own
 state and expose PlaceAt/handler methods. This check catches the old private-member
 seam reappearing and verifies the public placement contract remains in the shell.
 
@@ -64,6 +64,7 @@ LAYOUT_CALLS = [
     "params.PlaceAt",
     "selectionSets.PlaceAt",
     "results.PlaceAt",
+    "preview.PlaceAt",
     "scroll.End",
 ]
 
@@ -80,6 +81,7 @@ SHELL_METHODS = [
 SUBOBJECT_SOURCES = [
     "ParamPanel.cpp",
     "ResultsTable.cpp",
+    "PreviewPanel.cpp",
     "SelectionSetPanel.cpp",
     "CommandListPanel.cpp",
 ]

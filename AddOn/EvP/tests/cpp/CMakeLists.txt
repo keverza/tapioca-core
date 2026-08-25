@@ -57,9 +57,14 @@ list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 # which parameter rows exist, and a row that wrongly vanishes reports nothing at
 # all in Archicad — it just looks like a command with fewer settings.
 set (EVP_PALETTE_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Palette/AutomaticPreviewState.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/CommandFilter.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamLayout.cpp"
-    "${EVP_ROOT}/Sources/AddOn/Palette/ParamVisibility.cpp")
+    "${EVP_ROOT}/Sources/AddOn/Palette/ParamVisibility.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPanelState.cpp")
+
+set (EVP_COMMAND_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Python/ForcedParamMerge.cpp")
 
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it
@@ -200,9 +205,26 @@ set (EVP_ARCHVIZ_SOURCES
 set (EVP_CLOUDCOMPARE_SOURCES
      "${EVP_ROOT}/Sources/AddOn/Python/CloudCompareCommand.cpp")
 
+set (EVP_ANNOTATION_SOURCES
+     "${EVP_ROOT}/Sources/AddOn/Annotation/DrawList.cpp"
+     "${EVP_ROOT}/Sources/AddOn/ArchViz/TraceAnnotationLayer.cpp")
+
+set (EVP_PREVIEW_SOURCES
+     "${EVP_ROOT}/Sources/AddOn/Preview/RetainedPreviewStore.cpp"
+     "${EVP_ROOT}/Sources/AddOn/Preview/RetainedTraceSelection.cpp"
+     "${EVP_ROOT}/Sources/AddOn/Preview/PreviewRuntimeState.cpp"
+     "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp")
+
 set (EVP_TEST_SOURCES
+    test_drawlist.cpp
+    test_traceannotationlayer.cpp
+    test_retainedpreviewstore.cpp
+    test_watchdrawlist.cpp
+    test_overlayownership.cpp
+    test_previewpanelstate.cpp
     test_storysliceunion.cpp
     test_storyslicegeometry.cpp
+    test_automaticpreview.cpp
     test_command_filter.cpp
     test_param_layout.cpp
     test_param_visibility.cpp
@@ -263,8 +285,9 @@ target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
 
 # ---- the test binary -------------------------------------------------------
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
-                              ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
-                              ${EVP_TEST_SOURCES})
+                               ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
+                                ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
+                               ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"
     "${GEOM_DIR}"

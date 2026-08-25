@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 139,
+      "nativeRegistry": 141,
       "dispatcherLocal": 19,
-      "total": 158
+      "total": 160
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -14729,6 +14729,87 @@
       }
     },
     {
+      "name": "Tapioca.SetPreviewScene",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "3d",
+              "plan2d"
+            ]
+          },
+          "meshes": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string"
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "boundsMin": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          },
+          "boundsMax": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "meshes",
+          "lines",
+          "notes"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "meshes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "generation",
+          "meshes",
+          "lines"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.SetSelection",
       "implementation": "native-registry",
       "inputScheme": {
@@ -14864,6 +14945,59 @@
         "additionalProperties": false,
         "required": [
           "enabled"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SetWatchTrace",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "const": 1
+          },
+          "nodes": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "nodes"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "nodes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frames": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "points": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "generation",
+          "nodes",
+          "frames",
+          "points"
         ]
       }
     },
@@ -15166,6 +15300,31 @@
               "fast",
               "realistic"
             ]
+          },
+          "storySlices": {
+            "type": "boolean"
+          },
+          "storySliceFill": {
+            "type": "boolean"
+          },
+          "storySliceOccluded": {
+            "type": "string",
+            "enum": [
+              "hidden",
+              "dashed",
+              "solid"
+            ]
+          },
+          "storySliceWidthPixels": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 32
+          },
+          "storySliceRgba": {
+            "type": "integer"
+          },
+          "storySliceFillRgba": {
+            "type": "integer"
           },
           "camera": {
             "type": "object",

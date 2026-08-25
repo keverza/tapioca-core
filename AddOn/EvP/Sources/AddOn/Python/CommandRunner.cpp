@@ -41,13 +41,13 @@ void StartCommandRun (CommandRunSpec spec)
                 runError = "dependency install failed - " + envError;
         }
         if (envOk && spec.external) {
-            ok = RunCommandExternal (spec.folderDir, spec.paramsJson, spec.action, spec.menuRegion, spec.port,
-                                     spec.runtimeHome, spec.packageDir, spec.generation, externalOutput, cancelled,
-                                     runError);
+            ok = RunCommandExternal (spec.folderDir, spec.paramsJson, spec.action, spec.menuRegion, spec.watchArmed,
+                                     spec.port, spec.runtimeHome, spec.packageDir, spec.generation, externalOutput,
+                                     cancelled, runError);
         }
         else if (envOk) {
             ok = PythonHost::Get ().RunCommand (spec.path, spec.module, spec.paramsJson, spec.action, spec.menuRegion,
-                                                cancelled, runError);
+                                                spec.watchArmed, cancelled, runError);
         }
 
         if (RunCancel::Get ().IsCancelled (spec.generation))

@@ -235,19 +235,22 @@ void ControlPalette::UserItemUpdate (const DG::UserItemUpdateEvent& ev)
 
 void ControlPalette::UserItemMouseEntered (const DG::UserItemMouseEnteredEvent& ev)
 {
-    commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
+    if (!preview.HandleUserItemMouseEntered (ev))
+        commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
 }
 
 // The cell spans the whole command row, so entering it says nothing about whether
 // the pointer is on the arrow. Moving inside it does.
 void ControlPalette::UserItemMouseMoved (const DG::UserItemMouseMoveEvent& ev, bool* /*noDefaultCursor*/)
 {
-    commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
+    if (!preview.HandleUserItemMouseMoved (ev))
+        commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
 }
 
 void ControlPalette::UserItemMouseExited (const DG::UserItemMouseExitedEvent& ev)
 {
-    commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), false);
+    if (!preview.HandleUserItemMouseExited (ev))
+        commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), false);
 }
 
 void ControlPalette::ItemResolutionFactorChanged (const DG::ItemResolutionFactorChangeEvent& ev)

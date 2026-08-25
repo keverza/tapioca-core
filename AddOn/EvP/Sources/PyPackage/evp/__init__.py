@@ -47,13 +47,14 @@ from .command import (
 from .context import Context
 from .plan import ElementSpec, FromStep, Plan, PlanDiff, PlanError
 from .preview import PreviewBudgetError, PreviewScene
+from .watch import WatchBudgetError, watch
 from .transaction import Transaction, TransactionError, Handle, transaction
 
 __all__ = [
     "Result", "EvpError", "Cancelled", "call", "debug", "API_VERSION", "api",
     "Transaction", "TransactionError", "Handle", "transaction",
     "Context", "ElementSpec", "FromStep", "Plan", "PlanDiff", "PlanError",
-    "PreviewScene", "PreviewBudgetError",
+    "PreviewScene", "PreviewBudgetError", "WatchBudgetError", "watch",
     "changes", "context", "drafting", "diligent", "drawings", "elements", "errors", "geometry",
     "issues",
     "layouts", "outputs", "paths", "plan", "preview", "properties", "runtime", "selection",
