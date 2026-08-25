@@ -55,3 +55,7 @@ AddOn/EvP/tools/shaderc/build/
 AddOn/reference/*
 !AddOn/reference/CATALOG.yaml
 
+# The managed Grasshopper host's build tree. `dotnet publish` stages the shipping
+# files beside the .apx in build_29/; bin/ and obj/ here are intermediates only.
+AddOn/EvP/Sources/GrasshopperManaged/bin/
+AddOn/EvP/Sources/GrasshopperManaged/obj/

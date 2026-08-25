@@ -20,6 +20,14 @@ authority rather than from this repository:
 - The Tapir command schema (ENZYME-APD/tapir-archicad-automation) is used during
   development only and is deliberately excluded from this repository. Fetch it
   from its own project if you need it.
+- Tapioca.GrasshopperHost (AddOn/EvP/Sources/GrasshopperManaged) is compiled by
+  the .NET SDK against three NuGet packages restored from nuget.org and pinned in
+  its .csproj: Rhino.Inside (McNeel, MIT), RhinoCommon and Grasshopper (McNeel,
+  under Rhino's own licence). Only Rhino.Inside.dll is deployed beside the add-on.
+  RhinoCommon and Grasshopper are referenced with ExcludeAssets="runtime" and are
+  never copied or redistributed: the assemblies that run come from the user's own
+  separately installed and licensed Rhino 8. No Rhino runtime binary is part of
+  this repository or of anything it produces.
 
 Notable upstream components used by the build, each under its own license:
 
@@ -30,6 +38,7 @@ Notable upstream components used by the build, each under its own license:
 - nanort
 - GoogleTest
 - CPython
+- Rhino.Inside, RhinoCommon and Grasshopper (McNeel)
 
 Iconoir
 -------

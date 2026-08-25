@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The managed half of the Rhino.Inside host (PLAT-RHINO-INSIDE, slice 0).
+
+    It is loaded into Archicad's process by EvP.apx through hostfxr, NEVER
+    launched as an application, and it never calls ACAPI. Everything it exposes
+    is four [UnmanagedCallersOnly] entry points over the POD contract in
+    Sources/AddOn/Grasshopper/GrasshopperHostApi.h.
+
+    Framework-DEPENDENT on purpose: publishing self-contained would put a second
+    copy of the .NET runtime inside Tapioca's distribution, and the host process
+    can only ever have one runtime anyway.
+
+    EnableDynamicLoading is what makes this a hostable component rather than a
+    library: it emits the .runtimeconfig.json that hostfxr initializes from and
+    the .deps.json that resolves the dependencies beside it. Without it there is
+    no runtimeconfig and the native side has nothing to point hostfxr at.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Tapioca.GrasshopperHost</AssemblyName>
+    <RootNamespace>Tapioca.GrasshopperHost</RootNamespace>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Grasshopper's editor is WinForms; the runtimeconfig must therefore ask
+         for Microsoft.WindowsDesktop.App, which these two switches add. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- NU1701: RhinoCommon and Grasshopper 8.0 ship .NET Framework reference
+         assemblies. Rhino 8 loads them into .NET 8 itself (System\netcore), and
+         the Rhino.Inside resolver is what makes that work at run time; the
+         restore-time warning describes the package metadata, not this host. -->
+    <NoWarn>$(NoWarn);NU1701;CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      PINNED, and pinned together: the resolver and the two APIs it resolves are
+      one compatibility surface. Rhino.Inside 8.0.7-beta is McNeel's supported
+      resolver for Rhino 8 (mirrored locally at
+      tapioca-ref/rhino.inside-rhino-8.x for reading, referenced here from its
+      own authority rather than vendored into this GPL tree).
+
+      ExcludeAssets="runtime" on the two Rhino APIs is load-bearing: they are
+      COMPILE-time references only. The assemblies that actually run come from
+      the installed Rhino, resolved at run time. Copying them next to the .apx
+      would give the process two RhinoCommons and is the classic way to make
+      Rhino.Inside fail with a type-identity error.
+    -->
+    <PackageReference Include="Rhino.Inside" Version="8.0.7-beta" />
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

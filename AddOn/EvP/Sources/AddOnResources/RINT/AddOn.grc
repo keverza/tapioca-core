@@ -55,6 +55,15 @@
 /* [  1] */	"Tapioca WebUI panel^E3^ES^EE^EI^ED^EW^EL"
 }
 
+/* Named for the technology, not for "Tapioca <something>": Rhino.Inside is what
+   this starts and what the user has to have installed, and a name that hides
+   that behind a product word would make a missing-Rhino message read as a
+   Tapioca fault. The Grasshopper Editor and Player items arrive with P1/P2. */
+'STR#' 32506 "Menu strings - Rhino.Inside" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Rhino.Inside^E3^ES^EE^EI^ED^EW^EL"
+}
+
 /* --- The Tapioca palette -------------------------------------------------- */
 /* Server control AND the command system in ONE panel.
    ⚠️ ITEM IDS ARE POSITIONAL. The /* [n] */ comments are ONLY comments — ResConv

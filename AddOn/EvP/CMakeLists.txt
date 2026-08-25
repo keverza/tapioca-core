@@ -359,3 +359,44 @@ if (WIN32)
     set_target_properties (EvPPyPackage PROPERTIES FOLDER Resources)
     add_dependencies (${ADDON_LIB} EvPPyPackage)
 endif ()
+
+# ============================================================================
+# Tapioca.GrasshopperHost.dll — the managed half of the Rhino.Inside host
+# ============================================================================
+# Separate binary for the same reason EvPPy.dll is one: it speaks a language the
+# .apx cannot link against. The .apx stays native C++20 and imports NOTHING from
+# .NET or from Rhino; it loads this assembly through hostfxr at run time, from a
+# menu command, or reports why it could not. See Sources/AddOn/Grasshopper/.
+#
+# ⚠️ OPTIONAL BY DESIGN, AND THE `if` BELOW IS THE POINT. A machine without the
+# .NET SDK still builds a complete, loadable EvP.apx; Rhino.Inside is then a
+# menu item that explains what is missing. Making this a hard requirement would
+# trade the whole add-on for one experimental feature.
+#
+# Framework-dependent publish, straight into the .apx's directory: the assembly,
+# its .deps.json and its .runtimeconfig.json must sit BESIDE EvP.apx, because
+# GrasshopperHost resolves them relative to its own module. Nothing here copies
+# a Rhino runtime binary anywhere -- RhinoCommon and Grasshopper are compile-time
+# references only (see the .csproj) and come from the user's installed Rhino.
+set (GrasshopperManagedFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/GrasshopperManaged")
+set (GrasshopperManagedProject "${GrasshopperManagedFolder}/Tapioca.GrasshopperHost.csproj")
+find_program (DOTNET_EXECUTABLE NAMES dotnet)
+if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GrasshopperManagedProject}")
+    file (GLOB GrasshopperManagedFiles CONFIGURE_DEPENDS
+        "${GrasshopperManagedFolder}/*.cs" "${GrasshopperManagedFolder}/*.csproj")
+    set (GrasshopperManagedStamp "${CMAKE_BINARY_DIR}/Tapioca.GrasshopperHost.stamp")
+    add_custom_command (
+        OUTPUT "${GrasshopperManagedStamp}"
+        DEPENDS ${GrasshopperManagedFiles}
+        COMMENT "EvP: publishing Tapioca.GrasshopperHost beside the .apx"
+        COMMAND "${DOTNET_EXECUTABLE}" publish "${GrasshopperManagedProject}"
+            -c Release -o "${CMAKE_BINARY_DIR}" --nologo
+        COMMAND ${CMAKE_COMMAND} -E touch "${GrasshopperManagedStamp}"
+        VERBATIM)
+    add_custom_target (EvPGrasshopperManaged ALL DEPENDS "${GrasshopperManagedStamp}")
+    set_target_properties (EvPGrasshopperManaged PROPERTIES FOLDER Resources)
+    add_dependencies (${ADDON_LIB} EvPGrasshopperManaged)
+else ()
+    message (STATUS "EvP: the .NET SDK was not found; Tapioca.GrasshopperHost will not be built. "
+                    "EvP.apx builds normally and reports the missing managed host if Rhino.Inside is used.")
+endif ()

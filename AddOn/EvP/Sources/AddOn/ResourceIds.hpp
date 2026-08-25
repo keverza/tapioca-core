@@ -28,6 +28,12 @@ constexpr short NotebookMenuResId = 32504; // "Tapioca Notebook"
 constexpr short NotebookMenuItemIndex = 1;
 constexpr short WebUIMenuResId = 32505; // "Tapioca WebUI panel"
 constexpr short WebUIMenuItemIndex = 1;
+// "Rhino.Inside" — starts the one process-wide RhinoCore + stock Grasshopper
+// (PLAT-RHINO-INSIDE slice 0). One menu item for now: the Grasshopper Editor
+// and Player commands the handoff describes are P1/P2 and arrive with the UI
+// they need, rather than as two menu items that do the same thing today.
+constexpr short GrasshopperMenuResId = 32506;
+constexpr short GrasshopperMenuItemIndex = 1;
 
 // The About box ('GDLG' 32520) — its own dialog block, so these ids are independent
 // of the palette's positional ids below.

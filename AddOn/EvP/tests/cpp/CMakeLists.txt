@@ -67,6 +67,19 @@ set (EVP_PALETTE_SOURCES
 set (EVP_COMMAND_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Python/ForcedParamMerge.cpp")
 
+# Grasshopper/HostState.cpp is the Rhino.Inside host's lifecycle rules with
+# nothing else in them -- no DevKit, no Win32, no CLR, so it qualifies here on
+# the same terms as everything above. It earns its place for the ArchViz reason
+# turned up one notch: every way of getting these transitions wrong produces a
+# SECOND RhinoCore, a host that claims to be running after a failed start, or a
+# managed callback into an unloading .apx, and none of the three reports itself.
+# The live probe cannot exercise them either -- there is no way to click a menu
+# item twice fast enough to test the concurrent-start rule.
+# WARNING: KEEP IT DevKit-FREE. The moment HostState.cpp needs ACAPinc.h it must
+# leave this list, and the only offline gate on the host's lifecycle goes with it.
+set (EVP_GRASSHOPPER_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
+
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it
 # wrong does not FAIL -- every surface of an element renders in the first
@@ -259,7 +272,8 @@ set (EVP_TEST_SOURCES
     test_pointcloudply.cpp
     test_pointcloudhierarchy.cpp
     test_pointcloudlod.cpp
-    test_cloudcompare.cpp)
+    test_cloudcompare.cpp
+    test_grasshopperhoststate.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
 # reference/ is gitignored, so a fresh clone has neither dependency. Say so here
@@ -291,6 +305,7 @@ target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
                                 ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
+                               ${EVP_GRASSHOPPER_SOURCES}
                                ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"

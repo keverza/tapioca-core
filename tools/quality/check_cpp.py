@@ -125,6 +125,10 @@ TIER_ASSIGNMENTS = {
     "ArchViz/task-history": "features",
     "Diagnostics": "features",
     "Geometry": "services",
+    # The in-process Rhino/Grasshopper host: a runtime lifecycle owned on behalf
+    # of whatever UI eventually drives it, in the same tier as Python/ for the
+    # same reason. It knows nothing about palettes and nothing about documents.
+    "Grasshopper": "services",
     "Metadata": "services",
     "NativeCommands": "features",
     "Notebook": "UI",
