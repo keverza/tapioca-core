@@ -55,7 +55,7 @@ namespace Tapioca.GrasshopperHost
         private const int StatusEditorUnavailable = 14;
         private const int StatusFaulted = 13;
 
-        private const uint AbiVersion = 2;
+        private const uint AbiVersion = 3;
         private const uint FlagLoadGrasshopper = 0x0001u;
         private const uint FlagShowEditor = 0x0002u;
 
@@ -69,7 +69,7 @@ namespace Tapioca.GrasshopperHost
             public uint StructSize;
             public uint AbiVersion;
             public uint Flags;
-            public uint Reserved;
+            public uint ArchicadJsonPort;
             public IntPtr RhinoSystemDir;
             public IntPtr LogPath;
         }
@@ -106,6 +106,9 @@ namespace Tapioca.GrasshopperHost
                 lock (Sync)
                 {
                     Log.Open(logPath);
+                    // Recorded, not re-derived: only native code can answer which
+                    // Archicad this process is, and it already has.
+                    GrasshopperSession.ArchicadJsonPort = request.ArchicadJsonPort;
                     return StartCore(rhinoSystemDir, request.Flags);
                 }
             }

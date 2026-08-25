@@ -31,7 +31,8 @@ extern "C" {
 
 // Bump on ANY change to the struct, the entry-point set, or a code's meaning.
 // 2: added ShowEditor/HideEditor for the Grasshopper Editor command (slice 1).
-#define TAPIOCA_GH_ABI_VERSION 2
+// 3: added archicadJsonPort to the start request (slice 1, Tapir).
+#define TAPIOCA_GH_ABI_VERSION 3
 
 // The managed type and method names hostfxr resolves. Kept here rather than at
 // the call site so the C# attribute and the C++ lookup can be diffed side by side.
@@ -80,10 +81,19 @@ enum TapiocaGhState {
 // and checked by the callee, so a field appended by a future slice is detectable
 // rather than read as garbage out of a shorter struct.
 struct TapiocaGhStartRequest {
-    uint32_t structSize;            // = sizeof (struct TapiocaGhStartRequest)
-    uint32_t abiVersion;            // = TAPIOCA_GH_ABI_VERSION
-    uint32_t flags;                 // TAPIOCA_GH_FLAG_*
-    uint32_t reserved;              // 0; keeps the pointers 8-byte aligned on both sides
+    uint32_t structSize; // = sizeof (struct TapiocaGhStartRequest)
+    uint32_t abiVersion; // = TAPIOCA_GH_ABI_VERSION
+    uint32_t flags;      // TAPIOCA_GH_FLAG_*
+    // THIS Archicad instance's JSON port, from ACAPI_Command_GetHttpConnectionPort;
+    // 0 when it could not be determined.
+    //
+    // It is here rather than left to the Grasshopper side to work out because it
+    // CANNOT be worked out there. Tapir's components default to 19723 and the
+    // plugin has no Archicad-instance discovery at all, so with two Archicad
+    // instances open the second one's definitions would silently drive the first
+    // one's model. Only code running inside this process can answer "which
+    // Archicad am I", and this is that answer, passed across once at startup.
+    uint32_t archicadJsonPort;
     const uint16_t* rhinoSystemDir; // UTF-16, NUL-terminated; NULL = let the resolver find Rhino
     const uint16_t* logPath;        // UTF-16, NUL-terminated; NULL = no managed log file
 };

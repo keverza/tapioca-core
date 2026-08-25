@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 
@@ -54,6 +55,19 @@ namespace Tapioca.GrasshopperHost
     {
         private static IDisposable _core;
         private static HostState _state = HostState.NotStarted;
+
+        /// <summary>
+        /// The Archicad JSON port this process listens on, handed over by the
+        /// native side at start.
+        /// </summary>
+        /// <remarks>
+        /// Kept here so the Tapir step of slice 1 has one place to read it from,
+        /// and so nothing on this side is ever tempted to guess it. Tapir's own
+        /// default is 19723 and it has no instance discovery, so a guess is
+        /// wrong the moment a second Archicad is open — and wrong quietly, by
+        /// driving the other instance's model.
+        /// </remarks>
+        internal static uint ArchicadJsonPort { get; set; }
 
         internal static HostState State
         {
@@ -135,7 +149,10 @@ namespace Tapioca.GrasshopperHost
                 return new StartOutcome(
                     StartOutcomeKind.Started,
                     "Rhino " + RhinoBoot.DescribeVersion() + " hosted from " + systemDirectory
-                    + (loadGrasshopper ? ", Grasshopper loaded." : ", Grasshopper not requested."));
+                    + (loadGrasshopper ? ", Grasshopper loaded." : ", Grasshopper not requested.")
+                    + (ArchicadJsonPort != 0
+                        ? " Archicad JSON port " + ArchicadJsonPort.ToString(CultureInfo.InvariantCulture) + "."
+                        : " Archicad JSON port unavailable."));
             }
             catch (Exception exception)
             {

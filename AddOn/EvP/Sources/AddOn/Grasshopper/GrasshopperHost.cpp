@@ -45,6 +45,7 @@ TapiocaGhHideEditorFn managedHideEditor = nullptr;
 GS::UniString lastMessage;
 GS::UniString runtimeDescription;
 GS::UniString assemblyDirectory;
+uint32_t archicadPort = 0;
 
 GS::UniString FromWide (const std::wstring& text)
 {
@@ -273,6 +274,30 @@ bool ForeignOpenNurbsLoaded (GS::UniString& detail)
 
     detail = FromWide (path);
     return true;
+}
+
+// THIS Archicad instance's JSON port — what a Tapir ConnectArchicad component
+// has to be pointed at.
+//
+// ACAPI_Command_GetHttpConnectionPort (ACAPinc.h: "Returns the HTTP port number,
+// on which Archicad is expecting requests") is the only authority for it, and it
+// is main-thread ACAPI, so it is read HERE, natively, on the menu command's own
+// thread — never from managed or Grasshopper code, which must not call ACAPI at
+// all. The answer is passed across the boundary once, as a plain integer.
+//
+// A failure is not fatal to a start: Rhino and Grasshopper work perfectly well
+// without Tapir, so this reports 0 and the host says so rather than refusing.
+uint32_t ArchicadJsonPort ()
+{
+    UShort port = 0;
+    const GSErrCode err = ACAPI_Command_GetHttpConnectionPort (&port);
+    if (err != NoError) {
+        Log (GS::UniString::Printf ("ACAPI_Command_GetHttpConnectionPort failed (%d); Tapir components will "
+                                    "have to be given a port by hand",
+                                    (int) err));
+        return 0;
+    }
+    return (uint32_t) port;
 }
 
 // The managed side's own account of what just happened, copied into memory we
@@ -506,7 +531,9 @@ bool GrasshopperHost::Start (GS::UniString& message)
     // starting it here would make the lifecycle evidence depend on a UI surface
     // that has not been designed yet.
     request.flags = TAPIOCA_GH_FLAG_LOAD_GRASSHOPPER;
-    request.reserved = 0;
+    request.archicadJsonPort = ArchicadJsonPort ();
+    archicadPort = request.archicadJsonPort;
+    Log (GS::UniString::Printf ("Archicad JSON port: %u", (unsigned int) archicadPort));
     request.rhinoSystemDir = nullptr; // let the Rhino.Inside resolver find it
     request.logPath = logPath.empty () ? nullptr : (const uint16_t*) logPath.c_str ();
 
@@ -648,6 +675,15 @@ GS::UniString GrasshopperHost::Describe () const
 
     if (!assemblyDirectory.IsEmpty ())
         text += GS::UniString ("\nAdd-on directory: ") + assemblyDirectory;
+
+    // Spelled out even when it is unavailable, because that is the case a user
+    // has to act on: the port is what a Tapir ConnectArchicad component must be
+    // given, and there is nowhere else to look it up for THIS instance.
+    if (archicadPort != 0)
+        text += GS::UniString::Printf ("\nArchicad JSON port (Tapir ConnectArchicad): %u", (unsigned int) archicadPort);
+    else if (lifecycle.IsRunning ())
+        text += GS::UniString ("\nArchicad JSON port: unavailable - a Tapir ConnectArchicad component will "
+                               "need one entered by hand");
 
     const std::string failure = lifecycle.LastError ();
     if (!failure.empty ())
