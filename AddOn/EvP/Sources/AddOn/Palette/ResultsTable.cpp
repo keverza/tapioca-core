@@ -3,38 +3,35 @@
 
 #include "Palette/ResultsTable.hpp"
 #include "Palette/PaletteMetrics.hpp"
-#include "Palette/PaletteScroll.hpp"   // F4 — the box reaches the panel through it
-#include "AddOnCommands.hpp"       // geomsrv::ExecuteNativeCommand — SetSelection
-#include "Python/PathUtils.hpp"    // AppendTextLine / ScanLogPath
+#include "Palette/PaletteScroll.hpp" // F4 — the box reaches the panel through it
+#include "AddOnCommands.hpp"         // geomsrv::ExecuteNativeCommand — SetSelection
+#include "Python/PathUtils.hpp"      // AppendTextLine / ScanLogPath
 
 #include "ObjectState.hpp"
 #include "ObjectStateJSONConversion.hpp"
 
-using namespace evp::palette;   // Margin — the seed rect only; PlaceAt gets the real one
+using namespace evp::palette; // Margin — the seed rect only; PlaceAt gets the real one
 
 namespace {
 
-constexpr short ResultsHeaderHeight   = 16;
-constexpr short ResultsScrollbarWidth = 18;   // reserve so columns don't run under it
-constexpr short ResultsMinColWidth    = 48;
-constexpr short ResultsMaxColWidth    = 640;
-constexpr short ResultsCellPadding    = 18;
+constexpr short ResultsHeaderHeight = 16;
+constexpr short ResultsScrollbarWidth = 18; // reserve so columns don't run under it
+constexpr short ResultsMinColWidth = 48;
+constexpr short ResultsMaxColWidth = 640;
+constexpr short ResultsCellPadding = 18;
 constexpr short ResultsAverageCharWidth = 7;
 
 short PreferredColumnWidth (const GS::UniString& text)
 {
     const Int32 width = (Int32) text.GetLength () * ResultsAverageCharWidth + ResultsCellPadding;
-    return (short) GS::Min ((Int32) ResultsMaxColWidth,
-                            GS::Max ((Int32) ResultsMinColWidth, width));
+    return (short) GS::Min ((Int32) ResultsMaxColWidth, GS::Max ((Int32) ResultsMinColWidth, width));
 }
 
-}   // namespace
+} // namespace
 
 namespace evp {
 
-ResultsTable::ResultsTable (const DG::Panel& panel, DG::ListBoxObserver& observer) :
-    panel    (panel),
-    observer (observer)
+ResultsTable::ResultsTable (const DG::Panel& panel, DG::ListBoxObserver& observer) : panel (panel), observer (observer)
 {
 }
 
@@ -43,9 +40,9 @@ void ResultsTable::Create ()
     // Starts with a horizontal scrollbar; Build swaps the scroll type live as the
     // panel is resized. Hidden until a command shows results.
     Build (true);
-    textBox = std::make_unique<DG::MultiLineEdit> (
-        panel, DG::Rect (Margin, 0, Margin + 100, height), DG::MultiLineEdit::HVScroll,
-        DG::EditControl::Frame, DG::EditControl::Update, DG::EditControl::ReadOnly);
+    textBox = std::make_unique<DG::MultiLineEdit> (panel, DG::Rect (Margin, 0, Margin + 100, height),
+                                                   DG::MultiLineEdit::HVScroll, DG::EditControl::Frame,
+                                                   DG::EditControl::Update, DG::EditControl::ReadOnly);
     textBox->Hide ();
 }
 
@@ -56,10 +53,9 @@ void ResultsTable::Create ()
 void ResultsTable::Build (bool withHScroll)
 {
     box = std::make_unique<DG::SingleSelListBox> (
-        panel, DG::Rect (Margin, 0, Margin + 100, height),
-        withHScroll ? DG::ListBox::HVScroll : DG::ListBox::VScroll, DG::ListBox::PartialItems,
-        DG::ListBox::Header, ResultsHeaderHeight, DG::ListBox::Frame);
-    box->Attach (observer);   // single click -> the shell selects the row's element
+        panel, DG::Rect (Margin, 0, Margin + 100, height), withHScroll ? DG::ListBox::HVScroll : DG::ListBox::VScroll,
+        DG::ListBox::PartialItems, DG::ListBox::Header, ResultsHeaderHeight, DG::ListBox::Frame);
+    box->Attach (observer); // single click -> the shell selects the row's element
     box->Hide ();
     hScroll = withHScroll;
 }
@@ -72,7 +68,7 @@ void ResultsTable::Clear ()
     box->Hide ();
     if (textBox != nullptr)
         textBox->Hide ();
-    visible     = false;
+    visible = false;
     showingText = false;
     columnCount = 0;
     rowGuids.Clear ();
@@ -102,6 +98,10 @@ void ResultsTable::Populate ()
         const GS::UniString header = ((UIndex) c < headers.GetSize ()) ? headers[c] : GS::UniString ();
         preferredColumnWidths.Push (PreferredColumnWidth (header));
     }
+    // DG's examples disable header synchronization before creating and sizing the
+    // fields. More importantly, each field needs distinct geometry before its cell
+    // text is assigned; overlapping every field at 0..100 leaves only tab 1 visible.
+    box->SetHeaderSynchronState (false);
     box->SetTabFieldCount (columnCount);
     // The header is its own layer with its own item count — without matching it to
     // the tab fields the labels clip and the extra columns come up blank.
@@ -110,18 +110,19 @@ void ResultsTable::Populate ()
     // A SYNCHRON header sizes itself and ignores SetHeaderItemSize, so LayoutColumns
     // could not move the boundaries: the first column ate the header and the second
     // was clipped to a few letters. Both DevKit examples that size a header by hand
-    // (DG_Test's LayerDialog and BuildingMaterialDialog) turn synchron off first,
-    // before any SetHeaderItemSize — so do that here, once the items exist.
-    box->SetHeaderSynchronState (false);
-
+    // (DG_Test's LayerDialog and BuildingMaterialDialog) turn synchron off before
+    // assigning field geometry or header sizes, as done above.
     for (short c = 0; c < columnCount; ++c) {
         // Positions/sizes are placeholders — LayoutColumns sets the real ones from
         // the live width. Left-justified, end-truncated (a value too wide gets an
         // ellipsis rather than spilling into the next column), header and data styled
         // alike so they read as one column.
-        box->SetTabFieldProperties ((short) (c + 1), 0, 100,
-                                    DG::ListBox::Left, DG::ListBox::EndTruncate);
-        box->SetHeaderItemSizeableFlag ((short) (c + 1), true);
+        const short begin = (short) (c * ResultsMinColWidth);
+        const short end = (short) (begin + ResultsMinColWidth);
+        box->SetTabFieldProperties ((short) (c + 1), begin, end, DG::ListBox::Left, DG::ListBox::EndTruncate);
+        // Header-only resizing would visually detach the label from its data field.
+        // Keep column geometry owned by LayoutColumns until both can move together.
+        box->SetHeaderItemSizeableFlag ((short) (c + 1), false);
         box->SetHeaderItemStyle ((short) (c + 1), DG::ListBox::Left, DG::ListBox::EndTruncate);
         const GS::UniString header = ((UIndex) c < headers.GetSize ()) ? headers[c] : GS::UniString ();
         box->SetHeaderItemText ((short) (c + 1), header);
@@ -138,8 +139,8 @@ void ResultsTable::Populate ()
         const short row = box->GetItemCount ();
         for (short c = 0; c < columnCount; ++c) {
             const GS::UniString cell = ((UIndex) c < cells.GetSize ()) ? cells[c] : GS::UniString ();
-            preferredColumnWidths[(UIndex) c] = GS::Max (preferredColumnWidths[(UIndex) c],
-                                                          PreferredColumnWidth (cell));
+            preferredColumnWidths[(UIndex) c] =
+                GS::Max (preferredColumnWidths[(UIndex) c], PreferredColumnWidth (cell));
             box->SetTabItemText (row, (short) (c + 1), cell);
         }
 
@@ -148,9 +149,8 @@ void ResultsTable::Populate ()
         // row at the theme's default colour.
         GS::Array<GS::Int32> rgb;
         if (os.Get ("rgb", rgb) && rgb.GetSize () == 3)
-            box->SetItemColor (row, Gfx::Color ((unsigned char) rgb[0],
-                                                (unsigned char) rgb[1],
-                                                (unsigned char) rgb[2]));
+            box->SetItemColor (row,
+                               Gfx::Color ((unsigned char) rgb[0], (unsigned char) rgb[1], (unsigned char) rgb[2]));
 
         // Optional element GUID: a click on this row selects that element. Kept in a
         // parallel array (empty when absent) so the shell's selection handler can
@@ -159,7 +159,10 @@ void ResultsTable::Populate ()
         os.Get ("guid", guid);
         rowGuids.Push (guid);
     }
+    // Match the DevKit's bulk-fill pattern. EnableDraw alone does not guarantee
+    // that tab text cached while drawing was disabled is painted immediately.
     box->EnableDraw ();
+    box->Redraw ();
 }
 
 // Columns split the table's inner width evenly UNTIL that would make them narrower
@@ -182,8 +185,7 @@ void ResultsTable::LayoutColumns (short innerWidth)
         short beg = 0;
         for (short prior = 0; prior < c; ++prior)
             beg = (short) (beg + preferredColumnWidths[(UIndex) prior]);
-        const short end = (fit && c == columnCount - 1) ? usable
-                                                        : (short) (beg + preferredColumnWidths[(UIndex) c]);
+        const short end = (fit && c == columnCount - 1) ? usable : (short) (beg + preferredColumnWidths[(UIndex) c]);
         box->SetTabFieldBeginEndPosition ((short) (c + 1), beg, end);
         box->SetHeaderItemSize ((short) (c + 1), (short) (end - beg));
     }
@@ -214,8 +216,7 @@ void ResultsTable::EnsureScrollType (short innerWidth)
     Populate ();
 }
 
-void ResultsTable::Show (const GS::Array<GS::UniString>& newHeaders,
-                         const GS::Array<GS::UniString>& rowJsons)
+void ResultsTable::Show (const GS::Array<GS::UniString>& newHeaders, const GS::Array<GS::UniString>& rowJsons)
 {
     if (box == nullptr)
         return;
@@ -225,7 +226,7 @@ void ResultsTable::Show (const GS::Array<GS::UniString>& newHeaders,
 
     // Cache first: a scroll-type rebuild (in PlaceAt) refills from these.
     headers = newHeaders;
-    rows    = rowJsons;
+    rows = rowJsons;
 
     Populate ();
     showingText = false;
@@ -275,6 +276,10 @@ short ResultsTable::PlaceAt (short bandTop, short left, short right, const Palet
     // keeps its full height either way, so nothing below it moves.
     clip.PlaceClamped (box.get (), DG::Rect (left, bandTop, right, (short) (bandTop + height)));
     LayoutColumns (innerWidth);
+    // EnsureScrollType may have rebuilt and populated a hidden 100px seed box.
+    // Repaint only after the fitted geometry is applied, or its last tab can retain
+    // the seed box's clipped display when the horizontal scrollbar disappears.
+    box->Redraw ();
     return height;
 }
 
@@ -304,15 +309,13 @@ void ResultsTable::SelectRowElement (short listRow) const
     GS::Array<GS::ObjectState> elements;
     elements.Push (element);
     params.Add ("elements", elements);
-    params.Add ("add", false);   // replace: click one row, select one element
+    params.Add ("add", false); // replace: click one row, select one element
 
-    const geomsrv::NativeCommandResult result =
-        geomsrv::ExecuteNativeCommand (GS::String ("SetSelection"), params);
+    const geomsrv::NativeCommandResult result = geomsrv::ExecuteNativeCommand (GS::String ("SetSelection"), params);
     if (!result.ok) {
-        AppendTextLine (ScanLogPath (),
-            GS::UniString::Printf ("results row select: SetSelection failed for %T: %T",
-                                   guid.ToPrintf (), result.error.ToPrintf ()));
+        AppendTextLine (ScanLogPath (), GS::UniString::Printf ("results row select: SetSelection failed for %T: %T",
+                                                               guid.ToPrintf (), result.error.ToPrintf ()));
     }
 }
 
-}   // namespace evp
+} // namespace evp
