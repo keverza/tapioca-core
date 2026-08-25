@@ -104,14 +104,17 @@ void CommandListPanel::Create ()
     //     showed nothing, because DG does not clip siblings and will not repaint one
     //     because another drew.
     //
-    // So NEITHER side draws a frame by hand: this cell asks DG for one, with the same
-    // ClientFrame the platform puts round an edit box, and takes exactly the field's
-    // top and bottom. Two native frames, drawn by the same code on the same rows,
-    // cannot disagree about where a pixel is — and where they meet is the divider a
-    // combo draws between its text and its arrow. The cell's own paint is interior
-    // only: the hover wash and the chevron.
+    // So NEITHER side draws a frame by hand: this cell asks DG for one and takes
+    // exactly the field's top and bottom. Two native frames, drawn by the same code
+    // on the same rows, cannot disagree about where a pixel is — and where they meet
+    // is the divider a combo draws between its text and its arrow. The cell's own
+    // paint is interior only: the hover wash and the chevron.
+    //
+    // StaticFrame, which is DG's FLAT border. ClientFrame is the other candidate and
+    // was tried first; it is the sunken 3D client edge, which read as a well next to
+    // a flat field rather than as the other half of it.
     comboFrame = std::make_unique<DG::UserItem> (panel, DG::Rect (Margin, 0, Margin + 100, RowHeight),
-                                                 DG::UserItem::Normal, DG::UserItem::ClientFrame);
+                                                 DG::UserItem::Normal, DG::UserItem::StaticFrame);
     comboFrame->SetBackgroundColor (FieldBackground ());
     // Hover feedback needs the pointer's comings and goings, and DG does not send
     // them to a user item unless it is asked to track the mouse.

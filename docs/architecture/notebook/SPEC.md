@@ -1,8 +1,10 @@
-# Notebook Specification
+# Notebook Specification (Superseded)
 
-Status: canonical specification for `internal work item`. Live task state is in
-`private development tasks/notebook.yaml`; the UI technology decision is deliberately open in
-`private development decisions/ADR-005-notebook-ui-technology.md`.
+Status: superseded on 2026-08-25 by the private workspace decision to use hosted
+Grasshopper as the visual workflow editor and a Grasshopper Player as the execution
+surface. The text below is retained as historical design input only. Do not continue
+the Notebook UI, Python workflow document model, or UI-technology experiment from
+this specification.
 
 ## Scope And Ownership
 

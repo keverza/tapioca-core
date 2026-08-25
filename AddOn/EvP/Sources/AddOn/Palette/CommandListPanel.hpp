@@ -163,9 +163,9 @@ class CommandListPanel {
     // keystroke, so live filtering cannot hang off it: the shell's idle poll calls
     // RefreshSearch, which compares the field's text to this.
     std::unique_ptr<DG::TextEdit> searchField;
-    // The arrow half: a user item ABUTTING the field, carrying DG's own ClientFrame
-    // so the platform draws its border with the same code — and therefore the same
-    // pixels — as the field's. Not a button (a button cannot be given the field's
+    // The arrow half: a user item ABUTTING the field, carrying DG's own (flat)
+    // StaticFrame so the platform draws its border with the same code — and
+    // therefore the same pixels — as the field's. Not a button (a button cannot be given the field's
     // background) and not a hand-drawn border (a border in logical units cannot be
     // aligned to a native frame snapped in device pixels).
     std::unique_ptr<DG::UserItem> comboFrame;
