@@ -68,6 +68,8 @@ class PreviewPanel {
     void ReleaseMouseInput ();
     bool PlanInputAvailable () const;
     void FitSelectedPlanFrame ();
+    void UpdatePlanViewport ();
+    void UpdateOpacity ();
 
     const DG::Panel& panel;
     DG::CheckItemObserver& checkObserver;
@@ -81,6 +83,8 @@ class PreviewPanel {
     std::unique_ptr<DG::PopUp> nodeSelector;
     std::unique_ptr<DG::ScrollBar> frameScrubber;
     std::unique_ptr<DG::LeftText> frameLabel;
+    std::unique_ptr<DG::LeftText> opacityLabel;
+    std::unique_ptr<DG::ScrollBar> opacitySlider;
     std::unique_ptr<DG::Button> overlayButton;
     std::unique_ptr<DG::Button> popOutButton;
     std::unique_ptr<DG::Button> returnButton;
@@ -102,6 +106,7 @@ class PreviewPanel {
     void* capturedWindow = nullptr;
     bool planFitPending = false;
     bool planCameraSelectionValid = false;
+    int overlayOpacityPercent = 55;
     size_t planCameraNode = 0;
     size_t planCameraFrame = 0;
     uint64_t freshAfterGeneration = 0;

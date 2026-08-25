@@ -8,7 +8,6 @@ namespace {
 constexpr int ControlHeight = 22;
 constexpr int Gap = 6;
 constexpr int CanvasSlotHeight = 224;
-constexpr int ExpandedHeight = CanvasSlotHeight + 3 * ControlHeight + 3 * Gap;
 
 bool IsExternal (Host host)
 {
@@ -84,7 +83,7 @@ bool CanvasInputState::IsDragging () const
     return heldButtons != 0;
 }
 
-Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCollapsed)
+Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCollapsed, bool plan2d)
 {
     Layout layout;
     if (!enabled) {
@@ -93,7 +92,8 @@ Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCo
         return layout;
     }
 
-    layout.height = canvasCollapsed ? 2 * ControlHeight + Gap : ExpandedHeight;
+    layout.height = canvasCollapsed ? 2 * ControlHeight + Gap
+                                    : CanvasSlotHeight + (plan2d ? 4 : 3) * ControlHeight + (plan2d ? 4 : 3) * Gap;
     const int top = bottom - layout.height;
     layout.enableControl = { left, top, right, top + ControlHeight };
 
@@ -119,6 +119,13 @@ Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCo
     layout.nodeSelector = { left, footerTop, left + width / 2, footerTop + ControlHeight };
     layout.scrubber = { left + width / 2 + Gap, footerTop, right - labelWidth - Gap, footerTop + ControlHeight };
     layout.frameLabel = { right - labelWidth, footerTop, right, footerTop + ControlHeight };
+    if (plan2d) {
+        const int opacityTop = footerTop + ControlHeight + Gap;
+        const int opacityLabelWidth = std::min (150, std::max (100, width / 3));
+        layout.opacityLabel = { left, opacityTop, left + opacityLabelWidth, opacityTop + ControlHeight };
+        layout.opacitySlider = { left + opacityLabelWidth + Gap, opacityTop, right, opacityTop + ControlHeight };
+        layout.showOverlayOpacity = true;
+    }
     layout.showCanvas = true;
     layout.showPreviewControls = true;
     return layout;

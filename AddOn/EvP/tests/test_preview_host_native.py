@@ -205,7 +205,7 @@ def test_plan_band_uses_persistent_camera_and_canvas_scoped_input():
     select = panel[panel.index("void PreviewPanel::SelectFrame") :]
     select = select[: select.index("void PreviewPanel::UpdateLabels")]
     wheel = panel[panel.index("bool PreviewPanel::HandleWheelTracked") :]
-    wheel = wheel[: wheel.index("bool PreviewPanel::EmbeddedInputAvailable")]
+    wheel = wheel[: wheel.index("bool PreviewPanel::RefreshPointerInput")]
 
     assert "planCamera.Transform ()" in paint
     assert "FitFrame" not in paint
@@ -213,3 +213,27 @@ def test_plan_band_uses_persistent_camera_and_canvas_scoped_input():
     assert 'event.GetItem () == canvas.get ()' in wheel
     assert "planCamera.ZoomAt" in wheel
     assert "HandleUserItemDoubleClicked" in panel
+    assert "GetClientRect (hwnd, &rect)" in paint
+    assert "GetResolutionFactor" in panel
+
+
+def test_plan_overlay_opacity_is_interactive_and_owner_scoped():
+    panel = _PANEL.read_text(encoding="utf-8") + (
+        _ADDON / "Palette" / "PreviewPanelSupport.cpp"
+    ).read_text(encoding="utf-8")
+    overlay = (_ADDON / "PlanOverlay" / "OverlayWindow.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "opacitySlider" in panel
+    assert "SetOpacity (geomsrv::planoverlay::Owner::Watch" in panel
+    assert "s_owner != owner" in overlay
+    assert "flags |= LWA_COLORKEY" in overlay
+
+
+def test_centered_gdi_text_is_centered_on_both_axes():
+    painter = (_ADDON / "Annotation" / "GdiPainter.cpp").read_text(
+        encoding="utf-8"
+    )
+    assert "anchor.x - extent.cx / 2" in painter
+    assert "anchor.y - extent.cy / 2" in painter

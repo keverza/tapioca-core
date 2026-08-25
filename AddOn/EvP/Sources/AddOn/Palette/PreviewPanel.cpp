@@ -101,6 +101,15 @@ void PreviewPanel::Create ()
     frameScrubber->Attach (scrollObserver);
     frameScrubber->SetPageSize (1);
     frameLabel = std::make_unique<DG::LeftText> (panel, seed);
+    opacityLabel = std::make_unique<DG::LeftText> (panel, seed);
+    opacitySlider = std::make_unique<DG::ScrollBar> (panel, seed, DG::ScrollBar::Normal, DG::ScrollBar::Focusable,
+                                                     DG::ScrollBar::NoAutoScroll);
+    opacitySlider->Attach (scrollObserver);
+    opacitySlider->SetMin (0);
+    opacitySlider->SetMax (100);
+    opacitySlider->SetPageSize (5);
+    opacitySlider->SetValue (overlayOpacityPercent);
+    opacityLabel->SetText (GS::UniString::Printf ("Overlay opacity %d%%", overlayOpacityPercent));
 
     overlayButton = std::make_unique<DG::Button> (panel, seed);
     popOutButton = std::make_unique<DG::Button> (panel, seed);
@@ -120,7 +129,9 @@ short PreviewPanel::Height () const
 {
     if (!active)
         return 0;
-    return (short) previewpanel::BuildLayout (0, 300, 0, IsEnabled (), collapsed || host.CanvasCollapsed ()).height;
+    return (short) previewpanel::BuildLayout (0, 300, 0, IsEnabled (), collapsed || host.CanvasCollapsed (),
+                                              kind == "plan2d")
+        .height;
 }
 
 void PreviewPanel::SetKind (const GS::UniString& kind)
@@ -196,14 +207,16 @@ void PreviewPanel::PlaceAt (short left, short right, short bottom)
         nodeSelector->Hide ();
         frameScrubber->Hide ();
         frameLabel->Hide ();
+        opacityLabel->Hide ();
+        opacitySlider->Hide ();
         overlayButton->Hide ();
         popOutButton->Hide ();
         returnButton->Hide ();
         hideButton->Hide ();
         return;
     }
-    const previewpanel::Layout layout =
-        previewpanel::BuildLayout (left, right, bottom, IsEnabled (), collapsed || host.CanvasCollapsed ());
+    const previewpanel::Layout layout = previewpanel::BuildLayout (
+        left, right, bottom, IsEnabled (), collapsed || host.CanvasCollapsed (), kind == "plan2d");
     const auto rect = [] (const previewpanel::Rect& value) {
         return DG::Rect ((short) value.left, (short) value.top, (short) value.right, (short) value.bottom);
     };
@@ -215,6 +228,8 @@ void PreviewPanel::PlaceAt (short left, short right, short bottom)
         nodeSelector->Hide ();
         frameScrubber->Hide ();
         frameLabel->Hide ();
+        opacityLabel->Hide ();
+        opacitySlider->Hide ();
         overlayButton->Hide ();
         popOutButton->Hide ();
         returnButton->Hide ();
@@ -234,18 +249,27 @@ void PreviewPanel::PlaceAt (short left, short right, short bottom)
         nodeSelector->Hide ();
         frameScrubber->Hide ();
         frameLabel->Hide ();
+        opacityLabel->Hide ();
+        opacitySlider->Hide ();
         return;
     }
 
     canvas->SetRect (rect (layout.canvas));
-    if (kind == "plan2d") {
-        planCamera.SetViewport (layout.canvas.Width (), layout.canvas.Height ());
-        if (planFitPending && planCamera.Fit ())
-            planFitPending = false;
-    }
+    if (kind == "plan2d")
+        UpdatePlanViewport ();
     nodeSelector->SetRect (rect (layout.nodeSelector));
     frameScrubber->SetRect (rect (layout.scrubber));
     frameLabel->SetRect (rect (layout.frameLabel));
+    if (layout.showOverlayOpacity) {
+        opacityLabel->SetRect (rect (layout.opacityLabel));
+        opacitySlider->SetRect (rect (layout.opacitySlider));
+        opacityLabel->Show ();
+        opacitySlider->Show ();
+    }
+    else {
+        opacityLabel->Hide ();
+        opacitySlider->Hide ();
+    }
     canvas->Show ();
     nodeSelector->Show ();
     frameScrubber->Show ();
@@ -594,6 +618,7 @@ void PreviewPanel::PublishOverlay ()
     }
 
     geomsrv::planoverlay::Style style;
+    style.alpha = (overlayOpacityPercent * 255 + 50) / 100;
     const geomsrv::planoverlay::SessionStart started =
         geomsrv::planoverlay::BeginCurrentPlanSession (geomsrv::planoverlay::Owner::Watch, style, 33, overlaySession);
     if (started != geomsrv::planoverlay::SessionStart::Opened &&
@@ -667,6 +692,8 @@ bool PreviewPanel::HandleButtonClicked (const DG::ButtonClickEvent& event)
         nodeSelector->Show ();
         frameScrubber->Show ();
         frameLabel->Show ();
+        opacityLabel->Show ();
+        opacitySlider->Show ();
         canvas->Redraw ();
         return true;
     }
@@ -685,12 +712,16 @@ bool PreviewPanel::HandleButtonClicked (const DG::ButtonClickEvent& event)
             nodeSelector->Hide ();
             frameScrubber->Hide ();
             frameLabel->Hide ();
+            opacityLabel->Hide ();
+            opacitySlider->Hide ();
         }
         else {
             canvas->Show ();
             nodeSelector->Show ();
             frameScrubber->Show ();
             frameLabel->Show ();
+            opacityLabel->Show ();
+            opacitySlider->Show ();
             canvas->Redraw ();
         }
         return true;
@@ -722,18 +753,28 @@ bool PreviewPanel::HandlePopUpChanged (const DG::PopUpChangeEvent& event)
 
 bool PreviewPanel::HandleScrollBarChanged (const DG::ScrollBarChangeEvent& event)
 {
-    if (event.GetSource () != frameScrubber.get ())
-        return false;
-    SelectFrame ((size_t) frameScrubber->GetValue ());
-    return true;
+    if (event.GetSource () == frameScrubber.get ()) {
+        SelectFrame ((size_t) frameScrubber->GetValue ());
+        return true;
+    }
+    if (event.GetSource () == opacitySlider.get ()) {
+        UpdateOpacity ();
+        return true;
+    }
+    return false;
 }
 
 bool PreviewPanel::HandleScrollBarTracked (const DG::ScrollBarTrackEvent& event)
 {
-    if (event.GetSource () != frameScrubber.get ())
-        return false;
-    SelectFrame ((size_t) frameScrubber->GetValue ());
-    return true;
+    if (event.GetSource () == frameScrubber.get ()) {
+        SelectFrame ((size_t) frameScrubber->GetValue ());
+        return true;
+    }
+    if (event.GetSource () == opacitySlider.get ()) {
+        UpdateOpacity ();
+        return true;
+    }
+    return false;
 }
 
 bool PreviewPanel::HandleUserItemUpdate (const DG::UserItemUpdateEvent& event)
@@ -752,8 +793,12 @@ bool PreviewPanel::HandleUserItemUpdate (const DG::UserItemUpdateEvent& event)
         }
         return true;
     }
+    UpdatePlanViewport ();
     HDC hdc = static_cast<HDC> (event.GetDrawContext ());
     RECT rect { 0, 0, canvas->GetWidth (), canvas->GetHeight () };
+    HWND const hwnd = static_cast<HWND> (CanvasWindow ());
+    if (hwnd != nullptr)
+        ::GetClientRect (hwnd, &rect);
     FillRect (hdc, &rect, static_cast<HBRUSH> (GetStockObject (WHITE_BRUSH)));
     const geomsrv::annotation::Frame* frame = drawList.SelectedFrame ();
     if (frame)
@@ -767,8 +812,9 @@ bool PreviewPanel::HandleUserItemMouseDown (const DG::UserItemMouseDownEvent& ev
         if (!event.IsWheelButton ())
             return false;
         const DG::Point point = event.GetMouseOffset ();
+        const double resolution = (std::max) (0.1, canvas->GetResolutionFactor ());
         const previewpanel::PlanPointerAction action =
-            planCamera.MiddleDown (point.GetX (), point.GetY (), ::GetTickCount64 ());
+            planCamera.MiddleDown (point.GetX () * resolution, point.GetY () * resolution, ::GetTickCount64 ());
         if (action == previewpanel::PlanPointerAction::Fitted)
             canvas->Redraw ();
         HWND const hwnd = static_cast<HWND> (CanvasWindow ());
@@ -873,7 +919,8 @@ bool PreviewPanel::HandleUserItemMouseMoved (const DG::UserItemMouseMoveEvent& e
     if (PlanInputAvailable () && event.GetSource () == canvas.get ()) {
         if (planCamera.IsCaptured ()) {
             const DG::Point point = event.GetMouseOffset ();
-            if (planCamera.PanTo (point.GetX (), point.GetY ()))
+            const double resolution = (std::max) (0.1, canvas->GetResolutionFactor ());
+            if (planCamera.PanTo (point.GetX () * resolution, point.GetY () * resolution))
                 canvas->Redraw ();
         }
         return true;
@@ -909,39 +956,6 @@ bool PreviewPanel::HandleWheelTracked (const DG::PanelWheelTrackEvent& event)
         return false;
     geomsrv::archviz::InputRingBuffer::Get ().PushWheel (event.GetYTrackValue ());
     return true;
-}
-
-bool PreviewPanel::EmbeddedInputAvailable () const
-{
-    return IsEnabled () && paletteVisible && kind == "3d" && canvas && host.current == Host::Band && !host.transition &&
-           !collapsed;
-}
-
-bool PreviewPanel::PlanInputAvailable () const
-{
-    return IsEnabled () && paletteVisible && kind == "plan2d" && canvas && !collapsed;
-}
-
-void PreviewPanel::FitSelectedPlanFrame ()
-{
-    geomsrv::annotation::Point3 minimum;
-    geomsrv::annotation::Point3 maximum;
-    const geomsrv::annotation::Frame* const frame = drawList.SelectedFrame ();
-    if (frame == nullptr || !geomsrv::annotation::GetBounds (*frame, minimum, maximum)) {
-        planCamera.SetBounds ({});
-        planFitPending = false;
-        return;
-    }
-    planCamera.SetBounds ({ minimum.x, minimum.y, maximum.x, maximum.y, true });
-    planFitPending = !planCamera.Fit ();
-}
-
-void* PreviewPanel::CanvasWindow () const
-{
-    if (!canvas)
-        return nullptr;
-    HWND const hwnd = DGGetDialogItemWindow (panel.GetId (), canvas->GetId ());
-    return hwnd != nullptr && ::IsWindow (hwnd) ? hwnd : nullptr;
 }
 
 bool PreviewPanel::RefreshPointerInput ()

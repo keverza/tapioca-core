@@ -71,7 +71,8 @@ void Text (HDC hdc, const std::string& text, POINT anchor, COLORREF colour, doub
     SIZE extent {};
     GetTextExtentPoint32W (hdc, wide.c_str (), static_cast<int> (wide.size ()), &extent);
     const LONG x = centered ? anchor.x - extent.cx / 2 : anchor.x + static_cast<LONG> (std::lround (5.0 * dpiScale));
-    const LONG y = centered ? anchor.y : anchor.y - extent.cy - static_cast<LONG> (std::lround (3.0 * dpiScale));
+    const LONG y =
+        centered ? anchor.y - extent.cy / 2 : anchor.y - extent.cy - static_cast<LONG> (std::lround (3.0 * dpiScale));
     TextOutW (hdc, x, y, wide.c_str (), static_cast<int> (wide.size ()));
     if (oldFont != nullptr)
         SelectObject (hdc, oldFont);

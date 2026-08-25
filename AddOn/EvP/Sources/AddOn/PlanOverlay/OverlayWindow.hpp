@@ -141,6 +141,10 @@ void SetGeometry (const std::vector<Polyline>& polylines);
 // clears only that layer, so Return never destroys command-owned polylines.
 void SetAnnotationFrame (std::shared_ptr<const annotation::Frame> frame);
 
+// Change whole-window opacity without recreating the click-through overlay.
+// Refuses callers that do not own the current window.
+bool SetOpacity (Owner owner, int alpha);
+
 // --- tracking --------------------------------------------------------------
 
 // Start/stop the pan+zoom poll. There is NO notification for pan or zoom in the

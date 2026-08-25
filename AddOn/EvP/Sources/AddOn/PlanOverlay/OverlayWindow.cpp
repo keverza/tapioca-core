@@ -487,6 +487,18 @@ Owner CurrentOwner ()
     return Current () != nullptr ? s_owner : Owner::None;
 }
 
+bool SetOpacity (Owner owner, int alpha)
+{
+    HWND const window = Current ();
+    if (window == nullptr || s_owner != owner || !s_style.layered)
+        return false;
+    s_style.alpha = std::clamp (alpha, 0, 255);
+    DWORD flags = LWA_ALPHA;
+    if (s_style.hatch)
+        flags |= LWA_COLORKEY;
+    return SetLayeredWindowAttributes (window, KEY_COLOUR, static_cast<BYTE> (s_style.alpha), flags) != FALSE;
+}
+
 bool IsOverlayWindow (HWND window)
 {
     return window != nullptr && IsWindow (window) && HasOverlayClass (window);

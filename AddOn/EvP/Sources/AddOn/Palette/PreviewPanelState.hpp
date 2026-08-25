@@ -55,6 +55,8 @@ struct Layout {
     Rect nodeSelector;
     Rect scrubber;
     Rect frameLabel;
+    Rect opacityLabel;
+    Rect opacitySlider;
     Rect enableControl;
     Rect overlayButton;
     Rect popOutButton;
@@ -62,9 +64,10 @@ struct Layout {
     Rect hideButton;
     bool showCanvas = false;
     bool showPreviewControls = false;
+    bool showOverlayOpacity = false;
 };
 
-Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCollapsed);
+Layout BuildLayout (int left, int right, int bottom, bool enabled, bool canvasCollapsed, bool plan2d = false);
 
 } // namespace evp::previewpanel
 
