@@ -41,9 +41,9 @@ ControlPalette::ControlPalette ()
       // Create () calls in the body. `params` borrows the pen pool, `commandsPanel`
       // the .grc list box and `serverBand` the toggle and the address line — see the
       // header.
-      serverBand (runToggle, urlText), results (*this, *this), actionBar (*this, *this), selectionSets (*this, *this),
-      description (*this, *this), scroll (*this, *this), commandsPanel (*this, *this, commandList),
-      params (*this, *this, penPool)
+      serverBand (runToggle, urlText), results (*this, *this), preview (*this, *this, *this, *this, *this),
+      actionBar (*this, *this), selectionSets (*this, *this), description (*this, *this), scroll (*this, *this),
+      commandsPanel (*this, *this, commandList), params (*this, *this, penPool)
 {
     evp::StartupTrace ("ControlPalette: constructor entered");
 }
@@ -113,6 +113,7 @@ void ControlPalette::Initialize ()
     continueButton->Hide ();
 
     results.Create ();
+    preview.Create ();
     description.Create ();
 
     // Horizontal splitters report a dialog-relative y used as the new band height.
@@ -226,6 +227,7 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
     RefreshRunGate ();
 
     RefreshSearchFilter ();
+    preview.PollRetained ();
 }
 
 // F2 — see the header. One string compare per idle is the whole cost.
@@ -343,32 +345,10 @@ void ControlPalette::PanelHotkeyPressed (const DG::PanelHotKeyEvent& ev, bool* p
         *processed = true;
 }
 
-// F4 — the wheel scrolls the column from anywhere over the panel, which is how
-// Archicad's own tool panels behave (they have no visible bar at all). `processed`
-// is set only when the offset actually MOVED: a panel with nothing to scroll must
-// leave the event alone rather than swallow it.
-void ControlPalette::PanelWheelTracked (const DG::PanelWheelTrackEvent& ev, bool* processed)
-{
-    // A list box scrolls itself. Over the command list or the results table the
-    // wheel belongs to THAT list — otherwise one notch moves two things at once,
-    // which is the nested-scroll trap this panel walks straight into: both bands
-    // keep their own scrollbars and their splitter-set heights on purpose.
-    const DG::Item* const over = ev.GetItem ();
-    if (commandsPanel.IsSource (over) || results.IsSource (over))
-        return;
-
-    if (!scroll.Wheel (ev.GetYTrackValue ()))
-        return;
-
-    Layout (); // ends in RedrawItems — one repaint per notch, none if nothing moved
-    if (processed != nullptr)
-        *processed = true;
-}
-
 // The bar was released on a new value.
 void ControlPalette::ScrollBarChanged (const DG::ScrollBarChangeEvent& ev)
 {
-    if (scroll.IsSource (ev.GetSource ()) && scroll.FollowBar ())
+    if (!preview.HandleScrollBarChanged (ev) && scroll.IsSource (ev.GetSource ()) && scroll.FollowBar ())
         Layout ();
 }
 
@@ -376,7 +356,7 @@ void ControlPalette::ScrollBarChanged (const DG::ScrollBarChangeEvent& ev)
 // when the thumb was let go would not read as a scroll bar at all.
 void ControlPalette::ScrollBarTracked (const DG::ScrollBarTrackEvent& ev)
 {
-    if (scroll.IsSource (ev.GetSource ()) && scroll.FollowBar ())
+    if (!preview.HandleScrollBarTracked (ev) && scroll.IsSource (ev.GetSource ()) && scroll.FollowBar ())
         Layout ();
 }
 
@@ -455,6 +435,7 @@ void ControlPalette::RebuildCommandBlock ()
     actionBar.Clear ();
 
     const evp::CommandInfo* const info = SelectedCommand ();
+    preview.SetKind (info != nullptr ? info->previewKind : GS::UniString ("text"));
     if (info == nullptr) {
         // Still lay out: the rows just cleared have to be given up, and a query that
         // matches nothing is reached WITH the dropdown open — its "no command
@@ -526,10 +507,7 @@ void ControlPalette::CheckItemChanged (const DG::CheckItemChangeEvent& ev)
 
 void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
 {
-    // The command combo's drop arrow. Opening or closing it changes the column's
-    // height, so the whole panel reflows — and the rows the list vacates keep their
-    // old pixels without the redraw.
-    if (commandsPanel.HandleButtonClicked (ev)) {
+    if (preview.HandleButtonClicked (ev)) {
         Layout ();
         Redraw ();
         return;
@@ -627,7 +605,7 @@ void ControlPalette::PopUpChanged (const DG::PopUpChangeEvent& ev)
     // The command's Action, or an Enum other rows follow. Only the parameter block
     // owns popups, so there is nothing else this can be.
     bool reflow = false;
-    if (params.HandlePopUpChanged (ev, reflow)) {
+    if (!preview.HandlePopUpChanged (ev) && params.HandlePopUpChanged (ev, reflow)) {
         if (reflow)
             ReflowParams ();
         RefreshRunGate (); // a mode change can hide the row that was blocking Run

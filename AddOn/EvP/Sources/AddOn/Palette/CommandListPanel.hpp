@@ -20,7 +20,8 @@ namespace evp {
 //
 // The combo is built by hand because DG HAS NO EDITABLE COMBO BOX. DG::PopUp is a
 // real native dropdown but cannot be typed into, and typing is half of what this
-// control is for — so the closed state is a DG::TextEdit plus a small arrow button,
+// control is for — so the closed state is a DG::TextEdit plus a small drawn arrow
+// cell (same height and background colour as the field),
 // and "dropped down" means the .grc list box is placed directly beneath them.
 //
 // The list EXPANDS INLINE rather than floating over the parameter block below it:
@@ -86,8 +87,24 @@ class CommandListPanel {
     }
 
     // The drop arrow was pressed — toggles. True when the press was ours, so the
-    // shell knows to reflow.
-    bool HandleButtonClicked (const DG::ButtonClickEvent& ev);
+    // shell knows to reflow. The arrow is a drawn cell rather than a button, so
+    // this is a mouse-down, not a click event.
+    bool HandleUserItemMouseDown (const DG::UserItemMouseDownEvent& ev);
+
+    // ...and the same cell's paint: the field's background and border, then a
+    // chevron pointing the way the list is about to move. True when the update
+    // was ours.
+    bool HandleUserItemUpdate (const DG::UserItemUpdateEvent& ev);
+
+    // The display's scaling changed. The cell draws hairlines against the DEVICE
+    // pixel grid, so its paint depends on a number that is per-monitor and can
+    // change while the palette is open.
+    bool HandleResolutionChanged (const DG::Item* item);
+
+    // The pointer moved inside the cell, or left it (`inside` false). Three events,
+    // one handler — the cell's answer to all of them is the same repaint, and all
+    // three have to be asked WHERE, because only the arrow strip highlights.
+    bool HandleUserItemHover (const DG::Item* item, const DG::Point& at, bool inside);
 
     // Collapse. Every way out of the dropdown ends here — a row clicked (the
     // ordinary one), Esc, the arrow pressed again, a run starting — because they all
@@ -127,6 +144,14 @@ class CommandListPanel {
     // filtering by it would leave the list showing one row — its own selection.
     GS::UniString Query () const;
 
+    // Is a point inside the cell over the arrow strip, rather than over the border
+    // the cell draws around the field?
+    bool InArrowStrip (const DG::Point& at) const;
+
+    // Repaint the arrow cell alone. Called wherever `open` changes, because the
+    // chevron's direction is drawn from it.
+    void RedrawCombo ();
+
     // Put the selection's title back in the field and stop treating it as a query.
     // Every path out of `editing` goes through here, because `lastSearchText` has to
     // move with the text or the idle poll would read the restored text as typing.
@@ -143,7 +168,12 @@ class CommandListPanel {
     // keystroke, so live filtering cannot hang off it: the shell's idle poll calls
     // RefreshSearch, which compares the field's text to this.
     std::unique_ptr<DG::TextEdit> searchField;
-    std::unique_ptr<DG::Button> dropButton;
+    // The combo's BOX — outline, divider, arrow strip and chevron — drawn on one
+    // full-width user item that the (frameless) field sits on top of. Not a button:
+    // a button cannot be given the field's background, and not a cell beside the
+    // field either, because a border drawn next to DG's native frame cannot be
+    // aligned to it from logical units on a scaled display.
+    std::unique_ptr<DG::UserItem> comboFrame;
     GS::UniString lastSearchText;
 
     // The text the field holds when it is a read-out rather than a query — the
@@ -153,6 +183,9 @@ class CommandListPanel {
     GS::UniString displayText;
     bool editing = false;
     bool open = false;
+    // Pointer over the arrow cell. A drawn cell gets no hover state for free, so
+    // the one feedback a native button gave us has to be kept by hand.
+    bool hovered = false;
 
     // Every scanned command, in display order. NOT parallel to the list's rows —
     // the search box means the list shows a subset, in relevance order.

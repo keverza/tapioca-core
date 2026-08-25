@@ -10,6 +10,7 @@
 #include "Palette/ParamPanel.hpp"
 #include "Palette/DescriptionPanel.hpp"
 #include "Palette/ResultsTable.hpp"
+#include "Palette/PreviewPanel.hpp"
 #include "Palette/ActionBar.hpp"
 #include "Palette/SelectionSetPanel.hpp"
 #include "Palette/CommandListPanel.hpp"
@@ -53,6 +54,9 @@ class ControlPalette final : public DG::Palette,
                              public DG::CheckItemObserver,
                              public DG::ButtonItemObserver,
                              public DG::UserControlObserver,
+                             // The command combo's drop arrow is a drawn cell, not a
+                             // button — it needs its paint and its press from here.
+                             public DG::UserItemObserver,
                              public DG::PopUpObserver,
                              public DG::TextEditBaseObserver,
                              public DG::ListBoxObserver,
@@ -173,6 +177,17 @@ class ControlPalette final : public DG::Palette,
     virtual void CheckItemChanged (const DG::CheckItemChangeEvent& ev) override;
     virtual void ButtonClicked (const DG::ButtonClickEvent& ev) override;
     virtual void UserControlChanged (const DG::UserControlChangeEvent& ev) override;
+    // The command combo's arrow cell: pressed, and painted. Both belong to the
+    // command band; this only forwards and reflows.
+    virtual void UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed) override;
+    virtual void UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* processed) override;
+    virtual void UserItemUpdate (const DG::UserItemUpdateEvent& ev) override;
+    virtual void UserItemMouseEntered (const DG::UserItemMouseEnteredEvent& ev) override;
+    virtual void UserItemMouseMoved (const DG::UserItemMouseMoveEvent& ev, bool* noDefaultCursor) override;
+    virtual void UserItemMouseExited (const DG::UserItemMouseExitedEvent& ev) override;
+    // Declared once and it overrides the method in every ItemObserver base copy —
+    // same arrangement as ItemContextMenuRequested below.
+    virtual void ItemResolutionFactorChanged (const DG::ItemResolutionFactorChangeEvent& ev) override;
     // F3 — a generated popup changed: the Action, or an Enum something follows.
     // Before F3 no popup was attached to anything, so this override is new ground.
     virtual void PopUpChanged (const DG::PopUpChangeEvent& ev) override;
@@ -305,6 +320,7 @@ class ControlPalette final : public DG::Palette,
     // its cached content, its height and its visibility; this shell owns the band it
     // sits in, the splitter below it, and the DG event subscription.
     evp::ResultsTable results;
+    evp::PreviewPanel preview;
     // What the user can DO with what the last run produced - one button per
     // action the command DECLARED, executed by the framework from the stored
     // result. See ActionBar.hpp for why it is a band and not a menu.

@@ -10,6 +10,13 @@
 // The band sequence itself stays here in one readable top-to-bottom pass,
 // because "where does everything sit" is exactly the question a reader opens
 // this file to answer.
+//
+// The command combo's drop arrow rides along at the bottom: it is a drawn cell
+// rather than a button, so DG delivers its press and its paint as user-item
+// events, and both are band geometry — the press is a reflow of this very
+// sequence, the paint is twenty pixels of the band's own row. The shell's line
+// budget only ever goes down, so they land here rather than beside the button
+// routing they replaced.
 
 #include "ControlPalette.hpp"
 #include "Palette/PaletteMetrics.hpp" // Margin / BottomMargin / ActionButtonHeight / …
@@ -88,7 +95,10 @@ void ControlPalette::Layout ()
     // scroll places every item exactly where it did before F4 existed. From here
     // on, no item is given to DG directly: `scroll` applies the offset and takes
     // whatever falls outside the viewport off the panel.
-    scroll.Begin (y, (short) (GetHeight () - BottomMargin));
+    const short footerBottom = (short) (GetHeight () - BottomMargin);
+    preview.PlaceAt (Margin, right, footerBottom);
+    const short previewHeight = preview.Height ();
+    scroll.Begin (y, (short) (footerBottom - previewHeight - (previewHeight > 0 ? 8 : 0)));
 
     // ---- the selected command -------------------------------------------
     // No title line: commandTitleText is retired (hidden in Initialize) because
@@ -170,4 +180,77 @@ void ControlPalette::Layout ()
     // does not always invalidate the area a control VACATED — so text below a shrunk
     // table could keep its old position on screen until the next unrelated redraw.
     RedrawItems ();
+}
+
+// ---------------------------------------------------------------------------
+// The command combo's drop arrow. Opening or closing the dropdown changes the
+// column's height, so the whole panel reflows — and the rows the list vacates
+// keep their old pixels without the redraw.
+void ControlPalette::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed)
+{
+    if (preview.HandleUserItemMouseDown (ev)) {
+        if (processed != nullptr)
+            *processed = true;
+        return;
+    }
+    if (!commandsPanel.HandleUserItemMouseDown (ev))
+        return;
+
+    Layout ();
+    Redraw ();
+    if (processed != nullptr)
+        *processed = true;
+}
+
+void ControlPalette::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* processed)
+{
+    if (preview.HandleUserItemMouseUp (ev) && processed != nullptr)
+        *processed = true;
+}
+
+// The preview's 3D canvas owns wheel input; elsewhere the wheel scrolls the
+// column unless a nested list owns it.
+void ControlPalette::PanelWheelTracked (const DG::PanelWheelTrackEvent& ev, bool* processed)
+{
+    if (preview.HandleWheelTracked (ev)) {
+        if (processed != nullptr)
+            *processed = true;
+        return;
+    }
+    const DG::Item* const over = ev.GetItem ();
+    if (commandsPanel.IsSource (over) || results.IsSource (over) || !scroll.Wheel (ev.GetYTrackValue ()))
+        return;
+    Layout ();
+    if (processed != nullptr)
+        *processed = true;
+}
+
+// ...and the same cell's paint: the field's background colour, then the chevron.
+// The band draws it; this only routes the event.
+void ControlPalette::UserItemUpdate (const DG::UserItemUpdateEvent& ev)
+{
+    if (!preview.HandleUserItemUpdate (ev))
+        commandsPanel.HandleUserItemUpdate (ev);
+}
+
+void ControlPalette::UserItemMouseEntered (const DG::UserItemMouseEnteredEvent& ev)
+{
+    commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
+}
+
+// The cell spans the whole command row, so entering it says nothing about whether
+// the pointer is on the arrow. Moving inside it does.
+void ControlPalette::UserItemMouseMoved (const DG::UserItemMouseMoveEvent& ev, bool* /*noDefaultCursor*/)
+{
+    commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
+}
+
+void ControlPalette::UserItemMouseExited (const DG::UserItemMouseExitedEvent& ev)
+{
+    commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), false);
+}
+
+void ControlPalette::ItemResolutionFactorChanged (const DG::ItemResolutionFactorChangeEvent& ev)
+{
+    commandsPanel.HandleResolutionChanged (ev.GetSource ());
 }
