@@ -13,8 +13,11 @@
 #include <vector>
 
 // ============================================================================
-// Slice 0 of PLAT-RHINO-INSIDE: hostfxr -> managed bootstrap -> hidden
-// RhinoCore -> stock Grasshopper, and back down again cleanly.
+// PLAT-RHINO-INSIDE. Slice 0: hostfxr -> managed bootstrap -> hidden RhinoCore
+// -> stock Grasshopper, and back down again cleanly. Slice 1 adds the editor
+// on top of exactly that core — OpenEditor starts the host if it is not up and
+// then shows the canvas, so there is one runtime no matter which menu item the
+// user reaches for, and no path here ever constructs a second one.
 //
 // The whole file is written so that EVERY failure has a name. A menu command
 // that says "could not start Grasshopper" is worth nothing: the four things
@@ -36,6 +39,8 @@ TapiocaGhStartFn managedStart = nullptr;
 TapiocaGhStopFn managedStop = nullptr;
 TapiocaGhStateFn managedState = nullptr;
 TapiocaGhCopyLastMessageFn managedCopyLastMessage = nullptr;
+TapiocaGhShowEditorFn managedShowEditor = nullptr;
+TapiocaGhHideEditorFn managedHideEditor = nullptr;
 
 GS::UniString lastMessage;
 GS::UniString runtimeDescription;
@@ -317,6 +322,8 @@ GS::UniString DescribeStatus (int32_t status)
             return "Rhino started but Grasshopper would not load";
         case TapiocaGhStatus_Faulted:
             return "the managed host threw an exception";
+        case TapiocaGhStatus_EditorUnavailable:
+            return "Rhino is running but Grasshopper's editor is not available";
         default:
             break;
     }
@@ -336,11 +343,12 @@ bool ResolveEntryPoints (const std::wstring& assemblyPath, GS::UniString& error)
     void* stopSlot = nullptr;
     void* stateSlot = nullptr;
     void* messageSlot = nullptr;
+    void* showEditorSlot = nullptr;
+    void* hideEditorSlot = nullptr;
     const Entry entries[] = {
-        { L"Start", &startSlot },
-        { L"Stop", &stopSlot },
-        { L"State", &stateSlot },
-        { L"CopyLastMessage", &messageSlot },
+        { L"Start", &startSlot },           { L"Stop", &stopSlot },
+        { L"State", &stateSlot },           { L"CopyLastMessage", &messageSlot },
+        { L"ShowEditor", &showEditorSlot }, { L"HideEditor", &hideEditorSlot },
     };
 
     for (size_t index = 0; index < sizeof (entries) / sizeof (entries[0]); ++index) {
@@ -355,6 +363,8 @@ bool ResolveEntryPoints (const std::wstring& assemblyPath, GS::UniString& error)
     managedStop = (TapiocaGhStopFn) stopSlot;
     managedState = (TapiocaGhStateFn) stateSlot;
     managedCopyLastMessage = (TapiocaGhCopyLastMessageFn) messageSlot;
+    managedShowEditor = (TapiocaGhShowEditorFn) showEditorSlot;
+    managedHideEditor = (TapiocaGhHideEditorFn) hideEditorSlot;
     return true;
 }
 
@@ -364,6 +374,8 @@ void ForgetEntryPoints ()
     managedStop = nullptr;
     managedState = nullptr;
     managedCopyLastMessage = nullptr;
+    managedShowEditor = nullptr;
+    managedHideEditor = nullptr;
 }
 
 } // namespace
@@ -498,20 +510,17 @@ bool GrasshopperHost::Start (GS::UniString& message)
     request.rhinoSystemDir = nullptr; // let the Rhino.Inside resolver find it
     request.logPath = logPath.empty () ? nullptr : (const uint16_t*) logPath.c_str ();
 
-    // ⚠️ THIS CALL BLOCKS THE MAIN THREAD, AND MEASURABLY SO. A cold start —
-    // Rhino's first in-process load plus Grasshopper's component scan — took
-    // about EIGHT MINUTES on the machine this was first measured on (see the
-    // RHINO.L1 probe record). Archicad does not repaint during it.
+    // This call is synchronous on the main thread, and stays that way
+    // deliberately: RhinoCore is affine to the STA that constructs it, so moving
+    // the construction to a worker would move Rhino's ownership off Archicad's
+    // main thread and break the rule the whole host is built on. Grasshopper
+    // loads at its normal speed — measured in Archicad, this is not a long wait.
     //
-    // It is left synchronous here anyway, deliberately: RhinoCore is affine to
-    // the STA that constructs it, so moving the construction to a worker moves
-    // Rhino's ownership off Archicad's main thread and breaks the one rule the
-    // whole host is built on. Making this bearable is a UI problem (a warning
-    // before the wait, a progress surface, a one-time cost the user opts into),
-    // and the probe's arm 5 is what decides which. Until then the log line
-    // below is the only thing that distinguishes "starting" from "hung".
-    Log (GS::UniString ("calling managed Start; a cold start can take several minutes and Archicad will not "
-                        "repaint while it runs"));
+    // ⚠️ ONE THING TO KNOW BEFORE "FIXING" AN APPARENT HANG HERE. The menu
+    // command runs while Archicad's menu is still tracking, so nothing visibly
+    // happens until the menu closes. That reads exactly like a freeze, and it
+    // was misread as one once already. The work is not slow; it has not started.
+    Log (GS::UniString ("calling managed Start"));
     Arm ();
     const int32_t status = managedStart (&request);
     Disarm (); // reached only if the call returned at all — which is the point
@@ -532,6 +541,53 @@ bool GrasshopperHost::Start (GS::UniString& message)
     }
     lastMessage = message;
     return started;
+}
+
+bool GrasshopperHost::OpenEditor (GS::UniString& message)
+{
+    // Start-if-needed lives HERE and not in the managed half, because this side
+    // owns the lifecycle state machine, the preflight checks and the crash
+    // breadcrumb. A managed shortcut would be a second, weaker start path that
+    // skipped all three.
+    if (!IsRunning ()) {
+        if (!Start (message))
+            return false;
+    }
+
+    if (managedShowEditor == nullptr) {
+        message = "The Grasshopper editor entry point is not available; rebuild and redeploy the add-on.";
+        Log (message);
+        return false;
+    }
+
+    const int32_t status = managedShowEditor ();
+    const GS::UniString managedText = ManagedMessage ();
+    message = DescribeStatus (status);
+    if (!managedText.IsEmpty ())
+        message += GS::UniString (": ") + managedText;
+    lastMessage = message;
+    Log (GS::UniString ("show editor -> ") + message);
+    return status == TapiocaGhStatus_Ok;
+}
+
+bool GrasshopperHost::HideEditor (GS::UniString& message)
+{
+    // Deliberately does NOT start anything: "hide the canvas" is already true
+    // when there is no canvas, and starting Rhino to satisfy a request to see
+    // less of it would be absurd.
+    if (!IsRunning () || managedHideEditor == nullptr) {
+        message = "Grasshopper is not running.";
+        return true;
+    }
+
+    const int32_t status = managedHideEditor ();
+    const GS::UniString managedText = ManagedMessage ();
+    message = DescribeStatus (status);
+    if (!managedText.IsEmpty ())
+        message += GS::UniString (": ") + managedText;
+    lastMessage = message;
+    Log (GS::UniString ("hide editor -> ") + message);
+    return status == TapiocaGhStatus_Ok;
 }
 
 void GrasshopperHost::Stop ()
@@ -603,6 +659,20 @@ GS::UniString GrasshopperHost::Describe () const
     if (!logPath.IsEmpty ())
         text += GS::UniString ("\nLog: ") + logPath;
     return text;
+}
+
+void GrasshopperHost::OpenEditorFromMenu ()
+{
+    GrasshopperHost& host = Get ();
+    GS::UniString message;
+    if (host.OpenEditor (message))
+        return; // the canvas is on screen; that IS the feedback, so no dialog
+
+    // Only failures get a dialog here, unlike the Rhino.Inside item: that one
+    // has nothing to show on success, this one has a Grasshopper window.
+    const GS::UniString report = GS::UniString ("The Grasshopper editor did not open.\n\n") + message +
+                                 GS::UniString ("\n\n") + host.Describe ();
+    ACAPI_WriteReport ("%T", true, report.ToPrintf ());
 }
 
 void GrasshopperHost::OpenFromMenu ()

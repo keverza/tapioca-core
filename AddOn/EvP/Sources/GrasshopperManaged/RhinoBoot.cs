@@ -120,5 +120,74 @@ namespace Tapioca.GrasshopperHost
 
             return true;
         }
+
+        /// <summary>
+        /// Shows the Grasshopper canvas. Idempotent; loads the editor first if
+        /// something has not already.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ THIS MUST NEVER TOUCH THE CORE. The editor is a window over a
+        /// runtime that outlives it: Editor and Player share one RhinoCore, so
+        /// showing a canvas cannot construct anything and hiding one cannot
+        /// dispose anything. If this method ever grows a RhinoCore reference,
+        /// the shared-runtime guarantee is gone and closing the canvas starts
+        /// taking the Player down with it.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool SetEditorVisible(bool visible, out string failure)
+        {
+            failure = string.Empty;
+            Grasshopper.Plugin.GH_RhinoScriptInterface grasshopper =
+                Rhino.RhinoApp.GetPlugInObject(GrasshopperPlugInName)
+                    as Grasshopper.Plugin.GH_RhinoScriptInterface;
+            if (grasshopper == null)
+            {
+                failure = "Grasshopper is not available in this Rhino core.";
+                return false;
+            }
+
+            if (visible)
+            {
+                if (!grasshopper.IsEditorLoaded())
+                {
+                    grasshopper.LoadEditor();
+                }
+
+                if (!grasshopper.IsEditorLoaded())
+                {
+                    failure = "Grasshopper's editor would not load.";
+                    return false;
+                }
+
+                grasshopper.ShowEditor();
+            }
+            else
+            {
+                // Hiding an editor that was never loaded is a no-op, not a
+                // failure: the caller's intent (no canvas on screen) holds.
+                if (grasshopper.IsEditorLoaded())
+                {
+                    grasshopper.HideEditor();
+                }
+            }
+
+            return true;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static bool IsEditorVisible()
+        {
+            try
+            {
+                Grasshopper.Plugin.GH_RhinoScriptInterface grasshopper =
+                    Rhino.RhinoApp.GetPlugInObject(GrasshopperPlugInName)
+                        as Grasshopper.Plugin.GH_RhinoScriptInterface;
+                return grasshopper != null && grasshopper.IsEditorLoaded() && grasshopper.IsEditorVisible();
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
     }
 }

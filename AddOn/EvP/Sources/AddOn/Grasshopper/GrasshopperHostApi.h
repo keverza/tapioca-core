@@ -30,7 +30,8 @@ extern "C" {
 #endif
 
 // Bump on ANY change to the struct, the entry-point set, or a code's meaning.
-#define TAPIOCA_GH_ABI_VERSION 1
+// 2: added ShowEditor/HideEditor for the Grasshopper Editor command (slice 1).
+#define TAPIOCA_GH_ABI_VERSION 2
 
 // The managed type and method names hostfxr resolves. Kept here rather than at
 // the call site so the C# attribute and the C++ lookup can be diffed side by side.
@@ -56,6 +57,7 @@ enum TapiocaGhStatus {
     TapiocaGhStatus_LicenceUnavailable = 11, // Rhino refused to run unlicensed
     TapiocaGhStatus_GrasshopperFailed = 12,  // core is up, Grasshopper is not
     TapiocaGhStatus_Faulted = 13,            // an exception crossed the managed boundary
+    TapiocaGhStatus_EditorUnavailable = 14,  // the core is up but Grasshopper's editor is not
 };
 
 // Mirrors evp::grasshopper::HostState. The managed session keeps its own copy
@@ -100,10 +102,18 @@ struct TapiocaGhStartRequest {
 //            into a caller-owned buffer. Returns the number of characters
 //            written excluding the terminator, or the required capacity when
 //            the buffer is too small. The managed side frees nothing.
+//   ShowEditor / HideEditor - the Grasshopper canvas, shown and hidden WITHOUT
+//            touching the core. That separation is the whole point of slice 1:
+//            the Editor is a window over a runtime that outlives it, so closing
+//            the canvas must never dispose RhinoCore and re-opening it must
+//            never build a second one. Both are idempotent; ShowEditor on a
+//            visible editor and HideEditor on a hidden one each return Ok.
 typedef int32_t (*TapiocaGhStartFn) (const struct TapiocaGhStartRequest* request);
 typedef int32_t (*TapiocaGhStopFn) (void);
 typedef int32_t (*TapiocaGhStateFn) (void);
 typedef int32_t (*TapiocaGhCopyLastMessageFn) (uint16_t* buffer, int32_t capacityChars);
+typedef int32_t (*TapiocaGhShowEditorFn) (void);
+typedef int32_t (*TapiocaGhHideEditorFn) (void);
 
 #ifdef __cplusplus
 } // extern "C"

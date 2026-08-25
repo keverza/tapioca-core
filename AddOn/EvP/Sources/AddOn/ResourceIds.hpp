@@ -34,6 +34,11 @@ constexpr short WebUIMenuItemIndex = 1;
 // they need, rather than as two menu items that do the same thing today.
 constexpr short GrasshopperMenuResId = 32506;
 constexpr short GrasshopperMenuItemIndex = 1;
+// "Grasshopper Editor" — slice 1. Starts the host if needed, then shows the
+// stock canvas. It shares the ONE core with the Rhino.Inside item above and
+// with the future Player; it never creates a second one.
+constexpr short GrasshopperEditorMenuResId = 32507;
+constexpr short GrasshopperEditorMenuItemIndex = 1;
 
 // The About box ('GDLG' 32520) — its own dialog block, so these ids are independent
 // of the palette's positional ids below.

@@ -52,9 +52,10 @@ namespace Tapioca.GrasshopperHost
         private const int StatusRhinoInitFailed = 10;
         private const int StatusLicenceUnavailable = 11;
         private const int StatusGrasshopperFailed = 12;
+        private const int StatusEditorUnavailable = 14;
         private const int StatusFaulted = 13;
 
-        private const uint AbiVersion = 1;
+        private const uint AbiVersion = 2;
         private const uint FlagLoadGrasshopper = 0x0001u;
         private const uint FlagShowEditor = 0x0002u;
 
@@ -130,6 +131,28 @@ namespace Tapioca.GrasshopperHost
                 SetMessage(Describe(exception));
                 return StatusFaulted;
             }
+        }
+
+        /// <summary>
+        /// Shows the Grasshopper canvas over the running core. Slice 1's whole
+        /// user-visible feature.
+        /// </summary>
+        /// <remarks>
+        /// Requires a running host and says so rather than starting one: the
+        /// native side owns "start if needed", because it is the side that
+        /// holds the lifecycle state machine and the preflight checks. A
+        /// managed shortcut here would be a second, weaker start path.
+        /// </remarks>
+        [UnmanagedCallersOnly]
+        public static int ShowEditor()
+        {
+            return SetEditorVisibility(true);
+        }
+
+        [UnmanagedCallersOnly]
+        public static int HideEditor()
+        {
+            return SetEditorVisibility(false);
         }
 
         /// <summary>
@@ -223,6 +246,42 @@ namespace Tapioca.GrasshopperHost
                 default:
                     return StatusRhinoInitFailed;
             }
+        }
+
+        private static int SetEditorVisibility(bool visible)
+        {
+            try
+            {
+                lock (Sync)
+                {
+                    return SetEditorVisibilityCore(visible);
+                }
+            }
+            catch (Exception exception)
+            {
+                SetMessage(Describe(exception));
+                return StatusFaulted;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int SetEditorVisibilityCore(bool visible)
+        {
+            if (GrasshopperSession.State != HostState.Running)
+            {
+                SetMessage("Rhino is not running, so there is no Grasshopper editor to show.");
+                return StatusNotRunning;
+            }
+
+            string failure;
+            if (!RhinoBoot.SetEditorVisible(visible, out failure))
+            {
+                SetMessage(failure);
+                return StatusEditorUnavailable;
+            }
+
+            SetMessage(visible ? "Grasshopper editor shown." : "Grasshopper editor hidden.");
+            return StatusOk;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

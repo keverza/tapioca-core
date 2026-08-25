@@ -194,6 +194,13 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
                 RecordStartupEvent ("Rhino.Inside: menu command completed");
             }
             break;
+        case GrasshopperEditorMenuResId:
+            if (menuParams->menuItemRef.itemIndex == GrasshopperEditorMenuItemIndex) {
+                RecordStartupEvent ("Grasshopper Editor: menu command received");
+                evp::grasshopper::GrasshopperHost::OpenEditorFromMenu ();
+                RecordStartupEvent ("Grasshopper Editor: menu command completed");
+            }
+            break;
         case AboutMenuResId:
             if (menuParams->menuItemRef.itemIndex == AboutMenuItemIndex) {
                 AboutDialog aboutDialog;
@@ -241,6 +248,9 @@ GSErrCode RegisterInterface (void)
                    ACAPI_MenuItem_RegisterMenu (GrasshopperMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperMenuResId, "Rhino.Inside item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (GrasshopperEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   GrasshopperEditorMenuResId, "Grasshopper Editor item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (AboutMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
                    AboutMenuResId, "About item");
 
@@ -275,6 +285,9 @@ GSErrCode Initialize (void)
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperMenuResId, MenuCommandHandler), GrasshopperMenuResId,
                    "Rhino.Inside item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (GrasshopperEditorMenuResId, MenuCommandHandler),
+                   GrasshopperEditorMenuResId, "Grasshopper Editor item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (AboutMenuResId, MenuCommandHandler), AboutMenuResId,
                    "About item");

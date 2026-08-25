@@ -53,6 +53,20 @@ class GrasshopperHost {
     // showing a user, on success as well as on failure.
     bool Start (GS::UniString& message);
 
+    // Slice 1: shows the stock Grasshopper canvas, starting the host first if it
+    // is not already up, so one menu click is one outcome. Idempotent — a second
+    // click on a visible editor brings it forward rather than building anything.
+    //
+    // ⚠️ SHOWING AND HIDING THE CANVAS NEVER TOUCHES THE CORE. Editor and Player
+    // share one RhinoCore by design, so the window's lifetime and the runtime's
+    // are deliberately unrelated: closing the canvas must not dispose Rhino, and
+    // re-opening it must not construct a second one.
+    bool OpenEditor (GS::UniString& message);
+    bool HideEditor (GS::UniString& message);
+
+    // What "Tapioca > Grasshopper Editor" does.
+    static void OpenEditorFromMenu ();
+
     // Idempotent and safe during teardown: does nothing when nothing is up.
     // Called from APINotify_Quit and FreeData, where it must not depend on any
     // Archicad service still being alive.
