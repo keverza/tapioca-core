@@ -236,21 +236,20 @@ void ControlPalette::UserItemUpdate (const DG::UserItemUpdateEvent& ev)
 void ControlPalette::UserItemMouseEntered (const DG::UserItemMouseEnteredEvent& ev)
 {
     if (!preview.HandleUserItemMouseEntered (ev))
-        commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
+        commandsPanel.HandleUserItemHover (ev.GetSource (), true);
 }
 
-// The cell spans the whole command row, so entering it says nothing about whether
-// the pointer is on the arrow. Moving inside it does.
+// The preview's business alone: the command combo's arrow highlights on entering
+// and leaving, which says everything a cell that size has to say.
 void ControlPalette::UserItemMouseMoved (const DG::UserItemMouseMoveEvent& ev, bool* /*noDefaultCursor*/)
 {
-    if (!preview.HandleUserItemMouseMoved (ev))
-        commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), true);
+    preview.HandleUserItemMouseMoved (ev);
 }
 
 void ControlPalette::UserItemMouseExited (const DG::UserItemMouseExitedEvent& ev)
 {
     if (!preview.HandleUserItemMouseExited (ev))
-        commandsPanel.HandleUserItemHover (ev.GetSource (), ev.GetMouseOffset (), false);
+        commandsPanel.HandleUserItemHover (ev.GetSource (), false);
 }
 
 void ControlPalette::ItemResolutionFactorChanged (const DG::ItemResolutionFactorChangeEvent& ev)
