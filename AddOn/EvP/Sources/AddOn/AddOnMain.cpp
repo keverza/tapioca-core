@@ -22,6 +22,7 @@
 #include "Notebook/NotebookPalette.hpp"
 #include "Palette/WebUIPalette.hpp"
 #include "Grasshopper/GrasshopperHost.hpp" // the one in-process RhinoCore + Grasshopper
+#include "Dynamo/DynamoHost.hpp"           // Dynamo 4 editor in its own .NET 10 process
 #include "AddOnCommands.hpp"
 #include "Server/ServerState.hpp"
 #include "Server/HttpServer.hpp"
@@ -148,6 +149,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // side detaches its own handlers, and doing that during unload is
             // strictly worse. Stop is a no-op when nothing was ever started.
             evp::grasshopper::GrasshopperHost::Get ().Stop ();
+            evp::MainThreadGate::Get ().BeginShutdown ();
+            evp::dynamo::Release ();
             break;
         default:
             break;
@@ -201,6 +204,13 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
                 RecordStartupEvent ("Grasshopper Editor: menu command completed");
             }
             break;
+        case DynamoMenuResId:
+            if (menuParams->menuItemRef.itemIndex == DynamoMenuItemIndex) {
+                RecordStartupEvent ("Dynamo: menu command received");
+                evp::dynamo::OpenFromMenu ();
+                RecordStartupEvent ("Dynamo: menu command completed");
+            }
+            break;
         case AboutMenuResId:
             if (menuParams->menuItemRef.itemIndex == AboutMenuItemIndex) {
                 AboutDialog aboutDialog;
@@ -251,6 +261,9 @@ GSErrCode RegisterInterface (void)
                    ACAPI_MenuItem_RegisterMenu (GrasshopperEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (DynamoMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   DynamoMenuResId, "Dynamo item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (AboutMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
                    AboutMenuResId, "About item");
 
@@ -288,6 +301,9 @@ GSErrCode Initialize (void)
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperEditorMenuResId, MenuCommandHandler),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (DynamoMenuResId, MenuCommandHandler), DynamoMenuResId,
+                   "Dynamo item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (AboutMenuResId, MenuCommandHandler), AboutMenuResId,
                    "About item");
@@ -379,6 +395,8 @@ GSErrCode FreeData (void)
     // hostfxr error writer and no managed callback still points into this
     // module once it is gone.
     evp::grasshopper::GrasshopperHost::Get ().Stop ();
+    evp::MainThreadGate::Get ().BeginShutdown ();
+    evp::dynamo::Release ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into
     // this module after it unloads is a crash on Archicad's NEXT frame, not on
     // ours, and it would look like a graphics driver fault. RemovePresentHook

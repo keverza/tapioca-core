@@ -26,7 +26,7 @@
 namespace evp {
 
 class MainThreadGate {
-public:
+  public:
     static MainThreadGate& Get ();
 
     // RegisterInterface / Initialize plumbing.
@@ -36,6 +36,10 @@ public:
     // Call from Initialize, on the main thread.
     void RecordMainThread ();
     bool IsMainThread () const;
+
+    // Rejects new work and wakes queued Invoke callers before APX teardown joins
+    // worker threads. Must run on the main thread while the module is still live.
+    void BeginShutdown ();
 
     // ⚠️ CONTRACT for `fn` in both calls below: it MUST be self-contained —
     // capture by VALUE, never by reference to a caller local. On timeout Invoke
@@ -65,10 +69,10 @@ public:
 
     static constexpr int DefaultTimeoutMs = 30000;
 
-private:
+  private:
     MainThreadGate () = default;
 };
 
-}   // namespace evp
+} // namespace evp
 
 #endif

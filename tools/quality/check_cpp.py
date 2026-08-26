@@ -124,6 +124,9 @@ TIER_ASSIGNMENTS = {
     # still needs an explicit assignment because the tier scan covers every folder.
     "ArchViz/task-history": "features",
     "Diagnostics": "features",
+    # Dynamo 4 is an optional external runtime lifecycle. It owns no palette or
+    # document behavior and remains load-safe when the runtime is absent.
+    "Dynamo": "services",
     "Geometry": "services",
     # The in-process Rhino/Grasshopper host: a runtime lifecycle owned on behalf
     # of whatever UI eventually drives it, in the same tier as Python/ for the

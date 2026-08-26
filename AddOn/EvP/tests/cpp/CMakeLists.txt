@@ -80,6 +80,9 @@ set (EVP_COMMAND_SOURCES
 set (EVP_GRASSHOPPER_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
 
+set (EVP_DYNAMO_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Dynamo/ApiPipeProtocol.cpp")
+
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it
 # wrong does not FAIL -- every surface of an element renders in the first
@@ -273,6 +276,7 @@ set (EVP_TEST_SOURCES
     test_pointcloudhierarchy.cpp
     test_pointcloudlod.cpp
     test_cloudcompare.cpp
+    test_apipipeprotocol.cpp
     test_grasshopperhoststate.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
@@ -306,6 +310,7 @@ add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
                                 ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
                                ${EVP_GRASSHOPPER_SOURCES}
+                               ${EVP_DYNAMO_SOURCES}
                                ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"

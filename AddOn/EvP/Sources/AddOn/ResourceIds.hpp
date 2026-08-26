@@ -39,6 +39,10 @@ constexpr short GrasshopperMenuItemIndex = 1;
 // with the future Player; it never creates a second one.
 constexpr short GrasshopperEditorMenuResId = 32507;
 constexpr short GrasshopperEditorMenuItemIndex = 1;
+// Dynamo 4 runs out of process because its .NET 10 runtime cannot share the
+// process-wide .NET 8 CLR used by Rhino.Inside.
+constexpr short DynamoMenuResId = 32508;
+constexpr short DynamoMenuItemIndex = 1;
 
 // The About box ('GDLG' 32520) — its own dialog block, so these ids are independent
 // of the palette's positional ids below.

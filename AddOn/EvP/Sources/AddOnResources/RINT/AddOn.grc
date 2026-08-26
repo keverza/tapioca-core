@@ -73,6 +73,11 @@
 /* [  1] */	"Grasshopper Editor^E3^ES^EE^EI^ED^EW^EL"
 }
 
+'STR#' 32508 "Menu strings - Dynamo" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Dynamo^E3^ES^EE^EI^ED^EW^EL"
+}
+
 /* --- The Tapioca palette -------------------------------------------------- */
 /* Server control AND the command system in ONE panel.
    ⚠️ ITEM IDS ARE POSITIONAL. The /* [n] */ comments are ONLY comments — ResConv

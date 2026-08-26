@@ -59,3 +59,7 @@ AddOn/reference/*
 # files beside the .apx in build_29/; bin/ and obj/ here are intermediates only.
 AddOn/EvP/Sources/GrasshopperManaged/bin/
 AddOn/EvP/Sources/GrasshopperManaged/obj/
+
+# Dynamo ZeroTouch build intermediates; CMake stages the package in build_29/.
+AddOn/EvP/Sources/TapiocaDynamo/bin/
+AddOn/EvP/Sources/TapiocaDynamo/obj/

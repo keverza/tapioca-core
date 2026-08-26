@@ -2,7 +2,7 @@
 #include "ACAPinc.h"
 
 #include "MainThreadGate.hpp"
-#include "ResourceMDIDIds.hpp"   // AC_MDID_DEV / AC_MDID_LOC, parsed from AddOnFix.grc
+#include "ResourceMDIDIds.hpp" // AC_MDID_DEV / AC_MDID_LOC, parsed from AddOnFix.grc
 
 #include <condition_variable>
 #include <deque>
@@ -14,15 +14,16 @@ namespace {
 
 // One generic command carries every job: the payload is the queued std::function,
 // so the gate never needs a new ModulCommand per operation.
-constexpr GSType GateJobCmdID     = 'EGTJ';
-constexpr Int32  GateCmdVersion   = 1L;
+constexpr GSType GateJobCmdID = 'EGTJ';
+constexpr Int32 GateCmdVersion = 1L;
 
 std::thread::id mainThreadId;
 
 struct Completion {
-    std::mutex              mutex;
+    std::mutex mutex;
     std::condition_variable cv;
-    bool                    done = false;
+    bool done = false;
+    bool cancelled = false;
 
     void Complete ()
     {
@@ -33,6 +34,22 @@ struct Completion {
         cv.notify_all ();
     }
 
+    void Cancel ()
+    {
+        {
+            std::lock_guard<std::mutex> lock (mutex);
+            cancelled = true;
+            done = true;
+        }
+        cv.notify_all ();
+    }
+
+    bool WasCancelled ()
+    {
+        std::lock_guard<std::mutex> lock (mutex);
+        return cancelled;
+    }
+
     bool WaitFor (int timeoutMs)
     {
         std::unique_lock<std::mutex> lock (mutex);
@@ -41,12 +58,13 @@ struct Completion {
 };
 
 struct Job {
-    std::function<void ()>      fn;
-    std::shared_ptr<Completion> completion;   // null == fire-and-forget
+    std::function<void ()> fn;
+    std::shared_ptr<Completion> completion; // null == fire-and-forget
 };
 
-std::mutex     queueMutex;
+std::mutex queueMutex;
 std::deque<Job> jobQueue;
+bool shuttingDown = false;
 
 // Runs on the MAIN thread. One posted command consumes exactly one job, so
 // ordering is preserved and a job can never be run twice.
@@ -74,12 +92,16 @@ bool PostJob (Job&& job, GS::UniString& error)
 {
     {
         std::lock_guard<std::mutex> lock (queueMutex);
+        if (shuttingDown) {
+            error = "MainThreadGate: the add-on is shutting down.";
+            return false;
+        }
         jobQueue.push_back (std::move (job));
     }
 
-    const API_ModulID mdid = { AC_MDID_DEV, AC_MDID_LOC };   // ourselves
-    const GSErrCode   err  = ACAPI_AddOnAddOnCommunication_CallFromEventLoop (
-                                 &mdid, GateJobCmdID, GateCmdVersion, nullptr, true, nullptr);
+    const API_ModulID mdid = { AC_MDID_DEV, AC_MDID_LOC }; // ourselves
+    const GSErrCode err =
+        ACAPI_AddOnAddOnCommunication_CallFromEventLoop (&mdid, GateJobCmdID, GateCmdVersion, nullptr, true, nullptr);
     if (err != NoError) {
         // Drop the job we just queued: nothing will ever dispatch it.
         std::lock_guard<std::mutex> lock (queueMutex);
@@ -91,7 +113,13 @@ bool PostJob (Job&& job, GS::UniString& error)
     return true;
 }
 
-}   // namespace
+bool IsShuttingDown ()
+{
+    std::lock_guard<std::mutex> lock (queueMutex);
+    return shuttingDown;
+}
+
+} // namespace
 
 namespace evp {
 
@@ -114,6 +142,8 @@ GSErrCode MainThreadGate::InstallHandlers ()
 void MainThreadGate::RecordMainThread ()
 {
     mainThreadId = std::this_thread::get_id ();
+    std::lock_guard<std::mutex> lock (queueMutex);
+    shuttingDown = false;
 }
 
 bool MainThreadGate::IsMainThread () const
@@ -121,8 +151,27 @@ bool MainThreadGate::IsMainThread () const
     return std::this_thread::get_id () == mainThreadId;
 }
 
+void MainThreadGate::BeginShutdown ()
+{
+    std::deque<Job> queued;
+    {
+        std::lock_guard<std::mutex> lock (queueMutex);
+        shuttingDown = true;
+        queued.swap (jobQueue);
+    }
+    for (Job& job : queued) {
+        if (job.completion != nullptr)
+            job.completion->Cancel ();
+    }
+}
+
 bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS::UniString& error)
 {
+    if (IsShuttingDown ()) {
+        error = "MainThreadGate: the add-on is shutting down.";
+        return false;
+    }
+
     // Already on the main thread: run inline. Posting and then waiting here
     // would block the very event loop that has to dispatch the job — a
     // guaranteed self-deadlock.
@@ -151,10 +200,13 @@ bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS
                 }
             }
         }
-        error = GS::UniString::Printf (
-            "MainThreadGate: timed out after %d ms — posted but never dispatched (%s). "
-            "The main event loop is blocked (a modal dialog, or a live user-input pick).",
-            timeoutMs, revoked ? "job revoked" : "job already in flight");
+        error = GS::UniString::Printf ("MainThreadGate: timed out after %d ms — posted but never dispatched (%s). "
+                                       "The main event loop is blocked (a modal dialog, or a live user-input pick).",
+                                       timeoutMs, revoked ? "job revoked" : "job already in flight");
+        return false;
+    }
+    if (completion->WasCancelled ()) {
+        error = "MainThreadGate: the add-on shut down before the job was dispatched.";
         return false;
     }
     return true;
@@ -162,6 +214,10 @@ bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS
 
 bool MainThreadGate::Post (const std::function<void ()>& fn, GS::UniString& error)
 {
+    if (IsShuttingDown ()) {
+        error = "MainThreadGate: the add-on is shutting down.";
+        return false;
+    }
     if (IsMainThread ()) {
         fn ();
         return true;
@@ -169,4 +225,4 @@ bool MainThreadGate::Post (const std::function<void ()>& fn, GS::UniString& erro
     return PostJob (Job { fn, nullptr }, error);
 }
 
-}   // namespace evp
+} // namespace evp
