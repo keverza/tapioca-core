@@ -46,6 +46,25 @@ namespace Tapioca.GrasshopperHost
         private const string AddOnVersionCommand = "GetAddOnVersion";
         private const string TapirNamespace = "TapirCommand";
 
+        /// <summary>
+        /// Tapioca's own cheapest registered add-on command, used as the
+        /// stopwatch for add-on dispatch latency.
+        /// </summary>
+        /// <remarks>
+        /// Ours rather than Tapir's on purpose: the number this measures is a
+        /// property of Archicad's add-on dispatch in this process, not of Tapir,
+        /// and using Tapir's command would make an Archicad problem look like a
+        /// Tapir problem on any machine that has not installed it.
+        /// </remarks>
+        private const string TapiocaStatusCommand =
+            "{\"command\":\"API.ExecuteAddOnCommand\",\"parameters\":{\"addOnCommandId\":{"
+            + "\"commandNamespace\":\"Tapioca\",\"commandName\":\"GetStatus\"},"
+            + "\"addOnCommandParameters\":{}}}";
+
+        // Enough samples to tell a constant cost from a warm-up, few enough that
+        // they all fit inside the startup the user is already waiting through.
+        private const int LatencySamples = 4;
+
         // Long enough to survive a slow first request, short enough that a
         // wedged reply is REPORTED as wedged rather than waited on. Tapir's own
         // HttpClient keeps the 100-second default, which is why a blocked call
@@ -158,7 +177,21 @@ namespace Tapioca.GrasshopperHost
                         "http://127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture));
                     client.Timeout = ReentrancyTimeout;
 
-                    const string Body = "{\"command\":\"API.GetProductInfo\"}";
+                    // ⚠️ IT MUST BE AN ADD-ON COMMAND, AND THE FIRST VERSION OF
+                    // THIS CHECK GOT THAT WRONG. It used API.GetProductInfo,
+                    // which came back in 23 ms with the main thread blocked and
+                    // "proved" there was no deadlock — but the measurement was
+                    // meaningless, because GetProductInfo is answered without
+                    // ever reaching Archicad's main thread. The same run showed
+                    // an ExecuteAddOnCommand taking 2.2 SECONDS on the same
+                    // connection, back to back with 3-28 ms official commands.
+                    // Add-on dispatch is the thing that needs the main thread,
+                    // so it is the only thing worth timing here.
+                    //
+                    // Tapioca's own GetStatus rather than Tapir's, so the
+                    // measurement does not depend on another project being
+                    // installed and cannot be confused with a Tapir fault.
+                    const string Body = TapiocaStatusCommand;
 
                     // The control goes first so that it is already on the wire
                     // when this thread stops servicing anything.
@@ -264,6 +297,54 @@ namespace Tapioca.GrasshopperHost
                         + "\"commandName\":\"" + AddOnVersionCommand + "\"},"
                         + "\"addOnCommandParameters\":{}}}");
                     Append(report, "Tapir Archicad add-on", addOn, DescribeAddOn(addOn));
+
+                    // THE NUMBER THAT MATTERS. Official commands answer in
+                    // single-digit to low-tens milliseconds here; the first
+                    // measured add-on command took 2.2 seconds on the same
+                    // connection. If that is a constant per-call cost rather
+                    // than a one-off warm-up, then a component making tens of
+                    // add-on calls is minutes of waiting by arithmetic alone,
+                    // which is exactly the reported symptom. Four samples tell
+                    // those two apart.
+                    StringBuilder samples = new StringBuilder();
+                    long total = 0;
+                    long worst = 0;
+                    for (int index = 0; index < LatencySamples; index++)
+                    {
+                        Reply sample = await Post(client, TapiocaStatusCommand);
+                        if (index > 0)
+                        {
+                            samples.Append(", ");
+                        }
+
+                        samples.Append(sample.ElapsedMs.ToString(CultureInfo.InvariantCulture));
+                        if (sample.Failed)
+                        {
+                            samples.Append(" (failed)");
+                        }
+
+                        total += sample.ElapsedMs;
+                        if (sample.ElapsedMs > worst)
+                        {
+                            worst = sample.ElapsedMs;
+                        }
+                    }
+
+                    long mean = total / LatencySamples;
+                    report.Append(" Add-on dispatch latency over ")
+                          .Append(LatencySamples.ToString(CultureInfo.InvariantCulture))
+                          .Append(" Tapioca.GetStatus calls: ")
+                          .Append(samples)
+                          .Append(" ms (mean ")
+                          .Append(mean.ToString(CultureInfo.InvariantCulture))
+                          .Append(" ms).");
+                    if (worst > 250)
+                    {
+                        report.Append(" THIS IS THE BOTTLENECK: every Tapir component call goes through "
+                                      + "API.ExecuteAddOnCommand, so a component making tens of them costs "
+                                      + "minutes. Official API.* commands on this same connection answer in "
+                                      + "milliseconds.");
+                    }
                 }
             }
             catch (Exception exception)
