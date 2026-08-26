@@ -143,6 +143,14 @@ namespace Tapioca.GrasshopperHost
             // reply this thread has to be free to produce.
             TapirConnectionCheck.Begin(archicadJsonPort);
 
+            // This one DOES run here, on the main thread, because that is the
+            // condition under test: it measures whether Archicad can answer a
+            // loopback command while this thread waits for it, which is exactly
+            // what a Tapir component asks of it during a solve.
+            string reentrancy = TapirConnectionCheck.CheckMainThreadReentrancy(archicadJsonPort);
+            Log.Write(reentrancy);
+            tapirReport += " " + reentrancy;
+
             if (showEditor)
             {
                 ShowAndGate(grasshopper);

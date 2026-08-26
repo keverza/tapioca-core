@@ -52,6 +52,17 @@ namespace Tapioca.GrasshopperHost
         // there reads to a user as a hang rather than as an error.
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(10);
 
+        // The reentrancy check runs on Archicad's main thread, so its budget is
+        // what the user pays on first editor open in the bad case. Six seconds
+        // is far longer than a healthy loopback call (measured: 21-150 ms) and
+        // short enough not to read as a freeze.
+        private static readonly TimeSpan ReentrancyTimeout = TimeSpan.FromSeconds(6);
+
+        // Slack for the wait to observe the HttpClient timeout firing, rather
+        // than racing it and reporting "did not return" for a request that was
+        // about to report its own timeout.
+        private static readonly TimeSpan ReentrancyGrace = TimeSpan.FromSeconds(2);
+
         private static string _report = "The Tapir connection check has not run.";
         private static int _started;
 
@@ -88,6 +99,131 @@ namespace Tapioca.GrasshopperHost
             {
                 Volatile.Write(ref _report, "Tapir connection check could not start: " + exception.Message);
             }
+        }
+
+        /// <summary>
+        /// Settles, by measurement, whether a Tapir component's request can be
+        /// answered while Archicad's main thread waits for it. MUST be called ON
+        /// the main thread. Returns a report line; never throws.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// THE QUESTION. Grasshopper solves on the thread that constructed
+        /// RhinoCore, which is Archicad's main thread. Tapir finishes every
+        /// request with <c>task.Wait()</c>. Archicad executes a JSON command on
+        /// its main thread. If all three hold at once, a component's request
+        /// cannot be served until the solve that issued it returns, and Tapir's
+        /// 100-second default timeout is what a user experiences as a hang.
+        /// The same package driving the same Archicad from a SEPARATE Rhino
+        /// process works, which is what makes the shared thread the suspect.
+        /// </para>
+        /// <para>
+        /// THE EXPERIMENT, and why it is decisive. Two identical requests are
+        /// issued: a CONTROL on the thread pool whose result is read afterwards,
+        /// and a REPRODUCTION shaped exactly like Tapir's — <c>Task.Run</c>
+        /// followed by a blocking wait on this thread. Both are in flight while
+        /// this thread is blocked, so their timings separate the two worlds:
+        /// </para>
+        /// <list type="bullet">
+        /// <item>both slow or timed out — Archicad cannot answer while its main
+        /// thread waits. Confirmed, and no amount of work inside Grasshopper
+        /// will fix it.</item>
+        /// <item>control fast, reproduction slow — the block is on the
+        /// Grasshopper side of the socket, not Archicad's.</item>
+        /// <item>both fast — the hypothesis is dead and the hang is elsewhere;
+        /// look at the component, not the thread.</item>
+        /// </list>
+        /// <para>
+        /// It costs one bounded wait on first editor open, and only actually
+        /// spends it when the answer is bad news. That is a fair price for
+        /// turning an argument into a number.
+        /// </para>
+        /// </remarks>
+        internal static string CheckMainThreadReentrancy(uint port)
+        {
+            if (port == 0)
+            {
+                return "Main-thread reentrancy check skipped: Archicad's JSON port is unknown.";
+            }
+
+            try
+            {
+                HttpClientHandler handler = new HttpClientHandler();
+                handler.UseProxy = false;
+                handler.Proxy = null;
+
+                using (HttpClient client = new HttpClient(handler, true))
+                {
+                    client.BaseAddress = new Uri(
+                        "http://127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture));
+                    client.Timeout = ReentrancyTimeout;
+
+                    const string Body = "{\"command\":\"API.GetProductInfo\"}";
+
+                    // The control goes first so that it is already on the wire
+                    // when this thread stops servicing anything.
+                    Task<Reply> control = Task.Run(() => Post(client, Body));
+
+                    // The reproduction, in Tapir's exact shape: Task.Run, then a
+                    // blocking wait on the thread Archicad needs.
+                    Stopwatch blocked = Stopwatch.StartNew();
+                    Task<Reply> reproduction = Task.Run(() => Post(client, Body));
+                    bool finished = reproduction.Wait(ReentrancyTimeout + ReentrancyGrace);
+                    blocked.Stop();
+
+                    string reproductionText = finished
+                        ? Outcome(reproduction.Result) + " in "
+                          + reproduction.Result.ElapsedMs.ToString(CultureInfo.InvariantCulture) + " ms"
+                        : "DID NOT RETURN within "
+                          + blocked.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + " ms";
+
+                    // Read the control only now. Its elapsed time was measured
+                    // across the window in which this thread was blocked, which
+                    // is the whole point of it.
+                    bool controlFinished = control.Wait(ReentrancyGrace);
+                    string controlText = controlFinished
+                        ? Outcome(control.Result) + " in "
+                          + control.Result.ElapsedMs.ToString(CultureInfo.InvariantCulture) + " ms"
+                        : "DID NOT RETURN";
+
+                    return "Main-thread reentrancy check: blocking call from Archicad's main thread "
+                           + reproductionText + "; background control " + controlText + ". "
+                           + Interpret(finished, controlFinished, reproduction, control);
+                }
+            }
+            catch (Exception exception)
+            {
+                return "Main-thread reentrancy check failed: " + exception.GetType().Name + ": "
+                       + exception.Message;
+            }
+        }
+
+        private static string Interpret(
+            bool reproductionFinished,
+            bool controlFinished,
+            Task<Reply> reproduction,
+            Task<Reply> control)
+        {
+            bool reproductionOk = reproductionFinished && !reproduction.Result.Failed;
+            bool controlOk = controlFinished && !control.Result.Failed;
+
+            if (reproductionOk && controlOk)
+            {
+                return "CONCLUSION: Archicad answers a loopback command while its main thread waits, so the "
+                       + "shared-thread deadlock is NOT the cause of slow Tapir components. Look elsewhere.";
+            }
+
+            if (!reproductionOk && controlOk)
+            {
+                return "CONCLUSION: Archicad answered the background request but not the blocking one, so the "
+                       + "block is on the Grasshopper side of the socket rather than Archicad's.";
+            }
+
+            return "CONCLUSION: Archicad could not answer while its main thread waited. Grasshopper solves on "
+                   + "that thread and Tapir waits on it, so a Tapir component's request cannot be served until "
+                   + "the solve that issued it returns. Nothing inside Grasshopper can fix this; it needs an "
+                   + "in-process bridge that does not go through Archicad's HTTP server, or Grasshopper out of "
+                   + "process.";
         }
 
         private static async Task Run(uint port)
