@@ -36,6 +36,13 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
+    <!-- Matches Rhino 8, which is per-monitor-v2 aware. A process gets one DPI
+         awareness mode, latched by its first window; in process that was
+         Archicad's choice and Rhino lived with it, out of process it is ours.
+         Leaving it to the default produced a Grasshopper canvas with some
+         elements at the right size and others tiny. See Program.SetDpiAwareness,
+         which also logs what actually took effect and honours an override. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Nullable>disable</Nullable>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>

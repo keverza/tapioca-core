@@ -115,6 +115,24 @@ namespace Tapioca.GhWorker
 
         private static int Run(Arguments arguments)
         {
+            // ⚠️ DPI AWARENESS IS DECIDED HERE, BEFORE THE FIRST WINDOW EXISTS,
+            // AND IT HAS TO BE DECIDED BY US RATHER THAN INHERITED.
+            //
+            // A process gets exactly one DPI awareness mode, and it is latched by
+            // whoever creates the first window. In process, that was Archicad,
+            // and Rhino ran inside whatever Archicad had already chosen. Out of
+            // process it is this worker — and the marshalling Control below is
+            // created before RhinoCore, so if this is left to the default, the
+            // mode is latched from OUR runtimeconfig and Rhino never gets to set
+            // the one it expects.
+            //
+            // Getting it wrong does not fail; it produces a canvas where some
+            // elements are the right size and others are tiny, because
+            // Grasshopper mixes controls that scale themselves against the
+            // per-monitor DPI with ones that use the system DPI, and the two only
+            // agree when the process is per-monitor aware. Rhino 8 is
+            // per-monitor-v2 aware, so this matches it deliberately.
+            SetDpiAwareness();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
@@ -191,6 +209,53 @@ namespace Tapioca.GhWorker
             // boundary buys: this loop is ours to block, and Archicad's is not.
             Application.Run();
             return ExitOk;
+        }
+
+        /// <summary>
+        /// Applies the process DPI awareness mode and records what actually took
+        /// effect.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The mode is normally already applied from the .csproj's
+        /// ApplicationHighDpiMode, in which case <c>SetHighDpiMode</c> returns
+        /// false and changes nothing — which is why the EFFECTIVE mode is logged
+        /// rather than the requested one. "We asked for PerMonitorV2" and "the
+        /// process is PerMonitorV2" are different claims, and only the second is
+        /// worth anything when a canvas is rendering at the wrong size.
+        /// </para>
+        /// <para>
+        /// TAPIOCA_GH_DPI_MODE overrides it — <c>PerMonitorV2</c>,
+        /// <c>SystemAware</c>, <c>PerMonitor</c>, <c>DpiUnaware</c> or
+        /// <c>DpiUnawareGdiScaled</c>. This is a display fault that depends on
+        /// the machine, the monitor mix and the user's scaling setting, none of
+        /// which are visible from here; the override means the right mode can be
+        /// found by trying, on the machine that has the problem, without a
+        /// rebuild for each attempt.
+        /// </para>
+        /// </remarks>
+        private static void SetDpiAwareness()
+        {
+            HighDpiMode requested = HighDpiMode.PerMonitorV2;
+            string configured = Environment.GetEnvironmentVariable("TAPIOCA_GH_DPI_MODE");
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                HighDpiMode parsed;
+                if (Enum.TryParse(configured.Trim(), true, out parsed))
+                {
+                    requested = parsed;
+                }
+                else
+                {
+                    WorkerLog.Write(
+                        "TAPIOCA_GH_DPI_MODE=" + configured + " is not a mode name; using " + requested + ".");
+                }
+            }
+
+            bool applied = Application.SetHighDpiMode(requested);
+            WorkerLog.Write(
+                "DPI awareness: requested " + requested + ", " + (applied ? "applied" : "already set")
+                + ", effective " + Application.HighDpiMode + ".");
         }
 
         private static void OnUiThread(Action action)
