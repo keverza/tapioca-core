@@ -46,6 +46,7 @@ TEST (ApiPipeProtocol, ResponsePreservesEnvelopeByteForByte)
     ASSERT_TRUE (protocol::DecodeResponseHeader (response.data (), 4, size, error));
     ASSERT_EQ (size, envelope.size ());
     EXPECT_EQ (std::string (response.begin () + 4, response.end ()), envelope);
+    EXPECT_EQ (protocol::ResponseAck, 0x06u);
 }
 
 TEST (ApiPipeProtocol, ResponseHeaderRejectsTruncatedEmptyAndOversizedFrames)

@@ -110,7 +110,15 @@ void ServeClient (HANDLE pipe, const std::atomic<bool>& stopping)
         return;
 
     const std::vector<uint8_t> response = protocol::EncodeResponse (envelopeBytes);
-    WriteExact (pipe, response.data (), (DWORD) response.size (), stopping);
+    if (!WriteExact (pipe, response.data (), (DWORD) response.size (), stopping))
+        return;
+
+    // DisconnectNamedPipe discards response bytes the client has not consumed.
+    // Keep the connection alive until the client confirms it read the full frame;
+    // ReadExact retains the same bounded, stop-aware behavior as every other hop.
+    uint8_t acknowledgment = 0;
+    if (!ReadExact (pipe, &acknowledgment, 1, stopping) || acknowledgment != protocol::ResponseAck)
+        return;
 }
 
 } // namespace

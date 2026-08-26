@@ -7,6 +7,7 @@ namespace Tapioca;
 internal sealed class NamedPipeBridge : ITapiocaBridge
 {
     private const int MaxResponseBytes = 16 * 1024 * 1024;
+    private const byte ResponseAck = 0x06;
     private readonly string pipeName;
 
     internal NamedPipeBridge()
@@ -45,6 +46,7 @@ internal sealed class NamedPipeBridge : ITapiocaBridge
 
         byte[] response = new byte[responseLength];
         pipe.ReadExactly(response);
+        pipe.WriteByte(ResponseAck);
         return Encoding.UTF8.GetString(response);
     }
 }

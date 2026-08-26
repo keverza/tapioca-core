@@ -11,6 +11,7 @@ constexpr uint32_t HeaderSize = 8;
 constexpr uint32_t MaxCommandBytes = 1024;
 constexpr uint32_t MaxParamsBytes = 8 * 1024 * 1024;
 constexpr uint32_t MaxResponseBytes = 16 * 1024 * 1024;
+constexpr uint8_t ResponseAck = 0x06;
 
 struct RequestSizes {
     uint32_t commandBytes = 0;

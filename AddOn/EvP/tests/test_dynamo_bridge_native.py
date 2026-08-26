@@ -13,6 +13,7 @@ def test_pipe_bridge_dispatches_external_envelope_without_transport_json():
     assert "EncodeResponse (envelopeBytes)" in source
     assert '!= "Tapioca.GetSelection"' in source
     assert "FILE_FLAG_OVERLAPPED" in source
+    assert "ReadExact (pipe, &acknowledgment, 1, stopping)" in source
 
 
 def test_dynamo_menu_starts_bridge_and_teardown_quiesces_gate_first():
@@ -33,6 +34,18 @@ def test_zero_touch_package_exposes_only_read_only_selection_node():
         encoding="utf-8"
     )
 
+    assert "[CanUpdatePeriodically(true)]" in selection
+    assert "Current(bool refresh = false)" in selection
     assert 'Call("Tapioca.GetSelection", "{}")' in selection
     assert "Tapioca.Dynamo" in package
     assert "SetSelection" not in selection
+
+
+def test_zero_touch_client_acknowledges_the_complete_response_before_disconnect():
+    bridge = (EVP_ROOT / "Sources" / "TapiocaDynamo" / "NamedPipeBridge.cs").read_text(
+        encoding="utf-8"
+    )
+
+    assert bridge.index("pipe.ReadExactly(response);") < bridge.index(
+        "pipe.WriteByte(ResponseAck);"
+    )

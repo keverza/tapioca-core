@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Autodesk.DesignScript.Runtime;
 using Dynamo.Graph.Nodes;
 
 namespace Tapioca;
@@ -6,8 +7,10 @@ namespace Tapioca;
 public static class Selection
 {
     [NodeCategory("Query")]
-    public static IReadOnlyList<string> Current()
+    [CanUpdatePeriodically(true)]
+    public static IReadOnlyList<string> Current(bool refresh = false)
     {
+        _ = refresh;
         string envelope = new NamedPipeBridge().Call("Tapioca.GetSelection", "{}");
         using JsonDocument document = JsonDocument.Parse(envelope);
         JsonElement root = document.RootElement;
