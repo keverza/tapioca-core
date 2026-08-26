@@ -293,6 +293,10 @@ namespace Tapioca.GrasshopperHost
                           ? "Keyboard gate active."
                           : "WARNING: the keyboard gate is not installed, so Archicad will keep intercepting "
                             + "Delete, Escape and other shortcuts over the canvas.")
+                      // By the time a user reaches the canvas the background
+                      // check has long finished, and its answer is what decides
+                      // whether Tapir's components can work at all.
+                      + " " + TapirConnectionCheck.Report
                     : "Grasshopper editor hidden.");
             return StatusOk;
         }

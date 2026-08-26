@@ -137,6 +137,12 @@ namespace Tapioca.GrasshopperHost
 
             tapirReport = prepared + " " + TapirPackage.BindPort(archicadJsonPort);
 
+            // Fire and forget, off the main thread, for the reason spelled out
+            // in TapirConnectionCheck: it makes the same loopback call a Tapir
+            // component makes, and making it from HERE would be waiting on a
+            // reply this thread has to be free to produce.
+            TapirConnectionCheck.Begin(archicadJsonPort);
+
             if (showEditor)
             {
                 ShowAndGate(grasshopper);

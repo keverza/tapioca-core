@@ -17,34 +17,54 @@ namespace Tapioca.GrasshopperHost
     /// </remarks>
     internal static class Log
     {
+        // ⚠️ WRITERS ARE NO LONGER ALL ON ONE THREAD. TapirConnectionCheck logs
+        // from the thread pool while the main thread is still starting the host,
+        // and two unsynchronised File.AppendAllText calls on one path is how a
+        // line ends up half-written or lost. The lock costs nothing on a path
+        // that already opens and closes the file per line.
+        private static readonly object Sync = new object();
         private static string _path;
 
         internal static void Open(string path)
         {
-            _path = string.IsNullOrWhiteSpace(path) ? null : path;
+            lock (Sync)
+            {
+                _path = string.IsNullOrWhiteSpace(path) ? null : path;
+            }
         }
 
         internal static void Close()
         {
-            _path = null;
+            lock (Sync)
+            {
+                _path = null;
+            }
         }
 
         internal static void Write(string message)
         {
-            if (_path == null || string.IsNullOrEmpty(message))
+            if (string.IsNullOrEmpty(message))
             {
                 return;
             }
 
             try
             {
-                File.AppendAllText(
-                    _path,
-                    string.Format(
-                        CultureInfo.InvariantCulture,
-                        "  [managed] {0}{1}",
-                        message,
-                        Environment.NewLine));
+                lock (Sync)
+                {
+                    if (_path == null)
+                    {
+                        return;
+                    }
+
+                    File.AppendAllText(
+                        _path,
+                        string.Format(
+                            CultureInfo.InvariantCulture,
+                            "  [managed] {0}{1}",
+                            message,
+                            Environment.NewLine));
+                }
             }
             catch (Exception)
             {
