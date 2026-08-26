@@ -119,6 +119,9 @@ namespace Tapioca.GrasshopperHost
                 return false;
             }
 
+            // Both folders before the editor loads, for the same reason:
+            // Grasshopper scans its assembly folders exactly once, on the way up.
+            string preparedTapioca = TapiocaPackage.Prepare();
             string prepared = TapirPackage.Prepare();
 
             // LoadEditor returns nothing, so "did it work" has to be asked
@@ -130,12 +133,13 @@ namespace Tapioca.GrasshopperHost
 
             if (!grasshopper.IsEditorLoaded())
             {
-                tapirReport = prepared;
+                tapirReport = preparedTapioca + " " + prepared;
                 failure = "Grasshopper's editor would not load.";
                 return false;
             }
 
-            tapirReport = prepared + " " + TapirPackage.BindPort(archicadJsonPort);
+            tapirReport = preparedTapioca + " " + TapiocaPackage.Verify()
+                        + " " + prepared + " " + TapirPackage.BindPort(archicadJsonPort);
 
             // Fire and forget, off the main thread, for the reason spelled out
             // in TapirConnectionCheck: it makes the same loopback call a Tapir

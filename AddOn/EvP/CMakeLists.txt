@@ -24,12 +24,14 @@ if (NOT AC_API_DEVKIT_DIR)
         set (AC_API_DEVKIT_DIR "${CMAKE_SOURCE_DIR}/../reference/archicad29-api-devkit")
     endif ()
 endif ()
+
 set (AC_API_DEVKIT_DIR "${AC_API_DEVKIT_DIR}" CACHE PATH "API DevKit dir (contains /Support)")
 
 # Default localization resource language (RINT = international/English).
 if (NOT AC_ADDON_LANGUAGE)
     set (AC_ADDON_LANGUAGE "INT")
 endif ()
+
 set (AC_ADDON_LANGUAGE "${AC_ADDON_LANGUAGE}" CACHE STRING "Resource language code (folder R<code>)")
 
 # Header-only third-party dependencies (vendored under ../reference).
@@ -396,7 +398,81 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GrasshopperManagedProject}")
     add_custom_target (EvPGrasshopperManaged ALL DEPENDS "${GrasshopperManagedStamp}")
     set_target_properties (EvPGrasshopperManaged PROPERTIES FOLDER Resources)
     add_dependencies (${ADDON_LIB} EvPGrasshopperManaged)
+
+    # ------------------------------------------------------------------------
+    # Tapioca.Grasshopper.gha — Tapioca's own Grasshopper components
+    # ------------------------------------------------------------------------
+    # Its own folder, not beside the .apx: Grasshopper SCANS an assembly folder,
+    # and pointing it at the build directory would mean walking every object file
+    # in it on every start. GrasshopperLibraries/ holds the package and nothing
+    # else, and TapiocaPackage.cs adds exactly that folder before the editor
+    # loads — which is the only moment Grasshopper reads the list.
+    #
+    # ⚠️ THE PACKAGE SHIPS WITH THE ADD-ON, NOT IN THE USER'S LIBRARIES FOLDER.
+    # It calls through the versioned ABI in Sources/AddOn/Grasshopper/, so a copy
+    # surviving in a user folder after an upgrade would be a stale package
+    # talking to a newer bridge. Keeping it here makes the two inseparable.
+    set (GrasshopperPackageFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/GrasshopperComponents")
+    set (GrasshopperPackageProject "${GrasshopperPackageFolder}/Tapioca.Grasshopper.csproj")
+    if (EXISTS "${GrasshopperPackageProject}")
+        file (GLOB GrasshopperPackageFiles CONFIGURE_DEPENDS
+            "${GrasshopperPackageFolder}/*.cs" "${GrasshopperPackageFolder}/*.csproj")
+        set (GrasshopperPackageStamp "${CMAKE_BINARY_DIR}/Tapioca.Grasshopper.stamp")
+        add_custom_command (
+            OUTPUT "${GrasshopperPackageStamp}"
+            DEPENDS ${GrasshopperPackageFiles}
+            COMMENT "EvP: publishing Tapioca.Grasshopper.gha into GrasshopperLibraries"
+            COMMAND "${DOTNET_EXECUTABLE}" publish "${GrasshopperPackageProject}"
+                -c Release -o "${CMAKE_BINARY_DIR}/GrasshopperLibraries" --nologo
+            COMMAND ${CMAKE_COMMAND} -E touch "${GrasshopperPackageStamp}"
+            VERBATIM)
+        add_custom_target (EvPGrasshopperPackage ALL DEPENDS "${GrasshopperPackageStamp}")
+        set_target_properties (EvPGrasshopperPackage PROPERTIES FOLDER Resources)
+        add_dependencies (${ADDON_LIB} EvPGrasshopperPackage)
+    endif ()
 else ()
     message (STATUS "EvP: the .NET SDK was not found; Tapioca.GrasshopperHost will not be built. "
                     "EvP.apx builds normally and reports the missing managed host if Rhino.Inside is used.")
+endif ()
+
+# ============================================================================
+# Tapioca.Dynamo.dll — Dynamo 4 ZeroTouch nodes for the external editor
+# ============================================================================
+set (DYNAMO_RUNTIME_DIR "" CACHE PATH "Dynamo Core 4.2 runtime containing DynamoServices.dll")
+if (NOT DYNAMO_RUNTIME_DIR AND DEFINED ENV{TAPIOCA_DYNAMO_DIR})
+    file (TO_CMAKE_PATH "$ENV{TAPIOCA_DYNAMO_DIR}" DYNAMO_RUNTIME_DIR)
+endif ()
+if (NOT DYNAMO_RUNTIME_DIR)
+    get_filename_component (_tapioca_code_root "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+    set (_dynamo_reference "${_tapioca_code_root}/tapioca-ref/DynamoCoreRuntime4.2.1.5887")
+    if (EXISTS "${_dynamo_reference}/DynamoServices.dll")
+        set (DYNAMO_RUNTIME_DIR "${_dynamo_reference}" CACHE PATH "Dynamo Core runtime" FORCE)
+    endif ()
+endif ()
+
+set (TapiocaDynamoFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/TapiocaDynamo")
+set (TapiocaDynamoProject "${TapiocaDynamoFolder}/Tapioca.Dynamo.csproj")
+if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${TapiocaDynamoProject}" AND
+    EXISTS "${DYNAMO_RUNTIME_DIR}/DynamoServices.dll")
+    file (GLOB TapiocaDynamoFiles CONFIGURE_DEPENDS
+        "${TapiocaDynamoFolder}/*.cs" "${TapiocaDynamoFolder}/*.csproj" "${TapiocaDynamoFolder}/pkg.json")
+    set (TapiocaDynamoPackageDir "${CMAKE_BINARY_DIR}/DynamoPackage/Tapioca")
+    set (TapiocaDynamoAssembly "${TapiocaDynamoPackageDir}/bin/Tapioca.Dynamo.dll")
+    set (TapiocaDynamoManifest "${TapiocaDynamoPackageDir}/pkg.json")
+    add_custom_command (
+        OUTPUT "${TapiocaDynamoAssembly}" "${TapiocaDynamoManifest}"
+        DEPENDS ${TapiocaDynamoFiles}
+        COMMENT "EvP: building the Tapioca.Dynamo ZeroTouch package"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${TapiocaDynamoPackageDir}/bin"
+        COMMAND "${DOTNET_EXECUTABLE}" build "${TapiocaDynamoProject}" -c Release --nologo
+            "-p:DynamoRuntimeDir=${DYNAMO_RUNTIME_DIR}" -o "${TapiocaDynamoPackageDir}/bin"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TapiocaDynamoFolder}/pkg.json" "${TapiocaDynamoManifest}"
+        VERBATIM)
+    add_custom_target (EvPTapiocaDynamo ALL DEPENDS "${TapiocaDynamoAssembly}" "${TapiocaDynamoManifest}")
+    set_target_properties (EvPTapiocaDynamo PROPERTIES FOLDER Resources)
+    add_dependencies (${ADDON_LIB} EvPTapiocaDynamo)
+else ()
+    message (STATUS "EvP: DynamoServices.dll or the .NET SDK was not found; the optional Tapioca.Dynamo package "
+                    "will not be built.")
 endif ()

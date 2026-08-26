@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v7.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v7.0": {
+      "Tapioca.Grasshopper/0.1.0": {
+        "runtime": {
+          "Tapioca.Grasshopper.gha": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Tapioca.Grasshopper/0.1.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

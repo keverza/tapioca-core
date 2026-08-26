@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The Tapioca Grasshopper package (PLAT-RHINO-INSIDE, slice 4).
+
+    ⚠️ WHY THIS EXISTS RATHER THAN AN HTTP BRIDGE. Measured 2026-08-26 from
+    inside a live Grasshopper solution: while a solve holds Archicad's main
+    thread inside an add-on callback, Archicad executes NO JSON command that
+    needs that thread — not Tapir's, not Tapioca's, not even Graphisoft's own
+    API.GetSelectedElements — and not from a background thread either. Only
+    API.IsAlive survives, because Archicad answers it without scheduling.
+    Pumping messages does not help. So an in-process Grasshopper component can
+    never reach Archicad over a socket, and Tapir cannot work in this process.
+
+    The same fact read the other way is why THIS works: a component solves ON
+    Archicad's main thread, which is the thread ACAPI demands, so it calls
+    straight through the add-on and gets an answer in the same stack frame.
+
+    ⚠️ NO REFERENCE TO Tapioca.GrasshopperHost, DELIBERATELY. That assembly is
+    loaded by hostfxr into its own load context; a compile-time reference here
+    would let Grasshopper's loader resolve a SECOND copy from disk into the
+    default context, with its own statics and a null native pointer — which
+    would fail as "the bridge is not available" on a machine where it plainly
+    is. The bridge binds by reflection to the already-loaded instance instead.
+    See TapiocaBridge.cs.
+  -->
+
+  <PropertyGroup>
+    <!-- net7.0-windows, not net8.0: it loads on either runtime, and which one
+         Rhino 8 initialises has changed across service releases. -->
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Tapioca.Grasshopper</AssemblyName>
+    <RootNamespace>Tapioca.Grasshopper</RootNamespace>
+    <TargetExt>.gha</TargetExt>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Version>0.1.0</Version>
+    <Title>Tapioca</Title>
+    <Description>Grasshopper components that reach Archicad directly, in process, through the Tapioca add-on.</Description>
+    <NoWarn>$(NoWarn);NU1701;CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Compile-time only, exactly as in the host: the assemblies that run come
+         from the installed Rhino. Copying them beside the .gha would give the
+         process two RhinoCommons and fail with a type-identity error. -->
+    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

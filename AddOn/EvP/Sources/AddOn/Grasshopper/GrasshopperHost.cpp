@@ -1,6 +1,7 @@
 #include "APIEnvir.h"
 #include "ACAPinc.h"
 
+#include "Grasshopper/GrasshopperBridge.hpp"
 #include "GrasshopperHost.hpp"
 #include "GrasshopperHostApi.h"
 #include "HostState.hpp"
@@ -536,6 +537,10 @@ bool GrasshopperHost::Start (GS::UniString& message)
     Log (GS::UniString::Printf ("Archicad JSON port: %u", (unsigned int) archicadPort));
     request.rhinoSystemDir = nullptr; // let the Rhino.Inside resolver find it
     request.logPath = logPath.empty () ? nullptr : (const uint16_t*) logPath.c_str ();
+    // The managed-to-native direction (ABI 4). Handed over at start and revoked
+    // in Stop, so the pointer a foreign runtime holds is only ever live while
+    // this add-on is.
+    request.nativeApi = NativeApi ();
 
     // This call is synchronous on the main thread, and stays that way
     // deliberately: RhinoCore is affine to the STA that constructs it, so moving
@@ -629,6 +634,14 @@ void GrasshopperHost::Stop ()
     }
 
     Log (GS::UniString ("===== Rhino.Inside stop ====="));
+
+    // ⚠️ FIRST, BEFORE THE MANAGED SIDE IS ASKED TO STOP. From here on a
+    // Grasshopper component that is still mid-solve gets NotRunning instead of a
+    // call into an add-on that is tearing down. Refusing early is the same rule
+    // the opennurbs preflight follows: the dangerous call is the one that is not
+    // refused before it starts.
+    RevokeNativeApi ();
+
     if (managedStop != nullptr) {
         const int32_t status = managedStop ();
         const GS::UniString managedText = ManagedMessage ();

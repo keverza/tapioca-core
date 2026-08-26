@@ -36,8 +36,11 @@ namespace Tapioca.GrasshopperHost
     /// <see cref="MethodImplOptions.NoInlining"/> in its own type: the standard
     /// Rhino.Inside arrangement, and the one thing that reliably breaks when it
     /// is "simplified" into one class.</item>
-    /// <item>NOTHING CALLS ARCHICAD. There is no callback into the add-on at
-    /// all in this slice — see GrasshopperHostApi.h.</item>
+    /// <item>NOTHING IN THIS FILE CALLS ARCHICAD. It records the native table
+    /// (ABI 4) and hands it to <see cref="TapiocaNative"/>, which owns the one
+    /// managed-to-native call there is. The pointer is bound at start and
+    /// dropped in <c>StopCore</c> before the session tears down, so it never
+    /// outlives the add-on — see GrasshopperHostApi.h.</item>
     /// </list>
     /// </remarks>
     public static class Bootstrap
@@ -55,7 +58,7 @@ namespace Tapioca.GrasshopperHost
         private const int StatusEditorUnavailable = 14;
         private const int StatusFaulted = 13;
 
-        private const uint AbiVersion = 3;
+        private const uint AbiVersion = 4;
         private const uint FlagLoadGrasshopper = 0x0001u;
         private const uint FlagShowEditor = 0x0002u;
 
@@ -72,6 +75,7 @@ namespace Tapioca.GrasshopperHost
             public uint ArchicadJsonPort;
             public IntPtr RhinoSystemDir;
             public IntPtr LogPath;
+            public IntPtr NativeApi;
         }
 
         [UnmanagedCallersOnly]
@@ -109,6 +113,9 @@ namespace Tapioca.GrasshopperHost
                     // Recorded, not re-derived: only native code can answer which
                     // Archicad this process is, and it already has.
                     GrasshopperSession.ArchicadJsonPort = request.ArchicadJsonPort;
+                    // Before the start, so that anything the session does on its
+                    // way up can already reach Archicad directly.
+                    TapiocaNative.Bind(request.NativeApi);
                     return StartCore(rhinoSystemDir, request.Flags);
                 }
             }
@@ -309,6 +316,11 @@ namespace Tapioca.GrasshopperHost
                 SetMessage("Nothing to stop.");
                 return StatusNotRunning;
             }
+
+            // Dropped before the session tears down, matching the native
+            // side's revoke: after this a component gets a refusal instead of a
+            // pointer into an add-on that is going away.
+            TapiocaNative.Unbind();
 
             string report = GrasshopperSession.Stop();
             SetMessage(report);
