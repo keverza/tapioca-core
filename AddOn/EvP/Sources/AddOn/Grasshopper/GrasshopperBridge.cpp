@@ -56,10 +56,21 @@ GS::UniString Envelope (bool ok, const GS::ObjectState& data, const GS::UniStrin
 // enough to size the next one.
 int32_t CopyOut (const GS::UniString& text, uint16_t* buffer, int32_t capacityChars, int32_t* neededChars)
 {
-    const GS::uchar_t* source = text.ToUStr ().Get ();
-    int32_t            length = 0;
-    while (source[length] != 0)
-        ++length;
+    // ⚠️ ToUStr RETURNS AN OWNING TEMPORARY, AND THAT IS A USE-AFTER-FREE TRAP.
+    // GS::UniString::UStr holds its own buffer and frees it in its destructor, so
+    //
+    //     const GS::uchar_t* p = text.ToUStr ().Get ();   // WRONG
+    //
+    // leaves `p` pointing at freed memory the instant the statement ends. It is
+    // not even reliably wrong: the freed block often still holds the right bytes,
+    // so it reads correctly on a quiet process and returns garbage as soon as
+    // another thread allocates. That is exactly how this shipped once — a caller
+    // saw "䀀ŵ" while Tapioca's server thread was busy and correct JSON while it
+    // was stopped. Hold the UStr in a NAMED LOCAL and the lifetime is the local's.
+    // `auto`, not the type name: UStr is a PRIVATE nested class of UniString, so
+    // it can be held but not spelled.
+    const auto    ustr = text.ToUStr ();
+    const int32_t length = (int32_t) text.GetLength ();
 
     if (neededChars != nullptr)
         *neededChars = length;
@@ -67,7 +78,7 @@ int32_t CopyOut (const GS::UniString& text, uint16_t* buffer, int32_t capacityCh
     if (buffer == nullptr || capacityChars <= length)
         return TapiocaGhStatus_BufferTooSmall;
 
-    std::memcpy (buffer, source, (size_t) length * sizeof (uint16_t));
+    std::memcpy (buffer, ustr.Get (), (size_t) length * sizeof (uint16_t));
     buffer[length] = 0;
     return TapiocaGhStatus_Ok;
 }
@@ -95,7 +106,11 @@ int32_t CallNative (const uint16_t* commandName,
     if (name.IsEmpty ())
         return TapiocaGhStatus_BadRequest;
 
-    const GS::String commandKey (name.ToCStr ().Get ());
+    // Same owning-temporary shape as UStr above. Correct here only because the
+    // copy happens inside the same full expression; spelled out rather than
+    // inlined so the next edit cannot quietly turn it into the bug in CopyOut.
+    const auto       nameC = name.ToCStr ();
+    const GS::String commandKey (nameC.Get ());
 
     // Unknown before anything else, so a typo reads as a typo rather than as a
     // schema failure from whatever the dispatcher would have guessed.
