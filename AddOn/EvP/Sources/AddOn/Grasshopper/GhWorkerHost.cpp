@@ -60,6 +60,10 @@ constexpr DWORD SupervisorIntervalMs = 1000;
 // starting at all, and the exit code is the only diagnostic there will be.
 constexpr DWORD StartupExitWindowMs = 250;
 
+// How long a worker gets to close Rhino on its own before it is killed. Sized
+// for RhinoCore::Dispose on a cold machine; see the note at the call site.
+constexpr DWORD CooperativeShutdownMs = 15000;
+
 HostLifecycle lifecycle;
 
 std::mutex controlMutex;
@@ -522,9 +526,16 @@ void GhWorkerHost::Stop ()
     // Cooperative first: a worker told to shut down closes its own Rhino, which
     // is the only way its temporary files and licence lease are released
     // tidily. The guarantee follows regardless.
+    //
+    // ⚠️ THE WAIT IS SIZED FOR RhinoCore::Dispose, NOT FOR A MESSAGE ROUND TRIP.
+    // Measured on a real quit: the worker acknowledged the shutdown at once and
+    // then spent well over three seconds inside Dispose, so a three-second wait
+    // terminated every ordinary quit and reported it as a worker that "did not
+    // shut down" -- turning the guarantee, which is meant to be the exception,
+    // into the normal path and losing the tidy licence release every time.
     GS::UniString sendError;
     if (GhBridge::Get ().Send (protocol::MessageType::Shutdown, sendError)) {
-        WaitForSingleObject (workerProcess, 3000);
+        WaitForSingleObject (workerProcess, CooperativeShutdownMs);
     }
     else {
         Log (sendError);

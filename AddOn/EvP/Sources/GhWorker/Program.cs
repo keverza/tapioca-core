@@ -56,6 +56,14 @@ namespace Tapioca.GhWorker
         private static Control _marshaller;
 
         /// <summary>
+        /// A canvas was asked for before Rhino was ready. Read and written only
+        /// on the UI thread -- the bridge marshals every request through
+        /// <see cref="OnUiThread"/>, and the payout in <c>Run</c> is on that same
+        /// thread.
+        /// </summary>
+        private static bool _editorRequested;
+
+        /// <summary>
         /// ⚠️ STA, AND IT IS NOT DECORATION. RhinoCore is thread-affine and
         /// expects a single-threaded apartment; constructing it on an MTA thread
         /// is not a supported configuration and misbehaves later rather than
@@ -118,6 +126,21 @@ namespace Tapioca.GhWorker
             _marshaller.CreateControl();
 
             _bridge = new BridgeClient();
+
+            // ⚠️ SUBSCRIBED BEFORE Connect, NOT AFTER, AND THIS IS NOT TIDINESS.
+            // Connect starts the reader thread as its last act, and the add-on
+            // sends ShowEditor the instant the handshake completes -- it spawned
+            // this worker precisely because a user asked for a canvas. Wiring the
+            // handlers afterwards loses that race every time: the reader raises
+            // an event nobody is subscribed to, Raise returns silently, and the
+            // canvas never appears -- while every later message (Shutdown,
+            // arriving minutes on) works perfectly. That asymmetry is exactly
+            // what the symptom looked like, and there is nothing in the log to
+            // see, because a dropped event writes nothing.
+            _bridge.EditorShowRequested += () => OnUiThread(ShowEditor);
+            _bridge.EditorHideRequested += () => OnUiThread(HideEditor);
+            _bridge.ShutdownRequested += () => OnUiThread(BeginShutdown);
+
             string error;
             if (!_bridge.Connect(arguments.PipeName, ConnectTimeoutMs, out error))
             {
@@ -131,17 +154,14 @@ namespace Tapioca.GhWorker
             TapiocaBridgeApi.Bind(_bridge);
             WorkerLog.Write("bridge connected");
 
-            _bridge.EditorShowRequested += () => OnUiThread(ShowEditor);
-            _bridge.EditorHideRequested += () => OnUiThread(HideEditor);
-            _bridge.ShutdownRequested += () => OnUiThread(BeginShutdown);
-
             StartOutcome outcome = WorkerSession.Start(arguments.ArchicadJsonPort);
+            // Acknowledged, not also logged: the add-on writes every Ack into
+            // grasshopper.log itself, so doing both prints this paragraph twice.
             _bridge.Acknowledge(
                 outcome.Kind == StartOutcomeKind.Started
                     ? BridgeProtocol.AckStatus.Ok
                     : BridgeProtocol.AckStatus.Failed,
                 outcome.Message);
-            WorkerLog.Write(outcome.Message);
 
             if (outcome.Kind != StartOutcomeKind.Started)
             {
@@ -150,6 +170,13 @@ namespace Tapioca.GhWorker
                 // healthy to the add-on's liveness check while being useless.
                 return ExitRhinoUnavailable;
             }
+
+            // The other half of the race above: the request may well have arrived
+            // while Rhino was still coming up, which is the ordinary case rather
+            // than the exception -- the add-on spawns and asks in one gesture,
+            // and RhinoCore takes seconds. ShowEditor latches it; this is where
+            // the latch is paid out, once there is a Grasshopper to show.
+            ShowEditorIfRequested();
 
             // Grasshopper's editor is WinForms and needs a message loop. Running
             // it HERE, on the process's own STA thread, is the thing the whole
@@ -179,8 +206,29 @@ namespace Tapioca.GhWorker
             }
         }
 
+        /// <summary>
+        /// Shows the canvas, or remembers that one was asked for when Rhino is
+        /// not up yet.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ THE LATCH IS THE NORMAL PATH, NOT THE EDGE CASE. The add-on spawns
+        /// this worker and asks for a canvas in one gesture, because making a
+        /// user click twice for one intention would be absurd -- and it must not
+        /// block Archicad's main thread waiting for RhinoCore, which is the whole
+        /// reason the worker exists. So the request routinely arrives seconds
+        /// before there is anything to show. Refusing it there would report
+        /// "Rhino is not running" for a worker that was two seconds from ready.
+        /// </remarks>
         private static void ShowEditor()
         {
+            if (!WorkerSession.IsRunning)
+            {
+                _editorRequested = true;
+                WorkerLog.Write("editor requested while Rhino was still starting; it will be shown when it is up");
+                return;
+            }
+
+            _editorRequested = false;
             string failure;
             bool shown = WorkerSession.SetEditorVisible(true, out failure);
             _bridge.Acknowledge(
@@ -188,8 +236,19 @@ namespace Tapioca.GhWorker
                 shown ? "Grasshopper editor shown. " + TapirConnectionCheck.Report : failure);
         }
 
+        private static void ShowEditorIfRequested()
+        {
+            if (_editorRequested)
+            {
+                ShowEditor();
+            }
+        }
+
         private static void HideEditor()
         {
+            // Clears the latch too: "hide it" after "show it" and before Rhino is
+            // up means the user changed their mind, not that a canvas is owed.
+            _editorRequested = false;
             string failure;
             bool hidden = WorkerSession.SetEditorVisible(false, out failure);
             _bridge.Acknowledge(
