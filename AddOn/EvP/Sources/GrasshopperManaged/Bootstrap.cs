@@ -283,7 +283,17 @@ namespace Tapioca.GrasshopperHost
                 return StatusEditorUnavailable;
             }
 
-            SetMessage(visible ? "Grasshopper editor shown." : "Grasshopper editor hidden.");
+            // The gate's state is part of the outcome, not a footnote: a visible
+            // canvas whose keystrokes still reach Archicad is the failure the
+            // user meets first, and it is invisible unless it is reported.
+            SetMessage(
+                visible
+                    ? "Grasshopper editor shown. "
+                      + (EditorInput.IsInstalled
+                          ? "Keyboard gate active."
+                          : "WARNING: the keyboard gate is not installed, so Archicad will keep intercepting "
+                            + "Delete, Escape and other shortcuts over the canvas.")
+                    : "Grasshopper editor hidden.");
             return StatusOk;
         }
 

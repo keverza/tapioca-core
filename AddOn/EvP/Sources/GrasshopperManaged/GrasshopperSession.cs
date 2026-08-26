@@ -128,10 +128,11 @@ namespace Tapioca.GrasshopperHost
                 Log.Write("RhinoCore constructed (hidden).");
 
                 // 3. Only now Grasshopper, which depends on the core existing.
+                string tapirReport = string.Empty;
                 if (loadGrasshopper)
                 {
                     string failure;
-                    if (!RhinoBoot.LoadGrasshopper(showEditor, out failure))
+                    if (!RhinoBoot.LoadGrasshopper(showEditor, ArchicadJsonPort, out tapirReport, out failure))
                     {
                         // The core stays up: it started cleanly, and tearing it
                         // down here would destroy the evidence of what stopped
@@ -152,7 +153,8 @@ namespace Tapioca.GrasshopperHost
                     + (loadGrasshopper ? ", Grasshopper loaded." : ", Grasshopper not requested.")
                     + (ArchicadJsonPort != 0
                         ? " Archicad JSON port " + ArchicadJsonPort.ToString(CultureInfo.InvariantCulture) + "."
-                        : " Archicad JSON port unavailable."));
+                        : " Archicad JSON port unavailable.")
+                    + (string.IsNullOrWhiteSpace(tapirReport) ? string.Empty : " " + tapirReport.Trim()));
             }
             catch (Exception exception)
             {
@@ -165,6 +167,14 @@ namespace Tapioca.GrasshopperHost
         internal static string Stop()
         {
             _state = HostState.Stopping;
+
+            // FIRST, before anything else in this method. The keyboard gate is
+            // a Win32 hook holding a pointer to a managed delegate; leaving it
+            // installed across a teardown is precisely the dangling callback the
+            // unload rules forbid. It is also the one step here that cannot
+            // fail in a way worth stopping for.
+            Log.Write(EditorInput.Uninstall());
+
             string report;
             try
             {

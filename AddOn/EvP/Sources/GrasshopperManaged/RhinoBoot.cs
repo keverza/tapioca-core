@@ -4,9 +4,14 @@ using System.Runtime.CompilerServices;
 namespace Tapioca.GrasshopperHost
 {
     /// <summary>
-    /// The only file in this assembly that names a Rhino or Grasshopper type.
+    /// Where Rhino and Grasshopper types are named, and when.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// This file and <see cref="TapirPackage"/> are the only two that name a
+    /// Rhino or Grasshopper type, and both obey the same rule for the same
+    /// reason. Nothing else in the assembly may name one.
+    /// </para>
     /// <para>
     /// Every method is <see cref="MethodImplOptions.NoInlining"/>. That is the
     /// whole contract of this class: the JIT resolves the types a method uses
@@ -76,13 +81,27 @@ namespace Tapioca.GrasshopperHost
         }
 
         /// <summary>
-        /// Loads stock Grasshopper. The editor window is loaded but NOT shown
+        /// Loads stock Grasshopper, then the pinned Tapir package and this
+        /// Archicad's JSON port. The editor window is loaded but NOT shown
         /// unless <paramref name="showEditor"/> is set, which P0 never does.
         /// </summary>
+        /// <remarks>
+        /// The Tapir steps bracket the editor load rather than following it,
+        /// and the order is not arbitrary: Grasshopper scans its assembly
+        /// folders exactly once, while the editor loads, so a folder added
+        /// afterwards is a folder that will not be read until the next
+        /// Archicad. Preparation therefore goes first and verification second,
+        /// with the load between them.
+        /// </remarks>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static bool LoadGrasshopper(bool showEditor, out string failure)
+        internal static bool LoadGrasshopper(
+            bool showEditor,
+            uint archicadJsonPort,
+            out string tapirReport,
+            out string failure)
         {
             failure = string.Empty;
+            tapirReport = string.Empty;
             object plugInObject = Rhino.RhinoApp.GetPlugInObject(GrasshopperPlugInName);
             if (plugInObject == null)
             {
@@ -100,6 +119,8 @@ namespace Tapioca.GrasshopperHost
                 return false;
             }
 
+            string prepared = TapirPackage.Prepare();
+
             // LoadEditor returns nothing, so "did it work" has to be asked
             // separately — and asking afterwards is the honest check anyway.
             if (!grasshopper.IsEditorLoaded())
@@ -109,13 +130,16 @@ namespace Tapioca.GrasshopperHost
 
             if (!grasshopper.IsEditorLoaded())
             {
+                tapirReport = prepared;
                 failure = "Grasshopper's editor would not load.";
                 return false;
             }
 
+            tapirReport = prepared + " " + TapirPackage.BindPort(archicadJsonPort);
+
             if (showEditor)
             {
-                grasshopper.ShowEditor();
+                ShowAndGate(grasshopper);
             }
 
             return true;
@@ -159,7 +183,7 @@ namespace Tapioca.GrasshopperHost
                     return false;
                 }
 
-                grasshopper.ShowEditor();
+                ShowAndGate(grasshopper);
             }
             else
             {
@@ -169,9 +193,74 @@ namespace Tapioca.GrasshopperHost
                 {
                     grasshopper.HideEditor();
                 }
+
+                // The gate goes with the canvas. While no Grasshopper window is
+                // on screen there is nothing to protect, and a hook that is not
+                // installed cannot get anything wrong.
+                Log.Write(EditorInput.Uninstall());
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Shows the canvas and arms the keyboard gate around it.
+        /// </summary>
+        /// <remarks>
+        /// The two belong together. A Grasshopper canvas that is visible but
+        /// ungated is the state the user actually met: the editor opens, the
+        /// canvas takes focus, and Delete, Escape and the rest still go to
+        /// Archicad because Archicad's message loop translates its own
+        /// accelerators before anything else sees the keystroke. See
+        /// <see cref="EditorInput"/>.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ShowAndGate(Grasshopper.Plugin.GH_RhinoScriptInterface grasshopper)
+        {
+            grasshopper.ShowEditor();
+
+            // AFTER the show, not before: the editor form's handle does not
+            // exist until it has been created, and gating a handle of zero
+            // gates nothing.
+            EditorInput.SetGatedRoots(GatedWindowHandles());
+            Log.Write(EditorInput.Install());
+        }
+
+        /// <summary>
+        /// The top-level windows whose keystrokes belong to Grasshopper rather
+        /// than to Archicad.
+        /// </summary>
+        /// <remarks>
+        /// Rhino's main window is in the list even though it is hidden: it owns
+        /// Grasshopper's dialogs, so it is the window the owner chain of a
+        /// Grasshopper modal ends at.
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static IntPtr[] GatedWindowHandles()
+        {
+            System.Collections.Generic.List<IntPtr> handles = new System.Collections.Generic.List<IntPtr>();
+            try
+            {
+                if (Grasshopper.Instances.DocumentEditor != null)
+                {
+                    handles.Add(Grasshopper.Instances.DocumentEditor.Handle);
+                }
+            }
+            catch (Exception exception)
+            {
+                Log.Write("Grasshopper's editor window handle was unavailable: " + exception.Message);
+            }
+
+            try
+            {
+                handles.Add(Rhino.RhinoApp.MainWindowHandle());
+            }
+            catch (Exception exception)
+            {
+                Log.Write("Rhino's main window handle was unavailable: " + exception.Message);
+            }
+
+            return handles.ToArray();
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
