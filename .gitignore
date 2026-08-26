@@ -63,3 +63,5 @@ AddOn/EvP/Sources/GhWorker/obj/
 # Dynamo ZeroTouch build intermediates; CMake stages the package in build_29/.
 AddOn/EvP/Sources/TapiocaDynamo/bin/
 AddOn/EvP/Sources/TapiocaDynamo/obj/
+/AddOn/EvP/GraphUI/node_modules
+AddOn/EvP/Sources/GrasshopperComponents/obj/Release/net7.0-windows/PublishOutputs.238d3cbc9a.txt

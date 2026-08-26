@@ -1,0 +1,25 @@
+{
+  "name": "tapioca-graph-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/assert-build.mjs",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@xyflow/svelte": "1.6.5",
+    "svelte": "5.56.10"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.1.2",
+    "svelte-check": "4.4.8",
+    "typescript": "5.9.3",
+    "vite": "8.2.2",
+    "vite-plugin-singlefile": "2.3.3"
+  }
+}
