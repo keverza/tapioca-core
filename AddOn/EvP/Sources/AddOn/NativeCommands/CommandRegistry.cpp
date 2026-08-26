@@ -25,6 +25,7 @@
 #include "NativeCommands/ModelAppearanceCommands.hpp"
 #include "NativeCommands/ModelGeometryCommands.hpp"
 #include "NativeCommands/NotifyCommands.hpp"
+#include "NativeCommands/NodeGraphCommands.hpp"
 #include "NativeCommands/NurbsCommands.hpp"
 #include "NativeCommands/PlanGeometryCommands.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp"
@@ -76,7 +77,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetNurbsCommandRegistrations,       &GetComponent3DCommandRegistrations,   &GetCuttingPlaneCommandRegistrations,
     &GetNotifyCommandRegistrations,      &GetPlanGeometryCommandRegistrations,  &GetPlanOverlayCommandRegistrations,
     &GetPlanTrackCommandRegistrations,   &GetArchVizCommandRegistrations,       &GetPointCloudCommandRegistrations,
-    &GetViewerSyncCommandRegistrations,  &GetPreviewCommandRegistrations,
+    &GetViewerSyncCommandRegistrations,  &GetPreviewCommandRegistrations,       &GetNodeGraphCommandRegistrations,
 };
 
 // ---------------------------------------------------------------------------

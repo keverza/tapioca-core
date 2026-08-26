@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 141,
+      "nativeRegistry": 146,
       "dispatcherLocal": 19,
-      "total": 160
+      "total": 165
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -9738,6 +9738,492 @@
         "required": [
           "outlines",
           "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphApplyEdit",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "editKind": {
+                "const": "addNode"
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "nodeType": {
+                "type": "string",
+                "minLength": 1
+              },
+              "numberValue": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "nodeId",
+              "nodeType"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "editKind": {
+                "const": "removeNode"
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "nodeId"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "editKind": {
+                "enum": [
+                  "connect",
+                  "disconnect"
+                ]
+              },
+              "sourceNode": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourcePort": {
+                "type": "string",
+                "minLength": 1
+              },
+              "targetNode": {
+                "type": "string",
+                "minLength": 1
+              },
+              "targetPort": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "sourceNode",
+              "sourcePort",
+              "targetNode",
+              "targetPort"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "editKind": {
+                "const": "setParam"
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "parameterId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "numberValue": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "nodeId",
+              "parameterId",
+              "numberValue"
+            ]
+          }
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dirtyNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "dirtyNodes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphEvaluate",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "nodes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetNodeResults",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nodeId": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "dirty",
+                    "complete",
+                    "failed",
+                    "blocked"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "durationMilliseconds": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "itemCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "previewAvailable": {
+                  "type": "boolean"
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "portId": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      },
+                      "numberValue": {
+                        "type": "number"
+                      },
+                      "itemCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "portId",
+                      "valueType"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "nodeId",
+                "status",
+                "message",
+                "durationMilliseconds",
+                "itemCount",
+                "previewAvailable",
+                "outputs"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "results"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetNodeTypes",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "nodeTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nodeType": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "category": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "executionDomain": {
+                  "type": "string",
+                  "enum": [
+                    "worker",
+                    "archicadMainThread",
+                    "renderThread"
+                  ]
+                },
+                "inputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "portId": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "acceptsMultiple": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "portId",
+                      "label",
+                      "valueType",
+                      "required",
+                      "acceptsMultiple"
+                    ]
+                  }
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "portId": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "portId",
+                      "label",
+                      "valueType"
+                    ]
+                  }
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "parameterId": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "parameterId",
+                      "label",
+                      "valueType",
+                      "required"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "nodeType",
+                "label",
+                "category",
+                "description",
+                "executionDomain",
+                "inputs",
+                "outputs",
+                "parameters"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeTypes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nodeId": {
+                  "type": "string"
+                },
+                "nodeType": {
+                  "type": "string"
+                },
+                "parameters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "parameterId": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      },
+                      "numberValue": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "parameterId",
+                      "valueType"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "nodeId",
+                "nodeType",
+                "parameters"
+              ]
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sourceNode": {
+                  "type": "string"
+                },
+                "sourcePort": {
+                  "type": "string"
+                },
+                "targetNode": {
+                  "type": "string"
+                },
+                "targetPort": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "sourceNode",
+                "sourcePort",
+                "targetNode",
+                "targetPort"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "nodes",
+          "edges"
         ]
       }
     },

@@ -133,6 +133,7 @@ TIER_ASSIGNMENTS = {
     # same reason. It knows nothing about palettes and nothing about documents.
     "Grasshopper": "services",
     "Metadata": "services",
+    "NodeGraph": "services",
     "NativeCommands": "features",
     "Notebook": "UI",
     "Notify": "services",

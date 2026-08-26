@@ -83,6 +83,19 @@ set (EVP_GRASSHOPPER_SOURCES
 set (EVP_DYNAMO_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Dynamo/ApiPipeProtocol.cpp")
 
+# NodeGraph is the owned graph document and evaluator with no host dependencies.
+# WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
+# real production sources can no longer be covered by the offline gate.
+set (EVP_NODEGRAPH_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/BuiltinNodes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Evaluator.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Graph.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/TopoOrder.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp")
+
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it
 # wrong does not FAIL -- every surface of an element renders in the first
@@ -277,7 +290,8 @@ set (EVP_TEST_SOURCES
     test_pointcloudlod.cpp
     test_cloudcompare.cpp
     test_apipipeprotocol.cpp
-    test_grasshopperhoststate.cpp)
+    test_grasshopperhoststate.cpp
+    test_nodegraph.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
 # reference/ is gitignored, so a fresh clone has neither dependency. Say so here
@@ -309,9 +323,10 @@ target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
                                 ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
-                               ${EVP_GRASSHOPPER_SOURCES}
-                               ${EVP_DYNAMO_SOURCES}
-                               ${EVP_TEST_SOURCES})
+                                ${EVP_GRASSHOPPER_SOURCES}
+                                 ${EVP_DYNAMO_SOURCES}
+                                 ${EVP_NODEGRAPH_SOURCES}
+                                 ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"
     "${GEOM_DIR}"

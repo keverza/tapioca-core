@@ -85,6 +85,11 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.GetTexturePixels` | one of: `index` OR `name` | `x`: integer<br>`y`: integer<br>`width`: integer<br>`height`: integer<br>`maxPixels`: integer | `name`: string<br>`pixelMapXSize`: integer<br>`pixelMapYSize`: integer<br>`x`: integer<br>`y`: integer<br>`width`: integer<br>`height`: integer<br>`truncated`: boolean<br>`pixels`: integer[] |
 | `Tapioca.GetViewSunInfo` | - | - | `isPersp`: boolean<br>`sunPositionMode`: string<br>`sunAzimuthRaw`: number<br>`sunAltitudeRaw`: number<br>`viewYear`: integer<br>`viewMonth`: integer<br>`viewDay`: integer<br>`viewHour`: integer<br>`viewMinute`: integer<br>`viewSecond`: integer<br>`viewSummerTime`: boolean<br>`north`: number<br>`northDeg`: number<br>`computedSunAngXY`: number<br>`computedSunAngZ`: number<br>`computedSunAngXYDeg`: number<br>`computedSunAngZDeg`: number<br>`computedSunDirX`: number<br>`computedSunDirY`: number<br>`computedSunDirZ`: number<br>`computedAzimuthDeg`: number<br>`computedAltitudeDeg`: number |
 | `Tapioca.GetWallPlanOutlines` | `elements`: Elements | - | `outlines`: object[]<br>`count`: integer |
+| `Tapioca.GraphApplyEdit` | one of: `editKind` + `nodeId` + `nodeType` OR `editKind` + `nodeId` OR `editKind` + `sourceNode` + `sourcePort` + `targetNode` + `targetPort` OR `editKind` + `nodeId` + `parameterId` + `numberValue` | - | `revision`: integer<br>`dirtyNodes`: string[] |
+| `Tapioca.GraphEvaluate` | - | - | `revision`: integer<br>`nodes`: integer |
+| `Tapioca.GraphGetNodeResults` | - | - | `revision`: integer<br>`results`: object[] |
+| `Tapioca.GraphGetNodeTypes` | - | - | `nodeTypes`: object[] |
+| `Tapioca.GraphGetState` | - | - | `revision`: integer<br>`nodes`: object[]<br>`edges`: object[] |
 | `Tapioca.HideSelectionPrompt` | - | - | `shown`: false |
 | `Tapioca.HighlightElements` | `elements`: object[] | `color`: number[]<br>`wireframe3D`: boolean<br>`dimOthers`: number[] | `count`: integer |
 | `Tapioca.ListDatabases` | - | `types`: "worksheet" \| "detail" \| "layout" \| "masterLayout" \| "3dDocument"[] | `databases`: object[]<br>`count`: integer |
