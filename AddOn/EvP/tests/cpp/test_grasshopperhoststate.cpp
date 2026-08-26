@@ -1,17 +1,17 @@
-// Grasshopper/HostState.cpp — the Rhino.Inside host's lifecycle rules.
+// Grasshopper/HostState.cpp — the Grasshopper worker's lifecycle rules.
 //
-// This is the one part of PLAT-RHINO-INSIDE slice 0 that can be proved without
-// Archicad, without Rhino and without a CLR, and it is also the part whose
-// failures are the most expensive: every rule here exists because breaking it
-// means a SECOND RhinoCore in the process, a host that reports Running after a
-// failed start, or a managed callback arriving in an add-on that is already
-// unloading. None of those three announces itself — the first two look like a
-// slow start, and the third is an access violation on Archicad's quit path with
-// a stack in someone else's runtime.
+// This is the one part of PLAT-RHINO-INSIDE P0 that can be proved without
+// Archicad, without a worker process and without Rhino, and it is also the part
+// whose failures are the most expensive: every rule here exists because breaking
+// it means a SECOND worker process, a host that reports Running after a failed
+// start, or a worker message served by an add-on that is already unloading. None
+// of those three announces itself — the first two look like a slow start, and
+// the third is an access violation on Archicad's quit path.
 //
-// So the live probe gets to spend its attention on what only a live run can
-// answer (does RhinoCore construct, does Grasshopper load, does Archicad stay
-// responsive) rather than on re-deriving state transitions by clicking a menu.
+// So a live run gets to spend its attention on what only a live run can answer
+// (does the worker spawn, does Rhino start in it, does Archicad stay responsive
+// while it solves) rather than on re-deriving state transitions by clicking a
+// menu.
 
 #include "Grasshopper/HostState.hpp"
 
@@ -30,19 +30,20 @@ TEST (GrasshopperHostState, StartsFromNotStarted)
     HostLifecycle lifecycle;
     EXPECT_EQ (HostState::NotStarted, lifecycle.State ());
     EXPECT_FALSE (lifecycle.IsRunning ());
-    EXPECT_FALSE (lifecycle.AcceptsCallbacks ());
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
 
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
     EXPECT_EQ (HostState::Starting, lifecycle.State ());
 
-    // ⚠️ NOT YET. A half-built host must not accept callbacks: the managed side
-    // exists but the native side has not finished recording what it owns.
-    EXPECT_FALSE (lifecycle.AcceptsCallbacks ());
+    // ⚠️ NOT YET. A half-built host must not accept worker messages: the process
+    // may already be up and talking, but the native side has not finished
+    // recording what it owns.
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
 
     lifecycle.CompleteStart ();
     EXPECT_EQ (HostState::Running, lifecycle.State ());
     EXPECT_TRUE (lifecycle.IsRunning ());
-    EXPECT_TRUE (lifecycle.AcceptsCallbacks ());
+    EXPECT_TRUE (lifecycle.AcceptsMessages ());
 }
 
 TEST (GrasshopperHostState, SecondStartWhileStartingIsRefused)
@@ -61,7 +62,7 @@ TEST (GrasshopperHostState, StartIsIdempotentOnceRunning)
     lifecycle.CompleteStart ();
 
     // The menu command's ordinary second click. It must be told "already
-    // running" and NOT be handed the right to build another core.
+    // running" and NOT be handed the right to spawn another worker.
     EXPECT_EQ (StartDecision::AlreadyRunning, lifecycle.BeginStart ());
     EXPECT_EQ (HostState::Running, lifecycle.State ());
 }
@@ -74,31 +75,31 @@ TEST (GrasshopperHostState, FailedStartIsNotRunningAndMayBeRetried)
 
     EXPECT_EQ (HostState::Failed, lifecycle.State ());
     EXPECT_FALSE (lifecycle.IsRunning ());
-    EXPECT_FALSE (lifecycle.AcceptsCallbacks ());
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
     EXPECT_EQ ("no Rhino installation", lifecycle.LastError ());
 
-    // A start that never produced a core left nothing to collide with, so the
+    // A start that never produced a worker left nothing to collide with, so the
     // user who installs Rhino and clicks again gets a real attempt.
     EXPECT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
     EXPECT_TRUE (lifecycle.LastError ().empty ());
 }
 
-TEST (GrasshopperHostState, CallbacksAreRefusedFromTheMomentAStopBegins)
+TEST (GrasshopperHostState, WorkerMessagesAreRefusedFromTheMomentAStopBegins)
 {
     HostLifecycle lifecycle;
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
     lifecycle.CompleteStart ();
-    ASSERT_TRUE (lifecycle.AcceptsCallbacks ());
+    ASSERT_TRUE (lifecycle.AcceptsMessages ());
 
     ASSERT_TRUE (lifecycle.BeginStop ());
     // The whole point: not after CompleteStop, at BeginStop. Teardown is where
     // a late callback lands, and it starts here.
-    EXPECT_FALSE (lifecycle.AcceptsCallbacks ());
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
     EXPECT_EQ (HostState::Stopping, lifecycle.State ());
 
     lifecycle.CompleteStop ();
     EXPECT_EQ (HostState::Stopped, lifecycle.State ());
-    EXPECT_FALSE (lifecycle.AcceptsCallbacks ());
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
 }
 
 TEST (GrasshopperHostState, StopIsSafeWhenNothingIsRunning)
@@ -115,7 +116,7 @@ TEST (GrasshopperHostState, StopIsSafeWhenNothingIsRunning)
     EXPECT_EQ (HostState::Failed, lifecycle.State ());
 }
 
-TEST (GrasshopperHostState, RestartAfterStopIsRefused)
+TEST (GrasshopperHostState, RestartAfterStopIsAllowed)
 {
     HostLifecycle lifecycle;
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
@@ -123,19 +124,49 @@ TEST (GrasshopperHostState, RestartAfterStopIsRefused)
     ASSERT_TRUE (lifecycle.BeginStop ());
     lifecycle.CompleteStop ();
 
-    // Same-process RhinoCore reconstruction is unmeasured, and the handoff says
-    // an Archicad restart is the fallback. Encoded here rather than left to the
-    // caller, because the caller is a menu item a user will click twice.
-    EXPECT_EQ (StartDecision::Terminal, lifecycle.BeginStart ());
-    EXPECT_EQ (HostState::Stopped, lifecycle.State ());
-    EXPECT_EQ (StartDecision::Terminal, lifecycle.BeginStart ());
+    // ⚠️ THIS IS THE TEST THAT REVERSED WITH THE PROCESS BOUNDARY, AND IT IS THE
+    // WHOLE POINT OF IT. In process a stop was TERMINAL: hostfxr_close does not
+    // unload a CLR, RhinoCore could not be reconstructed, and the only honest
+    // answer to a second click was "restart Archicad". Out of process every one
+    // of those constraints belongs to the worker, which is expendable — killing
+    // it and spawning another is the recovery primitive the whole design is for.
+    EXPECT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    EXPECT_EQ (HostState::Starting, lifecycle.State ());
+}
+
+TEST (GrasshopperHostState, EachStartGetsItsOwnGeneration)
+{
+    // The generation is what tells "the worker died and came back" apart from
+    // "the worker never died" in a log that carries both halves of a session.
+    HostLifecycle lifecycle;
+    EXPECT_EQ (0u, lifecycle.Generation ());
+
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    EXPECT_EQ (1u, lifecycle.Generation ());
+    lifecycle.CompleteStart ();
+
+    // A start that is refused must NOT consume a generation: a second menu click
+    // on a running worker is not a new worker.
+    EXPECT_EQ (StartDecision::AlreadyRunning, lifecycle.BeginStart ());
+    EXPECT_EQ (1u, lifecycle.Generation ());
+
+    ASSERT_TRUE (lifecycle.BeginStop ());
+    lifecycle.CompleteStop ();
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    EXPECT_EQ (2u, lifecycle.Generation ());
+
+    // Including a start that fails: a worker that died on its way up still owns
+    // a distinct generation, or its log lines merge with its successor's.
+    lifecycle.FailStart ("worker exited during startup");
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    EXPECT_EQ (3u, lifecycle.Generation ());
 }
 
 TEST (GrasshopperHostState, ExactlyOneOfManyConcurrentStartsProceeds)
 {
     // The reason this class holds a mutex rather than a bool. Two threads can
-    // reach the host: the menu command, and (later) any worker that goes
-    // through the gate. Two Proceeds means two RhinoCores.
+    // reach the host: the menu command, and the supervisor that restarts a dead
+    // worker. Two Proceeds means two worker processes.
     HostLifecycle lifecycle;
     std::atomic<int> proceeds (0);
     std::vector<std::thread> threads;

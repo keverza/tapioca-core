@@ -5,36 +5,35 @@ using System.Threading;
 namespace Tapioca.Grasshopper
 {
     /// <summary>
-    /// Finds the running Tapioca add-on's managed host and calls it.
+    /// Finds the Tapioca worker's bridge in this process and calls it.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// ⚠️ REFLECTION, NOT A REFERENCE, AND THE REASON IS LOAD CONTEXTS.
-    /// <c>Tapioca.GrasshopperHost.dll</c> is loaded by the add-on through
-    /// hostfxr, into its own <c>AssemblyLoadContext</c>. This <c>.gha</c> is
-    /// loaded by Grasshopper into the default one. A compile-time reference
-    /// would therefore let the loader resolve a SECOND copy of the host from
-    /// disk — a fresh set of statics whose native pointer was never bound — and
-    /// every component would report "the bridge is not available" on a machine
+    /// ⚠️ REFLECTION, NOT A REFERENCE, AND THE REASON IS THE LOADER. This
+    /// <c>.gha</c> is loaded by Grasshopper from its Libraries folder; the worker
+    /// host assembly is the process's own entry assembly. A compile-time
+    /// reference would let Grasshopper's loader resolve a SECOND copy of the host
+    /// from disk — a fresh set of statics whose bridge was never bound — and
+    /// every component would report "not connected to Archicad" on a machine
     /// where it plainly is. That failure would look like a bug in the add-on and
     /// would be nearly impossible to read from the symptom.
     /// </para>
     /// <para>
-    /// <see cref="AppDomain.GetAssemblies"/> spans every load context, so
-    /// looking the host up by simple name finds the instance the add-on
-    /// actually bound. One <see cref="MethodInfo"/>, cached.
+    /// <see cref="AppDomain.GetAssemblies"/> spans every load context, so looking
+    /// the host up by simple name finds the instance the worker actually bound.
+    /// One <see cref="MethodInfo"/>, cached.
     /// </para>
     /// <para>
     /// It is resolved LAZILY rather than in a static constructor: Grasshopper
     /// loads this package while the editor is coming up, which can be before the
-    /// host has finished binding, and a failure cached at that moment would
+    /// bridge has finished connecting, and a failure cached at that moment would
     /// never recover.
     /// </para>
     /// </remarks>
     internal static class TapiocaBridge
     {
-        private const string HostAssembly = "Tapioca.GrasshopperHost";
-        private const string HostType = "Tapioca.GrasshopperHost.TapiocaNative";
+        private const string HostAssembly = "Tapioca.GhWorker";
+        private const string HostType = "Tapioca.GhWorker.TapiocaBridgeApi";
         private const string CallMethod = "Call";
 
         private static MethodInfo _call;
@@ -53,7 +52,7 @@ namespace Tapioca.Grasshopper
                 if (call == null)
                 {
                     return Error(
-                        "Tapioca's add-on bridge was not found in this process. Grasshopper must be opened "
+                        "Tapioca's Archicad bridge was not found in this process. Grasshopper must be opened "
                         + "from Archicad with Tapioca > Grasshopper Editor; a Grasshopper started any other "
                         + "way has no Archicad to talk to.");
                 }

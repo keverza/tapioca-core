@@ -55,19 +55,19 @@
 /* [  1] */	"Tapioca WebUI panel^E3^ES^EE^EI^ED^EW^EL"
 }
 
-/* Named for the technology, not for "Tapioca <something>": Rhino.Inside is what
-   this starts and what the user has to have installed, and a name that hides
-   that behind a product word would make a missing-Rhino message read as a
-   Tapioca fault. The Grasshopper Editor and Player items arrive with P1/P2. */
-'STR#' 32506 "Menu strings - Rhino.Inside" {
+/* Named for what it does to the WORKER, because that is the only thing a user
+   can act on when a definition will not stop: Grasshopper solves in
+   Tapioca.GhWorker.exe, and killing that process is the one recovery with a
+   guarantee behind it. It replaced "Rhino.Inside", a name for an in-process
+   arrangement that no longer exists. */
+'STR#' 32506 "Menu strings - Restart Grasshopper Worker" {
 /* [   ] */	"Tapioca"
-/* [  1] */	"Rhino.Inside^E3^ES^EE^EI^ED^EW^EL"
+/* [  1] */	"Restart Grasshopper Worker^E3^ES^EE^EI^ED^EW^EL"
 }
 
-/* The Editor is its own item rather than a mode of the one above: "start the
-   host" and "show me the canvas" are different intentions, and a user who wants
-   the second should not have to know that the first exists. Both share one
-   RhinoCore. */
+/* The Editor starts the worker if it is not up, so a user who wants a canvas
+   never has to know that a worker exists. Editor and the future Player share
+   one. */
 'STR#' 32507 "Menu strings - Grasshopper Editor" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Grasshopper Editor^E3^ES^EE^EI^ED^EW^EL"

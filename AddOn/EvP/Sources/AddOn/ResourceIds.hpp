@@ -28,19 +28,21 @@ constexpr short NotebookMenuResId = 32504; // "Tapioca Notebook"
 constexpr short NotebookMenuItemIndex = 1;
 constexpr short WebUIMenuResId = 32505; // "Tapioca WebUI panel"
 constexpr short WebUIMenuItemIndex = 1;
-// "Rhino.Inside" — starts the one process-wide RhinoCore + stock Grasshopper
-// (PLAT-RHINO-INSIDE slice 0). One menu item for now: the Grasshopper Editor
-// and Player commands the handoff describes are P1/P2 and arrive with the UI
-// they need, rather than as two menu items that do the same thing today.
+// "Restart Grasshopper Worker" — the user-facing half of supervision. Grasshopper
+// solves in Tapioca.GhWorker.exe, which the add-on can kill unconditionally, and
+// this is where a user reaches that guarantee when a definition will not stop.
+// It also reports the worker's pid, restart generation and Archicad JSON port.
+// (It replaced "Rhino.Inside", which named an in-process arrangement that no
+// longer exists: there is no Rhino inside Archicad any more.)
 constexpr short GrasshopperMenuResId = 32506;
 constexpr short GrasshopperMenuItemIndex = 1;
-// "Grasshopper Editor" — slice 1. Starts the host if needed, then shows the
-// stock canvas. It shares the ONE core with the Rhino.Inside item above and
-// with the future Player; it never creates a second one.
+// "Grasshopper Editor" — spawns the worker if it is not up, then asks it for its
+// canvas. It shares the ONE worker with the future Player; it never spawns a
+// second one.
 constexpr short GrasshopperEditorMenuResId = 32507;
 constexpr short GrasshopperEditorMenuItemIndex = 1;
-// Dynamo 4 runs out of process because its .NET 10 runtime cannot share the
-// process-wide .NET 8 CLR used by Rhino.Inside.
+// Dynamo 4 runs out of process too, in its own editor: its .NET 10 runtime
+// cannot share a process with Grasshopper's .NET 8 one.
 constexpr short DynamoMenuResId = 32508;
 constexpr short DynamoMenuItemIndex = 1;
 

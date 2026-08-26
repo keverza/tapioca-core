@@ -67,17 +67,27 @@ set (EVP_PALETTE_SOURCES
 set (EVP_COMMAND_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Python/ForcedParamMerge.cpp")
 
-# Grasshopper/HostState.cpp is the Rhino.Inside host's lifecycle rules with
+# Grasshopper/HostState.cpp is the Grasshopper worker's lifecycle rules with
 # nothing else in them -- no DevKit, no Win32, no CLR, so it qualifies here on
 # the same terms as everything above. It earns its place for the ArchViz reason
 # turned up one notch: every way of getting these transitions wrong produces a
-# SECOND RhinoCore, a host that claims to be running after a failed start, or a
-# managed callback into an unloading .apx, and none of the three reports itself.
-# The live probe cannot exercise them either -- there is no way to click a menu
-# item twice fast enough to test the concurrent-start rule.
-# WARNING: KEEP IT DevKit-FREE. The moment HostState.cpp needs ACAPinc.h it must
-# leave this list, and the only offline gate on the host's lifecycle goes with it.
+# SECOND worker process, a host that claims to be running after a failed start,
+# or a worker message served by an .apx that is already unloading, and none of
+# the three reports itself. A live run cannot exercise them either -- there is no
+# way to click a menu item twice fast enough to test the concurrent-start rule.
+#
+# Grasshopper/GhProtocol.cpp is the Archicad<->worker wire format, and it belongs
+# here for a sharper version of the same argument. Framing is where a transport
+# fails SILENTLY: a length read as a type, a payload cap checked after the
+# allocation, a version accepted because nobody compared it. None of those
+# produces an error at the boundary -- they produce a worker that reads one
+# message as another, and a live Archicad tells you only that "Grasshopper did
+# not work".
+# WARNING: KEEP BOTH DevKit-FREE AND Win32-FREE. The moment either needs
+# ACAPinc.h or <windows.h> it must leave this list, and the only offline gate on
+# the worker's lifecycle and transport goes with it.
 set (EVP_GRASSHOPPER_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhProtocol.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
 
 set (EVP_DYNAMO_SOURCES
@@ -290,6 +300,7 @@ set (EVP_TEST_SOURCES
     test_pointcloudlod.cpp
     test_cloudcompare.cpp
     test_apipipeprotocol.cpp
+    test_ghprotocol.cpp
     test_grasshopperhoststate.cpp
     test_nodegraph.cpp)
 

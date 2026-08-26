@@ -8,7 +8,7 @@ namespace Tapioca.Grasshopper
     /// </summary>
     /// <remarks>
     /// A deliberate three-case reader, not a parser. The envelope is produced by
-    /// one function in <c>GrasshopperBridge.cpp</c> and has exactly this shape,
+    /// one function in <c>ApiDispatcher.cpp</c> and has exactly this shape,
     /// so a parser would be answering questions nobody asks. The <c>data</c>
     /// payload is handed on as raw JSON: components that need to look inside it
     /// should use a real parser, and Rhino ships Newtonsoft.Json for that.

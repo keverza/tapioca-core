@@ -3,26 +3,19 @@
   <!--
     The Tapioca Grasshopper package (PLAT-RHINO-INSIDE, slice 4).
 
-    ⚠️ WHY THIS EXISTS RATHER THAN AN HTTP BRIDGE. Measured 2026-08-26 from
-    inside a live Grasshopper solution: while a solve holds Archicad's main
-    thread inside an add-on callback, Archicad executes NO JSON command that
-    needs that thread — not Tapir's, not Tapioca's, not even Graphisoft's own
-    API.GetSelectedElements — and not from a background thread either. Only
-    API.IsAlive survives, because Archicad answers it without scheduling.
-    Pumping messages does not help. So an in-process Grasshopper component can
-    never reach Archicad over a socket, and Tapir cannot work in this process.
+    ⚠️ IT LOADS INTO Tapioca.GhWorker.exe, NOT INTO Archicad. Grasshopper solves
+    in a worker process Tapioca owns and can kill; these components reach
+    Archicad over the named-pipe bridge that worker holds, and the add-on answers
+    on Archicad's own main thread through MainThreadGate. See
+    docs/architecture/api/HANDOFF-GrasshopperInsideArchicad.md, "Execution
+    boundary: Grasshopper runs OUT of process".
 
-    The same fact read the other way is why THIS works: a component solves ON
-    Archicad's main thread, which is the thread ACAPI demands, so it calls
-    straight through the add-on and gets an answer in the same stack frame.
-
-    ⚠️ NO REFERENCE TO Tapioca.GrasshopperHost, DELIBERATELY. That assembly is
-    loaded by hostfxr into its own load context; a compile-time reference here
-    would let Grasshopper's loader resolve a SECOND copy from disk into the
-    default context, with its own statics and a null native pointer — which
-    would fail as "the bridge is not available" on a machine where it plainly
-    is. The bridge binds by reflection to the already-loaded instance instead.
-    See TapiocaBridge.cs.
+    ⚠️ NO REFERENCE TO Tapioca.GhWorker, DELIBERATELY. That assembly is the
+    worker's entry assembly; a compile-time reference here would let
+    Grasshopper's loader resolve a SECOND copy of it from disk into another load
+    context, with its own statics and no bound bridge — which would fail as "not
+    connected to Archicad" on a machine where it plainly is. The bridge binds by
+    reflection to the already-loaded instance instead. See TapiocaBridge.cs.
   -->
 
   <PropertyGroup>
@@ -44,7 +37,7 @@
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Version>0.1.0</Version>
     <Title>Tapioca</Title>
-    <Description>Grasshopper components that reach Archicad directly, in process, through the Tapioca add-on.</Description>
+    <Description>Grasshopper components that reach Archicad through the Tapioca add-on over its low-latency bridge.</Description>
     <NoWarn>$(NoWarn);NU1701;CA1416</NoWarn>
   </PropertyGroup>
 

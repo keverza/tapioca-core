@@ -33,7 +33,7 @@ bool HostLifecycle::IsRunning () const
     return State () == HostState::Running;
 }
 
-bool HostLifecycle::AcceptsCallbacks () const
+bool HostLifecycle::AcceptsMessages () const
 {
     return State () == HostState::Running;
 }
@@ -47,19 +47,18 @@ StartDecision HostLifecycle::BeginStart ()
         case HostState::Starting:
         case HostState::Stopping:
             return StartDecision::InProgress;
-        case HostState::Stopped:
-            // See the header: reconstruction in the same process is unmeasured,
-            // so it is refused rather than attempted.
-            return StartDecision::Terminal;
         case HostState::NotStarted:
         case HostState::Failed:
-            // A start that never got a core up left nothing behind to collide
-            // with, so a retry (a missing Rhino installed since, a licence
-            // fixed) is allowed. Only a start that SUCCEEDED and was then
-            // stopped is terminal.
+        case HostState::Stopped:
+            // Stopped included: see the header. The worker is a separate,
+            // expendable process, so a stop leaves nothing in Archicad to
+            // collide with and a restart is an ordinary start.
             break;
     }
     state = HostState::Starting;
+    // Incremented here rather than on success, so a worker that dies during its
+    // own start still owns a distinct generation in the log.
+    ++generation;
     lastError.clear ();
     return StartDecision::Proceed;
 }
@@ -93,6 +92,12 @@ void HostLifecycle::CompleteStop ()
     std::lock_guard<std::mutex> lock (mutex);
     if (state == HostState::Stopping)
         state = HostState::Stopped;
+}
+
+uint32_t HostLifecycle::Generation () const
+{
+    std::lock_guard<std::mutex> lock (mutex);
+    return generation;
 }
 
 std::string HostLifecycle::LastError () const

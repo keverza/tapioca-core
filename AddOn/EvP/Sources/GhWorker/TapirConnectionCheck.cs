@@ -7,7 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Tapioca.GrasshopperHost
+namespace Tapioca.GhWorker
 {
     /// <summary>
     /// Asks Archicad the three questions that decide whether a Tapir component
@@ -357,7 +357,7 @@ namespace Tapioca.GrasshopperHost
 
             string text = report.ToString();
             Volatile.Write(ref _report, text);
-            Log.Write(text);
+            WorkerLog.Write(text);
         }
 
         private static void Append(StringBuilder report, string label, Reply reply, string detail)

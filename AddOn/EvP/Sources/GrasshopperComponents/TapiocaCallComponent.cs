@@ -18,10 +18,12 @@ namespace Tapioca.Grasshopper
     /// waiting for before anything works at all.
     /// </para>
     /// <para>
-    /// ⚠️ THE CALL RUNS INLINE ON ARCHICAD'S MAIN THREAD, which is where
-    /// SolveInstance already is, and that is the whole reason this package
-    /// exists. No socket, no scheduling, no timeout. Do not move this work to a
-    /// task: the add-on checks the thread and will refuse it.
+    /// ⚠️ THE CALL BLOCKS THIS SOLVE UNTIL ARCHICAD ANSWERS, and that is
+    /// deliberate: the thread it blocks belongs to Tapioca's worker process, not
+    /// to Archicad, so Archicad stays responsive throughout. Keep the work in
+    /// SolveInstance rather than moving it to a task — not for correctness (the
+    /// add-on marshals to Archicad's main thread itself) but because a cancelled
+    /// solve should stop asking, and only the solve knows.
     /// </para>
     /// </remarks>
     public class TapiocaCallComponent : GH_Component

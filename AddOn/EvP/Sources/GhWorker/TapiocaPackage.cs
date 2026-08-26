@@ -4,7 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
-namespace Tapioca.GrasshopperHost
+namespace Tapioca.GhWorker
 {
     /// <summary>
     /// Makes Grasshopper load Tapioca's own component package.

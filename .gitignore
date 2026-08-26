@@ -55,10 +55,10 @@ AddOn/EvP/tools/shaderc/build/
 AddOn/reference/*
 !AddOn/reference/CATALOG.yaml
 
-# The managed Grasshopper host's build tree. `dotnet publish` stages the shipping
-# files beside the .apx in build_29/; bin/ and obj/ here are intermediates only.
-AddOn/EvP/Sources/GrasshopperManaged/bin/
-AddOn/EvP/Sources/GrasshopperManaged/obj/
+# The Grasshopper worker's build tree. `dotnet publish` stages the shipping files
+# in build_29/GhWorker/; bin/ and obj/ here are intermediates only.
+AddOn/EvP/Sources/GhWorker/bin/
+AddOn/EvP/Sources/GhWorker/obj/
 
 # Dynamo ZeroTouch build intermediates; CMake stages the package in build_29/.
 AddOn/EvP/Sources/TapiocaDynamo/bin/

@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 
-namespace Tapioca.GrasshopperHost
+namespace Tapioca.GhWorker
 {
     /// <summary>
     /// Where Rhino and Grasshopper types are named, and when.
@@ -82,20 +82,19 @@ namespace Tapioca.GrasshopperHost
 
         /// <summary>
         /// Loads stock Grasshopper, then the pinned Tapir package and this
-        /// Archicad's JSON port. The editor window is loaded but NOT shown
-        /// unless <paramref name="showEditor"/> is set, which P0 never does.
+        /// Archicad's JSON port. The editor window is loaded but NOT shown: the
+        /// add-on asks for it separately, over the bridge.
         /// </summary>
         /// <remarks>
         /// The Tapir steps bracket the editor load rather than following it,
         /// and the order is not arbitrary: Grasshopper scans its assembly
         /// folders exactly once, while the editor loads, so a folder added
-        /// afterwards is a folder that will not be read until the next
-        /// Archicad. Preparation therefore goes first and verification second,
-        /// with the load between them.
+        /// afterwards is a folder that will not be read until the next worker.
+        /// Preparation therefore goes first and verification second, with the
+        /// load between them.
         /// </remarks>
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static bool LoadGrasshopper(
-            bool showEditor,
             uint archicadJsonPort,
             out string tapirReport,
             out string failure)
@@ -147,18 +146,18 @@ namespace Tapioca.GrasshopperHost
             // reply this thread has to be free to produce.
             TapirConnectionCheck.Begin(archicadJsonPort);
 
-            // This one DOES run here, on the main thread, because that is the
-            // condition under test: it measures whether Archicad can answer a
-            // loopback command while this thread waits for it, which is exactly
-            // what a Tapir component asks of it during a solve.
+            // ⚠️ THE POSITIVE CONTROL FOR THE WHOLE PROCESS BOUNDARY, AND IT IS
+            // WORTH KEEPING FOR EXACTLY THAT. It measures whether Archicad can
+            // answer a loopback command while THIS thread waits for it — which is
+            // what a Tapir component asks of it during a solve. In process the
+            // answer was no, every time, and that is finding 1 in the handoff.
+            // Out here the thread it blocks belongs to this worker and Archicad's
+            // main thread is free, so the answer should be yes; a no means the
+            // worker is talking to the wrong port or Archicad is genuinely busy,
+            // and either is worth knowing before a user meets it mid-definition.
             string reentrancy = TapirConnectionCheck.CheckMainThreadReentrancy(archicadJsonPort);
-            Log.Write(reentrancy);
+            WorkerLog.Write(reentrancy);
             tapirReport += " " + reentrancy;
-
-            if (showEditor)
-            {
-                ShowAndGate(grasshopper);
-            }
 
             return true;
         }
@@ -201,7 +200,7 @@ namespace Tapioca.GrasshopperHost
                     return false;
                 }
 
-                ShowAndGate(grasshopper);
+                grasshopper.ShowEditor();
             }
             else
             {
@@ -211,74 +210,9 @@ namespace Tapioca.GrasshopperHost
                 {
                     grasshopper.HideEditor();
                 }
-
-                // The gate goes with the canvas. While no Grasshopper window is
-                // on screen there is nothing to protect, and a hook that is not
-                // installed cannot get anything wrong.
-                Log.Write(EditorInput.Uninstall());
             }
 
             return true;
-        }
-
-        /// <summary>
-        /// Shows the canvas and arms the keyboard gate around it.
-        /// </summary>
-        /// <remarks>
-        /// The two belong together. A Grasshopper canvas that is visible but
-        /// ungated is the state the user actually met: the editor opens, the
-        /// canvas takes focus, and Delete, Escape and the rest still go to
-        /// Archicad because Archicad's message loop translates its own
-        /// accelerators before anything else sees the keystroke. See
-        /// <see cref="EditorInput"/>.
-        /// </remarks>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void ShowAndGate(Grasshopper.Plugin.GH_RhinoScriptInterface grasshopper)
-        {
-            grasshopper.ShowEditor();
-
-            // AFTER the show, not before: the editor form's handle does not
-            // exist until it has been created, and gating a handle of zero
-            // gates nothing.
-            EditorInput.SetGatedRoots(GatedWindowHandles());
-            Log.Write(EditorInput.Install());
-        }
-
-        /// <summary>
-        /// The top-level windows whose keystrokes belong to Grasshopper rather
-        /// than to Archicad.
-        /// </summary>
-        /// <remarks>
-        /// Rhino's main window is in the list even though it is hidden: it owns
-        /// Grasshopper's dialogs, so it is the window the owner chain of a
-        /// Grasshopper modal ends at.
-        /// </remarks>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static IntPtr[] GatedWindowHandles()
-        {
-            System.Collections.Generic.List<IntPtr> handles = new System.Collections.Generic.List<IntPtr>();
-            try
-            {
-                if (Grasshopper.Instances.DocumentEditor != null)
-                {
-                    handles.Add(Grasshopper.Instances.DocumentEditor.Handle);
-                }
-            }
-            catch (Exception exception)
-            {
-                Log.Write("Grasshopper's editor window handle was unavailable: " + exception.Message);
-            }
-
-            try
-            {
-                handles.Add(Rhino.RhinoApp.MainWindowHandle());
-            }
-            catch (Exception exception)
-            {
-                Log.Write("Rhino's main window handle was unavailable: " + exception.Message);
-            }
-
-            return handles.ToArray();
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

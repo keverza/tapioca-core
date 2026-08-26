@@ -1,0 +1,70 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tapioca.GhWorker.exe — the process Grasshopper solves in (PLAT-RHINO-INSIDE,
+    P0).
+
+    ⚠️ AN EXECUTABLE, NOT A HOSTED LIBRARY, AND THAT IS THE POINT. It replaces
+    Tapioca.GrasshopperHost.dll, which EvP.apx loaded into Archicad's own process
+    through hostfxr. Two findings in
+    docs/architecture/api/HANDOFF-GrasshopperInsideArchicad.md made that the
+    wrong shape: a Grasshopper solve holds the main thread Archicad needs in
+    order to answer, and — the one with no in-process fix — a hung .gha, a
+    looping script component or an access violation inside Rhino takes ARCHICAD
+    down with it. Out of process the add-on can kill this and lose nothing.
+
+    So: no [UnmanagedCallersOnly] entry points, no EnableDynamicLoading, no
+    .runtimeconfig.json for a native host to point hostfxr at. The add-on spawns
+    this with a pipe name on the command line and supervises it. It never calls
+    ACAPI and has no Archicad SDK.
+
+    WinExe, not Exe: Grasshopper's editor is WinForms and this process owns its
+    own message loop. A console subsystem would flash a window on every start.
+
+    Framework-DEPENDENT on purpose: publishing self-contained would put a second
+    copy of the .NET runtime inside Tapioca's distribution, and Rhino 8 brings
+    its own runtime expectations anyway.
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Tapioca.GhWorker</AssemblyName>
+    <RootNamespace>Tapioca.GhWorker</RootNamespace>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- NU1701: RhinoCommon and Grasshopper 8.0 ship .NET Framework reference
+         assemblies. Rhino 8 loads them into .NET 8 itself (System\netcore), and
+         the Rhino.Inside resolver is what makes that work at run time; the
+         restore-time warning describes the package metadata, not this worker. -->
+    <NoWarn>$(NoWarn);NU1701;CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      PINNED, and pinned together: the resolver and the two APIs it resolves are
+      one compatibility surface. Rhino.Inside 8.0.7-beta is McNeel's supported
+      resolver for Rhino 8 (mirrored locally at tapioca-ref/rhino.inside-rhino-8.x
+      for reading, referenced here from its own authority rather than vendored
+      into this GPL tree).
+
+      ExcludeAssets="runtime" on the two Rhino APIs is load-bearing: they are
+      COMPILE-time references only. The assemblies that actually run come from
+      the installed Rhino, resolved at run time. Copying them beside the worker
+      would give the process two RhinoCommons and is the classic way to make
+      Rhino.Inside fail with a type-identity error.
+    -->
+    <PackageReference Include="Rhino.Inside" Version="8.0.7-beta" />
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+</Project>

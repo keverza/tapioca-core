@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace Tapioca.GrasshopperHost
+namespace Tapioca.GhWorker
 {
     /// <summary>
     /// Slice 1's Tapir arm: find the pinned Tapir package, confirm Grasshopper

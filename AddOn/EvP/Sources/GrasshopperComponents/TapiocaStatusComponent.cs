@@ -12,8 +12,8 @@ namespace Tapioca.Grasshopper
     /// It exists because the first question anyone has is whether the bridge is
     /// alive at all, and making them compose a JSON call to find out is a poor
     /// first minute. It is also the cheapest possible end-to-end proof that a
-    /// component solving on Archicad's main thread reached ACAPI and came back,
-    /// which is the claim this whole package rests on.
+    /// component solving in Tapioca's worker process reached ACAPI in Archicad
+    /// and came back, which is the claim this whole package rests on.
     /// </remarks>
     public class TapiocaStatusComponent : GH_Component
     {
@@ -21,7 +21,7 @@ namespace Tapioca.Grasshopper
             : base(
                 "Tapioca Status",
                 "TapiocaOK",
-                "Reports whether Tapioca's in-process bridge to Archicad is available, and what it says.",
+                "Reports whether Tapioca's bridge to Archicad is available, and what it says.",
                 "Tapioca",
                 "Archicad")
         {

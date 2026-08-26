@@ -363,55 +363,65 @@ if (WIN32)
 endif ()
 
 # ============================================================================
-# Tapioca.GrasshopperHost.dll — the managed half of the Rhino.Inside host
+# Tapioca.GhWorker.exe -- the process Grasshopper solves in
 # ============================================================================
-# Separate binary for the same reason EvPPy.dll is one: it speaks a language the
-# .apx cannot link against. The .apx stays native C++20 and imports NOTHING from
-# .NET or from Rhino; it loads this assembly through hostfxr at run time, from a
-# menu command, or reports why it could not. See Sources/AddOn/Grasshopper/.
+# Separate PROCESS, not merely a separate binary, and that is the change this
+# target records. It replaces Tapioca.GrasshopperHost.dll, which the .apx loaded
+# into Archicad's own process through hostfxr. Two findings in
+# docs/architecture/api/HANDOFF-GrasshopperInsideArchicad.md made that the wrong
+# shape: a Grasshopper solve holds the main thread Archicad needs in order to
+# answer, and -- the one with no in-process fix -- a hung .gha, a looping script
+# component or an access violation inside Rhino takes ARCHICAD down with it.
+#
+# The .apx therefore links nothing from .NET or Rhino AND loads no CLR at all:
+# it spawns this executable, supervises it over a named pipe, and kills it when
+# it stops answering. See Sources/AddOn/Grasshopper/.
 #
 # ⚠️ OPTIONAL BY DESIGN, AND THE `if` BELOW IS THE POINT. A machine without the
-# .NET SDK still builds a complete, loadable EvP.apx; Rhino.Inside is then a
-# menu item that explains what is missing. Making this a hard requirement would
-# trade the whole add-on for one experimental feature.
+# .NET SDK still builds a complete, loadable EvP.apx; Grasshopper is then a menu
+# item that explains what is missing. Making this a hard requirement would trade
+# the whole add-on for one feature.
 #
-# Framework-dependent publish, straight into the .apx's directory: the assembly,
-# its .deps.json and its .runtimeconfig.json must sit BESIDE EvP.apx, because
-# GrasshopperHost resolves them relative to its own module. Nothing here copies
-# a Rhino runtime binary anywhere -- RhinoCommon and Grasshopper are compile-time
-# references only (see the .csproj) and come from the user's installed Rhino.
-set (GrasshopperManagedFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/GrasshopperManaged")
-set (GrasshopperManagedProject "${GrasshopperManagedFolder}/Tapioca.GrasshopperHost.csproj")
+# Published into its OWN folder rather than beside the .apx: an executable with
+# its own dependency closure sharing a directory with Archicad's add-ons is a
+# needless way to collide two assembly graphs. GhWorkerHost looks for
+# GhWorker\Tapioca.GhWorker.exe next to the .apx, or wherever
+# TAPIOCA_GH_WORKER_DIR points. Nothing here copies a Rhino runtime binary
+# anywhere -- RhinoCommon and Grasshopper are compile-time references only (see
+# the .csproj) and come from the user's installed Rhino.
+set (GhWorkerFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/GhWorker")
+set (GhWorkerProject "${GhWorkerFolder}/Tapioca.GhWorker.csproj")
 find_program (DOTNET_EXECUTABLE NAMES dotnet)
-if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GrasshopperManagedProject}")
-    file (GLOB GrasshopperManagedFiles CONFIGURE_DEPENDS
-        "${GrasshopperManagedFolder}/*.cs" "${GrasshopperManagedFolder}/*.csproj")
-    set (GrasshopperManagedStamp "${CMAKE_BINARY_DIR}/Tapioca.GrasshopperHost.stamp")
+if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GhWorkerProject}")
+    file (GLOB GhWorkerFiles CONFIGURE_DEPENDS
+        "${GhWorkerFolder}/*.cs" "${GhWorkerFolder}/*.csproj")
+    set (GhWorkerStamp "${CMAKE_BINARY_DIR}/Tapioca.GhWorker.stamp")
     add_custom_command (
-        OUTPUT "${GrasshopperManagedStamp}"
-        DEPENDS ${GrasshopperManagedFiles}
-        COMMENT "EvP: publishing Tapioca.GrasshopperHost beside the .apx"
-        COMMAND "${DOTNET_EXECUTABLE}" publish "${GrasshopperManagedProject}"
-            -c Release -o "${CMAKE_BINARY_DIR}" --nologo
-        COMMAND ${CMAKE_COMMAND} -E touch "${GrasshopperManagedStamp}"
+        OUTPUT "${GhWorkerStamp}"
+        DEPENDS ${GhWorkerFiles}
+        COMMENT "EvP: publishing Tapioca.GhWorker.exe into GhWorker"
+        COMMAND "${DOTNET_EXECUTABLE}" publish "${GhWorkerProject}"
+            -c Release -o "${CMAKE_BINARY_DIR}/GhWorker" --nologo
+        COMMAND ${CMAKE_COMMAND} -E touch "${GhWorkerStamp}"
         VERBATIM)
-    add_custom_target (EvPGrasshopperManaged ALL DEPENDS "${GrasshopperManagedStamp}")
-    set_target_properties (EvPGrasshopperManaged PROPERTIES FOLDER Resources)
-    add_dependencies (${ADDON_LIB} EvPGrasshopperManaged)
+    add_custom_target (EvPGhWorker ALL DEPENDS "${GhWorkerStamp}")
+    set_target_properties (EvPGhWorker PROPERTIES FOLDER Resources)
+    add_dependencies (${ADDON_LIB} EvPGhWorker)
 
     # ------------------------------------------------------------------------
-    # Tapioca.Grasshopper.gha — Tapioca's own Grasshopper components
+    # Tapioca.Grasshopper.gha -- Tapioca's own Grasshopper components
     # ------------------------------------------------------------------------
-    # Its own folder, not beside the .apx: Grasshopper SCANS an assembly folder,
-    # and pointing it at the build directory would mean walking every object file
-    # in it on every start. GrasshopperLibraries/ holds the package and nothing
-    # else, and TapiocaPackage.cs adds exactly that folder before the editor
-    # loads — which is the only moment Grasshopper reads the list.
+    # Its own folder, not beside the worker: Grasshopper SCANS an assembly
+    # folder, and pointing it at the worker's publish directory would mean
+    # walking its whole dependency closure on every start. GhWorker/
+    # GrasshopperLibraries/ holds the package and nothing else, and
+    # TapiocaPackage.cs installs it from there before the editor loads -- which
+    # is the only moment Grasshopper reads that list.
     #
-    # ⚠️ THE PACKAGE SHIPS WITH THE ADD-ON, NOT IN THE USER'S LIBRARIES FOLDER.
-    # It calls through the versioned ABI in Sources/AddOn/Grasshopper/, so a copy
-    # surviving in a user folder after an upgrade would be a stale package
-    # talking to a newer bridge. Keeping it here makes the two inseparable.
+    # ⚠️ THE PACKAGE SHIPS WITH THE WORKER, NOT IN THE USER'S LIBRARIES FOLDER.
+    # It binds to the worker's bridge by reflection, so a copy surviving in a
+    # user folder after an upgrade would be a stale package talking to a newer
+    # bridge. Keeping it here makes the two inseparable.
     set (GrasshopperPackageFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/GrasshopperComponents")
     set (GrasshopperPackageProject "${GrasshopperPackageFolder}/Tapioca.Grasshopper.csproj")
     if (EXISTS "${GrasshopperPackageProject}")
@@ -421,9 +431,9 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GrasshopperManagedProject}")
         add_custom_command (
             OUTPUT "${GrasshopperPackageStamp}"
             DEPENDS ${GrasshopperPackageFiles}
-            COMMENT "EvP: publishing Tapioca.Grasshopper.gha into GrasshopperLibraries"
+            COMMENT "EvP: publishing Tapioca.Grasshopper.gha into GhWorker/GrasshopperLibraries"
             COMMAND "${DOTNET_EXECUTABLE}" publish "${GrasshopperPackageProject}"
-                -c Release -o "${CMAKE_BINARY_DIR}/GrasshopperLibraries" --nologo
+                -c Release -o "${CMAKE_BINARY_DIR}/GhWorker/GrasshopperLibraries" --nologo
             COMMAND ${CMAKE_COMMAND} -E touch "${GrasshopperPackageStamp}"
             VERBATIM)
         add_custom_target (EvPGrasshopperPackage ALL DEPENDS "${GrasshopperPackageStamp}")
@@ -431,8 +441,8 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GrasshopperManagedProject}")
         add_dependencies (${ADDON_LIB} EvPGrasshopperPackage)
     endif ()
 else ()
-    message (STATUS "EvP: the .NET SDK was not found; Tapioca.GrasshopperHost will not be built. "
-                    "EvP.apx builds normally and reports the missing managed host if Rhino.Inside is used.")
+    message (STATUS "EvP: the .NET SDK was not found; Tapioca.GhWorker.exe will not be built. "
+                    "EvP.apx builds normally and reports the missing worker if Grasshopper is used.")
 endif ()
 
 # ============================================================================

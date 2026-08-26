@@ -30,9 +30,9 @@ namespace Tapioca.Grasshopper
         {
             get
             {
-                return "Archicad from Grasshopper, in process. These components call the Tapioca add-on "
-                     + "directly on Archicad's main thread — the thread a Grasshopper solve already runs "
-                     + "on — so there is no socket, no scheduling and no timeout.";
+                return "Archicad from Grasshopper. These components reach the Tapioca add-on over its "
+                     + "low-latency bridge; the solve runs in Tapioca's worker process, so a definition "
+                     + "that hangs costs the worker and never Archicad.";
             }
         }
 

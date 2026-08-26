@@ -21,7 +21,7 @@
 #include "ArchViz/ExperimentGuard.hpp"  // crash-loop guard — consulted before anything arms
 #include "Notebook/NotebookPalette.hpp"
 #include "Palette/WebUIPalette.hpp"
-#include "Grasshopper/GrasshopperHost.hpp" // the one in-process RhinoCore + Grasshopper
+#include "Grasshopper/GhWorkerHost.hpp" // the supervised Grasshopper worker process
 #include "Dynamo/DynamoHost.hpp"           // Dynamo 4 editor in its own .NET 10 process
 #include "AddOnCommands.hpp"
 #include "Server/ServerState.hpp"
@@ -143,12 +143,13 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
                 NotebookPalette::DestroyInstance ();
             if (WebUIPalette::HasInstance ())
                 WebUIPalette::DestroyInstance ();
-            // Rhino and Grasshopper are a foreign runtime holding pointers into
-            // this DLL. Stop them here, while Archicad is still alive and the
-            // main thread is still ours, rather than in FreeData -- the managed
-            // side detaches its own handlers, and doing that during unload is
-            // strictly worse. Stop is a no-op when nothing was ever started.
-            evp::grasshopper::GrasshopperHost::Get ().Stop ();
+            // The Grasshopper worker is a separate process holding a pipe into
+            // this one. Stop it here, while Archicad is still alive and the main
+            // thread is still ours, rather than in FreeData: the stop is
+            // cooperative first (so Rhino releases its licence lease tidily) and
+            // a kill second, and neither wants to run during an unload. Stop is
+            // a no-op when no worker was ever started.
+            evp::grasshopper::GhWorkerHost::Get ().Stop ();
             evp::MainThreadGate::Get ().BeginShutdown ();
             evp::dynamo::Release ();
             break;
@@ -192,15 +193,15 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
             break;
         case GrasshopperMenuResId:
             if (menuParams->menuItemRef.itemIndex == GrasshopperMenuItemIndex) {
-                RecordStartupEvent ("Rhino.Inside: menu command received");
-                evp::grasshopper::GrasshopperHost::OpenFromMenu ();
-                RecordStartupEvent ("Rhino.Inside: menu command completed");
+                RecordStartupEvent ("Grasshopper worker restart: menu command received");
+                evp::grasshopper::GhWorkerHost::RestartFromMenu ();
+                RecordStartupEvent ("Grasshopper worker restart: menu command completed");
             }
             break;
         case GrasshopperEditorMenuResId:
             if (menuParams->menuItemRef.itemIndex == GrasshopperEditorMenuItemIndex) {
                 RecordStartupEvent ("Grasshopper Editor: menu command received");
-                evp::grasshopper::GrasshopperHost::OpenEditorFromMenu ();
+                evp::grasshopper::GhWorkerHost::OpenEditorFromMenu ();
                 RecordStartupEvent ("Grasshopper Editor: menu command completed");
             }
             break;
@@ -256,7 +257,7 @@ GSErrCode RegisterInterface (void)
                    "WebUI item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   GrasshopperMenuResId, "Rhino.Inside item");
+                   GrasshopperMenuResId, "Grasshopper worker restart item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
@@ -297,7 +298,7 @@ GSErrCode Initialize (void)
                    "WebUI item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperMenuResId, MenuCommandHandler), GrasshopperMenuResId,
-                   "Rhino.Inside item");
+                   "Grasshopper worker restart item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperEditorMenuResId, MenuCommandHandler),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
@@ -389,12 +390,12 @@ GSErrCode FreeData (void)
     // outlives this DLL is Windows calling into freed code, so it is taken off
     // unconditionally as well.
     geomsrv::archviz::camerawake::Remove ();
-    // Belt and braces for the managed host, exactly as above: APINotify_Quit
-    // normally gets here first, but FreeData also runs on an APX unload that
-    // never saw a Quit. Stop is idempotent, and what it guarantees is that no
-    // hostfxr error writer and no managed callback still points into this
-    // module once it is gone.
-    evp::grasshopper::GrasshopperHost::Get ().Stop ();
+    // Belt and braces for the Grasshopper worker, exactly as above:
+    // APINotify_Quit normally gets here first, but FreeData also runs on an APX
+    // unload that never saw a Quit. Stop is idempotent, and what it guarantees
+    // is that no bridge thread and no orphaned worker process is still holding a
+    // pipe into this module once it is gone.
+    evp::grasshopper::GhWorkerHost::Get ().Stop ();
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into
