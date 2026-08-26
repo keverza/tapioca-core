@@ -140,6 +140,14 @@ namespace Tapioca.GhWorker
             _bridge.EditorShowRequested += () => OnUiThread(ShowEditor);
             _bridge.EditorHideRequested += () => OnUiThread(HideEditor);
             _bridge.ShutdownRequested += () => OnUiThread(BeginShutdown);
+            _bridge.RunRequested += () => OnUiThread(RunDefinition);
+            // ⚠️ CANCEL IS NOT MARSHALLED, AND THAT IS THE ONLY WAY IT CAN WORK.
+            // Every other request is queued to the UI thread; a cancel queued
+            // behind the very solution it is meant to interrupt would be
+            // delivered after that solution finished, which is precisely never
+            // useful. RequestAbortSolution is documented safe to call from
+            // another thread for exactly this reason.
+            _bridge.CancelRequested += CancelRun;
 
             string error;
             if (!_bridge.Connect(arguments.PipeName, ConnectTimeoutMs, out error))
@@ -254,6 +262,18 @@ namespace Tapioca.GhWorker
             _bridge.Acknowledge(
                 hidden ? BridgeProtocol.AckStatus.Ok : BridgeProtocol.AckStatus.Failed,
                 hidden ? "Grasshopper editor hidden." : failure);
+        }
+
+        private static void RunDefinition()
+        {
+            RunReport report = DefinitionRunner.Run();
+            _bridge.SendRunResult(report);
+            WorkerLog.Write(report.Headline);
+        }
+
+        private static void CancelRun()
+        {
+            WorkerLog.Write(DefinitionRunner.RequestCancel());
         }
 
         private static void BeginShutdown()

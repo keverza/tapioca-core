@@ -97,6 +97,16 @@ class GhBridge {
     // The handler must be self-contained and must not touch ACAPI directly.
     void SetConnectedHandler (std::function<void ()> handler);
 
+    // Run once, on the IO thread, when a worker answers a RunDefinition.
+    //
+    // A Run is asynchronous by construction: the menu command returns as soon as
+    // the request is sent, because a solve takes as long as the definition takes
+    // and Archicad's main thread is not available to wait for it. The report
+    // therefore arrives later and unsolicited, and this is what shows it. The
+    // handler must be self-contained and must reach ACAPI only through
+    // MainThreadGate.
+    void SetRunResultHandler (std::function<void (const protocol::RunReportPayload&)> handler);
+
   private:
     GhBridge () = default;
     ~GhBridge ();
@@ -116,6 +126,7 @@ class GhBridge {
     mutable std::mutex writeMutex;
     mutable std::mutex messageMutex;
     std::function<void ()> connectedHandler;
+    std::function<void (const protocol::RunReportPayload&)> runResultHandler;
     GS::UniString lastWorkerMessage;
     GS::UniString pipeName;
 };

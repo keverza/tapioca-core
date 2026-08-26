@@ -193,9 +193,16 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
             break;
         case GrasshopperMenuResId:
             if (menuParams->menuItemRef.itemIndex == GrasshopperMenuItemIndex) {
-                RecordStartupEvent ("Grasshopper worker restart: menu command received");
-                evp::grasshopper::GhWorkerHost::RestartFromMenu ();
-                RecordStartupEvent ("Grasshopper worker restart: menu command completed");
+                RecordStartupEvent ("Close Grasshopper: menu command received");
+                evp::grasshopper::GhWorkerHost::CloseFromMenu ();
+                RecordStartupEvent ("Close Grasshopper: menu command completed");
+            }
+            break;
+        case GrasshopperRunMenuResId:
+            if (menuParams->menuItemRef.itemIndex == GrasshopperRunMenuItemIndex) {
+                RecordStartupEvent ("Run Grasshopper Definition: menu command received");
+                evp::grasshopper::GhWorkerHost::RunFromMenu ();
+                RecordStartupEvent ("Run Grasshopper Definition: menu command completed");
             }
             break;
         case GrasshopperEditorMenuResId:
@@ -257,10 +264,13 @@ GSErrCode RegisterInterface (void)
                    "WebUI item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
-                   GrasshopperMenuResId, "Grasshopper worker restart item");
+                   GrasshopperMenuResId, "Close Grasshopper item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (GrasshopperRunMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   GrasshopperRunMenuResId, "Run Grasshopper Definition item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (DynamoMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    DynamoMenuResId, "Dynamo item");
@@ -298,10 +308,13 @@ GSErrCode Initialize (void)
                    "WebUI item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperMenuResId, MenuCommandHandler), GrasshopperMenuResId,
-                   "Grasshopper worker restart item");
+                   "Close Grasshopper item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperEditorMenuResId, MenuCommandHandler),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (GrasshopperRunMenuResId, MenuCommandHandler),
+                   GrasshopperRunMenuResId, "Run Grasshopper Definition item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (DynamoMenuResId, MenuCommandHandler), DynamoMenuResId,
                    "Dynamo item");

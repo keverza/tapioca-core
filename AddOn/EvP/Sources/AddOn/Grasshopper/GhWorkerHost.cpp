@@ -84,6 +84,11 @@ GS::UniString FromWide (const std::wstring& text)
     return GS::UniString (text.c_str ());
 }
 
+GS::UniString FromUtf8Std (const std::string& text)
+{
+    return GS::UniString (text.c_str (), CC_UTF8);
+}
+
 void Log (const GS::UniString& line)
 {
     LogLine (lifecycle.Generation (), workerProcessId, line);
@@ -438,6 +443,25 @@ bool EnsureRunningLocked (GS::UniString& message)
     return true;
 }
 
+// The report from a Run, arriving on the bridge's IO thread some time after the
+// menu command that asked for it returned.
+void OnRunResult (const protocol::RunReportPayload& report)
+{
+    GS::UniString text = FromUtf8Std (protocol::DescribeRunReport (report));
+
+    // ⚠️ SAID OUT LOUD, EVERY TIME, AND NOT ONLY WHEN SOMETHING WENT WRONG. The
+    // bridge refuses Tapioca write commands, but Tapir reaches Archicad over its
+    // own loopback HTTP, which Tapioca does not intercept -- so a definition
+    // holding Tapir write components has already changed the project by the time
+    // this dialog appears, and no amount of killing the worker takes that back.
+    // A run report that stayed silent about it would be read as a safety
+    // guarantee it is not making.
+    text += GS::UniString ("\n\nNote: Tapir components reach Archicad on their own connection, which Tapioca "
+                           "does not gate. Anything this definition wrote to the project is already written.");
+
+    ReportToUser (GS::UniString ("Grasshopper run\n\n") + text);
+}
+
 void OnWorkerConnected ()
 {
     if (!showEditorOnConnect.exchange (false))
@@ -465,6 +489,7 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
 
     GhBridge& bridge = GhBridge::Get ();
     bridge.SetConnectedHandler (&OnWorkerConnected);
+    bridge.SetRunResultHandler (&OnRunResult);
 
     std::lock_guard<std::mutex> lock (controlMutex);
 
@@ -610,6 +635,65 @@ GS::UniString GhWorkerHost::Describe () const
     return text;
 }
 
+bool GhWorkerHost::RunDefinition (GS::UniString& message)
+{
+    std::lock_guard<std::mutex> lock (controlMutex);
+    if (!GhBridge::Get ().IsConnected ()) {
+        // Deliberately does NOT spawn a worker. A Run solves the definition on
+        // the canvas, and a worker that has just started has no canvas and no
+        // definition -- so starting one here would answer a request to run
+        // something with a ten-second wait and then "there is nothing open".
+        message = "Grasshopper is not running. Open Tapioca > Grasshopper Editor and load a definition first.";
+        return false;
+    }
+
+    if (!GhBridge::Get ().Send (protocol::MessageType::RunDefinition, message))
+        return false;
+
+    message = "Asked Grasshopper to solve the definition on its canvas. The result will be reported when it "
+              "finishes.";
+    lastMessage = message;
+    Log (message);
+    return true;
+}
+
+bool GhWorkerHost::CancelRun (GS::UniString& message)
+{
+    std::lock_guard<std::mutex> lock (controlMutex);
+    if (!GhBridge::Get ().IsConnected ()) {
+        message = "Grasshopper is not running, so there is nothing to cancel.";
+        return true;
+    }
+    return GhBridge::Get ().Send (protocol::MessageType::CancelRun, message);
+}
+
+void GhWorkerHost::RunFromMenu ()
+{
+    GhWorkerHost& host = Get ();
+    GS::UniString message;
+    if (host.RunDefinition (message))
+        return; // the report arrives on its own; a dialog here would be in its way
+
+    // Held in a named local: GS::UniString's operator+ yields a lazy
+    // Concatenation, which has no ToPrintf and would not survive the call if it
+    // did. The same owning-temporary trap as UStr, one operator along.
+    const GS::UniString report = GS::UniString ("The Grasshopper definition did not run.\n\n") + message;
+    ACAPI_WriteReport ("%T", true, report.ToPrintf ());
+}
+
+void GhWorkerHost::CloseFromMenu ()
+{
+    GhWorkerHost& host = Get ();
+    if (!host.IsRunning () && !GhBridge::Get ().IsConnected ()) {
+        ACAPI_WriteReport ("%T", true, GS::UniString ("Grasshopper is not running.").ToPrintf ());
+        return;
+    }
+
+    host.Stop ();
+    const GS::UniString report = GS::UniString ("Grasshopper closed.\n\n") + host.Describe ();
+    ACAPI_WriteReport ("%T", true, report.ToPrintf ());
+}
+
 void GhWorkerHost::OpenEditorFromMenu ()
 {
     GhWorkerHost& host = Get ();
@@ -623,23 +707,6 @@ void GhWorkerHost::OpenEditorFromMenu ()
 
     const GS::UniString report = GS::UniString ("The Grasshopper editor did not open.\n\n") + message +
                                  GS::UniString ("\n\n") + host.Describe ();
-    ACAPI_WriteReport ("%T", true, report.ToPrintf ());
-}
-
-void GhWorkerHost::RestartFromMenu ()
-{
-    GhWorkerHost& host = Get ();
-    const bool wasRunning = host.IsRunning ();
-    host.Stop ();
-
-    GS::UniString message;
-    const bool started = host.OpenEditor (message);
-
-    const GS::UniString headline =
-        wasRunning ? GS::UniString ("The Grasshopper worker was stopped and a new one started.\n\n")
-                   : GS::UniString ("There was no Grasshopper worker running; a new one was started.\n\n");
-    const GS::UniString report = (started ? headline : GS::UniString ("The Grasshopper worker did not restart.\n\n")) +
-                                 message + GS::UniString ("\n\n") + host.Describe ();
     ACAPI_WriteReport ("%T", true, report.ToPrintf ());
 }
 

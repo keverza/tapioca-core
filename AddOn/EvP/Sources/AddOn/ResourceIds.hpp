@@ -28,12 +28,15 @@ constexpr short NotebookMenuResId = 32504; // "Tapioca Notebook"
 constexpr short NotebookMenuItemIndex = 1;
 constexpr short WebUIMenuResId = 32505; // "Tapioca WebUI panel"
 constexpr short WebUIMenuItemIndex = 1;
-// "Restart Grasshopper Worker" — the user-facing half of supervision. Grasshopper
-// solves in Tapioca.GhWorker.exe, which the add-on can kill unconditionally, and
-// this is where a user reaches that guarantee when a definition will not stop.
-// It also reports the worker's pid, restart generation and Archicad JSON port.
-// (It replaced "Rhino.Inside", which named an in-process arrangement that no
-// longer exists: there is no Rhino inside Archicad any more.)
+// "Close Grasshopper" — the user-facing half of supervision. Grasshopper solves
+// in Tapioca.GhWorker.exe, which the add-on can kill unconditionally, and this is
+// where a user reaches that guarantee: the canvas's own X only HIDES the editor,
+// leaving Rhino up so reopening is instant and so the Player can share one
+// worker. It also reports the worker's pid, restart generation and JSON port.
+//
+// It replaced "Restart Grasshopper Worker", which this makes redundant — Close
+// followed by Grasshopper Editor is a restart, with the same kill guarantee and
+// one fewer menu item to explain.
 constexpr short GrasshopperMenuResId = 32506;
 constexpr short GrasshopperMenuItemIndex = 1;
 // "Grasshopper Editor" — spawns the worker if it is not up, then asks it for its
@@ -45,6 +48,12 @@ constexpr short GrasshopperEditorMenuItemIndex = 1;
 // cannot share a process with Grasshopper's .NET 8 one.
 constexpr short DynamoMenuResId = 32508;
 constexpr short DynamoMenuItemIndex = 1;
+// "Run Grasshopper Definition" — solves the definition on the worker's canvas
+// once and reports it (PLAT-GH-PLAYER slice 2). It is the Player's execution
+// half without the Player's input half: typed inputs need the exposed-parameter
+// contract, which is the next slice.
+constexpr short GrasshopperRunMenuResId = 32509;
+constexpr short GrasshopperRunMenuItemIndex = 1;
 
 // The About box ('GDLG' 32520) — its own dialog block, so these ids are independent
 // of the palette's positional ids below.

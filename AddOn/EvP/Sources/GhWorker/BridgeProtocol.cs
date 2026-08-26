@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace Tapioca.GhWorker
@@ -24,7 +25,8 @@ namespace Tapioca.GhWorker
     /// </remarks>
     internal static class BridgeProtocol
     {
-        internal const uint Version = 1;
+        /// <summary>v2 added RunDefinition, CancelRun and RunResult.</summary>
+        internal const uint Version = 2;
 
         /// <summary>protocolVersion, messageType, requestId, correlationId, payloadBytes.</summary>
         internal const int HeaderSize = 20;
@@ -45,6 +47,9 @@ namespace Tapioca.GhWorker
             Shutdown = 8,
             Ack = 9,
             Log = 10,
+            RunDefinition = 11,
+            CancelRun = 12,
+            RunResult = 13,
         }
 
         internal enum AckStatus : uint
@@ -138,6 +143,51 @@ namespace Tapioca.GhWorker
             byte[] payload = new byte[4 + messageBytes.Length];
             WriteUInt32(payload, 0, (uint)status);
             Buffer.BlockCopy(messageBytes, 0, payload, 4, messageBytes.Length);
+            return payload;
+        }
+
+        /// <summary>
+        /// Mirrors protocol::EncodeRunReportPayload: ok, elapsed, the two counts,
+        /// then the headline and every message as a length-prefixed UTF-8 run.
+        /// </summary>
+        internal static byte[] EncodeRunReportPayload(RunReport report)
+        {
+            List<byte[]> strings = new List<byte[]>();
+            strings.Add(Encoding.UTF8.GetBytes(report.Headline));
+            foreach (string message in report.Errors)
+            {
+                strings.Add(Encoding.UTF8.GetBytes(message ?? string.Empty));
+            }
+
+            foreach (string message in report.Warnings)
+            {
+                strings.Add(Encoding.UTF8.GetBytes(message ?? string.Empty));
+            }
+
+            int total = 16;
+            foreach (byte[] encoded in strings)
+            {
+                total += 4 + encoded.Length;
+            }
+
+            byte[] payload = new byte[total];
+            WriteUInt32(payload, 0, report.Ok ? 1u : 0u);
+            // Clamped rather than cast: a solve that somehow ran for 50 days must
+            // report a large number, not wrap round to a small one.
+            WriteUInt32(payload, 4, report.ElapsedMs < 0 ? 0u
+                : report.ElapsedMs > uint.MaxValue ? uint.MaxValue : (uint)report.ElapsedMs);
+            WriteUInt32(payload, 8, (uint)report.Errors.Count);
+            WriteUInt32(payload, 12, (uint)report.Warnings.Count);
+
+            int offset = 16;
+            foreach (byte[] encoded in strings)
+            {
+                WriteUInt32(payload, offset, (uint)encoded.Length);
+                offset += 4;
+                Buffer.BlockCopy(encoded, 0, payload, offset, encoded.Length);
+                offset += encoded.Length;
+            }
+
             return payload;
         }
 

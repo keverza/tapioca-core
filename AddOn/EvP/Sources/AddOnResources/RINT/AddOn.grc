@@ -55,14 +55,15 @@
 /* [  1] */	"Tapioca WebUI panel^E3^ES^EE^EI^ED^EW^EL"
 }
 
-/* Named for what it does to the WORKER, because that is the only thing a user
-   can act on when a definition will not stop: Grasshopper solves in
-   Tapioca.GhWorker.exe, and killing that process is the one recovery with a
-   guarantee behind it. It replaced "Rhino.Inside", a name for an in-process
-   arrangement that no longer exists. */
-'STR#' 32506 "Menu strings - Restart Grasshopper Worker" {
+/* Named for what the user wants ("close it"), not for the mechanism ("stop the
+   worker process"), because the mechanism is the thing they should not have to
+   know about. It is a real close: the canvas's own X only hides the editor and
+   leaves Rhino running, which is right for reopening speed and wrong as the only
+   option. This one ends the process, cooperatively if it can and by force if it
+   must. */
+'STR#' 32506 "Menu strings - Close Grasshopper" {
 /* [   ] */	"Tapioca"
-/* [  1] */	"Restart Grasshopper Worker^E3^ES^EE^EI^ED^EW^EL"
+/* [  1] */	"Close Grasshopper^E3^ES^EE^EI^ED^EW^EL"
 }
 
 /* The Editor starts the worker if it is not up, so a user who wants a canvas
@@ -76,6 +77,14 @@
 'STR#' 32508 "Menu strings - Dynamo" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Dynamo^E3^ES^EE^EI^ED^EW^EL"
+}
+
+/* "Definition", not "Script" or "File": .gh/.ghx are definitions in every piece
+   of Grasshopper's own vocabulary, and a user who has just come from the canvas
+   should not have to translate. */
+'STR#' 32509 "Menu strings - Run Grasshopper Definition" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Run Grasshopper Definition^E3^ES^EE^EI^ED^EW^EL"
 }
 
 /* --- The Tapioca palette -------------------------------------------------- */

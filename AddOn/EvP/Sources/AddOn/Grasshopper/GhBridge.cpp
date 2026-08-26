@@ -270,6 +270,12 @@ void GhBridge::NotifyConnected ()
         handler ();
 }
 
+void GhBridge::SetRunResultHandler (std::function<void (const protocol::RunReportPayload&)> handler)
+{
+    std::lock_guard<std::mutex> lock (messageMutex);
+    runResultHandler = std::move (handler);
+}
+
 GS::UniString GhBridge::LastWorkerMessage () const
 {
     std::lock_guard<std::mutex> lock (messageMutex);
@@ -395,6 +401,36 @@ void GhBridge::Run ()
                 break;
             }
 
+            case protocol::MessageType::RunResult: {
+                protocol::RunReportPayload report;
+                if (!protocol::DecodeRunReportPayload (payload.data (), payload.size (), report, protocolError)) {
+                    LogLine (gen, hello.processId, "bridge could not read a run report: " + FromUtf8 (protocolError));
+                    break;
+                }
+
+                LogWorkerLine (gen, hello.processId,
+                               GS::UniString::Printf (
+                                   "run: %T (%u ms, %u error(s), %u warning(s))",
+                                   FromUtf8 (report.headline).ToPrintf (), (unsigned int) report.elapsedMs,
+                                   (unsigned int) report.errors.size (), (unsigned int) report.warnings.size ()));
+                {
+                    std::lock_guard<std::mutex> lock (messageMutex);
+                    lastWorkerMessage = FromUtf8 (report.headline);
+                }
+
+                std::function<void (const protocol::RunReportPayload&)> handler;
+                {
+                    // Copied out and called OUTSIDE the lock, for the same reason
+                    // NotifyConnected does it: the handler talks to the host,
+                    // which talks back to this bridge.
+                    std::lock_guard<std::mutex> lock (messageMutex);
+                    handler = runResultHandler;
+                }
+                if (handler)
+                    handler (report);
+                break;
+            }
+
             case protocol::MessageType::Ack: {
                 protocol::AckPayload ack;
                 if (!protocol::DecodeAckPayload (payload.data (), payload.size (), ack, protocolError))
@@ -461,6 +497,8 @@ void GhBridge::Run ()
             case protocol::MessageType::ShowEditor:
             case protocol::MessageType::HideEditor:
             case protocol::MessageType::Shutdown:
+            case protocol::MessageType::RunDefinition:
+            case protocol::MessageType::CancelRun:
                 // Host-to-worker messages, arriving the wrong way. Recorded and
                 // ignored rather than acted on: the direction is part of the
                 // contract, and a worker that gets it wrong is a worker whose

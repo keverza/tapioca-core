@@ -61,6 +61,15 @@ namespace Tapioca.GhWorker
 
         internal event Action ShutdownRequested;
 
+        internal event Action RunRequested;
+
+        /// <summary>
+        /// ⚠️ RAISED ON THE READER THREAD, NOT MARSHALLED. See the note where
+        /// <see cref="Program"/> subscribes: a cancel queued behind the solution
+        /// it is meant to interrupt arrives after that solution has finished.
+        /// </summary>
+        internal event Action CancelRequested;
+
         internal bool IsConnected
         {
             get { return _pipe != null && _pipe.IsConnected && !_stopping; }
@@ -235,6 +244,31 @@ namespace Tapioca.GhWorker
             }
         }
 
+        /// <summary>
+        /// Sends the report from one Run. Separate from <see cref="Acknowledge"/>
+        /// because the add-on shows this to the user and merely logs the other.
+        /// </summary>
+        internal void SendRunResult(RunReport report)
+        {
+            if (!IsConnected)
+            {
+                return;
+            }
+
+            try
+            {
+                WriteMessage(
+                    BridgeProtocol.MessageType.RunResult,
+                    0,
+                    0,
+                    BridgeProtocol.EncodeRunReportPayload(report));
+            }
+            catch (Exception exception)
+            {
+                WorkerLog.Write("the run result could not be sent: " + Describe(exception));
+            }
+        }
+
         internal void Acknowledge(BridgeProtocol.AckStatus status, string message)
         {
             if (!IsConnected)
@@ -358,6 +392,14 @@ namespace Tapioca.GhWorker
 
                 case BridgeProtocol.MessageType.Shutdown:
                     Raise(ShutdownRequested);
+                    break;
+
+                case BridgeProtocol.MessageType.RunDefinition:
+                    Raise(RunRequested);
+                    break;
+
+                case BridgeProtocol.MessageType.CancelRun:
+                    Raise(CancelRequested);
                     break;
 
                 default:

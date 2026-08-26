@@ -265,6 +265,120 @@ TEST (GhProtocol, AnEmbeddedNulIsRefusedRatherThanTruncating)
     EXPECT_FALSE (DecodeTextPayload (bytes.data (), bytes.size (), decoded, error));
 }
 
+TEST (GhProtocol, RunReportRoundTripsEveryField)
+{
+    RunReportPayload sent;
+    sent.ok = false;
+    sent.elapsedMs = 1837;
+    sent.headline = "Solved Apartment numbering.gh with 2 error(s).";
+    sent.errors.push_back ("Deconstruct Brep: Solution exception");
+    sent.errors.push_back ("Tapir Get Elements: Failed to connect to Archicad.");
+    sent.warnings.push_back ("Number Slider: value clamped");
+
+    const std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+
+    RunReportPayload received;
+    std::string error;
+    ASSERT_TRUE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error)) << error;
+    EXPECT_FALSE (received.ok);
+    EXPECT_EQ (1837u, received.elapsedMs);
+    EXPECT_EQ (sent.headline, received.headline);
+    ASSERT_EQ (2u, received.errors.size ());
+    EXPECT_EQ (sent.errors[1], received.errors[1]);
+    ASSERT_EQ (1u, received.warnings.size ());
+    EXPECT_EQ (sent.warnings[0], received.warnings[0]);
+}
+
+TEST (GhProtocol, RunReportRoundTripsACleanRun)
+{
+    RunReportPayload sent;
+    sent.ok = true;
+    sent.elapsedMs = 12;
+    sent.headline = "Solved sample.gh.";
+
+    const std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+
+    RunReportPayload received;
+    std::string error;
+    ASSERT_TRUE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error)) << error;
+    EXPECT_TRUE (received.ok);
+    EXPECT_TRUE (received.errors.empty ());
+    EXPECT_TRUE (received.warnings.empty ());
+}
+
+TEST (GhProtocol, ARunReportShorterThanItsFixedHeaderIsRefused)
+{
+    RunReportPayload sent;
+    sent.headline = "x";
+    std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+    bytes.resize (12);
+
+    RunReportPayload received;
+    std::string error;
+    EXPECT_FALSE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error));
+}
+
+TEST (GhProtocol, ARunReportPromisingMoreMessagesThanItCarriesIsRefused)
+{
+    // ⚠️ THE LIST OVER-READ, and the reason the counts are checked BEFORE the
+    // loops rather than trusted one entry at a time. A corrupt count of four
+    // billion would otherwise be a four-billion-entry reserve before the first
+    // read failed.
+    RunReportPayload sent;
+    sent.headline = "Solved.";
+    std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+    bytes[8] = 0xFF;
+    bytes[9] = 0xFF;
+    bytes[10] = 0xFF;
+    bytes[11] = 0xFF;
+
+    RunReportPayload received;
+    std::string error;
+    ASSERT_FALSE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error));
+    EXPECT_NE (std::string::npos, error.find ("more messages"));
+}
+
+TEST (GhProtocol, ARunReportStringLongerThanItsPayloadIsRefused)
+{
+    RunReportPayload sent;
+    sent.headline = "Solved.";
+    std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+    // The headline length sits right after the four fixed fields.
+    bytes[16] = 0xFF;
+    bytes[17] = 0xFF;
+
+    RunReportPayload received;
+    std::string error;
+    EXPECT_FALSE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error));
+}
+
+TEST (GhProtocol, ARunReportReadsAsSomethingAUserCanActOn)
+{
+    // DescribeRunReport is the entire product surface of a Run today, so what it
+    // puts in front of a user is worth pinning: the headline first, the errors
+    // before the warnings, and every component named.
+    RunReportPayload report;
+    report.ok = false;
+    report.elapsedMs = 1837;
+    report.headline = "Solved numbering.gh with 1 error(s).";
+    report.errors.push_back ("Deconstruct Brep: Solution exception");
+    report.warnings.push_back ("Slider: clamped");
+
+    const std::string text = DescribeRunReport (report);
+    EXPECT_NE (std::string::npos, text.find ("Solved numbering.gh"));
+    EXPECT_NE (std::string::npos, text.find ("1837 ms"));
+    EXPECT_LT (text.find ("Deconstruct Brep"), text.find ("Slider"));
+}
+
+TEST (GhProtocol, ACleanRunSaysSoRatherThanShowingNothing)
+{
+    // An empty dialog after a successful Run reads as a broken dialog.
+    RunReportPayload report;
+    report.ok = true;
+    report.headline = "Solved sample.gh.";
+    EXPECT_NE (std::string::npos, DescribeRunReport (report).find ("No component reported"));
+}
+
 TEST (GhProtocol, EveryMessageTypeHasAName)
 {
     // DescribeMessageType feeds the log and the "wrong direction" refusal; an

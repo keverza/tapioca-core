@@ -41,6 +41,9 @@ bool KnownMessageType (uint32_t value)
         case MessageType::Shutdown:
         case MessageType::Ack:
         case MessageType::Log:
+        case MessageType::RunDefinition:
+        case MessageType::CancelRun:
+        case MessageType::RunResult:
             return true;
     }
     return false;
@@ -214,6 +217,117 @@ bool DecodeAckPayload (const uint8_t* bytes, size_t size, AckPayload& ack, std::
     return true;
 }
 
+namespace {
+
+// Every string in a run report is length-prefixed and every length is checked
+// against what is LEFT, not against the whole payload: a count that overruns by
+// one entry is the ordinary way a list codec reads off the end.
+bool ReadString (const uint8_t* bytes, size_t size, size_t& offset, std::string& text, std::string& error)
+{
+    if (offset + 4 > size) {
+        error = "The run report ended inside a string length.";
+        return false;
+    }
+    const uint32_t length = ReadUInt32 (bytes + offset);
+    offset += 4;
+    if (length > size || offset + length > size) {
+        error = "The run report declared a string longer than the payload that carries it.";
+        return false;
+    }
+    text.assign ((const char*) bytes + offset, length);
+    offset += length;
+    if (ContainsNul (text)) {
+        error = "The run report contained an embedded NUL.";
+        return false;
+    }
+    return true;
+}
+
+void AppendString (std::vector<uint8_t>& buffer, const std::string& text)
+{
+    AppendUInt32 (buffer, (uint32_t) text.size ());
+    AppendBytes (buffer, text);
+}
+
+} // namespace
+
+std::vector<uint8_t> EncodeRunReportPayload (const RunReportPayload& report)
+{
+    std::vector<uint8_t> payload;
+    AppendUInt32 (payload, report.ok ? 1u : 0u);
+    AppendUInt32 (payload, report.elapsedMs);
+    AppendUInt32 (payload, (uint32_t) report.errors.size ());
+    AppendUInt32 (payload, (uint32_t) report.warnings.size ());
+    AppendString (payload, report.headline);
+    for (const std::string& text : report.errors)
+        AppendString (payload, text);
+    for (const std::string& text : report.warnings)
+        AppendString (payload, text);
+    return payload;
+}
+
+bool DecodeRunReportPayload (const uint8_t* bytes, size_t size, RunReportPayload& report, std::string& error)
+{
+    if (bytes == nullptr || size < 16) {
+        error = "The run report payload was short.";
+        return false;
+    }
+
+    RunReportPayload decoded;
+    decoded.ok = ReadUInt32 (bytes) != 0;
+    decoded.elapsedMs = ReadUInt32 (bytes + 4);
+    const uint32_t errorCount = ReadUInt32 (bytes + 8);
+    const uint32_t warningCount = ReadUInt32 (bytes + 12);
+
+    // Before the loops, not inside them: each entry costs at least four bytes,
+    // so a count that cannot fit is a corrupt count and must be refused rather
+    // than reserved for.
+    if ((uint64_t) errorCount + (uint64_t) warningCount > (uint64_t) size / 4u) {
+        error = "The run report declared more messages than its payload can hold.";
+        return false;
+    }
+
+    size_t offset = 16;
+    if (!ReadString (bytes, size, offset, decoded.headline, error))
+        return false;
+
+    decoded.errors.resize (errorCount);
+    for (uint32_t index = 0; index < errorCount; ++index) {
+        if (!ReadString (bytes, size, offset, decoded.errors[index], error))
+            return false;
+    }
+    decoded.warnings.resize (warningCount);
+    for (uint32_t index = 0; index < warningCount; ++index) {
+        if (!ReadString (bytes, size, offset, decoded.warnings[index], error))
+            return false;
+    }
+
+    report = decoded;
+    return true;
+}
+
+std::string DescribeRunReport (const RunReportPayload& report)
+{
+    std::string text = report.headline;
+    text += "\n\nSolved in " + std::to_string (report.elapsedMs) + " ms.";
+
+    // Errors before warnings, and both before anything else: a user who pressed
+    // Run wants to know what broke, not how long it took to break.
+    if (!report.errors.empty ()) {
+        text += "\n\nErrors:";
+        for (const std::string& line : report.errors)
+            text += "\n  " + line;
+    }
+    if (!report.warnings.empty ()) {
+        text += "\n\nWarnings:";
+        for (const std::string& line : report.warnings)
+            text += "\n  " + line;
+    }
+    if (report.errors.empty () && report.warnings.empty ())
+        text += "\nNo component reported an error or a warning.";
+    return text;
+}
+
 std::vector<uint8_t> EncodeTextPayload (const std::string& utf8)
 {
     return std::vector<uint8_t> (utf8.begin (), utf8.end ());
@@ -274,6 +388,12 @@ const char* DescribeMessageType (MessageType type)
             return "ack";
         case MessageType::Log:
             return "log";
+        case MessageType::RunDefinition:
+            return "run-definition";
+        case MessageType::CancelRun:
+            return "cancel-run";
+        case MessageType::RunResult:
+            return "run-result";
     }
     return "unknown";
 }

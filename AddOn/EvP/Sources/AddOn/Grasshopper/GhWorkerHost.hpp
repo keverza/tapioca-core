@@ -58,10 +58,32 @@ class GhWorkerHost {
 
     static void OpenEditorFromMenu ();
 
-    // What "Tapioca > Restart Grasshopper Worker" does. The user-facing half of
-    // rule 2: the guaranteed recovery from a definition that will not stop, with
-    // a report of what died and what it was running.
-    static void RestartFromMenu ();
+    // Asks the worker to solve the definition on its canvas once, and returns
+    // IMMEDIATELY. A solve takes as long as the definition takes, and Archicad's
+    // main thread is not available to wait for it -- that is the entire point of
+    // the worker -- so the report arrives later, over the bridge, and is shown
+    // from there.
+    bool RunDefinition (GS::UniString& message);
+
+    // The cooperative half of cancellation. Grasshopper honours an abort only
+    // BETWEEN components, so this cannot stop a component wedged in native code
+    // or a blocking call; "Close Grasshopper" is the half that always works.
+    bool CancelRun (GS::UniString& message);
+
+    static void RunFromMenu ();
+
+    // What "Tapioca > Close Grasshopper" does, and the user-facing half of rule 2.
+    //
+    // ⚠️ THIS EXISTS BECAUSE THE CANVAS'S OWN X DOES NOT CLOSE THE WORKER, AND
+    // THAT IS DELIBERATE RATHER THAN AN OVERSIGHT. Grasshopper's close button
+    // hides its editor; Rhino, Grasshopper and the loaded packages stay up, which
+    // is what makes reopening the canvas instant instead of a fresh ten-second
+    // start, and what will let the Player share one worker with the Editor. But a
+    // hidden process holding a Rhino licence with no way to stop it short of
+    // quitting Archicad is not a defensible product either. So closing is an
+    // explicit command: cooperative shutdown first, TerminateProcess second, and
+    // a report of which one was needed.
+    static void CloseFromMenu ();
 
     // Cooperative shutdown, then the guarantee. Idempotent and safe during
     // teardown: does nothing when nothing is up, and never depends on an

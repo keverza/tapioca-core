@@ -34,7 +34,9 @@ namespace protocol {
 // Bumped whenever the meaning of ANY message below changes. Both halves carry
 // their own copy (see Sources/GhWorker/BridgeProtocol.cs) and the handshake
 // compares them; neither is allowed to infer the other's.
-constexpr uint32_t Version = 1;
+//
+// v2 added RunDefinition, CancelRun and RunResult.
+constexpr uint32_t Version = 2;
 
 // 5 x uint32, little-endian: protocolVersion, messageType, requestId,
 // correlationId, payloadBytes.
@@ -77,6 +79,27 @@ enum class MessageType : uint32_t {
     // log file, two processes: the host stamps pid and restart generation on
     // arrival, so the interleaving is recorded rather than reconstructed.
     Log = 10,
+    // host -> worker. No payload: it means "solve the definition on the canvas
+    // once", not "solve this file". Which definition is open is the worker's
+    // business, and asking it to reopen one it already has would be a second,
+    // weaker load path beside Grasshopper's own File > Open.
+    RunDefinition = 11,
+    // host -> worker, the COOPERATIVE half of run cancellation.
+    //
+    // ⚠️ IT IS A REQUEST, NOT A GUARANTEE, AND THE DIFFERENCE IS THE WHOLE REASON
+    // THE WORKER IS A PROCESS. Grasshopper's RequestAbortSolution only takes
+    // effect BETWEEN objects, so it cannot recover a component stuck in native
+    // code, in a blocking socket or in a loop. The guarantee is killing the
+    // worker, and it lives in GhWorkerHost.
+    CancelRun = 12,
+    // worker -> host, the answer to a RunDefinition. Payload: RunReport.
+    //
+    // Structured POD like everything else here, and it is worth saying why, since
+    // JSON is the obvious reach for a report: it would put a text parser in the
+    // .apx to read a message the .apx's own other half wrote, in a shape both
+    // ends already agree on. The framing below is smaller, has no parser, and is
+    // covered by the same offline tests as the rest of the protocol.
+    RunResult = 13,
 };
 
 // Mirrors TapiocaGhStatus's surviving cases. The transport carries them; it does
@@ -114,6 +137,17 @@ struct AckPayload {
     std::string message; // UTF-8
 };
 
+// What one Run produced. `ok` means the solution completed with no component
+// reporting an error -- NOT that the project was left unchanged; see
+// Sources/GhWorker/DefinitionRunner.cs for why no layer here can promise that.
+struct RunReportPayload {
+    bool ok = false;
+    uint32_t elapsedMs = 0;
+    std::string headline; // UTF-8
+    std::vector<std::string> errors;
+    std::vector<std::string> warnings;
+};
+
 std::vector<uint8_t> EncodeHeader (MessageType type, uint32_t requestId, uint32_t correlationId, uint32_t payloadBytes);
 
 // Refuses a wrong version, an unknown message type and an oversized payload,
@@ -128,6 +162,14 @@ bool DecodeApiRequestPayload (const uint8_t* bytes, size_t size, ApiRequestPaylo
 
 std::vector<uint8_t> EncodeAckPayload (const AckPayload& ack);
 bool DecodeAckPayload (const uint8_t* bytes, size_t size, AckPayload& ack, std::string& error);
+
+std::vector<uint8_t> EncodeRunReportPayload (const RunReportPayload& report);
+bool DecodeRunReportPayload (const uint8_t* bytes, size_t size, RunReportPayload& report, std::string& error);
+
+// The run report as a user sees it in a dialog. Kept beside the codec, and
+// offline-tested with it, because "solved in 1.8 s" and "3 errors, first one
+// here" is the entire product surface of a Run today.
+std::string DescribeRunReport (const RunReportPayload& report);
 
 // UTF-8 payloads (HelloAck, ApiResponse, Log). Encoding is a copy; decoding
 // exists so that an embedded NUL is REJECTED rather than silently truncating the
