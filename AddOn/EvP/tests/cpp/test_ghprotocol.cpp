@@ -379,6 +379,88 @@ TEST (GhProtocol, ACleanRunSaysSoRatherThanShowingNothing)
     EXPECT_NE (std::string::npos, DescribeRunReport (report).find ("No component reported"));
 }
 
+TEST (GhProtocol, ARunReportCarriesTheUndoLedgerBothWays)
+{
+    RunReportPayload sent;
+    sent.ok = true;
+    sent.elapsedMs = 42;
+    sent.headline = "Solved numbering.gh.";
+    sent.ledger.push_back ({ "TapirCommand.MoveElements", 14 });
+    sent.ledger.push_back ({ "API.GetSelectedElements", 1 });
+
+    const std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+
+    RunReportPayload received;
+    std::string error;
+    ASSERT_TRUE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error)) << error;
+    ASSERT_EQ (2u, received.ledger.size ());
+    EXPECT_EQ ("TapirCommand.MoveElements", received.ledger[0].command);
+    EXPECT_EQ (14u, received.ledger[0].invocations);
+    EXPECT_EQ ("API.GetSelectedElements", received.ledger[1].command);
+    EXPECT_EQ (1u, received.ledger[1].invocations);
+}
+
+TEST (GhProtocol, ARunReportWithNoLedgerStillRoundTrips)
+{
+    // The default: the Tapir proxy is off, so nothing was counted. An absent
+    // ledger must decode as absent, not as a zero-cost run that was measured.
+    RunReportPayload sent;
+    sent.ok = true;
+    sent.headline = "Solved sample.gh.";
+
+    const std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+
+    RunReportPayload received;
+    std::string error;
+    ASSERT_TRUE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error)) << error;
+    EXPECT_TRUE (received.ledger.empty ());
+    EXPECT_EQ (std::string::npos, DescribeRunReport (received).find ("undo step"));
+}
+
+TEST (GhProtocol, ARunReportPromisingMoreLedgerEntriesThanItCarriesIsRefused)
+{
+    RunReportPayload sent;
+    sent.headline = "Solved.";
+    sent.ledger.push_back ({ "TapirCommand.MoveElements", 1 });
+    std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+    // The ledger count sits after ok, elapsed and the two message counts.
+    bytes[16] = 0xFF;
+    bytes[17] = 0xFF;
+    bytes[18] = 0xFF;
+    bytes[19] = 0xFF;
+
+    RunReportPayload received;
+    std::string error;
+    EXPECT_FALSE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error));
+}
+
+TEST (GhProtocol, ARunReportEndingInsideALedgerCountIsRefused)
+{
+    // The invocation count trails its name, so a payload truncated between the
+    // two is the one place a ledger read can run off the end.
+    RunReportPayload sent;
+    sent.headline = "Solved.";
+    sent.ledger.push_back ({ "TapirCommand.MoveElements", 7 });
+    std::vector<uint8_t> bytes = EncodeRunReportPayload (sent);
+    bytes.resize (bytes.size () - 2);
+
+    RunReportPayload received;
+    std::string error;
+    EXPECT_FALSE (DecodeRunReportPayload (bytes.data (), bytes.size (), received, error));
+}
+
+TEST (GhProtocol, AMeasuredRunPutsTheUndoCostInFrontOfTheUser)
+{
+    RunReportPayload report;
+    report.ok = true;
+    report.headline = "Solved numbering.gh.";
+    report.ledger.push_back ({ "TapirCommand.MoveElements", 40 });
+
+    const std::string text = DescribeRunReport (report);
+    EXPECT_NE (std::string::npos, text.find ("40 undo step"));
+    EXPECT_NE (std::string::npos, text.find ("MoveElements x40"));
+}
+
 TEST (GhProtocol, EveryMessageTypeHasAName)
 {
     // DescribeMessageType feeds the log and the "wrong direction" refusal; an

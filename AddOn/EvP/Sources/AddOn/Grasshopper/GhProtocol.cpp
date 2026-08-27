@@ -44,6 +44,17 @@ bool KnownMessageType (uint32_t value)
         case MessageType::RunDefinition:
         case MessageType::CancelRun:
         case MessageType::RunResult:
+        case MessageType::PreviewBeginBatch:
+        case MessageType::PreviewAdded:
+        case MessageType::PreviewChanged:
+        case MessageType::PreviewRemoved:
+        case MessageType::PreviewVisibility:
+        case MessageType::PreviewSelection:
+        case MessageType::PreviewEndBatch:
+        case MessageType::PreviewDropAll:
+        case MessageType::PreviewResyncRequest:
+        case MessageType::PreviewBatchAck:
+        case MessageType::PreviewPicked:
             return true;
     }
     return false;
@@ -258,17 +269,22 @@ std::vector<uint8_t> EncodeRunReportPayload (const RunReportPayload& report)
     AppendUInt32 (payload, report.elapsedMs);
     AppendUInt32 (payload, (uint32_t) report.errors.size ());
     AppendUInt32 (payload, (uint32_t) report.warnings.size ());
+    AppendUInt32 (payload, (uint32_t) report.ledger.size ());
     AppendString (payload, report.headline);
     for (const std::string& text : report.errors)
         AppendString (payload, text);
     for (const std::string& text : report.warnings)
         AppendString (payload, text);
+    for (const UndoLedgerEntry& entry : report.ledger) {
+        AppendString (payload, entry.command);
+        AppendUInt32 (payload, entry.invocations);
+    }
     return payload;
 }
 
 bool DecodeRunReportPayload (const uint8_t* bytes, size_t size, RunReportPayload& report, std::string& error)
 {
-    if (bytes == nullptr || size < 16) {
+    if (bytes == nullptr || size < 20) {
         error = "The run report payload was short.";
         return false;
     }
@@ -278,16 +294,18 @@ bool DecodeRunReportPayload (const uint8_t* bytes, size_t size, RunReportPayload
     decoded.elapsedMs = ReadUInt32 (bytes + 4);
     const uint32_t errorCount = ReadUInt32 (bytes + 8);
     const uint32_t warningCount = ReadUInt32 (bytes + 12);
+    const uint32_t ledgerCount = ReadUInt32 (bytes + 16);
 
     // Before the loops, not inside them: each entry costs at least four bytes,
     // so a count that cannot fit is a corrupt count and must be refused rather
-    // than reserved for.
-    if ((uint64_t) errorCount + (uint64_t) warningCount > (uint64_t) size / 4u) {
+    // than reserved for. A ledger entry costs at least eight — a length, a
+    // name and a count — so it is weighted accordingly.
+    if ((uint64_t) errorCount + (uint64_t) warningCount + (uint64_t) ledgerCount * 2u > (uint64_t) size / 4u) {
         error = "The run report declared more messages than its payload can hold.";
         return false;
     }
 
-    size_t offset = 16;
+    size_t offset = 20;
     if (!ReadString (bytes, size, offset, decoded.headline, error))
         return false;
 
@@ -300,6 +318,18 @@ bool DecodeRunReportPayload (const uint8_t* bytes, size_t size, RunReportPayload
     for (uint32_t index = 0; index < warningCount; ++index) {
         if (!ReadString (bytes, size, offset, decoded.warnings[index], error))
             return false;
+    }
+
+    decoded.ledger.resize (ledgerCount);
+    for (uint32_t index = 0; index < ledgerCount; ++index) {
+        if (!ReadString (bytes, size, offset, decoded.ledger[index].command, error))
+            return false;
+        if (offset + 4 > size) {
+            error = "The run report ended inside a ledger count.";
+            return false;
+        }
+        decoded.ledger[index].invocations = ReadUInt32 (bytes + offset);
+        offset += 4;
     }
 
     report = decoded;
@@ -325,6 +355,13 @@ std::string DescribeRunReport (const RunReportPayload& report)
     }
     if (report.errors.empty () && report.warnings.empty ())
         text += "\nNo component reported an error or a warning.";
+
+    // The undo cost, when the run was measured. Empty ledger means the Tapir
+    // proxy was off, which is the default — and silence is the right answer
+    // there, rather than a reassuring "0 undo steps" that was never counted.
+    if (!report.ledger.empty ())
+        text += "\n\n" + DescribeUndoBudget (EvaluateUndoBudget (report.ledger));
+
     return text;
 }
 
@@ -394,6 +431,28 @@ const char* DescribeMessageType (MessageType type)
             return "cancel-run";
         case MessageType::RunResult:
             return "run-result";
+        case MessageType::PreviewBeginBatch:
+            return "preview-begin-batch";
+        case MessageType::PreviewAdded:
+            return "preview-added";
+        case MessageType::PreviewChanged:
+            return "preview-changed";
+        case MessageType::PreviewRemoved:
+            return "preview-removed";
+        case MessageType::PreviewVisibility:
+            return "preview-visibility";
+        case MessageType::PreviewSelection:
+            return "preview-selection";
+        case MessageType::PreviewEndBatch:
+            return "preview-end-batch";
+        case MessageType::PreviewDropAll:
+            return "preview-drop-all";
+        case MessageType::PreviewResyncRequest:
+            return "preview-resync-request";
+        case MessageType::PreviewBatchAck:
+            return "preview-batch-ack";
+        case MessageType::PreviewPicked:
+            return "preview-picked";
     }
     return "unknown";
 }

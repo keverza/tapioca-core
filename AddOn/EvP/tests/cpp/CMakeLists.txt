@@ -88,6 +88,7 @@ set (EVP_COMMAND_SOURCES
 # the worker's lifecycle and transport goes with it.
 set (EVP_GRASSHOPPER_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhProtocol.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhUndoBudget.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
 
 set (EVP_DYNAMO_SOURCES
@@ -301,6 +302,7 @@ set (EVP_TEST_SOURCES
     test_cloudcompare.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
+    test_ghundobudget.cpp
     test_grasshopperhoststate.cpp
     test_nodegraph.cpp)
 

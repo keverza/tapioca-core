@@ -25,8 +25,11 @@ namespace Tapioca.GhWorker
     /// </remarks>
     internal static class BridgeProtocol
     {
-        /// <summary>v2 added RunDefinition, CancelRun and RunResult.</summary>
-        internal const uint Version = 2;
+        /// <summary>
+        /// v2 added RunDefinition, CancelRun and RunResult.
+        /// v3 added the undo ledger to the run report.
+        /// </summary>
+        internal const uint Version = 3;
 
         /// <summary>protocolVersion, messageType, requestId, correlationId, payloadBytes.</summary>
         internal const int HeaderSize = 20;
@@ -164,10 +167,21 @@ namespace Tapioca.GhWorker
                 strings.Add(Encoding.UTF8.GetBytes(message ?? string.Empty));
             }
 
-            int total = 16;
+            List<KeyValuePair<string, uint>> ledger =
+                report.Ledger ?? new List<KeyValuePair<string, uint>>();
+
+            int total = 20;
             foreach (byte[] encoded in strings)
             {
                 total += 4 + encoded.Length;
+            }
+
+            List<byte[]> ledgerNames = new List<byte[]>();
+            foreach (KeyValuePair<string, uint> entry in ledger)
+            {
+                byte[] encoded = Encoding.UTF8.GetBytes(entry.Key ?? string.Empty);
+                ledgerNames.Add(encoded);
+                total += 4 + encoded.Length + 4;
             }
 
             byte[] payload = new byte[total];
@@ -178,14 +192,26 @@ namespace Tapioca.GhWorker
                 : report.ElapsedMs > uint.MaxValue ? uint.MaxValue : (uint)report.ElapsedMs);
             WriteUInt32(payload, 8, (uint)report.Errors.Count);
             WriteUInt32(payload, 12, (uint)report.Warnings.Count);
+            WriteUInt32(payload, 16, (uint)ledger.Count);
 
-            int offset = 16;
+            int offset = 20;
             foreach (byte[] encoded in strings)
             {
                 WriteUInt32(payload, offset, (uint)encoded.Length);
                 offset += 4;
                 Buffer.BlockCopy(encoded, 0, payload, offset, encoded.Length);
                 offset += encoded.Length;
+            }
+
+            for (int index = 0; index < ledger.Count; index++)
+            {
+                byte[] encoded = ledgerNames[index];
+                WriteUInt32(payload, offset, (uint)encoded.Length);
+                offset += 4;
+                Buffer.BlockCopy(encoded, 0, payload, offset, encoded.Length);
+                offset += encoded.Length;
+                WriteUInt32(payload, offset, ledger[index].Value);
+                offset += 4;
             }
 
             return payload;

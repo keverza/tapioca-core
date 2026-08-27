@@ -64,6 +64,14 @@ namespace Tapioca.GhWorker
         private static bool _editorRequested;
 
         /// <summary>
+        /// The counting proxy in front of Archicad's JSON port, or null when it
+        /// is off. Off is the default: a proxy in front of every Tapir call is a
+        /// latency cost and one more thing to fail, and it earns that only while
+        /// someone is measuring.
+        /// </summary>
+        private static TapirProxy _tapirProxy;
+
+        /// <summary>
         /// ⚠️ STA, AND IT IS NOT DECORATION. RhinoCore is thread-affine and
         /// expects a single-threaded apartment; constructing it on an MTA thread
         /// is not a supported configuration and misbehaves later rather than
@@ -180,7 +188,8 @@ namespace Tapioca.GhWorker
             TapiocaBridgeApi.Bind(_bridge);
             WorkerLog.Write("bridge connected");
 
-            StartOutcome outcome = WorkerSession.Start(arguments.ArchicadJsonPort);
+            uint tapirPort = StartTapirProxy(arguments.ArchicadJsonPort);
+            StartOutcome outcome = WorkerSession.Start(arguments.ArchicadJsonPort, tapirPort);
             // Acknowledged, not also logged: the add-on writes every Ack into
             // grasshopper.log itself, so doing both prints this paragraph twice.
             _bridge.Acknowledge(
@@ -329,9 +338,55 @@ namespace Tapioca.GhWorker
                 hidden ? "Grasshopper editor hidden." : failure);
         }
 
+        /// <summary>
+        /// Starts the Tapir proxy when asked, and returns the port Tapir should
+        /// be pointed at — the proxy's when it is up, Archicad's own otherwise.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ A PROXY THAT WILL NOT START MUST DEGRADE TO "NO MEASUREMENT",
+        /// NEVER TO "NO TAPIR". Falling back to the real port keeps every
+        /// definition working; the only thing lost is the undo ledger.
+        /// </remarks>
+        private static uint StartTapirProxy(uint archicadPort)
+        {
+            string enabled = Environment.GetEnvironmentVariable("TAPIOCA_GH_TAPIR_PROXY");
+            if (string.IsNullOrEmpty(enabled) || enabled == "0")
+            {
+                return archicadPort;
+            }
+
+            TapirProxy proxy = new TapirProxy((int)archicadPort);
+            string error;
+            if (!proxy.Start(out error))
+            {
+                WorkerLog.Write(error + " Tapir will talk to Archicad directly and no undo ledger is kept.");
+                return archicadPort;
+            }
+
+            _tapirProxy = proxy;
+            WorkerLog.Write(
+                "Tapir proxy listening on 127.0.0.1:" + proxy.Port + ", forwarding to " + archicadPort
+                + ". Every Tapir call is counted for the undo budget.");
+            return (uint)proxy.Port;
+        }
+
         private static void RunDefinition()
         {
+            // Reset FIRST, so the ledger belongs to this run and not to everything
+            // since the worker started — including the connection check, which
+            // makes several Tapir calls of its own during startup.
+            TapirProxy proxy = _tapirProxy;
+            if (proxy != null)
+            {
+                proxy.ResetLedger();
+            }
+
             RunReport report = DefinitionRunner.Run();
+            if (proxy != null)
+            {
+                report.Ledger = proxy.Ledger();
+            }
+
             _bridge.SendRunResult(report);
             WorkerLog.Write(report.Headline);
         }
@@ -366,6 +421,13 @@ namespace Tapioca.GhWorker
             // mid-solve gets an unavailable bridge rather than one that is going
             // away underneath it.
             TapiocaBridgeApi.Unbind();
+
+            TapirProxy proxy = _tapirProxy;
+            _tapirProxy = null;
+            if (proxy != null)
+            {
+                proxy.Dispose();
+            }
 
             BridgeClient bridge = _bridge;
             _bridge = null;

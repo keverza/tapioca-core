@@ -96,6 +96,7 @@ namespace Tapioca.GhWorker
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static bool LoadGrasshopper(
             uint archicadJsonPort,
+            uint tapirPort,
             out string tapirReport,
             out string failure)
         {
@@ -138,7 +139,7 @@ namespace Tapioca.GhWorker
             }
 
             tapirReport = preparedTapioca + " " + TapiocaPackage.Verify()
-                        + " " + prepared + " " + TapirPackage.BindPort(archicadJsonPort);
+                        + " " + prepared + " " + TapirPackage.BindPort(tapirPort);
 
             // Fire and forget, off the main thread, for the reason spelled out
             // in TapirConnectionCheck: it makes the same loopback call a Tapir

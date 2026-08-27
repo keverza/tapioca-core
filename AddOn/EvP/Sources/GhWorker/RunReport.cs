@@ -22,6 +22,7 @@ namespace Tapioca.GhWorker
             ElapsedMs = elapsedMs;
             Errors = errors ?? new List<string>();
             Warnings = warnings ?? new List<string>();
+            Ledger = new List<KeyValuePair<string, uint>>();
         }
 
         internal bool Ok { get; private set; }
@@ -33,6 +34,14 @@ namespace Tapioca.GhWorker
         internal List<string> Errors { get; private set; }
 
         internal List<string> Warnings { get; private set; }
+
+        /// <summary>
+        /// What the run called through the Tapir proxy, and how often. Empty when
+        /// the proxy is off, which is the default. The HOST classifies and judges
+        /// it — see Sources/AddOn/Grasshopper/GhUndoBudget.hpp — because that is
+        /// where the offline tests are; the worker only counts.
+        /// </summary>
+        internal List<KeyValuePair<string, uint>> Ledger { get; set; }
 
         /// <summary>
         /// A run that did not get as far as a solution. It still carries an

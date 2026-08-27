@@ -23,6 +23,8 @@
 // legitimate mismatch — a stale worker left beside an upgraded add-on — and
 // "rebuild and redeploy both halves" is the only useful thing to say about it.
 
+#include "GhUndoBudget.hpp" // UndoLedgerEntry, carried inside a run report
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -31,12 +33,19 @@ namespace evp {
 namespace grasshopper {
 namespace protocol {
 
+using evp::grasshopper::UndoLedgerEntry;
+
 // Bumped whenever the meaning of ANY message below changes. Both halves carry
 // their own copy (see Sources/GhWorker/BridgeProtocol.cs) and the handshake
 // compares them; neither is allowed to infer the other's.
 //
 // v2 added RunDefinition, CancelRun and RunResult.
-constexpr uint32_t Version = 2;
+// v3 added the undo ledger to RunReportPayload.
+// v4 added the preview messages below and the CapabilityPreview bit that gates
+// them. Their payload codec lives in GhPreviewProtocol.hpp; it is the same
+// protocol, not a second one, which is why the version moved rather than a new
+// header being invented.
+constexpr uint32_t Version = 4;
 
 // 5 x uint32, little-endian: protocolVersion, messageType, requestId,
 // correlationId, payloadBytes.
@@ -100,6 +109,41 @@ enum class MessageType : uint32_t {
     // ends already agree on. The framing below is smaller, has no parser, and is
     // covered by the same offline tests as the rest of the protocol.
     RunResult = 13,
+
+    // ---- preview, worker -> host unless noted ----------------------------
+    // All of these are gated by CapabilityPreview (GhPreviewProtocol.hpp): a
+    // worker that did not negotiate it must not send them, and a host that
+    // cleared it must refuse them. OFF COSTS NOTHING is a rule about the
+    // handshake, not about dropping messages after they arrive.
+    //
+    // ⚠️ A SOLVE DOES NOT SEND A PREVIEW; IT SENDS WHAT CHANGED. A dense
+    // definition re-solving on a slider drag is the whole performance case:
+    // most solves change one component's output, the delta for that is
+    // kilobytes, and the full preview is tens of megabytes.
+    PreviewBeginBatch = 14,
+    PreviewAdded = 15,
+    PreviewChanged = 16,
+    PreviewRemoved = 17,
+    // Preview toggled off. A VISIBILITY DELTA, NEVER A REMOVAL, so that
+    // toggling it back costs a byte rather than a retransmission.
+    PreviewVisibility = 18,
+    // Canvas selection. Metadata only; it must never cause a re-solve, a
+    // retessellation or a geometry transfer.
+    PreviewSelection = 19,
+    PreviewEndBatch = 20,
+    // Definition closed, or the worker restarted under a fresh epoch. The host
+    // holds preview from a process that no longer exists, and dropping the lot
+    // is the only correct answer.
+    PreviewDropAll = 21,
+    // host -> worker. Sent when a checksum disagrees or a message is refused:
+    // the next batch must be a full one rather than a delta against a cache
+    // neither side can vouch for.
+    PreviewResyncRequest = 22,
+    // host -> worker. RELEASES the batch's shared-memory segment; the worker
+    // keeps it alive until this arrives.
+    PreviewBatchAck = 23,
+    // host -> worker. A viewport pick resolved to a primitive id.
+    PreviewPicked = 24,
 };
 
 // Mirrors TapiocaGhStatus's surviving cases. The transport carries them; it does
@@ -120,10 +164,12 @@ struct Header {
 
 struct HelloPayload {
     uint32_t processId = 0;
-    // Reserved for the capability bits P3 needs (shared-memory geometry,
-    // selection events). Zero today, and a worker that sets an unknown bit is
-    // not refused for it — the handshake gates the VERSION, and capabilities are
-    // additive within one.
+    // Capability bits. CapabilityPreview (GhPreviewProtocol.hpp) is the first
+    // one, and it gates every Preview* message below: a worker that did not
+    // negotiate it must not send them, and a host with preview disabled clears
+    // it in the ack so the worker does not collect, convert or send. A worker
+    // that sets an UNKNOWN bit is not refused for it — the handshake gates the
+    // VERSION, and capabilities are additive within one.
     uint32_t capabilities = 0;
 };
 
@@ -146,6 +192,12 @@ struct RunReportPayload {
     std::string headline; // UTF-8
     std::vector<std::string> errors;
     std::vector<std::string> warnings;
+
+    // What the run called through the Tapir proxy, and how often. Empty when the
+    // proxy was off, which is the default — see Sources/GhWorker/TapirProxy.cs.
+    // The host classifies and judges it (GhUndoBudget.hpp); the worker only
+    // counts, because the rule is where the offline tests are.
+    std::vector<UndoLedgerEntry> ledger;
 };
 
 std::vector<uint8_t> EncodeHeader (MessageType type, uint32_t requestId, uint32_t correlationId, uint32_t payloadBytes);

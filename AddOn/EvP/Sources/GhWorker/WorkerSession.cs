@@ -63,15 +63,23 @@ namespace Tapioca.GhWorker
         /// </remarks>
         internal static uint ArchicadJsonPort { get; private set; }
 
+        /// <summary>
+        /// The port Tapir is pointed at. The same as
+        /// <see cref="ArchicadJsonPort"/> unless the counting proxy is running,
+        /// in which case Tapir talks to the proxy and the proxy talks to Archicad.
+        /// </summary>
+        internal static uint TapirPort { get; private set; }
+
         internal static bool IsRunning
         {
             get { return _running; }
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static StartOutcome Start(uint archicadJsonPort)
+        internal static StartOutcome Start(uint archicadJsonPort, uint tapirPort)
         {
             ArchicadJsonPort = archicadJsonPort;
+            TapirPort = tapirPort == 0 ? archicadJsonPort : tapirPort;
             try
             {
                 // 1. The resolver, before anything that could pull a Rhino
@@ -130,7 +138,7 @@ namespace Tapioca.GhWorker
                 // 3. Only now Grasshopper, which depends on the core existing.
                 string tapirReport;
                 string failure;
-                if (!RhinoBoot.LoadGrasshopper(ArchicadJsonPort, out tapirReport, out failure))
+                if (!RhinoBoot.LoadGrasshopper(ArchicadJsonPort, TapirPort, out tapirReport, out failure))
                 {
                     // The core stays up: it started cleanly, and tearing it down
                     // here would destroy the evidence of what stopped Grasshopper.
