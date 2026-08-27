@@ -192,6 +192,15 @@ TEST (GhUndoBudget, AnEmptyLedgerIsWithinBudget)
     EXPECT_TRUE (verdict.withinBudget);
 }
 
+TEST (GhUndoBudget, TheReportNamesTheWindowItMeasured)
+{
+    // ⚠️ "SINCE THE LAST RUN" IS LOAD-BEARING WORDING. Tapir's writes fire from
+    // their own button rather than from a solve, so a report saying "this run"
+    // would be claiming a window that catches almost none of them.
+    const UndoBudgetVerdict verdict = EvaluateUndoBudget ({ Entry ("TapirCommand.MoveElements", 4) });
+    EXPECT_NE (std::string::npos, DescribeUndoBudget (verdict).find ("Since the last run"));
+}
+
 TEST (GhUndoBudget, TheReportNamesTheCostTheCauseAndTheFix)
 {
     // DescribeUndoBudget is the whole product surface of this measurement, so

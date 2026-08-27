@@ -206,6 +206,8 @@ namespace Tapioca.GhWorker
                 return ExitRhinoUnavailable;
             }
 
+            OpenFirstLedgerWindow();
+
             // The other half of the race above: the request may well have arrived
             // while Rhino was still coming up, which is the ordinary case rather
             // than the exception -- the add-on spawns and asks in one gesture,
@@ -370,21 +372,46 @@ namespace Tapioca.GhWorker
             return (uint)proxy.Port;
         }
 
-        private static void RunDefinition()
+        /// <summary>
+        /// Opens the first ledger window, after startup has finished making its
+        /// own Tapir calls.
+        /// </summary>
+        /// <remarks>
+        /// The connection check makes half a dozen calls of its own while the
+        /// worker comes up. They are reads, so they would not change a verdict,
+        /// but they would sit in the first run's report as traffic the user did
+        /// not cause — and a report is worth less every time it says something
+        /// the reader has to learn to ignore.
+        /// </remarks>
+        private static void OpenFirstLedgerWindow()
         {
-            // Reset FIRST, so the ledger belongs to this run and not to everything
-            // since the worker started — including the connection check, which
-            // makes several Tapir calls of its own during startup.
             TapirProxy proxy = _tapirProxy;
             if (proxy != null)
             {
                 proxy.ResetLedger();
             }
+        }
 
+        private static void RunDefinition()
+        {
+            // ⚠️ THE WINDOW IS "SINCE THE LAST RUN", NOT "DURING THIS SOLVE", AND
+            // THAT IS THE ONLY WINDOW THAT SEES ANYTHING. Tapir's write components
+            // fire from their own capsule button, not from SolveInstance — so a
+            // press happens BETWEEN runs. Resetting on the way in, which is what
+            // this did first, wiped every one of them and reported a loop full of
+            // writes as costing nothing. Measured live on 2026-08-27: four
+            // CreateLineElements calls, and a run report that mentioned none of
+            // them.
+            //
+            // So the ledger is read and THEN reset, opening the next window. A
+            // Player that drives those buttons itself would make the two windows
+            // the same thing; until then this is the honest one.
+            TapirProxy proxy = _tapirProxy;
             RunReport report = DefinitionRunner.Run();
             if (proxy != null)
             {
                 report.Ledger = proxy.Ledger();
+                proxy.ResetLedger();
             }
 
             _bridge.SendRunResult(report);

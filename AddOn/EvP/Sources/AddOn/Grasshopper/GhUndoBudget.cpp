@@ -200,12 +200,16 @@ UndoBudgetVerdict EvaluateUndoBudget (const std::vector<UndoLedgerEntry>& ledger
 
 std::string DescribeUndoBudget (const UndoBudgetVerdict& verdict)
 {
+    // ⚠️ "SINCE THE LAST RUN", NOT "THIS RUN", AND THE DIFFERENCE IS NOT
+    // PEDANTRY. Tapir's write components fire from their own button rather than
+    // from a solve, so most of what a loop writes happens between runs. The
+    // window that catches them is the honest one to name.
     if (verdict.actualSteps == 0 && verdict.unknownWrites == 0) {
-        return "This run made no Archicad writes, so it cost no undo steps. (" +
-               std::to_string (verdict.readInvocations) + " read(s).)";
+        return "No Archicad writes since the last run, so no undo steps. (" + std::to_string (verdict.readInvocations) +
+               " read(s).)";
     }
 
-    std::string text = "This run cost " + std::to_string (verdict.actualSteps) + " undo step(s); " +
+    std::string text = "Since the last run: " + std::to_string (verdict.actualSteps) + " undo step(s); " +
                        std::to_string (verdict.idealSteps) + " would do.";
 
     if (verdict.withinBudget) {
