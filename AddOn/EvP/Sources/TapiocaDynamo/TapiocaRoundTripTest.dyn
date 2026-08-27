@@ -1,0 +1,210 @@
+{
+  "Uuid": "7ab71270-54f3-4d7f-89d6-11da00d5cb22",
+  "IsCustomNode": false,
+  "Description": "Manual Tapioca round-trip test. Select one element in Archicad's 3D window, Run once with Apply false, then toggle Apply true and Run once. Translation values are metres.",
+  "Name": "Tapioca Round Trip Test",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "d0704adf1e834ba390f7c53a6a5825a3",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [],
+      "Replication": "Disabled",
+      "Description": "Test instructions",
+      "Code": "/*\n1. Select one element in Archicad's 3D window.\n2. Keep Apply false and Run once to capture and preview the target.\n3. Toggle Apply true and Run once to write.\n4. Toggle Apply false and Run to re-arm. Re-applying an unchanged target must be a no-op.\n\nTapir supports XYZ. Tapioca supports Z only. Values are metres.\n*/;"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "046dc34ca95f4c16979bc00a1210ab89",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "f3231a04eeec40e49aa30f5623259f6c", "Name": "integer", "Description": "0", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Zero-based selected body index",
+      "Code": "0;"
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
+      "Id": "037402c148154825bc38a36940bef753",
+      "NodeType": "BooleanInputNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "1e2e532e02ba40088f73ed6d0367425c", "Name": "", "Description": "Boolean", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Toggle to re-read the current Archicad selection",
+      "InputValue": false
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "863d4d915eeb480f9d2404b9df95ba87",
+      "NodeType": "FunctionNode",
+      "Inputs": [
+        { "Id": "b5c980d9984c4e91a47076075de2d146", "Name": "index", "Description": "Zero-based body index\n\nint", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "6efc5a377386471ba6d528845699f7a6", "Name": "refresh", "Description": "Re-read selection\n\nbool", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }
+      ],
+      "Outputs": [{ "Id": "a0eab609eec4440bb81fd33c4fbdaec7", "Name": "ArchicadMesh", "Description": "One selected Archicad body", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "FunctionSignature": "Tapioca.Geometry.CurrentSelectionBody@int,bool",
+      "Replication": "Disabled",
+      "Description": "Reads one scalar body from the current Archicad 3D selection."
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "c492e335caee41c0a9dd39dce1c97e18",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "3f49889b60bf4f1294af59ff9331512f", "Name": "double", "Description": "0.25", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "X translation in metres",
+      "Code": "0.25;"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "e80042fb4e2f46218d988f42baa780dd",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "9fef24843a1645a8b36740792195bc26", "Name": "integer", "Description": "0", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Y translation in metres",
+      "Code": "0;"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "Id": "a75dfded2e924baaa218b8426d4cefaf",
+      "NodeType": "CodeBlockNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "300fa446633f46a1ad9d23c8657242c3", "Name": "integer", "Description": "0", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Z translation in metres",
+      "Code": "0;"
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "245135603e224d33abdddb5981231a53",
+      "NodeType": "FunctionNode",
+      "Inputs": [
+        { "Id": "c5f645700c4f4024b3655088de9f095f", "Name": "mesh", "Description": "Source Archicad body\n\nTapioca.ArchicadMesh", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "09b7a6accd05434dbddaf5deaaeb3836", "Name": "dx", "Description": "X translation in metres\n\ndouble", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "6e7d559776094596b7052a465cc78cc1", "Name": "dy", "Description": "Y translation in metres\n\ndouble", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "0beaeef57b304351b659604476967cfc", "Name": "dz", "Description": "Z translation in metres\n\ndouble", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }
+      ],
+      "Outputs": [{ "Id": "dc9fce19ad1b4be7ba9e81e02f3ce2a9", "Name": "ArchicadMesh", "Description": "Translated target body", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "FunctionSignature": "Tapioca.Geometry.Translate@Tapioca.ArchicadMesh,double,double,double",
+      "Replication": "Disabled",
+      "Description": "Creates the staged target preview without modifying Archicad."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.StringInput, CoreNodeModels",
+      "SerializedWidth": 0.0,
+      "SerializedHeight": 0.0,
+      "Id": "6555f504493144cd9f1206672f7feb33",
+      "NodeType": "StringInputNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "763d2a65d4fa46959bdc26fc916e58ee", "Name": "", "Description": "String", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Use Tapir for XYZ or Tapioca for vertical-only movement",
+      "InputValue": "Tapir"
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
+      "Id": "5fb040ec62e54e17be062149c0e79f94",
+      "NodeType": "BooleanInputNode",
+      "Inputs": [],
+      "Outputs": [{ "Id": "b9c0a6d55115433ba7e3e898cde150d9", "Name": "", "Description": "Boolean", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Run false once to arm, then toggle true and Run once to apply",
+      "InputValue": false
+    },
+    {
+      "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
+      "Id": "78892ff12edc453b9368cf881354ae12",
+      "NodeType": "FunctionNode",
+      "Inputs": [
+        { "Id": "cc61950aa4ba425c86b651a82aa9897f", "Name": "original", "Description": "Captured source body\n\nTapioca.ArchicadMesh", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "446b9cde3c8a4372b7399d3e219d7305", "Name": "modified", "Description": "Staged target body\n\nTapioca.ArchicadMesh", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "9c2f25050cd14b11b442cf70d8ac8b73", "Name": "backend", "Description": "Tapioca or Tapir\n\nstring", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "1af42ea951f8493fa95e20264ed0734b", "Name": "apply", "Description": "Explicit write pulse\n\nbool", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }
+      ],
+      "Outputs": [
+        { "Id": "92417b3f6b8e47d4accaf5bbf9c2d976", "Name": "applied", "Description": "Whether this Run wrote Archicad", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "13e847cdd12a4d248eb6e7c736385559", "Name": "backend", "Description": "Selected backend", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "99cdfcdad3f8495aa9ee3f261be7ccf1", "Name": "elementId", "Description": "Archicad element GUID", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false },
+        { "Id": "3ac1cebd4774411a945a73847c412c65", "Name": "message", "Description": "Actionable write status", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }
+      ],
+      "FunctionSignature": "Tapioca.Elements.ApplyTranslation@Tapioca.ArchicadMesh,Tapioca.ArchicadMesh,string,bool",
+      "Replication": "Disabled",
+      "Description": "Commits only the residual move from Archicad's current body to the staged target."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Watch, CoreNodeModels",
+      "WatchWidth": 320.0,
+      "WatchHeight": 100.0,
+      "Id": "20ab257bd3764bf58d5295572f04bbad",
+      "NodeType": "ExtensionNode",
+      "Inputs": [{ "Id": "3812c71dec9b41d4b9b93adbaad40609", "Name": "", "Description": "Node to show output from", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Outputs": [{ "Id": "333319fb92ca46cabefc330d5d0e5788", "Name": "", "Description": "Node output", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
+      "Replication": "Disabled",
+      "Description": "Apply status"
+    }
+  ],
+  "Connectors": [
+    { "Start": "f3231a04eeec40e49aa30f5623259f6c", "End": "b5c980d9984c4e91a47076075de2d146", "Id": "b354f78c6b20456da1afb99bad442c41", "IsHidden": "False" },
+    { "Start": "1e2e532e02ba40088f73ed6d0367425c", "End": "6efc5a377386471ba6d528845699f7a6", "Id": "4458bc0979b4491f901a34a447907e16", "IsHidden": "False" },
+    { "Start": "a0eab609eec4440bb81fd33c4fbdaec7", "End": "c5f645700c4f4024b3655088de9f095f", "Id": "14c62fe0056642a892aa4225581a4710", "IsHidden": "False" },
+    { "Start": "3f49889b60bf4f1294af59ff9331512f", "End": "09b7a6accd05434dbddaf5deaaeb3836", "Id": "08acc7989eb544459a27d94c4f1b3eb7", "IsHidden": "False" },
+    { "Start": "9fef24843a1645a8b36740792195bc26", "End": "6e7d559776094596b7052a465cc78cc1", "Id": "60767ba306fe4dd9a67d800957992557", "IsHidden": "False" },
+    { "Start": "300fa446633f46a1ad9d23c8657242c3", "End": "0beaeef57b304351b659604476967cfc", "Id": "3fc67b2da65f4d8eb2e3499dc7ec0377", "IsHidden": "False" },
+    { "Start": "a0eab609eec4440bb81fd33c4fbdaec7", "End": "cc61950aa4ba425c86b651a82aa9897f", "Id": "f715facd21ab435989e8ac73d670bd10", "IsHidden": "False" },
+    { "Start": "dc9fce19ad1b4be7ba9e81e02f3ce2a9", "End": "446b9cde3c8a4372b7399d3e219d7305", "Id": "12fdc5f0602848a59129afc65a17d340", "IsHidden": "False" },
+    { "Start": "763d2a65d4fa46959bdc26fc916e58ee", "End": "9c2f25050cd14b11b442cf70d8ac8b73", "Id": "ab8bac72d23d48a2821adc3928190d31", "IsHidden": "False" },
+    { "Start": "b9c0a6d55115433ba7e3e898cde150d9", "End": "1af42ea951f8493fa95e20264ed0734b", "Id": "e0e8bb192f624c87b7d913d2ece56321", "IsHidden": "False" },
+    { "Start": "3ac1cebd4774411a945a73847c412c65", "End": "3812c71dec9b41d4b9b93adbaad40609", "Id": "a267d28792c642deba442401244d304f", "IsHidden": "False" }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [],
+  "Author": "Tapioca",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "00000000-0000-0000-0000-000000000000",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": true,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "4.2.1.5887",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": { "Name": "Background Preview", "EyeX": -17.0, "EyeY": 24.0, "EyeZ": 50.0, "LookX": 12.0, "LookY": -13.0, "LookZ": -58.0, "UpX": 0.0, "UpY": 1.0, "UpZ": 0.0 },
+    "ConnectorPins": [],
+    "NodeViews": [
+      { "Id": "d0704adf1e834ba390f7c53a6a5825a3", "Name": "How To Test", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": -230.0 },
+      { "Id": "046dc34ca95f4c16979bc00a1210ab89", "Name": "Body Index", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": 0.0 },
+      { "Id": "037402c148154825bc38a36940bef753", "Name": "Refresh Selection", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": 110.0 },
+      { "Id": "863d4d915eeb480f9d2404b9df95ba87", "Name": "Current 3D Body", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 35.0 },
+      { "Id": "c492e335caee41c0a9dd39dce1c97e18", "Name": "dx metres", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 240.0 },
+      { "Id": "e80042fb4e2f46218d988f42baa780dd", "Name": "dy metres", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 335.0 },
+      { "Id": "a75dfded2e924baaa218b8426d4cefaf", "Name": "dz metres", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 430.0 },
+      { "Id": "245135603e224d33abdddb5981231a53", "Name": "Staged Target Preview", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 520.0, "Y": 180.0 },
+      { "Id": "6555f504493144cd9f1206672f7feb33", "Name": "Backend", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 540.0, "Y": 430.0 },
+      { "Id": "5fb040ec62e54e17be062149c0e79f94", "Name": "Apply (false then true)", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 540.0, "Y": 535.0 },
+      { "Id": "78892ff12edc453b9368cf881354ae12", "Name": "Apply Target", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 850.0, "Y": 180.0 },
+      { "Id": "20ab257bd3764bf58d5295572f04bbad", "Name": "Result", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 1160.0, "Y": 260.0 }
+    ],
+    "Annotations": [],
+    "X": -40.0,
+    "Y": -40.0,
+    "Zoom": 0.8
+  }
+}

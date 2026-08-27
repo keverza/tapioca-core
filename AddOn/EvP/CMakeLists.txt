@@ -466,13 +466,15 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${TapiocaDynamoProject}" AND
     EXISTS "${DYNAMO_RUNTIME_DIR}/DynamoServices.dll")
     file (GLOB TapiocaDynamoFiles CONFIGURE_DEPENDS
         "${TapiocaDynamoFolder}/*.cs" "${TapiocaDynamoFolder}/*.csproj"
-        "${TapiocaDynamoFolder}/*.xml" "${TapiocaDynamoFolder}/pkg.json")
+        "${TapiocaDynamoFolder}/*.dyn" "${TapiocaDynamoFolder}/*.xml" "${TapiocaDynamoFolder}/pkg.json")
     set (TapiocaDynamoPackageDir "${CMAKE_BINARY_DIR}/DynamoPackage/Tapioca")
     set (TapiocaDynamoAssembly "${TapiocaDynamoPackageDir}/bin/Tapioca.Dynamo.dll")
     set (TapiocaDynamoCustomization "${TapiocaDynamoPackageDir}/bin/Tapioca.Dynamo_DynamoCustomization.xml")
+    set (TapiocaDynamoTemplate "${TapiocaDynamoPackageDir}/TapiocaRoundTripTest.dyn")
     set (TapiocaDynamoManifest "${TapiocaDynamoPackageDir}/pkg.json")
     add_custom_command (
-        OUTPUT "${TapiocaDynamoAssembly}" "${TapiocaDynamoCustomization}" "${TapiocaDynamoManifest}"
+        OUTPUT "${TapiocaDynamoAssembly}" "${TapiocaDynamoCustomization}"
+            "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}"
         DEPENDS ${TapiocaDynamoFiles}
         COMMENT "EvP: building the Tapioca.Dynamo ZeroTouch package"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${TapiocaDynamoPackageDir}/bin"
@@ -482,9 +484,12 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${TapiocaDynamoProject}" AND
             "${TapiocaDynamoFolder}/pkg.json" "${TapiocaDynamoManifest}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TapiocaDynamoFolder}/Tapioca.Dynamo_DynamoCustomization.xml" "${TapiocaDynamoCustomization}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${TapiocaDynamoFolder}/TapiocaRoundTripTest.dyn" "${TapiocaDynamoTemplate}"
         VERBATIM)
     add_custom_target (EvPTapiocaDynamo ALL DEPENDS
-        "${TapiocaDynamoAssembly}" "${TapiocaDynamoCustomization}" "${TapiocaDynamoManifest}")
+        "${TapiocaDynamoAssembly}" "${TapiocaDynamoCustomization}"
+        "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}")
     set_target_properties (EvPTapiocaDynamo PROPERTIES FOLDER Resources)
     add_dependencies (${ADDON_LIB} EvPTapiocaDynamo)
 else ()

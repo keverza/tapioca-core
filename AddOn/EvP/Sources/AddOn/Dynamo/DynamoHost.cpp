@@ -132,6 +132,7 @@ bool InstallPackage (GS::UniString& error)
     const std::wstring root ((const wchar_t*) destinationRoot.ToUStr ().Get ());
     const std::wstring bin ((const wchar_t*) destinationBin.ToUStr ().Get ());
     return CopyPackageFile (sourceRoot + L"\\pkg.json", root + L"\\pkg.json", error) &&
+           CopyPackageFile (sourceRoot + L"\\TapiocaRoundTripTest.dyn", root + L"\\TapiocaRoundTripTest.dyn", error) &&
            CopyPackageFile (sourceRoot + L"\\bin\\Tapioca.Dynamo.dll", bin + L"\\Tapioca.Dynamo.dll", error) &&
            CopyPackageFile (sourceRoot + L"\\bin\\Tapioca.Dynamo_DynamoCustomization.xml",
                             bin + L"\\Tapioca.Dynamo_DynamoCustomization.xml", error);

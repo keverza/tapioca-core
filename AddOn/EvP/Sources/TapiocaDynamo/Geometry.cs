@@ -13,6 +13,20 @@ public static class Geometry
     }
 
     [NodeCategory("Query")]
+    public static ArchicadMesh CurrentSelectionBody(int index = 0, bool refresh = false)
+    {
+        var result = CurrentSelection(refresh);
+        var meshes = (List<ArchicadMesh>)result["geometry"];
+        if (index < 0 || index >= meshes.Count)
+            throw new ArgumentOutOfRangeException(
+                nameof(index),
+                meshes.Count == 0
+                    ? "The Archicad selection has no directly addressable 3D body. Select one element in the 3D window."
+                    : $"Body index {index} is outside the available range 0..{meshes.Count - 1}.");
+        return meshes[index];
+    }
+
+    [NodeCategory("Query")]
     [MultiReturn("geometry", "elementIds", "bodyIndices", "elementTypes")]
     public static Dictionary<string, object> ByElementIds(IEnumerable<string> elementIds, bool refresh = false)
     {
