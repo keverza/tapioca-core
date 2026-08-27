@@ -849,6 +849,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (!annotationsOnly)
                 UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height,
                                           target.ColorFormat (), target.DepthFormat ());
+
+            // Grasshopper's preview, over the slices; ⚠️ NOT gated on
+            // `offscreen` either -- see the helper.
+            if (!annotationsOnly && !blanked)
+                UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
+                                        target.DepthFormat ());
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
             if (!offscreen && !annotationsOnly)

@@ -70,11 +70,13 @@ struct GhPreviewLineVertex {
     // Which side of the centreline this corner is pushed to: -1 or +1. See the
     // header — this is the analytic antialiasing, not a decoration.
     float side;
-    // Along the segment: -1 at the start cap, +1 at the end cap, 0 for a corner
-    // that is not capped. Square caps stop a polyline's corners leaving a
-    // triangular notch half a line-width across.
-    float cap;
     uint32_t rgba;
+
+    // ⚠️ THERE IS NO "WHICH END" FIELD, AND THERE MUST NOT BE ONE. Because every
+    // corner names the OTHER end of its own segment, the direction to the other
+    // end always points inward, so the square cap is always a push against it.
+    // A separate end flag would be a second statement of the same fact, and the
+    // two could disagree — at which point one end of every line grows a spur.
 };
 
 // A piece of text the definition asked for, with nowhere to be drawn yet.

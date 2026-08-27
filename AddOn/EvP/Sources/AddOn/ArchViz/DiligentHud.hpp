@@ -316,6 +316,41 @@ struct HudState {
     uint32_t storySliceRgba = 0x3C3C3CFFu;
     uint32_t storySliceFillRgba = 0xC8C8C84Du;
 
+    // ---- the Grasshopper preview overlay -----------------------------------
+    // What a definition asked Archicad to show. On by default: a user who wires
+    // a Tapioca Preview component and runs a definition has already said what
+    // they want, and a switched-off overlay would read as the transport being
+    // broken.
+    bool showGhPreview = true;
+    // ⚠️ THESE COLOURS TAKE EFFECT ON THE NEXT SNAPSHOT, NOT INSTANTLY, and that
+    // is the right trade. The colour is baked into the vertices, so honouring a
+    // colour change immediately would mean rebuilding every vertex the preview
+    // holds -- making a drag of a colour picker as expensive as a re-solve, for a
+    // preference nobody changes twice.
+    //
+    // ⚠️ GREEN RATHER THAN GREY, unlike the storey slices, and for the opposite
+    // reason: a section contour is drafting drawn ON the building, while a
+    // preview is a RESULT held up AGAINST it. It must not be mistakable for a
+    // surface the model actually has.
+    uint32_t ghPreviewRgba = 0x4CA64CFFu;
+    uint32_t ghPreviewSelectedRgba = 0x2ECC40FFu;
+    uint32_t ghPreviewHighlightedRgba = 0xFFD400FFu;
+    float ghPreviewWidthPixels = 2.0f;
+    // How much of the flat shading is ambient. High, because the light here is a
+    // legibility device rather than a sun: a preview mesh whose far side went
+    // black would be a result the user cannot read from half the orbit.
+    float ghPreviewAmbient = 0.45f;
+    // ⚠️ REPORTED BECAUSE ALL THE INTERESTING FAILURES LOOK THE SAME. An empty
+    // viewport means "preview off", "nothing was sent", "everything was a kind
+    // Tapioca does not draw yet" or "the text has nowhere to go" -- four
+    // different problems and one picture. These four numbers are what tells them
+    // apart, and they are filled whether or not the overlay is drawn.
+    size_t ghPreviewMeshIndices = 0;
+    size_t ghPreviewLineVertices = 0;
+    size_t ghPreviewLabels = 0;
+    size_t ghPreviewDeferredKinds = 0;
+    bool ghPreviewTruncated = false;
+
     // ---- the selected element's properties ---------------------------------
     // ⚠️ SHOWN FOR THE PICK, WHICH IS INSPECTION ONLY. Selecting in the viewer
     // never writes back to Archicad (the panel arms selectionbridge::ToViewer

@@ -18,7 +18,8 @@
 #include "ArchViz/DiligentHud.hpp"      // HudState, for the storey overlay's settings
 #include "ArchViz/DiligentViewport.hpp" // ApplyCaptureSettings is a member
 #include "ArchViz/ExtractionStorySlices.hpp"
-#include "ArchViz/ExtractionThread.hpp" // the storey overlay's refresh request
+#include "ArchViz/GhPreviewGeometry.hpp" // GhPreviewStyle, built from the HUD each frame
+#include "ArchViz/ExtractionThread.hpp"  // the storey overlay's refresh request
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
@@ -369,6 +370,30 @@ void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* c
         ArchVizLog ("Diligent viewport: story slices turned on - requesting a full re-extraction");
         ExtractionWorker::Get ().Start (true);
     }
+}
+
+void UpdateAndDrawGhPreview (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
+                             const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                             uint32_t depthFormat)
+{
+    GhPreviewStyle style;
+    style.rgba = hudState.ghPreviewRgba;
+    style.selectedRgba = hudState.ghPreviewSelectedRgba;
+    style.highlightedRgba = hudState.ghPreviewHighlightedRgba;
+    style.lineWidthPixels = hudState.ghPreviewWidthPixels;
+
+    GhPreviewLayer::DrawParams params;
+    params.lineWidthPixels = hudState.ghPreviewWidthPixels;
+    params.ambient = hudState.ghPreviewAmbient;
+
+    if (hudState.showGhPreview)
+        scene.DrawGhPreview (context, viewProj, width, height, colorFormat, depthFormat, style, params);
+
+    // ⚠️ READ BACK EVEN WHEN THE OVERLAY IS OFF. "Preview is switched off" and
+    // "Tapioca received nothing" are the same picture, and the HUD is the only
+    // place that can tell them apart.
+    scene.GhPreviewStats (hudState.ghPreviewMeshIndices, hudState.ghPreviewLineVertices, hudState.ghPreviewLabels,
+                          hudState.ghPreviewDeferredKinds, hudState.ghPreviewTruncated);
 }
 
 void UpdateAndDrawPlanAnchors (PlanAnchorLayer& layer, Diligent::IRenderDevice* device,
@@ -766,48 +791,48 @@ void IdentifyOwnSwapChain (IDXGISwapChain* swapChain)
 // the viewport rather than the scene stay at the call site.
 void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats& sceneStats)
 {
-        stats.month = sceneStats.month;
-        stats.day = sceneStats.day;
-        stats.hour = sceneStats.hour;
-        stats.minute = sceneStats.minute;
-        stats.summerTime = sceneStats.summerTime;
-        stats.haveComputedSun = sceneStats.haveComputedSun;
-        stats.computedAzimuthDegrees = sceneStats.computedAzimuthDegrees;
-        stats.computedAltitudeDegrees = sceneStats.computedAltitudeDegrees;
-        stats.shadowReady = sceneStats.shadowReady;
-        stats.shadowFitted = sceneStats.shadowFitted;
-        stats.shadowResolution = sceneStats.shadowResolution;
-        stats.shadowTexelMetres = sceneStats.shadowTexelMetres;
-        stats.environmentLoaded = sceneStats.environmentLoaded;
-        stats.environmentActive = sceneStats.environmentActive;
-        stats.environmentMipLevels = sceneStats.environmentMipLevels;
-        stats.environmentAverage[0] = sceneStats.environmentAverage[0];
-        stats.environmentAverage[1] = sceneStats.environmentAverage[1];
-        stats.environmentAverage[2] = sceneStats.environmentAverage[2];
-        stats.environmentPrefiltered = sceneStats.environmentPrefiltered;
-        stats.environmentPrefilteredMips = sceneStats.environmentPrefilteredMips;
-        stats.environmentPrefilterMs = sceneStats.environmentPrefilterMs;
-        stats.environmentPrefilterError = sceneStats.environmentPrefilterError;
-        stats.autoExposureEnabled = sceneStats.autoExposureEnabled;
-        stats.autoExposure = sceneStats.autoExposure;
-        stats.appliedExposure = sceneStats.appliedExposure;
-        stats.fixedExposure = sceneStats.fixedExposure;
-        stats.sceneLuminance = sceneStats.sceneLuminance;
-        stats.meanAlbedo = sceneStats.meanAlbedo;
-        stats.aoRadiusMetres = sceneStats.aoRadiusMetres;
-        stats.taaResolved = sceneStats.taaResolved;
-        stats.ssrDepthHistory = sceneStats.ssrDepthHistory;
-        stats.ssrColorHistory = sceneStats.ssrColorHistory;
-        stats.taaJitterPixels[0] = sceneStats.taaJitterPixels[0];
-        stats.taaJitterPixels[1] = sceneStats.taaJitterPixels[1];
-        for (int c = 0; c < 3; ++c)
-            stats.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
-        stats.substanceNamed = sceneStats.substanceNamed;
-        for (int i = 0; i < 7; ++i)
-            stats.substanceCounts[i] = sceneStats.substanceCounts[i];
-        stats.environmentPath = sceneStats.environmentPath;
-        stats.environmentError = sceneStats.environmentError;
-        stats.selectedCount = sceneStats.selected;
+    stats.month = sceneStats.month;
+    stats.day = sceneStats.day;
+    stats.hour = sceneStats.hour;
+    stats.minute = sceneStats.minute;
+    stats.summerTime = sceneStats.summerTime;
+    stats.haveComputedSun = sceneStats.haveComputedSun;
+    stats.computedAzimuthDegrees = sceneStats.computedAzimuthDegrees;
+    stats.computedAltitudeDegrees = sceneStats.computedAltitudeDegrees;
+    stats.shadowReady = sceneStats.shadowReady;
+    stats.shadowFitted = sceneStats.shadowFitted;
+    stats.shadowResolution = sceneStats.shadowResolution;
+    stats.shadowTexelMetres = sceneStats.shadowTexelMetres;
+    stats.environmentLoaded = sceneStats.environmentLoaded;
+    stats.environmentActive = sceneStats.environmentActive;
+    stats.environmentMipLevels = sceneStats.environmentMipLevels;
+    stats.environmentAverage[0] = sceneStats.environmentAverage[0];
+    stats.environmentAverage[1] = sceneStats.environmentAverage[1];
+    stats.environmentAverage[2] = sceneStats.environmentAverage[2];
+    stats.environmentPrefiltered = sceneStats.environmentPrefiltered;
+    stats.environmentPrefilteredMips = sceneStats.environmentPrefilteredMips;
+    stats.environmentPrefilterMs = sceneStats.environmentPrefilterMs;
+    stats.environmentPrefilterError = sceneStats.environmentPrefilterError;
+    stats.autoExposureEnabled = sceneStats.autoExposureEnabled;
+    stats.autoExposure = sceneStats.autoExposure;
+    stats.appliedExposure = sceneStats.appliedExposure;
+    stats.fixedExposure = sceneStats.fixedExposure;
+    stats.sceneLuminance = sceneStats.sceneLuminance;
+    stats.meanAlbedo = sceneStats.meanAlbedo;
+    stats.aoRadiusMetres = sceneStats.aoRadiusMetres;
+    stats.taaResolved = sceneStats.taaResolved;
+    stats.ssrDepthHistory = sceneStats.ssrDepthHistory;
+    stats.ssrColorHistory = sceneStats.ssrColorHistory;
+    stats.taaJitterPixels[0] = sceneStats.taaJitterPixels[0];
+    stats.taaJitterPixels[1] = sceneStats.taaJitterPixels[1];
+    for (int c = 0; c < 3; ++c)
+        stats.whiteBalanceGains[c] = sceneStats.whiteBalanceGains[c];
+    stats.substanceNamed = sceneStats.substanceNamed;
+    for (int i = 0; i < 7; ++i)
+        stats.substanceCounts[i] = sceneStats.substanceCounts[i];
+    stats.environmentPath = sceneStats.environmentPath;
+    stats.environmentError = sceneStats.environmentError;
+    stats.selectedCount = sceneStats.selected;
 }
 
 } // namespace archviz

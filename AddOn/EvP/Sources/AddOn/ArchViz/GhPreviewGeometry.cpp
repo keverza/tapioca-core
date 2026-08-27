@@ -6,12 +6,12 @@
 namespace geomsrv {
 namespace archviz {
 
-using evp::preview::GhPreviewPrimitive;
-using evp::preview::GhPreviewSnapshot;
 using evp::grasshopper::protocol::PreviewFlagHighlighted;
 using evp::grasshopper::protocol::PreviewFlagSelected;
 using evp::grasshopper::protocol::PreviewFlagXRay;
 using evp::grasshopper::protocol::PreviewKind;
+using evp::preview::GhPreviewPrimitive;
+using evp::preview::GhPreviewSnapshot;
 using evp::preview::PreviewSurface;
 
 namespace {
@@ -104,8 +104,8 @@ void AppendMesh (const GhPreviewPrimitive& primitive, uint32_t rgba, GhPreviewBu
             // splitting every triangle into three unshared vertices, and a third
             // of the memory -- which on a two-million-triangle preview is the
             // difference that matters.
-            const Vec3 n = FaceNormal (At (primitive.positions, i0), At (primitive.positions, i1),
-                                       At (primitive.positions, i2));
+            const Vec3 n =
+                FaceNormal (At (primitive.positions, i0), At (primitive.positions, i1), At (primitive.positions, i2));
             for (const uint32_t index : { i0, i1, i2 }) {
                 GhPreviewMeshVertex& vertex = bucket.meshVertices[base + index];
                 vertex.nx += n.x;
@@ -122,8 +122,7 @@ void AppendMesh (const GhPreviewPrimitive& primitive, uint32_t rgba, GhPreviewBu
     if (!haveNormals) {
         for (size_t index = base; index < bucket.meshVertices.size (); ++index) {
             GhPreviewMeshVertex& vertex = bucket.meshVertices[index];
-            const float length =
-                std::sqrt (vertex.nx * vertex.nx + vertex.ny * vertex.ny + vertex.nz * vertex.nz);
+            const float length = std::sqrt (vertex.nx * vertex.nx + vertex.ny * vertex.ny + vertex.nz * vertex.nz);
             if (length <= 1e-12f) {
                 vertex.nz = 1.0f;
                 continue;
@@ -145,7 +144,7 @@ void AppendSegment (const Vec3& a, const Vec3& b, uint32_t rgba, GhPreviewBucket
     if (dx * dx + dy * dy + dz * dz <= 1e-20f)
         return;
 
-    const auto corner = [&] (const Vec3& here, const Vec3& other, float side, float cap) {
+    const auto corner = [&] (const Vec3& here, const Vec3& other, float side) {
         GhPreviewLineVertex vertex;
         vertex.x = here.x;
         vertex.y = here.y;
@@ -154,22 +153,22 @@ void AppendSegment (const Vec3& a, const Vec3& b, uint32_t rgba, GhPreviewBucket
         vertex.oy = other.y;
         vertex.oz = other.z;
         vertex.side = side;
-        vertex.cap = cap;
         vertex.rgba = rgba;
         return vertex;
     };
 
-    const GhPreviewLineVertex a0 = corner (a, b, -1.0f, -1.0f);
-    const GhPreviewLineVertex a1 = corner (a, b, +1.0f, -1.0f);
-    const GhPreviewLineVertex b0 = corner (b, a, -1.0f, +1.0f);
-    const GhPreviewLineVertex b1 = corner (b, a, +1.0f, +1.0f);
+    const GhPreviewLineVertex a0 = corner (a, b, -1.0f);
+    const GhPreviewLineVertex a1 = corner (a, b, +1.0f);
+    const GhPreviewLineVertex b0 = corner (b, a, -1.0f);
+    const GhPreviewLineVertex b1 = corner (b, a, +1.0f);
 
-    // ⚠️ b0 AND b1 CARRY `a` AS THEIR OTHER ENDPOINT, so the shader's direction
-    // at that end points backwards. `cap` already says which end this is, and the
-    // shader negates accordingly; the alternative -- both corners naming the same
-    // ordered pair -- means one of them projects a direction from a point it is
-    // not at, which goes wrong exactly where the perspective divide differs most,
-    // near the camera.
+    // ⚠️ EACH CORNER NAMES THE OTHER END OF THE SEGMENT, NOT A FIXED ORDER. The
+    // corners at `b` carry `a`, so the direction the shader computes always
+    // points from that corner INWARD -- which is what makes the square cap a
+    // single unconditional push against it, at both ends, with no flag to get
+    // wrong. Both corners naming the same ordered pair would instead make one of
+    // them project a direction from a point it is not at, and that goes wrong
+    // exactly where the perspective divide differs most: near the camera.
     bucket.lineVertices.push_back (a0);
     bucket.lineVertices.push_back (a1);
     bucket.lineVertices.push_back (b1);
@@ -234,8 +233,7 @@ GhPreviewDrawables BuildGhPreviewDrawables (const GhPreviewSnapshot& snapshot, P
 
     for (const GhPreviewPrimitive* primitive : ordered) {
         const uint32_t rgba = GhPreviewColour (primitive->flags, style);
-        GhPreviewBucket& bucket =
-            (primitive->flags & PreviewFlagXRay) != 0 ? drawables.xray : drawables.depthTested;
+        GhPreviewBucket& bucket = (primitive->flags & PreviewFlagXRay) != 0 ? drawables.xray : drawables.depthTested;
 
         switch (primitive->kind) {
             case PreviewKind::TriangleMesh:

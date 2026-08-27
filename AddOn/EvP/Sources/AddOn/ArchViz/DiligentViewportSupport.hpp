@@ -280,6 +280,29 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Dili
 // Diligent side at all: a massing feasibility study renders one and needs the
 // storey contours in it. The anchors' gate is about an instrument for checking
 // register against a live Archicad window, which a capture does not have.
+// Build the style from the HUD, draw the Grasshopper preview, and report back
+// what it is holding so the HUD can say why something is not on screen.
+//
+// ⚠️ IT GETS THE SAME `viewProj` AS EVERY OTHER LAYER, AND THAT IS THE WHOLE
+// ARRANGEMENT. Orbit, zoom and pan belong to the frame loop and already do; the
+// preview layer holds no camera, tracks no navigation and invalidates nothing
+// when the view moves -- a moved camera is simply the next frame's matrix. The
+// layer rebuilds only when the preview's own snapshot generation changes, so a
+// drag costs the draw and nothing else.
+//
+// ⚠️ AND IT IS NOT GATED ON `offscreen`, deliberately -- the same call the
+// storey slices make. A headless capture of a massing study should carry the
+// definition's preview into the PNG for the same reason the storey contours do.
+//
+// ⚠️ THE STYLE IS BUILT PER FRAME AND THAT COSTS NOTHING. A colour change is not
+// a rebuild: the colour is baked into the vertices, so it takes effect on the
+// next snapshot rather than instantly, and the alternative -- rebuilding the
+// whole preview when someone drags a colour picker -- would make a colour tweak
+// as expensive as a re-solve.
+void UpdateAndDrawGhPreview (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
+                             const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
+                             uint32_t depthFormat);
+
 void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
                                bool blanked, const float viewProj[16], uint32_t width, uint32_t height,
                                uint32_t colorFormat, uint32_t depthFormat);

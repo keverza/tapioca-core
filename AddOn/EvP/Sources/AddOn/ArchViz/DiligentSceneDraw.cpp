@@ -6,6 +6,9 @@
 
 #include "ArchViz/DiligentSceneImpl.hpp"
 
+#include "ArchViz/GhPreviewGeometry.hpp"
+#include "Preview/GhPreviewCache.hpp"
+
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
 #include "ArchViz/AutoExposure.hpp"
@@ -186,6 +189,85 @@ void DiligentScene::DrawStorySlices (Diligent::IDeviceContext* context, const fl
     }
 
     impl_->storySlices.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
+}
+
+void DiligentScene::DrawGhPreview (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                                   uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                                   const GhPreviewStyle& style, const GhPreviewLayer::DrawParams& params)
+{
+    if (impl_ == nullptr || context == nullptr || impl_->device == nullptr)
+        return;
+
+    // ⚠️ ONCE. A layer whose shaders will not compile will not compile on the
+    // next frame either, and retrying puts the HLSL compiler in the frame loop
+    // and its error in the log sixty times a second.
+    if (impl_->ghPreviewInitFailed)
+        return;
+
+    std::shared_ptr<const evp::preview::GhPreviewSnapshot> snapshot =
+        evp::preview::GhPreviewCache::Get ().SnapshotCopy ();
+    const uint64_t generation = snapshot != nullptr ? snapshot->generation : 0;
+
+    // Nothing has ever been previewed. Do not build a layer for it: a user who
+    // never opens Grasshopper should not pay four PSO compilations for a feature
+    // they are not using.
+    if (generation == 0 && impl_->ghPreviewGeneration == 0)
+        return;
+
+    if (!impl_->ghPreview.IsReady ()) {
+        std::string initError;
+        if (!impl_->ghPreview.Init (impl_->device, colorBufferFormat, depthBufferFormat, initError)) {
+            impl_->ghPreviewInitFailed = true;
+            ArchVizLog ("Diligent scene: Grasshopper preview layer unavailable (" + initError + ")");
+            return;
+        }
+    }
+
+    // ⚠️ REBUILT ON A GENERATION CHANGE, NOT PER FRAME. GhPreviewCache stamps a
+    // monotonic generation on every snapshot it publishes, so an unchanged
+    // preview costs this integer compare and nothing else. Orbiting, zooming and
+    // panning change the CAMERA -- which arrives as `viewProj` and is consumed by
+    // the shaders -- so a drag never reaches this branch at all.
+    if (generation != impl_->ghPreviewGeneration) {
+        impl_->ghPreviewGeneration = generation;
+
+        GhPreviewLimits limits;
+        const GhPreviewDrawables drawables =
+            snapshot != nullptr
+                ? BuildGhPreviewDrawables (*snapshot, evp::preview::PreviewSurface::Model3D, style, limits)
+                : GhPreviewDrawables ();
+
+        impl_->ghPreviewDeferredKinds = drawables.deferredKinds;
+        impl_->ghPreviewTruncated = drawables.truncated;
+
+        std::string uploadError;
+        if (!impl_->ghPreview.Upload (impl_->device, context, drawables, uploadError))
+            ArchVizLog ("Diligent scene: Grasshopper preview not uploaded (" + uploadError + ")");
+        if (drawables.truncated)
+            ArchVizLog ("Diligent scene: Grasshopper preview was truncated at the drawable ceiling");
+        // ⚠️ `drawables` DIES HERE, ON PURPOSE. It is a full second copy of every
+        // vertex the preview holds, and the GPU has them now; keeping it would
+        // charge the largest thing this feature allocates twice, for nothing.
+    }
+
+    impl_->ghPreview.Draw (context, viewProj, surfaceWidth, surfaceHeight, params);
+}
+
+void DiligentScene::GhPreviewStats (size_t& meshIndices, size_t& lineVertices, size_t& labels, size_t& deferredKinds,
+                                    bool& truncated) const
+{
+    meshIndices = 0;
+    lineVertices = 0;
+    labels = 0;
+    deferredKinds = 0;
+    truncated = false;
+    if (impl_ == nullptr)
+        return;
+    meshIndices = impl_->ghPreview.MeshIndexCount ();
+    lineVertices = impl_->ghPreview.LineVertexCount ();
+    labels = impl_->ghPreview.LabelCount ();
+    deferredKinds = impl_->ghPreviewDeferredKinds;
+    truncated = impl_->ghPreviewTruncated;
 }
 
 void DiligentScene::DrawOverlay (Diligent::IDeviceContext* context, const float viewProj[16], const float eye[3])

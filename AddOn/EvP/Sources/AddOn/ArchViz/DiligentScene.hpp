@@ -38,6 +38,7 @@
 #include "ArchViz/ArchVizVertex.hpp"
 #include "ArchViz/DiligentShadowMap.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/GhPreviewLayer.hpp"  // GhPreviewLayer::DrawParams
 #include "ArchViz/StorySliceLayer.hpp" // StorySliceLayer::DrawParams
 #include "ArchViz/Uniforms.hpp"
 #include "ArchViz/ViewerSettings.hpp"
@@ -451,6 +452,37 @@ class DiligentScene final {
     void DrawStorySlices (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
                           uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                           const StorySliceLayer::DrawParams& params);
+
+    // What a Grasshopper definition asked Archicad to show.
+    //
+    // ⚠️ IT PULLS FROM Preview/GhPreviewCache ITSELF RATHER THAN BEING HANDED A
+    // SNAPSHOT. The producer is GhBridge's IO thread and the consumer is this
+    // one; they have no object in common but the cache, and threading a snapshot
+    // from one to the other would put the Grasshopper bridge in the renderer's
+    // headers. The cache publishes immutable snapshots for exactly this.
+    //
+    // ⚠️ AND IT REBUILDS ONLY WHEN THE SNAPSHOT'S GENERATION MOVES. An unchanged
+    // preview costs one integer compare per frame; orbiting, zooming and panning
+    // change the CAMERA, which is `viewProj`, and cost nothing here at all. That
+    // is the whole reason this layer holds no camera of its own -- navigation is
+    // the viewport's, and a preview that had to be rebuilt when the view moved
+    // would make a drag as expensive as a re-solve.
+    //
+    // ⚠️ IT INITIALISES THE LAYER ON FIRST USE, which is why it takes the
+    // target's formats: a PSO records what it renders into, so taking them here
+    // rather than caching them means a target rebuilt at a new format cannot
+    // leave the overlay compiled against the old one. A failure is logged ONCE
+    // and never fails the scene -- a preview is an annotation on a building that
+    // renders fine without it.
+    void DrawGhPreview (Diligent::IDeviceContext* context, const float viewProj[16], uint32_t surfaceWidth,
+                        uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
+                        const GhPreviewStyle& style, const GhPreviewLayer::DrawParams& params);
+
+    // For the HUD. `labels` non-zero while nothing is drawn is the answer to
+    // "my text panel shows nothing"; `deferredKinds` is the answer to "my points
+    // and planes never appear".
+    void GhPreviewStats (size_t& meshIndices, size_t& lineVertices, size_t& labels, size_t& deferredKinds,
+                         bool& truncated) const;
 
     // ---- picking (PLAT-RE34) -----------------------------------------------
     // The same geometry, drawn as FLAT ID COLOURS into DiligentPickBuffer's id

@@ -571,6 +571,50 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 }
                 ImGui::Unindent ();
             }
+
+            // ---- what a Grasshopper definition asked Archicad to show ---
+            //
+            // ⚠️ THE COUNTS ARE THE PANEL'S REASON TO EXIST, NOT THE CHECKBOX.
+            // An empty viewport means one of four different things -- preview
+            // switched off, nothing sent, everything of a kind Tapioca does not
+            // draw yet, or text with nowhere to go -- and they are one picture.
+            // Without these numbers the only way to tell them apart is to read
+            // grasshopper.log and guess.
+            ImGui::Checkbox ("grasshopper preview", &state.showGhPreview);
+            if (state.showGhPreview) {
+                ImGui::Indent ();
+                const bool anyGeometry = state.ghPreviewMeshIndices > 0 || state.ghPreviewLineVertices > 0;
+                if (!anyGeometry && state.ghPreviewDeferredKinds == 0 && state.ghPreviewLabels == 0) {
+                    ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
+                                        "nothing received -- run a definition with a Tapioca Preview component");
+                }
+                else {
+                    ImGui::TextDisabled ("%llu triangle(s), %llu curve segment(s)",
+                                         (unsigned long long) (state.ghPreviewMeshIndices / 3),
+                                         (unsigned long long) (state.ghPreviewLineVertices / 6));
+                }
+                // Not drawn, and saying so beats showing nothing and explaining
+                // nothing: this renderer has no text pass yet.
+                if (state.ghPreviewLabels > 0)
+                    ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f),
+                                        "%llu label(s) received -- Tapioca cannot draw text yet",
+                                        (unsigned long long) state.ghPreviewLabels);
+                if (state.ghPreviewDeferredKinds > 0)
+                    ImGui::TextColored (ImVec4 (1.0f, 0.8f, 0.2f, 1.0f), "%llu point/plane/arrow/bounds not drawn yet",
+                                        (unsigned long long) state.ghPreviewDeferredKinds);
+                if (state.ghPreviewTruncated)
+                    ImGui::TextColored (ImVec4 (1.0f, 0.4f, 0.3f, 1.0f),
+                                        "TRUNCATED at the drawable ceiling -- this is not the whole result");
+
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##ghpreviewwidth", &state.ghPreviewWidthPixels, 1.0f, 8.0f, "%.1f px");
+                ImGui::TextDisabled ("curve width -- PIXELS, so it holds at every zoom");
+
+                ImGui::SetNextItemWidth (-1.0f);
+                ImGui::SliderFloat ("##ghpreviewambient", &state.ghPreviewAmbient, 0.0f, 1.0f, "%.2f");
+                ImGui::TextDisabled ("ambient -- the shading is legibility, not the scene's sun");
+                ImGui::Unindent ();
+            }
             ImGui::Checkbox ("callout under the cursor", &state.showCallout);
             ImGui::Checkbox ("selected element properties", &state.showProperties);
         }

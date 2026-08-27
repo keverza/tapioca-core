@@ -26,6 +26,7 @@
 #include "ArchViz/DiligentAmbientOcclusion.hpp"
 #include "ArchViz/DiligentEpipolarLightScattering.hpp"
 #include "ArchViz/DiligentPointCloudLayer.hpp"
+#include "ArchViz/GhPreviewLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/DiligentScreenSpaceReflection.hpp"
 #include "ArchViz/DiligentTemporalAntiAliasing.hpp"
@@ -448,6 +449,33 @@ struct geomsrv::archviz::DiligentScene::Impl {
         storySliceInitFailed = false;
         storeySliceCount = 0;
         storeySliceAreaM2 = 0.0;
+    }
+
+    // ---- the Grasshopper preview overlay -----------------------------------
+    // ⚠️ THE LAYER IS THE ONLY THING TORN DOWN WITH THE VIEWPORT. What the
+    // definition previewed lives in Preview/GhPreviewCache, on the CPU, and is
+    // deliberately NOT touched here: closing the 3D window frees the GPU
+    // resources and the next window rebuilds the same preview from the same
+    // snapshot, without asking Grasshopper for anything. A viewport that owned
+    // the preview would make "close the viewer" silently mean "lose your preview
+    // until you re-solve".
+    //
+    // `ghPreviewGeneration` is what decides when to rebuild: GhPreviewCache
+    // stamps a monotonic generation on every snapshot it publishes, so an
+    // unchanged preview costs a pointer compare per frame rather than a rebuild.
+    GhPreviewLayer ghPreview;
+    uint64_t ghPreviewGeneration = 0;
+    bool ghPreviewInitFailed = false;
+    size_t ghPreviewDeferredKinds = 0;
+    bool ghPreviewTruncated = false;
+
+    void ShutdownGhPreview ()
+    {
+        ghPreview.Shutdown ();
+        ghPreviewGeneration = 0;
+        ghPreviewInitFailed = false;
+        ghPreviewDeferredKinds = 0;
+        ghPreviewTruncated = false;
     }
     Diligent::ITextureView* taaView = nullptr;
     bool taaEnabled = false;

@@ -116,10 +116,8 @@ TEST (GhPreviewGeometry, EachLayerReadsOnlyItsOwnSurfaceAndBothAnswersToEither)
         Mesh (3, PreviewSurface::Both, PreviewFlagVisible, true),
     });
 
-    const GhPreviewDrawables model =
-        BuildGhPreviewDrawables (snapshot, PreviewSurface::Model3D, kStyle, kNoLimit);
-    const GhPreviewDrawables plan =
-        BuildGhPreviewDrawables (snapshot, PreviewSurface::FloorPlan, kStyle, kNoLimit);
+    const GhPreviewDrawables model = BuildGhPreviewDrawables (snapshot, PreviewSurface::Model3D, kStyle, kNoLimit);
+    const GhPreviewDrawables plan = BuildGhPreviewDrawables (snapshot, PreviewSurface::FloorPlan, kStyle, kNoLimit);
 
     // One triangle each from the surface's own primitive plus the Both one.
     EXPECT_EQ (model.depthTested.meshIndices.size (), 6u);
@@ -202,9 +200,9 @@ TEST (GhPreviewGeometry, XRayGeometryGoesToItsOwnBucket)
 
 TEST (GhPreviewGeometry, SentNormalsAreUsedUnchanged)
 {
-    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
-        Snapshot ({ Mesh (1, PreviewSurface::Model3D, PreviewFlagVisible, true) }), PreviewSurface::Model3D,
-        kStyle, kNoLimit);
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Mesh (1, PreviewSurface::Model3D, PreviewFlagVisible, true) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
 
     ASSERT_EQ (drawables.depthTested.meshVertices.size (), 3u);
     EXPECT_FLOAT_EQ (drawables.depthTested.meshVertices[0].nz, 1.0f);
@@ -215,9 +213,9 @@ TEST (GhPreviewGeometry, SentNormalsAreUsedUnchanged)
 // attribute.
 TEST (GhPreviewGeometry, AMeshWithNoNormalsGetsFlatFaceNormalsRatherThanZero)
 {
-    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
-        Snapshot ({ Mesh (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }), PreviewSurface::Model3D,
-        kStyle, kNoLimit);
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Mesh (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
 
     ASSERT_EQ (drawables.depthTested.meshVertices.size (), 3u);
     for (const GhPreviewMeshVertex& vertex : drawables.depthTested.meshVertices) {
@@ -252,12 +250,12 @@ TEST (GhPreviewGeometry, IndicesAreRebasedOntoEachPrimitivesOwnVertices)
 
 TEST (GhPreviewGeometry, EachSegmentBecomesSixVerticesAndClosedAddsOneMore)
 {
-    const GhPreviewDrawables open = BuildGhPreviewDrawables (
-        Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }), PreviewSurface::Model3D,
-        kStyle, kNoLimit);
-    const GhPreviewDrawables closed = BuildGhPreviewDrawables (
-        Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, true) }), PreviewSurface::Model3D,
-        kStyle, kNoLimit);
+    const GhPreviewDrawables open =
+        BuildGhPreviewDrawables (Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
+    const GhPreviewDrawables closed =
+        BuildGhPreviewDrawables (Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, true) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
 
     // Three points: two segments open, three closed.
     EXPECT_EQ (open.depthTested.lineVertices.size (), 12u);
@@ -270,9 +268,9 @@ TEST (GhPreviewGeometry, EachSegmentBecomesSixVerticesAndClosedAddsOneMore)
 // the mistake that produces one.
 TEST (GhPreviewGeometry, EverySegmentQuadSpansBothSidesOfItsCentreline)
 {
-    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
-        Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }), PreviewSurface::Model3D,
-        kStyle, kNoLimit);
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
 
     ASSERT_EQ (drawables.depthTested.lineVertices.size (), 12u);
     for (size_t triangle = 0; triangle < 4; ++triangle) {
@@ -289,22 +287,32 @@ TEST (GhPreviewGeometry, EverySegmentQuadSpansBothSidesOfItsCentreline)
     }
 }
 
-// The corner at the far end of a segment names the NEAR end as its other point,
-// so the shader's direction is computed from where that corner actually is. The
-// alternative goes wrong exactly where the perspective divide differs most.
+// ⚠️ EVERY CORNER NAMES THE OTHER END OF ITS OWN SEGMENT. That is what makes the
+// square cap one unconditional push against the direction to that end, with no
+// "which end am I" flag to get wrong -- and it is why the corners at the far end
+// carry the NEAR one. Both corners naming the same ordered pair would make one of
+// them project a direction from a point it is not at, which goes wrong exactly
+// where the perspective divide differs most: near the camera.
 TEST (GhPreviewGeometry, EachCornerCarriesTheOppositeEndOfItsOwnSegment)
 {
-    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
-        Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }), PreviewSurface::Model3D,
-        kStyle, kNoLimit);
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Line (1, PreviewSurface::Model3D, PreviewFlagVisible, false) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
 
-    ASSERT_FALSE (drawables.depthTested.lineVertices.empty ());
+    ASSERT_EQ (drawables.depthTested.lineVertices.size (), 12u);
     for (const GhPreviewLineVertex& vertex : drawables.depthTested.lineVertices) {
-        const bool atStart = vertex.cap < 0.0f;
-        EXPECT_TRUE (atStart ? vertex.cap == -1.0f : vertex.cap == +1.0f);
-        // The two ends of a segment are never the same point.
+        // A corner is never its own other end: a zero direction would normalize
+        // to a NaN, and a NaN vertex deletes the triangle.
         EXPECT_FALSE (vertex.x == vertex.ox && vertex.y == vertex.oy && vertex.z == vertex.oz);
     }
+
+    // The first segment runs (0,0,0) -> (1,0,0). Its first two corners sit at the
+    // start and name the end; its last corner sits at the end and names the start.
+    const std::vector<GhPreviewLineVertex>& line = drawables.depthTested.lineVertices;
+    EXPECT_FLOAT_EQ (line[0].x, 0.0f);
+    EXPECT_FLOAT_EQ (line[0].ox, 1.0f);
+    EXPECT_FLOAT_EQ (line[2].x, 1.0f);
+    EXPECT_FLOAT_EQ (line[2].ox, 0.0f);
 }
 
 // A zero-length segment has no direction to be perpendicular to, and guessing
@@ -369,10 +377,10 @@ TEST (GhPreviewGeometry, ACeilingStopsTheBuildAndSaysSo)
     GhPreviewLimits limits;
     limits.maxMeshVertices = 4; // one triangle fits; the second does not
 
-    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
-        Snapshot ({ Mesh (1, PreviewSurface::Model3D, PreviewFlagVisible, true),
-                    Mesh (2, PreviewSurface::Model3D, PreviewFlagVisible, true) }),
-        PreviewSurface::Model3D, kStyle, limits);
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Mesh (1, PreviewSurface::Model3D, PreviewFlagVisible, true),
+                                             Mesh (2, PreviewSurface::Model3D, PreviewFlagVisible, true) }),
+                                 PreviewSurface::Model3D, kStyle, limits);
 
     EXPECT_TRUE (drawables.truncated);
     EXPECT_EQ (drawables.depthTested.meshVertices.size (), 3u);
