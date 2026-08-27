@@ -73,6 +73,8 @@ AddOn/EvP/Sources/TapiocaDynamo/bin/
 AddOn/EvP/Sources/TapiocaDynamo/obj/
 /AddOn/EvP/GraphUI/node_modules
 /AddOn/EvP/GraphUI/dist/
-/AddOn/EvP/Sources/GrasshopperComponents/obj
-/AddOn/EvP/Sources/GrasshopperComponents/bin
-/AddOn/EvP/Sources/GrasshopperComponents
+# The Grasshopper component library's build tree. The .gha/.pdb ship from
+# build_29/; bin/ and obj/ here are intermediates only. Anchored with trailing
+# slashes so the .cs sources beside them stay tracked.
+/AddOn/EvP/Sources/GrasshopperComponents/bin/
+/AddOn/EvP/Sources/GrasshopperComponents/obj/
