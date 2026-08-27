@@ -37,6 +37,20 @@ TEST (ApiPipeProtocol, ValidRequestHeaderDecodesBothLengths)
     EXPECT_EQ (sizes.paramsBytes, 7u);
 }
 
+TEST (ApiPipeProtocol, AllowlistContainsOnlyReviewedDynamoRoundTripCommands)
+{
+    EXPECT_TRUE (protocol::IsAllowedCommand ("Tapioca.GetSelection"));
+    EXPECT_TRUE (protocol::IsAllowedCommand ("Tapioca.GetModelElements"));
+    EXPECT_TRUE (protocol::IsAllowedCommand ("Tapioca.GetBodyGeometry"));
+    EXPECT_TRUE (protocol::IsAllowedCommand ("Tapioca.GetElementDetails"));
+    EXPECT_TRUE (protocol::IsAllowedCommand ("Tapioca.SetElementDetails"));
+    EXPECT_TRUE (protocol::IsAllowedCommand ("Tapir.MoveElements"));
+
+    EXPECT_FALSE (protocol::IsAllowedCommand ("Tapioca.DeleteElements"));
+    EXPECT_FALSE (protocol::IsAllowedCommand ("Tapir.ExecutePythonScript"));
+    EXPECT_FALSE (protocol::IsAllowedCommand ("API.ExecuteAddOnCommand"));
+}
+
 TEST (ApiPipeProtocol, ResponsePreservesEnvelopeByteForByte)
 {
     const std::string envelope = "{\"ok\":true,\"data\":{}}";

@@ -1,5 +1,7 @@
 #include "ApiPipeProtocol.hpp"
 
+#include <array>
+
 namespace evp::dynamo::protocol {
 namespace {
 
@@ -36,6 +38,20 @@ bool DecodeRequestHeader (const uint8_t* bytes, size_t size, RequestSizes& sizes
         return false;
     }
     return true;
+}
+
+bool IsAllowedCommand (std::string_view command)
+{
+    // Reads support preview and edit staging. The two writes are explicit Apply
+    // operations; arbitrary dispatcher access never crosses the pipe.
+    constexpr std::array<std::string_view, 6> allowed { "Tapioca.GetSelection",      "Tapioca.GetModelElements",
+                                                        "Tapioca.GetBodyGeometry",   "Tapioca.GetElementDetails",
+                                                        "Tapioca.SetElementDetails", "Tapir.MoveElements" };
+    for (std::string_view candidate : allowed) {
+        if (candidate == command)
+            return true;
+    }
+    return false;
 }
 
 std::vector<uint8_t> EncodeRequest (const std::string& command, const std::string& paramsJson)

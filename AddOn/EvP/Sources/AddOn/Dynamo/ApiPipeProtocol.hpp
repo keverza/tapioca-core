@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace evp::dynamo::protocol {
@@ -19,6 +20,7 @@ struct RequestSizes {
 };
 
 bool DecodeRequestHeader (const uint8_t* bytes, size_t size, RequestSizes& sizes, std::string& error);
+bool IsAllowedCommand (std::string_view command);
 std::vector<uint8_t> EncodeRequest (const std::string& command, const std::string& paramsJson);
 std::vector<uint8_t> EncodeResponse (const std::string& envelopeJson);
 bool DecodeResponseHeader (const uint8_t* bytes, size_t size, uint32_t& envelopeBytes, std::string& error);

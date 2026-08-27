@@ -96,10 +96,7 @@ void ServeClient (HANDLE pipe, const std::atomic<bool>& stopping)
         std::string (params.data (), sizes.paramsBytes).find ('\0') != std::string::npos)
         return;
 
-    // Stage 1 exposes one read-only node. Expanding the library means adding
-    // each reviewed read command here; arbitrary dispatcher access would also
-    // expose model mutations to every local process that can open the pipe.
-    if (std::string (command.data (), sizes.commandBytes) != "Tapioca.GetSelection")
+    if (!protocol::IsAllowedCommand (std::string_view (command.data (), sizes.commandBytes)))
         return;
 
     const GS::UniString envelope = evp::DispatchApiCall (GS::UniString (command.data (), CC_UTF8),
@@ -154,6 +151,8 @@ bool DynamoBridge::Start (GS::UniString& error)
 
     stopping.store (false);
     running.store (true);
+    clientProcessId.store (0);
+    clientProcessHandle.store (nullptr);
     try {
         worker = std::thread ([this, firstPipe] { Run (firstPipe); });
     }
@@ -175,7 +174,15 @@ void DynamoBridge::Stop ()
     stopping.store (true);
     worker.join ();
     running.store (false);
+    clientProcessId.store (0);
+    clientProcessHandle.store (nullptr);
     pipeName.Clear ();
+}
+
+void DynamoBridge::SetClientProcess (uint32_t processId, void* processHandle)
+{
+    clientProcessId.store (processId);
+    clientProcessHandle.store (processHandle);
 }
 
 GS::UniString DynamoBridge::PipeName () const
@@ -213,8 +220,15 @@ void DynamoBridge::Run (void* firstPipe)
         }
         CloseHandle (connectEvent);
 
-        if (!stopping.load () && connected)
-            ServeClient (pipe, stopping);
+        if (!stopping.load () && connected) {
+            ULONG actualProcessId = 0;
+            const uint32_t expectedProcessId = clientProcessId.load ();
+            HANDLE expectedProcess = (HANDLE) clientProcessHandle.load ();
+            if (expectedProcessId != 0 && expectedProcess != nullptr &&
+                WaitForSingleObject (expectedProcess, 0) == WAIT_TIMEOUT &&
+                GetNamedPipeClientProcessId (pipe, &actualProcessId) != 0 && actualProcessId == expectedProcessId)
+                ServeClient (pipe, stopping);
+        }
 
         DisconnectNamedPipe (pipe);
         CloseHandle (pipe);

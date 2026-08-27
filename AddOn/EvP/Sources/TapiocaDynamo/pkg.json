@@ -1,7 +1,7 @@
 {
   "name": "Tapioca",
-  "version": "0.1.0",
-  "description": "Read-only Archicad nodes over Tapioca's in-process command bus.",
+  "version": "0.2.0",
+  "description": "Archicad selection, preview geometry and explicit translation nodes over Tapioca's command bus.",
   "license": "MIT",
   "file_hash": null,
   "group": "",

@@ -209,6 +209,7 @@ bool StartEditor (GS::UniString& error)
         return false;
     }
 
+    bridge.SetClientProcess ((uint32_t) process.dwProcessId, process.hProcess);
     CloseHandle (process.hThread);
 
     if (WaitForSingleObject (process.hProcess, 250) == WAIT_OBJECT_0) {
