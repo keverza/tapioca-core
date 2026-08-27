@@ -178,6 +178,41 @@ void AppendSegment (const Vec3& a, const Vec3& b, uint32_t rgba, GhPreviewBucket
     bucket.lineVertices.push_back (b0);
 }
 
+// Two opposite corners -> the twelve edges of the box they span.
+//
+// ⚠️ THE WIRE SENDS TWO POINTS AND THE HOST BUILDS THE BOX, WHICH IS THE SAME
+// RULE AS THE PLANE GIZMO AND THE ARROW. Sending twelve edges would be six times
+// the payload, would throw away the fact that it IS a bounding box the moment it
+// arrived, and would have to be resampled by anything that later wanted to draw
+// it differently. GhPreviewProtocol's per-kind table enforces the two points.
+void AppendBounds (const GhPreviewPrimitive& primitive, uint32_t rgba, GhPreviewBucket& bucket)
+{
+    if (primitive.positions.size () < 6)
+        return;
+
+    const Vec3 lo = At (primitive.positions, 0);
+    const Vec3 hi = At (primitive.positions, 1);
+
+    // The eight corners, indexed so that bit 0 is x, bit 1 is y and bit 2 is z.
+    // That is what makes the edge list below "the pairs differing in one bit"
+    // rather than twelve hand-written triples nobody can check by eye.
+    Vec3 corner[8];
+    for (int index = 0; index < 8; ++index) {
+        corner[index].x = (index & 1) != 0 ? hi.x : lo.x;
+        corner[index].y = (index & 2) != 0 ? hi.y : lo.y;
+        corner[index].z = (index & 4) != 0 ? hi.z : lo.z;
+    }
+
+    for (int from = 0; from < 8; ++from) {
+        for (int bit = 1; bit <= 4; bit <<= 1) {
+            const int to = from ^ bit;
+            // Each edge once: only walk from the lower index to the higher.
+            if (to > from)
+                AppendSegment (corner[from], corner[to], rgba, bucket);
+        }
+    }
+}
+
 void AppendPolyline (const GhPreviewPrimitive& primitive, uint32_t rgba, GhPreviewBucket& bucket)
 {
     const size_t points = primitive.positions.size () / 3;
@@ -255,6 +290,19 @@ GhPreviewDrawables BuildGhPreviewDrawables (const GhPreviewSnapshot& snapshot, P
                     continue;
                 }
                 AppendPolyline (*primitive, rgba, bucket);
+                break;
+            }
+
+            case PreviewKind::Bounds: {
+                // Twelve edges, six vertices each. A box is the commonest thing
+                // anyone points at this component first, so it is drawn here
+                // rather than waiting with the rest of the host-built set.
+                if (drawables.depthTested.lineVertices.size () + drawables.xray.lineVertices.size () + 12 * 6 >
+                    limits.maxLineVertices) {
+                    drawables.truncated = true;
+                    continue;
+                }
+                AppendBounds (*primitive, rgba, bucket);
                 break;
             }
 

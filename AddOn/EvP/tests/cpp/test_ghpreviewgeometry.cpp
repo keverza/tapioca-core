@@ -22,8 +22,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
+#include <string>
 #include <vector>
 
 using namespace geomsrv::archviz;
@@ -74,6 +76,20 @@ std::shared_ptr<GhPreviewPrimitive> Text (uint64_t id, PreviewKind kind, const s
     primitive->flags = PreviewFlagVisible;
     primitive->positions = { 3, 4, 5 };
     primitive->text = text;
+    return primitive;
+}
+
+// Two opposite corners, which is the whole payload the wire carries for a box:
+// GhPreviewProtocol's per-kind table refuses a Bounds that is not exactly two
+// points, and the host builds the twelve edges from them.
+std::shared_ptr<GhPreviewPrimitive> Bounds (uint64_t id, PreviewSurface surface, uint8_t flags)
+{
+    auto primitive = std::make_shared<GhPreviewPrimitive> ();
+    primitive->id = id;
+    primitive->kind = PreviewKind::Bounds;
+    primitive->surface = surface;
+    primitive->flags = flags;
+    primitive->positions = { 0, 0, 0, 2, 3, 4 };
     return primitive;
 }
 
@@ -355,15 +371,96 @@ TEST (GhPreviewGeometry, TextBecomesALabelWithItsAnchorAndFacingRatherThanGeomet
 // they were not drawn rather than showing nothing and explaining nothing.
 TEST (GhPreviewGeometry, KindsThisBuildDoesNotDrawYetAreCountedRatherThanDropped)
 {
-    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
-        Snapshot ({ OfKind (1, PreviewKind::PointMarker), OfKind (2, PreviewKind::PlaneGizmo),
-                    OfKind (3, PreviewKind::Arrow3D), OfKind (4, PreviewKind::Bounds),
-                    OfKind (5, PreviewKind::PointCloud), OfKind (6, PreviewKind::BillboardSprite) }),
-        PreviewSurface::Model3D, kStyle, kNoLimit);
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ OfKind (1, PreviewKind::PointMarker), OfKind (2, PreviewKind::PlaneGizmo),
+                                             OfKind (3, PreviewKind::Arrow3D), OfKind (4, PreviewKind::PointCloud),
+                                             OfKind (5, PreviewKind::BillboardSprite) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
 
-    EXPECT_EQ (drawables.deferredKinds, 6u);
+    EXPECT_EQ (drawables.deferredKinds, 5u);
     EXPECT_TRUE (drawables.depthTested.Empty ());
     EXPECT_EQ (drawables.LabelCount (), 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Bounds -- the box everyone tests with first
+// ---------------------------------------------------------------------------
+
+// ⚠️ A GRASSHOPPER Box CONVERTS TO Bounds, NOT TO A MESH. That is why this kind
+// cannot wait with the rest of the host-built set: a box is the first thing
+// anyone wires into a preview component, and a box that transports perfectly and
+// is then drawn by nobody looks exactly like a broken transport. It was.
+TEST (GhPreviewGeometry, ABoxBecomesTwelveEdgesRatherThanNothing)
+{
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Bounds (1, PreviewSurface::Model3D, PreviewFlagVisible) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
+
+    EXPECT_EQ (drawables.deferredKinds, 0u);
+    // Twelve edges, six vertices each.
+    EXPECT_EQ (drawables.depthTested.lineVertices.size (), 12u * 6u);
+}
+
+// The wire sends two corners; the eight the host builds must be the eight of the
+// box they span, and no other point.
+TEST (GhPreviewGeometry, EveryBoundsVertexIsACornerOfTheBoxTheTwoPointsSpan)
+{
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Bounds (1, PreviewSurface::Model3D, PreviewFlagVisible) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
+
+    ASSERT_FALSE (drawables.depthTested.lineVertices.empty ());
+    for (const GhPreviewLineVertex& vertex : drawables.depthTested.lineVertices) {
+        EXPECT_TRUE (vertex.x == 0.0f || vertex.x == 2.0f);
+        EXPECT_TRUE (vertex.y == 0.0f || vertex.y == 3.0f);
+        EXPECT_TRUE (vertex.z == 0.0f || vertex.z == 4.0f);
+    }
+}
+
+// Each of the twelve edges once. Walking every corner pair that differs in one
+// axis gives 24 ordered pairs, and drawing all of them would double every edge:
+// invisible at full opacity, and a box that is twice as bright as it should be
+// wherever the style has alpha.
+TEST (GhPreviewGeometry, NoBoundsEdgeIsDrawnTwice)
+{
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ Bounds (1, PreviewSurface::Model3D, PreviewFlagVisible) }),
+                                 PreviewSurface::Model3D, kStyle, kNoLimit);
+
+    std::vector<std::string> edges;
+    const std::vector<GhPreviewLineVertex>& line = drawables.depthTested.lineVertices;
+    for (size_t segment = 0; segment * 6 < line.size (); ++segment) {
+        const GhPreviewLineVertex& start = line[segment * 6];
+        // The two ends, in a canonical order so a -> b and b -> a collide.
+        float a[3] = { start.x, start.y, start.z };
+        float b[3] = { start.ox, start.oy, start.oz };
+        const bool swap = a[0] > b[0] || (a[0] == b[0] && (a[1] > b[1] || (a[1] == b[1] && a[2] > b[2])));
+        std::string key;
+        for (int index = 0; index < 3; ++index)
+            key += std::to_string (swap ? b[index] : a[index]) + ",";
+        for (int index = 0; index < 3; ++index)
+            key += std::to_string (swap ? a[index] : b[index]) + ",";
+        edges.push_back (key);
+    }
+
+    ASSERT_EQ (edges.size (), 12u);
+    std::sort (edges.begin (), edges.end ());
+    EXPECT_EQ (std::unique (edges.begin (), edges.end ()) - edges.begin (), 12);
+}
+
+// A degenerate box -- a Grasshopper Box with a zero dimension -- collapses some
+// of its edges to nothing. Those contribute no quad, exactly as a repeated
+// polyline point does, rather than a NaN direction that deletes triangles.
+TEST (GhPreviewGeometry, AFlatBoxDropsItsCollapsedEdgesRatherThanEmittingNaNs)
+{
+    auto flat = Bounds (1, PreviewSurface::Model3D, PreviewFlagVisible);
+    flat->positions = { 0, 0, 0, 2, 3, 0 };
+
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ flat }), PreviewSurface::Model3D, kStyle, kNoLimit);
+
+    // The four vertical edges have zero length; eight remain.
+    EXPECT_EQ (drawables.depthTested.lineVertices.size (), 8u * 6u);
 }
 
 // ---------------------------------------------------------------------------

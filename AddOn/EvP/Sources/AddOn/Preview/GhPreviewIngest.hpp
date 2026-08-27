@@ -162,6 +162,13 @@ class GhPreviewIngest {
     uint32_t batchEpoch = 0;
     uint32_t batchRevision = 0;
     bool segmentOpen = false;
+    // ⚠️ ONE LINE PER GENERATION SAYING THE PIPELINE WORKED, AND ONLY ONE.
+    // Without it a working transport is COMPLETELY SILENT -- every log line on
+    // this path is a failure, so "nothing in the log" means both "it is fine" and
+    // "nothing ever arrived", and the first live report was exactly that
+    // ambiguity. Logging every batch instead would write a line per frame of a
+    // slider drag and bury everything else.
+    bool acceptedSinceDrop = false;
 };
 
 } // namespace evp::preview

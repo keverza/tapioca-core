@@ -113,6 +113,7 @@ void GhPreviewIngest::OnWorkerGone (const std::string& reason)
     CloseBatch ();
     batchEpoch = 0;
     batchRevision = 0;
+    acceptedSinceDrop = false;
 }
 
 GhPreviewReply GhPreviewIngest::OnMessage (MessageType type, const uint8_t* bytes, std::size_t size)
@@ -294,6 +295,15 @@ GhPreviewReply GhPreviewIngest::OnMessage (MessageType type, const uint8_t* byte
             const GhPreviewEndResult result = cache.EndBatch (end);
             if (result.apply == GhPreviewApply::Applied) {
                 reply.ack.accepted = true;
+                // The first batch of a generation says so. See the header: this
+                // is the only positive evidence the whole path produces, and
+                // without it a working transport and a dead one read the same.
+                if (!acceptedSinceDrop) {
+                    acceptedSinceDrop = true;
+                    reply.log = "preview accepted: " + std::to_string (cache.Count ()) +
+                                " primitive(s) held for epoch " + std::to_string (batchEpoch) +
+                                ". Open Tapioca > Tapioca 3D Viewer to see them.";
+                }
             }
             else {
                 reply.ack.accepted = false;
@@ -328,6 +338,7 @@ GhPreviewReply GhPreviewIngest::OnMessage (MessageType type, const uint8_t* byte
             CloseBatch ();
             batchEpoch = drop.epoch;
             batchRevision = 0;
+            acceptedSinceDrop = false;
             reply.log = drop.reason.empty () ? std::string ("the worker dropped its whole preview") : drop.reason;
             return reply;
         }

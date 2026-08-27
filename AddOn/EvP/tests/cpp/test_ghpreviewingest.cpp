@@ -282,6 +282,43 @@ TEST (GhPreviewIngest, CopiesMeshArraysOutOfTheSegmentAndClosesItAtEndOfBatch)
     EXPECT_FLOAT_EQ (snapshot->primitives[0]->positions[3], 1.0f);
 }
 
+// ⚠️ THE ONLY POSITIVE EVIDENCE THE WHOLE PATH PRODUCES. Every other log line
+// here is a failure, so without this one "nothing in grasshopper.log" means both
+// "it is working" and "nothing ever arrived" -- and the first live report of
+// this feature was exactly that ambiguity. Once per generation, not once per
+// batch: a slider drag is hundreds of batches and would bury everything else.
+TEST (GhPreviewIngest, TheFirstAcceptedBatchOfAGenerationSaysSoAndTheRestAreQuiet)
+{
+    Fixture fixture;
+
+    Footer first;
+    fixture.Send (MessageType::PreviewBeginBatch, BeginBytes (1, 1, 1, 0, ""));
+    fixture.Send (MessageType::PreviewAdded, EncodePreviewPrimitive (InlineLine (201, 1, 0.0f)));
+    first.Add (201, PreviewChange::Added);
+    const GhPreviewReply accepted = fixture.Send (MessageType::PreviewEndBatch, first.Bytes (1, 1));
+    ASSERT_TRUE (accepted.ack.accepted);
+    EXPECT_NE (accepted.log.find ("preview accepted"), std::string::npos);
+
+    Footer second;
+    fixture.Send (MessageType::PreviewBeginBatch, BeginBytes (1, 2, 1, 0, ""));
+    fixture.Send (MessageType::PreviewAdded, EncodePreviewPrimitive (InlineLine (202, 2, 5.0f)));
+    second.Add (202, PreviewChange::Added);
+    const GhPreviewReply quiet = fixture.Send (MessageType::PreviewEndBatch, second.Bytes (1, 2));
+    ASSERT_TRUE (quiet.ack.accepted);
+    EXPECT_TRUE (quiet.log.empty ());
+
+    // A fresh worker says it again -- that generation has its own evidence to
+    // give, and it is the one the user is now looking at.
+    fixture.ingest.OnWorkerGone ("the worker was restarted");
+    Footer restarted;
+    fixture.Send (MessageType::PreviewBeginBatch, BeginBytes (9, 1, 1, 0, ""));
+    fixture.Send (MessageType::PreviewAdded, EncodePreviewPrimitive (InlineLine (203, 1, 0.0f)));
+    restarted.Add (203, PreviewChange::Added);
+    const GhPreviewReply again = fixture.Send (MessageType::PreviewEndBatch, restarted.Bytes (9, 1));
+    ASSERT_TRUE (again.ack.accepted);
+    EXPECT_NE (again.log.find ("preview accepted"), std::string::npos);
+}
+
 // ---------------------------------------------------------------------------
 // Segment naming: the trust boundary
 // ---------------------------------------------------------------------------

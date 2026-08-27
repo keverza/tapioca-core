@@ -117,7 +117,7 @@ struct GhPreviewDrawables {
     std::vector<GhPreviewLabel> labels;
 
     // Primitives of a kind this build does not produce geometry for yet
-    // (PointMarker, PlaneGizmo, Arrow3D, Bounds, PointCloud, BillboardSprite).
+    // (PointMarker, PlaneGizmo, Arrow3D, PointCloud, BillboardSprite).
     // COUNTED, not dropped quietly: a definition whose markers never appear
     // should say "Tapioca does not draw those yet", not nothing at all.
     size_t deferredKinds = 0;

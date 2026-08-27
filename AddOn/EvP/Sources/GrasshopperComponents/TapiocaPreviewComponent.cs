@@ -33,6 +33,14 @@ namespace Tapioca.Grasshopper
     /// evidence that a batch was ACCEPTED, not that a picture appeared.
     /// </para>
     /// <para>
+    /// ⚠️ THE PREVIEW APPEARS IN TAPIOCA'S 3D VIEWER, NOT IN ARCHICAD'S OWN 3D
+    /// WINDOW. The drawing happens inside the Diligent viewport's frame loop, so
+    /// that viewport has to be running -- Tapioca > Tapioca 3D Viewer -- either as
+    /// its own palette or as the transparent overlay over Archicad's 3D view.
+    /// With it closed the batch still arrives and is still cached; there is
+    /// simply nothing on screen to draw it.
+    /// </para>
+    /// <para>
     /// ⚠️ A FAILED SEND DROPS THE MIRROR RATHER THAN RETRYING. The diff was
     /// computed against a mirror that has already advanced, so after a failure
     /// the two sides disagree and every later delta compounds it. Forgetting the
@@ -141,10 +149,18 @@ namespace Tapioca.Grasshopper
             {
                 DA.SetData(0, 0);
                 DA.SetData(1, "not sent");
+                // ⚠️ WARNING, NOT Remark. Grasshopper does not DISPLAY remarks:
+                // there is no balloon and no colour change, and the text is only
+                // reachable by hovering a component that looks perfectly healthy.
+                // Every state that means "your preview is not reaching Archicad"
+                // has to change how the component LOOKS, or the first report is
+                // "nothing appears and it does not say why" -- which is exactly
+                // what happened.
                 AddRuntimeMessage(
-                    GH_RuntimeMessageLevel.Remark,
-                    "Archicad is not taking preview from this Grasshopper. Open it with Tapioca > Grasshopper "
-                    + "Editor from Archicad's menu, and check that preview is enabled in the add-on.");
+                    GH_RuntimeMessageLevel.Warning,
+                    "Archicad is not taking preview from this Grasshopper. Open Grasshopper from Archicad with "
+                    + "Tapioca > Grasshopper Editor (a Grasshopper started any other way has no Archicad to talk "
+                    + "to), and make sure the add-on and the worker were rebuilt and redeployed together.");
                 return;
             }
 
@@ -186,12 +202,24 @@ namespace Tapioca.Grasshopper
 
             if (unsupported > 0)
             {
+                // Some unsupported items among good ones is ordinary -- a
+                // definition carries numbers and strings. ALL of them unsupported
+                // means nothing will ever appear, and that must be visible.
                 AddRuntimeMessage(
-                    GH_RuntimeMessageLevel.Remark,
+                    captured.Count == 0 ? GH_RuntimeMessageLevel.Warning : GH_RuntimeMessageLevel.Remark,
                     unsupported + " item(s) were not geometry Tapioca previews, and were skipped.");
             }
 
             Send(batch);
+
+            // ⚠️ SAID ON THE COMPONENT, POSITIVELY, EVEN WHEN EVERYTHING WORKED.
+            // "Sent" and "drawn" are different claims and only Archicad knows the
+            // second: the kinds this build does not draw yet cross the wire
+            // perfectly and then land in a viewport that has no code for them. A
+            // component that reports success while the screen stays empty sends
+            // the user looking at their definition, which is the one place the
+            // fault is not.
+            Message = captured.Count + " sent";
         }
 
         /// <summary>
