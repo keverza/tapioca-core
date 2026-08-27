@@ -43,6 +43,7 @@ using evp::grasshopper::protocol::PreviewKind;
 using evp::grasshopper::protocol::PreviewPayloadDescriptor;
 using evp::grasshopper::protocol::PreviewPrimitiveHeader;
 using evp::grasshopper::protocol::PreviewPrimitiveMessage;
+using evp::grasshopper::protocol::PreviewSurface;
 
 // One primitive as the host holds it: the metadata that identifies it, and CPU
 // buffers ready to be uploaded. Immutable once published.
@@ -53,6 +54,13 @@ struct GhPreviewPrimitive {
     uint64_t id = 0;
     PreviewKind kind = PreviewKind::Polyline3D;
     uint8_t flags = 0;
+    // Which of Archicad's two drawing surfaces this belongs to. The cache holds
+    // BOTH in one map on purpose: identity, selection, the delta protocol and
+    // the pick range are the same problem whichever window a primitive is drawn
+    // in, and splitting the cache by surface would duplicate all four. It is the
+    // LAYERS that split -- ArchViz/GhPreviewLayer reads the Model3D and Both
+    // entries, the plan overlay reads FloorPlan and Both.
+    PreviewSurface surface = PreviewSurface::Model3D;
     uint32_t itemIndex = 0;
     uint8_t componentGuid[16] = {};
     uint8_t parameterGuid[16] = {};
@@ -76,6 +84,12 @@ struct GhPreviewPrimitive {
     bool Selected () const
     {
         return (flags & evp::grasshopper::protocol::PreviewFlagSelected) != 0;
+    }
+    // What a layer asks before drawing. `Both` answers yes to either, which is
+    // the whole reason it is a value rather than two messages.
+    bool DrawnOn (PreviewSurface which) const
+    {
+        return surface == which || surface == PreviewSurface::Both;
     }
 };
 
@@ -110,6 +124,17 @@ struct GhPreviewEndResult {
 
 class GhPreviewCache {
   public:
+    // The one the transport fills and the viewport layers read, reached the way
+    // RetainedPreviewStore is reached and for the same reason: the producer
+    // (GhBridge's IO thread) and the consumers (ArchViz/GhPreviewLayer, the plan
+    // overlay) have no other object in common, and threading a reference from
+    // one to the other would put the bridge in the render path's headers.
+    //
+    // ⚠️ THE CLASS IS STILL AN ORDINARY OBJECT, AND THE TESTS BUILD THEIR OWN.
+    // This is an accessor to a process-wide instance, not a singleton contract:
+    // nothing below may depend on there being exactly one.
+    static GhPreviewCache& Get ();
+
     // Adopts a new worker generation and forgets everything. The correct answer
     // to a worker restart, a closed definition, and a failed send on the
     // worker's side (its mirror has already advanced, so retrying against it

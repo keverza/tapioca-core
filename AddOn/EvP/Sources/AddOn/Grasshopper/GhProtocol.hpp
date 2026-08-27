@@ -63,8 +63,10 @@ constexpr uint32_t MaxCommandBytes = 1024;
 enum class MessageType : uint32_t {
     // worker -> host, first message on a fresh connection. Payload: HelloPayload.
     Hello = 1,
-    // host -> worker, the answer to Hello. Payload: UTF-8, empty on acceptance
-    // and the refusal reason otherwise.
+    // host -> worker, the answer to Hello. Payload: HelloAckPayload -- the
+    // GRANTED capability word plus a refusal reason that is empty on
+    // acceptance. One shape for both outcomes; see HelloAckPayload for the cost
+    // that buys and why it is not discriminated by length.
     HelloAck = 2,
     // worker -> host, unsolicited, on the worker's own cadence. No payload. Its
     // ABSENCE is the signal: GhWorkerHost's liveness deadline is measured from
@@ -173,6 +175,29 @@ struct HelloPayload {
     uint32_t capabilities = 0;
 };
 
+// The host's answer to a Hello, and the SECOND HALF of capability negotiation.
+// The worker offers in its hello; the host GRANTS here, and the granted word is
+// what either side may act on. A bit the worker offered and the host did not
+// grant is off -- which is how "preview disabled costs nothing" is arranged: the
+// worker is told at the handshake and never collects, converts or sends.
+//
+// ⚠️ ONE SHAPE FOR EVERY HelloAck, ACCEPTANCE AND REFUSAL ALIKE, AND THE COST
+// IS NAMED HERE. A worker of an OLDER protocol version -- the one legitimate
+// mismatch this bridge has, a stale .exe left beside an upgraded add-on -- reads
+// the four capability bytes as the first four characters of the refusal it is
+// shown. That is a cosmetically wrong message on the one path that is already an
+// error, and it buys a handshake with exactly one payload shape instead of two
+// discriminated by length, where a refusal sentence and a capability word are
+// indistinguishable byte sequences. Do not "fix" it by making the shape depend
+// on the payload's length.
+struct HelloAckPayload {
+    // The bits the host granted: (worker's offer) & (what this host supports and
+    // has enabled).
+    uint32_t capabilities = 0;
+    // Empty on acceptance; the reason a user has to act on otherwise.
+    std::string refusal; // UTF-8
+};
+
 struct ApiRequestPayload {
     std::string command;    // UTF-8
     std::string parameters; // UTF-8 JSON, may be empty
@@ -208,6 +233,9 @@ bool DecodeHeader (const uint8_t* bytes, size_t size, Header& header, std::strin
 
 std::vector<uint8_t> EncodeHelloPayload (const HelloPayload& hello);
 bool DecodeHelloPayload (const uint8_t* bytes, size_t size, HelloPayload& hello, std::string& error);
+
+std::vector<uint8_t> EncodeHelloAckPayload (const HelloAckPayload& ack);
+bool DecodeHelloAckPayload (const uint8_t* bytes, size_t size, HelloAckPayload& ack, std::string& error);
 
 std::vector<uint8_t> EncodeApiRequestPayload (const ApiRequestPayload& request);
 bool DecodeApiRequestPayload (const uint8_t* bytes, size_t size, ApiRequestPayload& request, std::string& error);

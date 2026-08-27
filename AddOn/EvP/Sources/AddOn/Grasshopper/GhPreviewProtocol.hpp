@@ -69,6 +69,33 @@ enum class PreviewKind : uint8_t {
     Bounds = 10,
 };
 
+// WHERE a primitive is meant to be drawn, mirroring PreviewSurface in
+// PreviewPrimitives.cs.
+//
+// ⚠️ ARCHICAD'S 3D WINDOW AND ITS FLOOR PLAN ARE NOT ONE SURFACE WITH TWO
+// CAMERAS, AND PREVIEW MUST NOT PRETEND THEY ARE. They are different host code
+// paths in this add-on already -- ArchViz/DiligentScene and its viewport on one
+// side, PlanOverlay/PlanCanvasHost with PlanAnchorLayer and PlanViewCamera on
+// the other -- with different projections, different units, and different ideas
+// of what a line's width means. A definition that produces plan linework and a
+// definition that produces a massing model are answering different questions,
+// and nothing downstream can tell which from the geometry alone: a flat
+// polyline at z=0 is a perfectly ordinary 3D result.
+//
+// So the AUTHOR says, and it crosses the wire. Guessing from the geometry would
+// be wrong often enough to be untrustworthy, and binding it to whatever window
+// happens to be active would make what the model shows depend on where someone
+// last clicked -- hidden state of exactly the kind the identity rules above
+// exist to keep out of this path.
+enum class PreviewSurface : uint8_t {
+    Model3D = 1,
+    FloorPlan = 2,
+    // Drawn on both. Cheap for the small primitives and the honest answer for
+    // geometry that means the same thing in either -- a grid, a site outline, a
+    // setting-out point.
+    Both = 3,
+};
+
 // Mirrors PreviewFlags in PreviewPrimitives.cs.
 constexpr uint8_t PreviewFlagVisible = 1u << 0;
 constexpr uint8_t PreviewFlagSelected = 1u << 1;
@@ -104,7 +131,13 @@ struct PreviewPrimitiveHeader {
     uint64_t primitiveId = 0;
     PreviewKind kind = PreviewKind::Polyline3D;
     uint8_t flags = 0;
-    uint16_t reserved = 0;
+    // Which of Archicad's two drawing surfaces this is for. It is part of the
+    // primitive's CONTENT, not its identity: an author who flips a component
+    // from the 3D window to the floor plan has changed what that component
+    // produces, not produced something else, so it must diff as Changed and
+    // keep its selection.
+    PreviewSurface surface = PreviewSurface::Model3D;
+    uint8_t reserved = 0;
     uint32_t itemIndex = 0;
     uint8_t componentGuid[16] = {};
     uint8_t parameterGuid[16] = {};
@@ -301,6 +334,10 @@ uint64_t PreviewChecksumAccumulate (uint64_t hash, uint64_t primitiveId, Preview
 const char* DescribePreviewKind (PreviewKind kind);
 
 bool KnownPreviewKind (uint8_t value);
+
+bool KnownPreviewSurface (uint8_t value);
+
+const char* DescribePreviewSurface (PreviewSurface surface);
 
 } // namespace protocol
 } // namespace grasshopper

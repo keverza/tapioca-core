@@ -4,6 +4,10 @@
 #include "GhLog.hpp"
 
 #include "AddOnCommands.hpp"
+#include "Preview/GhPreviewCache.hpp"
+#include "Preview/GhPreviewIngest.hpp"
+#include "Preview/GhPreviewSegmentView.hpp"
+#include "Preview/PreviewRuntimeState.hpp"
 #include "Python/ApiDispatcher.hpp"
 
 #include <array>
@@ -333,8 +337,9 @@ void GhBridge::Run ()
         LogLine (gen, 0, "bridge handshake refused: " + reason);
         // Said out loud on the wire too. A worker told WHY it was refused can
         // report it in its own window; one that is merely disconnected cannot.
-        const std::string refusal = ToUtf8 (reason);
-        const std::vector<uint8_t> payload = protocol::EncodeTextPayload (refusal);
+        protocol::HelloAckPayload refusalAck;
+        refusalAck.refusal = ToUtf8 (reason);
+        const std::vector<uint8_t> payload = protocol::EncodeHelloAckPayload (refusalAck);
         const std::vector<uint8_t> ackHeader =
             protocol::EncodeHeader (protocol::MessageType::HelloAck, 0, header.requestId, (uint32_t) payload.size ());
         std::lock_guard<std::mutex> lock (writeMutex);
@@ -353,11 +358,24 @@ void GhBridge::Run ()
         return;
     }
 
+    // ⚠️ THE HOST GRANTS; THE WORKER ONLY OFFERS. Preview is available only when
+    // the worker asked for it AND this add-on has preview switched on. A worker
+    // told no here does not collect, convert or send -- which is what makes
+    // "preview off costs nothing" a fact about the handshake rather than a
+    // promise about dropping messages after they have already been paid for.
+    protocol::HelloAckPayload grantedAck;
+    grantedAck.capabilities = hello.capabilities & protocol::CapabilityPreview;
+    if (!evp::preview::PreviewRuntimeState::Get ().IsEnabled ())
+        grantedAck.capabilities &= ~protocol::CapabilityPreview;
+    previewIngest.GrantCapabilities (grantedAck.capabilities);
+
     {
-        const std::vector<uint8_t> ackHeader =
-            protocol::EncodeHeader (protocol::MessageType::HelloAck, 0, header.requestId, 0);
+        const std::vector<uint8_t> ackPayload = protocol::EncodeHelloAckPayload (grantedAck);
+        const std::vector<uint8_t> ackHeader = protocol::EncodeHeader (protocol::MessageType::HelloAck, 0,
+                                                                       header.requestId, (uint32_t) ackPayload.size ());
         std::lock_guard<std::mutex> lock (writeMutex);
-        if (!WriteExact (server, ackHeader.data (), (DWORD) ackHeader.size (), stopping))
+        if (!WriteExact (server, ackHeader.data (), (DWORD) ackHeader.size (), stopping) ||
+            !WriteExact (server, ackPayload.data (), (DWORD) ackPayload.size (), stopping))
             return;
     }
 
@@ -491,6 +509,53 @@ void GhBridge::Run ()
                 break;
             }
 
+            case protocol::MessageType::PreviewBeginBatch:
+            case protocol::MessageType::PreviewAdded:
+            case protocol::MessageType::PreviewChanged:
+            case protocol::MessageType::PreviewRemoved:
+            case protocol::MessageType::PreviewVisibility:
+            case protocol::MessageType::PreviewSelection:
+            case protocol::MessageType::PreviewEndBatch:
+            case protocol::MessageType::PreviewDropAll: {
+                // ⚠️ NOTHING HERE TOUCHES ACAPI, THE MAIN THREAD OR THE GPU, AND
+                // THAT IS THE WHOLE REASON PREVIEW CAN KEEP UP WITH A SLIDER
+                // DRAG. The ingest copies the batch out of the worker's shared
+                // memory into this process, publishes an immutable snapshot, and
+                // returns what has to be written back. The viewport picks the
+                // snapshot up on its own next frame.
+                const preview::GhPreviewReply reply =
+                    previewIngest.OnMessage (header.messageType, payload.data (), payload.size ());
+                if (!reply.log.empty ())
+                    LogWorkerLine (gen, hello.processId, FromUtf8 (reply.log));
+
+                // ⚠️ THE ACK IS WHAT RELEASES THE WORKER'S SEGMENT. A host that
+                // decided not to send one -- because the batch was refused, say
+                // -- would leave the worker holding that memory for as long as it
+                // lives, one leak per solve.
+                if (reply.sendAck) {
+                    const std::vector<uint8_t> body = protocol::EncodePreviewBatchAck (reply.ack);
+                    const std::vector<uint8_t> ackHeader =
+                        protocol::EncodeHeader (protocol::MessageType::PreviewBatchAck, 0, 0, (uint32_t) body.size ());
+                    std::lock_guard<std::mutex> lock (writeMutex);
+                    if (!WriteExact (server, ackHeader.data (), (DWORD) ackHeader.size (), stopping) ||
+                        !WriteExact (server, body.data (), (DWORD) body.size (), stopping)) {
+                        stopping.store (true);
+                        break;
+                    }
+                }
+                if (reply.sendResync) {
+                    const std::vector<uint8_t> body = protocol::EncodePreviewResyncRequest (reply.resync);
+                    const std::vector<uint8_t> resyncHeader = protocol::EncodeHeader (
+                        protocol::MessageType::PreviewResyncRequest, 0, 0, (uint32_t) body.size ());
+                    std::lock_guard<std::mutex> lock (writeMutex);
+                    if (!WriteExact (server, resyncHeader.data (), (DWORD) resyncHeader.size (), stopping) ||
+                        !WriteExact (server, body.data (), (DWORD) body.size (), stopping)) {
+                        stopping.store (true);
+                    }
+                }
+                break;
+            }
+
             case protocol::MessageType::Hello:
             case protocol::MessageType::HelloAck:
             case protocol::MessageType::ApiResponse:
@@ -499,6 +564,9 @@ void GhBridge::Run ()
             case protocol::MessageType::Shutdown:
             case protocol::MessageType::RunDefinition:
             case protocol::MessageType::CancelRun:
+            case protocol::MessageType::PreviewResyncRequest:
+            case protocol::MessageType::PreviewBatchAck:
+            case protocol::MessageType::PreviewPicked:
                 // Host-to-worker messages, arriving the wrong way. Recorded and
                 // ignored rather than acted on: the direction is part of the
                 // contract, and a worker that gets it wrong is a worker whose
@@ -512,6 +580,11 @@ void GhBridge::Run ()
     }
 
     connected.store (false);
+    // ⚠️ THE SEGMENT GOES WITH THE WORKER. A mapped view of a dead process's
+    // memory is a handle and an address-space reservation this add-on would hold
+    // until Archicad quits, and a preview nothing can ever update, remove or
+    // explain is worse than no preview at all.
+    previewIngest.OnWorkerGone ("the worker disconnected from the bridge");
     LogLine (gen, hello.processId, "worker disconnected from the bridge");
 }
 

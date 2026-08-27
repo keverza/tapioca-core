@@ -185,7 +185,9 @@ namespace Tapioca.GhWorker
             // From here the boot log stops being the sink: everything goes to the
             // add-on, which stamps it into logs\grasshopper.log with this pid.
             WorkerLog.AttachBridge(_bridge);
-            TapiocaBridgeApi.Bind(_bridge);
+            // The generation IS the preview epoch: it changes on every restart,
+            // and the add-on drops preview from any other one without complaint.
+            TapiocaBridgeApi.Bind(_bridge, arguments.Generation);
             WorkerLog.Write("bridge connected");
 
             uint tapirPort = StartTapirProxy(arguments.ArchicadJsonPort);

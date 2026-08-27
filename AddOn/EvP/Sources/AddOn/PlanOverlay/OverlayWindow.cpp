@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cwchar>
 
 namespace geomsrv {
@@ -67,6 +68,8 @@ TrackStats s_stats;
 UINT s_requestedIntervalMs = TRACK_STABLE_INTERVAL_MS;
 bool s_fastTimer = false;
 ULONGLONG s_lastActivityTick = 0;
+OverlayWindowId s_boundWindow;
+bool s_overlayVisible = true;
 
 bool HasOverlayClass (HWND hwnd)
 {
@@ -327,6 +330,28 @@ LRESULT CALLBACK OverlayWndProc (HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
                 // Archicad's UI thread. This is the main thread; it is not a worker
                 // and must never become one.
                 ++s_stats.polls;
+
+                // ⚠️ DECIDED BEFORE ANY OF THE WORK, NOT AFTER IT. Everything
+                // below is the expensive part -- four ACAPI round trips for the
+                // projection and a layered-window repaint -- and the whole point
+                // of suspending is that a tick with a schedule in front costs
+                // one cheap window query and nothing else.
+                const OverlayTrackDecision decision =
+                    DecideTrackTick (s_boundWindow, CurrentWindowId (), s_overlayVisible);
+                if (decision.visibilityChanged) {
+                    s_overlayVisible = decision.visible;
+                    ShowWindow (hwnd, decision.visible ? SW_SHOWNOACTIVATE : SW_HIDE);
+                }
+                s_stats.suspended = !decision.track;
+                if (!decision.track) {
+                    ++s_stats.suspendedPolls;
+                    // Back to the slow cadence: a suspended overlay is waiting
+                    // for a window to come forward, which is a human-speed event
+                    // rather than a pan.
+                    SetTimerCadence (hwnd, false);
+                    return 0;
+                }
+
                 const bool rectChanged = RepositionOverCanvas (hwnd);
                 const TransformObservation observation = DeriveTransform ();
                 if (!observation.affine.valid)
@@ -405,6 +430,11 @@ HWND Create (HWND parent, HWND canvas, const RECT& rectInParent, const Style& st
     DestroyAll ();
     s_style = style;
     s_canvas = canvas;
+    // A fresh window is created visible, so the suspension flag starts agreeing
+    // with it. A stale false here would survive from a previous session and
+    // describe a window that no longer exists.
+    s_overlayVisible = true;
+    s_stats.suspended = false;
 
     if (!s_classRegistered) {
         WNDCLASSEXW wc = {};
@@ -540,6 +570,44 @@ void SetAnnotationFrame (std::shared_ptr<const annotation::Frame> frame)
         InvalidateRect (h, nullptr, TRUE);
 }
 
+void BindWindow (const OverlayWindowId& window)
+{
+    s_boundWindow = window;
+}
+
+OverlayWindowId BoundWindow ()
+{
+    return s_boundWindow;
+}
+
+OverlayWindowId CurrentWindowId ()
+{
+    // ⚠️ MAIN THREAD ONLY. This is called from the WndProc's timer, which runs
+    // on Archicad's UI thread; that is the only reason an ACAPI call is legal
+    // here at all.
+    API_WindowInfo info {};
+    if (ACAPI_Window_GetCurrentWindow (&info) != NoError) {
+        // A default rather than a guess. DecideTrackTick suspends on it, which
+        // is also the right answer while a project is closing and this timer is
+        // still running.
+        return OverlayWindowId ();
+    }
+
+    OverlayWindowId id;
+    id.typeId = (uint32_t) info.typeID;
+    id.index = (int32_t) info.index;
+    // API_Guid is sixteen bytes of POD (API_Guid.hpp: time_low, time_mid,
+    // time_hi_and_version, clock_seq_*, node[6]). Copied as two words rather
+    // than compared field by field, so that a DevKit type never has to appear in
+    // OverlayBinding.hpp and the comparison stays a value compare.
+    static_assert (sizeof (info.databaseUnId.elemSetId) == 16, "API_Guid is expected to be 16 bytes");
+    uint64_t words[2] = { 0, 0 };
+    std::memcpy (words, &info.databaseUnId.elemSetId, sizeof (words));
+    id.databaseGuidHigh = words[0];
+    id.databaseGuidLow = words[1];
+    return id;
+}
+
 void SetTracking (bool enable, UINT intervalMs)
 {
     HWND h = Current ();
@@ -569,6 +637,7 @@ void SetTracking (bool enable, UINT intervalMs)
 
 TrackStats GetTrackStats ()
 {
+    s_stats.boundWindow = s_boundWindow;
     TrackStats s = s_stats;
     s.transform = s_transform;
     return s;

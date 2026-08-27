@@ -152,12 +152,144 @@ namespace Tapioca.GhWorker
             return true;
         }
 
-        internal static byte[] EncodeHelloPayload(int processId)
+        internal static byte[] EncodeHelloPayload(int processId, Capabilities offered)
         {
             byte[] payload = new byte[8];
             WriteUInt32(payload, 0, (uint)processId);
-            WriteUInt32(payload, 4, 0u); // capabilities: none beyond protocol v1
+            // ⚠️ AN OFFER, NOT A DECISION. The host answers with what it
+            // GRANTED, and only that word may be acted on: a worker that treated
+            // its own offer as the answer would collect, convert and send
+            // preview into an add-on that has it switched off, which is exactly
+            // the cost "preview off costs nothing" promises never to pay.
+            WriteUInt32(payload, 4, (uint)offered);
             return payload;
+        }
+
+        /// <summary>
+        /// The add-on's answer: the granted capability word, and a refusal
+        /// reason that is empty on acceptance.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ ONE SHAPE FOR BOTH OUTCOMES. Mirrors HelloAckPayload in
+        /// GhProtocol.hpp, including its named cost: an add-on speaking an OLDER
+        /// protocol answers a version refusal in raw UTF-8, so its first four
+        /// characters land here as a capability word and its reason reads four
+        /// characters short. That path is already an error, and the alternative
+        /// -- discriminating the shape by payload length -- cannot tell a
+        /// refusal sentence from a capability word at all.
+        /// </remarks>
+        internal static bool DecodeHelloAckPayload(
+            byte[] payload, out Capabilities granted, out string refusal, out string error)
+        {
+            granted = Capabilities.None;
+            refusal = string.Empty;
+            error = string.Empty;
+
+            if (payload == null || payload.Length < 4)
+            {
+                error = "The add-on's handshake answer was short.";
+                return false;
+            }
+
+            granted = (Capabilities)ReadUInt32(payload, 0);
+            refusal = payload.Length > 4
+                ? Encoding.UTF8.GetString(payload, 4, payload.Length - 4)
+                : string.Empty;
+            return true;
+        }
+
+        /// <summary>
+        /// The batch ack that RELEASES a segment: which batch, and whether the
+        /// host took it. Mirrors PreviewBatchAckPayload in GhPreviewProtocol.hpp.
+        /// </summary>
+        internal static bool DecodePreviewBatchAckPayload(
+            byte[] payload, out uint epoch, out uint revision, out bool accepted, out string reason, out string error)
+        {
+            epoch = 0;
+            revision = 0;
+            accepted = false;
+            reason = string.Empty;
+            error = string.Empty;
+
+            // epoch, revision, accepted (as a uint32), reasonLength, reason.
+            if (payload == null || payload.Length < 16)
+            {
+                error = "A preview batch ack was short.";
+                return false;
+            }
+
+            uint acceptedWord = ReadUInt32(payload, 8);
+            if (acceptedWord > 1u)
+            {
+                error = "A preview batch ack carried " + acceptedWord + " where a flag was expected.";
+                return false;
+            }
+
+            long reasonBytes = ReadUInt32(payload, 12);
+            if (16 + reasonBytes > payload.Length)
+            {
+                error = "A preview batch ack declared more reason text than it carried.";
+                return false;
+            }
+
+            epoch = ReadUInt32(payload, 0);
+            revision = ReadUInt32(payload, 4);
+            accepted = acceptedWord != 0;
+            reason = reasonBytes == 0 ? string.Empty : Encoding.UTF8.GetString(payload, 16, (int)reasonBytes);
+            return true;
+        }
+
+        /// <summary>
+        /// "Your next batch must be a full one." Mirrors
+        /// PreviewResyncRequestPayload in GhPreviewProtocol.hpp.
+        /// </summary>
+        internal static bool DecodePreviewResyncPayload(
+            byte[] payload, out uint epoch, out string reason, out string error)
+        {
+            epoch = 0;
+            reason = string.Empty;
+            error = string.Empty;
+
+            if (payload == null || payload.Length < 8)
+            {
+                error = "A preview resync request was short.";
+                return false;
+            }
+
+            long reasonBytes = ReadUInt32(payload, 4);
+            if (8 + reasonBytes > payload.Length)
+            {
+                error = "A preview resync request declared more reason text than it carried.";
+                return false;
+            }
+
+            epoch = ReadUInt32(payload, 0);
+            reason = reasonBytes == 0 ? string.Empty : Encoding.UTF8.GetString(payload, 8, (int)reasonBytes);
+            return true;
+        }
+
+        /// <summary>
+        /// A viewport pick resolved to one primitive id. Mirrors
+        /// PreviewPickedPayload in GhPreviewProtocol.hpp.
+        /// </summary>
+        internal static bool DecodePreviewPickedPayload(byte[] payload, out ulong primitiveId, out string error)
+        {
+            primitiveId = 0;
+            error = string.Empty;
+            if (payload == null || payload.Length != 8)
+            {
+                error = "A preview pick was not 8 bytes.";
+                return false;
+            }
+
+            primitiveId = ReadUInt32(payload, 0) | ((ulong)ReadUInt32(payload, 4) << 32);
+            if (primitiveId == 0)
+            {
+                error = "A preview pick carried no primitive id.";
+                return false;
+            }
+
+            return true;
         }
 
         internal static byte[] EncodeApiRequestPayload(string command, string parametersJson)

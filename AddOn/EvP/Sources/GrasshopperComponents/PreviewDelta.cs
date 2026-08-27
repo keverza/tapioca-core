@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 
 namespace Tapioca.Grasshopper
 {
@@ -88,6 +89,37 @@ namespace Tapioca.Grasshopper
     /// rules can be exercised without either.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// The batch counter for this whole worker.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ ONE COUNTER FOR THE PROCESS, NOT ONE PER MIRROR, AND THE REASON IS THE
+    /// HOST'S RULE. <c>revision</c> is monotonic within an EPOCH — the worker
+    /// generation — and Archicad refuses a batch whose revision it has already
+    /// seen, because a repeated or reversed one means messages were reordered or
+    /// replayed. A mirror per component with a counter per mirror gives two
+    /// preview components on one canvas the same revision 1, and the second
+    /// component's geometry is refused for the life of the definition. The
+    /// symptom is "only one of my preview components works", which points
+    /// nowhere near a counter.
+    /// </para>
+    /// <para>
+    /// Identity is what separates the components' primitives, and it already
+    /// does: <c>primitiveId</c> hashes the component guid. The revision separates
+    /// BATCHES, and the worker only ever has one batch stream.
+    /// </para>
+    /// </remarks>
+    internal static class PreviewRevision
+    {
+        private static int _next;
+
+        internal static uint Next()
+        {
+            return (uint)Interlocked.Increment(ref _next);
+        }
+    }
+
     internal sealed class PreviewMirror
     {
         private readonly Dictionary<ulong, PreviewPrimitive> _sent = new Dictionary<ulong, PreviewPrimitive>();
@@ -117,7 +149,7 @@ namespace Tapioca.Grasshopper
         internal PreviewBatch Diff(IList<PreviewPrimitive> captured)
         {
             PreviewBatch batch = new PreviewBatch();
-            _revision++;
+            _revision = PreviewRevision.Next();
             batch.Revision = _revision;
 
             HashSet<ulong> seen = new HashSet<ulong>();

@@ -409,6 +409,74 @@ TEST (GhPreviewCache, AMalformedPrimitiveIsRefusedByTheCacheAsWellAsTheCodec)
     EXPECT_EQ (GhPreviewApply::Refused, cache.Apply (message, PreviewChange::Added, reason));
 }
 
+TEST (GhPreviewCache, OneCacheHoldsBothSurfacesAndEachLayerAsksWhichIsItsOwn)
+{
+    // The cache is NOT split by surface on purpose: identity, selection, the
+    // delta protocol and the pick range are the same problem in either window,
+    // and two caches would duplicate all four. It is the LAYERS that split, and
+    // DrawnOn is the question each one asks.
+    GhPreviewCache cache;
+    std::string reason;
+    Footer footer;
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 1, 3), reason));
+
+    PreviewPrimitiveMessage model = Line (10, 1, 0);
+    model.header.surface = PreviewSurface::Model3D;
+    cache.Apply (model, PreviewChange::Added, reason);
+    footer.Add (10, PreviewChange::Added);
+
+    PreviewPrimitiveMessage plan = Line (20, 1, 1);
+    plan.header.surface = PreviewSurface::FloorPlan;
+    cache.Apply (plan, PreviewChange::Added, reason);
+    footer.Add (20, PreviewChange::Added);
+
+    PreviewPrimitiveMessage both = Line (30, 1, 2);
+    both.header.surface = PreviewSurface::Both;
+    cache.Apply (both, PreviewChange::Added, reason);
+    footer.Add (30, PreviewChange::Added);
+
+    ASSERT_EQ (GhPreviewApply::Applied, cache.EndBatch (footer.End (1, 1)).apply);
+    auto snapshot = cache.SnapshotCopy ();
+
+    EXPECT_TRUE (Find (snapshot, 10)->DrawnOn (PreviewSurface::Model3D));
+    EXPECT_FALSE (Find (snapshot, 10)->DrawnOn (PreviewSurface::FloorPlan));
+    EXPECT_TRUE (Find (snapshot, 20)->DrawnOn (PreviewSurface::FloorPlan));
+    EXPECT_FALSE (Find (snapshot, 20)->DrawnOn (PreviewSurface::Model3D));
+    // Both answers yes to either, which is the whole reason it is a value rather
+    // than the author wiring two components.
+    EXPECT_TRUE (Find (snapshot, 30)->DrawnOn (PreviewSurface::Model3D));
+    EXPECT_TRUE (Find (snapshot, 30)->DrawnOn (PreviewSurface::FloorPlan));
+}
+
+TEST (GhPreviewCache, RetargetingAComponentKeepsItsIdentityAndMovesIt)
+{
+    // An author who drags a definition's output from the 3D window to the floor
+    // plan has changed what that component PRODUCES, not produced something
+    // else. So it must diff as Changed under the same id -- keeping its
+    // selection -- and the primitive must actually move surfaces.
+    GhPreviewCache cache;
+    std::string reason;
+    Footer first;
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 1, 1), reason));
+    PreviewPrimitiveMessage model = Line (10, 1, 0);
+    model.header.surface = PreviewSurface::Model3D;
+    cache.Apply (model, PreviewChange::Added, reason);
+    first.Add (10, PreviewChange::Added);
+    ASSERT_EQ (GhPreviewApply::Applied, cache.EndBatch (first.End (1, 1)).apply);
+
+    Footer second;
+    ASSERT_EQ (GhPreviewApply::Applied, cache.BeginBatch (Begin (1, 2, 1), reason));
+    PreviewPrimitiveMessage plan = Line (10, 2, 0);
+    plan.header.surface = PreviewSurface::FloorPlan;
+    cache.Apply (plan, PreviewChange::Changed, reason);
+    second.Add (10, PreviewChange::Changed);
+    ASSERT_EQ (GhPreviewApply::Applied, cache.EndBatch (second.End (1, 2)).apply);
+
+    EXPECT_EQ ((size_t) 1, cache.Count ());
+    EXPECT_TRUE (Find (cache.SnapshotCopy (), 10)->DrawnOn (PreviewSurface::FloorPlan));
+    EXPECT_FALSE (Find (cache.SnapshotCopy (), 10)->DrawnOn (PreviewSurface::Model3D));
+}
+
 TEST (GhPreviewCache, ASnapshotSurvivesTheNextBatch)
 {
     // The render thread holds a shared_ptr across frames and never takes the

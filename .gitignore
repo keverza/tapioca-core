@@ -17,6 +17,14 @@ __pycache__/
 !docs/static/*.gif
 !docs/static/Logo.jpg
 /AddOn/EvP/build_29
+# The artifacts Build-AddOn29.ps1 copies into dist/ at the end of a build, so the
+# shipped binaries are in one findable place. dist/ ITSELF IS TRACKED -- it
+# carries the generated API docs -- so the BINARIES are ignored by EXTENSION
+# rather than the folder, or a 15 MB .apx would land in every commit.
+/dist/*.apx
+/dist/*.dll
+/dist/*.gha
+/dist/*.pdb
 /AddOn/EvP/NotebookUI/node_modules/
 /AddOn/EvP/NotebookUI/dist/
 # Dump DATA only. Was `*dump*`, which (core.ignorecase=true on Windows) also

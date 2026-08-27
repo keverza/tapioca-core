@@ -60,7 +60,8 @@ namespace Tapioca.Grasshopper
             Guid componentGuid,
             Guid parameterGuid,
             uint branchHash,
-            uint itemIndex)
+            uint itemIndex,
+            PreviewSurface surface)
         {
             PreviewPrimitive primitive = Build(Unwrap(item));
             if (primitive == null)
@@ -73,6 +74,12 @@ namespace Tapioca.Grasshopper
             primitive.BranchHash = branchHash;
             primitive.ItemIndex = itemIndex;
             primitive.Flags = PreviewFlags.Visible | PreviewFlags.DepthTest;
+            // ⚠️ THE SURFACE IS SET BEFORE THE CONTENT HASH, NOT AFTER. It is one
+            // of the things Content() covers, so assigning it later would leave a
+            // retargeted primitive hashing identical to the one it replaced — the
+            // host would never be told, and the geometry would simply stop
+            // appearing in the window the author moved it to.
+            primitive.Surface = surface;
             primitive.Id = PreviewHash.Identity(componentGuid, parameterGuid, branchHash, itemIndex);
             primitive.ContentHash = PreviewHash.Content(primitive);
             return primitive;

@@ -28,6 +28,39 @@ namespace Tapioca.Grasshopper
         Bounds = 10,
     }
 
+    /// <summary>
+    /// WHERE a primitive is meant to be drawn. Mirrors PreviewSurface in
+    /// GhPreviewProtocol.hpp.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// ⚠️ ARCHICAD'S 3D WINDOW AND ITS FLOOR PLAN ARE NOT ONE SURFACE WITH TWO
+    /// CAMERAS. They are different host code paths in the add-on already, with
+    /// different projections, different units, and different ideas of what a
+    /// line's width means. Nothing downstream can tell which a result was meant
+    /// for from the geometry alone — a flat polyline at z=0 is a perfectly
+    /// ordinary 3D result — so the AUTHOR says, and it crosses the wire.
+    /// </para>
+    /// <para>
+    /// ⚠️ NOT INFERRED FROM THE ACTIVE WINDOW. Binding this to whatever window
+    /// happens to be focused would make what the model shows depend on where
+    /// someone last clicked. An author who WANTS that can wire Tapir's
+    /// GetCurrentWindowType into the component's Target input and see it in the
+    /// definition, which is the difference between a choice and hidden state.
+    /// </para>
+    /// </remarks>
+    internal enum PreviewSurface : byte
+    {
+        Model3D = 1,
+        FloorPlan = 2,
+
+        /// <summary>
+        /// Drawn in both. The honest answer for geometry that means the same
+        /// thing either way — a grid, a site outline, a setting-out point.
+        /// </summary>
+        Both = 3,
+    }
+
     [Flags]
     internal enum PreviewFlags : byte
     {
@@ -65,6 +98,14 @@ namespace Tapioca.Grasshopper
         internal PreviewPrimitiveKind Kind;
 
         internal PreviewFlags Flags;
+
+        /// <summary>
+        /// Which Archicad window this is for. Part of the CONTENT, not the
+        /// identity: an author who retargets a component from the 3D window to
+        /// the floor plan has changed what it produces, not produced something
+        /// else, so it must diff as Changed and keep its selection.
+        /// </summary>
+        internal PreviewSurface Surface = PreviewSurface.Model3D;
 
         internal uint ItemIndex;
 
@@ -231,6 +272,11 @@ namespace Tapioca.Grasshopper
         {
             ulong hash = Start();
             hash = Byte(hash, (byte)primitive.Kind);
+            // Retargeting a component is a content change, so it is hashed here
+            // rather than in Identity. Leaving it out would let a definition
+            // switch from the 3D window to the floor plan without the host ever
+            // being told, and the geometry would simply stop appearing.
+            hash = Byte(hash, (byte)primitive.Surface);
             hash = Byte(hash, primitive.Closed ? (byte)1 : (byte)0);
             hash = Doubles(hash, primitive.Positions);
             hash = Doubles(hash, primitive.Normals);

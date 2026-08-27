@@ -30,6 +30,7 @@
 #include <windows.h>
 
 #include "Annotation/DrawList.hpp"
+#include "PlanOverlay/OverlayBinding.hpp"
 #include "PlanOverlay/OverlayOwnership.hpp"
 
 namespace geomsrv {
@@ -98,6 +99,13 @@ struct TrackStats {
     long recomputes = 0; // ticks where the transform actually changed
     long repaints = 0;
     long acapiFailures = 0;
+    // Ticks spent asleep because some other Archicad window was in front, and
+    // whether the last one was. Reported rather than inferred: "the overlay does
+    // not appear" and "the overlay is asleep because you are looking at a
+    // schedule" are the same symptom and completely different problems.
+    long suspendedPolls = 0;
+    bool suspended = false;
+    OverlayWindowId boundWindow;
     Transform transform;
 };
 
@@ -144,6 +152,25 @@ void SetAnnotationFrame (std::shared_ptr<const annotation::Frame> frame);
 // Change whole-window opacity without recreating the click-through overlay.
 // Refuses callers that do not own the current window.
 bool SetOpacity (Owner owner, int alpha);
+
+// --- window binding --------------------------------------------------------
+
+// Which Archicad window this overlay is FOR. Recorded once, when a session opens
+// over a canvas, and compared on every tracking tick.
+//
+// ⚠️ AN OVERLAY IS BOUND TO A WINDOW, NOT TO WHATEVER IS FOCUSED. Archicad's
+// floor plan, its 3D window, a section and a schedule are different projections
+// with different units; geometry pinned to plan coordinates and drawn over a
+// schedule is a wrong picture rather than a degraded one. Binding also decides
+// COST: an unbound overlay keeps polling ACAPI and repainting a layered window
+// on the UI thread for a plan nobody can see. See OverlayBinding.hpp.
+void BindWindow (const OverlayWindowId& window);
+OverlayWindowId BoundWindow ();
+
+// The active window's identity, as ACAPI reports it. A default (Known() false)
+// when it cannot be read, which SUSPENDS rather than being guessed at. MAIN
+// THREAD ONLY, like everything else here.
+OverlayWindowId CurrentWindowId ();
 
 // --- tracking --------------------------------------------------------------
 

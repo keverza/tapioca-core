@@ -12,6 +12,12 @@ struct PlanCanvasTarget {
     HWND parent = nullptr;
     HWND canvas = nullptr;
     RECT rectInParent {};
+    // WHICH floor plan this canvas is showing, captured at the same moment the
+    // canvas HWND is. The two have to be read together: Archicad reuses one
+    // document window for several databases, so an HWND on its own does not say
+    // which one is in it, and an overlay that only remembers the HWND keeps
+    // drawing after the user opens a schedule in the same frame.
+    OverlayWindowId window;
 };
 
 HWND ChildAtPoint (HWND parent, POINT screenPoint, bool skipTransparent, bool excludeOverlay)
@@ -36,6 +42,7 @@ SessionStart FindCurrentPlanCanvas (PlanCanvasTarget& target)
     API_WindowInfo windowInfo {};
     if (ACAPI_Window_GetCurrentWindow (&windowInfo) != NoError || windowInfo.typeID != APIWind_FloorPlanID)
         return SessionStart::NotFloorPlan;
+    target.window = CurrentWindowId ();
 
     HWND mainWindow = ACAPI_GetMainWindow ();
     if (mainWindow == nullptr || !IsWindow (mainWindow))
@@ -115,6 +122,12 @@ SessionStart BeginCurrentPlanSession (Owner owner, const Style& style, UINT trac
             return SessionStart::CreateFailed;
         ownsWindow = true;
     }
+
+    // ⚠️ BOUND BEFORE TRACKING STARTS. The first timer tick compares against
+    // this; binding afterwards would let one tick run against whatever window
+    // happened to be in front, and a tick that projects into the wrong window is
+    // the one picture a user would trust and should not.
+    BindWindow (target.window);
 
     const bool startedTracking = !GetTrackStats ().tracking;
     if (startedTracking)

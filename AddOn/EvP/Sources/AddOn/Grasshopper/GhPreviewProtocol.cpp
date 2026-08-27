@@ -144,6 +144,30 @@ bool KnownPreviewKind (uint8_t value)
     return false;
 }
 
+bool KnownPreviewSurface (uint8_t value)
+{
+    switch ((PreviewSurface) value) {
+        case PreviewSurface::Model3D:
+        case PreviewSurface::FloorPlan:
+        case PreviewSurface::Both:
+            return true;
+    }
+    return false;
+}
+
+const char* DescribePreviewSurface (PreviewSurface surface)
+{
+    switch (surface) {
+        case PreviewSurface::Model3D:
+            return "the 3D window";
+        case PreviewSurface::FloorPlan:
+            return "the floor plan";
+        case PreviewSurface::Both:
+            return "both windows";
+    }
+    return "an unknown surface";
+}
+
 const char* DescribePreviewKind (PreviewKind kind)
 {
     switch (kind) {
@@ -626,7 +650,8 @@ void AppendPrimitiveHeader (std::vector<uint8_t>& buffer, const PreviewPrimitive
     AppendUInt64 (buffer, header.primitiveId);
     buffer.push_back ((uint8_t) header.kind);
     buffer.push_back (header.flags);
-    AppendUInt16 (buffer, header.reserved);
+    buffer.push_back ((uint8_t) header.surface);
+    buffer.push_back (header.reserved);
     AppendUInt32 (buffer, header.itemIndex);
     buffer.insert (buffer.end (), header.componentGuid, header.componentGuid + 16);
     buffer.insert (buffer.end (), header.parameterGuid, header.parameterGuid + 16);
@@ -699,11 +724,23 @@ bool DecodePreviewPrimitive (const uint8_t* bytes, size_t size, PreviewPrimitive
         return false;
     }
 
+    // ⚠️ A SURFACE THE HOST DOES NOT KNOW IS A REFUSAL, NOT A DEFAULT. Falling
+    // back to the 3D window would draw plan linework in the model, which reads
+    // as a bug in the definition rather than as a version mismatch between the
+    // two halves.
+    const uint8_t surfaceValue = bytes[10];
+    if (!KnownPreviewSurface (surfaceValue)) {
+        error = "The preview primitive named drawing surface " + std::to_string ((uint32_t) surfaceValue) +
+                ", which is not one this add-on knows.";
+        return false;
+    }
+
     PreviewPrimitiveHeader header;
     header.primitiveId = ReadUInt64 (bytes);
     header.kind = (PreviewKind) kindValue;
     header.flags = bytes[9];
-    header.reserved = ReadUInt16 (bytes + 10);
+    header.surface = (PreviewSurface) bytes[10];
+    header.reserved = bytes[11];
     header.itemIndex = ReadUInt32 (bytes + 12);
     std::memcpy (header.componentGuid, bytes + 16, 16);
     std::memcpy (header.parameterGuid, bytes + 32, 16);

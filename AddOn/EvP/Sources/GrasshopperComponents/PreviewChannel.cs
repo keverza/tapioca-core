@@ -32,11 +32,12 @@ namespace Tapioca.Grasshopper
     /// could be built from.
     /// </para>
     /// <para>
-    /// ⚠️ WHAT THIS DOES NOT DO YET. It frames; it does not send. The pipe write
-    /// and the shared-memory segment are P2 of the preview work, and
-    /// <see cref="EncodeBatch"/> deliberately returns the frames rather than
-    /// pushing them, so the format is exercised and byte-pinned before a
-    /// transport exists to hide a mistake in it.
+    /// ⚠️ IT FRAMES; IT DOES NOT SEND, AND THAT SEPARATION IS PERMANENT.
+    /// <see cref="EncodeBatch"/> returns the frames and the segment rather than
+    /// pushing them, so the format stays exercised and byte-pinned by tests that
+    /// need no transport at all. Sending is <see cref="TapiocaPreviewBridge"/>,
+    /// which hands these bytes to the worker; publishing the segment and holding
+    /// it until Archicad acknowledges is the worker (PreviewSegments.cs).
     /// </para>
     /// </remarks>
     internal static class PreviewChannel
@@ -311,8 +312,8 @@ namespace Tapioca.Grasshopper
             WriteUInt64(payload, primitive.Id);
             payload.Add((byte)primitive.Kind);
             payload.Add((byte)primitive.Flags);
+            payload.Add((byte)primitive.Surface);
             payload.Add(0); // reserved
-            payload.Add(0);
             WriteUInt32(payload, primitive.ItemIndex);
             payload.AddRange(primitive.ComponentGuid.ToByteArray());
             payload.AddRange(primitive.ParameterGuid.ToByteArray());

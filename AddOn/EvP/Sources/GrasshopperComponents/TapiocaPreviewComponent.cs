@@ -26,12 +26,18 @@ namespace Tapioca.Grasshopper
     /// SDK reference lands.
     /// </para>
     /// <para>
-    /// ⚠️ WHAT THIS DOES NOT DO YET. Nothing here reaches Archicad. Capture,
-    /// conversion and the delta are complete and observable on the canvas; the
-    /// transport and the Diligent layers are P1 and P2 of the preview work. The
-    /// outputs below report what WOULD be sent, so this is verifiable now instead
-    /// of after the whole pipeline exists. Do not read the delta counts as
-    /// evidence that anything was drawn.
+    /// ⚠️ WHAT THIS DOES AND DOES NOT REACH. The capture, the delta and the
+    /// TRANSPORT are complete: a batch is framed, its bulk goes through shared
+    /// memory, and Archicad's GhPreviewCache holds the result. What is drawn from
+    /// that cache is the Diligent and plan layers' job. Read the Delta output as
+    /// evidence that a batch was ACCEPTED, not that a picture appeared.
+    /// </para>
+    /// <para>
+    /// ⚠️ A FAILED SEND DROPS THE MIRROR RATHER THAN RETRYING. The diff was
+    /// computed against a mirror that has already advanced, so after a failure
+    /// the two sides disagree and every later delta compounds it. Forgetting the
+    /// mirror costs one full batch; retrying against it costs a viewport that is
+    /// quietly wrong for the rest of the session.
     /// </para>
     /// <para>
     /// ⚠️ CAPTURE MUST NEVER CAUSE A SOLVE. This reads the data it is given inside
@@ -77,6 +83,14 @@ namespace Tapioca.Grasshopper
             // canvas preview and once by Archicad — and the duplicate reads as a
             // z-fighting artefact rather than as two previews of one thing.
             pManager.HideParameter(0);
+            pManager.AddTextParameter(
+                "Target",
+                "T",
+                "Which Archicad window this geometry is for: \"3D\", \"Plan\" or \"Both\". Tapir's "
+                + "GetCurrentWindowType output (FloorPlan, 3DModel, Section, Layout) can be wired "
+                + "straight in.",
+                GH_ParamAccess.item,
+                "3D");
             pManager.AddBooleanParameter(
                 "Visible",
                 "V",
@@ -99,8 +113,40 @@ namespace Tapioca.Grasshopper
             List<object> items = new List<object>();
             DA.GetDataList(0, items);
 
+            string target = "3D";
+            DA.GetData(1, ref target);
+
+            PreviewSurface surface;
+            if (!TryReadSurface(target, out surface))
+            {
+                // ⚠️ NOT A SILENT FALLBACK TO 3D. Plan linework quietly drawn in
+                // the model window looks like a bug in the definition, and the
+                // author would hunt the geometry rather than the spelling.
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Error,
+                    "\"" + target + "\" is not a preview target. Use 3D, Plan or Both — or wire Tapir's "
+                    + "GetCurrentWindowType in, which reports 3DModel and FloorPlan.");
+                return;
+            }
+
             bool visible = true;
-            DA.GetData(1, ref visible);
+            DA.GetData(2, ref visible);
+
+            // ⚠️ ASKED BEFORE ANYTHING IS CONVERTED, AND THAT IS THE WHOLE POINT
+            // OF THE CAPABILITY GATE. Tessellating a definition's breps and then
+            // discarding the batch would put the entire cost of preview on every
+            // solve for a user who has it switched off, or who is running this
+            // canvas outside Archicad altogether.
+            if (!TapiocaPreviewBridge.Available)
+            {
+                DA.SetData(0, 0);
+                DA.SetData(1, "not sent");
+                AddRuntimeMessage(
+                    GH_RuntimeMessageLevel.Remark,
+                    "Archicad is not taking preview from this Grasshopper. Open it with Tapioca > Grasshopper "
+                    + "Editor from Archicad's menu, and check that preview is enabled in the add-on.");
+                return;
+            }
 
             Guid parameterGuid = Params.Input.Count > 0 ? Params.Input[0].InstanceGuid : InstanceGuid;
 
@@ -115,7 +161,7 @@ namespace Tapioca.Grasshopper
             for (int index = 0; index < items.Count; index++)
             {
                 PreviewPrimitive primitive = PreviewConvert.Convert(
-                    items[index], InstanceGuid, parameterGuid, branchHash, (uint)index);
+                    items[index], InstanceGuid, parameterGuid, branchHash, (uint)index, surface);
                 if (primitive == null)
                 {
                     unsupported++;
@@ -145,12 +191,88 @@ namespace Tapioca.Grasshopper
                     unsupported + " item(s) were not geometry Tapioca previews, and were skipped.");
             }
 
-            // Said once, on the component, rather than in a log nobody opens: a
-            // user wiring this up today should not be left wondering why Archicad
-            // shows nothing.
+            Send(batch);
+        }
+
+        /// <summary>
+        /// Frames the diff and hands it to the bridge, and says on the canvas
+        /// when it could not go.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ AN EMPTY BATCH SENDS NOTHING AT ALL. Steady state — a definition
+        /// re-solving with nothing this component produced having changed — must
+        /// cost ZERO BYTES, not an empty batch's framing and an ack round trip.
+        /// It is the commonest case on a slider drag.
+        /// </remarks>
+        private void Send(PreviewBatch batch)
+        {
+            if (batch.IsEmpty)
+            {
+                return;
+            }
+
+            PreviewChannel.PreviewWireBatch wire = PreviewChannel.EncodeBatch(batch, TapiocaPreviewBridge.Epoch);
+            string error = TapiocaPreviewBridge.Send(wire);
+            if (string.IsNullOrEmpty(error))
+            {
+                return;
+            }
+
+            // ⚠️ THE MIRROR GOES WITH THE FAILURE. The diff was computed against
+            // it and the batch never arrived, so it now describes a cache
+            // Archicad does not have; the next solve must send a full batch
+            // rather than a delta against a fiction.
+            _mirror.DropAll();
             AddRuntimeMessage(
-                GH_RuntimeMessageLevel.Remark,
-                "Capture only. Preview does not reach Archicad's viewport yet.");
+                GH_RuntimeMessageLevel.Warning,
+                "This capture did not reach Archicad, and the next solve will resend all of it: " + error);
+        }
+
+        /// <summary>
+        /// Reads a target the author typed, or one Tapir's GetCurrentWindowType
+        /// produced.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ TAPIR'S VOCABULARY IS ACCEPTED ON PURPOSE, AND IT IS THE WHOLE
+        /// POINT OF THIS BEING TEXT. GetCurrentWindowType answers "FloorPlan",
+        /// "3DModel", "Section" or "Layout"; wiring it into this input is how an
+        /// author gets "preview wherever I am working" as a visible, editable
+        /// choice on the canvas rather than as hidden state in the add-on.
+        ///
+        /// Section and Layout are recognised and REFUSED rather than ignored:
+        /// Tapioca has no preview surface for either yet, and returning false
+        /// makes SolveInstance say so instead of drawing them somewhere wrong.
+        /// </remarks>
+        private static bool TryReadSurface(string value, out PreviewSurface surface)
+        {
+            surface = PreviewSurface.Model3D;
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+
+            switch (value.Trim().ToUpperInvariant())
+            {
+                case "3D":
+                case "3DMODEL":
+                case "MODEL":
+                    surface = PreviewSurface.Model3D;
+                    return true;
+
+                case "PLAN":
+                case "FLOORPLAN":
+                case "2D":
+                    surface = PreviewSurface.FloorPlan;
+                    return true;
+
+                case "BOTH":
+                case "ALL":
+                    surface = PreviewSurface.Both;
+                    return true;
+
+                default:
+                    return false;
+            }
         }
 
         /// <summary>
@@ -159,7 +281,12 @@ namespace Tapioca.Grasshopper
         /// </summary>
         public override void RemovedFromDocument(GH_Document document)
         {
+            // ⚠️ BOTH MIRRORS, NOT JUST THIS ONE. Forgetting only the worker's
+            // side would leave Archicad holding this component's geometry with
+            // nothing left in the definition that could ever remove it — a
+            // preview that cannot be got rid of short of restarting the worker.
             _mirror.DropAll();
+            TapiocaPreviewBridge.DropAll("a Tapioca Preview component left the document");
             base.RemovedFromDocument(document);
         }
 

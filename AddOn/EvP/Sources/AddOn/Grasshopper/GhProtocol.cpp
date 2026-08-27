@@ -150,6 +150,33 @@ bool DecodeHelloPayload (const uint8_t* bytes, size_t size, HelloPayload& hello,
     return true;
 }
 
+std::vector<uint8_t> EncodeHelloAckPayload (const HelloAckPayload& ack)
+{
+    std::vector<uint8_t> payload;
+    payload.reserve (4 + ack.refusal.size ());
+    AppendUInt32 (payload, ack.capabilities);
+    AppendBytes (payload, ack.refusal);
+    return payload;
+}
+
+bool DecodeHelloAckPayload (const uint8_t* bytes, size_t size, HelloAckPayload& ack, std::string& error)
+{
+    if (bytes == nullptr || size < 4) {
+        error = "The add-on's handshake answer was short.";
+        return false;
+    }
+
+    std::string refusal ((const char*) bytes + 4, size - 4);
+    if (ContainsNul (refusal)) {
+        error = "The add-on's handshake answer contained an embedded NUL.";
+        return false;
+    }
+
+    ack.capabilities = ReadUInt32 (bytes);
+    ack.refusal = std::move (refusal);
+    return true;
+}
+
 std::vector<uint8_t> EncodeApiRequestPayload (const ApiRequestPayload& request)
 {
     std::vector<uint8_t> payload;

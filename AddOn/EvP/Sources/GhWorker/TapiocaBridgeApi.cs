@@ -32,6 +32,8 @@ namespace Tapioca.GhWorker
     {
         private static BridgeClient _bridge;
 
+        private static uint _epoch;
+
         /// <summary>
         /// True when this worker is connected to an Archicad. A component should
         /// say so on the canvas rather than throw.
@@ -45,15 +47,95 @@ namespace Tapioca.GhWorker
             }
         }
 
-        /// <summary>Records the live bridge. Called only by <see cref="Program"/>.</summary>
-        internal static void Bind(BridgeClient bridge)
+        /// <summary>
+        /// Records the live bridge and this worker generation. Called only by
+        /// <see cref="Program"/>.
+        /// </summary>
+        internal static void Bind(BridgeClient bridge, uint epoch)
         {
+            _epoch = epoch;
             _bridge = bridge;
         }
 
         internal static void Unbind()
         {
             _bridge = null;
+        }
+
+        /// <summary>
+        /// True when Archicad GRANTED preview at the handshake. A capture
+        /// component that reads false must not convert geometry at all.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ OFF HAS TO COST NOTHING, AND THAT IS A RULE ABOUT WHAT IS NEVER
+        /// DONE, NOT ABOUT WHAT IS DROPPED. Converting a definition's meshes and
+        /// then discarding the batch would put a tessellation on every solve of
+        /// every definition for a user who turned preview off.
+        /// </remarks>
+        public static bool PreviewAvailable
+        {
+            get
+            {
+                BridgeClient bridge = _bridge;
+                return bridge != null && bridge.IsConnected && bridge.PreviewGranted;
+            }
+        }
+
+        /// <summary>
+        /// This worker generation. It changes on every restart, and the host
+        /// drops preview from any other one without complaint -- after a kill and
+        /// restart it holds geometry from a process that no longer exists.
+        /// </summary>
+        public static uint PreviewEpoch
+        {
+            get { return _epoch; }
+        }
+
+        /// <summary>
+        /// Sends one framed preview batch to Archicad. Returns an empty string on
+        /// success and a reason otherwise; never throws.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ THE FRAMES ARE BYTES HERE, AND THAT IS THE POINT OF THE SIGNATURE.
+        /// This is the surface <c>Tapioca.Grasshopper.gha</c> binds to BY
+        /// REFLECTION, so nothing in it may name a type that lives in either
+        /// assembly -- the .gha frames the wire format it also converts to
+        /// (PreviewChannel.cs), and this worker owns the transport. One place
+        /// knows the layout, and it is the one beside the conversion.
+        /// </para>
+        /// <para>
+        /// ⚠️ A NON-EMPTY RETURN MEANS THE CALLER'S MIRROR IS NOW WRONG. The diff
+        /// was computed against it and the batch did not arrive, so the two sides
+        /// disagree; the caller must drop its mirror and send a full batch next
+        /// rather than another delta.
+        /// </para>
+        /// </remarks>
+        public static string SubmitPreviewBatch(
+            uint revision, uint[] messageTypes, byte[][] payloads, byte[] segment, string segmentName)
+        {
+            BridgeClient bridge = _bridge;
+            if (bridge == null)
+            {
+                return "This Grasshopper is not connected to Archicad.";
+            }
+
+            return bridge.SendPreviewBatch(_epoch, revision, messageTypes, payloads, segment, segmentName);
+        }
+
+        /// <summary>
+        /// Tells Archicad to forget everything this worker previewed, and
+        /// releases every segment it has not acknowledged.
+        /// </summary>
+        public static void SubmitPreviewDropAll(byte[] payload)
+        {
+            BridgeClient bridge = _bridge;
+            if (bridge == null)
+            {
+                return;
+            }
+
+            bridge.SendPreviewDropAll(_epoch, payload);
         }
 
         /// <summary>

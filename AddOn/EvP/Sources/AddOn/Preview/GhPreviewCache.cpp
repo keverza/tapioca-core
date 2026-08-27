@@ -14,6 +14,7 @@ std::shared_ptr<const GhPreviewPrimitive> Adopt (const PreviewPrimitiveMessage& 
     primitive->id = message.header.primitiveId;
     primitive->kind = message.header.kind;
     primitive->flags = message.header.flags;
+    primitive->surface = message.header.surface;
     primitive->itemIndex = message.header.itemIndex;
     for (int index = 0; index < 16; ++index) {
         primitive->componentGuid[index] = message.header.componentGuid[index];
@@ -46,6 +47,12 @@ std::shared_ptr<const GhPreviewPrimitive> WithFlags (const std::shared_ptr<const
 }
 
 } // namespace
+
+GhPreviewCache& GhPreviewCache::Get ()
+{
+    static GhPreviewCache instance;
+    return instance;
+}
 
 void GhPreviewCache::DropAll (uint32_t newEpoch, const std::string&)
 {

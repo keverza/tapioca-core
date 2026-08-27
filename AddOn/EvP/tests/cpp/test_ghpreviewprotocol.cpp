@@ -53,10 +53,8 @@ PreviewPrimitiveMessage MeshInSegment (uint64_t id, uint64_t offset)
     return message;
 }
 
-std::vector<uint8_t> SegmentFor (const PreviewPrimitiveMessage& message,
-                                 const std::vector<float>& positions,
-                                 const std::vector<float>& normals,
-                                 const std::vector<uint32_t>& indices,
+std::vector<uint8_t> SegmentFor (const PreviewPrimitiveMessage& message, const std::vector<float>& positions,
+                                 const std::vector<float>& normals, const std::vector<uint32_t>& indices,
                                  size_t totalSize)
 {
     std::vector<uint8_t> segment (totalSize, 0);
@@ -108,6 +106,50 @@ TEST (GhPreviewProtocol, APrimitiveRoundTripsEveryHeaderField)
     EXPECT_EQ (0, std::memcmp (sent.header.parameterGuid, got.header.parameterGuid, 16));
     EXPECT_EQ (sent.positions, got.positions);
     EXPECT_FALSE (got.inSegment);
+}
+
+TEST (GhPreviewProtocol, TheDrawingSurfaceCrossesTheWireAndDefaultsToTheModel)
+{
+    // Archicad's 3D window and its floor plan are different host code paths with
+    // different projections, and nothing downstream can tell which a result was
+    // meant for from the geometry alone -- a flat polyline at z=0 is a perfectly
+    // ordinary 3D result. So the author's choice has to survive the wire.
+    PreviewPrimitiveMessage sent = Polyline (7, 2);
+    EXPECT_EQ (PreviewSurface::Model3D, sent.header.surface);
+
+    sent.header.surface = PreviewSurface::FloorPlan;
+    const std::vector<uint8_t> bytes = EncodePreviewPrimitive (sent);
+    EXPECT_EQ ((uint8_t) PreviewSurface::FloorPlan, bytes[10]);
+
+    PreviewPrimitiveMessage got;
+    std::string error;
+    ASSERT_TRUE (DecodePreviewPrimitive (bytes.data (), bytes.size (), got, error)) << error;
+    EXPECT_EQ (PreviewSurface::FloorPlan, got.header.surface);
+}
+
+TEST (GhPreviewProtocol, AnUnknownDrawingSurfaceIsRefusedRatherThanDefaulted)
+{
+    // ⚠️ THE REFUSAL IS THE POINT. Falling back to the 3D window would draw plan
+    // linework in the model, and the author would hunt their geometry rather
+    // than a version mismatch between the two halves.
+    std::vector<uint8_t> bytes = EncodePreviewPrimitive (Polyline (7, 2));
+    bytes[10] = 9;
+
+    PreviewPrimitiveMessage got;
+    std::string error;
+    EXPECT_FALSE (DecodePreviewPrimitive (bytes.data (), bytes.size (), got, error));
+    EXPECT_NE (std::string::npos, error.find ("surface"));
+}
+
+TEST (GhPreviewProtocol, EverySurfaceHasAName)
+{
+    const PreviewSurface surfaces[] = { PreviewSurface::Model3D, PreviewSurface::FloorPlan, PreviewSurface::Both };
+    for (size_t index = 0; index < sizeof (surfaces) / sizeof (surfaces[0]); ++index) {
+        EXPECT_STRNE ("an unknown surface", DescribePreviewSurface (surfaces[index]));
+        EXPECT_TRUE (KnownPreviewSurface ((uint8_t) surfaces[index]));
+    }
+    EXPECT_FALSE (KnownPreviewSurface (0));
+    EXPECT_FALSE (KnownPreviewSurface (4));
 }
 
 TEST (GhPreviewProtocol, ThePrimitiveHeaderIsEightyLittleEndianBytes)
@@ -472,9 +514,9 @@ TEST (GhPreviewProtocol, EveryKindHasAName)
 {
     // DescribePreviewKind feeds every refusal message above; an unnamed kind
     // would surface as "unknown" in exactly the diagnostic someone is reading.
-    const PreviewKind kinds[] = { PreviewKind::TriangleMesh,  PreviewKind::Polyline3D,      PreviewKind::PointMarker,
-                                  PreviewKind::PlaneGizmo,    PreviewKind::Arrow3D,         PreviewKind::BillboardText,
-                                  PreviewKind::WorldText,     PreviewKind::PointCloud,      PreviewKind::BillboardSprite,
+    const PreviewKind kinds[] = { PreviewKind::TriangleMesh, PreviewKind::Polyline3D, PreviewKind::PointMarker,
+                                  PreviewKind::PlaneGizmo,   PreviewKind::Arrow3D,    PreviewKind::BillboardText,
+                                  PreviewKind::WorldText,    PreviewKind::PointCloud, PreviewKind::BillboardSprite,
                                   PreviewKind::Bounds };
     for (size_t index = 0; index < sizeof (kinds) / sizeof (kinds[0]); ++index) {
         EXPECT_STRNE ("unknown", DescribePreviewKind (kinds[index]));

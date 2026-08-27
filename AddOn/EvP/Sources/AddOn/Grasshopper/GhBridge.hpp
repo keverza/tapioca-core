@@ -40,6 +40,9 @@
 
 #include "GhProtocol.hpp"
 
+#include "Preview/GhPreviewIngest.hpp"
+#include "Preview/GhPreviewSegmentView.hpp"
+
 #include "UniString.hpp"
 
 #include <atomic>
@@ -125,6 +128,16 @@ class GhBridge {
     void* pipe = nullptr; // HANDLE, kept opaque so <windows.h> stays out of this header
     mutable std::mutex writeMutex;
     mutable std::mutex messageMutex;
+    // ⚠️ IO THREAD ONLY, AND THAT IS WHY THERE IS NO LOCK ON THEM. Every
+    // preview message arrives on the pipe, is decoded on the IO thread, and is
+    // applied here on the IO thread; the only thing that crosses to another
+    // thread is the immutable snapshot GhPreviewCache publishes. The segment is
+    // a mapped view of the WORKER's memory and must never outlive the batch it
+    // belongs to, which is what makes single-threaded ownership here the point
+    // rather than a convenience.
+    evp::preview::GhPreviewSegmentView previewSegment;
+    evp::preview::GhPreviewIngest previewIngest { evp::preview::GhPreviewCache::Get (), previewSegment };
+
     std::function<void ()> connectedHandler;
     std::function<void (const protocol::RunReportPayload&)> runResultHandler;
     GS::UniString lastWorkerMessage;

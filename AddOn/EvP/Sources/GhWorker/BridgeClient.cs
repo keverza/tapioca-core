@@ -54,6 +54,13 @@ namespace Tapioca.GhWorker
         private Thread _heartbeat;
         private volatile bool _stopping;
         private int _nextRequestId;
+        private volatile BridgeProtocol.Capabilities _granted = BridgeProtocol.Capabilities.None;
+
+        /// <summary>
+        /// The batches Archicad has not finished with. Owned here because the
+        /// ack that releases one arrives on the reader thread.
+        /// </summary>
+        private readonly PreviewSegments _segments = new PreviewSegments();
 
         internal event Action EditorShowRequested;
 
@@ -69,6 +76,30 @@ namespace Tapioca.GhWorker
         /// it is meant to interrupt arrives after that solution has finished.
         /// </summary>
         internal event Action CancelRequested;
+
+        /// <summary>
+        /// Archicad cannot trust its preview mirror any more and the next batch
+        /// must be a FULL one rather than a delta against it. Raised on the
+        /// reader thread with the reason.
+        /// </summary>
+        internal event Action<string> PreviewResyncRequested;
+
+        /// <summary>
+        /// Someone picked a preview primitive in Archicad's viewport. Metadata
+        /// only: it must never cause a re-solve, a retessellation or a geometry
+        /// transfer.
+        /// </summary>
+        internal event Action<ulong> PreviewPicked;
+
+        /// <summary>
+        /// True when the add-on GRANTED preview at the handshake. A component
+        /// that reads false must not convert geometry at all -- the whole point
+        /// of the gate is that off costs nothing.
+        /// </summary>
+        internal bool PreviewGranted
+        {
+            get { return (_granted & BridgeProtocol.Capabilities.Preview) != 0; }
+        }
 
         internal bool IsConnected
         {
@@ -109,7 +140,11 @@ namespace Tapioca.GhWorker
             try
             {
                 int processId = Process.GetCurrentProcess().Id;
-                WriteMessage(BridgeProtocol.MessageType.Hello, 0, 0, BridgeProtocol.EncodeHelloPayload(processId));
+                WriteMessage(
+                    BridgeProtocol.MessageType.Hello,
+                    0,
+                    0,
+                    BridgeProtocol.EncodeHelloPayload(processId, BridgeProtocol.Capabilities.Preview));
 
                 byte[] headerBytes = ReadExact(BridgeProtocol.HeaderSize);
                 if (headerBytes == null)
@@ -133,15 +168,30 @@ namespace Tapioca.GhWorker
                     return false;
                 }
 
-                // A non-empty hello-ack payload is the add-on's refusal reason,
-                // spelled out on the wire so a worker can report it in its own
-                // window rather than merely being disconnected.
-                string refusal = BridgeProtocol.DecodeTextPayload(payload);
+                // The add-on answers with the capabilities it GRANTED and, when
+                // it is refusing, the reason -- spelled out on the wire so a
+                // worker can report it in its own window rather than merely
+                // being disconnected.
+                BridgeProtocol.Capabilities grantedBits;
+                string refusal;
+                string ackError;
+                if (!BridgeProtocol.DecodeHelloAckPayload(payload, out grantedBits, out refusal, out ackError))
+                {
+                    error = ackError;
+                    return false;
+                }
+
                 if (!string.IsNullOrEmpty(refusal))
                 {
                     error = refusal;
                     return false;
                 }
+
+                // ⚠️ THE GRANTED WORD, NOT THE OFFERED ONE. A worker that acted
+                // on its own offer would collect, convert and send preview into
+                // an add-on that has it switched off -- the exact cost "preview
+                // off costs nothing" promises never to pay.
+                _granted = grantedBits;
             }
             catch (Exception exception)
             {
@@ -269,6 +319,104 @@ namespace Tapioca.GhWorker
             }
         }
 
+        /// <summary>
+        /// Sends one preview batch: the segment first, then the frames the GHA
+        /// framed. Returns an empty string on success and a reason otherwise;
+        /// never throws, because the caller is a Grasshopper solve.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ THE SEGMENT IS PUBLISHED BEFORE THE FIRST FRAME AND RELEASED
+        /// BY THE HOST'S ACK. A frame referencing a segment that does not exist
+        /// yet is a batch the host must refuse; a segment freed before the ack is
+        /// memory the host is still reading. The order here is the whole
+        /// contract.
+        /// </para>
+        /// <para>
+        /// ⚠️ THE FRAMES ARE OPAQUE HERE ON PURPOSE. The wire format is the
+        /// GHA's (Sources/GrasshopperComponents/PreviewChannel.cs); this worker
+        /// relays bytes and owns the transport, so exactly one place knows how a
+        /// primitive is laid out and it is the one beside the conversion that
+        /// produced it.
+        /// </para>
+        /// <para>
+        /// ⚠️ A FAILED SEND MEANS THE WORKER'S MIRROR HAS ALREADY ADVANCED.
+        /// The diff was computed against it, so the two sides now disagree and no
+        /// retry against that mirror can fix it. The caller must drop its mirror
+        /// and send a full batch next -- which is what a resync request from the
+        /// other direction also asks for.
+        /// </para>
+        /// </remarks>
+        internal string SendPreviewBatch(
+            uint epoch, uint revision, uint[] messageTypes, byte[][] payloads, byte[] segment, string segmentName)
+        {
+            if (!IsConnected)
+            {
+                return "This Grasshopper is not connected to Archicad.";
+            }
+
+            if (!PreviewGranted)
+            {
+                return "Archicad did not grant the preview capability for this session.";
+            }
+
+            if (messageTypes == null || payloads == null || messageTypes.Length != payloads.Length)
+            {
+                return "The preview batch's frames and message types did not match.";
+            }
+
+            if (segment != null && segment.Length > 0)
+            {
+                string segmentError;
+                if (!_segments.Publish(segmentName, epoch, revision, segment, out segmentError))
+                {
+                    return segmentError;
+                }
+            }
+
+            try
+            {
+                for (int index = 0; index < messageTypes.Length; index++)
+                {
+                    WriteMessage(
+                        (BridgeProtocol.MessageType)messageTypes[index], 0, 0, payloads[index] ?? new byte[0]);
+                }
+            }
+            catch (Exception exception)
+            {
+                // The batch is half-written and the host will refuse it at the
+                // footer that never arrives; the segment goes now rather than
+                // waiting for an ack that cannot come.
+                _segments.Release(epoch, revision);
+                return "The preview batch could not be sent: " + Describe(exception);
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Tells Archicad to forget everything this worker previewed. Sent when a
+        /// definition closes and when a send failed, since both leave the two
+        /// mirrors disagreeing.
+        /// </summary>
+        internal void SendPreviewDropAll(uint epoch, byte[] payload)
+        {
+            _segments.ReleaseAll();
+            if (!IsConnected || !PreviewGranted)
+            {
+                return;
+            }
+
+            try
+            {
+                WriteMessage(BridgeProtocol.MessageType.PreviewDropAll, 0, 0, payload ?? new byte[0]);
+            }
+            catch (Exception exception)
+            {
+                WorkerLog.Write("a preview drop could not be sent: " + Describe(exception));
+            }
+        }
+
         internal void Acknowledge(BridgeProtocol.AckStatus status, string message)
         {
             if (!IsConnected)
@@ -292,6 +440,10 @@ namespace Tapioca.GhWorker
         public void Dispose()
         {
             _stopping = true;
+            // Nothing outstanding will ever be acknowledged now, so every segment
+            // goes with the connection rather than waiting for an ack from a host
+            // that is no longer listening.
+            _segments.Dispose();
             try
             {
                 if (_pipe != null)
@@ -402,12 +554,87 @@ namespace Tapioca.GhWorker
                     Raise(CancelRequested);
                     break;
 
+                case BridgeProtocol.MessageType.PreviewBatchAck:
+                {
+                    uint epoch;
+                    uint revision;
+                    bool accepted;
+                    string reason;
+                    string ackError;
+                    if (!BridgeProtocol.DecodePreviewBatchAckPayload(
+                            payload, out epoch, out revision, out accepted, out reason, out ackError))
+                    {
+                        WorkerLog.Write("a preview batch ack could not be read: " + ackError);
+                        break;
+                    }
+
+                    // ⚠️ RELEASED WHETHER OR NOT THE BATCH WAS ACCEPTED. The
+                    // ack means Archicad is finished with the memory, not that it
+                    // liked what was in it; holding a refused batch's segment
+                    // leaks exactly the same bytes as holding an accepted one.
+                    _segments.Release(epoch, revision);
+                    if (!accepted)
+                    {
+                        WorkerLog.Write(
+                            "Archicad refused preview batch " + epoch + "." + revision + ": " + reason);
+                    }
+
+                    break;
+                }
+
+                case BridgeProtocol.MessageType.PreviewResyncRequest:
+                {
+                    uint epoch;
+                    string reason;
+                    string resyncError;
+                    if (!BridgeProtocol.DecodePreviewResyncPayload(payload, out epoch, out reason, out resyncError))
+                    {
+                        WorkerLog.Write("a preview resync request could not be read: " + resyncError);
+                        break;
+                    }
+
+                    WorkerLog.Write("Archicad asked for a full preview resync: " + reason);
+                    RaiseWith(PreviewResyncRequested, reason);
+                    break;
+                }
+
+                case BridgeProtocol.MessageType.PreviewPicked:
+                {
+                    ulong primitiveId;
+                    string pickError;
+                    if (!BridgeProtocol.DecodePreviewPickedPayload(payload, out primitiveId, out pickError))
+                    {
+                        WorkerLog.Write("a preview pick could not be read: " + pickError);
+                        break;
+                    }
+
+                    RaiseWith(PreviewPicked, primitiveId);
+                    break;
+                }
+
                 default:
                     // Worker-to-host messages arriving the wrong way. The
                     // direction is part of the contract; a peer that gets it
                     // wrong is a peer whose build does not match this one.
                     WorkerLog.Write("ignored a " + header.Type + " message sent in the wrong direction");
                     break;
+            }
+        }
+
+        private static void RaiseWith<T>(Action<T> handler, T value)
+        {
+            if (handler == null)
+            {
+                return;
+            }
+
+            try
+            {
+                handler(value);
+            }
+            catch (Exception exception)
+            {
+                WorkerLog.Write("a bridge handler threw: " + Describe(exception));
             }
         }
 

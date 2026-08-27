@@ -100,3 +100,62 @@ if (Test-Path -LiteralPath $productAddon -PathType Leaf) {
 }
 Move-Item -LiteralPath $builtAddon -Destination $productAddon
 Write-Host "Built ($config) -> build_29\Tapioca.apx" -ForegroundColor Green
+
+# ---------------------------------------------------------------------------
+# Copy the built artifacts into dist\ so they are in one findable place.
+# ---------------------------------------------------------------------------
+# A COPY, AND ONLY A COPY. Every target above still builds where CMake and
+# dotnet put it, and nothing here moves, redirects or reconfigures any of that:
+# GhWorkerHost still finds GhWorker\Tapioca.GhWorker.exe beside the .apx in
+# build_29\, and TapiocaPackage.cs still installs the Grasshopper package from
+# GhWorker\GrasshopperLibraries\. This exists because build_29\ is a CMake
+# tree -- the .apx sits beside a 270 MB .pdb, three Diligent subprojects,
+# .vcxproj files and two configurations of intermediates -- and picking the
+# shipped binaries out of it by hand is a chore every single time.
+#
+# ⚠️ dist\ IS A PICKUP POINT, NOT A DEPLOYABLE LAYOUT. The files land flat, so
+# nothing here is arranged the way Archicad or Grasshopper would need to load
+# it. Take a copy from here; do not point a runtime at it.
+#
+# dist\ is tracked (it carries the generated API docs), so these binaries are
+# ignored by name in .gitignore.
+$dist = Join-Path $repo "dist"
+New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+# Named roots rather than a recursive sweep of build_29\: a recursive *.dll
+# glob would rake in every Diligent, DiligentFX and DiligentTools binary and
+# both configurations' test output, and the folder would stop being findable --
+# which is the one thing it is for.
+$artifactRoots = @(
+    @{ Path = (Join-Path $root "build_29");          Recurse = $false }  # Tapioca.apx, EvPPy.dll
+    @{ Path = (Join-Path $root "build_29\GhWorker"); Recurse = $true  }  # worker dll + Tapioca.Grasshopper.gha
+)
+
+$copied = @()
+foreach ($entry in $artifactRoots) {
+    if (-not (Test-Path -LiteralPath $entry.Path -PathType Container)) { continue }
+    # Listed first and filtered second, rather than through -Include. -Include's
+    # interaction with -Path, -LiteralPath and -Recurse is inconsistent enough
+    # that it silently returned nothing from the worker's subfolder here, and a
+    # copy step that quietly skips the .gha is exactly the failure this whole
+    # block exists to avoid.
+    $found = Get-ChildItem -LiteralPath $entry.Path -File -Recurse:$entry.Recurse -ErrorAction SilentlyContinue |
+        Where-Object { $_.Extension -in ".apx", ".dll", ".gha" }
+    foreach ($file in $found) {
+        Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $dist $file.Name) -Force
+        $copied += $file.Name
+    }
+}
+
+# Said by name, because an absence here is silent otherwise. The Grasshopper
+# half is OPTIONAL BY DESIGN -- a machine without the .NET SDK still builds a
+# complete, loadable Tapioca.apx and Grasshopper becomes a menu item that
+# explains what is missing -- so a missing .gha is a warning, never a failure.
+if ($copied -notcontains "Tapioca.Grasshopper.gha") {
+    Write-Host "dist: Tapioca.Grasshopper.gha was not built (.NET SDK absent?); the Grasshopper Editor would open without Tapioca's components." -ForegroundColor Yellow
+}
+if ($copied -notcontains "EvPPy.dll") {
+    Write-Host "dist: EvPPy.dll was not built; Python commands will not run." -ForegroundColor Yellow
+}
+
+Write-Host ("Copied to dist\: " + (($copied | Sort-Object -Unique) -join ", ")) -ForegroundColor Green

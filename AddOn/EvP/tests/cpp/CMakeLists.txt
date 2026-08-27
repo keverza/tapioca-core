@@ -277,7 +277,26 @@ set (EVP_PREVIEW_SOURCES
      # SceneCmdQueue. The moment this file needs any of the three it leaves this
      # list, and the offline gate on the delta protocol goes with it.
      "${EVP_ROOT}/Sources/AddOn/Preview/GhPreviewCache.cpp"
+     # Preview/GhPreviewIngest.cpp is what the host DOES with a preview message
+     # once the codec has decoded it: the order rules, the capability gate, the
+     # shared-memory segment's lifetime, and what has to be written back down the
+     # pipe. It is here for the same reason the cache is -- every failure on this
+     # path is silent. A segment left mapped leaks a handle once per solve, and a
+     # slider drag is hundreds of solves; an ack that is not sent leaks the
+     # WORKER's segment instead; an ack sent early releases memory the worker is
+     # still writing into.
+     # ⚠️ THE Win32 HALF IS Preview/GhPreviewSegmentView.cpp AND IS DELIBERATELY
+     # ABSENT. It is the only file on this path that names a Win32 type, which is
+     # exactly why the state machine reaches it through an interface: the tests
+     # hand that interface a buffer.
+     "${EVP_ROOT}/Sources/AddOn/Preview/GhPreviewIngest.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp"
+     # PlanOverlay/OverlayBinding.cpp decides which Archicad window an overlay
+     # belongs to and whether this tick should cost anything. Silent both ways:
+     # an overlay that keeps polling while a schedule is in front looks exactly
+     # like one that does not, and one that suspends when it should not simply
+     # never appears.
+     "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayBinding.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/PlanTransformMath.cpp")
 
 set (EVP_TEST_SOURCES
@@ -286,6 +305,7 @@ set (EVP_TEST_SOURCES
     test_retainedpreviewstore.cpp
     test_watchdrawlist.cpp
     test_overlayownership.cpp
+    test_overlaybinding.cpp
     test_planoverlaytransform.cpp
     test_previewplancamera.cpp
     test_previewpanelstate.cpp
@@ -327,6 +347,7 @@ set (EVP_TEST_SOURCES
     test_ghprotocol.cpp
     test_ghpreviewprotocol.cpp
     test_ghpreviewcache.cpp
+    test_ghpreviewingest.cpp
     test_ghundobudget.cpp
     test_grasshopperhoststate.cpp
     test_nodegraph.cpp)

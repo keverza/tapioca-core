@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute(("Grasshopper components that reach Archicad through the Tapioca add-on over its lo" +
     "w-latency bridge."))]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+69e7cc1223ee27674a44c9fa42fdcee7e6e0bd66")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+76f9e00391b362c055ac2a52568ae42bef62dd59")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tapioca.Grasshopper")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tapioca.Grasshopper")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]
