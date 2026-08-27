@@ -151,9 +151,7 @@
     }
   }
 
-  async function removeSelection(): Promise<void> {
-    const selectedNodes = nodes.filter((node) => node.selected)
-    const selectedEdges = edges.filter((edge) => edge.selected)
+  async function removeElements(selectedNodes: Node<SchemaNodeData>[], selectedEdges: Edge[]): Promise<void> {
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return
     busy = true
     failed = false
@@ -179,6 +177,39 @@
       await reloadState()
       busy = false
     }
+  }
+
+  async function removeSelection(): Promise<void> {
+    await removeElements(
+      nodes.filter((node) => node.selected),
+      edges.filter((edge) => edge.selected),
+    )
+  }
+
+  async function removeFromRuntime({
+    nodes: selectedNodes,
+    edges: selectedEdges,
+  }: {
+    nodes: Node<SchemaNodeData>[]
+    edges: Edge[]
+  }): Promise<boolean> {
+    if (!busy) await removeElements(selectedNodes, selectedEdges)
+    return false
+  }
+
+  function handleKeyDown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape') return
+    const target = event.target
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
+    ) {
+      target.blur()
+    }
+
+    nodes = nodes.map((node) => (node.selected ? { ...node, selected: false } : node))
+    edges = edges.map((edge) => (edge.selected ? { ...edge, selected: false } : edge))
+    event.preventDefault()
   }
 
   async function evaluate(): Promise<void> {
@@ -213,6 +244,8 @@
   })
 </script>
 
+<svelte:window onkeydown={handleKeyDown} />
+
 <main>
   <header class="toolbar">
     <div class="brand">
@@ -244,8 +277,9 @@
       onconnect={connect}
       onbeforeconnect={(connection) =>
         connection.sourceHandle !== null && connection.targetHandle !== null ? connection : false}
+      onbeforedelete={removeFromRuntime}
       onnodedragstop={rememberPosition}
-      deleteKey={null}
+      deleteKey={['Backspace', 'Delete']}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
       <Controls position="bottom-left" />

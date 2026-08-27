@@ -45,6 +45,17 @@
 /* [  1] */	"Tapioca 3D Viewer^E3^ES^EE^EI^ED^EW^EL"
 }
 
+/* ⚠️ ITS OWN 'STR#', NOT A SECOND STRING IN 32503. Every menu resource here is
+   [0] the menu to add to and [1] the item to add; a SECOND item string turns the
+   first into a SUBMENU PARENT with the second as its child -- and a parent's
+   caption is not parsed for the ^E flags either, so "Tapioca 3D Viewer" renders
+   with "^E3^ES^EE^EI^ED^EW^EL" spelled out after it. Both were visible on the
+   first live look, from one added line. One resource per item, always. */
+'STR#' 32512 "Menu strings - 3D overlay" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Tapioca 3D Overlay^E3^ES^EE^EI^ED^EW^EL"
+}
+
 'STR#' 32504 "Menu strings - notebook" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Tapioca Notebook^E3^ES^EE^EI^ED^EW^EL"
@@ -53,6 +64,11 @@
 'STR#' 32505 "Menu strings - WebUI" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Tapioca WebUI panel^E3^ES^EE^EI^ED^EW^EL"
+}
+
+'STR#' 32511 "Menu strings - node graph" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Node Graph^E3^ES^EE^EI^ED^EW^EL"
 }
 
 /* Named for what the user wants ("close it"), not for the mechanism ("stop the
@@ -304,4 +320,13 @@
 
 'DLGH' 32560  DLG_32560_WebUIPalette {
 1	"Tapioca WebUI panel"			Browser_0
+}
+
+/* --- The schema-driven node graph editor ---------------------------------- */
+'GDLG' 32570  Palette | topCaption | close | grow   0   0  1080  720  "Tapioca Node Graph" {
+/* [  1] */ Browser         0   0  1080  720
+}
+
+'DLGH' 32570  DLG_32570_GraphEditorPalette {
+1	"Tapioca Node Graph"			Browser_0
 }

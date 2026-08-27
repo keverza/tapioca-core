@@ -416,7 +416,7 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
 
     auto buildPso = [&] (const char* name, Diligent::IShader* vs, Diligent::IShader* ps,
                          const Diligent::LayoutElement* layout, Diligent::Uint32 layoutCount, bool depthTest,
-                         RefCntAutoPtr<Diligent::IPipelineState>& pso,
+                         bool depthWrite, RefCntAutoPtr<Diligent::IPipelineState>& pso,
                          RefCntAutoPtr<Diligent::IShaderResourceBinding>& srb) -> bool {
         Diligent::GraphicsPipelineStateCreateInfo pci;
         pci.PSODesc.Name = name;
@@ -429,12 +429,42 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         // whose winding nobody controlled, and a culled back face is not a
         // subtler picture -- it is half the result missing.
         gp.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+        // ⚠️ THE RIBBON IS PULLED SLIGHTLY TOWARD THE CAMERA. An edge lies exactly
+        // ON the surface it belongs to, and now that surfaces write depth the two
+        // are coincident: LESS_EQUAL passes at the exact centreline, but the quad
+        // is a pixel wider each way and its interpolated depth drifts off the
+        // triangle it covers. Without a bias that shows up as the edge stitching
+        // in and out along its own length, which reads as a broken line rather
+        // than as z-fighting. Meshes take no bias -- nothing is coincident with
+        // them.
+        if (!depthWrite && depthTest) {
+            gp.RasterizerDesc.DepthBias = -32;
+            gp.RasterizerDesc.SlopeScaledDepthBias = -1.0f;
+        }
         gp.DepthStencilDesc.DepthEnable = depthTest ? Diligent::True : Diligent::False;
-        // ⚠️ NEVER WRITES DEPTH, IN EITHER VARIANT. Preview is an annotation on
-        // the building; letting it occlude the geometry it annotates would hide
-        // the very wall being measured, and would make the ribbon fight itself
-        // where segments overlap at a corner.
-        gp.DepthStencilDesc.DepthWriteEnable = Diligent::False;
+        // ⚠️ A SURFACE MUST OCCLUDE ITSELF; A LINE MUST NOT. Getting this wrong
+        // once produced the first live picture of a sphere: with no depth write
+        // every triangle blends over whatever was already there IN SUBMISSION
+        // ORDER, so back faces show through front faces and the result is a mess
+        // of light and dark facets that looks exactly like a broken tessellation.
+        // A cube came out with chunks apparently cut out of it. The cause was not
+        // the mesh at all.
+        //
+        // So MESHES write depth and LINES do not. The reasoning that produced the
+        // original blanket rule -- preview is an annotation, and must not hide the
+        // wall it is measured against -- is true of the ribbon and false of a
+        // solid: a surface that does not occlude itself is not showing the
+        // building underneath, it is showing its own inside.
+        //
+        // ⚠️ AND IT STILL CANNOT HIDE ARCHICAD'S BUILDING, because preview draws
+        // AFTER the scene: the building is already in the colour buffer, and the
+        // passes that follow preview (plan anchors, the gnomon, the HUD) do not
+        // depth-test at all.
+        //
+        // ⚠️ THE X-RAY VARIANT WRITES NOTHING, whatever it is drawing. It exists
+        // to be seen THROUGH the building, and a primitive that occluded what it
+        // was meant to reveal would be answering the opposite question.
+        gp.DepthStencilDesc.DepthWriteEnable = depthWrite ? Diligent::True : Diligent::False;
         gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
         gp.InputLayout.LayoutElements = layout;
         gp.InputLayout.NumElements = layoutCount;
@@ -469,16 +499,20 @@ bool GhPreviewLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return true;
     };
 
-    if (!buildPso ("Gh preview mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, impl_->meshPso,
-                   impl_->meshSrb))
+    //                                                        depthTest  depthWrite
+    if (!buildPso ("Gh preview mesh PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), true, true,
+                   impl_->meshPso, impl_->meshSrb))
         return false;
-    if (!buildPso ("Gh preview mesh x-ray PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), false,
+    if (!buildPso ("Gh preview mesh x-ray PSO", meshVs, meshPs, meshLayout, _countof (meshLayout), false, false,
                    impl_->meshXRayPso, impl_->meshXRaySrb))
         return false;
-    if (!buildPso ("Gh preview line PSO", lineVs, linePs, lineLayout, _countof (lineLayout), true, impl_->linePso,
-                   impl_->lineSrb))
+    // ⚠️ THE RIBBON TESTS DEPTH AND DOES NOT WRITE IT. Writing would make a
+    // polyline fight itself wherever two segments overlap at a corner -- each
+    // quad is a pixel wider than the line and they meet at every joint.
+    if (!buildPso ("Gh preview line PSO", lineVs, linePs, lineLayout, _countof (lineLayout), true, false,
+                   impl_->linePso, impl_->lineSrb))
         return false;
-    if (!buildPso ("Gh preview line x-ray PSO", lineVs, linePs, lineLayout, _countof (lineLayout), false,
+    if (!buildPso ("Gh preview line x-ray PSO", lineVs, linePs, lineLayout, _countof (lineLayout), false, false,
                    impl_->lineXRayPso, impl_->lineXRaySrb))
         return false;
 
@@ -589,6 +623,9 @@ void GhPreviewLayer::Draw (Diligent::IDeviceContext* context, const float viewPr
     *static_cast<GhPreviewConstants*> (mapped) = constants;
     context->UnmapBuffer (impl_->constants, Diligent::MAP_WRITE);
 
+    // ⚠️ MESHES FIRST, THEN LINES, WITHIN EACH BUCKET. The edges of a surface lie
+    // exactly ON it, and the ribbon does not write depth: drawn first they would
+    // be overwritten by the very surface they describe.
     auto drawBucket = [&] (Bucket& bucket, Diligent::IPipelineState* meshPso, Diligent::IShaderResourceBinding* meshSrb,
                            Diligent::IPipelineState* linePso, Diligent::IShaderResourceBinding* lineSrb) {
         if (bucket.meshIndexCount > 0 && bucket.meshVertices != nullptr && bucket.meshIndices != nullptr) {

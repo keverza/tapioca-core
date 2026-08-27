@@ -1,0 +1,3 @@
+'DATA' @GRAPH_UI_RESOURCE_ID@ "Tapioca Node Graph HTML" {
+    "dist/index.html"
+}

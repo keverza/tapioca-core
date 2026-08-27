@@ -105,6 +105,33 @@ add_custom_command (
 add_custom_target (EvPNotebookUI ALL DEPENDS "${NotebookUIOutput}")
 set_target_properties (EvPNotebookUI PROPERTIES FOLDER Resources)
 
+# ---- Node graph editor UI ---------------------------------------------------
+set (GraphUIFolder "${CMAKE_CURRENT_LIST_DIR}/GraphUI")
+set (GraphUIOutput "${GraphUIFolder}/dist/index.html")
+set (GRAPH_UI_RESOURCE_ID 32571)
+file (GLOB_RECURSE GraphUIFiles CONFIGURE_DEPENDS
+    "${GraphUIFolder}/src/*"
+    "${GraphUIFolder}/scripts/*")
+list (APPEND GraphUIFiles
+    "${GraphUIFolder}/index.html"
+    "${GraphUIFolder}/package.json"
+    "${GraphUIFolder}/package-lock.json"
+    "${GraphUIFolder}/svelte.config.js"
+    "${GraphUIFolder}/tsconfig.json"
+    "${GraphUIFolder}/vite.config.ts")
+
+add_custom_command (
+    OUTPUT "${GraphUIOutput}"
+    DEPENDS ${GraphUIFiles}
+    WORKING_DIRECTORY "${GraphUIFolder}"
+    COMMENT "EvP: building the self-contained Tapioca Node Graph UI"
+    COMMAND "${NPM_EXECUTABLE}" ci
+    COMMAND "${NPM_EXECUTABLE}" run typecheck
+    COMMAND "${NPM_EXECUTABLE}" run build
+    VERBATIM)
+add_custom_target (EvPGraphUI ALL DEPENDS "${GraphUIOutput}")
+set_target_properties (EvPGraphUI PROPERTIES FOLDER Resources)
+
 # ---- WebUI command palette preview -----------------------------------------
 # This first WebUI slice is intentionally a self-contained visual page. Keeping
 # it as a DATA resource gives the native palette the same no-server fallback and
@@ -149,6 +176,24 @@ if (WIN32)
         VERBATIM)
 endif ()
 
+configure_file (
+    "${AddOnResourcesFolder}/RFIX.win/GraphUI.grc.in"
+    "${ResourceObjectsDir}/GraphUI.grc"
+    @ONLY)
+set (GraphUIResourceRc2 "${ResourceObjectsDir}/GraphUI.grc.rc2")
+if (WIN32)
+    add_custom_command (
+        OUTPUT "${GraphUIResourceRc2}"
+        DEPENDS "${GraphUIOutput}" "${ResourceObjectsDir}/GraphUI.grc"
+        COMMENT "EvP: converting the Tapioca Node Graph HTML resource"
+        COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
+            -m r -T W -q utf8 1252
+            -p "${GraphUIFolder}"
+            -i "${ResourceObjectsDir}/GraphUI.grc"
+            -o "${GraphUIResourceRc2}"
+        VERBATIM)
+endif ()
+
 # ============================================================================
 # Resources: .grc -> .res  (ResConv from DevKit + Windows rc)
 # ============================================================================
@@ -185,7 +230,7 @@ get_filename_component (AddOnResourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/
 add_custom_command (
     OUTPUT "${ResourceObjectsDir}/AddOnResources.stamp"
     DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles} "${NotebookUIOutput}" "${NotebookUIResourceRc2}"
-            "${WebUIResourceRc2}"
+            "${GraphUIOutput}" "${GraphUIResourceRc2}" "${WebUIResourceRc2}"
     COMMENT "GeometryServer: compiling resources..."
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ResourceObjectsDir}"
     COMMAND python "${AddOnResourcesFolderAbsolute}/Tools/CompileResources.py"
@@ -198,7 +243,7 @@ add_custom_command (
     COMMAND ${CMAKE_COMMAND} -E touch "${ResourceObjectsDir}/AddOnResources.stamp"
 )
 add_custom_target (${ADDON_RES} ALL DEPENDS "${ResourceObjectsDir}/AddOnResources.stamp")
-add_dependencies (${ADDON_RES} EvPNotebookUI)
+add_dependencies (${ADDON_RES} EvPGraphUI EvPNotebookUI)
 set_target_properties (${ADDON_RES} PROPERTIES FOLDER Resources)
 source_group ("Resources" FILES ${AddOnResourceFiles} ${AddOnImageFiles})
 

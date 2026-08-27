@@ -20,9 +20,10 @@
 #include "ArchViz/Dxgi/PresentHook.hpp" // the DXGI detour — same rule, worse failure
 #include "ArchViz/ExperimentGuard.hpp"  // crash-loop guard — consulted before anything arms
 #include "Notebook/NotebookPalette.hpp"
+#include "Palette/GraphEditorPalette.hpp"
 #include "Palette/WebUIPalette.hpp"
 #include "Grasshopper/GhWorkerHost.hpp" // the supervised Grasshopper worker process
-#include "Dynamo/DynamoHost.hpp"           // Dynamo 4 editor in its own .NET 10 process
+#include "Dynamo/DynamoHost.hpp"        // Dynamo 4 editor in its own .NET 10 process
 #include "AddOnCommands.hpp"
 #include "Server/ServerState.hpp"
 #include "Server/HttpServer.hpp"
@@ -143,6 +144,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
                 NotebookPalette::DestroyInstance ();
             if (WebUIPalette::HasInstance ())
                 WebUIPalette::DestroyInstance ();
+            if (GraphEditorPalette::HasInstance ())
+                GraphEditorPalette::DestroyInstance ();
             // The Grasshopper worker is a separate process holding a pipe into
             // this one. Stop it here, while Archicad is still alive and the main
             // thread is still ours, rather than in FreeData: the stop is
@@ -177,6 +180,35 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
             if (menuParams->menuItemRef.itemIndex == ArchVizMenuItemIndex)
                 ArchVizPanel::OpenViewer ();
             break;
+        // ⚠️ THE OVERLAY MUST BE OPENED WITH THE 3D WINDOW IN FRONT. There is no
+        // DevKit call that hands back the 3D view's HWND, so the target is the
+        // frontmost document canvas -- opened over the floor plan, it lands on
+        // the floor plan. OpenDiligentOverlay reports which it got.
+        //
+        // ⚠️ IT DOES NOT ARM THE PRESENT DETOUR. `hookdraw` composites into
+        // Archicad's own back buffer and is the experimental mode the crash guard
+        // exists for; this opens the overlay WINDOW on the ordinary camera sync,
+        // which needs no hook and cannot stop Archicad reaching its UI. hookdraw
+        // stays opt-in through Tapioca's viewer-sync command.
+        //
+        // ⚠️ AND IT REFUSES WHILE THE PALETTE'S VIEWPORT IS RUNNING, showing the
+        // palette with "close it first" -- there is one Diligent viewport and it
+        // presents to one place. That refusal is what "it still opened the
+        // standalone preview" looked like.
+        // ⚠️ THE ITEM TOGGLES, BECAUSE THERE WAS NO WAY BACK OUT. The overlay is
+        // WS_EX_TRANSPARENT and click-through by construction: it has no close
+        // box, no title bar and receives no input at all, so an "open" command
+        // with no matching "close" strands the user with a window they cannot
+        // dismiss. One item that opens and closes is also one fewer menu entry
+        // than a separate Close, and it cannot get out of step with the state.
+        case ArchVizOverlayMenuResId:
+            if (menuParams->menuItemRef.itemIndex == ArchVizOverlayMenuItemIndex) {
+                if (geomsrv::archviz::viewportoverlay::Current () != nullptr)
+                    ArchVizPanel::CloseDiligentOverlay ();
+                else
+                    ArchVizPanel::OpenDiligentOverlay ();
+            }
+            break;
         case NotebookMenuResId:
             if (menuParams->menuItemRef.itemIndex == NotebookMenuItemIndex) {
                 RecordStartupEvent ("Notebook: menu command received");
@@ -189,6 +221,13 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
                 RecordStartupEvent ("WebUI: menu command received");
                 WebUIPalette::Open ();
                 RecordStartupEvent ("WebUI: menu command completed");
+            }
+            break;
+        case GraphEditorMenuResId:
+            if (menuParams->menuItemRef.itemIndex == GraphEditorMenuItemIndex) {
+                RecordStartupEvent ("Node Graph: menu command received");
+                GraphEditorPalette::Open ();
+                RecordStartupEvent ("Node Graph: menu command completed");
             }
             break;
         case GrasshopperMenuResId:
@@ -263,6 +302,9 @@ GSErrCode RegisterInterface (void)
                    ACAPI_MenuItem_RegisterMenu (WebUIMenuResId, 0, MenuCode_UserDef, MenuFlag_Default), WebUIMenuResId,
                    "WebUI item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (GraphEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   GraphEditorMenuResId, "Node Graph item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperMenuResId, "Close Grasshopper item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
@@ -274,6 +316,9 @@ GSErrCode RegisterInterface (void)
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (DynamoMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    DynamoMenuResId, "Dynamo item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (ArchVizOverlayMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   ArchVizOverlayMenuResId, "3D overlay item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (AboutMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
                    AboutMenuResId, "About item");
@@ -300,12 +345,21 @@ GSErrCode Initialize (void)
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (ArchVizMenuResId, MenuCommandHandler), ArchVizMenuResId,
                    "3D viewer item");
+    // ⚠️ REGISTERING A MENU IS NOT INSTALLING ITS HANDLER. A registered item with
+    // no handler APPEARS and does NOTHING when clicked, which reads as the
+    // feature being broken rather than as a missing line here.
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (ArchVizOverlayMenuResId, MenuCommandHandler),
+                   ArchVizOverlayMenuResId, "3D overlay item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (NotebookMenuResId, MenuCommandHandler), NotebookMenuResId,
                    "notebook item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (WebUIMenuResId, MenuCommandHandler), WebUIMenuResId,
                    "WebUI item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (GraphEditorMenuResId, MenuCommandHandler), GraphEditorMenuResId,
+                   "Node Graph item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperMenuResId, MenuCommandHandler), GrasshopperMenuResId,
                    "Close Grasshopper item");
@@ -358,6 +412,11 @@ GSErrCode Initialize (void)
 
     err = WebUIPalette::RegisterPaletteControlCallBack ();
     RecordStartup ("ACAPI_RegisterModelessWindow", err, WebUIPaletteResId, "WebUI palette");
+    if (err != NoError)
+        return err;
+
+    err = GraphEditorPalette::RegisterPaletteControlCallBack ();
+    RecordStartup ("ACAPI_RegisterModelessWindow", err, GraphEditorPaletteResId, "Node Graph palette");
     if (err != NoError)
         return err;
 
@@ -431,6 +490,9 @@ GSErrCode FreeData (void)
     if (WebUIPalette::HasInstance ())
         WebUIPalette::DestroyInstance ();
     WebUIPalette::UnregisterPaletteControlCallBack ();
+    if (GraphEditorPalette::HasInstance ())
+        GraphEditorPalette::DestroyInstance ();
+    GraphEditorPalette::UnregisterPaletteControlCallBack ();
     geomsrv::ShutdownSharedHttpServer ();
     // E25: stop the background arming thread FIRST, then take the observer off.
     // Order matters both ways round: a worker still submitting gate jobs into an

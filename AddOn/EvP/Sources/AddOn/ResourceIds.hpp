@@ -24,6 +24,17 @@ constexpr short AboutMenuResId = 32501; // "About Tapioca..."
 constexpr short AboutMenuItemIndex = 1;
 constexpr short ArchVizMenuResId = 32503; // "Tapioca 3D Viewer"
 constexpr short ArchVizMenuItemIndex = 1;
+// ⚠️ THE SAME VIEWPORT, PRESENTED SOMEWHERE ELSE -- not a second viewer. The
+// palette draws into its own child window; the overlay draws into a transparent
+// click-through window pinned over Archicad's own 3D view and FOLLOWS Archicad's
+// camera, so it cannot be navigated with the mouse and is not meant to be.
+//
+// ⚠️ TWO MENU ITEMS RATHER THAN ONE THAT GUESSES. Attaching as an overlay
+// whenever the 3D window happened to be frontmost would make what the user sees
+// depend on where they last clicked, which is the hidden state the preview
+// surface rules exist to keep off this path.
+constexpr short ArchVizOverlayMenuResId = 32512; // "Tapioca 3D Overlay"
+constexpr short ArchVizOverlayMenuItemIndex = 1;
 constexpr short NotebookMenuResId = 32504; // "Tapioca Notebook"
 constexpr short NotebookMenuItemIndex = 1;
 constexpr short WebUIMenuResId = 32505; // "Tapioca WebUI panel"
@@ -54,6 +65,8 @@ constexpr short DynamoMenuItemIndex = 1;
 // contract, which is the next slice.
 constexpr short GrasshopperRunMenuResId = 32509;
 constexpr short GrasshopperRunMenuItemIndex = 1;
+constexpr short GraphEditorMenuResId = 32511; // "Node Graph"
+constexpr short GraphEditorMenuItemIndex = 1;
 
 // The About box ('GDLG' 32520) — its own dialog block, so these ids are independent
 // of the palette's positional ids below.
@@ -156,5 +169,11 @@ constexpr short NotebookHtmlResId = 32551; // 'DATA', generated NotebookUI/dist/
 constexpr short WebUIPaletteResId = 32560;
 constexpr short WebUIBrowserId = 1;
 constexpr short WebUIHtmlResId = 32561; // 'DATA', embedded WebUI/index.html
+
+// The node-graph experiment palette ('GDLG' 32570). C++ owns the graph; this
+// browser is only its schema-driven editor view.
+constexpr short GraphEditorPaletteResId = 32570;
+constexpr short GraphEditorBrowserId = 1;
+constexpr short GraphEditorHtmlResId = 32571; // 'DATA', generated GraphUI/dist/index.html
 
 #endif
