@@ -380,6 +380,7 @@ void UpdateAndDrawGhPreview (DiligentScene& scene, Diligent::IDeviceContext* con
     style.rgba = hudState.ghPreviewRgba;
     style.selectedRgba = hudState.ghPreviewSelectedRgba;
     style.highlightedRgba = hudState.ghPreviewHighlightedRgba;
+    style.edgeRgba = hudState.ghPreviewEdgeRgba;
     style.lineWidthPixels = hudState.ghPreviewWidthPixels;
 
     GhPreviewLayer::DrawParams params;

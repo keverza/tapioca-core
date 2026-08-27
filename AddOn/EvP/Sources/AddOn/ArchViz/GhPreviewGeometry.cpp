@@ -6,6 +6,7 @@
 namespace geomsrv {
 namespace archviz {
 
+using evp::grasshopper::protocol::PreviewFlagEdge;
 using evp::grasshopper::protocol::PreviewFlagHighlighted;
 using evp::grasshopper::protocol::PreviewFlagSelected;
 using evp::grasshopper::protocol::PreviewFlagXRay;
@@ -234,10 +235,16 @@ void AppendPolyline (const GhPreviewPrimitive& primitive, uint32_t rgba, GhPrevi
 
 uint32_t GhPreviewColour (uint8_t flags, const GhPreviewStyle& style)
 {
+    // ⚠️ SELECTION AND HIGHLIGHT OUTRANK "IS AN EDGE". An edge of a selected
+    // object is part of what is selected, and colouring it as an ordinary edge
+    // would make a selected Brep show a selected surface wearing unselected
+    // edges -- which reads as a partial selection that did not happen.
     if ((flags & PreviewFlagSelected) != 0)
         return style.selectedRgba;
     if ((flags & PreviewFlagHighlighted) != 0)
         return style.highlightedRgba;
+    if ((flags & PreviewFlagEdge) != 0)
+        return style.edgeRgba;
     return style.rgba;
 }
 

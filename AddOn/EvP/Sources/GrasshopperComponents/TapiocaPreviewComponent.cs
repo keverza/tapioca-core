@@ -105,6 +105,18 @@ namespace Tapioca.Grasshopper
                 "Clear to hide this component's preview in Archicad without removing it.",
                 GH_ParamAccess.item,
                 true);
+            // ⚠️ EDGES ARE ADDED TO THE SURFACE, NEVER SUBSTITUTED FOR IT. A Brep
+            // is a shaded surface AND the edges that Brep defines: two drawables
+            // describing one result, not two alternatives. Clearing this drops the
+            // edges; it never leaves the surface undrawn.
+            pManager.AddBooleanParameter(
+                "Edges",
+                "E",
+                "Draw the edges the geometry itself defines, over the shaded surface. A Brep sends the edges it "
+                + "defines; a mesh sends its face edges, read before the quads are split, so triangulation "
+                + "diagonals are never drawn. Curves and points have no edges and ignore this.",
+                GH_ParamAccess.item,
+                true);
             pManager[0].Optional = true;
         }
 
@@ -139,6 +151,9 @@ namespace Tapioca.Grasshopper
 
             bool visible = true;
             DA.GetData(2, ref visible);
+
+            bool includeEdges = true;
+            DA.GetData(3, ref includeEdges);
 
             // ⚠️ ASKED BEFORE ANYTHING IS CONVERTED, AND THAT IS THE WHOLE POINT
             // OF THE CAPABILITY GATE. Tessellating a definition's breps and then
@@ -176,9 +191,16 @@ namespace Tapioca.Grasshopper
             int unsupported = 0;
             for (int index = 0; index < items.Count; index++)
             {
-                PreviewPrimitive primitive = PreviewConvert.Convert(
-                    items[index], InstanceGuid, parameterGuid, branchHash, (uint)index, surface);
-                if (primitive == null)
+                // ⚠️ COUNTED PER ITEM, NOT PER PRIMITIVE. One wired Brep produces
+                // a surface and one primitive per edge it defines, and reporting
+                // "1 sent" for a box would be a lie in the other direction -- but
+                // so would counting a thirteen-primitive box as thirteen
+                // unsupported failures when it produced nothing.
+                int before = captured.Count;
+                PreviewConvert.Convert(
+                    items[index], InstanceGuid, parameterGuid, branchHash, (uint)index, surface, includeEdges,
+                    captured);
+                if (captured.Count == before)
                 {
                     unsupported++;
                     continue;
@@ -186,13 +208,14 @@ namespace Tapioca.Grasshopper
 
                 if (!visible)
                 {
-                    primitive.Flags &= ~PreviewFlags.Visible;
-                    // The content hash covers geometry, not flags, so it is left
-                    // alone here on purpose: hiding must diff as Visibility, never
-                    // as Changed.
+                    for (int part = before; part < captured.Count; part++)
+                    {
+                        captured[part].Flags &= ~PreviewFlags.Visible;
+                        // The content hash covers geometry, not flags, so it is
+                        // left alone here on purpose: hiding must diff as
+                        // Visibility, never as Changed.
+                    }
                 }
-
-                captured.Add(primitive);
             }
 
             PreviewBatch batch = _mirror.Diff(captured);

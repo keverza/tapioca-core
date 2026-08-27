@@ -335,6 +335,7 @@ struct HudState {
     uint32_t ghPreviewRgba = 0x4CA64CFFu;
     uint32_t ghPreviewSelectedRgba = 0x2ECC40FFu;
     uint32_t ghPreviewHighlightedRgba = 0xFFD400FFu;
+    uint32_t ghPreviewEdgeRgba = 0x1E3A1EFFu;
     float ghPreviewWidthPixels = 2.0f;
     // How much of the flat shading is ambient. High, because the light here is a
     // legibility device rather than a sun: a preview mesh whose far side went

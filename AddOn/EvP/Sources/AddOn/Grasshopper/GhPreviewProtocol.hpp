@@ -102,6 +102,11 @@ constexpr uint8_t PreviewFlagSelected = 1u << 1;
 constexpr uint8_t PreviewFlagHighlighted = 1u << 2;
 constexpr uint8_t PreviewFlagXRay = 1u << 3;
 constexpr uint8_t PreviewFlagDepthTest = 1u << 4;
+// This primitive is an EDGE OF ANOTHER one in the batch rather than something
+// the author wired directly. Edges and curves are both Polyline3D on the wire
+// and the geometry cannot tell them apart; an edge drawn in its own surface's
+// colour, over that surface, is invisible.
+constexpr uint8_t PreviewFlagEdge = 1u << 5;
 
 // Mirrors PreviewChange in PreviewDelta.cs. It exists on this side only to
 // reproduce the batch checksum byte for byte; the host never decides a change

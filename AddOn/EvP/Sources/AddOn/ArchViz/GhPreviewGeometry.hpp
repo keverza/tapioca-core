@@ -138,6 +138,12 @@ struct GhPreviewStyle {
     uint32_t rgba = 0x4CA64CFFu;            // ordinary preview geometry
     uint32_t selectedRgba = 0x2ECC40FFu;    // selected on the Grasshopper canvas
     uint32_t highlightedRgba = 0xFFD400FFu; // highlighted (a watch, a warning)
+    // ⚠️ EDGES NEED THEIR OWN COLOUR OR THEY ARE INVISIBLE. An edge is drawn ON
+    // the surface it belongs to; in that surface's own colour it cannot be seen,
+    // and "show edges" would appear to do nothing at all. Dark rather than a
+    // second hue, for the reason the storey contour is grey: the edge is
+    // describing the surface it lies on, not competing with it.
+    uint32_t edgeRgba = 0x1E3A1EFFu;
     float lineWidthPixels = 2.0f;
 };
 

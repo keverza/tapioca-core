@@ -70,6 +70,20 @@ namespace Tapioca.Grasshopper
         Highlighted = 1 << 2,
         XRay = 1 << 3,
         DepthTest = 1 << 4,
+
+        /// <summary>
+        /// This primitive is an EDGE OF ANOTHER one in the same batch, rather
+        /// than something the author wired directly.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ IT IS INFORMATION, NOT DECORATION. Edges and curves are both
+        /// Polyline3D on the wire, and the host cannot tell them apart from the
+        /// geometry: an edge drawn in the surface's own colour, over that
+        /// surface, is invisible -- which would make "show edges" appear to do
+        /// nothing. The host needs to know which is which to draw either one
+        /// legibly, and later to style them separately.
+        /// </remarks>
+        Edge = 1 << 5,
     }
 
     /// <summary>
@@ -255,13 +269,32 @@ namespace Tapioca.Grasshopper
         /// <summary>
         /// The cache key: where the primitive came from, never what it contains.
         /// </summary>
-        internal static ulong Identity(Guid componentGuid, Guid parameterGuid, uint branchHash, uint itemIndex)
+        /// <summary>
+        /// The cache key for one primitive.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ <paramref name="part"/> EXISTS BECAUSE ONE WIRED ITEM PRODUCES
+        /// SEVERAL PRIMITIVES. A Brep is a shaded surface AND the edges that Brep
+        /// defines; without a part number every one of them would hash to the
+        /// same id, and the cache would keep only whichever arrived last -- the
+        /// surface would replace its own edges on every solve, or the other way
+        /// round, and the delta protocol would report a Change where nothing
+        /// changed.
+        ///
+        /// ⚠️ AND IT MUST BE POSITIONAL, NOT CONTENT-DERIVED, for the reason the
+        /// whole identity rule exists: an edge that MOVES has to stay the same
+        /// primitive, or an edit reads as a Remove plus an Add and selection is
+        /// lost every solve.
+        /// </remarks>
+        internal static ulong Identity(
+            Guid componentGuid, Guid parameterGuid, uint branchHash, uint itemIndex, uint part)
         {
             ulong hash = Start();
             hash = Guid(hash, componentGuid);
             hash = Guid(hash, parameterGuid);
             hash = UInt32(hash, branchHash);
-            return UInt32(hash, itemIndex);
+            hash = UInt32(hash, itemIndex);
+            return UInt32(hash, part);
         }
 
         /// <summary>

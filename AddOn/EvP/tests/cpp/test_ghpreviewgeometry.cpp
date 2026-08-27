@@ -31,6 +31,7 @@
 using namespace geomsrv::archviz;
 using namespace evp::preview;
 using evp::grasshopper::protocol::PreviewFlagDepthTest;
+using evp::grasshopper::protocol::PreviewFlagEdge;
 using evp::grasshopper::protocol::PreviewFlagHighlighted;
 using evp::grasshopper::protocol::PreviewFlagSelected;
 using evp::grasshopper::protocol::PreviewFlagVisible;
@@ -190,6 +191,27 @@ TEST (GhPreviewGeometry, SelectionOutranksHighlightWhichOutranksOrdinary)
     EXPECT_EQ (GhPreviewColour (PreviewFlagVisible | PreviewFlagSelected, kStyle), kStyle.selectedRgba);
     EXPECT_EQ (GhPreviewColour (PreviewFlagVisible | PreviewFlagSelected | PreviewFlagHighlighted, kStyle),
                kStyle.selectedRgba);
+}
+
+// ⚠️ AN EDGE IS DRAWN ON THE SURFACE IT BELONGS TO. In that surface's own colour
+// it cannot be seen at all, so "show edges" would appear to do nothing -- and the
+// geometry cannot tell an edge from a curve the author wired, because both are
+// Polyline3D. The flag is the only thing that can.
+TEST (GhPreviewGeometry, AnEdgeIsColouredApartFromTheSurfaceItLiesOn)
+{
+    EXPECT_EQ (GhPreviewColour (PreviewFlagVisible | PreviewFlagEdge, kStyle), kStyle.edgeRgba);
+    EXPECT_NE (kStyle.edgeRgba, kStyle.rgba);
+}
+
+// An edge of a SELECTED object is part of what is selected. Colouring it as an
+// ordinary edge would show a selected surface wearing unselected edges, which
+// reads as a partial selection that never happened.
+TEST (GhPreviewGeometry, SelectionOutranksBeingAnEdge)
+{
+    EXPECT_EQ (GhPreviewColour (PreviewFlagVisible | PreviewFlagEdge | PreviewFlagSelected, kStyle),
+               kStyle.selectedRgba);
+    EXPECT_EQ (GhPreviewColour (PreviewFlagVisible | PreviewFlagEdge | PreviewFlagHighlighted, kStyle),
+               kStyle.highlightedRgba);
 }
 
 // ---------------------------------------------------------------------------
