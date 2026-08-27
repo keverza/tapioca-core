@@ -53,6 +53,9 @@ def test_zero_touch_package_exposes_selection_geometry_and_explicit_apply_nodes(
     project = (EVP_ROOT / "Sources" / "TapiocaDynamo" / "Tapioca.Dynamo.csproj").read_text(
         encoding="utf-8"
     )
+    customization = (
+        EVP_ROOT / "Sources" / "TapiocaDynamo" / "Tapioca.Dynamo_DynamoCustomization.xml"
+    ).read_text(encoding="utf-8")
 
     assert "[CanUpdatePeriodically(true)]" in selection
     assert "Current(bool refresh = false)" in selection
@@ -67,7 +70,11 @@ def test_zero_touch_package_exposes_selection_geometry_and_explicit_apply_nodes(
     assert "if (!apply)" in elements
     assert "ApplyStates.TryUpdate" in elements
     assert "[IsLacingDisabled]" in elements
+    assert "Geometry.ReadBody" in elements
+    assert "already at the staged target" in elements
     assert "ProtoGeometry.dll" not in project
+    assert '<namespace name="Tapioca">' in customization
+    assert "<category>Tapioca</category>" in customization
 
 
 def test_zero_touch_client_acknowledges_the_complete_response_before_disconnect():

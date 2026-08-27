@@ -12,16 +12,13 @@ public static class Elements
     [IsLacingDisabled]
     [MultiReturn("applied", "backend", "elementId", "message")]
     public static Dictionary<string, object> ApplyTranslation(
-        string elementId,
-        double dx,
-        double dy,
-        double dz,
+        ArchicadMesh original,
+        ArchicadMesh modified,
         string backend = "Tapioca",
         bool apply = false)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(elementId);
-        if (!double.IsFinite(dx) || !double.IsFinite(dy) || !double.IsFinite(dz))
-            throw new ArgumentOutOfRangeException(nameof(dx), "Translation components must be finite metres.");
+        var desired = Geometry.TranslationVector(original, modified);
+        string elementId = original.ElementId;
 
         string selectedBackend = backend.Trim();
         if (!selectedBackend.Equals("Tapioca", StringComparison.OrdinalIgnoreCase) &&
@@ -32,7 +29,8 @@ public static class Elements
         if (!apply)
         {
             ApplyStates[applyKey] = false;
-            return Result(false, selectedBackend, elementId, $"Staged translation ({dx}, {dy}, {dz}) m. Set apply to true to write Archicad.");
+            return Result(false, selectedBackend, elementId,
+                $"Staged target translation ({desired.dx}, {desired.dy}, {desired.dz}) m. Set apply to true to write Archicad.");
         }
         if (!ApplyStates.TryGetValue(applyKey, out bool previousState))
         {
@@ -41,12 +39,15 @@ public static class Elements
         }
         if (previousState || !ApplyStates.TryUpdate(applyKey, true, false))
             return Result(false, selectedBackend, elementId, "This apply pulse was already consumed. Toggle apply false, then true, to write again.");
-        if (Math.Abs(dx) <= 0.000001 && Math.Abs(dy) <= 0.000001 && Math.Abs(dz) <= 0.000001)
-            return Result(false, selectedBackend, elementId, "The translation is below the 0.000001 m write tolerance; Archicad was not changed.");
+
+        ArchicadMesh current = Geometry.ReadBody(elementId, original.BodyIndex, original.ElementType);
+        var residual = Geometry.TranslationVector(current, modified);
+        if (Math.Abs(residual.dx) <= 0.000001 && Math.Abs(residual.dy) <= 0.000001 && Math.Abs(residual.dz) <= 0.000001)
+            return Result(false, selectedBackend, elementId, "Archicad is already at the staged target; no write or undo entry was created.");
 
         if (selectedBackend.Equals("Tapioca", StringComparison.OrdinalIgnoreCase))
-            return ApplyWithTapioca(elementId, dx, dy, dz);
-        return ApplyWithTapir(elementId, dx, dy, dz);
+            return ApplyWithTapioca(elementId, residual.dx, residual.dy, residual.dz);
+        return ApplyWithTapir(elementId, residual.dx, residual.dy, residual.dz);
     }
 
     private static Dictionary<string, object> ApplyWithTapioca(string guid, double dx, double dy, double dz)

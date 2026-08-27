@@ -6,7 +6,6 @@ namespace Tapioca;
 public static class Geometry
 {
     [NodeCategory("Query")]
-    [CanUpdatePeriodically(true)]
     [MultiReturn("geometry", "elementIds", "bodyIndices", "elementTypes")]
     public static Dictionary<string, object> CurrentSelection(bool refresh = false)
     {
@@ -86,6 +85,20 @@ public static class Geometry
         ArchicadMesh modified,
         double tolerance = 0.000001)
     {
+        var translation = TranslationVector(original, modified, tolerance);
+        return new Dictionary<string, object>
+        {
+            ["dx"] = translation.dx,
+            ["dy"] = translation.dy,
+            ["dz"] = translation.dz
+        };
+    }
+
+    internal static (double dx, double dy, double dz) TranslationVector(
+        ArchicadMesh original,
+        ArchicadMesh modified,
+        double tolerance = 0.000001)
+    {
         ArgumentNullException.ThrowIfNull(original);
         ArgumentNullException.ThrowIfNull(modified);
         if (!double.IsFinite(tolerance) || tolerance <= 0)
@@ -107,11 +120,10 @@ public static class Geometry
                 throw new InvalidOperationException(
                     "The modified mesh is not a rigid translation. This MVP cannot replace Archicad element topology or deform its body.");
         }
-
-        return new Dictionary<string, object> { ["dx"] = dx, ["dy"] = dy, ["dz"] = dz };
+        return (dx, dy, dz);
     }
 
-    private static ArchicadMesh ReadBody(string guid, int bodyIndex, string elementType)
+    internal static ArchicadMesh ReadBody(string guid, int bodyIndex, string elementType)
     {
         var bodyData = BridgeEnvelope.CallData(
             "Tapioca.GetBodyGeometry",
