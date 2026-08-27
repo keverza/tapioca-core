@@ -290,6 +290,15 @@ set (EVP_PREVIEW_SOURCES
      # exactly why the state machine reaches it through an interface: the tests
      # hand that interface a buffer.
      "${EVP_ROOT}/Sources/AddOn/Preview/GhPreviewIngest.cpp"
+     # ArchViz/GhPreviewGeometry.cpp turns a preview snapshot into drawables, and
+     # is pure for the reason every other ArchViz geometry file is: getting it
+     # wrong produces a PICTURE rather than an error. A primitive routed to the
+     # wrong surface draws plan linework in the model; an x-ray primitive left in
+     # the depth-tested bucket is simply invisible inside the wall it exists to be
+     # compared against; an unordered buffer flickers under any transparency.
+     # ⚠️ THE GPU HALF IS ArchViz/GhPreviewLayer.cpp AND IS DELIBERATELY ABSENT --
+     # it owns nothing but buffers, PSOs and draws.
+     "${EVP_ROOT}/Sources/AddOn/ArchViz/GhPreviewGeometry.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp"
      # PlanOverlay/OverlayBinding.cpp decides which Archicad window an overlay
      # belongs to and whether this tick should cost anything. Silent both ways:
@@ -348,6 +357,7 @@ set (EVP_TEST_SOURCES
     test_ghpreviewprotocol.cpp
     test_ghpreviewcache.cpp
     test_ghpreviewingest.cpp
+    test_ghpreviewgeometry.cpp
     test_ghundobudget.cpp
     test_grasshopperhoststate.cpp
     test_nodegraph.cpp)
