@@ -69,6 +69,14 @@ namespace Tapioca.Grasshopper
                 "Geometry to preview in Archicad. Meshes, breps, surfaces, curves, points, planes and "
                 + "vectors are understood; anything else is counted as unsupported.",
                 GH_ParamAccess.list);
+            // ⚠️ HIDES GRASSHOPPER'S OWN PREVIEW OF THIS INPUT, NOT TAPIOCA'S.
+            // HideParameter sets IGH_PreviewObject.Hidden on the input parameter
+            // (Grasshopper/Kernel/GH_Component.cs), which is exactly what stock
+            // Custom Preview does with its geometry input. Without it the wired
+            // geometry is drawn TWICE — once by the parameter on Grasshopper's
+            // canvas preview and once by Archicad — and the duplicate reads as a
+            // z-fighting artefact rather than as two previews of one thing.
+            pManager.HideParameter(0);
             pManager.AddBooleanParameter(
                 "Visible",
                 "V",

@@ -28,8 +28,12 @@ namespace Tapioca.GhWorker
         /// <summary>
         /// v2 added RunDefinition, CancelRun and RunResult.
         /// v3 added the undo ledger to the run report.
+        /// v4 added the preview messages and the Preview capability bit that
+        /// gates them. Their payload codec lives in the GHA
+        /// (Sources/GrasshopperComponents/PreviewChannel.cs), not here: capture
+        /// is the .gha's job and the worker only relays the frames.
         /// </summary>
-        internal const uint Version = 3;
+        internal const uint Version = 4;
 
         /// <summary>protocolVersion, messageType, requestId, correlationId, payloadBytes.</summary>
         internal const int HeaderSize = 20;
@@ -53,6 +57,34 @@ namespace Tapioca.GhWorker
             RunDefinition = 11,
             CancelRun = 12,
             RunResult = 13,
+
+            // ---- preview, worker -> host unless noted --------------------
+            // Gated by Capabilities.Preview below. A worker that did not
+            // negotiate it must not send any of these, and a host that cleared
+            // it must refuse them: OFF COSTS NOTHING is a rule about the
+            // handshake, not about dropping messages after they arrive.
+            PreviewBeginBatch = 14,
+            PreviewAdded = 15,
+            PreviewChanged = 16,
+            PreviewRemoved = 17,
+            PreviewVisibility = 18,
+            PreviewSelection = 19,
+            PreviewEndBatch = 20,
+            PreviewDropAll = 21,
+            PreviewResyncRequest = 22,
+            PreviewBatchAck = 23,
+            PreviewPicked = 24,
+        }
+
+        /// <summary>
+        /// Bits in the hello's capabilities word. Mirrors CapabilityPreview in
+        /// Sources/AddOn/Grasshopper/GhPreviewProtocol.hpp.
+        /// </summary>
+        [System.Flags]
+        internal enum Capabilities : uint
+        {
+            None = 0,
+            Preview = 1u << 0,
         }
 
         internal enum AckStatus : uint

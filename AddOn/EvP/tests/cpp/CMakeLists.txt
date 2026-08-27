@@ -86,8 +86,19 @@ set (EVP_COMMAND_SOURCES
 # WARNING: KEEP BOTH DevKit-FREE AND Win32-FREE. The moment either needs
 # ACAPinc.h or <windows.h> it must leave this list, and the only offline gate on
 # the worker's lifecycle and transport goes with it.
+#
+# Grasshopper/GhPreviewProtocol.cpp is the PREVIEW half of that wire, and it is
+# the sharpest case in this whole file. On every other path in here the .apx is
+# the producer; on this one the producer is a separate process running
+# third-party Grasshopper components, and its declared counts, offsets and
+# lengths end up indexing into memory inside Archicad.exe. An unvalidated
+# segment offset is not a message read as another message -- it is an
+# out-of-bounds read in the host, reachable from any definition a user opens.
+# A malformed producer cannot be exercised live either: the producer Tapioca
+# ships is the one that behaves.
 set (EVP_GRASSHOPPER_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhProtocol.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhPreviewProtocol.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhUndoBudget.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
 
@@ -254,6 +265,18 @@ set (EVP_PREVIEW_SOURCES
      "${EVP_ROOT}/Sources/AddOn/Preview/RetainedPreviewStore.cpp"
      "${EVP_ROOT}/Sources/AddOn/Preview/RetainedTraceSelection.cpp"
      "${EVP_ROOT}/Sources/AddOn/Preview/PreviewRuntimeState.cpp"
+     # Preview/GhPreviewCache.cpp is the host's mirror of what Grasshopper
+     # previews, and every rule in it fails SILENTLY in Archicad: a half-applied
+     # batch is a picture of a building that never existed, a stale-epoch batch
+     # draws geometry from a process that was killed, and a missed checksum
+     # leaves the viewport permanently disagreeing with the canvas until someone
+     # reopens the definition. None of the three produces an error, a log line,
+     # or anything on screen a user could report as a fault.
+     # ⚠️ KEEP IT GPU-FREE, DevKit-FREE AND Win32-FREE. It is deliberately the
+     # CPU half; the GPU half is ArchViz/GhPreviewLayer and the handover is
+     # SceneCmdQueue. The moment this file needs any of the three it leaves this
+     # list, and the offline gate on the delta protocol goes with it.
+     "${EVP_ROOT}/Sources/AddOn/Preview/GhPreviewCache.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/PlanTransformMath.cpp")
 
@@ -302,6 +325,8 @@ set (EVP_TEST_SOURCES
     test_cloudcompare.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
+    test_ghpreviewprotocol.cpp
+    test_ghpreviewcache.cpp
     test_ghundobudget.cpp
     test_grasshopperhoststate.cpp
     test_nodegraph.cpp)

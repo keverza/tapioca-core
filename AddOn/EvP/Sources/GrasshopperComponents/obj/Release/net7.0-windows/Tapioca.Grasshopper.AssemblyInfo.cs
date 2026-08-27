@@ -12,10 +12,10 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tapioca.Grasshopper")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
-[assembly: System.Reflection.AssemblyDescriptionAttribute(("Grasshopper components that reach Archicad directly, in process, through the Tapi" +
-    "oca add-on."))]
+[assembly: System.Reflection.AssemblyDescriptionAttribute(("Grasshopper components that reach Archicad through the Tapioca add-on over its lo" +
+    "w-latency bridge."))]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+68bffab4f23526fc7a045ee272fdf3e537110a7a")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+69e7cc1223ee27674a44c9fa42fdcee7e6e0bd66")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tapioca.Grasshopper")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tapioca.Grasshopper")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

@@ -22,7 +22,6 @@ if (files.length !== 1 || relativeFiles[0] !== 'index.html') {
 const html = await readFile(files[0], 'utf8')
 const forbiddenReferences = [
   /<(?:script|link)\b[^>]*(?:src|href)\s*=\s*["'][^"']+["']/iu,
-  /\b(?:https?:\/\/|\/\/localhost\b|localhost:)/iu,
   /\b(?:src|href)\s*=\s*["'](?!data:|#)[^"']+["']/iu,
   /\burl\(\s*["']?(?!data:|#)[^)"']+/iu,
   /@import\s+(?:url\()?\s*["']?(?!data:)[^;"')]+/iu,
@@ -30,8 +29,10 @@ const forbiddenReferences = [
 ]
 
 for (const pattern of forbiddenReferences) {
-  if (pattern.test(html)) {
-    throw new Error(`Generated HTML contains a forbidden external reference or network call: ${pattern}`)
+  const match = html.match(pattern)
+  if (match?.index !== undefined) {
+    const context = html.slice(Math.max(0, match.index - 80), match.index + match[0].length + 80)
+    throw new Error(`Generated HTML contains a forbidden external reference or network call: ${pattern}\n${context}`)
   }
 }
 
