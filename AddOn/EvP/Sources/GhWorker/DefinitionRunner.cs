@@ -176,6 +176,14 @@ namespace Tapioca.GhWorker
                 Grasshopper.Kernel.GH_Document.EnableSolutions = previouslyEnabled;
             }
 
+            // ⚠️ AFTER THE SOLVE, AND INSIDE THE TIMED REGION ON PURPOSE. Tapir's
+            // writes fire from a capsule button rather than from SolveInstance, so
+            // a definition that creates elements creates nothing until this runs —
+            // measured twice on 2026-08-27, a CreateLineElements definition solving
+            // in 9 and 16 ms and writing nothing. The press is part of what a Run
+            // costs, so it is part of what a Run reports.
+            string executed = TapirExecutor.PressExecuteButtons(document);
+
             clock.Stop();
 
             List<string> errors = new List<string>();
@@ -186,6 +194,11 @@ namespace Tapioca.GhWorker
             string headline = ok
                 ? "Solved " + name + "."
                 : "Solved " + name + " with " + errors.Count.ToString(CultureInfo.InvariantCulture) + " error(s).";
+            if (!string.IsNullOrEmpty(executed))
+            {
+                headline += Environment.NewLine + executed;
+            }
+
             return new RunReport(ok, headline, clock.ElapsedMilliseconds, Clip(errors), Clip(warnings));
         }
 
