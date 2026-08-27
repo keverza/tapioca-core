@@ -267,6 +267,24 @@ namespace Tapioca.GhWorker
                 _ledger.TryGetValue(command, out count);
                 _ledger[command] = count + 1;
             }
+
+            // ⚠️ POSSIBLE WRITES ARE LOGGED AS THEY HAPPEN, NOT ONLY IN A RUN'S
+            // LEDGER, AND THE REASON IS A REAL GAP IN THE RUN WINDOW. Tapir's
+            // write components fire from their own capsule BUTTON, not from
+            // SolveInstance — so pressing one happens BETWEEN Tapioca runs, and
+            // the next run's ResetLedger wipes it before anyone sees it. Until a
+            // Player drives those buttons itself (the ManualExecute route, which
+            // is slice 4's execution gating), the log is the only place a
+            // button-triggered write is visible at all.
+            //
+            // Get* is filtered out because it is around a hundred of Tapir's
+            // commands and all of them are reads; logging those would bury the
+            // one line that matters under the traffic of a single solve.
+            if (command.StartsWith(TapirNamespace + ".", StringComparison.Ordinal)
+                && !command.StartsWith(TapirNamespace + ".Get", StringComparison.Ordinal))
+            {
+                WorkerLog.Write("tapir call (possible write): " + command);
+            }
         }
 
         /// <summary>The string value following a key, or null.</summary>
