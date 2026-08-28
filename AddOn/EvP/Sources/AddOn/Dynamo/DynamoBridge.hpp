@@ -9,13 +9,15 @@
 
 namespace evp::dynamo {
 
+enum class DynamoClient { Editor, Headless };
+
 class DynamoBridge {
   public:
     static DynamoBridge& Get ();
 
     bool Start (GS::UniString& error);
     void Stop ();
-    void SetClientProcess (uint32_t processId, void* processHandle);
+    void SetClientProcess (DynamoClient client, uint32_t processId, void* processHandle);
     GS::UniString PipeName () const;
 
   private:
@@ -28,8 +30,10 @@ class DynamoBridge {
 
     std::atomic<bool> stopping { false };
     std::atomic<bool> running { false };
-    std::atomic<uint32_t> clientProcessId { 0 };
-    std::atomic<void*> clientProcessHandle { nullptr };
+    std::atomic<uint32_t> editorProcessId { 0 };
+    std::atomic<void*> editorProcessHandle { nullptr };
+    std::atomic<uint32_t> headlessProcessId { 0 };
+    std::atomic<void*> headlessProcessHandle { nullptr };
     std::thread worker;
     GS::UniString pipeName;
 };

@@ -151,8 +151,10 @@ bool DynamoBridge::Start (GS::UniString& error)
 
     stopping.store (false);
     running.store (true);
-    clientProcessId.store (0);
-    clientProcessHandle.store (nullptr);
+    editorProcessId.store (0);
+    editorProcessHandle.store (nullptr);
+    headlessProcessId.store (0);
+    headlessProcessHandle.store (nullptr);
     try {
         worker = std::thread ([this, firstPipe] { Run (firstPipe); });
     }
@@ -174,15 +176,23 @@ void DynamoBridge::Stop ()
     stopping.store (true);
     worker.join ();
     running.store (false);
-    clientProcessId.store (0);
-    clientProcessHandle.store (nullptr);
+    editorProcessId.store (0);
+    editorProcessHandle.store (nullptr);
+    headlessProcessId.store (0);
+    headlessProcessHandle.store (nullptr);
     pipeName.Clear ();
 }
 
-void DynamoBridge::SetClientProcess (uint32_t processId, void* processHandle)
+void DynamoBridge::SetClientProcess (DynamoClient client, uint32_t processId, void* processHandle)
 {
-    clientProcessId.store (processId);
-    clientProcessHandle.store (processHandle);
+    if (client == DynamoClient::Editor) {
+        editorProcessId.store (processId);
+        editorProcessHandle.store (processHandle);
+    }
+    else {
+        headlessProcessId.store (processId);
+        headlessProcessHandle.store (processHandle);
+    }
 }
 
 GS::UniString DynamoBridge::PipeName () const
@@ -222,12 +232,18 @@ void DynamoBridge::Run (void* firstPipe)
 
         if (!stopping.load () && connected) {
             ULONG actualProcessId = 0;
-            const uint32_t expectedProcessId = clientProcessId.load ();
-            HANDLE expectedProcess = (HANDLE) clientProcessHandle.load ();
-            if (expectedProcessId != 0 && expectedProcess != nullptr &&
-                WaitForSingleObject (expectedProcess, 0) == WAIT_TIMEOUT &&
-                GetNamedPipeClientProcessId (pipe, &actualProcessId) != 0 && actualProcessId == expectedProcessId)
-                ServeClient (pipe, stopping);
+            if (GetNamedPipeClientProcessId (pipe, &actualProcessId) != 0) {
+                const uint32_t expectedEditorId = editorProcessId.load ();
+                const uint32_t expectedHeadlessId = headlessProcessId.load ();
+                HANDLE expectedEditor = (HANDLE) editorProcessHandle.load ();
+                HANDLE expectedHeadless = (HANDLE) headlessProcessHandle.load ();
+                const bool editorAllowed = actualProcessId == expectedEditorId && expectedEditor != nullptr &&
+                                           WaitForSingleObject (expectedEditor, 0) == WAIT_TIMEOUT;
+                const bool headlessAllowed = actualProcessId == expectedHeadlessId && expectedHeadless != nullptr &&
+                                             WaitForSingleObject (expectedHeadless, 0) == WAIT_TIMEOUT;
+                if (editorAllowed || headlessAllowed)
+                    ServeClient (pipe, stopping);
+            }
         }
 
         DisconnectNamedPipe (pipe);
