@@ -23,6 +23,14 @@ constexpr const char* kPartName = "TapiocaPreview";
 constexpr const char* kVertsParam = "pvVerts";
 constexpr const char* kTrisParam = "pvTris";
 
+// The PLAN carrier is a SEPARATE part, not a second script on the first one.
+// Sharing one part would put the plan benchmark's polygons into the 3D window
+// and the 3D benchmark's body onto the floor plan, and each would then be paying
+// the other's cost inside its own measurement.
+constexpr const char* kPlanPartName = "TapiocaPlanPreview";
+constexpr const char* kPlanVertsParam = "pv2Verts";
+constexpr const char* kPlanPolysParam = "pv2Polys";
+
 using Clock = std::chrono::steady_clock;
 
 double MsSince (const Clock::time_point& from)
@@ -170,11 +178,28 @@ bool WriteDoubleArray (API_ElementMemo& memo, const char* name, Int32 dim1, Int3
     return false;
 }
 
-// The library-part index for TapiocaPreview, or a sentence saying why not.
-bool ResolvePreviewPart (API_LibPart& libPart, GS::UniString& refusal)
+// A plain numeric parameter. Every GDL type that is not a string lives in the
+// same `real` double — Integer, Length, Boolean, Material and FillPattern alike
+// — so one path covers all of them.
+void WriteScalar (API_ElementMemo& memo, const char* name, double value)
+{
+    if (memo.params == nullptr)
+        return;
+    const GSSize count = BMGetHandleSize ((GSHandle) memo.params) / sizeof (API_AddParType);
+    for (GSIndex p = 0; p < count; ++p) {
+        if (std::strcmp ((*memo.params)[p].name, name) == 0) {
+            (*memo.params)[p].value.real = value;
+            return;
+        }
+    }
+}
+
+// The library-part index for one of the preview carriers, or a sentence saying
+// why not.
+bool ResolvePreviewPart (const char* partName, API_LibPart& libPart, GS::UniString& refusal)
 {
     libPart = {};
-    GS::ucscpy (libPart.docu_UName, GS::UniString (kPartName).ToUStr ());
+    GS::ucscpy (libPart.docu_UName, GS::UniString (partName).ToUStr ());
 
     // createIfMissing=false. A virtual reference would place Archicad's "missing
     // part" dot and report success while having drawn nothing — the exact silent
@@ -184,10 +209,10 @@ bool ResolvePreviewPart (API_LibPart& libPart, GS::UniString& refusal)
     libPart.location = nullptr;
 
     if (err != NoError) {
-        refusal = GS::UniString ("The library part \"TapiocaPreview\" is not loaded. Compile it with "
-                                 "private\\Library\\Build-LibParts.ps1, then add private\\Library\\build to the "
-                                 "project's libraries in File > Libraries and Objects > Library Manager and reload. "
-                                 "NOTHING was placed.");
+        refusal = GS::UniString ("The library part \"") + partName +
+                  "\" is not loaded. Compile it with private\\Library\\Build-LibParts.ps1, then add "
+                  "private\\Library\\build to the project's libraries in File > Libraries and Objects > "
+                  "Library Manager and reload. NOTHING was placed.";
         return false;
     }
     return true;
@@ -227,7 +252,7 @@ class GdlPreviewFeedCommand : public WriteCommand {
 
         API_LibPart libPart;
         GS::UniString refusal;
-        if (!ResolvePreviewPart (libPart, refusal))
+        if (!ResolvePreviewPart (kPartName, libPart, refusal))
             return NativeCommandResult::Failure (refusal);
 
         // ---- t0a: generate ------------------------------------------------
@@ -449,28 +474,365 @@ class GdlPreviewFeedCommand : public WriteCommand {
         os.Add ("timings", timings);
         return os;
     }
+};
 
-  private:
-    // A plain numeric parameter. Every GDL type that is not a string lives in
-    // the same `real` double — Integer, Length, Boolean and Material alike — so
-    // one path covers all of them.
-    static void WriteScalar (API_ElementMemo& memo, const char* name, double value)
+// ---------------------------------------------------------------------------
+// The plan half
+// ---------------------------------------------------------------------------
+//
+// ⚠️ THIS IS NOT THE 3D BENCHMARK WITH DIFFERENT NUMBERS. Two things change, and
+// both change what the answer means:
+//
+//   * the 3D route pays its cost ONCE at conversion and then navigates on the
+//     GPU. The plan does not convert to anything — the 2D script's primitives
+//     are what the floor plan draws, so the cost sits between the model and
+//     every redraw rather than in front of them;
+//   * `POLY2_` is VARIADIC, and `PUT`/`GET(NSP)` is the only bulk argument feed
+//     GDL has. So the same picture can be drawn as many small polygons (many
+//     statements, few arguments each) or as one long polyline (one statement,
+//     thousands of arguments). If GDL's per-argument cost is far below its
+//     per-statement cost, those two are NOT the same price, and a plan feed
+//     should be built to prefer the cheap one. That is the question this half
+//     exists to answer, and the 3D half could not ask it — `VERT`/`EDGE`/`PGON`
+//     are fixed-arity, so there was never a choice to make.
+struct PlanMesh {
+    GS::Array<double> verts; // x, y, POLY2_ status triples
+    GS::Array<double> polys; // (firstNode, nodeCount) pairs, 1-BASED
+};
+
+// GRID: `count` closed quads on a near-square lattice. Many POLY2_ statements,
+// four nodes each — the statement-bound shape.
+void BuildPlanGrid (Int32 count, double cell, double jitter, PlanMesh& mesh)
+{
+    Int32 cols = (Int32) std::ceil (std::sqrt ((double) count));
+    if (cols < 1)
+        cols = 1;
+
+    mesh.verts.SetCapacity ((USize) count * 12);
+    mesh.polys.SetCapacity ((USize) count * 2);
+
+    const double size = cell * 0.7 + jitter;
+    for (Int32 i = 0; i < count; ++i) {
+        const double ox = (double) (i % cols) * cell;
+        const double oy = (double) (i / cols) * cell;
+        const Int32 first = i * 4 + 1; // 1-based, as the 2D script indexes it
+        // status 1 = the segment leaving this node is visible. The polygon is
+        // closed by POLY2_'s frame_fill bit, not by repeating the first node.
+        const double corners[4][2] = { { ox, oy }, { ox + size, oy }, { ox + size, oy + size }, { ox, oy + size } };
+        for (const auto& corner : corners) {
+            mesh.verts.Push (corner[0]);
+            mesh.verts.Push (corner[1]);
+            mesh.verts.Push (1.0);
+        }
+        mesh.polys.Push ((double) first);
+        mesh.polys.Push (4.0);
+    }
+}
+
+// SPIRAL: ONE polyline of `count` segments. One POLY2_ statement carrying
+// thousands of arguments through the parameter buffer — the argument-bound
+// shape, and the direct comparison the grid exists to be measured against.
+void BuildPlanSpiral (Int32 count, double spacing, double jitter, PlanMesh& mesh)
+{
+    const Int32 nodes = count + 1;
+    mesh.verts.SetCapacity ((USize) nodes * 3);
+
+    const double turns = 12.0;
+    const double twoPi = 2.0 * 3.14159265358979323846;
+    for (Int32 i = 0; i < nodes; ++i) {
+        const double t = (double) i / (double) count;
+        const double angle = t * turns * twoPi;
+        const double radius = (0.5 + t * spacing * 20.0) + jitter;
+        mesh.verts.Push (radius * std::cos (angle));
+        mesh.verts.Push (radius * std::sin (angle));
+        mesh.verts.Push (1.0);
+    }
+    mesh.polys.Push (1.0);
+    mesh.polys.Push ((double) nodes);
+}
+
+// ---------------------------------------------------------------------------
+// Counting what the 2D script actually emitted
+// ---------------------------------------------------------------------------
+//
+// ⚠️ THIS IS `ShapePrims` PUT TO ITS REAL USE. The handoff's §1.1 killed it as a
+// geometry INJECTOR — it hands primitives out, and they are 2D — and said to
+// keep it as a diagnostic instead. This is that diagnostic: it re-runs the
+// element's 2D drawing and reports what the interpreter produced, which is both
+// the plan's `t2` seam and the only proof that the script re-ran over new data.
+//
+// The counter is a file-static because `ShapePrimsProc` is a bare C function
+// pointer with no user-data argument. That is safe here and only here: the call
+// is main-thread-only and the SDK refuses to nest these procedures at all
+// (`APIERR_NESTING`), so there can never be two counts in flight.
+struct PrimCount {
+    Int32 total = 0;
+    Int32 polys = 0;
+    Int32 plines = 0;
+    Int32 lines = 0;
+    Int32 other = 0;
+};
+
+PrimCount g_primCount;
+
+GSErrCode CountPrimitive (const API_PrimElement* prim, const void*, const void*, const void*)
+{
+    if (prim == nullptr)
+        return NoError;
+    switch (prim->header.typeID) {
+        case API_PrimPolyID:
+            ++g_primCount.polys;
+            ++g_primCount.total;
+            break;
+        case API_PrimPLineID:
+            ++g_primCount.plines;
+            ++g_primCount.total;
+            break;
+        case API_PrimLineID:
+            ++g_primCount.lines;
+            ++g_primCount.total;
+            break;
+        // Control codes (Beg/End, hatch borders, element refs) are NOT drawing
+        // primitives and must not inflate the count — the number is supposed to
+        // be comparable with the polygon count the feed asked for.
+        default:
+            if (prim->header.typeID == API_PrimPointID || prim->header.typeID == API_PrimArcID ||
+                prim->header.typeID == API_PrimTextID || prim->header.typeID == API_PrimTriID) {
+                ++g_primCount.other;
+                ++g_primCount.total;
+            }
+            break;
+    }
+    return NoError;
+}
+
+// ---------------------------------------------------------------------------
+// Tapioca.PlanPreviewFeed
+// ---------------------------------------------------------------------------
+class PlanPreviewFeedCommand : public WriteCommand {
+  public:
+    GS::String GetName () const override
     {
-        if (memo.params == nullptr)
-            return;
-        const GSSize count = BMGetHandleSize ((GSHandle) memo.params) / sizeof (API_AddParType);
-        for (GSIndex p = 0; p < count; ++p) {
-            if (std::strcmp ((*memo.params)[p].name, name) == 0) {
-                (*memo.params)[p].value.real = value;
-                return;
+        return "PlanPreviewFeed";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Int32 count = 1;
+        params.Get ("count", count);
+        if (count < 1) {
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("count must be at least 1 — it is the number of quads for shape \"grid\", "
+                          "or the number of segments in the single polyline for shape \"spiral\"",
+                          "Tapioca.PlanPreviewFeed"));
+        }
+
+        GS::UniString shape = "grid";
+        params.Get ("shape", shape);
+        const bool spiral = (shape == "spiral");
+        if (!spiral && shape != "grid") {
+            return NativeCommandResult::Failure (
+                GS::UniString ("shape must be \"grid\" (many small polygons — statement-bound) or \"spiral\" "
+                               "(one long polyline — argument-bound). Comparing those two IS the plan benchmark."));
+        }
+
+        // Same reason as the 3D feed: two pushes of identical bytes make Archicad
+        // regenerate nothing, and the second one would be timed as if it had.
+        GS::Int32 jitter = 0;
+        params.Get ("jitter", jitter);
+
+        API_LibPart libPart;
+        GS::UniString refusal;
+        if (!ResolvePreviewPart (kPlanPartName, libPart, refusal))
+            return NativeCommandResult::Failure (refusal);
+
+        // ---- t0a: generate ------------------------------------------------
+        const Clock::time_point genStart = Clock::now ();
+        PlanMesh mesh;
+        if (spiral)
+            BuildPlanSpiral (count, 0.05, 0.001 * (double) jitter, mesh);
+        else
+            BuildPlanGrid (count, 0.4, 0.001 * (double) jitter, mesh);
+        const double genMs = MsSince (genStart);
+
+        const Int32 nodeCount = (Int32) (mesh.verts.GetSize () / 3);
+        const Int32 polyCount = (Int32) (mesh.polys.GetSize () / 2);
+
+        // ---- fetch the element to write into -------------------------------
+        GS::ObjectState elementIdIn;
+        GS::UniString guidIn;
+        const bool updating =
+            params.Get ("elementId", elementIdIn) && elementIdIn.Get ("guid", guidIn) && !guidIn.IsEmpty ();
+
+        API_Element element = {};
+        API_ElementMemo memo = {};
+        element.header.type = API_ObjectID;
+        GSErrCode err = NoError;
+
+        if (updating) {
+            element.header.guid = APIGuidFromString (guidIn.ToCStr ().Get ());
+            err = ACAPI_Element_Get (&element);
+            if (err == NoError)
+                err = ACAPI_Element_GetMemo (element.header.guid, &memo, APIMemoMask_AddPars);
+            if (err != NoError) {
+                ACAPI_DisposeElemMemoHdls (&memo);
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_Element_Get/GetMemo", err,
+                                    GS::UniString::Printf ("elementId.guid %T — pass an object this command placed, "
+                                                           "or omit elementId to place a new one",
+                                                           guidIn.ToPrintf ())));
+            }
+            if (element.object.libInd != libPart.index) {
+                ACAPI_DisposeElemMemoHdls (&memo);
+                return NativeCommandResult::Failure (
+                    GS::UniString ("That element is not a TapiocaPlanPreview object. Note that the 3D and plan "
+                                   "carriers are SEPARATE parts on purpose, so a guid from GdlPreviewFeed is "
+                                   "refused here rather than half-written."));
             }
         }
+        else {
+            err = ACAPI_Element_GetDefaults (&element, &memo);
+            if (err != NoError) {
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_Element_GetDefaults", err, "API_ObjectID (tool defaults)"));
+            }
+
+            double a = 0.0, b = 0.0;
+            Int32 addParNum = 0;
+            API_AddParType** libParams = nullptr;
+            const GSErrCode paramErr = ACAPI_LibraryPart_GetParams (libPart.index, &a, &b, &addParNum, &libParams);
+            if (paramErr != NoError) {
+                ACAPI_DisposeElemMemoHdls (&memo);
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_LibraryPart_GetParams", paramErr, GS::UniString (kPlanPartName)));
+            }
+            ACAPI_DisposeAddParHdl (&memo.params);
+            memo.params = libParams;
+
+            element.object.libInd = libPart.index;
+            element.object.xRatio = a;
+            element.object.yRatio = b;
+
+            double x = 0.0, y = 0.0;
+            params.Get ("x", x);
+            params.Get ("y", y);
+            element.object.pos.x = x;
+            element.object.pos.y = y;
+
+            GS::UniString layerErr;
+            if (!ResolveLayerParam (params, element.header, layerErr)) {
+                ACAPI_DisposeElemMemoHdls (&memo);
+                return NativeCommandResult::Failure (layerErr);
+            }
+        }
+
+        // ---- t0b: build the handles ---------------------------------------
+        const Clock::time_point fillStart = Clock::now ();
+        const bool wroteVerts =
+            WriteDoubleArray (memo, kPlanVertsParam, nodeCount, 3, mesh.verts.GetContent (), mesh.verts.GetSize ());
+        const bool wrotePolys =
+            WriteDoubleArray (memo, kPlanPolysParam, polyCount, 2, mesh.polys.GetContent (), mesh.polys.GetSize ());
+        const double fillMs = MsSince (fillStart);
+
+        if (!wroteVerts || !wrotePolys) {
+            ACAPI_DisposeElemMemoHdls (&memo);
+            return NativeCommandResult::Failure (
+                GS::UniString ("Could not write ") + (wroteVerts ? kPlanPolysParam : kPlanVertsParam) +
+                " — the loaded TapiocaPlanPreview has no parameter by that name. An older build of "
+                "the part is the usual cause; recompile it. NOTHING was written.");
+        }
+
+        GS::Int32 revision = 0;
+        if (params.Get ("revision", revision))
+            WriteScalar (memo, "pv2Revision", (double) revision);
+        GS::Int32 frame = 0;
+        if (params.Get ("frame", frame))
+            WriteScalar (memo, "pv2Frame", (double) frame);
+        bool enabled = true;
+        if (params.Get ("enabled", enabled))
+            WriteScalar (memo, "pv2Enabled", enabled ? 1.0 : 0.0);
+
+        // ---- t1: the element write ----------------------------------------
+        const Clock::time_point changeStart = Clock::now ();
+        if (updating) {
+            API_Element mask = {};
+            ACAPI_ELEMENT_MASK_CLEAR (mask);
+            err = ACAPI_Element_Change (&element, &mask, &memo, APIMemoMask_AddPars, true);
+        }
+        else {
+            err = ACAPI_Element_Create (&element, &memo);
+        }
+        const double changeMs = MsSince (changeStart);
+        ACAPI_DisposeElemMemoHdls (&memo);
+
+        if (err != NoError) {
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL (updating ? "ACAPI_Element_Change" : "ACAPI_Element_Create", err,
+                                GS::UniString::Printf ("%d nodes in %d polygon(s)", (int) nodeCount, (int) polyCount)));
+        }
+
+        GS::ObjectState os;
+        GS::ObjectState elementId;
+        elementId.Add ("guid", GS::UniString (APIGuidToString (element.header.guid).ToCStr ()));
+        os.Add ("elementId", elementId);
+        os.Add ("placed", !updating);
+        os.Add ("shape", shape);
+        os.Add ("nodeCount", (GS::Int32) nodeCount);
+        os.Add ("polygonCount", (GS::Int32) polyCount);
+        os.Add ("arrayBytes", (GS::Int32) ((mesh.verts.GetSize () + mesh.polys.GetSize ()) * sizeof (double)));
+
+        GS::ObjectState timings;
+        timings.Add ("generateMs", genMs);
+        timings.Add ("fillMs", fillMs);
+        timings.Add ("buildMs", genMs + fillMs);
+        timings.Add ("changeMs", changeMs);
+
+        // ---- t2: force the 2D drawing --------------------------------------
+        bool measure2D = true;
+        params.Get ("measure2D", measure2D);
+        if (measure2D) {
+            g_primCount = PrimCount ();
+            const Clock::time_point drawStart = Clock::now ();
+            const GSErrCode drawErr = ACAPI_DrawingPrimitive_ShapePrims (element.header, CountPrimitive);
+            timings.Add ("drawMs", MsSince (drawStart));
+
+            GS::ObjectState drawn;
+            if (drawErr == NoError) {
+                drawn.Add ("primitives", (GS::Int32) g_primCount.total);
+                drawn.Add ("polygons", (GS::Int32) g_primCount.polys);
+                drawn.Add ("polylines", (GS::Int32) g_primCount.plines);
+                drawn.Add ("lines", (GS::Int32) g_primCount.lines);
+                drawn.Add ("other", (GS::Int32) g_primCount.other);
+                // The plan's answer to "did the 2D script re-run over the new
+                // data". One POLY2_ per requested polygon is what a correct run
+                // looks like; Archicad may split a filled polygon into a border
+                // plus hatch lines, so this is >= rather than ==.
+                drawn.Add ("matchesRequest", g_primCount.total >= polyCount);
+            }
+            else {
+                // GS::UniString(...) around the whole thing is REQUIRED: `a + b`
+                // yields the lazy GS::UniString::Concatenation, which
+                // ObjectState::Add cannot store.
+                drawn.Add ("error", GS::UniString::Printf (
+                                        "ACAPI_DrawingPrimitive_ShapePrims failed (%d). APIERR_BADDATABASE here means "
+                                        "the 3D WINDOW IS ACTIVE — this call needs the floor plan to be the current "
+                                        "database. Switch to the plan and run again.",
+                                        (int) drawErr));
+            }
+            os.Add ("drawn", drawn);
+        }
+
+        os.Add ("timings", timings);
+        return os;
     }
 };
 
 const NativeCommandRegistration GdlPreviewCommandRegistrations[] = {
-    { "GdlPreviewFeed", &MakeRegisteredNativeCommand<GdlPreviewFeedCommand>, false,
-      R"json({"type":"object","properties":{"rows":{"type":"integer","minimum":0},"cols":{"type":"integer","minimum":0},"jitter":{"type":"integer"},"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"layer":{"type":"string"},"revision":{"type":"integer"},"bodyStatus":{"type":"integer"},"enabled":{"type":"boolean"},"measure3D":{"type":"boolean"}},"additionalProperties":false})json",
+    { "PlanPreviewFeed", &MakeRegisteredNativeCommand<PlanPreviewFeedCommand>, false,
+      R"json({"type":"object","properties":{"count":{"type":"integer","minimum":1},"shape":{"type":"string"},"jitter":{"type":"integer"},"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"layer":{"type":"string"},"revision":{"type":"integer"},"frame":{"type":"integer"},"enabled":{"type":"boolean"},"measure2D":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"placed":{"type":"boolean"},"shape":{"type":"string"},"nodeCount":{"type":"integer"},"polygonCount":{"type":"integer"},"arrayBytes":{"type":"integer"},"timings":{"type":"object","properties":{"generateMs":{"type":"number"},"fillMs":{"type":"number"},"buildMs":{"type":"number"},"changeMs":{"type":"number"},"drawMs":{"type":"number"}},"additionalProperties":false,"required":["generateMs","fillMs","buildMs","changeMs"]},"drawn":{"type":"object","properties":{"primitives":{"type":"integer"},"polygons":{"type":"integer"},"polylines":{"type":"integer"},"lines":{"type":"integer"},"other":{"type":"integer"},"matchesRequest":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false}},"additionalProperties":false,"required":["elementId","placed","shape","nodeCount","polygonCount","arrayBytes","timings"]})json" },
+
+    { "GdlPreviewFeed", &MakeRegisteredNativeCommand<GdlPreviewFeedCommand>, false, R"json({"type":"object","properties":{"rows":{"type":"integer","minimum":0},"cols":{"type":"integer","minimum":0},"jitter":{"type":"integer"},"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"layer":{"type":"string"},"revision":{"type":"integer"},"bodyStatus":{"type":"integer"},"enabled":{"type":"boolean"},"measure3D":{"type":"boolean"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"placed":{"type":"boolean"},"vertexCount":{"type":"integer"},"triangleCount":{"type":"integer"},"arrayBytes":{"type":"integer"},"timings":{"type":"object","properties":{"generateMs":{"type":"number"},"fillMs":{"type":"number"},"buildMs":{"type":"number"},"changeMs":{"type":"number"},"convertMs":{"type":"number"}},"additionalProperties":false,"required":["generateMs","fillMs","buildMs","changeMs"]},"model":{"type":"object","properties":{"firstBody":{"type":"integer"},"lastBody":{"type":"integer"},"bodyCount":{"type":"integer"},"polygonCount":{"type":"integer"},"edgeCount":{"type":"integer"},"modelVertexCount":{"type":"integer"},"closed":{"type":"boolean"},"matchesRequest":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false}},"additionalProperties":false,"required":["elementId","placed","vertexCount","triangleCount","arrayBytes","timings"]})json" },
 };
 
