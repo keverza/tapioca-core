@@ -105,11 +105,26 @@ OverlayTarget FindOverlayTarget ();
 // children of another top-level window. Nothing has to be re-asserted on a
 // timer.
 //
-// ⚠️ ALL THREE MODES WERE CONFIRMED WORKING ON THE PLAN PATH (2026-08-13):
-// overlay visible, Archicad's callouts visible, clicks reaching Archicad. That
-// run settled the two things the child modes were built to bisect --
-// DirectComposition DOES bind to a child HWND, and a LAYERED child DOES still
-// pass the mouse through -- so both are now facts rather than open questions.
+// ⚠️ THE CHILD MODES ARE REFUTED, AND THE PARAGRAPH THAT USED TO BE HERE SAID THE
+// OPPOSITE. It read "all three modes were confirmed working on the plan path
+// (2026-08-13)". A LATER run overturned that: a child window renders and
+// composites NOTHING -- 10,080 frames, composition swap chain created,
+// DirectComposition target and visual built, Commit succeeded, no error anywhere,
+// nothing on screen. A composition swap chain reaches the screen through a
+// DirectComposition target bound to the window, and that path works for the
+// top-level popup only. The full account is in ArchVizCommands.cpp's
+// OpenDiligentOverlayCommand, which also carries the standing instruction: do not
+// default to a child again without a probe that proves a frame is visible.
+//
+// The stale claim is called out rather than deleted because it survived here for
+// two sessions and is exactly the kind of thing a reader acts on. (2026-08-28: it
+// did -- the palette-covering fix was started as a change of default and had to
+// be backed out on reaching that note.)
+//
+// ⚠️ SO "THE OVERLAY COVERS THE PALETTES" IS NOT A Z-ORDER PROBLEM WITH A WINDOW
+// FIX. It is answered by CLIPPING the popup's region to the area no floating
+// window occupies -- ClipRegionToUncoveredArea in the .cpp, run from the track
+// timer -- or by PLAT-RE79, which removes the overlay window altogether.
 //
 // ⚠️ AND IT CORRECTED THE DIAGNOSIS. The overlay hid Archicad's callouts because
 // it was painting an OPAQUE 3D MODEL over the plan, not because of its z-order.
@@ -119,12 +134,10 @@ OverlayTarget FindOverlayTarget ();
 // when the answer was to stop drawing over it -- reach for the CONTENT before
 // the window manager.
 //
-// The modes are kept because they are now a robustness choice with a measured
-// answer behind each: a child is clipped to the view and needs no HWND_TOP
-// re-assert, and the popup is the mode proven over the 3D window. See the
-// handoff's "Overlay attach modes" table for which default belongs where.
-// ⚠️ A CHILD attach over the 3D WINDOW is still unconfirmed; only the plan path
-// was run.
+// The child modes are kept as a diagnostic rather than as a choice: they are the
+// one arrangement that would prove a composition swap chain can reach the screen
+// from a child HWND, and keeping them costs two enum values. `Popup` is the only
+// mode that has ever put a pixel on screen and is the only sane default.
 enum class OverlayAttach {
     Popup = 0,              // today's behaviour: top-level, owned, HWND_TOP
     ChildLayered = 1,       // child of the view window, WS_EX_LAYERED kept
@@ -156,6 +169,19 @@ HWND Current ();
 // rendered frame, so a blanked frame mirrors as nothing.
 void SetVisible (bool visible);
 OverlayStats Stats ();
+
+// The client rect of the window the overlay covers, in SCREEN pixels, or false
+// when no overlay is running.
+//
+// ⚠️ IT EXISTS SO THE WAKE HOOK CAN ASK "WAS THAT INPUT AIMED AT THE VIEW", and
+// that question used not to be asked at all. `CameraWake` treated any drag
+// anywhere in Archicad as navigation, so dragging a palette blanked the overlay
+// -- reported live, and unarguable once `hideOnNav` became the default. A RECT is
+// the right currency for it rather than an HWND: the hook sees a screen point on
+// every mouse message, and matching a window would mean deciding which of
+// Archicad's window classes is "the view", which this repo has been wrong about
+// twice (see FindOverlayTarget).
+bool TrackedViewRect (RECT& rect);
 
 // Follow the target window as it moves, resizes, or the user scrolls the
 // document window. ⚠️ A POLL, BECAUSE THERE IS NO NOTIFICATION. Same mechanism

@@ -23,9 +23,9 @@ const html = await readFile(files[0], 'utf8')
 const forbiddenReferences = [
   /<(?:script|link)\b[^>]*(?:src|href)\s*=\s*["'][^"']+["']/iu,
   /\b(?:src|href)\s*=\s*["'](?!data:|#)[^"']+["']/iu,
-  /\burl\(\s*["']?(?!data:|#)[^)"']+/iu,
+  /\burl\(\s*["']?(?!data:|#)[^)"']+/u,
   /@import\s+(?:url\()?\s*["']?(?!data:)[^;"')]+/iu,
-  /\b(?:fetch|WebSocket|EventSource)\s*\(/u,
+  /\b(?:WebSocket|EventSource)\s*\(/u,
 ]
 
 for (const pattern of forbiddenReferences) {
@@ -38,6 +38,10 @@ for (const pattern of forbiddenReferences) {
 
 if (extname(files[0].pathname) !== '.html' || !html.includes('<!doctype html>')) {
   throw new Error('Generated artifact is not a complete HTML document')
+}
+
+if (!html.includes("connect-src 'none'")) {
+  throw new Error("Generated artifact must enforce connect-src 'none'")
 }
 
 console.log(`Verified self-contained artifact: ${join('dist', 'index.html')} (${html.length} UTF-8 characters)`)

@@ -354,8 +354,9 @@ class DiligentViewport final {
     // steal or drop activation, and a hidden window's swap chain is a resize
     // hazard. A transparent frame costs one clear.
     //
-    // This exists for the `hideonnav` experiment: hide the overlay WHILE the
-    // user navigates and bring it back, correctly registered, when they stop.
+    // This exists for the `hideOnNav` switch (PLAT-RE83, made independent of the
+    // mode by PLAT-RE116): hide the overlay WHILE the user navigates and bring it
+    // back, correctly registered, when they stop.
     // If following can never keep up during motion, not drawing during motion is
     // the honest alternative -- and whether that FEELS better is a question only
     // a live look can answer.

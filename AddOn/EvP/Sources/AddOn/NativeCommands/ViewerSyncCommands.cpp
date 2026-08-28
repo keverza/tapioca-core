@@ -231,9 +231,12 @@ public:
         // MainThreadCommand already puts us there. Posting would be wrong: the
         // timer would belong to whichever thread the post happened to run on.
         std::string error;
+        // `CurrentHideOnNav ()` and not a literal: this command has no opinion
+        // about blanking and never had one, so passing anything else would let a
+        // caller that only wanted the timer on silently reset somebody's switch.
         const bool ok = av::SetCameraSyncMode (
             enabled ? av::CameraSyncMode::Legacy : av::CameraSyncMode::Off,
-            (uint32_t) intervalMs, av::CurrentPredictionScale (), error);
+            (uint32_t) intervalMs, av::CurrentPredictionScale (), av::CurrentHideOnNav (), error);
         if (!ok)
             return NativeCommandResult::Failure (
                 EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8),
@@ -280,8 +283,15 @@ public:
         double predictionScale = av::CurrentPredictionScale ();
         params.Get ("predictionScale", predictionScale);
 
+        // Same rule, and the reason `hideOnNav` is a parameter here at all: it
+        // composes with every mode now (PLAT-RE116), so it must be settable
+        // WITHOUT choosing a mode and survivable when a mode is chosen without
+        // it. Omitting it keeps whatever is set.
+        bool hideOnNav = av::CurrentHideOnNav ();
+        params.Get ("hideOnNav", hideOnNav);
+
         std::string error;
-        if (!av::SetCameraSyncMode (mode, (uint32_t) intervalMs, predictionScale, error))
+        if (!av::SetCameraSyncMode (mode, (uint32_t) intervalMs, predictionScale, hideOnNav, error))
             return NativeCommandResult::Failure (
                 EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8),
                           "setting the camera sync mode to '" + requested + "'"));
@@ -289,6 +299,7 @@ public:
         GS::ObjectState os;
         os.Add ("mode", GS::UniString (av::CameraSyncModeName (av::CurrentCameraSyncMode ()), CC_UTF8));
         os.Add ("intervalMs", (GS::Int32) av::CurrentCameraSyncIntervalMs ());
+        os.Add ("hideOnNav", av::CurrentHideOnNav ());
         return os;
     }
 };
@@ -303,6 +314,11 @@ public:
         os.Add ("mode", GS::UniString (av::CameraSyncModeName (av::CurrentCameraSyncMode ()), CC_UTF8));
         os.Add ("intervalMs", (GS::Int32) av::CurrentCameraSyncIntervalMs ());
         os.Add ("predictionScale", av::CurrentPredictionScale ());
+        // ⚠️ REPORTED SEPARATELY FROM `mode`, because it no longer lives in it.
+        // A caller reading `mode == "wakepredict"` learns nothing about whether
+        // the overlay blanks during motion, and a blanked overlay looks exactly
+        // like a broken one to anything that only samples pixels.
+        os.Add ("hideOnNav", av::CurrentHideOnNav ());
         os.Add ("experimentsBlocked", av::experimentguard::Blocked ());
         os.Add ("experimentsBlockedWhy",
                 GS::UniString (av::experimentguard::WhyBlocked ().c_str (), CC_UTF8));
@@ -499,8 +515,8 @@ const NativeCommandRegistration kViewerSyncCommandRegistrations[] = {
       R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000}},"additionalProperties":false,"required":["enabled","intervalMs"]})json",
       R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000}},"additionalProperties":false,"required":["enabled","intervalMs"]})json" },
     { "SetCameraSyncMode", &MakeRegisteredNativeCommand<SetCameraSyncModeCommand>, false,
-      R"json({"type":"object","properties":{"mode":{"type":"string","enum":["off","legacy","hideonnav","wake","predict","wakepredict","hookdiag","hookdraw"]},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4}},"additionalProperties":false,"required":["mode"]})json",
-      R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4}},"additionalProperties":false,"required":["mode","intervalMs"]})json" },
+      R"json({"type":"object","properties":{"mode":{"type":"string","enum":["off","legacy","hideonnav","wake","predict","wakepredict","hookdiag","hookdraw"]},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4},"hideOnNav":{"type":"boolean"}},"additionalProperties":false,"required":["mode"]})json",
+      R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4},"hideOnNav":{"type":"boolean"}},"additionalProperties":false,"required":["mode","intervalMs","hideOnNav"]})json" },
     { "ViewerNavLog", &MakeRegisteredNativeCommand<ViewerNavLogCommand>, false,
       R"json({"type":"object","properties":{"enable":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":0,"maximum":5000},"sampler":{"type":"boolean"}},"additionalProperties":false,"required":["enable"]})json",
       R"json({"type":"object","properties":{"running":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":0},"viewerRows":{"type":"integer","minimum":0},"archicadRows":{"type":"integer","minimum":0},"archicadFails":{"type":"integer","minimum":0},"maxArchicadGapMs":{"type":"integer","minimum":0},"writeFailures":{"type":"integer","minimum":0},"droppedRows":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["running","intervalMs","viewerRows","archicadRows","archicadFails","maxArchicadGapMs"]})json" },
@@ -509,7 +525,7 @@ const NativeCommandRegistration kViewerSyncCommandRegistrations[] = {
       R"json({"type":"object","properties":{"marked":{"type":"boolean"}},"additionalProperties":false,"required":["marked"]})json" },
     { "CameraSyncModeState", &MakeRegisteredNativeCommand<CameraSyncModeStateCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"experimentsBlocked":{"type":"boolean"},"experimentsBlockedWhy":{"type":"string"},"predictionScale":{"type":"number"},"breadcrumbPath":{"type":"string"},"safeModePath":{"type":"string"},"wakeInstalled":{"type":"boolean"},"wakeWheelEvents":{"type":"integer"},"wakeDragEvents":{"type":"integer"},"wakeKeyEvents":{"type":"integer"},"pollsPosted":{"type":"integer"},"pollsCoalesced":{"type":"integer"},"presentHookInstalled":{"type":"boolean"},"presentCalls":{"type":"integer"},"present1Calls":{"type":"integer"},"presentResizeCalls":{"type":"integer"},"busiestFrameCount":{"type":"integer"},"medianFrameUs":{"type":"integer"},"p95FrameUs":{"type":"integer"},"markerEnabled":{"type":"boolean"},"markerTargetChosen":{"type":"boolean"},"markerDraws":{"type":"integer"},"markerFailures":{"type":"integer"},"markerLastError":{"type":"string"},"compositeEnabled":{"type":"boolean"},"compositeReady":{"type":"boolean"},"compositeBlits":{"type":"integer"},"compositeFramesConsumed":{"type":"integer"},"compositeReprojections":{"type":"integer"},"compositeFailures":{"type":"integer"},"compositeBackBufferFormat":{"type":"integer"},"compositeWidth":{"type":"integer"},"compositeHeight":{"type":"integer"},"compositeLastError":{"type":"string"}},"additionalProperties":false,"required":["mode","intervalMs","experimentsBlocked","experimentsBlockedWhy"]})json" },
+      R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"experimentsBlocked":{"type":"boolean"},"experimentsBlockedWhy":{"type":"string"},"predictionScale":{"type":"number"},"hideOnNav":{"type":"boolean"},"breadcrumbPath":{"type":"string"},"safeModePath":{"type":"string"},"wakeInstalled":{"type":"boolean"},"wakeWheelEvents":{"type":"integer"},"wakeDragEvents":{"type":"integer"},"wakeKeyEvents":{"type":"integer"},"pollsPosted":{"type":"integer"},"pollsCoalesced":{"type":"integer"},"presentHookInstalled":{"type":"boolean"},"presentCalls":{"type":"integer"},"present1Calls":{"type":"integer"},"presentResizeCalls":{"type":"integer"},"busiestFrameCount":{"type":"integer"},"medianFrameUs":{"type":"integer"},"p95FrameUs":{"type":"integer"},"markerEnabled":{"type":"boolean"},"markerTargetChosen":{"type":"boolean"},"markerDraws":{"type":"integer"},"markerFailures":{"type":"integer"},"markerLastError":{"type":"string"},"compositeEnabled":{"type":"boolean"},"compositeReady":{"type":"boolean"},"compositeBlits":{"type":"integer"},"compositeFramesConsumed":{"type":"integer"},"compositeReprojections":{"type":"integer"},"compositeFailures":{"type":"integer"},"compositeBackBufferFormat":{"type":"integer"},"compositeWidth":{"type":"integer"},"compositeHeight":{"type":"integer"},"compositeLastError":{"type":"string"}},"additionalProperties":false,"required":["mode","intervalMs","experimentsBlocked","experimentsBlockedWhy"]})json" },
     { "GetArchicad3DCamera", &MakeRegisteredNativeCommand<GetArchicad3DCameraCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["valid","source","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },

@@ -12,8 +12,10 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@threlte/core": "8.6.0",
     "@xyflow/svelte": "1.6.5",
-    "svelte": "5.56.10"
+    "svelte": "5.56.10",
+    "three": "0.185.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.1.2",

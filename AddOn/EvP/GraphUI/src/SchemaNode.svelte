@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Handle, Position, type Node, type NodeProps } from '@xyflow/svelte'
+  import ThreltePreview from './ThreltePreview.svelte'
   import type { SchemaNodeData } from './types'
 
   let { data, selected }: NodeProps<Node<SchemaNodeData>> = $props()
@@ -54,6 +55,14 @@
       {/each}
     </div>
   </div>
+
+  {#if data.schema.nodeType === 'watch'}
+    {#if selected}
+      <ThreltePreview result={data.result} />
+    {:else}
+      <div class="preview-hint">Select to activate 3D preview</div>
+    {/if}
+  {/if}
 
   <footer class:complete={data.result?.status === 'complete'}>
     <span>{data.result?.status ?? 'not run'}</span>
@@ -176,6 +185,16 @@
 
   footer.complete {
     color: #75c695;
+  }
+
+  .preview-hint {
+    margin: 0 10px 10px;
+    padding: 9px;
+    border: 1px dashed #303945;
+    border-radius: 4px;
+    color: #718092;
+    font: 9px/1.2 ui-monospace, monospace;
+    text-align: center;
   }
 
   :global(.svelte-flow__handle) {

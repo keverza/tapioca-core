@@ -792,6 +792,86 @@ TEST (PlanPredictAdaptiveTest, AReversalCollapsesTheAllowanceInOneSample)
         << "a reversal still spends the trust a steady pan earned";
 }
 
+TEST (PlanPredictAdaptiveTest, AShortZoomEarnsTrustFasterThanAShortPan)
+{
+    // THE USER'S "zoom prediction is lagging behind slightly", as a test. A wheel
+    // zoom is one short animation -- a few hundred milliseconds -- where a pan
+    // drag lasts seconds, so a ramp tuned for the pan spends most of a zoom under
+    // the allowance it has earned.
+    //
+    // ⚠️ WHAT MAKES THE FASTER RAMP LEGITIMATE IS THE SIGNAL, NOT THE SYMPTOM.
+    // The centre's consistency blends toward a real cosine over [0,1]; a scalar
+    // channel's can only be +1 or negative, so there is nothing to average. This
+    // test compares the two channels over the SAME number of steps to pin that
+    // difference, rather than asserting a particular constant.
+    const double dt = 0.016;
+    const double horizon = dt * 4.0;
+    const int steps = 3;   // ~48 ms: well inside a wheel zoom, nowhere near a pan
+
+    // Zoom: a steady geometric ramp, the shape Archicad's own zoom animation has.
+    geomsrv::archviz::PlanCameraPredictor zoomState;
+    const double ratioPerStep = 1.05;
+    double halfHeight = 10.0;
+    geomsrv::archviz::PlanCameraFit zoomed;
+    for (int i = 0; i <= steps; ++i) {
+        geomsrv::archviz::PlanCameraFit observed;
+        observed.valid = true;
+        observed.centreX = 0.0;
+        observed.centreY = 0.0;
+        observed.halfHeightMetres = halfHeight;
+        zoomed = geomsrv::archviz::PredictPlanCamera (zoomState, observed, dt, horizon);
+        halfHeight *= ratioPerStep;
+    }
+    const double lastZoomObserved = halfHeight / ratioPerStep;
+    const double zoomStepsAhead =
+        std::log (zoomed.halfHeightMetres / lastZoomObserved) / std::log (ratioPerStep);
+
+    // Pan: the same number of equally steady steps, on the channel whose ramp did
+    // not change.
+    geomsrv::archviz::PlanCameraPredictor panState;
+    const double dx = 0.10;
+    const auto panned = RunSteadyPan (panState, steps + 1, dx, dt, horizon);
+    const double panStepsAhead = (panned.centreX - dx * double (steps)) / dx;
+
+    EXPECT_GT (zoomStepsAhead, panStepsAhead)
+        << "the scalar channel no longer earns trust faster than the vector one, so a short "
+           "zoom is back to being predicted less than a short pan of the same steadiness";
+    // And it must still be inside the bound every other test defends.
+    EXPECT_LE (zoomStepsAhead, geomsrv::archviz::kMaxPredictedStepsAhead + 1e-9);
+}
+
+TEST (PlanPredictAdaptiveTest, AZoomReversalStillCollapsesInOneSample)
+{
+    // ⚠️ THE HALF THE FASTER RAMP MUST NOT COST. Trust is rebuilt faster; it is
+    // still DESTROYED on the sample the direction flips, which is what keeps a
+    // zoom-in-then-out from throwing the overlay off the screen.
+    const double dt = 0.016;
+    const double horizon = dt * 4.0;
+    geomsrv::archviz::PlanCameraPredictor state;
+    const double ratioPerStep = 1.05;
+    double halfHeight = 10.0;
+    for (int i = 0; i < 8; ++i) {
+        geomsrv::archviz::PlanCameraFit observed;
+        observed.valid = true;
+        observed.halfHeightMetres = halfHeight;
+        geomsrv::archviz::PredictPlanCamera (state, observed, dt, horizon);
+        halfHeight *= ratioPerStep;
+    }
+
+    // Now zoom the other way by one step.
+    const double before = halfHeight / ratioPerStep;
+    const double reversed = before / ratioPerStep;
+    geomsrv::archviz::PlanCameraFit observed;
+    observed.valid = true;
+    observed.halfHeightMetres = reversed;
+    const auto predicted = geomsrv::archviz::PredictPlanCamera (state, observed, dt, horizon);
+
+    const double stepsAhead =
+        std::fabs (std::log (predicted.halfHeightMetres / reversed) / std::log (ratioPerStep));
+    EXPECT_LE (stepsAhead, geomsrv::archviz::kMinPredictedStepsAhead + 1e-9)
+        << "a zoom reversal spends the trust a steady zoom earned";
+}
+
 TEST (PlanPredictAdaptiveTest, APauseDoesNotDestroyEarnedTrust)
 {
     // ⚠️ A HESITATION IS NOT A REVERSAL. A zero-length step has no direction, so

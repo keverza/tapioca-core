@@ -664,7 +664,9 @@ struct geomsrv::archviz::DiligentScene::Impl {
     std::string environmentError;
 
     SceneRenderMode renderMode = SceneRenderMode::Shaded;
-    float wireTessellation = 4.0f;
+    // 1 = no subdivision; see DiligentHud.hpp's wireTessellation for why that is
+    // the default and why the floor is 1 rather than 0.
+    float wireTessellation = 1.0f;
     float wireLineWidth = 1.25f;
     // ⚠️ Fast BY DEFAULT, and the overlay never leaves it: the overlay's frame
     // budget belongs to Archicad, and it exists to be compared AGAINST

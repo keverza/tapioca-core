@@ -482,10 +482,33 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // sync OFF when it finished (measured, 2026-08-13 12:16). A switch built for
     // reversibility must be the only way in, or its idea of the current mode is
     // fiction.
+    //
+    // ⚠️ `wakepredict`, NOT `legacy`. The overlay is not an experiment rig -- other
+    // features open it and are shown whatever it decides to arm, so the default
+    // has to be the best configuration that is safe to hand an ordinary user, not
+    // the oldest one. `wakepredict` is that: it samples on the input instead of
+    // waiting for a WM_TIMER Windows serves last, and extrapolates across what is
+    // left, which the 2026-08-13 runs measured at 22-26 ms of lag falling to
+    // 14-16 ms. It installs a thread-local hook and nothing else; the DXGI detour
+    // in `hookdraw` stays opt-in because it costs Archicad frame time (PLAT-RE118)
+    // and hides the overlay's own window.
+    //
+    // ⚠️ AND IT FALLS BACK, because `wakepredict` goes through the experiment
+    // guard: one unrelated crash leaves a breadcrumb that refuses every hook mode
+    // next session, and a dependent that opened the overlay would then get NO
+    // camera sync at all -- a far worse regression than the lag this replaces.
+    // `legacy` needs no guard and cannot be refused for that reason.
     std::string syncError;
-    if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy, kOverlayCameraSyncMs, 1.0,
+    if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::WakePredict,
+                                              kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ true,
                                               syncError)) {
-        geomsrv::archviz::ArchVizLog ("overlay: camera sync did not arm -- " + syncError);
+        geomsrv::archviz::ArchVizLog ("overlay: wakepredict did not arm -- " + syncError +
+                                      "; falling back to legacy");
+        if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy,
+                                                  kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ true,
+                                                  syncError)) {
+            geomsrv::archviz::ArchVizLog ("overlay: camera sync did not arm -- " + syncError);
+        }
     }
 
     panel.statusText.SetText (FromStd ("Diligent overlay over " + stats.targetClass + " (" +

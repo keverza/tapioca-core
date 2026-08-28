@@ -347,6 +347,8 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
             ImGui::Combo ("##rendermode", &state.renderMode, kRenderModeNames, kRenderModeCount);
             ImGui::TextDisabled ("surfaces -- wireframe is what makes the OVERLAY readable");
             if (state.renderMode != int (SceneRenderMode::Shaded)) {
+                // 1 = outlines only, and the default. The floor is 1, not 0:
+                // a tessellation factor of 0 culls the patch.
                 ImGui::SliderInt ("wire subdivisions", &state.wireTessellation, 1, 16);
                 ImGui::SliderFloat ("wire width", &state.wireLineWidth, 0.5f, 3.0f, "%.2f px");
             }

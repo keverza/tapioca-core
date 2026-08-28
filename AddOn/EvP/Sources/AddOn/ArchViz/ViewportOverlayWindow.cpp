@@ -27,6 +27,33 @@ ResizeCallback s_onResize = nullptr;
 OverlayStats s_stats;
 OverlayAttach s_attach = OverlayAttach::Popup;
 
+// How often the tracker re-asks which document window is frontmost, in track
+// polls. See the note at the check itself for why it is not every poll.
+constexpr int kTargetCheckEveryTicks = 8;
+int s_targetCheckTicks = 0;
+
+// ---- visibility has TWO independent owners, and conflating them hid the
+// overlay permanently once already ---------------------------------------
+//
+// `s_visibleWish` is what the camera-sync MODE wants: `hookdraw` hides the window
+// because it mirrors the same frames into Archicad's back buffer, and leaving it
+// up would draw the overlay twice.
+//
+// `s_targetInFront` is what the WINDOW STATE allows: the overlay covers one
+// document canvas, and the user can put another one in front of it.
+//
+// The window is shown only when both agree. One boolean could not express that:
+// whichever owner wrote last would silently overrule the other, so switching
+// away from the 3D window under `hookdraw` and back would un-hide a window that
+// must stay hidden.
+bool s_visibleWish = true;
+bool s_targetInFront = true;
+
+// The rects last subtracted from the overlay's region, so an unchanged clip does
+// not re-apply. `SetWindowRgn` with `bRedraw` forces a repaint of the whole
+// window, and doing that every track poll is a visible flicker.
+std::vector<RECT> s_clipRects;
+
 // Every overlay we created and did not destroy ourselves. ⚠️ NOT JUST
 // `s_overlay`: PlanOverlay found the hard way that Archicad can destroy an
 // overlay for us when the window it was parented to closes, after which a NEW
@@ -179,6 +206,137 @@ HWND DeepestChildAt (HWND root, POINT screenPt)
     return current == root ? nullptr : current;
 }
 
+
+// ---- keeping the popup off Archicad's floating windows (PLAT-RE64) --------
+//
+// ⚠️ THIS IS THE ANSWER, AND THE OBVIOUS ONE IS REFUTED. Re-parenting the overlay
+// as a CHILD of the view window would solve the z-order structurally, and it was
+// tried: the child renders and composites NOTHING. See the long note in
+// ArchVizCommands.cpp's OpenDiligentOverlayCommand -- 10,080 frames, swap chain
+// created, DirectComposition target and visual built, Commit succeeded, nothing
+// on screen. A composition swap chain reaches the screen through a
+// DirectComposition target bound to the window, and that path works for the
+// top-level popup only. That note names the two remaining answers; this is the
+// first of them.
+//
+// ⚠️ Z-ORDER CANNOT BE THE TEST. The overlay is put at HWND_TOP every poll --
+// anything lower is composited over and the overlay goes invisible, measured --
+// so every palette is BELOW it and would pass a "is it above me" test while
+// still being a window the user expects to see. The test is therefore what the
+// window IS, not where it sits: a visible top-level window on Archicad's UI
+// thread that is neither the main frame, nor the frame owning the canvas we
+// cover, nor one of ours.
+struct ClipCollector {
+    HWND main = nullptr;
+    HWND targetRoot = nullptr;
+    RECT overlayRect = {};
+    std::vector<RECT> rects;
+};
+
+BOOL CALLBACK CollectClipWindow (HWND hwnd, LPARAM param)
+{
+    ClipCollector& collector = *reinterpret_cast<ClipCollector*> (param);
+    if (hwnd == s_overlay || hwnd == collector.main || hwnd == collector.targetRoot)
+        return TRUE;
+    if (!IsWindowVisible (hwnd) || IsIconic (hwnd) || IsOurs (hwnd))
+        return TRUE;
+
+    RECT r = {};
+    if (!GetWindowRect (hwnd, &r))
+        return TRUE;
+    RECT hit = {};
+    if (!IntersectRect (&hit, &r, &collector.overlayRect))
+        return TRUE;
+    if (hit.right - hit.left <= 0 || hit.bottom - hit.top <= 0)
+        return TRUE;
+    collector.rects.push_back (hit);
+    return TRUE;
+}
+
+// Cut every floating Archicad window out of the overlay's region.
+//
+// ⚠️ POPUP ONLY. A child is clipped to its parent by Windows and has nothing to
+// subtract; calling this for one would be cost with no effect.
+void ClipRegionToUncoveredArea ()
+{
+    if (s_overlay == nullptr || !IsWindow (s_overlay) || s_attach != OverlayAttach::Popup)
+        return;
+
+    RECT overlayRect = {};
+    if (!GetWindowRect (s_overlay, &overlayRect))
+        return;
+    const int width = overlayRect.right - overlayRect.left;
+    const int height = overlayRect.bottom - overlayRect.top;
+    if (width <= 0 || height <= 0)
+        return;
+
+    ClipCollector collector;
+    collector.main = ACAPI_GetMainWindow ();
+    collector.targetRoot = (s_target != nullptr && IsWindow (s_target))
+                               ? GetAncestor (s_target, GA_ROOT)
+                               : nullptr;
+    collector.overlayRect = overlayRect;
+    // ⚠️ THE THREAD, NOT THE DESKTOP. EnumThreadWindows returns the top-level
+    // windows of Archicad's UI thread, which is exactly the set of palettes,
+    // tooltips and callouts this has to dodge. EnumWindows would hand back every
+    // window on the desktop, and subtracting another application's window would
+    // punch a hole in the overlay for something that is not even in front.
+    EnumThreadWindows (GetWindowThreadProcessId (s_overlay, nullptr), &CollectClipWindow,
+                       reinterpret_cast<LPARAM> (&collector));
+
+    // RECT has no operator==, and SameRect is the comparison this file already
+    // uses everywhere else.
+    bool sameAsLast = collector.rects.size () == s_clipRects.size ();
+    for (size_t i = 0; sameAsLast && i < collector.rects.size (); ++i)
+        sameAsLast = SameRect (collector.rects[i], s_clipRects[i]);
+    if (sameAsLast)
+        return;   // nothing moved; a redundant SetWindowRgn is a visible repaint
+
+    HRGN region = CreateRectRgn (0, 0, width, height);
+    if (region == nullptr)
+        return;
+    for (const RECT& hit : collector.rects) {
+        HRGN cut = CreateRectRgn (hit.left - overlayRect.left, hit.top - overlayRect.top,
+                                  hit.right - overlayRect.left, hit.bottom - overlayRect.top);
+        if (cut == nullptr)
+            continue;
+        CombineRgn (region, region, cut, RGN_DIFF);
+        DeleteObject (cut);
+    }
+
+    // ⚠️ AN EMPTY RESULT IS REFUSED, NOT APPLIED. Some window on this thread can
+    // legitimately be visible and the size of the whole canvas, and clipping the
+    // overlay away entirely would reproduce the exact failure this repo has hit
+    // twice already: a viewer that renders perfectly and shows nothing, with no
+    // error anywhere. Showing the overlay over a palette is a wrong picture the
+    // user can see and report; showing nothing is one they cannot.
+    RECT remaining = {};
+    if (GetRgnBox (region, &remaining) == NULLREGION) {
+        ArchVizLog ("ArchViz overlay: region clip would hide the overlay entirely; leaving it "
+                    "unclipped");
+        DeleteObject (region);
+        return;
+    }
+
+    // SetWindowRgn takes ownership on success -- never delete `region` after it.
+    if (SetWindowRgn (s_overlay, region, TRUE) == 0) {
+        DeleteObject (region);
+        return;
+    }
+    s_clipRects = collector.rects;
+}
+
+// Show the window only if BOTH owners agree. See s_visibleWish.
+void ApplyVisibility ()
+{
+    if (s_overlay == nullptr || !IsWindow (s_overlay))
+        return;
+    // ⚠️ SW_SHOWNOACTIVATE, NEVER SW_SHOW. The overlay is an owned popup over
+    // Archicad's document window; activating it takes the focus away from the
+    // window the user is navigating, which stops the navigation mid-gesture.
+    ShowWindow (s_overlay, (s_visibleWish && s_targetInFront) ? SW_SHOWNOACTIVATE : SW_HIDE);
+}
+
 }   // namespace
 
 OverlayTarget FindOverlayTarget ()
@@ -326,6 +484,10 @@ HWND Create (const OverlayTarget& target, OverlayAttach attach, std::string& err
     s_overlay = hwnd;
     s_target = target.window;
     s_rect = target.screenRect;
+    s_visibleWish = true;
+    s_targetInFront = true;
+    s_targetCheckTicks = 0;
+    s_clipRects.clear ();
     s_created.push_back (hwnd);
 
     s_stats = OverlayStats {};
@@ -356,6 +518,13 @@ void Destroy ()
     s_overlay = nullptr;
     s_target = nullptr;
     s_rect = RECT {};
+    // ⚠️ RESET WITH THE WINDOW. Both are sticky state about a window that no
+    // longer exists, and a `false` surviving here would open the NEXT overlay
+    // hidden -- which reads exactly like the renderer having failed.
+    s_visibleWish = true;
+    s_targetInFront = true;
+    s_targetCheckTicks = 0;
+    s_clipRects.clear ();
     s_stats.active = false;
     s_stats.overlay = nullptr;
 }
@@ -373,14 +542,24 @@ HWND Current () { return s_overlay; }
 
 void SetVisible (bool visible)
 {
-    if (s_overlay == nullptr)
-        return;
-    // ⚠️ SW_SHOWNOACTIVATE, NEVER SW_SHOW. The overlay is an owned popup over
-    // Archicad's document window; activating it takes the focus away from the
-    // window the user is navigating, which stops the navigation mid-gesture.
-    ShowWindow (s_overlay, visible ? SW_SHOWNOACTIVATE : SW_HIDE);
+    // ⚠️ IT RECORDS A WISH AND DOES NOT SHOW THE WINDOW ITSELF. The other owner
+    // is the tracker, which hides the overlay when the canvas it covers is no
+    // longer the frontmost document. See s_visibleWish.
+    s_visibleWish = visible;
+    ApplyVisibility ();
 }
 OverlayStats Stats () { return s_stats; }
+
+bool TrackedViewRect (RECT& rect)
+{
+    if (s_overlay == nullptr || !IsWindow (s_overlay) || s_target == nullptr ||
+        !IsWindow (s_target))
+        return false;
+    if (s_rect.right - s_rect.left <= 0 || s_rect.bottom - s_rect.top <= 0)
+        return false;
+    rect = s_rect;
+    return true;
+}
 
 namespace {
 
@@ -398,6 +577,51 @@ void CALLBACK TrackTimerProc (HWND, UINT, UINT_PTR, DWORD)
         Destroy ();
         return;
     }
+
+    // ⚠️ THE USER CAN PUT ANOTHER DOCUMENT IN FRONT, AND THE TARGET STAYS ALIVE
+    // WHEN THEY DO. Switching from the 3D window to the floor plan does not
+    // destroy the 3D window -- it is still a window, still "visible" as far as
+    // Windows is concerned, merely behind. The check above therefore cannot see
+    // it, and the overlay went on drawing a 3D model over a 2D plan: a picture
+    // that is not stale but simply of something else, which is the worst kind of
+    // wrong because it looks fine.
+    //
+    // ⚠️ HIDDEN, NOT DESTROYED. Switching views is something a user does
+    // constantly and comes straight back from; tearing the overlay down would
+    // mean re-extracting the scene each time, and the extraction is the
+    // expensive half. The renderer keeps running and the window comes back the
+    // moment the 3D view does.
+    //
+    // Throttled: this walks Archicad's window tree, and at the track interval
+    // (~15 ms) that is far more often than a user can change document windows.
+    if (++s_targetCheckTicks >= kTargetCheckEveryTicks) {
+        s_targetCheckTicks = 0;
+        const HWND frontmost = FindOverlayTarget ().window;
+        // A momentary "no frontmost canvas at all" is not a switch -- it is a
+        // menu or a modal covering the centre of the main window. Only a
+        // DIFFERENT canvas counts.
+        if (frontmost != nullptr && frontmost != s_target) {
+            if (s_targetInFront) {
+                ArchVizLog ("ArchViz overlay: another document window came to the front ('" +
+                            ClassNameOf (frontmost) + "'); hiding the overlay until the window "
+                            "it covers is frontmost again");
+            }
+            s_targetInFront = false;
+            ApplyVisibility ();
+            return;   // nothing to track while it is not the front document
+        }
+        if (frontmost == s_target && !s_targetInFront) {
+            ArchVizLog ("ArchViz overlay: the window it covers is frontmost again; showing the "
+                        "overlay");
+            s_targetInFront = true;
+            ApplyVisibility ();
+        }
+    }
+
+    // ⚠️ EVERY POLL, NOT ONLY ON A MOVE. A palette can be dragged across the
+    // overlay without the overlay's own rect changing at all, and the early
+    // return below fires on exactly that case.
+    ClipRegionToUncoveredArea ();
 
     // ⚠️ Z-ORDER IS RE-ASSERTED EVERY POLL, NOT ONLY ON A MOVE, because Archicad
     // raises its own document windows constantly and the overlay would otherwise

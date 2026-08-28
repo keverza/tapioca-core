@@ -149,7 +149,8 @@ double ClampStep (double step, double limit)
 }
 
 // Move `consistency` toward 1 when this step agrees with the last, and drop it
-// to 0 the moment they disagree.
+// to 0 the moment they disagree. `gain` is how far one agreeing sample moves it;
+// it differs per channel -- see kScalarConsistencyGain.
 //
 // `agreement` is the dot product of the two steps (or the product, for a scalar
 // channel) and `magnitude` is what it would be if they pointed exactly the same
@@ -161,7 +162,7 @@ double ClampStep (double step, double limit)
 // on the frame the user is watching for exactly that, while being slow to trust
 // a steady pan costs a few milliseconds of lag nobody can see. The two errors
 // are not remotely equal, so the response to them is not either.
-double UpdateConsistency (double consistency, double agreement, double magnitude)
+double UpdateConsistency (double consistency, double agreement, double magnitude, double gain)
 {
     // Too small to have a direction: hold, do not punish. A pause mid-drag is
     // not a reversal, and treating it as one would restart the ramp every time
@@ -172,7 +173,7 @@ double UpdateConsistency (double consistency, double agreement, double magnitude
     if (cosine <= 0.0)
         return 0.0;   // a right angle or worse -- trust nothing
     const double target = cosine;
-    return consistency + (target - consistency) * kConsistencyGain;
+    return consistency + (target - consistency) * gain;
 }
 
 // The steps-ahead multiple this much consistency has earned.
@@ -237,13 +238,18 @@ PlanCameraFit PredictPlanCamera (PlanCameraPredictor& state, const PlanCameraFit
     state.centreConsistency = UpdateConsistency (
         state.centreConsistency,
         state.previousStepX * stepX + state.previousStepY * stepY,
-        std::hypot (state.previousStepX, state.previousStepY) * std::hypot (stepX, stepY));
+        std::hypot (state.previousStepX, state.previousStepY) * std::hypot (stepX, stepY),
+        kConsistencyGain);
+    // ⚠️ THE SCALAR GAIN, NOT THE CENTRE'S. Both of these divide a product by its
+    // own magnitude, so their "cosine" is +1 or negative and nothing between --
+    // see kScalarConsistencyGain for why averaging a boolean over five samples is
+    // what made a wheel zoom lag while a pan of the same speed did not.
     state.rotationConsistency = UpdateConsistency (
         state.rotationConsistency, state.previousStepRotation * stepRotation,
-        std::fabs (state.previousStepRotation * stepRotation));
+        std::fabs (state.previousStepRotation * stepRotation), kScalarConsistencyGain);
     state.zoomConsistency = UpdateConsistency (
         state.zoomConsistency, state.previousStepLogHalfHeight * stepLogHalfHeight,
-        std::fabs (state.previousStepLogHalfHeight * stepLogHalfHeight));
+        std::fabs (state.previousStepLogHalfHeight * stepLogHalfHeight), kScalarConsistencyGain);
 
     state.previousStepX = stepX;
     state.previousStepY = stepY;

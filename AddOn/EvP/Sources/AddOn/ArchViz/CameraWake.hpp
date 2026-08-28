@@ -68,10 +68,16 @@ namespace camerawake {
 using PollCallback = void (*) ();
 void SetPollCallback (PollCallback callback);
 
-// Whether an input should blank the overlay immediately. `hideonnav` sets this;
-// `wake` must NOT -- it wants the overlay drawn during motion, and only
-// hideonnav's tick knows how to lift a blank again. Default false, and `Remove`
-// resets it.
+// Whether an input should blank the overlay immediately. Default false, and
+// `Remove` resets it.
+//
+// ⚠️ IT USED TO SAY "`hideonnav` sets this; `wake` must NOT". That rule was right
+// about the hazard and wrong about the cause: what must never happen is a blank
+// with nobody left to LIFT it, and the lift lives in `ApplyHideOnNavigation`,
+// which used to run in one mode only. Since PLAT-RE116 it runs whenever the
+// independent `hideOnNav` switch is on, so every hook-installing mode sets this
+// from that switch and the lift always has an owner. Set it from
+// `CurrentHideOnNav ()`, never from a literal.
 void SetBlankOnInput (bool blank);
 
 // MAIN THREAD ONLY -- the hook is bound to the calling thread. False with

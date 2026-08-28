@@ -5,6 +5,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
 #include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/ViewportOverlayWindow.hpp"
 
 #include <windows.h>
 
@@ -38,6 +39,45 @@ std::atomic<uint64_t> g_pollsCoalesced {0};
 // lift the blank again. Nothing was visible to judge, and the mode looked broken
 // rather than mis-wired.
 std::atomic<bool> g_blankOnInput {false};
+
+// ---- was that input aimed at the view? ------------------------------------
+//
+// ⚠️ THIS FILTER WAS MISSING AND THE SYMPTOM WAS "the overlay disappears when I
+// drag a panel". `IsNavigationInput` counted any mouse move with a button held,
+// anywhere in Archicad, and the note below it argued that over-triggering costs
+// one blank frame while under-triggering costs the feature. That trade was
+// correct while blanking was an opt-in experiment nobody left armed. It stopped
+// being correct when `hideOnNav` became a default that composes with every mode:
+// the cost is no longer a frame, it is the overlay vanishing while the user drags
+// a palette, clicks outside the viewport, or rubber-bands a selection somewhere
+// else entirely -- reported live, and read as the viewer having crashed.
+//
+// ⚠️ IT ASKS ABOUT A POINT, NOT A WINDOW, and that is deliberate. Matching
+// `msg->hwnd` against "the view" would mean naming a window class, which
+// FindOverlayTarget's comments record this repo being wrong about twice. The
+// overlay's tracked rect IS the view's client area by construction -- it is what
+// the overlay is stretched over -- so a screen point inside it is over the view
+// and a point outside it is not, with nothing inferred.
+//
+// ⚠️ AND IT FAILS OPEN. No overlay running means no rect to test, and in that
+// case every input counts exactly as it did before. A filter that silently
+// disabled the wake path whenever it could not answer would be a much worse bug
+// than the one it fixes, because nothing would look broken.
+bool PointerOverView (POINT screenPt)
+{
+    RECT view = {};
+    if (!viewportoverlay::TrackedViewRect (view))
+        return true;
+    return PtInRect (&view, screenPt) != FALSE;
+}
+
+// ⚠️ A DRAG THAT STARTED OVER THE VIEW STAYS NAVIGATION AFTER IT LEAVES IT. A
+// pan easily runs the cursor off the canvas and Windows keeps delivering the
+// moves to the capturing window; testing the point alone would drop exactly the
+// fastest part of the gesture, which is the part the wake path exists for.
+// Latched on the button press, cleared on release, and cleared when the hook is
+// removed so a mode switch mid-drag cannot strand it.
+std::atomic<bool> g_dragFromView {false};
 
 // ---- the input-driven read ------------------------------------------------
 // A message-only window: it never becomes visible, is never enumerated, and
@@ -95,22 +135,55 @@ void RequestPoll ()
 // user reached for a palette. The move only counts while a button that pans is
 // held.
 //
-// ⚠️ THE MESSAGE IS NOT FILTERED BY WINDOW. The hook is already thread-local, so
-// every message it sees belongs to Archicad's UI thread, and deciding WHICH of
-// Archicad's windows counts as a view would mean hard-coding a window class this
-// repo has already been wrong about twice. Over-triggering costs a blank frame;
-// under-triggering costs the feature.
-bool IsNavigationInput (UINT message, WPARAM wParam)
+// ⚠️ THE MESSAGE IS STILL NOT FILTERED BY WINDOW -- it is filtered by POINT, see
+// PointerOverView. The hook is thread-local, so every message it sees belongs to
+// Archicad's UI thread; what it cannot tell from the message alone is whether the
+// user was working in the view or somewhere else in the application, and that
+// distinction is the whole of the "overlay disappears when I drag a panel" bug.
+//
+// `screenPt` is `MSG::pt`, the cursor position Windows stamped on the message
+// when it was posted -- not the position now, which by the time the hook runs may
+// already have moved on.
+bool IsNavigationInput (UINT message, WPARAM wParam, POINT screenPt)
 {
     switch (message) {
         case WM_MOUSEWHEEL:
         case WM_MOUSEHWHEEL:
+            // ⚠️ A WHEEL IS NOT LATCHED. It has no press and no release, so the
+            // only thing that can qualify it is where the pointer is -- and a
+            // wheel over a palette scrolls that palette, it does not zoom.
+            if (!PointerOverView (screenPt))
+                return false;
             g_wheelEvents.fetch_add (1, std::memory_order_relaxed);
             return true;
+        case WM_LBUTTONDOWN:
         case WM_MBUTTONDOWN:
-        case WM_MBUTTONUP:
+        case WM_RBUTTONDOWN:
+            // ⚠️ THE LATCH IS SET HERE AND NOWHERE ELSE. Where a drag BEGAN is
+            // the only reliable statement about what it is for; where it happens
+            // to be now is not, because a pan runs off the canvas constantly.
+            g_dragFromView.store (PointerOverView (screenPt), std::memory_order_release);
+            if (!g_dragFromView.load (std::memory_order_acquire))
+                return false;
+            if (message == WM_MBUTTONDOWN) {
+                g_dragEvents.fetch_add (1, std::memory_order_relaxed);
+                return true;
+            }
+            // A left or right PRESS is not navigation on its own -- it is a
+            // click until it moves. Latched, and counted when it does.
+            return false;
+        case WM_LBUTTONUP:
+        case WM_RBUTTONUP:
+        case WM_MBUTTONUP: {
+            // ⚠️ THE RELEASE IS REPORTED IF THE DRAG WAS OURS, and it must be:
+            // mouse-up is the moment the view SETTLES, and swallowing it would
+            // leave the blank up until the next unrelated input arrived.
+            const bool wasOurs = g_dragFromView.exchange (false, std::memory_order_acq_rel);
+            if (!wasOurs)
+                return false;
             g_dragEvents.fetch_add (1, std::memory_order_relaxed);
             return true;
+        }
         case WM_MOUSEMOVE:
             // ⚠️ THE LEFT BUTTON COUNTS TOO, AND LEAVING IT OUT IS WHY THE FIRST
             // RUN REPORTED "does not always vanish". Archicad pans on the wheel
@@ -124,7 +197,13 @@ bool IsNavigationInput (UINT message, WPARAM wParam)
             // trade for a mode whose entire purpose is not drawing during motion:
             // over-triggering costs one transparent frame, under-triggering costs
             // the feature.
-            if ((wParam & (MK_LBUTTON | MK_MBUTTON | MK_RBUTTON)) != 0) {
+            //
+            // ⚠️ AND IT IS NOW GATED ON THE LATCH, which is what stops a palette
+            // drag or a dialog drag from blanking the overlay. The button that is
+            // held is still required: a bare move is the cursor crossing the
+            // screen, which is not navigation even directly over the view.
+            if ((wParam & (MK_LBUTTON | MK_MBUTTON | MK_RBUTTON)) != 0 &&
+                g_dragFromView.load (std::memory_order_acquire)) {
                 g_dragEvents.fetch_add (1, std::memory_order_relaxed);
                 return true;
             }
@@ -133,6 +212,14 @@ bool IsNavigationInput (UINT message, WPARAM wParam)
         // it. Cheap to include and invisible when unused.
         case WM_KEYDOWN:
         case WM_KEYUP:
+            // ⚠️ NOT POINT-FILTERED, AND THAT IS A KNOWN GAP. A key goes to the
+            // FOCUSED window and carries no position, so the pointer's location
+            // says nothing about it -- arrow keys typed into a palette field
+            // still count as navigation here and will still blank the overlay.
+            // The honest filter is focus, not position, and it needs a way to
+            // recognise the view window that this file deliberately does not
+            // have. Left as it was rather than guessed at; the reported symptom
+            // was the mouse.
             switch (wParam) {
                 case VK_LEFT: case VK_RIGHT: case VK_UP: case VK_DOWN:
                 case VK_PRIOR: case VK_NEXT: case VK_HOME: case VK_END:
@@ -159,7 +246,7 @@ LRESULT CALLBACK GetMessageHook (int code, WPARAM wParam, LPARAM lParam)
         // but the stats a probe reports would be fiction.
         if (wParam != PM_NOREMOVE) {
             const MSG* message = reinterpret_cast<const MSG*> (lParam);
-            if (IsNavigationInput (message->message, message->wParam)) {
+            if (IsNavigationInput (message->message, message->wParam, message->pt)) {
                 g_lastInputMs.store (GetTickCount64 (), std::memory_order_release);
                 // ⚠️ THE BLANK IS SET FROM HERE, AND THAT IS THE ENTIRE POINT OF
                 // THE HOOK. It is one atomic store into the render thread's
@@ -294,6 +381,9 @@ void Remove ()
     DestroyWakeWindow ();
     g_pollCallback = nullptr;
     g_blankOnInput.store (false, std::memory_order_release);
+    // A mode switched mid-drag never sees the button come up, and a latch left
+    // set would make the first stray move of the NEXT mode look like a pan.
+    g_dragFromView.store (false, std::memory_order_release);
 }
 
 bool Installed ()

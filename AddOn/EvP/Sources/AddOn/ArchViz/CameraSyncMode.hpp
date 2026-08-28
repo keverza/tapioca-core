@@ -49,16 +49,20 @@ enum class CameraSyncMode {
                 // input shortens that interval; predicting across it removes what
                 // is left. Kept separate from `predict` so the two are still
                 // comparable one at a time.
-    HideOnNav,  // legacy poll, but the overlay draws NOTHING while the view moves
-                // (PLAT-RE83). Not a sync fix -- an admission that following
-                // cannot keep up during motion, so it shows nothing rather than
-                // something wrong, and comes back correct on stop.
+    HideOnNav,  // legacy poll with blanking forced on (PLAT-RE83). ⚠️ KEPT ONLY
+                // AS A NAME: blanking is now the independent `hideOnNav` switch
+                // below, and this mode is exactly `legacy` with that switch
+                // pinned true. Every probe and script that already sends
+                // `mode: "hideonnav"` keeps meaning what it meant.
     HookDiag,   // DXGI Present detour, log only (PLAT-RE78)
-    HookDraw    // DXGI Present detour, compositing (PLAT-RE79)
+    HookDraw    // DXGI Present detour, compositing (PLAT-RE79), on the SAME
+                // sampling and prediction as `wakepredict` -- see PLAT-RE116 and
+                // the arm switch in the .cpp for why it may not be anything else.
 };
 
 // False if `name` is not one of the mode names.
-// "off", "legacy", "hideonnav", "wake", "predict", "hookdiag", "hookdraw".
+// "off", "legacy", "hideonnav", "wake", "predict", "wakepredict", "hookdiag",
+// "hookdraw".
 bool        ParseCameraSyncMode (const std::string& name, CameraSyncMode& mode);
 const char* CameraSyncModeName (CameraSyncMode mode);
 
@@ -70,11 +74,37 @@ bool IsExperimental (CameraSyncMode mode);
 // and ⚠️ LEAVES THE CURRENT MODE UNTOUCHED, when the request cannot be honoured
 // -- an unimplemented mode or a typo must not silently stop a sync that was
 // working. Only a request that will succeed tears anything down.
+//
+// `hideOnNav` is INDEPENDENT OF THE MODE and composes with all of them -- see
+// `CurrentHideOnNav` below. `CameraSyncMode::HideOnNav` ignores the argument and
+// pins it true.
 bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predictionScale,
-                        std::string& error);
+                        bool hideOnNav, std::string& error);
 
 CameraSyncMode CurrentCameraSyncMode ();
 uint32_t       CurrentCameraSyncIntervalMs ();
+
+// Whether the overlay blanks itself while the view is moving (PLAT-RE83).
+//
+// ⚠️ IT IS A SWITCH AND NOT A MODE ANY MORE (PLAT-RE116). Blanking is orthogonal
+// to WHERE the camera comes from (timer or input wake), to WHETHER it is
+// extrapolated, and to WHERE the pixels land (our window or Archicad's back
+// buffer) -- so expressing it as one more name in an enum of mechanisms made
+// every useful pairing unreachable: `hideonnav` could only ever be had at the
+// price of dropping back to the starved legacy poll. That combinatorial trap is
+// the same one that made `hookdraw` measure against the worst sample stream in
+// the tree.
+//
+// ⚠️ DEFAULT ON. The overlay's whole claim is that the two pictures agree, and a
+// dependent that reads a mid-drag frame is shown a pose that is wrong by
+// construction. Blanking is the only answer that is never wrong; being briefly
+// empty is a state a caller can see and wait out, being subtly stale is not.
+//
+// ⚠️ IT DEGRADES, IT DOES NOT FAIL. Blanking on the input itself needs the wake
+// hook, which only the hook-installing modes have. Under `legacy`/`predict` the
+// timer fallback in `ApplyHideOnNavigation` blanks on the CONSEQUENCE instead
+// and is a tick late by construction -- documented there, not a bug to fix here.
+bool CurrentHideOnNav ();
 
 // How far ahead the predictor aims, as a MULTIPLE of the measured inter-sample
 // interval. 1.0 means "predict exactly one sample ahead".

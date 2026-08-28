@@ -263,6 +263,31 @@ constexpr double kMaxPredictedStepsAhead = 3.0;   // steady: the lag actually fa
 // toward 1, so it takes ~5 steady samples (~80 ms) to reach full extrapolation.
 constexpr double kConsistencyGain = 0.35;
 
+// ⚠️ THE SCALAR CHANNELS EARN TRUST FASTER, AND THE REASON IS STRUCTURAL RATHER
+// THAN A TASTE FOR SHARPER ZOOM. `UpdateConsistency` blends toward the COSINE of
+// the turn. For the centre that cosine is a real number over [0,1] -- a gentle
+// curve is genuinely less predictable than a straight line, and averaging it over
+// several samples is the whole point. For zoom and rotation the "cosine" is a
+// product of two scalars divided by its own absolute value, so it can only ever
+// be exactly +1 or negative. There is no partial agreement to average. The slow
+// ramp spends five samples re-deriving a boolean.
+//
+// The cost showed up as the user's "zoom prediction is lagging behind slightly".
+// A pan drag lasts seconds and reaches full extrapolation long before it ends; a
+// wheel zoom is one short animation of roughly 150-300 ms, so at 0.35 it spends
+// much of the gesture at a fraction of the allowance it has earned -- and the
+// allowance, not the horizon, is the binding constraint (the 2026-08-13 sweep).
+//
+// The instant collapse is UNCHANGED: `UpdateConsistency` still returns 0 outright
+// on a sign flip, so a reversal is distrusted on the sample it happens, exactly
+// as before. Only the rebuild is faster, and only where the signal is a boolean.
+//
+// ⚠️ REASONED, NOT MEASURED. The argument above says the gain should be HIGHER
+// here; it does not say 0.75. That number is a compromise -- two agreeing samples
+// reach 94% -- which keeps some smoothing against a jittery rate estimate. It
+// owes the same kind of sweep `kMinPredictedStepsAhead` got.
+constexpr double kScalarConsistencyGain = 0.75;
+
 // ⚠️ A ZOOM PREDICTION NEEDS AN ABSOLUTE CEILING AS WELL AS A RELATIVE ONE. Zoom
 // is extrapolated in log space, so a large step compounds: the sweep produced
 // single-frame errors of 12,183 px on `fast wheel zoom` at scale 2.0, which is

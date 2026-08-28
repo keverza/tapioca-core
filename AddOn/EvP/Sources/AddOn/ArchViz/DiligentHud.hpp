@@ -83,7 +83,18 @@ struct HudState {
     // HUD-versus-command reconciliation in the frame loop is one pattern rather
     // than two.
     int renderMode = 0;
-    int wireTessellation = 4;
+    // ⚠️ 1 IS "NO SUBDIVISION", AND IT IS THE DEFAULT. The slider's floor is 1
+    // rather than 0 because this number is a HARDWARE TESSELLATION FACTOR, and a
+    // factor of 0 tells the tessellator to CULL the patch -- the wireframe would
+    // vanish, not simplify. 1 means "leave each edge as one segment", which is
+    // what "no extra subdivisions" asks for.
+    //
+    // It was 4. The subdivisions buy nothing on this content: the wire pass masks
+    // the internal triangulation edges and keeps the tessellator's NEW interior
+    // ones, so raising the factor adds lines that are not in the model -- which is
+    // the opposite of what the overlay's wireframe is for. Outlines only, by
+    // default; the slider is still there for anyone who wants the interior grid.
+    int wireTessellation = 1;
     float wireLineWidth = 1.25f;
 
     // ---- READ-ONLY ON THE OVERLAY (the click-through rule) -----------------

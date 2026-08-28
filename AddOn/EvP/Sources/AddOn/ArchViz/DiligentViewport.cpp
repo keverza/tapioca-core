@@ -868,7 +868,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             // Last, over everything, into the full-surface viewport the gnomon
             // restored.
-            if (!offscreen && hud.IsReady () && !blanked) {
+            // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
+            // hides content drawn from a stale POSE; the panels have no pose to be
+            // wrong about, and blanking them read as the viewer having crashed.
+            if (!offscreen && hud.IsReady ()) {
                 const DiligentSceneStats hudScene = scene.Stats ();
                 {
                     // ⚠️ THE LOCK ENDS HERE, BEFORE Draw. `mutex_` is what the
@@ -882,8 +885,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.frames = frames;
                 hudState.width = width;
                 hudState.height = height;
+                // ⚠️ THE ANNOTATIONS STILL BLANK: `viewProj` projects them, so
+                // they go stale the way the model does. The split is not "HUD vs
+                // scene", it is "has a pose to be wrong about vs not".
                 ProjectedDrawList annotations;
-                const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
+                const auto selected = blanked ? std::nullopt
+                                              : annotation::SelectedRetainedFrameSnapshotCopy ();
                 if (selected.has_value ()) {
                     float annotationDpiScale = 1.0f;
                     if (!offscreen && surface.nwh != nullptr) {

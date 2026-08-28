@@ -21,6 +21,19 @@ namespace {
 CameraSyncMode g_mode = CameraSyncMode::Off;
 uint32_t       g_intervalMs = 33;
 double         g_predictionScale = 1.0;
+// ⚠️ ON BY DEFAULT, and it is process state like the mode -- see the header for
+// why an empty overlay beats a stale one for the callers that read it.
+bool           g_hideOnNav = true;
+
+// Does this mode install the wake hook? The hook is what lets `hideOnNav` blank
+// on the INPUT rather than on its consequence, and it is also what makes a mode
+// experimental -- so the two questions have exactly one answer between them and
+// it is written down once.
+bool InstallsWakeHook (CameraSyncMode mode)
+{
+    return mode == CameraSyncMode::HideOnNav || mode == CameraSyncMode::Wake ||
+           mode == CameraSyncMode::WakePredict || mode == CameraSyncMode::HookDraw;
+}
 
 // Disarm whatever `g_mode` currently is. ⚠️ IT SWITCHES ON THE OLD MODE, not on
 // what is being armed next: each mechanism owns a different resource (a timer, a
@@ -32,18 +45,19 @@ void TearDownCurrent ()
         case CameraSyncMode::Off:
             break;
         case CameraSyncMode::Legacy:
+        case CameraSyncMode::Predict:
             ArchVizPanel::StopCameraSync ();
+            // ⚠️ THE BLANK MUST BE LIFTED ON THE WAY OUT, and these two modes had
+            // no reason to do it until `hideOnNav` stopped being a mode of its
+            // own. It lives on the viewport, not on the timer, so leaving a
+            // blanking mode mid-navigation would strand an invisible overlay with
+            // no switch left to fix it.
+            DiligentViewport::Get ().SetBlanked (false);
             break;
         case CameraSyncMode::HideOnNav:
             ArchVizPanel::StopCameraSync ();
             camerawake::Remove ();
-            // ⚠️ THE BLANK MUST BE LIFTED ON THE WAY OUT. It lives on the
-            // viewport, not on the timer, so leaving this mode mid-navigation
-            // would strand an invisible overlay with no switch left to fix it.
             DiligentViewport::Get ().SetBlanked (false);
-            break;
-        case CameraSyncMode::Predict:
-            ArchVizPanel::StopCameraSync ();
             break;
         case CameraSyncMode::Wake:
         case CameraSyncMode::WakePredict:
@@ -80,6 +94,11 @@ void TearDownCurrent ()
             viewportoverlay::SetVisible (true);
             dxgi::FlushPresentLog ();
             dxgi::RemovePresentHook ();
+            // ⚠️ THIS MODE OWNS THE WAKE HOOK NOW (PLAT-RE116) and must give it
+            // back, for the same reason `wakepredict` does: a hook left installed
+            // when the DLL unloads is Windows calling into freed code.
+            camerawake::Remove ();
+            DiligentViewport::Get ().SetBlanked (false);
             break;
     }
     // ⚠️ THE BREADCRUMB GOES WITH THE MECHANISM. It was dropped only on an arm
@@ -139,13 +158,17 @@ bool IsExperimental (CameraSyncMode mode)
     // installed when the DLL goes away is Windows calling into freed code,
     // exactly like a stale detour, so it earns a breadcrumb even though it is far
     // cheaper than the DXGI modes.
-    return mode == CameraSyncMode::HideOnNav || mode == CameraSyncMode::Wake ||
-           mode == CameraSyncMode::WakePredict ||
-           mode == CameraSyncMode::HookDiag || mode == CameraSyncMode::HookDraw;
+    //
+    // ⚠️ IT IS A FUNCTION OF THE MODE ALONE, never of `hideOnNav`. Blanking is a
+    // viewport flag and carries no unload hazard of its own; what carries it is
+    // the hook, and only a mode decides whether one is installed. Letting a
+    // switch move a mode in and out of the guard would mean the breadcrumb on
+    // disk no longer named what was armed.
+    return InstallsWakeHook (mode) || mode == CameraSyncMode::HookDiag;
 }
 
 bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predictionScale,
-                        std::string& error)
+                        bool hideOnNav, std::string& error)
 {
     if (intervalMs < 10)
         intervalMs = 10;
@@ -180,6 +203,15 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
     // ---- from here the switch is committed --------------------------------
     TearDownCurrent ();
 
+    // ⚠️ AFTER THE TEARDOWN, NEVER BEFORE. `TearDownCurrent` lifts the blank the
+    // OLD configuration left behind, and it decides whether to by looking at the
+    // old mode -- writing the new switch over it first would be indistinguishable
+    // from the caller having asked for the old one.
+    //
+    // `hideonnav` pins it rather than reading the argument: the name predates the
+    // switch and every existing caller sends it meaning exactly "blank".
+    g_hideOnNav = (mode == CameraSyncMode::HideOnNav) ? true : hideOnNav;
+
     if (mode == CameraSyncMode::Off) {
         g_intervalMs = intervalMs;
         ArchVizLog ("camera sync mode: off");
@@ -206,6 +238,10 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             armed = ArchVizPanel::StartCameraSync (intervalMs);
             break;
         case CameraSyncMode::HideOnNav:
+            // `g_hideOnNav`, not a literal `true` -- the line above pinned it for
+            // this mode, and hard-coding it here as well would leave two places
+            // that have to agree about one fact.
+            //
             // The timer still reads the camera and decides when the view has
             // SETTLED -- a timed judgement, and the hook has no clock. The hook's
             // job is the other half: blanking the instant an input arrives,
@@ -216,7 +252,7 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             // symptom -- blanking a tick late -- is precisely the bug this mode
             // was extended to fix, so it would look like the fix simply did not
             // work.
-            camerawake::SetBlankOnInput (true);
+            camerawake::SetBlankOnInput (g_hideOnNav);
             armed = camerawake::Install (error) && ArchVizPanel::StartCameraSync (intervalMs);
             if (!armed)
                 camerawake::Remove ();
@@ -236,7 +272,15 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             // The timer stays armed underneath as the heartbeat: a zoom
             // animation continues after the wheel notch that caused it, and a
             // resize moves the camera with no input at all.
+            //
+            // ⚠️ THESE MODES MAY NOW BLANK TOO, which the wake hook's header once
+            // forbade outright. The prohibition was real but it was aimed at the
+            // wrong thing: what must never happen is a blank with nobody left to
+            // LIFT it, and the lift lives in `ApplyHideOnNavigation`, which now
+            // runs whenever the switch is on rather than only in one mode. With
+            // the lift following the switch, the switch is free to compose.
             camerawake::SetPollCallback (&ArchVizPanel::PollCameraOnce);
+            camerawake::SetBlankOnInput (g_hideOnNav);
             armed = camerawake::Install (error) && ArchVizPanel::StartCameraSync (intervalMs);
             if (!armed)
                 camerawake::Remove ();
@@ -273,9 +317,27 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             // stay armed and draw ONLY until the compositor reports ready, so
             // they remain the "the hook is alive, the overlay is not arriving"
             // signal and stop the moment there is something better to look at.
+            //
+            // ⚠️ IT SAMPLES AND PREDICTS EXACTLY AS `wakepredict` DOES, and until
+            // 2026-08-28 it did neither (PLAT-RE116). It armed the bare WM_TIMER
+            // and `ApplyPrediction` did not list it, so the one run that judged
+            // blit-time reprojection composited perfectly and reprojected
+            // faithfully -- onto a pose one starved timer behind. Reprojection can
+            // only ever be as fresh as the newest pose it is handed, so measuring
+            // it on the worst sample stream in the tree measured nothing. The
+            // three mechanisms are independent and this mode is the one that needs
+            // all of them; there is no configuration in which compositing is
+            // wanted and fresher sampling is not.
+            //
+            // The callback goes on before the hook, for the reason `wake` gives:
+            // the hook can fire on the very next message and RequestPoll does
+            // nothing without one.
             dxgi::SetMarkerEnabled (true);
             dxgi::SetHostCompositeEnabled (true);
-            armed = dxgi::InstallPresentHook (error) &&
+            camerawake::SetPollCallback (&ArchVizPanel::PollCameraOnce);
+            camerawake::SetBlankOnInput (g_hideOnNav);
+            armed = camerawake::Install (error) &&
+                    dxgi::InstallPresentHook (error) &&
                     ArchVizPanel::StartCameraSync (intervalMs);
             // ⚠️ OUR OWN OVERLAY WINDOW GOES AWAY WHILE THIS MODE IS ON. It keeps
             // rendering and presenting -- the mirror copies those frames -- but
@@ -290,6 +352,7 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
                 dxgi::SetHostCompositeEnabled (false);
                 dxgi::SetMarkerEnabled (false);
                 dxgi::RemovePresentHook ();
+                camerawake::Remove ();
             }
             break;
         default:
@@ -309,7 +372,8 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
     g_mode = mode;
     g_intervalMs = intervalMs;
     ArchVizLog ("camera sync mode: " + std::string (CameraSyncModeName (mode)) + " at " +
-                std::to_string (intervalMs) + " ms");
+                std::to_string (intervalMs) + " ms, hideOnNav " +
+                (g_hideOnNav ? "on" : "off"));
     return true;
 }
 
@@ -321,6 +385,11 @@ CameraSyncMode CurrentCameraSyncMode ()
 double CurrentPredictionScale ()
 {
     return g_predictionScale;
+}
+
+bool CurrentHideOnNav ()
+{
+    return g_hideOnNav;
 }
 
 uint32_t CurrentCameraSyncIntervalMs ()

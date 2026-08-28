@@ -228,9 +228,16 @@ void ApplyHideOnNavigation (const geomsrv::archviz::CameraStart& camera)
     static uint64_t lastChangeMs = 0;
 
     geomsrv::archviz::DiligentViewport& viewport = geomsrv::archviz::DiligentViewport::Get ();
-    if (geomsrv::archviz::CurrentCameraSyncMode () != geomsrv::archviz::CameraSyncMode::HideOnNav) {
+    // ⚠️ THE SWITCH, NOT THE MODE (PLAT-RE116). Blanking used to be reachable only
+    // as `CameraSyncMode::HideOnNav`, which meant asking for it also meant asking
+    // for the starved legacy poll -- so the honest fallback could never be had on
+    // top of the good sampling. It is an independent switch now and this gate
+    // follows it, which is also what lets `wake`/`wakepredict`/`hookdraw` set
+    // `SetBlankOnInput`: the hook may blank because this function will lift it.
+    if (geomsrv::archviz::CurrentCameraSyncMode () == geomsrv::archviz::CameraSyncMode::Off ||
+        !geomsrv::archviz::CurrentHideOnNav ()) {
         // ⚠️ THE STATE IS RESET, NOT JUST IGNORED. Leaving a stale `lastCamera`
-        // behind means the first tick after re-entering this mode compares
+        // behind means the first tick after the switch comes back on compares
         // against wherever the view was minutes ago and blanks for no reason.
         haveLast = false;
         return;
@@ -364,8 +371,15 @@ geomsrv::archviz::CameraStart ApplyPrediction (const geomsrv::archviz::CameraSta
     static double   g_horizonSeconds = 0.025;   // seeded near the measured interval
 
     const geomsrv::archviz::CameraSyncMode mode = geomsrv::archviz::CurrentCameraSyncMode ();
+    // ⚠️ `HookDraw` IS IN THIS SET (PLAT-RE116), and its absence is what made the
+    // 2026-08-14 reprojection verdict worthless: the pose published for the
+    // present detour is taken from `camera`, so a mode missing from this list
+    // hands the reprojection a RAW observation and gets back exactly the poll
+    // interval the whole ladder exists to remove. Compositing and prediction are
+    // independent mechanisms and this mode wants both.
     const bool predicting = (mode == geomsrv::archviz::CameraSyncMode::Predict ||
-                             mode == geomsrv::archviz::CameraSyncMode::WakePredict);
+                             mode == geomsrv::archviz::CameraSyncMode::WakePredict ||
+                             mode == geomsrv::archviz::CameraSyncMode::HookDraw);
     if (!predicting || !camera.orthographic || !camera.valid) {
         // ⚠️ THE PREDICTOR IS RESET, NOT JUST BYPASSED. A stale velocity from
         // minutes ago would be applied to the first frame after the mode comes

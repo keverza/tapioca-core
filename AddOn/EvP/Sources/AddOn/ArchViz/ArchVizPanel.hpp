@@ -84,6 +84,14 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
     // ViewportOverlayWindow.hpp's OverlayAttach for why that is a runtime choice
     // and not a constant. 0 = popup (visible, covers callouts), 1 = child
     // layered, 2 = child transparent-only.
+    //
+    // ⚠️ THE DEFAULT STAYS 0 (POPUP). The child modes are the obvious answer to
+    // "the overlay covers the palettes" and they are REFUTED: they create the
+    // window, render into it and composite NOTHING -- see the long note in
+    // ArchVizCommands.cpp's OpenDiligentOverlayCommand. The palettes are kept
+    // clear by CLIPPING the popup's region instead (ViewportOverlayWindow's
+    // ClipRegionToUncoveredArea), which is one of the two answers that note
+    // names.
     static void OpenDiligentOverlay (int attach = 0);
     static void CloseDiligentOverlay ();
     // Stop the render thread (JOINING it) and hide the palette. Idempotent, and
