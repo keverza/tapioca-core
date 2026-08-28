@@ -18,6 +18,7 @@
 #include "NativeCommands/ElementModifyCommands.hpp"
 #include "NativeCommands/ElementReadCommands.hpp"
 #include "NativeCommands/FavoriteCommands.hpp"
+#include "NativeCommands/GdlPreviewCommands.hpp"
 #include "NativeCommands/IdentityCommands.hpp"
 #include "NativeCommands/IssueCommands.hpp"
 #include "NativeCommands/LayoutCommands.hpp"
@@ -78,6 +79,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetNotifyCommandRegistrations,      &GetPlanGeometryCommandRegistrations,  &GetPlanOverlayCommandRegistrations,
     &GetPlanTrackCommandRegistrations,   &GetArchVizCommandRegistrations,       &GetPointCloudCommandRegistrations,
     &GetViewerSyncCommandRegistrations,  &GetPreviewCommandRegistrations,       &GetNodeGraphCommandRegistrations,
+    &GetGdlPreviewCommandRegistrations,
 };
 
 // ---------------------------------------------------------------------------
