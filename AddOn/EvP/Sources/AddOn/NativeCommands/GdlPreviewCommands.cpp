@@ -208,6 +208,16 @@ class GdlPreviewFeedCommand : public WriteCommand {
         GS::Int32 rows = 0, cols = 0;
         params.Get ("rows", rows);
         params.Get ("cols", cols);
+
+        // WARNING: `jitter` EXISTS TO DEFEAT A NO-OP, and the benchmark is wrong
+        // without it. Pushing the SAME grid twice writes byte-identical parameter
+        // data, and Archicad then has nothing to regenerate: the second push comes
+        // back an order of magnitude faster because it CONVERTED NOTHING. The first
+        // benchmark runs took the minimum across repeats and so reported that no-op
+        // as the settle cost - case C read 18 ms where a real settle is ~150 ms.
+        // A caller that repeats a case MUST vary this so every push is new data.
+        GS::Int32 jitter = 0;
+        params.Get ("jitter", jitter);
         if (rows < 0 || cols < 0 || (rows > 0 && cols < 3) || (cols > 0 && rows < 3)) {
             return NativeCommandResult::Failure (
                 EVP_FAIL ("rows and cols must both be 0 (the single-triangle A0 case) or both at least 3 "
@@ -226,7 +236,10 @@ class GdlPreviewFeedCommand : public WriteCommand {
         if (rows == 0)
             BuildSingleTriangle (mesh);
         else
-            BuildTorus (rows, cols, 4.0, 1.5, mesh);
+            // The jitter rides on the minor radius: enough that no two pushes share
+            // a byte, small enough that the mesh keeps its size and the timings stay
+            // comparable across repeats.
+            BuildTorus (rows, cols, 4.0, 1.5 + 0.001 * (double) jitter, mesh);
         const double genMs = MsSince (genStart);
 
         const Int32 vertexCount = (Int32) (mesh.verts.GetSize () / 3);
@@ -457,7 +470,7 @@ class GdlPreviewFeedCommand : public WriteCommand {
 
 const NativeCommandRegistration GdlPreviewCommandRegistrations[] = {
     { "GdlPreviewFeed", &MakeRegisteredNativeCommand<GdlPreviewFeedCommand>, false,
-      R"json({"type":"object","properties":{"rows":{"type":"integer","minimum":0},"cols":{"type":"integer","minimum":0},"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"layer":{"type":"string"},"revision":{"type":"integer"},"bodyStatus":{"type":"integer"},"enabled":{"type":"boolean"},"measure3D":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"rows":{"type":"integer","minimum":0},"cols":{"type":"integer","minimum":0},"jitter":{"type":"integer"},"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"layer":{"type":"string"},"revision":{"type":"integer"},"bodyStatus":{"type":"integer"},"enabled":{"type":"boolean"},"measure3D":{"type":"boolean"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"placed":{"type":"boolean"},"vertexCount":{"type":"integer"},"triangleCount":{"type":"integer"},"arrayBytes":{"type":"integer"},"timings":{"type":"object","properties":{"generateMs":{"type":"number"},"fillMs":{"type":"number"},"buildMs":{"type":"number"},"changeMs":{"type":"number"},"convertMs":{"type":"number"}},"additionalProperties":false,"required":["generateMs","fillMs","buildMs","changeMs"]},"model":{"type":"object","properties":{"firstBody":{"type":"integer"},"lastBody":{"type":"integer"},"bodyCount":{"type":"integer"},"polygonCount":{"type":"integer"},"edgeCount":{"type":"integer"},"modelVertexCount":{"type":"integer"},"closed":{"type":"boolean"},"matchesRequest":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false}},"additionalProperties":false,"required":["elementId","placed","vertexCount","triangleCount","arrayBytes","timings"]})json" },
 };
 
