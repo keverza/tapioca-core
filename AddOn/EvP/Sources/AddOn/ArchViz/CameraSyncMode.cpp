@@ -21,9 +21,16 @@ namespace {
 CameraSyncMode g_mode = CameraSyncMode::Off;
 uint32_t       g_intervalMs = 33;
 double         g_predictionScale = 1.0;
-// ⚠️ ON BY DEFAULT, and it is process state like the mode -- see the header for
-// why an empty overlay beats a stale one for the callers that read it.
-bool           g_hideOnNav = true;
+// ⚠️ OFF BY DEFAULT (user, 2026-08-28), and it was on for one build. The argument
+// for on -- a dependent reading a mid-drag frame is shown a pose that is wrong by
+// construction -- is still true, but it was outweighed in practice: the blank
+// fires on gestures that are not navigation at all. A rubber-band selection is a
+// left drag STARTING OVER THE VIEW, so even the input filter that fixed the
+// palette-drag case (PLAT-RE145) cannot tell it from a pan without knowing which
+// Archicad tool is active, which is not something this layer can see. An overlay
+// that vanishes while the user drags a selection box is worse than a slightly
+// stale one. `hideonnav` and the `hideOnNav` parameter both still reach it.
+bool           g_hideOnNav = false;
 
 // Does this mode install the wake hook? The hook is what lets `hideOnNav` blank
 // on the INPUT rather than on its consequence, and it is also what makes a mode

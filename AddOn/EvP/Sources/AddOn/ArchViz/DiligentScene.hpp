@@ -453,6 +453,36 @@ class DiligentScene final {
                           uint32_t surfaceHeight, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                           const StorySliceLayer::DrawParams& params);
 
+    // ---- PLAT-RE151: occlusion for overlay content -------------------------
+    // Rasterises the extracted model into the bound DEPTH buffer and writes no
+    // colour at all, so that whatever draws next -- the Grasshopper preview
+    // above all -- disappears where a wall of Archicad's building is in front
+    // of it. Returns true when it actually drew.
+    //
+    // ⚠️ IT OCCLUDES AGAINST ARCHICAD'S *MODEL*, NOT AGAINST ARCHICAD'S
+    // *PIXELS*, and there was no third option. Archicad's own depth buffer is
+    // not reachable: even the Present hook, which owns Archicad's back buffer,
+    // gets the swap chain and not the depth-stencil view Archicad drew with, and
+    // capturing that would mean detouring OMSetRenderTargets on Archicad's own
+    // context. The extraction worker already holds the model, so this
+    // RECONSTRUCTS the occluding surface from the synced camera instead. The
+    // limit that follows is real and must be stated rather than hidden: the
+    // occlusion is only as good as the extraction and the camera match, and
+    // camera lag puts the occlusion edge wrong by exactly the lag everything
+    // else in the overlay already has.
+    //
+    // ⚠️ CALL IT IMMEDIATELY BEFORE THE CONTENT IT MUST OCCLUDE, and after the
+    // scene. It writes into the frame's shared depth buffer, so a pass that runs
+    // between the two and clears depth (DrawCornerGnomon does, deliberately)
+    // undoes it.
+    //
+    // ⚠️ IT DECIDES FOR ITSELF WHETHER TO RUN, from OcclusionPrepass.hpp's pure
+    // rule -- most importantly it is a NO-OP in the shaded modes, where the
+    // opaque pass has already put the same depth in the same buffer. Calling it
+    // unconditionally is correct and is what the frame loop does.
+    bool DrawOcclusionDepth (Diligent::IDeviceContext* context, const float viewProj[16], bool enabled,
+                             bool modelIsDrawn, uint32_t colorBufferFormat, uint32_t depthBufferFormat);
+
     // What a Grasshopper definition asked Archicad to show.
     //
     // ⚠️ IT PULLS FROM Preview/GhPreviewCache ITSELF RATHER THAN BEING HANDED A
@@ -676,6 +706,12 @@ class DiligentScene final {
                                  const Diligent::SamplerDesc& envSampler, std::string& error);
     bool CreateSemanticWirePipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                      uint32_t depthBufferFormat, std::string& error);
+    // Implemented in DiligentSceneOcclusion.cpp beside its one caller. ⚠️ NOT
+    // CALLED FROM Init: it is built on first use so a compile failure latches
+    // instead of retrying every frame, and so the pass compiles against the
+    // formats of the target that is actually bound.
+    bool CreateOcclusionDepthPipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                       uint32_t depthBufferFormat, std::string& error);
     bool EnsureHdrTarget ();
 
     bool EnsureCoverageTarget ();

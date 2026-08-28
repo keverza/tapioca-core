@@ -6,8 +6,10 @@
 #include "Palette/CommandFilter.hpp"  // F2 search: scoring/ranking, DevKit-free
 #include "DGNativeContexts.hpp"       // UserItemUpdateNativeContext — the arrow cell draws itself
 #include "ControlPalette.hpp"         // the shell — the sole registered DG observer
+#include "Dynamo/DynamoGraphInputs.hpp"
 
 #include <algorithm>
+#include <utility>
 
 using namespace evp::palette;
 
@@ -38,9 +40,7 @@ Gfx::Color FieldBackground ()
 // which a literal grey would not be.
 Gfx::Color Blend (const Gfx::Color& from, const Gfx::Color& to, float t)
 {
-    const auto mix = [t] (UChar a, UChar b) {
-        return (UChar) ((float) a + ((float) b - (float) a) * t);
-    };
+    const auto mix = [t] (UChar a, UChar b) { return (UChar) ((float) a + ((float) b - (float) a) * t); };
     return Gfx::Color (mix (from.GetRed (), to.GetRed ()), mix (from.GetGreen (), to.GetGreen ()),
                        mix (from.GetBlue (), to.GetBlue ()));
 }
@@ -58,8 +58,7 @@ Gfx::Color FieldBorder ()
 // acknowledges the pointer rather than lighting up.
 Gfx::Color HoverBackground ()
 {
-    return Blend (FieldBackground (), DG::ColorCatalog::GetColor (DG::ColorId::SelectedContentBackgroundColor),
-                  0.25f);
+    return Blend (FieldBackground (), DG::ColorCatalog::GetColor (DG::ColorId::SelectedContentBackgroundColor), 0.25f);
 }
 
 // How far inside the drawn box the field sits: the border, and a pixel of air so
@@ -135,6 +134,7 @@ GS::UniString CommandListPanel::Rescan ()
 {
     const ScanOutcome outcome = ScanCommandFolders ();
     commands = outcome.commands;
+    commands.push_back (dynamo::LoaderCommand ());
 
     bool selectionChanged = false;
     ApplyFilter (selectionChanged); // the caller rebuilds the block regardless
@@ -232,8 +232,7 @@ bool CommandListPanel::HandleUserItemUpdate (const DG::UserItemUpdateEvent& ev)
     const float height = (float) comboFrame->GetClientHeight ();
 
     const Gfx::Color background = hovered ? HoverBackground () : FieldBackground ();
-    context.FillRect (0.0f, 0.0f, width, height, background.GetRed (), background.GetGreen (),
-                      background.GetBlue ());
+    context.FillRect (0.0f, 0.0f, width, height, background.GetRed (), background.GetGreen (), background.GetBlue ());
 
     // ASK THE ITEM WHAT A PIXEL IS. Everything here is in the item's own logical
     // units, which the display scales — 1.0 is one device pixel at 100%, one and a
@@ -384,6 +383,16 @@ const CommandInfo* CommandListPanel::Selected () const
     if (selected < 1 || (size_t) selected > visibleCommands.size ())
         return nullptr; // no selection, or the "nothing matched" row
     return &commands[visibleCommands[(size_t) selected - 1]];
+}
+
+bool CommandListPanel::ReplaceSelected (CommandInfo command)
+{
+    const short selected = list.GetSelectedItem ();
+    if (selected < 1 || (size_t) selected > visibleCommands.size ())
+        return false;
+    commands[visibleCommands[(size_t) selected - 1]] = std::move (command);
+    AdoptSelection ();
+    return true;
 }
 
 // The combo spans the panel: field, then the drop arrow at the right edge. It has no

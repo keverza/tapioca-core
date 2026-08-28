@@ -374,7 +374,7 @@ void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* c
 
 void UpdateAndDrawGhPreview (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
                              const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
-                             uint32_t depthFormat)
+                             uint32_t depthFormat, bool modelIsDrawn)
 {
     GhPreviewStyle style;
     style.rgba = hudState.ghPreviewRgba;
@@ -387,8 +387,32 @@ void UpdateAndDrawGhPreview (DiligentScene& scene, Diligent::IDeviceContext* con
     params.lineWidthPixels = hudState.ghPreviewWidthPixels;
     params.ambient = hudState.ghPreviewAmbient;
 
-    if (hudState.showGhPreview)
+    if (hudState.showGhPreview) {
+        // ---- PLAT-RE151: the building's depth, laid down first --------------
+        //
+        // ⚠️ HERE RATHER THAN AT THE FRAME LOOP'S OWN LEVEL, and that is a
+        // deliberate reading of what the pass IS. It writes nothing anyone can
+        // see; its only effect is on the draw immediately after it, and that
+        // draw is this one. Hoisting it into DiligentViewport.cpp would put a
+        // second, invisible step into the ordered pass list that means nothing
+        // without the line below it -- and DiligentViewport.cpp's own entry in
+        // check_cpp.py says the ordered frame body is the one thing that must
+        // not acquire a second description.
+        //
+        // ⚠️ AND IT IS NOT GATED ON `showGhPreview` BY ACCIDENT: with the
+        // preview off there is nothing to occlude, and the prepass would be a
+        // full pass over the model for no pixels at all.
+        //
+        // ⚠️ THE STOREY SLICES ABOVE ARE DELIBERATELY *NOT* OCCLUDED. A section
+        // contour is drafting drawn ON the building -- it is meant to be read
+        // through the storeys it cuts, and its own depth-GREATER pass already
+        // says how the hidden portions look (StorySliceLayer::OccludedStyle).
+        // A preview is a RESULT held up against the building, which is the
+        // opposite relationship and the one this task is about.
+        scene.DrawOcclusionDepth (context, viewProj, hudState.ghPreviewOcclusion, modelIsDrawn, colorFormat,
+                                  depthFormat);
         scene.DrawGhPreview (context, viewProj, width, height, colorFormat, depthFormat, style, params);
+    }
 
     // ⚠️ READ BACK EVEN WHEN THE OVERLAY IS OFF. "Preview is switched off" and
     // "Tapioca received nothing" are the same picture, and the HUD is the only

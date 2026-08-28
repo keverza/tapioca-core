@@ -57,7 +57,7 @@ void ControlPalette::Initialize ()
     runButton.Attach (*this);
     commandList.Attach (*this);
 
-    statusText.Hide ();
+    StartDynamoRunner (); // the owned background DynamoModel, and the line that reports it
     commandsLabel.Hide ();
     // PLAT-F13 retired: the description band's fold header names the command, and a
     // panel printing that name twice read as a bug. Hidden rather than deleted - see
@@ -227,6 +227,7 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
     if (itemsDisabled.load ())
         return;
 
+    RefreshDynamoStatus ();
     RefreshRunGate ();
 
     RefreshSearchFilter ();
@@ -597,8 +598,9 @@ void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
     // A generated row's Browse button (evp.FilePath). Refreshing the gate on any
     // such press, rather than only when a file was chosen, costs nothing — the same
     // check runs on idle — and a required FilePath may have just been satisfied.
-    if (params.HandleButtonClicked (ev))
-        RefreshRunGate ();
+    GS::UniString chosenPath;
+    if (params.HandleButtonClicked (ev, &chosenPath))
+        DynamoGraphChosen (chosenPath); // a .dyn also carries the rows below it; re-gates Run
 }
 
 void ControlPalette::TextEditChanged (const DG::TextEditChangeEvent& /*ev*/)

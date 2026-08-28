@@ -607,14 +607,15 @@ def _check_architecture_palette(failures: list[str]) -> None:
 def _check_architecture_subobjects(failures: list[str]) -> None:
     palette = ADDON_SRC / "Palette"
     # The shell is deliberately more than one .cpp: ControlPaletteParams.cpp set
-    # that precedent; ControlPaletteLayout.cpp and ControlPaletteRun.cpp follow
-    # it. These files DEFINE
+    # that precedent; ControlPaletteLayout.cpp, ControlPaletteRun.cpp and
+    # ControlPaletteDynamo.cpp follow it. These files DEFINE
     # ControlPalette methods, so the "never call into the shell" rule below
     # cannot apply to them — they are the shell.
     shell_implementation_files = {
         "ControlPalette.cpp",
         "ControlPalette.hpp",
         "ControlPaletteAutoPreview.cpp",
+        "ControlPaletteDynamo.cpp",
         "ControlPaletteLayout.cpp",
         "ControlPaletteMenu.cpp",
         "ControlPaletteParams.cpp",

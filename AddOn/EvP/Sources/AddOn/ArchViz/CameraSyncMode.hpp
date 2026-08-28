@@ -95,10 +95,18 @@ uint32_t       CurrentCameraSyncIntervalMs ();
 // the same one that made `hookdraw` measure against the worst sample stream in
 // the tree.
 //
-// ⚠️ DEFAULT ON. The overlay's whole claim is that the two pictures agree, and a
-// dependent that reads a mid-drag frame is shown a pose that is wrong by
-// construction. Blanking is the only answer that is never wrong; being briefly
-// empty is a state a caller can see and wait out, being subtly stale is not.
+// ⚠️ DEFAULT OFF, AND IT WAS ON FOR ONE BUILD. The argument for on is real -- a
+// dependent reading a mid-drag frame is shown a pose that is wrong by
+// construction, and being briefly empty is a state a caller can see and wait out
+// where being subtly stale is not. It lost to what the blank costs in practice.
+//
+// The blank has to fire on the INPUT, before Archicad has moved anything, or it
+// is a tick late and useless (PLAT-RE75). At that instant a rubber-band selection
+// and a pan are the same event: a left button pressed over the view and dragged.
+// Telling them apart needs the active Archicad tool, which the wake hook cannot
+// ask for -- it runs re-entrant inside Archicad's message dispatch and may not
+// call ACAPI. So blanking on drag-over-the-view necessarily blanks on selection,
+// and the user reported exactly that. Off by default; still one parameter away.
 //
 // ⚠️ IT DEGRADES, IT DOES NOT FAIL. Blanking on the input itself needs the wake
 // hook, which only the hook-installing modes have. Under `legacy`/`predict` the

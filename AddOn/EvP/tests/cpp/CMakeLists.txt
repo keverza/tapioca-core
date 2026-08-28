@@ -249,7 +249,21 @@ set (EVP_ARCHVIZ_SOURCES
     # right walls, and an inside-out fill still covers a plausible region. The
     # tests assert the AREA the fill covers and the arc length the dash rides on
     # -- properties an incorrect implementation cannot accidentally satisfy.
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceGeometry.cpp")
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceGeometry.cpp"
+    # ArchViz/OcclusionPrepass.cpp (PLAT-RE151) is the gate on the depth-only
+    # pass that lets Grasshopper preview content go BEHIND Archicad's building.
+    # It qualifies twice over. It is pure -- no Diligent, no DevKit, no Win32 --
+    # and it is the ArchViz reason in its sharpest form: three of its four
+    # answers are PICTURES with no error attached. Occluding over the PLAN hides
+    # the preview behind storeys a plan does not show, which reads as the preview
+    # transport failing; occluding in a shaded mode silently doubles the model's
+    # vertex work for an identical frame; and refusing to occlude in wireframe is
+    # the reported bug itself -- a sphere inside a room looking stuck to the
+    # glass.
+    # ⚠️ THE GPU HALF IS ArchViz/DiligentSceneOcclusion.cpp AND IS DELIBERATELY
+    # ABSENT, exactly as GhPreviewLayer is absent beside GhPreviewGeometry: it
+    # owns a pipeline state and a draw loop and decides nothing.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OcclusionPrepass.cpp")
 
 # The CloudCompare command builder is deliberately DevKit-free. It pins the
 # external CLI contract while the runner itself remains in the ACAPI-free
@@ -348,6 +362,7 @@ set (EVP_TEST_SOURCES
     test_plancameramath.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp
+    test_occlusionprepass.cpp
     test_pointcloudply.cpp
     test_pointcloudhierarchy.cpp
     test_pointcloudlod.cpp

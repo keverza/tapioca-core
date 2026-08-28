@@ -42,6 +42,7 @@ void ControlPalette::Layout ()
 
     // The server's address, on its own line above the row that starts it.
     y += serverBand.PlaceAt (y, Margin, right);
+    y += PlaceDynamoStatus (y, Margin, right);
 
     // ---- action row: Start/Stop server | Rescan | Run, all one line -----
     // Three equal thirds so they stay balanced at any panel width.
@@ -99,10 +100,6 @@ void ControlPalette::Layout ()
     preview.PlaceAt (Margin, right, footerBottom);
     const short previewHeight = preview.Height ();
     scroll.Begin (y, (short) (footerBottom - previewHeight - (previewHeight > 0 ? 8 : 0)));
-
-    // ---- the selected command -------------------------------------------
-    // No title line: commandTitleText is retired (hidden in Initialize) because
-    // the description band's fold header already reads "v <command name>".
 
     // PLAT-F13 — the description band, above the inputs it explains. It reports
     // 0 when the command has no description, so it costs the layout nothing; a

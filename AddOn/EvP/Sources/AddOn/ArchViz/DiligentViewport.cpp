@@ -334,11 +334,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     target.RequestResize (nextWidth, nextHeight);
                     ArchVizLog ("Diligent viewport resize: " + std::to_string (width) + "x" + std::to_string (height) +
                                 " -> " + std::to_string (nextWidth) + "x" + std::to_string (nextHeight));
-                    width = nextWidth;
-                    height = nextHeight;
                     std::lock_guard<std::mutex> lock (mutex_);
-                    stats_.width = width;
-                    stats_.height = height;
                     ++stats_.resizes;
                 }
             }
@@ -348,6 +344,11 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (!target.BeginFrame (rtv, dsv))
                 throw std::runtime_error ("the viewport surface returned no back-buffer view "
                                           "for this frame");
+
+            // ⚠️ THE SIZE COMES FROM THE SURFACE, NOT FROM WHAT WAS ASKED FOR.
+            // See AdoptSurfaceSize: taking the requested size is what made a
+            // rescaled Archicad come back distorted and out of place.
+            AdoptSurfaceSize (target, width, height);
 
             gpuTimings.BeginFrame (frames);
 
@@ -854,7 +855,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // `offscreen` either -- see the helper.
             if (!annotationsOnly && !blanked)
                 UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
-                                        target.DepthFormat ());
+                                        target.DepthFormat (), modelIsDrawn);
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
             if (!offscreen && !annotationsOnly)
@@ -889,8 +890,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 // they go stale the way the model does. The split is not "HUD vs
                 // scene", it is "has a pose to be wrong about vs not".
                 ProjectedDrawList annotations;
-                const auto selected = blanked ? std::nullopt
-                                              : annotation::SelectedRetainedFrameSnapshotCopy ();
+                const auto selected = blanked ? std::nullopt : annotation::SelectedRetainedFrameSnapshotCopy ();
                 if (selected.has_value ()) {
                     float annotationDpiScale = 1.0f;
                     if (!offscreen && surface.nwh != nullptr) {

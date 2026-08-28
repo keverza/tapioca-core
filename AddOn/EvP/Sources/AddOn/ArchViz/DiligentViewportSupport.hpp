@@ -299,9 +299,14 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Dili
 // next snapshot rather than instantly, and the alternative -- rebuilding the
 // whole preview when someone drags a colour picker -- would make a colour tweak
 // as expensive as a re-solve.
+// ⚠️ `modelIsDrawn` IS THE FRAME LOOP'S OWN FLAG, PASSED THROUGH FOR PLAT-RE151.
+// The occlusion prepass this runs needs to know whether the model is in the
+// frame at all: over the PLAN the camera is orthographic and aimed at a 2D
+// drawing, and occluding a preview against a 3D building there would hide it
+// behind storeys the plan does not show.
 void UpdateAndDrawGhPreview (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
                              const float viewProj[16], uint32_t width, uint32_t height, uint32_t colorFormat,
-                             uint32_t depthFormat);
+                             uint32_t depthFormat, bool modelIsDrawn);
 
 void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
                                bool blanked, const float viewProj[16], uint32_t width, uint32_t height,

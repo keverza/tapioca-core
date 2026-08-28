@@ -615,6 +615,21 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SetNextItemWidth (-1.0f);
                 ImGui::SliderFloat ("##ghpreviewambient", &state.ghPreviewAmbient, 0.0f, 1.0f, "%.2f");
                 ImGui::TextDisabled ("ambient -- the shading is legibility, not the scene's sun");
+
+                // ---- PLAT-RE151 -------------------------------------------
+                // ⚠️ THE CAVEAT IS PART OF THE CONTROL, not decoration under it.
+                // The occlusion is reconstructed from the EXTRACTED model and
+                // the SYNCED camera, never from Archicad's own depth buffer --
+                // which is not reachable. So the one failure a user will
+                // actually see is the occluding edge lagging during a drag, and
+                // a user who has been told where the depth comes from reads that
+                // as the camera sync it is, rather than as the occlusion being
+                // broken.
+                ImGui::Checkbox ("occlude behind the building", &state.ghPreviewOcclusion);
+                ImGui::TextDisabled ("depth from the EXTRACTED model, not from Archicad's own buffer:");
+                ImGui::TextDisabled ("the edge lags a drag by exactly what the camera sync does");
+                if (state.ghPreviewOcclusion && state.renderMode != int (SceneRenderMode::Wireframe))
+                    ImGui::TextDisabled ("(shaded modes occlude for free -- no prepass runs)");
                 ImGui::Unindent ();
             }
             ImGui::Checkbox ("callout under the cursor", &state.showCallout);

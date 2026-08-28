@@ -221,6 +221,23 @@ void DiligentViewport::RequestResize (uint32_t width, uint32_t height)
     resizePending_.store (true);
 }
 
+void DiligentViewport::AdoptSurfaceSize (const DiligentViewportTarget& target, uint32_t& width,
+                                         uint32_t& height)
+{
+    const uint32_t actualWidth = target.Width ();
+    const uint32_t actualHeight = target.Height ();
+    // A zero is a surface that has not been built yet, not a resize to nothing.
+    if (actualWidth == 0 || actualHeight == 0)
+        return;
+    if (actualWidth == width && actualHeight == height)
+        return;
+    width = actualWidth;
+    height = actualHeight;
+    std::lock_guard<std::mutex> lock (mutex_);
+    stats_.width = width;
+    stats_.height = height;
+}
+
 void DiligentViewport::SyncCamera (const CameraStart& camera)
 {
     // ⚠️ THE PANEL DOES NOT FOLLOW ARCHICAD (PLAT-RE124). The panel and the

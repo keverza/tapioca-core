@@ -537,6 +537,28 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${TapiocaDynamoProject}" AND
         "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}")
     set_target_properties (EvPTapiocaDynamo PROPERTIES FOLDER Resources)
     add_dependencies (${ADDON_LIB} EvPTapiocaDynamo)
+
+    # A reusable UI-less DynamoModel lives in a separate .NET 10 process. Its
+    # references stay in the pinned runtime; publish only the runner's own files
+    # into a private folder beside the add-on to avoid duplicating that runtime.
+    set (DynamoRunnerFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/DynamoRunner")
+    set (DynamoRunnerProject "${DynamoRunnerFolder}/DynamoRunner.csproj")
+    if (EXISTS "${DynamoRunnerProject}")
+        file (GLOB DynamoRunnerFiles CONFIGURE_DEPENDS
+            "${DynamoRunnerFolder}/*.cs" "${DynamoRunnerFolder}/*.csproj")
+        set (DynamoRunnerExecutable "${CMAKE_BINARY_DIR}/DynamoRunner/Tapioca.DynamoRunner.exe")
+        add_custom_command (
+            OUTPUT "${DynamoRunnerExecutable}"
+            DEPENDS ${DynamoRunnerFiles}
+            COMMENT "EvP: publishing the headless Dynamo runner"
+            COMMAND "${DOTNET_EXECUTABLE}" publish "${DynamoRunnerProject}"
+                -c Release -o "${CMAKE_BINARY_DIR}/DynamoRunner" --nologo
+                "-p:DynamoRuntimeDir=${DYNAMO_RUNTIME_DIR}"
+            VERBATIM)
+        add_custom_target (EvPDynamoRunner ALL DEPENDS "${DynamoRunnerExecutable}")
+        set_target_properties (EvPDynamoRunner PROPERTIES FOLDER Resources)
+        add_dependencies (${ADDON_LIB} EvPDynamoRunner)
+    endif ()
 else ()
     message (STATUS "EvP: DynamoServices.dll or the .NET SDK was not found; the optional Tapioca.Dynamo package "
                     "will not be built.")

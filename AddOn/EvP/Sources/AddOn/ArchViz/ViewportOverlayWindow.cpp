@@ -49,11 +49,6 @@ int s_targetCheckTicks = 0;
 bool s_visibleWish = true;
 bool s_targetInFront = true;
 
-// The rects last subtracted from the overlay's region, so an unchanged clip does
-// not re-apply. `SetWindowRgn` with `bRedraw` forces a repaint of the whole
-// window, and doing that every track poll is a visible flicker.
-std::vector<RECT> s_clipRects;
-
 // Every overlay we created and did not destroy ourselves. ⚠️ NOT JUST
 // `s_overlay`: PlanOverlay found the hard way that Archicad can destroy an
 // overlay for us when the window it was parented to closes, after which a NEW
@@ -78,32 +73,71 @@ std::string ClassNameOf (HWND hwnd)
     return std::string (cls);
 }
 
-// Put the overlay in front OF WHAT IT COVERS, which means something different
-// in each attach mode.
+// Put the overlay ABOVE THE CANVAS AND BELOW ARCHICAD'S PALETTES.
 //
-// ⚠️ A POPUP MUST BE AT HWND_TOP TO BE SEEN AT ALL, MEASURED 2026-08-13. The
-// obvious refinement -- insert it directly above the top-level ancestor of the
-// window it covers, so Archicad's callouts stay above -- was built and reported
-// back as "invisible with occasional short blips". The blips were this poll
-// re-asserting the position and losing again immediately. So a top-level
-// overlay here is not merely competing for order; anything below the very top
-// gets composited over. That is why the popup mode CANNOT satisfy the callout
-// requirement, and why the child modes exist.
+// ⚠️ THE OWNER RELATIONSHIP IS WHAT MAKES THIS POSSIBLE, and missing it is why an
+// earlier attempt concluded it was not. The overlay is an OWNED popup of
+// Archicad's main frame, so Windows guarantees it stays above that frame -- and
+// the canvas is a CHILD of the frame, so "above the frame" is already "above the
+// canvas". Archicad's floating palettes are owned by the same frame, which makes
+// them our SIBLINGS in the owned-window group, and the order within that group is
+// free. So the requirement is not a fight against the compositor at all: it is
+// one SetWindowPos placing us at the bottom of the sibling group.
 //
-// ⚠️ HWND_TOP MEANS SOMETHING ELSE ENTIRELY FOR A CHILD, and this is the whole
-// point of the child modes: it orders the window among its SIBLINGS, inside the
-// parent. Above the canvas, and still underneath every top-level palette,
-// tooltip and callout, because Windows always draws a top-level window above
-// another top-level window's children. Nothing has to out-race anything.
+// ⚠️ WHAT WAS REFUTED WAS SOMETHING ELSE. The 2026-08-13 attempt inserted the
+// overlay "directly above the top-level ancestor of the window it covers" -- that
+// is, immediately above the OWNER -- and came back "invisible with occasional
+// short blips". Placing a window relative to its own owner is the one position in
+// this group Windows manages itself, and the poll re-asserting it every tick is
+// the blips. Inserting BEHIND THE LOWEST PALETTE is a different operation: it
+// names a sibling, not the owner, and it leaves the owner relationship alone.
+//
+// ⚠️ AND IT REPLACES REGION CLIPPING, which was the previous answer here for one
+// build (2026-08-28). Clipping punched palette-shaped holes in the overlay
+// instead of layering it, had to chase every palette move, and was reported as a
+// regression. Z-order is what the user remembers working, and it is what this is.
+//
+// Falls back to HWND_TOP when there are no palettes to sit under -- with nothing
+// above us in the group, the bottom of the group IS the top.
+struct LowestPaletteSearch {
+    HWND owner = nullptr;
+    HWND lowest = nullptr;
+};
+
+BOOL CALLBACK FindLowestPalette (HWND hwnd, LPARAM param)
+{
+    LowestPaletteSearch& search = *reinterpret_cast<LowestPaletteSearch*> (param);
+    if (hwnd == s_overlay || IsOurs (hwnd) || !IsWindowVisible (hwnd))
+        return TRUE;
+    // ⚠️ THE OWNER TEST IS THE WHOLE FILTER, and it is exact rather than a guess.
+    // A window owned by Archicad's main frame is by construction one of the
+    // floating windows that must stay above us; anything else on this thread --
+    // the frame itself, message-only windows, unowned helpers -- is not in our
+    // sibling group and ordering against it would mean nothing.
+    if (GetWindow (hwnd, GW_OWNER) != search.owner)
+        return TRUE;
+    // EnumThreadWindows walks top-to-bottom in z-order, so the LAST match is the
+    // lowest palette.
+    search.lowest = hwnd;
+    return TRUE;
+}
+
 void PlaceAboveTarget (HWND overlay, HWND /*target*/)
 {
     if (overlay == nullptr || !IsWindow (overlay))
         return;
 
+    LowestPaletteSearch search;
+    search.owner = ACAPI_GetMainWindow ();
+    if (search.owner != nullptr && IsWindow (search.owner)) {
+        EnumThreadWindows (GetWindowThreadProcessId (overlay, nullptr), &FindLowestPalette,
+                           reinterpret_cast<LPARAM> (&search));
+    }
+
     // SWP_NOOWNERZORDER: never reposition Archicad's main window, which is the
     // popup's owner and the one window this must not move.
-    SetWindowPos (overlay, HWND_TOP, 0, 0, 0, 0,
-                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    const UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+    SetWindowPos (overlay, search.lowest != nullptr ? search.lowest : HWND_TOP, 0, 0, 0, 0, flags);
 }
 
 // This DLL's module handle — NOT the host EXE's. The class and the window must
@@ -206,125 +240,6 @@ HWND DeepestChildAt (HWND root, POINT screenPt)
     return current == root ? nullptr : current;
 }
 
-
-// ---- keeping the popup off Archicad's floating windows (PLAT-RE64) --------
-//
-// ⚠️ THIS IS THE ANSWER, AND THE OBVIOUS ONE IS REFUTED. Re-parenting the overlay
-// as a CHILD of the view window would solve the z-order structurally, and it was
-// tried: the child renders and composites NOTHING. See the long note in
-// ArchVizCommands.cpp's OpenDiligentOverlayCommand -- 10,080 frames, swap chain
-// created, DirectComposition target and visual built, Commit succeeded, nothing
-// on screen. A composition swap chain reaches the screen through a
-// DirectComposition target bound to the window, and that path works for the
-// top-level popup only. That note names the two remaining answers; this is the
-// first of them.
-//
-// ⚠️ Z-ORDER CANNOT BE THE TEST. The overlay is put at HWND_TOP every poll --
-// anything lower is composited over and the overlay goes invisible, measured --
-// so every palette is BELOW it and would pass a "is it above me" test while
-// still being a window the user expects to see. The test is therefore what the
-// window IS, not where it sits: a visible top-level window on Archicad's UI
-// thread that is neither the main frame, nor the frame owning the canvas we
-// cover, nor one of ours.
-struct ClipCollector {
-    HWND main = nullptr;
-    HWND targetRoot = nullptr;
-    RECT overlayRect = {};
-    std::vector<RECT> rects;
-};
-
-BOOL CALLBACK CollectClipWindow (HWND hwnd, LPARAM param)
-{
-    ClipCollector& collector = *reinterpret_cast<ClipCollector*> (param);
-    if (hwnd == s_overlay || hwnd == collector.main || hwnd == collector.targetRoot)
-        return TRUE;
-    if (!IsWindowVisible (hwnd) || IsIconic (hwnd) || IsOurs (hwnd))
-        return TRUE;
-
-    RECT r = {};
-    if (!GetWindowRect (hwnd, &r))
-        return TRUE;
-    RECT hit = {};
-    if (!IntersectRect (&hit, &r, &collector.overlayRect))
-        return TRUE;
-    if (hit.right - hit.left <= 0 || hit.bottom - hit.top <= 0)
-        return TRUE;
-    collector.rects.push_back (hit);
-    return TRUE;
-}
-
-// Cut every floating Archicad window out of the overlay's region.
-//
-// ⚠️ POPUP ONLY. A child is clipped to its parent by Windows and has nothing to
-// subtract; calling this for one would be cost with no effect.
-void ClipRegionToUncoveredArea ()
-{
-    if (s_overlay == nullptr || !IsWindow (s_overlay) || s_attach != OverlayAttach::Popup)
-        return;
-
-    RECT overlayRect = {};
-    if (!GetWindowRect (s_overlay, &overlayRect))
-        return;
-    const int width = overlayRect.right - overlayRect.left;
-    const int height = overlayRect.bottom - overlayRect.top;
-    if (width <= 0 || height <= 0)
-        return;
-
-    ClipCollector collector;
-    collector.main = ACAPI_GetMainWindow ();
-    collector.targetRoot = (s_target != nullptr && IsWindow (s_target))
-                               ? GetAncestor (s_target, GA_ROOT)
-                               : nullptr;
-    collector.overlayRect = overlayRect;
-    // ⚠️ THE THREAD, NOT THE DESKTOP. EnumThreadWindows returns the top-level
-    // windows of Archicad's UI thread, which is exactly the set of palettes,
-    // tooltips and callouts this has to dodge. EnumWindows would hand back every
-    // window on the desktop, and subtracting another application's window would
-    // punch a hole in the overlay for something that is not even in front.
-    EnumThreadWindows (GetWindowThreadProcessId (s_overlay, nullptr), &CollectClipWindow,
-                       reinterpret_cast<LPARAM> (&collector));
-
-    // RECT has no operator==, and SameRect is the comparison this file already
-    // uses everywhere else.
-    bool sameAsLast = collector.rects.size () == s_clipRects.size ();
-    for (size_t i = 0; sameAsLast && i < collector.rects.size (); ++i)
-        sameAsLast = SameRect (collector.rects[i], s_clipRects[i]);
-    if (sameAsLast)
-        return;   // nothing moved; a redundant SetWindowRgn is a visible repaint
-
-    HRGN region = CreateRectRgn (0, 0, width, height);
-    if (region == nullptr)
-        return;
-    for (const RECT& hit : collector.rects) {
-        HRGN cut = CreateRectRgn (hit.left - overlayRect.left, hit.top - overlayRect.top,
-                                  hit.right - overlayRect.left, hit.bottom - overlayRect.top);
-        if (cut == nullptr)
-            continue;
-        CombineRgn (region, region, cut, RGN_DIFF);
-        DeleteObject (cut);
-    }
-
-    // ⚠️ AN EMPTY RESULT IS REFUSED, NOT APPLIED. Some window on this thread can
-    // legitimately be visible and the size of the whole canvas, and clipping the
-    // overlay away entirely would reproduce the exact failure this repo has hit
-    // twice already: a viewer that renders perfectly and shows nothing, with no
-    // error anywhere. Showing the overlay over a palette is a wrong picture the
-    // user can see and report; showing nothing is one they cannot.
-    RECT remaining = {};
-    if (GetRgnBox (region, &remaining) == NULLREGION) {
-        ArchVizLog ("ArchViz overlay: region clip would hide the overlay entirely; leaving it "
-                    "unclipped");
-        DeleteObject (region);
-        return;
-    }
-
-    // SetWindowRgn takes ownership on success -- never delete `region` after it.
-    if (SetWindowRgn (s_overlay, region, TRUE) == 0) {
-        DeleteObject (region);
-        return;
-    }
-    s_clipRects = collector.rects;
-}
 
 // Show the window only if BOTH owners agree. See s_visibleWish.
 void ApplyVisibility ()
@@ -487,7 +402,6 @@ HWND Create (const OverlayTarget& target, OverlayAttach attach, std::string& err
     s_visibleWish = true;
     s_targetInFront = true;
     s_targetCheckTicks = 0;
-    s_clipRects.clear ();
     s_created.push_back (hwnd);
 
     s_stats = OverlayStats {};
@@ -524,7 +438,6 @@ void Destroy ()
     s_visibleWish = true;
     s_targetInFront = true;
     s_targetCheckTicks = 0;
-    s_clipRects.clear ();
     s_stats.active = false;
     s_stats.overlay = nullptr;
 }
@@ -618,20 +531,16 @@ void CALLBACK TrackTimerProc (HWND, UINT, UINT_PTR, DWORD)
         }
     }
 
-    // ⚠️ EVERY POLL, NOT ONLY ON A MOVE. A palette can be dragged across the
-    // overlay without the overlay's own rect changing at all, and the early
-    // return below fires on exactly that case.
-    ClipRegionToUncoveredArea ();
-
-    // ⚠️ Z-ORDER IS RE-ASSERTED EVERY POLL, NOT ONLY ON A MOVE, because Archicad
-    // raises its own document windows constantly and the overlay would otherwise
-    // sink behind the canvas with nothing in the log to say so.
+    // ⚠️ RE-ASSERTED EVERY POLL, NOT ONLY ON A MOVE, because Archicad raises its
+    // own document windows constantly and the overlay would otherwise sink behind
+    // the canvas with nothing in the log to say so. It also has to be re-run
+    // because a palette that OPENS goes above us and one that CLOSES may have
+    // been the sibling we were sitting under.
     //
-    // ⚠️ ONLY THE POPUP NEEDS THIS, and it is also why the popup covers
-    // Archicad's callouts (PLAT-RE64): it has to be at HWND_TOP to be visible.
-    // A CHILD keeps its place among its siblings without being re-asserted, and
-    // re-asserting it would be the same mistake one level down -- it would climb
-    // over any child of the view that Archicad legitimately raised.
+    // ⚠️ ONLY THE POPUP NEEDS THIS. A child keeps its place among its siblings
+    // without being re-asserted, and re-asserting it would be the same mistake one
+    // level down -- it would climb over any child of the view that Archicad
+    // legitimately raised.
     if (s_attach == OverlayAttach::Popup)
         PlaceAboveTarget (s_overlay, s_target);
 

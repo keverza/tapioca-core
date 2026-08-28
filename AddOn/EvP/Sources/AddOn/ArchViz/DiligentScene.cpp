@@ -1026,6 +1026,12 @@ void DiligentScene::Shutdown ()
     impl_->pointCloud.Shutdown ();
     impl_->ShutdownStorySlices ();
     impl_->ShutdownGhPreview ();
+    // PLAT-RE151. ⚠️ THE FAILURE LATCH IS CLEARED WITH THEM: the next device may
+    // be a different adapter, and a pipeline the last one could not compile is
+    // not a verdict on this one.
+    impl_->occlusionDepthSrb.Release ();
+    impl_->occlusionDepthPso.Release ();
+    impl_->occlusionDepthInitFailed = false;
     impl_->taaView = nullptr;
     impl_->depthRange.Shutdown ();
     impl_->envBackgroundSrb.Release ();

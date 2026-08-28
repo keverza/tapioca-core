@@ -6,7 +6,15 @@
   "ElementResolver": {
     "ResolutionMap": {}
   },
-  "Inputs": [],
+  "Inputs": [
+    { "Id": "046dc34ca95f4c16979bc00a1210ab89", "Name": "Body Index", "Type": "number", "Value": "0", "MaximumValue": 100.0, "MinimumValue": 0.0, "StepValue": 1.0, "NumberType": "Integer", "Description": "Zero-based selected body index." },
+    { "Id": "037402c148154825bc38a36940bef753", "Name": "Refresh Selection", "Type": "boolean", "Value": "false", "Description": "Toggle to re-read the current Archicad selection." },
+    { "Id": "c492e335caee41c0a9dd39dce1c97e18", "Name": "X Translation (m)", "Type": "number", "Value": "0.25", "NumberType": "Double", "Description": "X translation in metres." },
+    { "Id": "e80042fb4e2f46218d988f42baa780dd", "Name": "Y Translation (m)", "Type": "number", "Value": "0", "NumberType": "Double", "Description": "Y translation in metres." },
+    { "Id": "a75dfded2e924baaa218b8426d4cefaf", "Name": "Z Translation (m)", "Type": "number", "Value": "0", "NumberType": "Double", "Description": "Z translation in metres." },
+    { "Id": "6555f504493144cd9f1206672f7feb33", "Name": "Backend", "Type": "string", "Value": "Tapir", "Description": "Use Tapir for XYZ or Tapioca for vertical-only movement." },
+    { "Id": "5fb040ec62e54e17be062149c0e79f94", "Name": "Apply", "Type": "boolean", "Value": "false", "Description": "Run false once to arm, then toggle true and Run once to apply." }
+  ],
   "Outputs": [],
   "Nodes": [
     {
@@ -20,14 +28,18 @@
       "Code": "/*\n1. Select one element in Archicad's 3D window.\n2. Keep Apply false and Run once to capture and preview the target.\n3. Toggle Apply true and Run once to write.\n4. Toggle Apply false and Run to re-arm. Re-applying an unchanged target must be a no-op.\n\nTapir supports XYZ. Tapioca supports Z only. Values are metres.\n*/;"
     },
     {
-      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "ConcreteType": "CoreNodeModels.Input.IntegerSlider, CoreNodeModels",
       "Id": "046dc34ca95f4c16979bc00a1210ab89",
-      "NodeType": "CodeBlockNode",
+      "NodeType": "NumberInputNode",
+      "NumberType": "Integer",
+      "InputValue": 0,
+      "MaximumValue": 100,
+      "MinimumValue": 0,
+      "StepValue": 1,
       "Inputs": [],
       "Outputs": [{ "Id": "f3231a04eeec40e49aa30f5623259f6c", "Name": "integer", "Description": "0", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
       "Replication": "Disabled",
-      "Description": "Zero-based selected body index",
-      "Code": "0;"
+      "Description": "Zero-based selected body index"
     },
     {
       "ConcreteType": "CoreNodeModels.Input.BoolSelector, CoreNodeModels",
@@ -53,34 +65,37 @@
       "Description": "Reads one scalar body from the current Archicad 3D selection."
     },
     {
-      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
       "Id": "c492e335caee41c0a9dd39dce1c97e18",
-      "NodeType": "CodeBlockNode",
+      "NodeType": "NumberInputNode",
+      "NumberType": "Double",
+      "InputValue": 0.25,
       "Inputs": [],
       "Outputs": [{ "Id": "3f49889b60bf4f1294af59ff9331512f", "Name": "double", "Description": "0.25", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
       "Replication": "Disabled",
-      "Description": "X translation in metres",
-      "Code": "0.25;"
+      "Description": "X translation in metres"
     },
     {
-      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
       "Id": "e80042fb4e2f46218d988f42baa780dd",
-      "NodeType": "CodeBlockNode",
+      "NodeType": "NumberInputNode",
+      "NumberType": "Double",
+      "InputValue": 0.0,
       "Inputs": [],
       "Outputs": [{ "Id": "9fef24843a1645a8b36740792195bc26", "Name": "integer", "Description": "0", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
       "Replication": "Disabled",
-      "Description": "Y translation in metres",
-      "Code": "0;"
+      "Description": "Y translation in metres"
     },
     {
-      "ConcreteType": "Dynamo.Graph.Nodes.CodeBlockNodeModel, DynamoCore",
+      "ConcreteType": "CoreNodeModels.Input.DoubleInput, CoreNodeModels",
       "Id": "a75dfded2e924baaa218b8426d4cefaf",
-      "NodeType": "CodeBlockNode",
+      "NodeType": "NumberInputNode",
+      "NumberType": "Double",
+      "InputValue": 0.0,
       "Inputs": [],
       "Outputs": [{ "Id": "300fa446633f46a1ad9d23c8657242c3", "Name": "integer", "Description": "0", "UsingDefaultValue": false, "Level": 2, "UseLevels": false, "KeepListStructure": false }],
       "Replication": "Disabled",
-      "Description": "Z translation in metres",
-      "Code": "0;"
+      "Description": "Z translation in metres"
     },
     {
       "ConcreteType": "Dynamo.Graph.Nodes.ZeroTouch.DSFunction, DynamoCore",
@@ -190,15 +205,15 @@
     "ConnectorPins": [],
     "NodeViews": [
       { "Id": "d0704adf1e834ba390f7c53a6a5825a3", "Name": "How To Test", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": -230.0 },
-      { "Id": "046dc34ca95f4c16979bc00a1210ab89", "Name": "Body Index", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": 0.0 },
-      { "Id": "037402c148154825bc38a36940bef753", "Name": "Refresh Selection", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": 110.0 },
+      { "Id": "046dc34ca95f4c16979bc00a1210ab89", "Name": "Body Index", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": 0.0 },
+      { "Id": "037402c148154825bc38a36940bef753", "Name": "Refresh Selection", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 0.0, "Y": 110.0 },
       { "Id": "863d4d915eeb480f9d2404b9df95ba87", "Name": "Current 3D Body", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 35.0 },
-      { "Id": "c492e335caee41c0a9dd39dce1c97e18", "Name": "dx metres", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 240.0 },
-      { "Id": "e80042fb4e2f46218d988f42baa780dd", "Name": "dy metres", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 335.0 },
-      { "Id": "a75dfded2e924baaa218b8426d4cefaf", "Name": "dz metres", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 430.0 },
+      { "Id": "c492e335caee41c0a9dd39dce1c97e18", "Name": "dx metres", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 240.0 },
+      { "Id": "e80042fb4e2f46218d988f42baa780dd", "Name": "dy metres", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 335.0 },
+      { "Id": "a75dfded2e924baaa218b8426d4cefaf", "Name": "dz metres", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 240.0, "Y": 430.0 },
       { "Id": "245135603e224d33abdddb5981231a53", "Name": "Staged Target Preview", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 520.0, "Y": 180.0 },
-      { "Id": "6555f504493144cd9f1206672f7feb33", "Name": "Backend", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 540.0, "Y": 430.0 },
-      { "Id": "5fb040ec62e54e17be062149c0e79f94", "Name": "Apply (false then true)", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 540.0, "Y": 535.0 },
+      { "Id": "6555f504493144cd9f1206672f7feb33", "Name": "Backend", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 540.0, "Y": 430.0 },
+      { "Id": "5fb040ec62e54e17be062149c0e79f94", "Name": "Apply (false then true)", "IsSetAsInput": true, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 540.0, "Y": 535.0 },
       { "Id": "78892ff12edc453b9368cf881354ae12", "Name": "Apply Target", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 850.0, "Y": 180.0 },
       { "Id": "20ab257bd3764bf58d5295572f04bbad", "Name": "Result", "IsSetAsInput": false, "IsSetAsOutput": false, "Excluded": false, "ShowGeometry": true, "X": 1160.0, "Y": 260.0 }
     ],

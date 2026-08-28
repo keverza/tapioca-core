@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Tapioca.DynamoRunner</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <SelfContained>false</SelfContained>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="DynamoApplications">
+      <HintPath>$(DynamoRuntimeDir)\DynamoApplications.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DynamoCore">
+      <HintPath>$(DynamoRuntimeDir)\DynamoCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="CoreNodeModels">
+      <HintPath>$(DynamoRuntimeDir)\nodes\CoreNodeModels.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DynamoServices">
+      <HintPath>$(DynamoRuntimeDir)\DynamoServices.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="RequireDynamoRuntimeDir" BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(DynamoRuntimeDir)' == ''">
+    <Error Text="DynamoRuntimeDir must point to the pinned Dynamo runtime directory." />
+  </Target>
+</Project>

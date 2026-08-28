@@ -78,3 +78,6 @@ AddOn/EvP/Sources/TapiocaDynamo/obj/
 # slashes so the .cs sources beside them stay tracked.
 /AddOn/EvP/Sources/GrasshopperComponents/bin/
 /AddOn/EvP/Sources/GrasshopperComponents/obj/
+# Headless Dynamo runner build intermediates; CMake stages its published output.
+/AddOn/EvP/Sources/DynamoRunner/obj/
+/AddOn/EvP/Sources/DynamoRunner/bin/

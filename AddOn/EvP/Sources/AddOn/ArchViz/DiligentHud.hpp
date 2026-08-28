@@ -352,6 +352,23 @@ struct HudState {
     // legibility device rather than a sun: a preview mesh whose far side went
     // black would be a result the user cannot read from half the orbit.
     float ghPreviewAmbient = 0.45f;
+    // ---- PLAT-RE151 --------------------------------------------------------
+    // Whether the building occludes the preview. ON by default, because a
+    // preview that always floats in front of the model is not a neutral
+    // starting point -- it is wrong in the ordinary case, and it is the reported
+    // bug: a sphere inside a room reads as a sphere stuck to the glass.
+    //
+    // ⚠️ IT IS STILL A SWITCH, and the off position is a real answer rather than
+    // a debug escape. The occlusion is reconstructed from the EXTRACTED model
+    // against the SYNCED camera, so during a fast drag the occluding edge lags
+    // by however much the camera sync does, and a user who is watching the
+    // preview rather than the building would rather see all of it.
+    //
+    // ⚠️ HUD-ONLY, LIKE `renderQuality`. There is no bus command for it yet, so
+    // nothing has to be reconciled against a command each frame -- see the
+    // render-mode block in DiligentViewport.cpp for what that costs when two
+    // things do set a value.
+    bool ghPreviewOcclusion = true;
     // ⚠️ REPORTED BECAUSE ALL THE INTERESTING FAILURES LOOK THE SAME. An empty
     // viewport means "preview off", "nothing was sent", "everything was a kind
     // Tapioca does not draw yet" or "the text has nowhere to go" -- four

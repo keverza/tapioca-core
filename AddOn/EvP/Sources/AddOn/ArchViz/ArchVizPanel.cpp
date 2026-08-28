@@ -500,12 +500,12 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // `legacy` needs no guard and cannot be refused for that reason.
     std::string syncError;
     if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::WakePredict,
-                                              kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ true,
+                                              kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ false,
                                               syncError)) {
         geomsrv::archviz::ArchVizLog ("overlay: wakepredict did not arm -- " + syncError +
                                       "; falling back to legacy");
         if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy,
-                                                  kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ true,
+                                                  kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ false,
                                                   syncError)) {
             geomsrv::archviz::ArchVizLog ("overlay: camera sync did not arm -- " + syncError);
         }

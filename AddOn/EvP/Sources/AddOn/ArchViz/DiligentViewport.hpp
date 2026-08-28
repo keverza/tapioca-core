@@ -16,6 +16,11 @@
 
 namespace geomsrv::archviz {
 
+// Forward-declared: only AdoptSurfaceSize's signature needs the type here, and
+// including the definition would pull the D3D and Diligent headers this one
+// deliberately keeps out.
+class DiligentViewportTarget;
+
 struct HudState;
 
 struct DiligentViewportStats {
@@ -482,6 +487,22 @@ class DiligentViewport final {
     // the HUD both set these, and the reconciliation is in the frame loop.
     std::atomic<int> renderMode_ { 0 };
     std::atomic<bool> showCallout_ { false };
+    // Take `width`/`height` from what the surface ACTUALLY is, and publish it.
+    //
+    // ⚠️ THE FRAME LOOP USED TO ADOPT THE REQUESTED SIZE the moment a resize was
+    // queued, and a resize can fail: `ResizeBuffers` refuses while any
+    // back-buffer reference is outstanding, so the target keeps the old buffers
+    // and retries. Every frame in between was rendered at the new size into a
+    // surface that was still the old one -- the projection got the wrong aspect
+    // and the composition stretched the result. "Out of place and distorted after
+    // Archicad was rescaled" is those two halves of one bug. `BeginFrame` has
+    // just applied whatever it could, so the target is the only authority.
+    //
+    // ⚠️ CALL IT AFTER `BeginFrame`, NEVER BEFORE. Before, it reports the size the
+    // last frame had and the resize is a frame later than it needs to be.
+    void AdoptSurfaceSize (const DiligentViewportTarget& target, uint32_t& width,
+                           uint32_t& height);
+
     std::atomic<bool> blanked_ { false };
     // The banner, with its own mutex and its own expiry -- see
     // InstructionBanner.hpp. It carries a std::string, so it cannot be an

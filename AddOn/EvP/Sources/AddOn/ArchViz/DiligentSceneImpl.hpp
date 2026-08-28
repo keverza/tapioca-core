@@ -321,6 +321,15 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::IShaderResourceBinding> semanticWireSrb;
     bool semanticWireSupported = false;
 
+    // ---- PLAT-RE151: the occlusion depth prepass ----------------------------
+    // ⚠️ BUILT LAZILY, NOT IN Init, so the failure LATCHES rather than retrying
+    // the HLSL compiler every frame. See DiligentSceneOcclusion.cpp, which owns
+    // both the pipeline and the pass; the rule for when the pass runs is in the
+    // pure OcclusionPrepass.hpp.
+    RefCntAutoPtr<Diligent::IPipelineState> occlusionDepthPso;
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> occlusionDepthSrb;
+    bool occlusionDepthInitFailed = false;
+
     std::unique_ptr<Diligent::GBuffer> gBuffer;
     RefCntAutoPtr<Diligent::IShader> gBufferPs;
     RefCntAutoPtr<Diligent::IShader> fullScreenVs;

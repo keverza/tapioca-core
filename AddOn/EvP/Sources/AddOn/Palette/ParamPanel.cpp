@@ -842,7 +842,7 @@ bool ParamPanel::HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflo
 // MODAL dialog directly on the main thread from a button handler — NEVER through
 // MainThreadGate, which must not hold for human time (it would report a false
 // timeout; see the gate's contract).
-bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
+bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath)
 {
     // evp.View — the Navigator browser. Its own loop first, because a View row's
     // button IS pc.control, not pc.browseButton.
@@ -927,6 +927,8 @@ bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev)
         const GSErrCode pathErr = dialog.GetSelectedFile ().ToPath (&path);
         if (pathErr == NoError) {
             static_cast<DG::TextEdit*> (pc.control.get ())->SetText (path);
+            if (selectedFilePath != nullptr)
+                *selectedFilePath = path;
         }
         else {
             AppendTextLine (ScanLogPath (),

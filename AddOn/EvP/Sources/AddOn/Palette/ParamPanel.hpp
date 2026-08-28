@@ -240,7 +240,7 @@ class ParamPanel {
     // a second call so the shell cannot forget to ask.
     bool HandleCheckItemChanged (const DG::CheckItemChangeEvent& ev, bool& reflow);
     bool HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflow);
-    bool HandleButtonClicked (const DG::ButtonClickEvent& ev);
+    bool HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath = nullptr);
 
   private:
     // F3 — re-evaluate every show_when against the values the controls hold now,

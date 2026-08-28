@@ -68,6 +68,10 @@ class CommandListPanel {
     // "nothing matched" row.
     const CommandInfo* Selected () const;
 
+    // Replaces the selected built-in command after its schema is derived from an
+    // external document. The folder identity and current row stay unchanged.
+    bool ReplaceSelected (CommandInfo command);
+
     // Position the band starting at `top` — the full-width combo on one row, then the
     // list IF it is open — and return the height used. A closed combo costs one row.
     //
