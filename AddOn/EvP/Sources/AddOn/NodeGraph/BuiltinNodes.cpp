@@ -63,8 +63,12 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     return registry;
 }
 
-bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, ValueMap& outputs, std::string& error)
+bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExecutionContext& context,
+                         ValueMap& outputs, std::string& error)
 {
+    // Pure nodes read nothing outside their inputs; that is what makes them pure.
+    (void) context;
+
     if (node.nodeType == "number")
         outputs.emplace ("value", node.parameters.at ("value"));
     else if (node.nodeType == "add")

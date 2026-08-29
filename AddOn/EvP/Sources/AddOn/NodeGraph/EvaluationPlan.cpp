@@ -1,5 +1,6 @@
 #include "NodeGraph/EvaluationPlan.hpp"
 
+#include "NodeGraph/ArchicadHost.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 
@@ -57,10 +58,65 @@ PlanOutcome BuildEvaluationPlan (const GraphDocument& document, const NodeRegist
         if (required.contains (nodeId))
             outcome.plan.requiredNodes.push_back (nodeId);
     }
+
+    // Capability: can every node in this plan actually run here? Answering now
+    // is the difference between "this graph needs an open project" and a GUID in
+    // an error message halfway through a run.
+    GenerationSet needed;
+    std::set<NodeId> effectful;
+    for (const NodeId& nodeId : outcome.plan.requiredNodes) {
+        const NodeType& nodeType = *registry.Find (document.FindNode (nodeId)->nodeType);
+        if (nodeType.executionDomain == ExecutionDomain::ArchicadMainThread &&
+            (context.archicad == nullptr || !context.archicad->IsAvailable ())) {
+            outcome.error = "node " + nodeId + " (" + nodeType.label + ") needs an open Archicad project";
+            return outcome;
+        }
+        for (const GenerationDomain domain : nodeType.generations.Domains ())
+            needed.Add (domain);
+        if (nodeType.effect == EffectKind::HostUiWrite)
+            effectful.insert (nodeId);
+    }
+
+    // Sample once, for the whole run.
+    for (const GenerationDomain domain : needed.Domains ()) {
+        uint64_t value = 0;
+        std::string error;
+        if (context.archicad == nullptr || !context.archicad->Generations ().Sample (domain, value, error)) {
+            outcome.error = std::string ("the '") + GenerationDomainName (domain) +
+                            "' state this graph depends on cannot be read" + (error.empty () ? "" : ": " + error);
+            return outcome;
+        }
+        outcome.plan.generations.Set (domain, value);
+    }
+
+    // Effectful nodes, and everything downstream of them, run in a second phase.
+    // Downstream too: a node consuming an effectful node's output cannot run
+    // before it, so it inherits the deferral rather than being reordered.
+    std::set<NodeId> deferred;
+    if (!effectful.empty ()) {
+        const std::vector<NodeId> roots (effectful.begin (), effectful.end ());
+        for (const NodeId& nodeId : DownstreamClosure (document, roots)) {
+            if (required.contains (nodeId))
+                deferred.insert (nodeId);
+        }
+    }
+
+    const bool permitted = request.allowSideEffects;
+    for (const NodeId& nodeId : outcome.plan.requiredNodes) {
+        if (!deferred.contains (nodeId)) {
+            outcome.plan.primaryNodes.push_back (nodeId);
+            continue;
+        }
+        if (permitted)
+            outcome.plan.deferredNodes.push_back (nodeId);
+        else
+            outcome.plan.skippedEffectNodes.push_back (nodeId);
+    }
+
     for (const std::vector<NodeId>& level : topo.levels) {
         std::vector<NodeId> filtered;
         for (const NodeId& nodeId : level) {
-            if (required.contains (nodeId))
+            if (required.contains (nodeId) && !deferred.contains (nodeId))
                 filtered.push_back (nodeId);
         }
         if (!filtered.empty ())

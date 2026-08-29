@@ -60,12 +60,19 @@ struct EvaluationLimits {
     double nodeBudgetMs = 30000.0;
 };
 
+class IArchicadHost;
+
 struct RunContext {
     RunId runId = kNoRun;
     GraphId graphId;
     uint64_t graphRevision = 0;
     CancellationToken cancellation;
     EvaluationLimits limits;
+
+    // nullptr when the runtime is running without Archicad - the offline suite,
+    // a headless run, or the add-on before a project opens. A plan whose nodes
+    // need a host is rejected at the door rather than failing mid-run.
+    IArchicadHost* archicad = nullptr;
 
     // Optional. An evaluation with no sink still runs; it is simply unobserved,
     // which is what keeps the offline tests free of the recorder.

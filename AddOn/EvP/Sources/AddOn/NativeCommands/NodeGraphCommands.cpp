@@ -3,6 +3,7 @@
 
 #include "NativeCommands/NodeGraphCommands.hpp"
 
+#include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 
 #include <exception>
@@ -43,7 +44,7 @@ constexpr const char kGraphInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kCatalogResponseSchema[] =
-    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","inputs","outputs","parameters"]}}},"additionalProperties":false,"required":["nodeTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"effect":{"type":"string","enum":["pure","readModel","hostUiWrite"]},"generations":{"type":"array","items":{"type":"string","enum":["project","selection"]}},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","effect","generations","inputs","outputs","parameters"]}}},"additionalProperties":false,"required":["nodeTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 constexpr const char kStateResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"nodeType":{"type":"string"},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["parameterId","value"]}}},"additionalProperties":false,"required":["nodeId","nodeType","parameters"]}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string"},"sourcePort":{"type":"string"},"targetNode":{"type":"string"},"targetPort":{"type":"string"}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","nodes","edges"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
@@ -56,17 +57,20 @@ constexpr const char kEditInputSchema[] =
 constexpr const char kEditResponseSchema[] =
     R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["revision","dirtyNodes"]})json";
 
+// allowSideEffects defaults to FALSE and must be sent deliberately. A preview,
+// a watch and an auto-evaluated branch all leave it out, which is what keeps a
+// graph from changing the user's selection while they are editing.
 constexpr const char kEvaluateInputSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"targets":{"type":"array","items":{"type":"string","minLength":1}},"mode":{"type":"string","enum":["incremental","forced"]}},"additionalProperties":false,"required":[]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"targets":{"type":"array","items":{"type":"string","minLength":1}},"mode":{"type":"string","enum":["incremental","forced"]},"allowSideEffects":{"type":"boolean"}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kEvaluateResponseSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"revision":{"type":"integer","minimum":0},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"cyclicNodes":{"type":"array","items":{"type":"string"}},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["graphId","runId","lastEventSeq","revision","succeeded","cancelled","error","failedNode","cyclicNodes","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount"]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"revision":{"type":"integer","minimum":0},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"cyclicNodes":{"type":"array","items":{"type":"string"}},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0},"effectsCommitted":{"type":"boolean"},"skippedEffectNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["graphId","runId","lastEventSeq","revision","succeeded","cancelled","error","failedNode","cyclicNodes","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount","effectsCommitted","skippedEffectNodes"]})json";
 
 constexpr const char kCancelResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"cancelledRunId":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["graphId","cancelledRunId"]})json";
 
 constexpr const char kResultsResponseSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"results":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"},"evaluationCount":{"type":"integer","minimum":0},"runId":{"type":"integer","minimum":0},"previewAvailable":{"type":"boolean"},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["portId","value"]}}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit","evaluationCount","runId","previewAvailable","outputs"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","results"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"results":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled","skipped"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"},"evaluationCount":{"type":"integer","minimum":0},"runId":{"type":"integer","minimum":0},"previewAvailable":{"type":"boolean"},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["portId","value"]}}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit","evaluationCount","runId","previewAvailable","outputs"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","results"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 // The delta half of the synchronization contract. Paired with the lastEventSeq a
 // snapshot carries, it needs no push channel - which is what lets a pytest
@@ -81,7 +85,20 @@ constexpr const char kHistoryInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"maxRuns":{"type":"integer","minimum":1,"maximum":256}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kHistoryResponseSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runs":{"type":"array","items":{"type":"object","properties":{"runId":{"type":"integer","minimum":0},"graphRevision":{"type":"integer","minimum":0},"startedAtMs":{"type":"integer"},"finishedAtMs":{"type":"integer"},"finished":{"type":"boolean"},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit"]}}},"additionalProperties":false,"required":["runId","graphRevision","startedAtMs","finishedAtMs","finished","succeeded","cancelled","error","failedNode","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount","nodes"]}}},"additionalProperties":false,"required":["graphId","runs"]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runs":{"type":"array","items":{"type":"object","properties":{"runId":{"type":"integer","minimum":0},"graphRevision":{"type":"integer","minimum":0},"startedAtMs":{"type":"integer"},"finishedAtMs":{"type":"integer"},"finished":{"type":"boolean"},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled","skipped"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit"]}}},"additionalProperties":false,"required":["runId","graphRevision","startedAtMs","finishedAtMs","finished","succeeded","cancelled","error","failedNode","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount","nodes"]}}},"additionalProperties":false,"required":["graphId","runs"]})json";
+
+// Can this graph run right now, and if not, what exactly is wrong. Computed from
+// the same single resolution pass as the compatibility report below.
+constexpr const char kDependenciesResponseSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"canEvaluate":{"type":"boolean"},"resolvedReferences":{"type":"integer","minimum":0},"unresolvedReferences":{"type":"integer","minimum":0},"nodesNeedingArchicad":{"type":"integer","minimum":0},"effectNodes":{"type":"integer","minimum":0},"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["warning","error"]},"nodeId":{"type":"string"},"kind":{"type":"string"},"detail":{"type":"string"}},"additionalProperties":false,"required":["severity","nodeId","kind","detail"]}}},"additionalProperties":false,"required":["graphId","canEvaluate","resolvedReferences","unresolvedReferences","nodesNeedingArchicad","effectNodes","findings"]})json";
+
+// Can this graph LOAD - a different question from whether it can run. A graph
+// with Archicad nodes is perfectly loadable with no project open.
+constexpr const char kCompatibilityInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"formatVersion":{"type":"integer","minimum":0}},"additionalProperties":false,"required":[]})json";
+
+constexpr const char kCompatibilityResponseSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"status":{"type":"string","enum":["compatible","needsMigration","unsupportedFormat","missingNodeType","missingCapability"]},"runtimeFormatVersion":{"type":"integer","minimum":1},"missingNodeTypes":{"type":"array","items":{"type":"string"}},"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["warning","error"]},"nodeId":{"type":"string"},"kind":{"type":"string"},"detail":{"type":"string"}},"additionalProperties":false,"required":["severity","nodeId","kind","detail"]}}},"additionalProperties":false,"required":["graphId","status","runtimeFormatVersion","missingNodeTypes","findings"]})json";
 
 std::string Utf8 (const GS::UniString& value)
 {
@@ -127,6 +144,8 @@ const char* StatusName (graph::NodeExecutionState state)
             return "blocked";
         case graph::NodeExecutionState::Cancelled:
             return "cancelled";
+        case graph::NodeExecutionState::Skipped:
+            return "skipped";
     }
     return "dirty";
 }
@@ -319,6 +338,11 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
             record.Add ("category", Text (nodeType.category));
             record.Add ("description", Text (nodeType.description));
             record.Add ("executionDomain", DomainName (nodeType.executionDomain));
+            record.Add ("effect", graph::EffectKindName (nodeType.effect));
+            GS::Array<GS::UniString> generations;
+            for (const graph::GenerationDomain domain : nodeType.generations.Domains ())
+                generations.Push (GS::UniString (graph::GenerationDomainName (domain), CC_UTF8));
+            record.Add ("generations", generations);
             GS::Array<GS::ObjectState> inputs, outputs, parameters;
             for (const graph::PortSchema& port : nodeType.inputs) {
                 GS::ObjectState state;
@@ -488,6 +512,11 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         GS::UniString mode;
         if (params.Get ("mode", mode) && Utf8 (mode) == "forced")
             request.mode = graph::EvaluationMode::Forced;
+        // Absent means refused. A client has to ask for side effects in so many
+        // words; nothing infers them from context.
+        bool allowSideEffects = false;
+        if (params.Get ("allowSideEffects", allowSideEffects))
+            request.allowSideEffects = allowSideEffects;
 
         const graph::EvaluationSummary summary =
             graph::GraphRuntimeState::Get ().Evaluate (ReadGraphId (params), request);
@@ -513,6 +542,11 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         response.Add ("cacheHitCount", static_cast<GS::Int64> (summary.cacheHitCount));
         response.Add ("failedCount", static_cast<GS::Int64> (summary.failedCount));
         response.Add ("blockedCount", static_cast<GS::Int64> (summary.blockedCount));
+        response.Add ("effectsCommitted", summary.effectsCommitted);
+        GS::Array<GS::UniString> skipped;
+        for (const graph::NodeId& nodeId : summary.skippedEffectNodes)
+            skipped.Push (Text (nodeId));
+        response.Add ("skippedEffectNodes", skipped);
         return response;
     }
 };
@@ -666,6 +700,69 @@ class GraphGetRunHistoryCommand : public GateFreeGraphCommand {
     }
 };
 
+GS::Array<GS::ObjectState> FindingStates (const std::vector<graph::GraphFinding>& findings)
+{
+    GS::Array<GS::ObjectState> states;
+    for (const graph::GraphFinding& finding : findings) {
+        GS::ObjectState state;
+        state.Add ("severity", graph::FindingSeverityName (finding.severity));
+        state.Add ("nodeId", Text (finding.nodeId));
+        state.Add ("kind", Text (finding.kind));
+        state.Add ("detail", Text (finding.detail));
+        states.Push (std::move (state));
+    }
+    return states;
+}
+
+// "Can this graph run right now." Answering before evaluating is the difference
+// between a list a user can act on and a GUID in an error message halfway
+// through a run.
+class GraphGetDependenciesCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphDependencyReport report = graph::GraphRuntimeState::Get ().Dependencies (graphId);
+        GS::ObjectState response;
+        response.Add ("graphId", Text (graphId));
+        response.Add ("canEvaluate", report.canEvaluate);
+        response.Add ("resolvedReferences", static_cast<GS::Int64> (report.resolvedReferences));
+        response.Add ("unresolvedReferences", static_cast<GS::Int64> (report.unresolvedReferences));
+        response.Add ("nodesNeedingArchicad", static_cast<GS::Int64> (report.nodesNeedingArchicad));
+        response.Add ("effectNodes", static_cast<GS::Int64> (report.effectNodes));
+        response.Add ("findings", FindingStates (report.findings));
+        return response;
+    }
+};
+
+// "Can this graph load." Deliberately a different answer: a graph full of
+// Archicad nodes is perfectly loadable with no project open, and refusing to
+// open a file for editing because it cannot run would be wrong.
+class GraphGetCompatibilityCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const graph::GraphId graphId = ReadGraphId (params);
+        GS::Int64 formatVersion = 0;
+        params.Get ("formatVersion", formatVersion);
+
+        const graph::CompatibilityReport report = graph::GraphRuntimeState::Get ().Compatibility (
+            graphId, static_cast<uint32_t> (formatVersion < 0 ? 0 : formatVersion));
+
+        GS::Array<GS::UniString> missing;
+        for (const std::string& nodeType : report.missingNodeTypes)
+            missing.Push (Text (nodeType));
+
+        GS::ObjectState response;
+        response.Add ("graphId", Text (graphId));
+        response.Add ("status", graph::CompatibilityStatusName (report.status));
+        response.Add ("runtimeFormatVersion", static_cast<GS::Int64> (graph::kGraphFormatVersion));
+        response.Add ("missingNodeTypes", missing);
+        response.Add ("findings", FindingStates (report.findings));
+        return response;
+    }
+};
+
 const NativeCommandRegistration registrations[] = {
     { "GraphGetNodeTypes", &MakeRegisteredNativeCommand<GraphGetNodeTypesCommand>, false, kGraphInputSchema,
       kCatalogResponseSchema },
@@ -683,6 +780,10 @@ const NativeCommandRegistration registrations[] = {
       kEventsResponseSchema },
     { "GraphGetRunHistory", &MakeRegisteredNativeCommand<GraphGetRunHistoryCommand>, false, kHistoryInputSchema,
       kHistoryResponseSchema },
+    { "GraphGetDependencies", &MakeRegisteredNativeCommand<GraphGetDependenciesCommand>, false, kGraphInputSchema,
+      kDependenciesResponseSchema },
+    { "GraphGetCompatibility", &MakeRegisteredNativeCommand<GraphGetCompatibilityCommand>, false,
+      kCompatibilityInputSchema, kCompatibilityResponseSchema },
 };
 
 } // namespace

@@ -1,5 +1,6 @@
 #include "NodeGraph/Evaluator.hpp"
 
+#include "NodeGraph/ArchicadHost.hpp"
 #include "NodeGraph/FaultBarrier.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
@@ -72,6 +73,12 @@ void EmitRunFinished (const RunContext& context, const EvaluationOutcome& outcom
     context.events (std::move (event));
 }
 
+const UnavailableReferenceResolver& OfflineResolver ()
+{
+    static const UnavailableReferenceResolver resolver;
+    return resolver;
+}
+
 } // namespace
 
 void Evaluator::Invalidate (const GraphDocument& document, const std::vector<NodeId>& roots)
@@ -100,6 +107,225 @@ void Evaluator::BlockDownstream (const GraphDocument& document, const NodeId& or
         ++blockedCount;
         Emit (context, RunEventKind::NodeBlocked, nodeId, reason);
     }
+}
+
+bool Evaluator::RunPhase (const std::vector<NodeId>& nodes, PhaseState& state)
+{
+    const GraphDocument& document = *state.document;
+    const NodeRegistry& registry = *state.registry;
+    const RunContext& context = *state.context;
+    const EvaluationPlan& plan = *state.plan;
+    EvaluationOutcome& outcome = *state.outcome;
+    std::set<NodeId>& unusable = *state.unusable;
+
+    for (const NodeId& nodeId : nodes) {
+        if (context.cancellation.IsCancelled ())
+            return false;
+
+        if (unusable.contains (nodeId))
+            continue;
+
+        const Node& node = *document.FindNode (nodeId);
+        const NodeType& nodeType = *registry.Find (node.nodeType);
+
+        // Cache key: node identity and parameters by value, upstream results by
+        // OUTPUT REVISION rather than by content, and the host state this node
+        // declared it reads. That last part is what stops a model-reading node
+        // from serving a stale answer after the user changes the model.
+        size_t inputHash = std::hash<std::string> {}(node.nodeType);
+        for (const auto& [parameterId, value] : node.parameters) {
+            CombineText (inputHash, parameterId);
+            CombineHash (inputHash, value.Hash ());
+        }
+        for (const ParameterSchema& parameter : nodeType.parameters) {
+            if (!node.parameters.contains (parameter.id) && parameter.defaultValue) {
+                CombineText (inputHash, parameter.id);
+                CombineHash (inputHash, parameter.defaultValue->Hash ());
+            }
+        }
+        for (const GenerationDomain domain : nodeType.generations.Domains ()) {
+            CombineText (inputHash, GenerationDomainName (domain));
+            CombineHash (inputHash, static_cast<size_t> (plan.generations.Value (domain)));
+        }
+
+        const auto failNode = [&] (const std::string& message, double elapsedMs) {
+            CacheEntry& failing = cache_[nodeId];
+            failing.dirty = true;
+            failing.status.state = NodeExecutionState::Failed;
+            failing.status.message = message;
+            failing.status.cacheHit = false;
+            failing.status.durationMilliseconds = elapsedMs;
+            failing.status.runId = context.runId;
+            ++outcome.failedCount;
+            if (outcome.error.empty ()) {
+                outcome.error = message;
+                outcome.failedNode = nodeId;
+            }
+            outcome.succeeded = false;
+            if (context.events) {
+                RunEvent failed;
+                failed.kind = RunEventKind::NodeFailed;
+                failed.runId = context.runId;
+                failed.graphRevision = context.graphRevision;
+                failed.nodeId = nodeId;
+                failed.message = message;
+                failed.durationMilliseconds = elapsedMs;
+                context.events (std::move (failed));
+            }
+            BlockDownstream (document, nodeId, "upstream node failed: " + nodeId, context, outcome.blockedCount);
+            for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
+                unusable.insert (blocked);
+        };
+
+        ValueMap inputs;
+        bool inputsResolved = true;
+        for (const PortSchema& input : nodeType.inputs) {
+            Value::List values;
+            for (const Edge& edge : document.Edges ()) {
+                if (edge.targetNode != nodeId || edge.targetPort != input.id)
+                    continue;
+                const auto source = cache_.find (edge.sourceNode);
+                const std::shared_ptr<const NodeResult> sourceResult =
+                    source == cache_.end () ? nullptr : source->second.result;
+                if (!sourceResult || !sourceResult->outputs.contains (edge.sourcePort)) {
+                    failNode ("upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, 0.0);
+                    inputsResolved = false;
+                    break;
+                }
+                values.push_back (sourceResult->outputs.at (edge.sourcePort));
+                CombineText (inputHash, edge.sourceNode);
+                CombineText (inputHash, edge.sourcePort);
+                CombineHash (inputHash, static_cast<size_t> (sourceResult->outputRevision));
+            }
+            if (!inputsResolved)
+                break;
+
+            if (values.empty ()) {
+                if (input.required) {
+                    failNode ("required input is unconnected: " + input.id, 0.0);
+                    inputsResolved = false;
+                    break;
+                }
+                inputs.emplace (input.id, Value {});
+            }
+            else if (input.acceptsMultiple) {
+                inputs.emplace (input.id, Value (std::move (values)));
+            }
+            else {
+                inputs.emplace (input.id, std::move (values.front ()));
+            }
+        }
+
+        if (!inputsResolved)
+            continue;
+
+        CacheEntry& entry = cache_[nodeId];
+        if (plan.mode == EvaluationMode::Incremental && entry.result && !entry.dirty && entry.inputHash == inputHash) {
+            entry.status.state = NodeExecutionState::Complete;
+            entry.status.message.clear ();
+            entry.status.cacheHit = true;
+            entry.status.runId = context.runId;
+            ++outcome.cacheHitCount;
+            if (context.events) {
+                RunEvent hit;
+                hit.kind = RunEventKind::NodeCacheHit;
+                hit.runId = context.runId;
+                hit.graphRevision = context.graphRevision;
+                hit.nodeId = nodeId;
+                hit.itemCount = entry.status.itemCount;
+                context.events (std::move (hit));
+            }
+            continue;
+        }
+
+        Node effectiveNode = node;
+        for (const ParameterSchema& parameter : nodeType.parameters) {
+            if (!effectiveNode.parameters.contains (parameter.id) && parameter.defaultValue)
+                effectiveNode.parameters.emplace (parameter.id, *parameter.defaultValue);
+        }
+
+        ValueMap outputs;
+        std::string nodeError;
+        Emit (context, RunEventKind::NodeStarted, nodeId);
+        const auto started = std::chrono::steady_clock::now ();
+        // Rule 2: the node body runs behind the fault barrier, so a structured
+        // exception in node code fails the node instead of the process.
+        const NodeExecutor& executor = *state.executor;
+        const NodeExecutionContext& execution = *state.execution;
+        const GuardOutcome guarded =
+            RunGuarded ([&executor, &effectiveNode, &inputs, &execution, &outputs, &nodeError] () {
+                return executor (effectiveNode, inputs, execution, outputs, nodeError);
+            });
+        const double elapsedMs =
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+
+        std::string failure;
+        if (!guarded.completed)
+            failure = guarded.fault;
+        else if (!guarded.result)
+            failure = nodeError.empty () ? "the node reported failure without a message" : nodeError;
+        else if (elapsedMs > context.limits.nodeBudgetMs)
+            failure = "the node exceeded its time budget";
+
+        size_t itemCount = 0;
+        if (failure.empty ()) {
+            for (const auto& [portId, value] : outputs) {
+                const PortSchema* output = FindOutput (nodeType, portId);
+                if (output == nullptr || output->valueType != value.Type ()) {
+                    failure = "invalid output: " + portId;
+                    break;
+                }
+                // Rule 5: an oversized or pathologically nested result fails its
+                // node rather than entering the cache.
+                const ValueMeasure measure =
+                    MeasureValue (value, context.limits.maxOutputItems - itemCount, context.limits.maxValueDepth);
+                if (!measure.WithinLimits ()) {
+                    failure = measure.exceededDepth ? "output '" + portId + "' nests too deeply"
+                                                    : "output '" + portId + "' exceeds the output ceiling";
+                    break;
+                }
+                itemCount += measure.items;
+            }
+        }
+        if (failure.empty ()) {
+            for (const PortSchema& output : nodeType.outputs) {
+                if (output.required && !outputs.contains (output.id)) {
+                    failure = "omitted output: " + output.id;
+                    break;
+                }
+            }
+        }
+
+        if (!failure.empty ()) {
+            ++entry.status.evaluationCount;
+            failNode ("node " + nodeId + " failed: " + failure, elapsedMs);
+            continue;
+        }
+
+        entry.inputHash = inputHash;
+        entry.result = std::make_shared<const NodeResult> (
+            NodeResult { std::move (outputs), elapsedMs, nextOutputRevision_++, itemCount });
+        entry.dirty = false;
+        entry.status.state = NodeExecutionState::Complete;
+        entry.status.message.clear ();
+        entry.status.cacheHit = false;
+        entry.status.durationMilliseconds = elapsedMs;
+        entry.status.itemCount = itemCount;
+        entry.status.runId = context.runId;
+        ++entry.status.evaluationCount;
+        ++outcome.executedCount;
+        if (context.events) {
+            RunEvent completed;
+            completed.kind = RunEventKind::NodeCompleted;
+            completed.runId = context.runId;
+            completed.graphRevision = context.graphRevision;
+            completed.nodeId = nodeId;
+            completed.durationMilliseconds = elapsedMs;
+            completed.itemCount = itemCount;
+            context.events (std::move (completed));
+        }
+    }
+    return true;
 }
 
 EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const NodeRegistry& registry,
@@ -146,6 +372,7 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
     }
     const EvaluationPlan& plan = planned.plan;
     outcome.plannedNodes = plan.requiredNodes;
+    outcome.skippedEffectNodes = plan.skippedEffectNodes;
 
     if (context.events) {
         RunEvent started;
@@ -158,245 +385,78 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
             Emit (context, RunEventKind::NodeQueued, nodeId);
     }
 
+    NodeExecutionContext execution;
+    execution.archicad = context.archicad;
+    execution.references = context.archicad != nullptr ? &context.archicad->References () : &OfflineResolver ();
+    execution.generations = plan.generations;
+    execution.cancellation = context.cancellation;
+
     std::set<NodeId> unusable;
     outcome.succeeded = true;
 
-    for (const NodeId& nodeId : plan.requiredNodes) {
-        if (context.cancellation.IsCancelled ()) {
-            // Rule 7: cancelling degrades nothing. Nodes that already finished
-            // keep their results; only what did not run is marked cancelled.
-            outcome.cancelled = true;
-            outcome.succeeded = false;
-            outcome.error = "the evaluation was cancelled";
-            for (const NodeId& remaining : plan.requiredNodes) {
-                CacheEntry& entry = cache_[remaining];
-                if (entry.status.runId != context.runId) {
-                    entry.status.state = NodeExecutionState::Cancelled;
-                    entry.status.message = "the evaluation was cancelled";
-                    entry.status.runId = context.runId;
-                    Emit (context, RunEventKind::NodeCancelled, remaining);
-                }
+    PhaseState state;
+    state.document = &document;
+    state.registry = &registry;
+    state.executor = &executor;
+    state.plan = &plan;
+    state.context = &context;
+    state.execution = &execution;
+    state.outcome = &outcome;
+    state.unusable = &unusable;
+
+    const auto cancel = [&] () {
+        // Rule 7: cancelling degrades nothing. Nodes that already finished keep
+        // their results; only what did not run is marked cancelled.
+        outcome.cancelled = true;
+        outcome.succeeded = false;
+        outcome.error = "the evaluation was cancelled";
+        for (const NodeId& remaining : plan.requiredNodes) {
+            CacheEntry& entry = cache_[remaining];
+            if (entry.status.runId != context.runId) {
+                entry.status.state = NodeExecutionState::Cancelled;
+                entry.status.message = "the evaluation was cancelled";
+                entry.status.runId = context.runId;
+                Emit (context, RunEventKind::NodeCancelled, remaining);
             }
-            EmitRunFinished (context, outcome, RunEventKind::RunCancelled);
+        }
+        EmitRunFinished (context, outcome, RunEventKind::RunCancelled);
+    };
+
+    if (!RunPhase (plan.primaryNodes, state)) {
+        cancel ();
+        return outcome;
+    }
+
+    // An effectful node that was not permitted is reported, not hidden. Nothing
+    // is wrong with it; this run simply did not ask for it.
+    for (const NodeId& nodeId : plan.skippedEffectNodes) {
+        CacheEntry& entry = cache_[nodeId];
+        entry.status.state = NodeExecutionState::Skipped;
+        entry.status.message = "this node changes Archicad and runs only on an explicit run";
+        entry.status.cacheHit = false;
+        entry.status.runId = context.runId;
+    }
+
+    // The deferred phase has to EARN its turn. A graph that failed anywhere must
+    // not go on to change the user's selection - that is the whole reason
+    // effects are a second phase rather than nodes in topological position.
+    if (!plan.deferredNodes.empty ()) {
+        if (!outcome.succeeded) {
+            for (const NodeId& nodeId : plan.deferredNodes) {
+                CacheEntry& entry = cache_[nodeId];
+                entry.status.state = NodeExecutionState::Blocked;
+                entry.status.message = "not applied: the evaluation failed before it could be";
+                entry.status.runId = context.runId;
+                ++outcome.blockedCount;
+                Emit (context, RunEventKind::NodeBlocked, nodeId, entry.status.message);
+            }
+        }
+        else if (!RunPhase (plan.deferredNodes, state)) {
+            cancel ();
             return outcome;
         }
-
-        if (unusable.contains (nodeId))
-            continue;
-
-        const Node& node = *document.FindNode (nodeId);
-        const NodeType& nodeType = *registry.Find (node.nodeType);
-
-        // Cache key: node identity and parameters by value, upstream results by
-        // OUTPUT REVISION rather than by content. A mesh is never rehashed to
-        // decide whether its consumer is still clean.
-        size_t inputHash = std::hash<std::string> {}(node.nodeType);
-        for (const auto& [parameterId, value] : node.parameters) {
-            CombineText (inputHash, parameterId);
-            CombineHash (inputHash, value.Hash ());
-        }
-        for (const ParameterSchema& parameter : nodeType.parameters) {
-            if (!node.parameters.contains (parameter.id) && parameter.defaultValue) {
-                CombineText (inputHash, parameter.id);
-                CombineHash (inputHash, parameter.defaultValue->Hash ());
-            }
-        }
-
-        ValueMap inputs;
-        bool inputsResolved = true;
-        for (const PortSchema& input : nodeType.inputs) {
-            Value::List values;
-            for (const Edge& edge : document.Edges ()) {
-                if (edge.targetNode != nodeId || edge.targetPort != input.id)
-                    continue;
-                const auto source = cache_.find (edge.sourceNode);
-                const std::shared_ptr<const NodeResult> sourceResult =
-                    source == cache_.end () ? nullptr : source->second.result;
-                if (!sourceResult || !sourceResult->outputs.contains (edge.sourcePort)) {
-                    BlockDownstream (document, nodeId,
-                                     "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, context,
-                                     outcome.blockedCount);
-                    CacheEntry& failing = cache_[nodeId];
-                    failing.status.state = NodeExecutionState::Failed;
-                    failing.status.message = "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort;
-                    failing.status.runId = context.runId;
-                    ++outcome.failedCount;
-                    if (outcome.error.empty ()) {
-                        outcome.error = failing.status.message;
-                        outcome.failedNode = nodeId;
-                    }
-                    outcome.succeeded = false;
-                    inputsResolved = false;
-                    Emit (context, RunEventKind::NodeFailed, nodeId, failing.status.message);
-                    break;
-                }
-                values.push_back (sourceResult->outputs.at (edge.sourcePort));
-                CombineText (inputHash, edge.sourceNode);
-                CombineText (inputHash, edge.sourcePort);
-                CombineHash (inputHash, static_cast<size_t> (sourceResult->outputRevision));
-            }
-            if (!inputsResolved)
-                break;
-
-            if (values.empty ()) {
-                if (input.required) {
-                    BlockDownstream (document, nodeId, "required input is unconnected: " + input.id, context,
-                                     outcome.blockedCount);
-                    CacheEntry& failing = cache_[nodeId];
-                    failing.status.state = NodeExecutionState::Failed;
-                    failing.status.message = "required input is unconnected: " + input.id;
-                    failing.status.runId = context.runId;
-                    ++outcome.failedCount;
-                    if (outcome.error.empty ()) {
-                        outcome.error = failing.status.message;
-                        outcome.failedNode = nodeId;
-                    }
-                    outcome.succeeded = false;
-                    inputsResolved = false;
-                    Emit (context, RunEventKind::NodeFailed, nodeId, failing.status.message);
-                    break;
-                }
-                inputs.emplace (input.id, Value {});
-            }
-            else if (input.acceptsMultiple) {
-                inputs.emplace (input.id, Value (std::move (values)));
-            }
-            else {
-                inputs.emplace (input.id, std::move (values.front ()));
-            }
-        }
-
-        if (!inputsResolved) {
-            for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
-                unusable.insert (blocked);
-            continue;
-        }
-
-        CacheEntry& entry = cache_[nodeId];
-        if (plan.mode == EvaluationMode::Incremental && entry.result && !entry.dirty && entry.inputHash == inputHash) {
-            entry.status.state = NodeExecutionState::Complete;
-            entry.status.message.clear ();
-            entry.status.cacheHit = true;
-            entry.status.runId = context.runId;
-            ++outcome.cacheHitCount;
-            if (context.events) {
-                RunEvent hit;
-                hit.kind = RunEventKind::NodeCacheHit;
-                hit.runId = context.runId;
-                hit.graphRevision = context.graphRevision;
-                hit.nodeId = nodeId;
-                hit.itemCount = entry.status.itemCount;
-                context.events (std::move (hit));
-            }
-            continue;
-        }
-
-        Node effectiveNode = node;
-        for (const ParameterSchema& parameter : nodeType.parameters) {
-            if (!effectiveNode.parameters.contains (parameter.id) && parameter.defaultValue)
-                effectiveNode.parameters.emplace (parameter.id, *parameter.defaultValue);
-        }
-
-        ValueMap outputs;
-        std::string nodeError;
-        Emit (context, RunEventKind::NodeStarted, nodeId);
-        const auto started = std::chrono::steady_clock::now ();
-        // Rule 2: the node body runs behind the fault barrier, so a structured
-        // exception in node code fails the node instead of the process.
-        const GuardOutcome guarded = RunGuarded ([&executor, &effectiveNode, &inputs, &outputs, &nodeError] () {
-            return executor (effectiveNode, inputs, outputs, nodeError);
-        });
-        const double elapsedMs =
-            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
-
-        std::string failure;
-        if (!guarded.completed)
-            failure = guarded.fault;
-        else if (!guarded.result)
-            failure = nodeError.empty () ? "the node reported failure without a message" : nodeError;
-        else if (elapsedMs > context.limits.nodeBudgetMs)
-            failure = "the node exceeded its time budget";
-
-        size_t itemCount = 0;
-        if (failure.empty ()) {
-            for (const auto& [portId, value] : outputs) {
-                const PortSchema* output = FindOutput (nodeType, portId);
-                if (output == nullptr || output->valueType != value.Type ()) {
-                    failure = "invalid output: " + portId;
-                    break;
-                }
-                // Rule 5: an oversized or pathologically nested result fails its
-                // node rather than entering the cache.
-                const ValueMeasure measure =
-                    MeasureValue (value, context.limits.maxOutputItems - itemCount, context.limits.maxValueDepth);
-                if (!measure.WithinLimits ()) {
-                    failure = measure.exceededDepth ? "output '" + portId + "' nests too deeply"
-                                                    : "output '" + portId + "' exceeds the output ceiling";
-                    break;
-                }
-                itemCount += measure.items;
-            }
-        }
-        if (failure.empty ()) {
-            for (const PortSchema& output : nodeType.outputs) {
-                if (output.required && !outputs.contains (output.id)) {
-                    failure = "omitted output: " + output.id;
-                    break;
-                }
-            }
-        }
-
-        if (!failure.empty ()) {
-            entry.dirty = true;
-            entry.status.state = NodeExecutionState::Failed;
-            entry.status.message = failure;
-            entry.status.cacheHit = false;
-            entry.status.durationMilliseconds = elapsedMs;
-            entry.status.runId = context.runId;
-            ++entry.status.evaluationCount;
-            ++outcome.failedCount;
-            if (outcome.error.empty ()) {
-                outcome.error = "node " + nodeId + " failed: " + failure;
-                outcome.failedNode = nodeId;
-            }
-            outcome.succeeded = false;
-            if (context.events) {
-                RunEvent failed;
-                failed.kind = RunEventKind::NodeFailed;
-                failed.runId = context.runId;
-                failed.graphRevision = context.graphRevision;
-                failed.nodeId = nodeId;
-                failed.message = failure;
-                failed.durationMilliseconds = elapsedMs;
-                context.events (std::move (failed));
-            }
-            BlockDownstream (document, nodeId, "upstream node failed: " + nodeId, context, outcome.blockedCount);
-            for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
-                unusable.insert (blocked);
-            continue;
-        }
-
-        entry.inputHash = inputHash;
-        entry.result = std::make_shared<const NodeResult> (
-            NodeResult { std::move (outputs), elapsedMs, nextOutputRevision_++, itemCount });
-        entry.dirty = false;
-        entry.status.state = NodeExecutionState::Complete;
-        entry.status.message.clear ();
-        entry.status.cacheHit = false;
-        entry.status.durationMilliseconds = elapsedMs;
-        entry.status.itemCount = itemCount;
-        entry.status.runId = context.runId;
-        ++entry.status.evaluationCount;
-        ++outcome.executedCount;
-        if (context.events) {
-            RunEvent completed;
-            completed.kind = RunEventKind::NodeCompleted;
-            completed.runId = context.runId;
-            completed.graphRevision = context.graphRevision;
-            completed.nodeId = nodeId;
-            completed.durationMilliseconds = elapsedMs;
-            completed.itemCount = itemCount;
-            context.events (std::move (completed));
+        else {
+            outcome.effectsCommitted = outcome.succeeded;
         }
     }
 

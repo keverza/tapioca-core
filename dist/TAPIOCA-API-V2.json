@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 151,
+      "nativeRegistry": 153,
       "dispatcherLocal": 19,
-      "total": 170
+      "total": 172
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -10260,6 +10260,9 @@
               "incremental",
               "forced"
             ]
+          },
+          "allowSideEffects": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -10320,6 +10323,15 @@
           "blockedCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "effectsCommitted": {
+            "type": "boolean"
+          },
+          "skippedEffectNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -10337,7 +10349,178 @@
           "executedCount",
           "cacheHitCount",
           "failedCount",
-          "blockedCount"
+          "blockedCount",
+          "effectsCommitted",
+          "skippedEffectNodes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetCompatibility",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "formatVersion": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "compatible",
+              "needsMigration",
+              "unsupportedFormat",
+              "missingNodeType",
+              "missingCapability"
+            ]
+          },
+          "runtimeFormatVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "missingNodeTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "error"
+                  ]
+                },
+                "nodeId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "severity",
+                "nodeId",
+                "kind",
+                "detail"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "graphId",
+          "status",
+          "runtimeFormatVersion",
+          "missingNodeTypes",
+          "findings"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetDependencies",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "canEvaluate": {
+            "type": "boolean"
+          },
+          "resolvedReferences": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unresolvedReferences": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "nodesNeedingArchicad": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "effectNodes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "warning",
+                    "error"
+                  ]
+                },
+                "nodeId": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "severity",
+                "nodeId",
+                "kind",
+                "detail"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "graphId",
+          "canEvaluate",
+          "resolvedReferences",
+          "unresolvedReferences",
+          "nodesNeedingArchicad",
+          "effectNodes",
+          "findings"
         ]
       }
     },
@@ -10524,7 +10707,8 @@
                     "complete",
                     "failed",
                     "blocked",
-                    "cancelled"
+                    "cancelled",
+                    "skipped"
                   ]
                 },
                 "message": {
@@ -10779,6 +10963,24 @@
                     "renderThread"
                   ]
                 },
+                "effect": {
+                  "type": "string",
+                  "enum": [
+                    "pure",
+                    "readModel",
+                    "hostUiWrite"
+                  ]
+                },
+                "generations": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "project",
+                      "selection"
+                    ]
+                  }
+                },
                 "inputs": {
                   "type": "array",
                   "items": {
@@ -10871,6 +11073,8 @@
                 "category",
                 "description",
                 "executionDomain",
+                "effect",
+                "generations",
                 "inputs",
                 "outputs",
                 "parameters"
@@ -11117,7 +11321,8 @@
                           "complete",
                           "failed",
                           "blocked",
-                          "cancelled"
+                          "cancelled",
+                          "skipped"
                         ]
                       },
                       "message": {

@@ -29,6 +29,7 @@
 #include "Server/HttpServer.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
 #include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
+#include "NodeGraph/ArchicadHostImpl.hpp"         // the graph runtime's one ACAPI seam
 #include "Notify/ChangeTracker.hpp"               // E25 — the model change token
 #include "Notify/BackgroundArm.hpp"               // E25 — its background arming thread
 #include "Python/MainThreadGate.hpp"
@@ -336,6 +337,12 @@ GSErrCode Initialize (void)
 {
     RecordStartupHeader ("Initialize");
 
+    // The node-graph runtime reaches Archicad through exactly this one object.
+    // Installed before anything can evaluate; detached in FreeData, which is what
+    // makes "the project closed under a run" and "the module is unloading"
+    // expressible rather than a dangling call into freed code.
+    evp::nodegraph::SetActiveArchicadHost (&evp::nodegraph::ArchicadHostImpl::Get ());
+
     // One install per registered menu resource — the same handler, which routes on
     // menuResID. A resource registered but not installed here is a dead menu item.
     // Recorded, not aborted on, for the same reason as the registrations above.
@@ -468,6 +475,10 @@ GSErrCode FreeData (void)
     // is that no bridge thread and no orphaned worker process is still holding a
     // pipe into this module once it is gone.
     evp::grasshopper::GhWorkerHost::Get ().Stop ();
+    // Detach BEFORE the gate shuts down. After this, a graph evaluation still in
+    // flight sees no host and fails its Archicad nodes cleanly, instead of
+    // marshalling ACAPI work into a module that is being unloaded.
+    evp::nodegraph::SetActiveArchicadHost (nullptr);
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into

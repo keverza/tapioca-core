@@ -37,9 +37,9 @@ from typing import Any
 # hierarchy and owning render-queue producer.
 # 2026-08-25, PLAT-WATCH-API: +2 for retained preview-scene and watch-trace
 # ingestion. Both are host-independent native store writes, not model writes.
-EXPECTED_REGISTRY_COMMANDS = 151
+EXPECTED_REGISTRY_COMMANDS = 153
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 170
+EXPECTED_TOTAL_COMMANDS = 172
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

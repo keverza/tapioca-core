@@ -3,6 +3,8 @@
 
 #include "NodeGraph/EvaluationPlan.hpp"
 #include "NodeGraph/Graph.hpp"
+#include "NodeGraph/ProjectGenerations.hpp"
+#include "NodeGraph/ReferenceResolver.hpp"
 #include "NodeGraph/RunContext.hpp"
 #include "NodeGraph/RunEvents.hpp"
 
@@ -11,12 +13,32 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 namespace evp::nodegraph {
 
 using ValueMap = std::map<std::string, Value>;
+
+class IArchicadHost;
+
+// What a node body is allowed to reach. Everything a node can touch outside its
+// own inputs arrives here, which is what keeps "no node calls ACAPI directly"
+// a structural property rather than a rule people remember.
+struct NodeExecutionContext {
+    // nullptr offline. A node whose domain needs it never runs without it: the
+    // plan refuses first.
+    IArchicadHost* archicad = nullptr;
+
+    // Never null. Defaults to a resolver that answers Missing with a reason.
+    const IReferenceResolver* references = nullptr;
+
+    // Sampled once for the whole run, so every node sees one consistent view.
+    GenerationSample generations;
+
+    CancellationToken cancellation;
+};
 
 struct NodeResult {
     ValueMap outputs;
@@ -38,6 +60,11 @@ enum class NodeExecutionState {
     Failed,
     Blocked,
     Cancelled,
+
+    // In the plan, permitted to exist, and deliberately not run: an effectful
+    // node on an evaluation that did not ask for side effects. Distinct from
+    // Blocked, because nothing is wrong.
+    Skipped,
 };
 
 struct NodeStatus {
@@ -70,16 +97,23 @@ struct EvaluationOutcome {
     std::vector<NodeId> cyclicNodes;
 
     std::vector<NodeId> plannedNodes;
+    std::vector<NodeId> skippedEffectNodes;
+
     size_t executedCount = 0;
     size_t cacheHitCount = 0;
     size_t failedCount = 0;
     size_t blockedCount = 0;
+
+    // True when the deferred phase ran. False both when there was nothing to
+    // defer and when the primary phase did not earn it.
+    bool effectsCommitted = false;
 };
 
 // A node body. Returns false and fills `error` to fail the node. It may also
 // throw, or fault outright: the barrier in FaultBarrier.hpp turns both into a
 // failed node rather than a dead process.
-using NodeExecutor = std::function<bool (const Node&, const ValueMap&, ValueMap&, std::string&)>;
+using NodeExecutor =
+    std::function<bool (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap&, std::string&)>;
 
 class NodeRegistry;
 
@@ -112,6 +146,22 @@ class Evaluator {
         std::shared_ptr<const NodeResult> result;
         NodeStatus status;
     };
+
+    // Everything one phase of a run needs, so the two phases are the same code
+    // called twice rather than two copies that drift.
+    struct PhaseState {
+        const GraphDocument* document = nullptr;
+        const NodeRegistry* registry = nullptr;
+        const NodeExecutor* executor = nullptr;
+        const EvaluationPlan* plan = nullptr;
+        const RunContext* context = nullptr;
+        const NodeExecutionContext* execution = nullptr;
+        EvaluationOutcome* outcome = nullptr;
+        std::set<NodeId>* unusable = nullptr;
+    };
+
+    // Returns false when the run was cancelled partway.
+    bool RunPhase (const std::vector<NodeId>& nodes, PhaseState& state);
 
     // Marks `origin` failed and everything downstream of it blocked, so an
     // independent branch of the same plan can still finish.

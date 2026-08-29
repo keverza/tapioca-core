@@ -2,7 +2,11 @@
 #include "NodeGraph/BuiltinNodes.hpp"
 #include "NodeGraph/EvaluationPlan.hpp"
 #include "NodeGraph/FaultBarrier.hpp"
+#include "NodeGraph/ArchicadHost.hpp"
+#include "NodeGraph/ArchicadNodes.hpp"
+#include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
+#include "NodeGraph/NodeExecution.hpp"
 #include "NodeGraph/RunEvents.hpp"
 #include "NodeGraph/RunHistory.hpp"
 #include "NodeGraph/GraphEdit.hpp"
@@ -14,6 +18,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -165,8 +170,8 @@ TEST (NodeGraphEvaluator, CachesResultsAndPropagatesDirtDownstream)
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("two", "value", "sum", "right") } }).accepted);
 
     std::map<std::string, int> executions;
-    const NodeExecutor executor = [&executions] (const Node& node, const ValueMap& inputs, ValueMap& outputs,
-                                                 std::string&) {
+    const NodeExecutor executor = [&executions] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
+                                                 ValueMap& outputs, std::string&) {
         ++executions[node.id];
         if (node.nodeType == "number")
             outputs.emplace ("value", node.parameters.at ("value"));
@@ -273,14 +278,16 @@ TEST (NodeGraphEvaluator, FailurePreservesLastGoodResult)
     GraphDocument graph;
     ASSERT_TRUE (AddNode (graph, registry, "one", "number", 1).accepted);
     Evaluator evaluator;
-    const NodeExecutor succeeds = [] (const Node& node, const ValueMap&, ValueMap& outputs, std::string&) {
+    const NodeExecutor succeeds = [] (const Node& node, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
+                                      std::string&) {
         outputs.emplace ("value", node.parameters.at ("value"));
         return true;
     };
     ASSERT_TRUE (RunGraph (evaluator, graph, registry, succeeds).succeeded);
     const auto first = evaluator.Result ("one");
     evaluator.Invalidate (graph, { "one" });
-    const NodeExecutor fails = [] (const Node&, const ValueMap&, ValueMap&, std::string& nodeError) {
+    const NodeExecutor fails = [] (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap&,
+                                   std::string& nodeError) {
         nodeError = "expected failure";
         return false;
     };
@@ -311,8 +318,8 @@ TEST (NodeGraphPlan, EvaluatesOnlyTheUpstreamClosureOfItsTargets)
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("c", "value", "ignored", "right") } }).accepted);
 
     std::map<std::string, int> executions;
-    const NodeExecutor executor = [&executions] (const Node& node, const ValueMap& inputs, ValueMap& outputs,
-                                                 std::string&) {
+    const NodeExecutor executor = [&executions] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
+                                                 ValueMap& outputs, std::string&) {
         ++executions[node.id];
         if (node.nodeType == "number")
             outputs.emplace ("value", node.parameters.at ("value"));
@@ -390,8 +397,8 @@ TEST (NodeGraphRun, CancellationKeepsFinishedResultsAndMarksTheRestCancelled)
     RunContext context;
     context.runId = 7;
     // Cancel from inside the first node, the way a user pressing stop would.
-    const NodeExecutor executor = [&context] (const Node& node, const ValueMap& inputs, ValueMap& outputs,
-                                              std::string&) {
+    const NodeExecutor executor = [&context] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
+                                              ValueMap& outputs, std::string&) {
         if (node.nodeType == "number")
             outputs.emplace ("value", node.parameters.at ("value"));
         else
@@ -423,7 +430,8 @@ TEST (NodeGraphContainment, ThrowingNodeFailsThatNodeOnly)
     ASSERT_TRUE (AddNode (graph, registry, "b", "number", 2).accepted);
 
     Evaluator evaluator;
-    const NodeExecutor executor = [] (const Node& node, const ValueMap&, ValueMap& outputs, std::string&) -> bool {
+    const NodeExecutor executor = [] (const Node& node, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
+                                      std::string&) -> bool {
         if (node.id == "a")
             throw std::runtime_error ("node exploded");
         outputs.emplace ("value", node.parameters.at ("value"));
@@ -460,7 +468,8 @@ TEST (NodeGraphContainment, RejectsAnEvaluationStartedFromInsideAnEvaluation)
 
     Evaluator evaluator;
     bool reentrantRejected = false;
-    const NodeExecutor executor = [&] (const Node& node, const ValueMap&, ValueMap& outputs, std::string&) {
+    const NodeExecutor executor = [&] (const Node& node, const ValueMap&, const NodeExecutionContext&,
+                                       ValueMap& outputs, std::string&) {
         RunContext inner;
         inner.runId = 99;
         const EvaluationOutcome nested =
@@ -487,7 +496,8 @@ TEST (NodeGraphContainment, OversizedAndOverdeepOutputsFailTheirNode)
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "big", "producer" } } }).accepted);
 
     Evaluator evaluator;
-    const NodeExecutor wide = [] (const Node&, const ValueMap&, ValueMap& outputs, std::string&) {
+    const NodeExecutor wide = [] (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
+                                  std::string&) {
         Value::List list;
         for (int i = 0; i < 64; ++i)
             list.emplace_back (static_cast<int64_t> (i));
@@ -502,7 +512,8 @@ TEST (NodeGraphContainment, OversizedAndOverdeepOutputsFailTheirNode)
     EXPECT_FALSE (outcome.succeeded);
     EXPECT_NE (std::string::npos, evaluator.Status ("big").message.find ("output ceiling"));
 
-    const NodeExecutor deep = [] (const Node&, const ValueMap&, ValueMap& outputs, std::string&) {
+    const NodeExecutor deep = [] (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
+                                  std::string&) {
         Value nested (int64_t { 0 });
         for (int i = 0; i < 40; ++i)
             nested = Value (Value::List { nested });
@@ -545,7 +556,8 @@ TEST (NodeGraphContainment, FailedNodeBlocksItsDownstreamWithANamedReason)
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
 
     Evaluator evaluator;
-    const NodeExecutor executor = [] (const Node& node, const ValueMap&, ValueMap& outputs, std::string& nodeError) {
+    const NodeExecutor executor = [] (const Node& node, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
+                                      std::string& nodeError) {
         if (node.id == "a") {
             nodeError = "deliberate";
             return false;
@@ -570,7 +582,8 @@ TEST (NodeGraphRun, CacheHitsAreReportedSeparatelyFromExecutions)
     ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
 
     Evaluator evaluator;
-    const NodeExecutor executor = [] (const Node& node, const ValueMap&, ValueMap& outputs, std::string&) {
+    const NodeExecutor executor = [] (const Node& node, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
+                                      std::string&) {
         outputs.emplace ("value", node.parameters.at ("value"));
         return true;
     };
@@ -626,7 +639,8 @@ TEST (NodeGraphEvents, ARunDescribesItselfFromStartToFinish)
     context.graphId = "g1";
     context.events = recorder.SinkFor ("g1");
 
-    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, ValueMap& outputs, std::string&) {
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
+                                      ValueMap& outputs, std::string&) {
         if (node.nodeType == "number")
             outputs.emplace ("value", node.parameters.at ("value"));
         else
@@ -723,8 +737,8 @@ TEST (NodeGraphHistory, RunRecordIsAFoldOverTheStreamAndAgreesWithIt)
 
     RunRecorder recorder;
     Evaluator evaluator;
-    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, ValueMap& outputs,
-                                      std::string& nodeError) {
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
+                                      ValueMap& outputs, std::string& nodeError) {
         if (node.id == "b") {
             nodeError = "deliberate";
             return false;
@@ -802,7 +816,8 @@ TEST (NodeGraphHistory, CancellationIsRecordedAsCancelledRatherThanFailed)
     RunContext context;
     context.runId = 5;
     context.events = recorder.SinkFor ("g");
-    const NodeExecutor executor = [&context] (const Node& node, const ValueMap&, ValueMap& outputs, std::string&) {
+    const NodeExecutor executor = [&context] (const Node& node, const ValueMap&, const NodeExecutionContext&,
+                                              ValueMap& outputs, std::string&) {
         outputs.emplace ("value", node.parameters.at ("value"));
         context.cancellation.Cancel ();
         return true;
@@ -852,4 +867,409 @@ TEST (NodeGraphRuntimeState, HoldsGraphsByIdWithIndependentDocumentsAndStreams)
 
     ASSERT_EQ (1U, runtime.RecentRuns (first, 0).size ());
     EXPECT_EQ (summary.runId, runtime.RecentRuns (first, 0).front ().runId);
+}
+
+// --- Stage C: Archicad binding ---------------------------------------------
+//
+// The Archicad nodes are written against IArchicadHost, so all of this runs
+// offline against a stub. The only untested code is the ACAPI implementation of
+// that interface.
+
+namespace {
+
+class StubGenerationSource final : public IProjectGenerationSource {
+  public:
+    bool available = true;
+    uint64_t project = 1;
+    uint64_t selection = 1;
+
+    bool Sample (GenerationDomain domain, uint64_t& value, std::string& error) const override
+    {
+        if (!available) {
+            error = "no project is open";
+            return false;
+        }
+        value = domain == GenerationDomain::Selection ? selection : project;
+        return true;
+    }
+};
+
+class StubResolver final : public IReferenceResolver {
+  public:
+    std::set<std::string> present;
+    mutable int resolveAllCalls = 0;
+
+    ReferenceResolution Resolve (const Reference& reference) const override
+    {
+        ReferenceResolution resolution;
+        if (present.contains (reference.id)) {
+            resolution.status = ResolutionStatus::Resolved;
+            return resolution;
+        }
+        resolution.status = ResolutionStatus::Missing;
+        resolution.detail = "element " + reference.id + " is not in this project";
+        return resolution;
+    }
+
+    std::vector<ReferenceResolution> ResolveAll (const std::vector<Reference>& references) const override
+    {
+        ++resolveAllCalls;
+        return IReferenceResolver::ResolveAll (references);
+    }
+};
+
+class StubHost final : public IArchicadHost {
+  public:
+    bool available = true;
+    std::vector<ArchicadElementRef> selection;
+    std::vector<ArchicadElementRef> applied;
+    int setSelectionCalls = 0;
+    bool setSelectionFails = false;
+
+    StubGenerationSource generationSource;
+    StubResolver resolver;
+
+    bool IsAvailable () const override
+    {
+        return available;
+    }
+    const IProjectGenerationSource& Generations () const override
+    {
+        return generationSource;
+    }
+    const IReferenceResolver& References () const override
+    {
+        return resolver;
+    }
+    bool GetSelection (std::vector<ArchicadElementRef>& elements, std::string&) const override
+    {
+        elements = selection;
+        return true;
+    }
+    bool SetSelection (const std::vector<ArchicadElementRef>& elements, std::string& error) override
+    {
+        ++setSelectionCalls;
+        if (setSelectionFails) {
+            error = "Archicad refused the selection";
+            return false;
+        }
+        applied = elements;
+        return true;
+    }
+
+    // Convenience: put these guids in the selection and make them resolvable.
+    void Holds (std::initializer_list<std::string> guids)
+    {
+        selection.clear ();
+        for (const std::string& guid : guids) {
+            selection.push_back (ArchicadElementRef { guid });
+            resolver.present.insert (guid);
+        }
+    }
+};
+
+EvaluationOutcome RunWithHost (Evaluator& evaluator, const GraphDocument& graph, const NodeRegistry& registry,
+                               const NodeExecutor& executor, IArchicadHost* host, bool allowSideEffects = false,
+                               RunId runId = 1)
+{
+    RunContext context;
+    context.runId = runId;
+    context.archicad = host;
+    EvaluationRequest request;
+    request.allowSideEffects = allowSideEffects;
+    return evaluator.Evaluate (graph, registry, executor, request, context);
+}
+
+} // namespace
+
+TEST (NodeGraphArchicad, GetSelectionReturnsWhatTheHostHolds)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    host.Holds ({ "guid-a", "guid-b" });
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("sel");
+    ASSERT_NE (nullptr, result);
+    EXPECT_EQ (2, std::get<int64_t> (result->outputs.at ("count").DataValue ()));
+    const Value::List& elements = std::get<Value::List> (result->outputs.at ("elements").DataValue ());
+    ASSERT_EQ (2U, elements.size ());
+    EXPECT_EQ ("guid-a", std::get<ArchicadElementRef> (elements[0].DataValue ()).guid);
+}
+
+TEST (NodeGraphArchicad, ChangingTheSelectionReRunsTheNodeAndNotChangingItDoesNot)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    host.Holds ({ "guid-a" });
+
+    Evaluator evaluator;
+    EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 1);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (1U, outcome.executedCount);
+
+    // Nothing changed: the declared generation is identical, so this is a cache
+    // hit rather than a second read of the host.
+    outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 2);
+    EXPECT_EQ (0U, outcome.executedCount);
+    EXPECT_EQ (1U, outcome.cacheHitCount);
+
+    // The user selected something else. Without the declared generation this
+    // node would serve the old answer forever - which is the whole point of
+    // declaring it.
+    host.Holds ({ "guid-a", "guid-c" });
+    host.generationSource.selection = 2;
+    outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 3);
+    EXPECT_EQ (1U, outcome.executedCount);
+    EXPECT_EQ (0U, outcome.cacheHitCount);
+    EXPECT_EQ (2, std::get<int64_t> (evaluator.Result ("sel")->outputs.at ("count").DataValue ()));
+}
+
+TEST (NodeGraphArchicad, AGraphNeedingArchicadIsRefusedAtTheDoorWithoutAHost)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    Evaluator evaluator;
+    // No host at all - the offline and headless case.
+    EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr);
+    EXPECT_FALSE (outcome.succeeded);
+    EXPECT_NE (std::string::npos, outcome.error.find ("needs an open Archicad project"));
+    // Refused at the door means nothing executed.
+    EXPECT_EQ (0U, outcome.executedCount);
+
+    // A host that exists but has no project open is the same answer.
+    StubHost host;
+    host.available = false;
+    outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 2);
+    EXPECT_FALSE (outcome.succeeded);
+    EXPECT_NE (std::string::npos, outcome.error.find ("needs an open Archicad project"));
+}
+
+TEST (NodeGraphArchicad, SetSelectionIsRefusedUnlessTheRunAsksForSideEffects)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("sel", "elements", "set", "elements") } })
+            .accepted);
+
+    StubHost host;
+    host.Holds ({ "guid-a" });
+
+    Evaluator evaluator;
+
+    // A preview. The upstream read still runs - reading cannot surprise anyone -
+    // but nothing touches the user's selection.
+    EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 1);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (0, host.setSelectionCalls);
+    EXPECT_FALSE (outcome.effectsCommitted);
+    EXPECT_EQ ((std::vector<NodeId> { "set" }), outcome.skippedEffectNodes);
+    EXPECT_EQ (NodeExecutionState::Skipped, evaluator.Status ("set").state);
+    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("sel").state);
+
+    // A deliberate Run.
+    outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true, 2);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_TRUE (outcome.effectsCommitted);
+    EXPECT_EQ (1, host.setSelectionCalls);
+    ASSERT_EQ (1U, host.applied.size ());
+    EXPECT_EQ ("guid-a", host.applied[0].guid);
+}
+
+TEST (NodeGraphArchicad, AFailedGraphNeverReachesTheSelection)
+{
+    NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeType exploder;
+    exploder.id = "exploder";
+    exploder.outputs.push_back ({ "elements", "Elements", ValueType::List });
+    std::string error;
+    ASSERT_TRUE (registry.Register (std::move (exploder), error)) << error;
+
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "bad", "exploder" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("bad", "elements", "set", "elements") } })
+            .accepted);
+
+    StubHost host;
+    host.available = true;
+
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, const NodeExecutionContext& context,
+                                      ValueMap& outputs, std::string& nodeError) {
+        if (node.nodeType == "exploder") {
+            nodeError = "deliberate";
+            return false;
+        }
+        return ExecuteRuntimeNode (node, inputs, context, outputs, nodeError);
+    };
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, executor, &host, true);
+    EXPECT_FALSE (outcome.succeeded);
+    // The user's selection is untouched. This is the rule the deferred phase
+    // exists to enforce: a graph that failed does not go on to change Archicad.
+    EXPECT_EQ (0, host.setSelectionCalls);
+    EXPECT_FALSE (outcome.effectsCommitted);
+    EXPECT_EQ (NodeExecutionState::Blocked, evaluator.Status ("set").state);
+}
+
+TEST (NodeGraphArchicad, AStaleReferenceFailsSetSelectionInsteadOfSelectingASubset)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("sel", "elements", "set", "elements") } })
+            .accepted);
+
+    StubHost host;
+    host.Holds ({ "guid-a", "guid-b" });
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true, 1).succeeded);
+    ASSERT_EQ (2U, host.applied.size ());
+
+    // One of them is deleted between runs. Selecting only the survivor would
+    // look like a correct answer and would not be one.
+    host.resolver.present.erase ("guid-b");
+    host.generationSource.selection = 2;
+    const int callsBefore = host.setSelectionCalls;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true, 2);
+    EXPECT_FALSE (outcome.succeeded);
+    EXPECT_EQ (callsBefore, host.setSelectionCalls);
+    EXPECT_NE (std::string::npos, evaluator.Status ("set").message.find ("guid-b"));
+}
+
+TEST (NodeGraphArchicad, ReferencesAreResolvedInOneBatchNotOnePerElement)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("sel", "elements", "set", "elements") } })
+            .accepted);
+
+    StubHost host;
+    host.Holds ({ "a", "b", "c", "d", "e", "f" });
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true).succeeded);
+    // Six elements, ONE crossing. Against the real host each crossing is a
+    // MainThreadGate round trip of roughly 0.6-8ms, so per-element resolution
+    // would be seconds of pure marshalling on a large selection.
+    EXPECT_EQ (1, host.resolver.resolveAllCalls);
+}
+
+TEST (NodeGraphReports, OnePassAnswersRunnabilityAndLoadabilityDifferently)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    // No host: the graph cannot RUN...
+    const GraphResolution offline = ResolveGraph (graph, registry, nullptr);
+    const GraphDependencyReport dependencies = MakeDependencyReport (graph, registry, offline);
+    EXPECT_FALSE (dependencies.canEvaluate);
+    EXPECT_EQ (1U, dependencies.nodesNeedingArchicad);
+
+    // ...but it LOADS perfectly well. Refusing to open a file for editing
+    // because no project happens to be open would be wrong, and that difference
+    // is the reason these are two projections rather than one report.
+    const CompatibilityReport compatibility = MakeCompatibilityReport (graph, registry, offline, 0);
+    EXPECT_EQ (CompatibilityStatus::Compatible, compatibility.status);
+    EXPECT_TRUE (compatibility.missingNodeTypes.empty ());
+
+    StubHost host;
+    const GraphResolution online = ResolveGraph (graph, registry, &host);
+    EXPECT_TRUE (MakeDependencyReport (graph, registry, online).canEvaluate);
+}
+
+TEST (NodeGraphReports, AMissingNodeTypeIsBothUnrunnableAndUnloadable)
+{
+    NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    // Author against a registry that has the type, then evaluate against one
+    // that does not - the after-upgrade case.
+    NodeType vanishing;
+    vanishing.id = "vanishing";
+    vanishing.outputs.push_back ({ "value", "Value", ValueType::Double });
+    std::string error;
+    ASSERT_TRUE (registry.Register (std::move (vanishing), error)) << error;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "gone", "vanishing" } } }).accepted);
+
+    const NodeRegistry upgraded = MakeRuntimeNodeRegistry ();
+    const GraphResolution resolution = ResolveGraph (graph, upgraded, nullptr);
+
+    EXPECT_FALSE (MakeDependencyReport (graph, upgraded, resolution).canEvaluate);
+
+    const CompatibilityReport compatibility = MakeCompatibilityReport (graph, upgraded, resolution, 0);
+    EXPECT_EQ (CompatibilityStatus::MissingNodeType, compatibility.status);
+    ASSERT_EQ (1U, compatibility.missingNodeTypes.size ());
+    EXPECT_EQ ("vanishing", compatibility.missingNodeTypes.front ());
+}
+
+TEST (NodeGraphReports, FormatVersionsAreJudgedBeforeAnythingElse)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    const GraphResolution resolution = ResolveGraph (graph, registry, nullptr);
+
+    EXPECT_EQ (CompatibilityStatus::Compatible,
+               MakeCompatibilityReport (graph, registry, resolution, kGraphFormatVersion).status);
+    // Not stated - an in-memory document - is treated as current.
+    EXPECT_EQ (CompatibilityStatus::Compatible, MakeCompatibilityReport (graph, registry, resolution, 0).status);
+    EXPECT_EQ (CompatibilityStatus::UnsupportedFormat,
+               MakeCompatibilityReport (graph, registry, resolution, kGraphFormatVersion + 1).status);
+}
+
+TEST (NodeGraphArchicad, TheProjectClosingMidRunFailsTheNodeRatherThanTheProcess)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    host.Holds ({ "guid-a" });
+
+    // The plan is built while the project is open; it closes before the node
+    // runs. ExecuteArchicadNode re-checks for exactly this.
+    const NodeExecutor closing = [&host] (const Node& node, const ValueMap& inputs, const NodeExecutionContext& context,
+                                          ValueMap& outputs, std::string& nodeError) {
+        host.available = false;
+        return ExecuteRuntimeNode (node, inputs, context, outputs, nodeError);
+    };
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, closing, &host);
+    EXPECT_FALSE (outcome.succeeded);
+    EXPECT_NE (std::string::npos, evaluator.Status ("sel").message.find ("no longer available"));
 }

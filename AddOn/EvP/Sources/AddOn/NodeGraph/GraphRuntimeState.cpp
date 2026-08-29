@@ -1,6 +1,7 @@
 #include "NodeGraph/GraphRuntimeState.hpp"
 
-#include "NodeGraph/BuiltinNodes.hpp"
+#include "NodeGraph/ArchicadHost.hpp"
+#include "NodeGraph/NodeExecution.hpp"
 
 namespace evp::nodegraph {
 
@@ -12,7 +13,7 @@ GraphRuntimeState& GraphRuntimeState::Get ()
     return state;
 }
 
-GraphRuntimeState::GraphRuntimeState () : registry_ (MakeBuiltinNodeRegistry ())
+GraphRuntimeState::GraphRuntimeState () : registry_ (MakeRuntimeNodeRegistry ())
 {
 }
 
@@ -89,9 +90,13 @@ EvaluationSummary GraphRuntimeState::Evaluate (const GraphId& graphId, const Eva
     }
     context.graphRevision = slot.document.Revision ();
     context.events = slot.recorder.SinkFor (graphId);
+    // Read once per run rather than held: the host detaches on project close,
+    // and a run that started with a project must see that it has gone rather
+    // than keep a pointer to it.
+    context.archicad = ActiveArchicadHost ();
 
     const EvaluationOutcome outcome =
-        slot.evaluator.Evaluate (slot.document, registry_, ExecuteBuiltinNode, request, context);
+        slot.evaluator.Evaluate (slot.document, registry_, ExecuteRuntimeNode, request, context);
 
     {
         std::lock_guard runLock (slot.runMutex);
@@ -118,6 +123,8 @@ EvaluationSummary GraphRuntimeState::Evaluate (const GraphId& graphId, const Eva
     summary.cacheHitCount = outcome.cacheHitCount;
     summary.failedCount = outcome.failedCount;
     summary.blockedCount = outcome.blockedCount;
+    summary.skippedEffectNodes = outcome.skippedEffectNodes;
+    summary.effectsCommitted = outcome.effectsCommitted;
     return summary;
 }
 
@@ -151,6 +158,22 @@ RunEventLog::Tail GraphRuntimeState::Events (const GraphId& graphId, EventSeq si
     // readable while a run holds that lock, or a client could not watch a run in
     // progress - which is the entire point of the stream.
     return SlotFor (graphId).recorder.Events ().Since (sinceSeq, maxEvents);
+}
+
+GraphDependencyReport GraphRuntimeState::Dependencies (const GraphId& graphId) const
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    const GraphResolution resolution = ResolveGraph (slot.document, registry_, ActiveArchicadHost ());
+    return MakeDependencyReport (slot.document, registry_, resolution);
+}
+
+CompatibilityReport GraphRuntimeState::Compatibility (const GraphId& graphId, uint32_t formatVersion) const
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    const GraphResolution resolution = ResolveGraph (slot.document, registry_, ActiveArchicadHost ());
+    return MakeCompatibilityReport (slot.document, registry_, resolution, formatVersion);
 }
 
 std::vector<RunRecord> GraphRuntimeState::RecentRuns (const GraphId& graphId, size_t maxRuns) const

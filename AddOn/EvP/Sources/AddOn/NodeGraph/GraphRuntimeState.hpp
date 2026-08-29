@@ -12,6 +12,7 @@
 
 #include "NodeGraph/Evaluator.hpp"
 #include "NodeGraph/GraphEdit.hpp"
+#include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/RunContext.hpp"
 #include "NodeGraph/RunHistory.hpp"
@@ -47,6 +48,13 @@ struct EvaluationSummary {
     size_t cacheHitCount = 0;
     size_t failedCount = 0;
     size_t blockedCount = 0;
+
+    // Effectful nodes present in the plan that this run did not ask to run.
+    std::vector<NodeId> skippedEffectNodes;
+
+    // True when the deferred phase ran, so a client can say "applied" rather
+    // than inferring it from a node status.
+    bool effectsCommitted = false;
 };
 
 struct RuntimeNodeResult {
@@ -90,6 +98,11 @@ class GraphRuntimeState final {
     ResultsSnapshot Results (const GraphId& graphId) const;
 
     RunEventLog::Tail Events (const GraphId& graphId, EventSeq sinceSeq, size_t maxEvents) const;
+
+    // One resolution pass, projected two ways. Both are computed from the same
+    // walk so they cannot disagree about what the document names.
+    GraphDependencyReport Dependencies (const GraphId& graphId) const;
+    CompatibilityReport Compatibility (const GraphId& graphId, uint32_t formatVersion) const;
 
     std::vector<RunRecord> RecentRuns (const GraphId& graphId, size_t maxRuns) const;
 

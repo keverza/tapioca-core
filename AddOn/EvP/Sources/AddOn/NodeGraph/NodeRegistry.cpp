@@ -3,6 +3,32 @@
 #include <set>
 
 namespace evp::nodegraph {
+
+const char* ExecutionDomainName (ExecutionDomain domain)
+{
+    switch (domain) {
+        case ExecutionDomain::Worker:
+            return "worker";
+        case ExecutionDomain::ArchicadMainThread:
+            return "archicadMainThread";
+        case ExecutionDomain::RenderThread:
+            return "renderThread";
+    }
+    return "worker";
+}
+
+const char* EffectKindName (EffectKind effect)
+{
+    switch (effect) {
+        case EffectKind::Pure:
+            return "pure";
+        case EffectKind::ReadModel:
+            return "readModel";
+        case EffectKind::HostUiWrite:
+            return "hostUiWrite";
+    }
+    return "pure";
+}
 namespace {
 
 template <typename Schema> bool ValidateIds (const std::vector<Schema>& schemas, const char* kind, std::string& error)

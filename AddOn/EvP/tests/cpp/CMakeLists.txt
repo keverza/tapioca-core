@@ -108,7 +108,16 @@ set (EVP_DYNAMO_SOURCES
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
 # real production sources can no longer be covered by the offline gate.
+#
+# ONE file in that directory is deliberately excluded and must stay excluded:
+# ArchicadHostImpl.cpp is the ACAPI implementation of IArchicadHost. Everything
+# else - including the Archicad NODES themselves - is written against that
+# interface and is therefore listed below and covered here with a stub host.
+# Adding ArchicadHostImpl.cpp to this list will not link; adding anything that
+# includes ACAPinc.h has the same effect and means the boundary has been broken.
 set (EVP_NODEGRAPH_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadHost.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/BuiltinNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/EvaluationPlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Evaluator.cpp"
@@ -116,8 +125,12 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Graph.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphAlgorithms.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphReports.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeExecution.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ProjectGenerations.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ReferenceResolver.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunEvents.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunHistory.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp")
