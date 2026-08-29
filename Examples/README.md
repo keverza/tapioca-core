@@ -48,7 +48,7 @@ reached the same way with the explicit `Tapir.*` namespace.
 ![UI Showcase](../docs/static/UI%20Showcase.gif)
 Most Archicad native pickers are ported.
 
-![GH Inside](../docs/static/GHInside.gif)
+![GH Inside](../docs/static/GHInsidePreview.gif)
 A test for Grasshopper file overlay over ArchiCADs viewport.
 
 ![SunStudy](../docs/static/Sunstudy.gif)
