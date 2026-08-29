@@ -4,6 +4,8 @@
 
 namespace evp::nodegraph {
 
+const char* const kDefaultGraphId = "default";
+
 GraphRuntimeState& GraphRuntimeState::Get ()
 {
     static GraphRuntimeState state;
@@ -14,69 +16,95 @@ GraphRuntimeState::GraphRuntimeState () : registry_ (MakeBuiltinNodeRegistry ())
 {
 }
 
+GraphRuntimeState::Slot& GraphRuntimeState::SlotFor (const GraphId& graphId) const
+{
+    std::lock_guard lock (mapMutex_);
+    std::unique_ptr<Slot>& slot = graphs_[graphId];
+    if (!slot)
+        slot = std::make_unique<Slot> ();
+    return *slot;
+}
+
 NodeRegistry GraphRuntimeState::Catalog () const
 {
-    std::lock_guard lock (mutex_);
     return registry_;
 }
 
-GraphDocument GraphRuntimeState::Document () const
+std::vector<GraphId> GraphRuntimeState::GraphIds () const
 {
-    std::lock_guard lock (mutex_);
-    return document_;
+    std::lock_guard lock (mapMutex_);
+    std::vector<GraphId> ids;
+    for (const auto& [graphId, slot] : graphs_) {
+        (void) slot;
+        ids.push_back (graphId);
+    }
+    return ids;
 }
 
-EditResult GraphRuntimeState::Apply (const GraphEdit& edit)
+GraphDocument GraphRuntimeState::Document (const GraphId& graphId) const
 {
-    std::lock_guard lock (mutex_);
-    EditResult result = ApplyEdit (document_, registry_, edit);
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    return slot.document;
+}
+
+EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& edit)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    EditResult result = ApplyEdit (slot.document, registry_, edit);
     if (result.accepted)
-        evaluator_.Invalidate (document_, result.dirtyNodes);
+        slot.evaluator.Invalidate (slot.document, result.dirtyNodes);
     return result;
 }
 
-RunId GraphRuntimeState::Cancel ()
+RunId GraphRuntimeState::Cancel (const GraphId& graphId)
 {
-    // Takes runMutex_ only. Cancel has to be answerable while a run holds the
-    // document lock, or it could never reach the run it exists to stop.
-    std::lock_guard lock (runMutex_);
-    if (!currentCancellation_.has_value ())
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.runMutex);
+    if (!slot.currentCancellation.has_value ())
         return kNoRun;
-    currentCancellation_->Cancel ();
-    return currentRunId_;
+    slot.currentCancellation->Cancel ();
+    return slot.currentRunId;
 }
 
-EvaluationSummary GraphRuntimeState::Evaluate (const EvaluationRequest& request)
+EvaluationSummary GraphRuntimeState::Evaluate (const GraphId& graphId, const EvaluationRequest& request)
 {
+    Slot& slot = SlotFor (graphId);
+
     // A newer run supersedes an older one: ask the one in flight to stop before
     // queueing behind it on the document lock.
-    Cancel ();
+    Cancel (graphId);
 
-    std::lock_guard lock (mutex_);
+    std::lock_guard lock (slot.documentMutex);
 
     RunContext context;
+    context.graphId = graphId;
     {
-        std::lock_guard runLock (runMutex_);
-        context.runId = nextRunId_++;
+        std::lock_guard runLock (slot.runMutex);
+        context.runId = slot.nextRunId++;
         context.cancellation = CancellationToken {};
-        currentRunId_ = context.runId;
-        currentCancellation_ = context.cancellation;
+        slot.currentRunId = context.runId;
+        slot.currentCancellation = context.cancellation;
     }
-    context.graphRevision = document_.Revision ();
+    context.graphRevision = slot.document.Revision ();
+    context.events = slot.recorder.SinkFor (graphId);
 
-    const EvaluationOutcome outcome = evaluator_.Evaluate (document_, registry_, ExecuteBuiltinNode, request, context);
+    const EvaluationOutcome outcome =
+        slot.evaluator.Evaluate (slot.document, registry_, ExecuteBuiltinNode, request, context);
 
     {
-        std::lock_guard runLock (runMutex_);
+        std::lock_guard runLock (slot.runMutex);
         // Only retire the token if it is still ours; a newer run may already own it.
-        if (currentRunId_ == context.runId) {
-            currentCancellation_.reset ();
-            currentRunId_ = kNoRun;
+        if (slot.currentRunId == context.runId) {
+            slot.currentCancellation.reset ();
+            slot.currentRunId = kNoRun;
         }
-        lastRunId_ = context.runId;
+        slot.lastRunId = context.runId;
     }
 
     EvaluationSummary summary;
+    summary.graphId = graphId;
     summary.succeeded = outcome.succeeded;
     summary.cancelled = outcome.cancelled;
     summary.error = outcome.error;
@@ -84,6 +112,7 @@ EvaluationSummary GraphRuntimeState::Evaluate (const EvaluationRequest& request)
     summary.cyclicNodes = outcome.cyclicNodes;
     summary.runId = outcome.runId;
     summary.revision = outcome.graphRevision;
+    summary.lastEventSeq = slot.recorder.Events ().LastSeq ();
     summary.plannedCount = outcome.plannedNodes.size ();
     summary.executedCount = outcome.executedCount;
     summary.cacheHitCount = outcome.cacheHitCount;
@@ -92,20 +121,41 @@ EvaluationSummary GraphRuntimeState::Evaluate (const EvaluationRequest& request)
     return summary;
 }
 
-ResultsSnapshot GraphRuntimeState::Results () const
+ResultsSnapshot GraphRuntimeState::Results (const GraphId& graphId) const
 {
-    std::lock_guard lock (mutex_);
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+
     ResultsSnapshot snapshot;
-    snapshot.revision = document_.Revision ();
+    snapshot.graphId = graphId;
+    snapshot.revision = slot.document.Revision ();
+    // Read INSIDE the document lock and before the node walk, so the sequence a
+    // client stores can only be older than the state it describes. A client that
+    // re-asks from a slightly early sequence replays an event; one that asks from
+    // a late sequence would silently miss one.
+    snapshot.lastEventSeq = slot.recorder.Events ().LastSeq ();
     {
-        std::lock_guard runLock (runMutex_);
-        snapshot.lastRunId = lastRunId_;
+        std::lock_guard runLock (slot.runMutex);
+        snapshot.lastRunId = slot.lastRunId;
     }
-    for (const auto& [nodeId, node] : document_.Nodes ()) {
+    for (const auto& [nodeId, node] : slot.document.Nodes ()) {
         (void) node;
-        snapshot.nodes.push_back ({ nodeId, evaluator_.Status (nodeId), evaluator_.Result (nodeId) });
+        snapshot.nodes.push_back ({ nodeId, slot.evaluator.Status (nodeId), slot.evaluator.Result (nodeId) });
     }
     return snapshot;
+}
+
+RunEventLog::Tail GraphRuntimeState::Events (const GraphId& graphId, EventSeq sinceSeq, size_t maxEvents) const
+{
+    // Deliberately not under documentMutex: the event tail has to remain
+    // readable while a run holds that lock, or a client could not watch a run in
+    // progress - which is the entire point of the stream.
+    return SlotFor (graphId).recorder.Events ().Since (sinceSeq, maxEvents);
+}
+
+std::vector<RunRecord> GraphRuntimeState::RecentRuns (const GraphId& graphId, size_t maxRuns) const
+{
+    return SlotFor (graphId).recorder.History ().Recent (maxRuns);
 }
 
 } // namespace evp::nodegraph

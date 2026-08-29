@@ -4,6 +4,7 @@
 #include "NodeGraph/EvaluationPlan.hpp"
 #include "NodeGraph/Graph.hpp"
 #include "NodeGraph/RunContext.hpp"
+#include "NodeGraph/RunEvents.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -114,8 +115,8 @@ class Evaluator {
 
     // Marks `origin` failed and everything downstream of it blocked, so an
     // independent branch of the same plan can still finish.
-    void BlockDownstream (const GraphDocument& document, const NodeId& origin, const std::string& reason, RunId runId,
-                          size_t& blockedCount);
+    void BlockDownstream (const GraphDocument& document, const NodeId& origin, const std::string& reason,
+                          const RunContext& context, size_t& blockedCount);
 
     std::map<NodeId, CacheEntry> cache_;
     uint64_t nextOutputRevision_ = 1;

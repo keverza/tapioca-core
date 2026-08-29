@@ -2,13 +2,18 @@
 #include "NodeGraph/BuiltinNodes.hpp"
 #include "NodeGraph/EvaluationPlan.hpp"
 #include "NodeGraph/FaultBarrier.hpp"
+#include "NodeGraph/GraphRuntimeState.hpp"
+#include "NodeGraph/RunEvents.hpp"
+#include "NodeGraph/RunHistory.hpp"
 #include "NodeGraph/GraphEdit.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -586,4 +591,265 @@ TEST (NodeGraphRun, CacheHitsAreReportedSeparatelyFromExecutions)
     outcome = evaluator.Evaluate (graph, registry, executor, EvaluationRequest { {}, EvaluationMode::Forced }, context);
     EXPECT_EQ (1U, outcome.executedCount);
     EXPECT_EQ (0U, outcome.cacheHitCount);
+}
+
+// --- Stage B: the observation stream ---------------------------------------
+
+namespace {
+
+// Collects a run's events the way a client would, through a recorder.
+std::vector<RunEventKind> KindsOf (const std::vector<RunEvent>& events)
+{
+    std::vector<RunEventKind> kinds;
+    for (const RunEvent& event : events)
+        kinds.push_back (event.kind);
+    return kinds;
+}
+
+} // namespace
+
+TEST (NodeGraphEvents, ARunDescribesItselfFromStartToFinish)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 2).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("a", "value", "sum", "left") } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
+
+    RunRecorder recorder;
+    RunContext context;
+    context.runId = 4;
+    context.graphId = "g1";
+    context.events = recorder.SinkFor ("g1");
+
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, ValueMap& outputs, std::string&) {
+        if (node.nodeType == "number")
+            outputs.emplace ("value", node.parameters.at ("value"));
+        else
+            outputs.emplace ("sum", Value (Integer (inputs.at ("left")) + Integer (inputs.at ("right"))));
+        return true;
+    };
+
+    Evaluator evaluator;
+    ASSERT_TRUE (evaluator.Evaluate (graph, registry, executor, EvaluationRequest {}, context).succeeded);
+
+    const RunEventLog::Tail tail = recorder.Events ().Since (kNoEvent, 0);
+    EXPECT_FALSE (tail.gap);
+    const std::vector<RunEventKind> kinds = KindsOf (tail.events);
+    ASSERT_FALSE (kinds.empty ());
+    EXPECT_EQ (RunEventKind::RunStarted, kinds.front ());
+    EXPECT_EQ (RunEventKind::RunCompleted, kinds.back ());
+    EXPECT_EQ (3, std::count (kinds.begin (), kinds.end (), RunEventKind::NodeQueued));
+    EXPECT_EQ (3, std::count (kinds.begin (), kinds.end (), RunEventKind::NodeCompleted));
+
+    // Sequences are monotonic, and every event carries the correlation identity.
+    EventSeq previous = kNoEvent;
+    for (const RunEvent& event : tail.events) {
+        EXPECT_GT (event.seq, previous);
+        previous = event.seq;
+        EXPECT_EQ ("g1", event.graphId);
+        EXPECT_EQ (4U, event.runId);
+        EXPECT_NE (0, event.timestampMs);
+    }
+    EXPECT_EQ (previous, tail.lastSeq);
+}
+
+TEST (NodeGraphEvents, SnapshotPlusDeltaDeliversEachEventExactlyOnce)
+{
+    RunEventLog log (64);
+    for (int i = 0; i < 10; ++i) {
+        RunEvent event;
+        event.kind = RunEventKind::NodeCompleted;
+        event.nodeId = "n" + std::to_string (i);
+        log.Append (std::move (event));
+    }
+
+    // The client's loop: take the tail, remember lastSeq, ask again.
+    RunEventLog::Tail first = log.Since (kNoEvent, 4);
+    EXPECT_FALSE (first.gap);
+    ASSERT_EQ (4U, first.events.size ());
+    EXPECT_EQ (first.events.back ().seq, first.lastSeq);
+
+    const RunEventLog::Tail second = log.Since (first.lastSeq, 4);
+    ASSERT_EQ (4U, second.events.size ());
+    EXPECT_EQ ("n4", second.events.front ().nodeId);
+
+    const RunEventLog::Tail third = log.Since (second.lastSeq, 0);
+    ASSERT_EQ (2U, third.events.size ());
+    EXPECT_EQ ("n9", third.events.back ().nodeId);
+
+    // Caught up: asking again yields nothing and no gap.
+    const RunEventLog::Tail idle = log.Since (third.lastSeq, 0);
+    EXPECT_TRUE (idle.events.empty ());
+    EXPECT_FALSE (idle.gap);
+}
+
+TEST (NodeGraphEvents, AClientThatFellOffTheRingIsToldRatherThanQuietlyShorted)
+{
+    RunEventLog log (4);
+    for (int i = 0; i < 12; ++i) {
+        RunEvent event;
+        event.kind = RunEventKind::NodeCompleted;
+        log.Append (std::move (event));
+    }
+
+    // Sequence 1 was dropped long ago. Silently returning the surviving tail
+    // would let the client stitch it onto state that never saw the middle.
+    const RunEventLog::Tail stale = log.Since (1, 0);
+    EXPECT_TRUE (stale.gap);
+
+    // A fresh client is not in a gap - its snapshot covers what was dropped.
+    const RunEventLog::Tail fresh = log.Since (kNoEvent, 0);
+    EXPECT_FALSE (fresh.gap);
+    EXPECT_EQ (4U, fresh.events.size ());
+    EXPECT_EQ (12U, fresh.lastSeq);
+}
+
+TEST (NodeGraphHistory, RunRecordIsAFoldOverTheStreamAndAgreesWithIt)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 2).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("a", "value", "sum", "left") } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
+
+    RunRecorder recorder;
+    Evaluator evaluator;
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, ValueMap& outputs,
+                                      std::string& nodeError) {
+        if (node.id == "b") {
+            nodeError = "deliberate";
+            return false;
+        }
+        if (node.nodeType == "number")
+            outputs.emplace ("value", node.parameters.at ("value"));
+        else
+            outputs.emplace ("sum", Value (Integer (inputs.at ("left")) + Integer (inputs.at ("right"))));
+        return true;
+    };
+
+    RunContext context;
+    context.runId = 11;
+    context.graphId = "g";
+    context.events = recorder.SinkFor ("g");
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, executor, EvaluationRequest {}, context);
+    ASSERT_FALSE (outcome.succeeded);
+
+    const std::vector<RunRecord> recent = recorder.History ().Recent (0);
+    ASSERT_EQ (1U, recent.size ());
+    const RunRecord& record = recent.front ();
+    EXPECT_EQ (11U, record.runId);
+    EXPECT_EQ ("g", record.graphId);
+    EXPECT_TRUE (record.finished);
+    EXPECT_FALSE (record.succeeded);
+    EXPECT_FALSE (record.cancelled);
+    EXPECT_EQ ("b", record.failedNode);
+
+    // The fold must agree with the evaluator's own counters - that agreement is
+    // the reason history is derived from the stream rather than written beside it.
+    EXPECT_EQ (outcome.executedCount, record.executedCount);
+    EXPECT_EQ (outcome.failedCount, record.failedCount);
+    EXPECT_EQ (outcome.blockedCount, record.blockedCount);
+    EXPECT_EQ (outcome.plannedNodes.size (), record.plannedCount);
+
+    // And per node, with the evaluator's live status.
+    ASSERT_EQ (3U, record.nodes.size ());
+    for (const NodeRunRecord& node : record.nodes)
+        EXPECT_EQ (evaluator.Status (node.nodeId).state, node.finalState) << node.nodeId;
+}
+
+TEST (NodeGraphHistory, ARejectedPlanStillProducesAFinishedRunRecord)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+
+    RunRecorder recorder;
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 3;
+    context.events = recorder.SinkFor ("g");
+    // A plan rejection is the case most likely to leave a run hanging with no
+    // record at all, which would read to a client as "still running".
+    const EvaluationOutcome outcome =
+        evaluator.Evaluate (graph, registry, NodeExecutor {}, EvaluationRequest { { "missing" } }, context);
+    EXPECT_FALSE (outcome.succeeded);
+
+    const std::vector<RunRecord> recent = recorder.History ().Recent (0);
+    ASSERT_EQ (1U, recent.size ());
+    EXPECT_TRUE (recent.front ().finished);
+    EXPECT_FALSE (recent.front ().succeeded);
+    EXPECT_NE (std::string::npos, recent.front ().error.find ("unknown evaluation target"));
+}
+
+TEST (NodeGraphHistory, CancellationIsRecordedAsCancelledRatherThanFailed)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 2).accepted);
+
+    RunRecorder recorder;
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 5;
+    context.events = recorder.SinkFor ("g");
+    const NodeExecutor executor = [&context] (const Node& node, const ValueMap&, ValueMap& outputs, std::string&) {
+        outputs.emplace ("value", node.parameters.at ("value"));
+        context.cancellation.Cancel ();
+        return true;
+    };
+    EXPECT_TRUE (evaluator.Evaluate (graph, registry, executor, EvaluationRequest {}, context).cancelled);
+
+    const std::optional<RunRecord> record = recorder.History ().Find (5);
+    ASSERT_TRUE (record.has_value ());
+    EXPECT_TRUE (record->cancelled);
+    EXPECT_FALSE (record->succeeded);
+    EXPECT_TRUE (record->finished);
+
+    const RunEventLog::Tail tail = recorder.Events ().Since (kNoEvent, 0);
+    EXPECT_EQ (RunEventKind::RunCancelled, tail.events.back ().kind);
+}
+
+TEST (NodeGraphRuntimeState, HoldsGraphsByIdWithIndependentDocumentsAndStreams)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    const GraphId first = "runtime-test-first";
+    const GraphId second = "runtime-test-second";
+
+    Node node { "n", "number" };
+    node.parameters.emplace ("value", Value (2.0));
+    ASSERT_TRUE (runtime.Apply (first, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    // The second graph is created on first reference and shares nothing.
+    EXPECT_EQ (1U, runtime.Document (first).Nodes ().size ());
+    EXPECT_EQ (0U, runtime.Document (second).Nodes ().size ());
+
+    const EvaluationSummary summary = runtime.Evaluate (first, EvaluationRequest {});
+    ASSERT_TRUE (summary.succeeded) << summary.error;
+    EXPECT_EQ (first, summary.graphId);
+    EXPECT_GT (summary.lastEventSeq, kNoEvent);
+
+    // The snapshot's sequence and the delta feed line up: asking from the
+    // snapshot's position yields nothing new.
+    const ResultsSnapshot snapshot = runtime.Results (first);
+    EXPECT_EQ (first, snapshot.graphId);
+    EXPECT_TRUE (runtime.Events (first, snapshot.lastEventSeq, 0).events.empty ());
+    EXPECT_FALSE (runtime.Events (first, kNoEvent, 0).events.empty ());
+
+    // The other graph never ran, so its stream is empty.
+    EXPECT_TRUE (runtime.Events (second, kNoEvent, 0).events.empty ());
+    EXPECT_TRUE (runtime.RecentRuns (second, 0).empty ());
+
+    ASSERT_EQ (1U, runtime.RecentRuns (first, 0).size ());
+    EXPECT_EQ (summary.runId, runtime.RecentRuns (first, 0).front ().runId);
 }

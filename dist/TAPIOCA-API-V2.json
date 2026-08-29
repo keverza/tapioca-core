@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 146,
+      "nativeRegistry": 151,
       "dispatcherLocal": 19,
-      "total": 165
+      "total": 170
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -273,6 +273,9 @@
           },
           "predictionScale": {
             "type": "number"
+          },
+          "hideOnNav": {
+            "type": "boolean"
           },
           "breadcrumbPath": {
             "type": "string"
@@ -2621,6 +2624,159 @@
         "required": [
           "elements",
           "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GdlPreviewFeed",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cols": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "jitter": {
+            "type": "integer"
+          },
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "bodyStatus": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "measure3D": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "placed": {
+            "type": "boolean"
+          },
+          "vertexCount": {
+            "type": "integer"
+          },
+          "triangleCount": {
+            "type": "integer"
+          },
+          "arrayBytes": {
+            "type": "integer"
+          },
+          "timings": {
+            "type": "object",
+            "properties": {
+              "generateMs": {
+                "type": "number"
+              },
+              "fillMs": {
+                "type": "number"
+              },
+              "buildMs": {
+                "type": "number"
+              },
+              "changeMs": {
+                "type": "number"
+              },
+              "convertMs": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "generateMs",
+              "fillMs",
+              "buildMs",
+              "changeMs"
+            ]
+          },
+          "model": {
+            "type": "object",
+            "properties": {
+              "firstBody": {
+                "type": "integer"
+              },
+              "lastBody": {
+                "type": "integer"
+              },
+              "bodyCount": {
+                "type": "integer"
+              },
+              "polygonCount": {
+                "type": "integer"
+              },
+              "edgeCount": {
+                "type": "integer"
+              },
+              "modelVertexCount": {
+                "type": "integer"
+              },
+              "closed": {
+                "type": "boolean"
+              },
+              "matchesRequest": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elementId",
+          "placed",
+          "vertexCount",
+          "triangleCount",
+          "arrayBytes",
+          "timings"
         ]
       }
     },
@@ -9749,6 +9905,10 @@
           {
             "type": "object",
             "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
               "editKind": {
                 "const": "addNode"
               },
@@ -9759,6 +9919,26 @@
               "nodeType": {
                 "type": "string",
                 "minLength": 1
+              },
+              "parameters": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "parameterId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "$ref": "#/$defs/parameterValue"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "parameterId",
+                    "value"
+                  ]
+                }
               },
               "numberValue": {
                 "type": "number"
@@ -9774,6 +9954,10 @@
           {
             "type": "object",
             "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
               "editKind": {
                 "const": "removeNode"
               },
@@ -9791,6 +9975,10 @@
           {
             "type": "object",
             "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
               "editKind": {
                 "enum": [
                   "connect",
@@ -9826,6 +10014,10 @@
           {
             "type": "object",
             "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
               "editKind": {
                 "const": "setParam"
               },
@@ -9837,6 +10029,9 @@
                 "type": "string",
                 "minLength": 1
               },
+              "value": {
+                "$ref": "#/$defs/parameterValue"
+              },
               "numberValue": {
                 "type": "number"
               }
@@ -9845,11 +10040,149 @@
             "required": [
               "editKind",
               "nodeId",
-              "parameterId",
-              "numberValue"
+              "parameterId"
             ]
           }
-        ]
+        ],
+        "$defs": {
+          "leafValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/leafValue"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "parameterValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "archicadElementRef"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          }
+        }
       },
       "outputScheme": {
         "type": "object",
@@ -9873,30 +10206,274 @@
       }
     },
     {
-      "name": "Tapioca.GraphEvaluate",
+      "name": "Tapioca.GraphCancel",
       "implementation": "native-registry",
       "inputScheme": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "additionalProperties": false,
         "required": []
       },
       "outputScheme": {
         "type": "object",
         "properties": {
-          "revision": {
-            "type": "integer",
-            "minimum": 0
+          "graphId": {
+            "type": "string"
           },
-          "nodes": {
+          "cancelledRunId": {
             "type": "integer",
             "minimum": 0
           }
         },
         "additionalProperties": false,
         "required": [
+          "graphId",
+          "cancelledRunId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphEvaluate",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "incremental",
+              "forced"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastEventSeq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "boolean"
+          },
+          "cancelled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "failedNode": {
+            "type": "string"
+          },
+          "cyclicNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "plannedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "executedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheHitCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "blockedCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "graphId",
+          "runId",
+          "lastEventSeq",
           "revision",
-          "nodes"
+          "succeeded",
+          "cancelled",
+          "error",
+          "failedNode",
+          "cyclicNodes",
+          "plannedCount",
+          "executedCount",
+          "cacheHitCount",
+          "failedCount",
+          "blockedCount"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetEvents",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sinceSeq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "maxEvents": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "lastSeq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "runStarted",
+                    "nodeQueued",
+                    "nodeStarted",
+                    "nodeCacheHit",
+                    "nodeCompleted",
+                    "nodeWarning",
+                    "nodeFailed",
+                    "nodeBlocked",
+                    "nodeCancelled",
+                    "runCompleted",
+                    "runCancelled"
+                  ]
+                },
+                "runId": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "graphRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "nodeId": {
+                  "type": "string"
+                },
+                "timestampMs": {
+                  "type": "integer"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "durationMilliseconds": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "itemCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "plannedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "executedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cacheHitCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "failedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "blockedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "seq",
+                "kind",
+                "runId",
+                "graphRevision",
+                "nodeId",
+                "timestampMs",
+                "message",
+                "durationMilliseconds",
+                "itemCount",
+                "plannedCount",
+                "executedCount",
+                "cacheHitCount",
+                "failedCount",
+                "blockedCount"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "graphId",
+          "lastSeq",
+          "gap",
+          "events"
         ]
       }
     },
@@ -9905,14 +10482,30 @@
       "implementation": "native-registry",
       "inputScheme": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "additionalProperties": false,
         "required": []
       },
       "outputScheme": {
         "type": "object",
         "properties": {
+          "graphId": {
+            "type": "string"
+          },
           "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastRunId": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastEventSeq": {
             "type": "integer",
             "minimum": 0
           },
@@ -9930,7 +10523,8 @@
                     "dirty",
                     "complete",
                     "failed",
-                    "blocked"
+                    "blocked",
+                    "cancelled"
                   ]
                 },
                 "message": {
@@ -9941,6 +10535,17 @@
                   "minimum": 0
                 },
                 "itemCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cacheHit": {
+                  "type": "boolean"
+                },
+                "evaluationCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "runId": {
                   "type": "integer",
                   "minimum": 0
                 },
@@ -9955,21 +10560,14 @@
                       "portId": {
                         "type": "string"
                       },
-                      "valueType": {
-                        "type": "string"
-                      },
-                      "numberValue": {
-                        "type": "number"
-                      },
-                      "itemCount": {
-                        "type": "integer",
-                        "minimum": 0
+                      "value": {
+                        "$ref": "#/$defs/value"
                       }
                     },
                     "additionalProperties": false,
                     "required": [
                       "portId",
-                      "valueType"
+                      "value"
                     ]
                   }
                 }
@@ -9981,6 +10579,9 @@
                 "message",
                 "durationMilliseconds",
                 "itemCount",
+                "cacheHit",
+                "evaluationCount",
+                "runId",
                 "previewAvailable",
                 "outputs"
               ]
@@ -9989,9 +10590,151 @@
         },
         "additionalProperties": false,
         "required": [
+          "graphId",
           "revision",
+          "lastRunId",
+          "lastEventSeq",
           "results"
-        ]
+        ],
+        "$defs": {
+          "leafValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/leafValue"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "parameterValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "archicadElementRef"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          }
+        }
       }
     },
     {
@@ -9999,7 +10742,12 @@
       "implementation": "native-registry",
       "inputScheme": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "additionalProperties": false,
         "required": []
       },
@@ -10101,6 +10849,9 @@
                       },
                       "required": {
                         "type": "boolean"
+                      },
+                      "defaultValue": {
+                        "$ref": "#/$defs/parameterValue"
                       }
                     },
                     "additionalProperties": false,
@@ -10130,6 +10881,297 @@
         "additionalProperties": false,
         "required": [
           "nodeTypes"
+        ],
+        "$defs": {
+          "leafValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/leafValue"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "parameterValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "archicadElementRef"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetRunHistory",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "maxRuns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 256
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "graphRevision": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "startedAtMs": {
+                  "type": "integer"
+                },
+                "finishedAtMs": {
+                  "type": "integer"
+                },
+                "finished": {
+                  "type": "boolean"
+                },
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "cancelled": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "failedNode": {
+                  "type": "string"
+                },
+                "plannedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "executedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cacheHitCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "failedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "blockedCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "nodes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "nodeId": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "dirty",
+                          "complete",
+                          "failed",
+                          "blocked",
+                          "cancelled"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "durationMilliseconds": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "itemCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "cacheHit": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "nodeId",
+                      "status",
+                      "message",
+                      "durationMilliseconds",
+                      "itemCount",
+                      "cacheHit"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "runId",
+                "graphRevision",
+                "startedAtMs",
+                "finishedAtMs",
+                "finished",
+                "succeeded",
+                "cancelled",
+                "error",
+                "failedNode",
+                "plannedCount",
+                "executedCount",
+                "cacheHitCount",
+                "failedCount",
+                "blockedCount",
+                "nodes"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "graphId",
+          "runs"
         ]
       }
     },
@@ -10138,14 +11180,30 @@
       "implementation": "native-registry",
       "inputScheme": {
         "type": "object",
-        "properties": {},
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
         "additionalProperties": false,
         "required": []
       },
       "outputScheme": {
         "type": "object",
         "properties": {
+          "graphId": {
+            "type": "string"
+          },
           "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastRunId": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastEventSeq": {
             "type": "integer",
             "minimum": 0
           },
@@ -10168,17 +11226,14 @@
                       "parameterId": {
                         "type": "string"
                       },
-                      "valueType": {
-                        "type": "string"
-                      },
-                      "numberValue": {
-                        "type": "number"
+                      "value": {
+                        "$ref": "#/$defs/value"
                       }
                     },
                     "additionalProperties": false,
                     "required": [
                       "parameterId",
-                      "valueType"
+                      "value"
                     ]
                   }
                 }
@@ -10221,10 +11276,152 @@
         },
         "additionalProperties": false,
         "required": [
+          "graphId",
           "revision",
+          "lastRunId",
+          "lastEventSeq",
           "nodes",
           "edges"
-        ]
+        ],
+        "$defs": {
+          "leafValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/leafValue"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "parameterValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "archicadElementRef"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          }
+        }
       }
     },
     {
@@ -12026,6 +13223,156 @@
           "elementId",
           "pixelWidth",
           "pixelHeight"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.PlanPreviewFeed",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "shape": {
+            "type": "string"
+          },
+          "jitter": {
+            "type": "integer"
+          },
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "layer": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "frame": {
+            "type": "integer"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "measure2D": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "placed": {
+            "type": "boolean"
+          },
+          "shape": {
+            "type": "string"
+          },
+          "nodeCount": {
+            "type": "integer"
+          },
+          "polygonCount": {
+            "type": "integer"
+          },
+          "arrayBytes": {
+            "type": "integer"
+          },
+          "timings": {
+            "type": "object",
+            "properties": {
+              "generateMs": {
+                "type": "number"
+              },
+              "fillMs": {
+                "type": "number"
+              },
+              "buildMs": {
+                "type": "number"
+              },
+              "changeMs": {
+                "type": "number"
+              },
+              "drawMs": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "generateMs",
+              "fillMs",
+              "buildMs",
+              "changeMs"
+            ]
+          },
+          "drawn": {
+            "type": "object",
+            "properties": {
+              "primitives": {
+                "type": "integer"
+              },
+              "polygons": {
+                "type": "integer"
+              },
+              "polylines": {
+                "type": "integer"
+              },
+              "lines": {
+                "type": "integer"
+              },
+              "other": {
+                "type": "integer"
+              },
+              "matchesRequest": {
+                "type": "boolean"
+              },
+              "error": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elementId",
+          "placed",
+          "shape",
+          "nodeCount",
+          "polygonCount",
+          "arrayBytes",
+          "timings"
         ]
       }
     },
@@ -14052,6 +15399,9 @@
             "type": "number",
             "minimum": 0,
             "maximum": 4
+          },
+          "hideOnNav": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -14074,12 +15424,16 @@
             "type": "number",
             "minimum": 0,
             "maximum": 4
+          },
+          "hideOnNav": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
         "required": [
           "mode",
-          "intervalMs"
+          "intervalMs",
+          "hideOnNav"
         ]
       }
     },

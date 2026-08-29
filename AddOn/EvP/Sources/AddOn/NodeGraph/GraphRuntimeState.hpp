@@ -1,20 +1,31 @@
 #ifndef EVP_NODEGRAPH_GRAPHRUNTIMESTATE_HPP
 #define EVP_NODEGRAPH_GRAPHRUNTIMESTATE_HPP
 
-// The runtime's public face: one authoritative document, one evaluator, and the
-// run lifecycle around them. Everything a client can do to the graph goes
-// through here, which is what makes the browser one client among several rather
-// than the owner.
+// The runtime's public face: documents held BY ID, each with its own evaluator,
+// run lifecycle and observation stream. Everything a client can do to a graph
+// goes through here, which is what makes the browser one client among several
+// rather than the owner.
+//
+// Graphs are addressed by id even though the editor currently opens one. The
+// alternative - a process-wide singleton document - is the shape that has to be
+// unpicked later from every verb and every test at once.
 
 #include "NodeGraph/Evaluator.hpp"
 #include "NodeGraph/GraphEdit.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/RunContext.hpp"
+#include "NodeGraph/RunHistory.hpp"
 
+#include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 
 namespace evp::nodegraph {
+
+// The graph a verb operates on when it names none. Keeps every existing client
+// working while the contract is multi-graph underneath.
+extern const char* const kDefaultGraphId;
 
 struct EvaluationSummary {
     bool succeeded = false;
@@ -23,8 +34,13 @@ struct EvaluationSummary {
     NodeId failedNode;
     std::vector<NodeId> cyclicNodes;
 
+    GraphId graphId;
     RunId runId = kNoRun;
     uint64_t revision = 0;
+
+    // The stream position after this run, so a client can evaluate and then ask
+    // for exactly the events this run produced.
+    EventSeq lastEventSeq = kNoEvent;
 
     size_t plannedCount = 0;
     size_t executedCount = 0;
@@ -40,8 +56,14 @@ struct RuntimeNodeResult {
 };
 
 struct ResultsSnapshot {
+    GraphId graphId;
     uint64_t revision = 0;
     RunId lastRunId = kNoRun;
+
+    // The sequence this snapshot is consistent with. A client stores it and asks
+    // for events after it; that pairing is the whole synchronization contract.
+    EventSeq lastEventSeq = kNoEvent;
+
     std::vector<RuntimeNodeResult> nodes;
 };
 
@@ -50,35 +72,54 @@ class GraphRuntimeState final {
     static GraphRuntimeState& Get ();
 
     NodeRegistry Catalog () const;
-    GraphDocument Document () const;
-    EditResult Apply (const GraphEdit& edit);
+
+    std::vector<GraphId> GraphIds () const;
+
+    // Documents are created on first reference, so a client never has to open
+    // one before editing it.
+    GraphDocument Document (const GraphId& graphId) const;
+    EditResult Apply (const GraphId& graphId, const GraphEdit& edit);
 
     // Runs the request's targets. An empty target list means the document's
     // terminal nodes, never "every node".
-    EvaluationSummary Evaluate (const EvaluationRequest& request);
+    EvaluationSummary Evaluate (const GraphId& graphId, const EvaluationRequest& request);
 
     // Asks the run in flight to stop. Returns the run it signalled, or kNoRun.
-    RunId Cancel ();
+    RunId Cancel (const GraphId& graphId);
 
-    ResultsSnapshot Results () const;
+    ResultsSnapshot Results (const GraphId& graphId) const;
+
+    RunEventLog::Tail Events (const GraphId& graphId, EventSeq sinceSeq, size_t maxEvents) const;
+
+    std::vector<RunRecord> RecentRuns (const GraphId& graphId, size_t maxRuns) const;
 
   private:
+    // One graph's whole world. Held by unique_ptr so a reference handed out
+    // under the map lock stays valid while the map grows.
+    struct Slot {
+        GraphDocument document;
+        Evaluator evaluator;
+        RunRecorder recorder;
+
+        mutable std::mutex documentMutex;
+
+        // Separate from documentMutex on purpose: Cancel has to be answerable
+        // while a run holds the document lock, or it could never reach the run
+        // it exists to stop.
+        mutable std::mutex runMutex;
+        RunId nextRunId = 1;
+        RunId currentRunId = kNoRun;
+        RunId lastRunId = kNoRun;
+        std::optional<CancellationToken> currentCancellation;
+    };
+
     GraphRuntimeState ();
 
-    mutable std::mutex mutex_;
+    Slot& SlotFor (const GraphId& graphId) const;
+
+    mutable std::mutex mapMutex_;
+    mutable std::map<GraphId, std::unique_ptr<Slot>> graphs_;
     NodeRegistry registry_;
-    GraphDocument document_;
-    Evaluator evaluator_;
-
-    RunId nextRunId_ = 1;
-    RunId currentRunId_ = kNoRun;
-    RunId lastRunId_ = kNoRun;
-
-    // Held outside the document lock: Cancel must be answerable while a run
-    // holds that lock, or cancellation could only ever arrive after the run it
-    // was meant to stop.
-    mutable std::mutex runMutex_;
-    std::optional<CancellationToken> currentCancellation_;
 };
 
 } // namespace evp::nodegraph

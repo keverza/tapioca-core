@@ -40,6 +40,38 @@ class RunGuard {
     std::atomic<bool>& flag_;
 };
 
+// Emitting through the context's sink rather than through a member keeps the
+// evaluator ignorant of the recorder: with no sink, a run is simply unobserved.
+void Emit (const RunContext& context, RunEventKind kind, const NodeId& nodeId, const std::string& message = {})
+{
+    if (!context.events)
+        return;
+    RunEvent event;
+    event.kind = kind;
+    event.runId = context.runId;
+    event.graphRevision = context.graphRevision;
+    event.nodeId = nodeId;
+    event.message = message;
+    context.events (std::move (event));
+}
+
+void EmitRunFinished (const RunContext& context, const EvaluationOutcome& outcome, RunEventKind kind)
+{
+    if (!context.events)
+        return;
+    RunEvent event;
+    event.kind = kind;
+    event.runId = context.runId;
+    event.graphRevision = context.graphRevision;
+    event.message = outcome.error;
+    event.plannedCount = outcome.plannedNodes.size ();
+    event.executedCount = outcome.executedCount;
+    event.cacheHitCount = outcome.cacheHitCount;
+    event.failedCount = outcome.failedCount;
+    event.blockedCount = outcome.blockedCount;
+    context.events (std::move (event));
+}
+
 } // namespace
 
 void Evaluator::Invalidate (const GraphDocument& document, const std::vector<NodeId>& roots)
@@ -54,7 +86,7 @@ void Evaluator::Invalidate (const GraphDocument& document, const std::vector<Nod
 }
 
 void Evaluator::BlockDownstream (const GraphDocument& document, const NodeId& origin, const std::string& reason,
-                                 RunId runId, size_t& blockedCount)
+                                 const RunContext& context, size_t& blockedCount)
 {
     for (const NodeId& nodeId : DownstreamClosure (document, { origin })) {
         if (nodeId == origin)
@@ -63,9 +95,10 @@ void Evaluator::BlockDownstream (const GraphDocument& document, const NodeId& or
         entry.status.state = NodeExecutionState::Blocked;
         entry.status.message = reason;
         entry.status.cacheHit = false;
-        entry.status.runId = runId;
+        entry.status.runId = context.runId;
         entry.dirty = true;
         ++blockedCount;
+        Emit (context, RunEventKind::NodeBlocked, nodeId, reason);
     }
 }
 
@@ -97,10 +130,33 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
     if (!planned.accepted) {
         outcome.error = planned.error;
         outcome.cyclicNodes = planned.cyclicNodes;
+        if (context.events) {
+            RunEvent started;
+            started.kind = RunEventKind::RunStarted;
+            started.runId = context.runId;
+            started.graphRevision = context.graphRevision;
+            context.events (RunEvent { started });
+            RunEvent completed = started;
+            completed.kind = RunEventKind::RunCompleted;
+            completed.failedCount = 1;
+            completed.message = planned.error;
+            context.events (std::move (completed));
+        }
         return outcome;
     }
     const EvaluationPlan& plan = planned.plan;
     outcome.plannedNodes = plan.requiredNodes;
+
+    if (context.events) {
+        RunEvent started;
+        started.kind = RunEventKind::RunStarted;
+        started.runId = context.runId;
+        started.graphRevision = context.graphRevision;
+        started.plannedCount = plan.requiredNodes.size ();
+        context.events (std::move (started));
+        for (const NodeId& nodeId : plan.requiredNodes)
+            Emit (context, RunEventKind::NodeQueued, nodeId);
+    }
 
     std::set<NodeId> unusable;
     outcome.succeeded = true;
@@ -118,8 +174,10 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
                     entry.status.state = NodeExecutionState::Cancelled;
                     entry.status.message = "the evaluation was cancelled";
                     entry.status.runId = context.runId;
+                    Emit (context, RunEventKind::NodeCancelled, remaining);
                 }
             }
+            EmitRunFinished (context, outcome, RunEventKind::RunCancelled);
             return outcome;
         }
 
@@ -156,8 +214,8 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
                     source == cache_.end () ? nullptr : source->second.result;
                 if (!sourceResult || !sourceResult->outputs.contains (edge.sourcePort)) {
                     BlockDownstream (document, nodeId,
-                                     "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort,
-                                     context.runId, outcome.blockedCount);
+                                     "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, context,
+                                     outcome.blockedCount);
                     CacheEntry& failing = cache_[nodeId];
                     failing.status.state = NodeExecutionState::Failed;
                     failing.status.message = "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort;
@@ -169,6 +227,7 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
                     }
                     outcome.succeeded = false;
                     inputsResolved = false;
+                    Emit (context, RunEventKind::NodeFailed, nodeId, failing.status.message);
                     break;
                 }
                 values.push_back (sourceResult->outputs.at (edge.sourcePort));
@@ -181,7 +240,7 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
 
             if (values.empty ()) {
                 if (input.required) {
-                    BlockDownstream (document, nodeId, "required input is unconnected: " + input.id, context.runId,
+                    BlockDownstream (document, nodeId, "required input is unconnected: " + input.id, context,
                                      outcome.blockedCount);
                     CacheEntry& failing = cache_[nodeId];
                     failing.status.state = NodeExecutionState::Failed;
@@ -194,6 +253,7 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
                     }
                     outcome.succeeded = false;
                     inputsResolved = false;
+                    Emit (context, RunEventKind::NodeFailed, nodeId, failing.status.message);
                     break;
                 }
                 inputs.emplace (input.id, Value {});
@@ -219,6 +279,15 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
             entry.status.cacheHit = true;
             entry.status.runId = context.runId;
             ++outcome.cacheHitCount;
+            if (context.events) {
+                RunEvent hit;
+                hit.kind = RunEventKind::NodeCacheHit;
+                hit.runId = context.runId;
+                hit.graphRevision = context.graphRevision;
+                hit.nodeId = nodeId;
+                hit.itemCount = entry.status.itemCount;
+                context.events (std::move (hit));
+            }
             continue;
         }
 
@@ -230,6 +299,7 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
 
         ValueMap outputs;
         std::string nodeError;
+        Emit (context, RunEventKind::NodeStarted, nodeId);
         const auto started = std::chrono::steady_clock::now ();
         // Rule 2: the node body runs behind the fault barrier, so a structured
         // exception in node code fails the node instead of the process.
@@ -290,7 +360,17 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
                 outcome.failedNode = nodeId;
             }
             outcome.succeeded = false;
-            BlockDownstream (document, nodeId, "upstream node failed: " + nodeId, context.runId, outcome.blockedCount);
+            if (context.events) {
+                RunEvent failed;
+                failed.kind = RunEventKind::NodeFailed;
+                failed.runId = context.runId;
+                failed.graphRevision = context.graphRevision;
+                failed.nodeId = nodeId;
+                failed.message = failure;
+                failed.durationMilliseconds = elapsedMs;
+                context.events (std::move (failed));
+            }
+            BlockDownstream (document, nodeId, "upstream node failed: " + nodeId, context, outcome.blockedCount);
             for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
                 unusable.insert (blocked);
             continue;
@@ -308,8 +388,19 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
         entry.status.runId = context.runId;
         ++entry.status.evaluationCount;
         ++outcome.executedCount;
+        if (context.events) {
+            RunEvent completed;
+            completed.kind = RunEventKind::NodeCompleted;
+            completed.runId = context.runId;
+            completed.graphRevision = context.graphRevision;
+            completed.nodeId = nodeId;
+            completed.durationMilliseconds = elapsedMs;
+            completed.itemCount = itemCount;
+            context.events (std::move (completed));
+        }
     }
 
+    EmitRunFinished (context, outcome, RunEventKind::RunCompleted);
     return outcome;
 }
 

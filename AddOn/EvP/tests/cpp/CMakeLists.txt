@@ -118,6 +118,8 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunEvents.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunHistory.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp")
 
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,

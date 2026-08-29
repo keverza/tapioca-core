@@ -9,6 +9,17 @@ _NATIVE = os.path.join(
     os.path.dirname(__file__), "..", "Sources", "AddOn", "NativeCommands"
 )
 
+# One source for the expected command counts. These used to be literals here and
+# in test_generate_tapioca_api_v2.py as well as in the generator, and the three
+# drifted apart.
+_GENERATOR = Path(__file__).resolve().parents[1] / "tools" / "generate_tapioca_api_v2.py"
+_EXPECTED_REGISTRY_COMMANDS = int(
+    re.search(r"EXPECTED_REGISTRY_COMMANDS = (\d+)", _GENERATOR.read_text(encoding="utf-8")).group(1)
+)
+_EXPECTED_LOCAL_COMMANDS = int(
+    re.search(r"EXPECTED_LOCAL_COMMANDS = (\d+)", _GENERATOR.read_text(encoding="utf-8")).group(1)
+)
+
 
 def test_shared_schema_definitions_are_valid_and_strict():
     with open(os.path.join(_NATIVE, "CommandSchemas.cpp"), encoding="utf-8") as source:
@@ -66,8 +77,8 @@ def test_retained_native_catalog_has_one_unique_row_per_command():
     # Bump WITH the command that moves it. See the note on
     # EXPECTED_REGISTRY_COMMANDS in tools/generate_tapioca_api_v2.py: this and
     # that constant count the same rows and were both found stale on 2026-08-15.
-    assert len(names) == 146
-    assert len(set(names)) == 146
+    assert len(names) == _EXPECTED_REGISTRY_COMMANDS
+    assert len(set(names)) == _EXPECTED_REGISTRY_COMMANDS
 
 
 def test_dispatcher_local_catalog_has_nineteen_unique_verbs():
@@ -76,5 +87,5 @@ def test_dispatcher_local_catalog_has_nineteen_unique_verbs():
         r'\{\s*"([A-Za-z0-9]+)"\s*,\s*DispatcherExecutionKind::',
         path.read_text(encoding="utf-8"))
 
-    assert len(names) == 19
-    assert len(set(names)) == 19
+    assert len(names) == _EXPECTED_LOCAL_COMMANDS
+    assert len(set(names)) == _EXPECTED_LOCAL_COMMANDS

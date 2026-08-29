@@ -22,10 +22,10 @@ def test_extracts_complete_unique_cpp_catalog():
     registry = [item for item in catalog.commands if item.implementation == "native-registry"]
     local = [item for item in catalog.commands if item.implementation == "dispatcher-local"]
 
-    assert len(registry) == 146
-    assert len(local) == 19
-    assert len(catalog.commands) == 165
-    assert len({item.name for item in catalog.commands}) == 165
+    assert len(registry) == generator.EXPECTED_REGISTRY_COMMANDS
+    assert len(local) == generator.EXPECTED_LOCAL_COMMANDS
+    assert len(catalog.commands) == generator.EXPECTED_TOTAL_COMMANDS
+    assert len({item.name for item in catalog.commands}) == generator.EXPECTED_TOTAL_COMMANDS
     assert all(item.input_scheme and item.output_scheme for item in catalog.commands)
 
 
@@ -39,12 +39,16 @@ def test_generated_artifacts_are_deterministic_and_canonical(tmp_path):
     assert markdown_path.read_bytes() == first_markdown
     document = json.loads(first_json)
     assert document["metadata"]["counts"] == {
-        "nativeRegistry": 146,
-        "dispatcherLocal": 19,
-        "total": 165,
+        "nativeRegistry": generator.EXPECTED_REGISTRY_COMMANDS,
+        "dispatcherLocal": generator.EXPECTED_LOCAL_COMMANDS,
+        "total": generator.EXPECTED_TOTAL_COMMANDS,
     }
     assert all(item["name"].startswith("Tapioca.") for item in document["commands"])
-    assert len(markdown_path.read_text(encoding="utf-8").splitlines()) == 173
+    # Header, separator, and one row per command.
+    assert (
+        len(markdown_path.read_text(encoding="utf-8").splitlines())
+        == generator.EXPECTED_TOTAL_COMMANDS + 8
+    )
 
 
 def test_unparseable_registered_schema_fails(tmp_path):

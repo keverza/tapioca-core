@@ -12,6 +12,13 @@ namespace evp::nodegraph {
 
 using NodeId = std::string;
 using PortId = std::string;
+using GraphId = std::string;
+
+// Run identity lives with the other identity types so the event stream can name
+// a run without depending on the execution context that creates one.
+using RunId = uint64_t;
+
+constexpr RunId kNoRun = 0;
 
 struct Node {
     NodeId id;

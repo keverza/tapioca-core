@@ -33,61 +33,55 @@ namespace graph = evp::nodegraph;
 // the schemas below need no recursive $ref.
 // ---------------------------------------------------------------------------
 
-#define EVP_GRAPH_LEAF_VALUE                                                                                                                                  \
-    R"({"type":"object","properties":{)"                                                                                                                      \
-    R"("valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},)" \
-    R"("bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},)"                                                                       \
-    R"("numbers":{"type":"array","items":{"type":"number"}},)"                                                                                                \
-    R"("itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},)"                                                                          \
-    R"("additionalProperties":false,"required":["valueType"]})"
-
-#define EVP_GRAPH_VALUE_DEFS                                                                                                                                  \
-    R"("$defs":{"leafValue":)" EVP_GRAPH_LEAF_VALUE R"(,)"                                                                                                    \
-    R"("value":{"type":"object","properties":{)"                                                                                                              \
-    R"("valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},)" \
-    R"("bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},)"                                                                       \
-    R"("numbers":{"type":"array","items":{"type":"number"}},)"                                                                                                \
-    R"("itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},)"                                                                           \
-    R"("items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},)"                                                                                      \
-    R"("additionalProperties":false,"required":["valueType"]},)"                                                                                              \
-    R"("parameterValue":{"type":"object","properties":{)"                                                                                                     \
-    R"("valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},)"                                             \
-    R"("bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},)"                                                                       \
-    R"("numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},)"                                                                     \
-    R"("additionalProperties":false,"required":["valueType"]}})"
-
 // How many items of a list are spelled out before the encoding reports a count
 // instead. A client that needs more asks the node for its preview.
 constexpr size_t kMaxEncodedListItems = 256;
 
-constexpr const char kEmptyInputSchema[] =
-    R"json({"type":"object","properties":{},"additionalProperties":false,"required":[]})json";
+// Every verb takes an optional graphId. Omitting it means the default graph, so
+// a single-graph client needs to know nothing about the addressing.
+constexpr const char kGraphInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kCatalogResponseSchema[] =
-    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","inputs","outputs","parameters"]}}},"additionalProperties":false,"required":["nodeTypes"],)" EVP_GRAPH_VALUE_DEFS R"json(})json";
+    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","inputs","outputs","parameters"]}}},"additionalProperties":false,"required":["nodeTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 constexpr const char kStateResponseSchema[] =
-    R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"nodeType":{"type":"string"},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["parameterId","value"]}}},"additionalProperties":false,"required":["nodeId","nodeType","parameters"]}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string"},"sourcePort":{"type":"string"},"targetNode":{"type":"string"},"targetPort":{"type":"string"}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["revision","lastRunId","nodes","edges"],)" EVP_GRAPH_VALUE_DEFS R"json(})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"nodeType":{"type":"string"},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["parameterId","value"]}}},"additionalProperties":false,"required":["nodeId","nodeType","parameters"]}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string"},"sourcePort":{"type":"string"},"targetNode":{"type":"string"},"targetPort":{"type":"string"}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","nodes","edges"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 // `numberValue` is retained as a deprecated alias so the existing editor build
 // keeps working across this change. New clients send `value`.
 constexpr const char kEditInputSchema[] =
-    R"json({"oneOf":[{"type":"object","properties":{"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","nodeType"]},{"type":"object","properties":{"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]}],)" EVP_GRAPH_VALUE_DEFS R"json(})json";
+    R"json({"oneOf":[{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","nodeType"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]}],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 constexpr const char kEditResponseSchema[] =
     R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["revision","dirtyNodes"]})json";
 
 constexpr const char kEvaluateInputSchema[] =
-    R"json({"type":"object","properties":{"targets":{"type":"array","items":{"type":"string","minLength":1}},"mode":{"type":"string","enum":["incremental","forced"]}},"additionalProperties":false,"required":[]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"targets":{"type":"array","items":{"type":"string","minLength":1}},"mode":{"type":"string","enum":["incremental","forced"]}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kEvaluateResponseSchema[] =
-    R"json({"type":"object","properties":{"runId":{"type":"integer","minimum":0},"revision":{"type":"integer","minimum":0},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"cyclicNodes":{"type":"array","items":{"type":"string"}},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["runId","revision","succeeded","cancelled","error","failedNode","cyclicNodes","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount"]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"revision":{"type":"integer","minimum":0},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"cyclicNodes":{"type":"array","items":{"type":"string"}},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["graphId","runId","lastEventSeq","revision","succeeded","cancelled","error","failedNode","cyclicNodes","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount"]})json";
 
 constexpr const char kCancelResponseSchema[] =
-    R"json({"type":"object","properties":{"cancelledRunId":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["cancelledRunId"]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"cancelledRunId":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["graphId","cancelledRunId"]})json";
 
 constexpr const char kResultsResponseSchema[] =
-    R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"results":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"},"evaluationCount":{"type":"integer","minimum":0},"runId":{"type":"integer","minimum":0},"previewAvailable":{"type":"boolean"},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["portId","value"]}}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit","evaluationCount","runId","previewAvailable","outputs"]}}},"additionalProperties":false,"required":["revision","lastRunId","results"],)" EVP_GRAPH_VALUE_DEFS R"json(})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"results":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"},"evaluationCount":{"type":"integer","minimum":0},"runId":{"type":"integer","minimum":0},"previewAvailable":{"type":"boolean"},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["portId","value"]}}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit","evaluationCount","runId","previewAvailable","outputs"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","results"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+
+// The delta half of the synchronization contract. Paired with the lastEventSeq a
+// snapshot carries, it needs no push channel - which is what lets a pytest
+// script, a CLI and the editor consume one backend the same way.
+constexpr const char kEventsInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"sinceSeq":{"type":"integer","minimum":0},"maxEvents":{"type":"integer","minimum":1,"maximum":4096}},"additionalProperties":false,"required":[]})json";
+
+constexpr const char kEventsResponseSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"lastSeq":{"type":"integer","minimum":0},"gap":{"type":"boolean"},"events":{"type":"array","items":{"type":"object","properties":{"seq":{"type":"integer","minimum":1},"kind":{"type":"string","enum":["runStarted","nodeQueued","nodeStarted","nodeCacheHit","nodeCompleted","nodeWarning","nodeFailed","nodeBlocked","nodeCancelled","runCompleted","runCancelled"]},"runId":{"type":"integer","minimum":0},"graphRevision":{"type":"integer","minimum":0},"nodeId":{"type":"string"},"timestampMs":{"type":"integer"},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["seq","kind","runId","graphRevision","nodeId","timestampMs","message","durationMilliseconds","itemCount","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount"]}}},"additionalProperties":false,"required":["graphId","lastSeq","gap","events"]})json";
+
+constexpr const char kHistoryInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"maxRuns":{"type":"integer","minimum":1,"maximum":256}},"additionalProperties":false,"required":[]})json";
+
+constexpr const char kHistoryResponseSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runs":{"type":"array","items":{"type":"object","properties":{"runId":{"type":"integer","minimum":0},"graphRevision":{"type":"integer","minimum":0},"startedAtMs":{"type":"integer"},"finishedAtMs":{"type":"integer"},"finished":{"type":"boolean"},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["dirty","complete","failed","blocked","cancelled"]},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"}},"additionalProperties":false,"required":["nodeId","status","message","durationMilliseconds","itemCount","cacheHit"]}}},"additionalProperties":false,"required":["runId","graphRevision","startedAtMs","finishedAtMs","finished","succeeded","cancelled","error","failedNode","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount","nodes"]}}},"additionalProperties":false,"required":["graphId","runs"]})json";
 
 std::string Utf8 (const GS::UniString& value)
 {
@@ -266,6 +260,14 @@ bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std:
     return false;
 }
 
+graph::GraphId ReadGraphId (const GS::ObjectState& params)
+{
+    GS::UniString graphId;
+    if (!params.Get ("graphId", graphId) || graphId.IsEmpty ())
+        return graph::kDefaultGraphId;
+    return Utf8 (graphId);
+}
+
 graph::Edge ReadEdge (const GS::ObjectState& params)
 {
     GS::UniString sourceNode, sourcePort, targetNode, targetPort;
@@ -357,10 +359,11 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
 
 class GraphGetStateCommand : public GateFreeGraphCommand {
   protected:
-    NativeCommandResult ExecuteGraph (const GS::ObjectState&, GS::ProcessControl&) const override
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphDocument document = graph::GraphRuntimeState::Get ().Document ();
-        const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results ();
+        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphDocument document = graph::GraphRuntimeState::Get ().Document (graphId);
+        const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results (graphId);
         GS::Array<GS::ObjectState> nodes, edges;
         for (const auto& [nodeId, node] : document.Nodes ()) {
             GS::ObjectState record;
@@ -385,8 +388,10 @@ class GraphGetStateCommand : public GateFreeGraphCommand {
             edges.Push (std::move (record));
         }
         GS::ObjectState response;
+        response.Add ("graphId", Text (graphId));
         response.Add ("revision", static_cast<GS::Int64> (document.Revision ()));
         response.Add ("lastRunId", static_cast<GS::Int64> (snapshot.lastRunId));
+        response.Add ("lastEventSeq", static_cast<GS::Int64> (snapshot.lastEventSeq));
         response.Add ("nodes", nodes);
         response.Add ("edges", edges);
         return response;
@@ -457,7 +462,7 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
             edit.data = graph::SetParameterEdit { Utf8 (nodeId), Utf8 (parameterId), std::move (value) };
         }
 
-        const graph::EditResult result = graph::GraphRuntimeState::Get ().Apply (edit);
+        const graph::EditResult result = graph::GraphRuntimeState::Get ().Apply (ReadGraphId (params), edit);
         if (!result.accepted)
             return NativeCommandResult::Failure (Text (result.error));
         GS::Array<GS::UniString> dirtyNodes;
@@ -484,7 +489,8 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         if (params.Get ("mode", mode) && Utf8 (mode) == "forced")
             request.mode = graph::EvaluationMode::Forced;
 
-        const graph::EvaluationSummary summary = graph::GraphRuntimeState::Get ().Evaluate (request);
+        const graph::EvaluationSummary summary =
+            graph::GraphRuntimeState::Get ().Evaluate (ReadGraphId (params), request);
 
         // A failed graph is a REPORTED outcome, not a failed command. The
         // difference matters: a client has to be able to render which node
@@ -493,7 +499,9 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         for (const graph::NodeId& nodeId : summary.cyclicNodes)
             cyclicNodes.Push (Text (nodeId));
         GS::ObjectState response;
+        response.Add ("graphId", Text (summary.graphId));
         response.Add ("runId", static_cast<GS::Int64> (summary.runId));
+        response.Add ("lastEventSeq", static_cast<GS::Int64> (summary.lastEventSeq));
         response.Add ("revision", static_cast<GS::Int64> (summary.revision));
         response.Add ("succeeded", summary.succeeded);
         response.Add ("cancelled", summary.cancelled);
@@ -511,19 +519,21 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
 
 class GraphCancelCommand : public GateFreeGraphCommand {
   protected:
-    NativeCommandResult ExecuteGraph (const GS::ObjectState&, GS::ProcessControl&) const override
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
+        const graph::GraphId graphId = ReadGraphId (params);
         GS::ObjectState response;
-        response.Add ("cancelledRunId", static_cast<GS::Int64> (graph::GraphRuntimeState::Get ().Cancel ()));
+        response.Add ("graphId", Text (graphId));
+        response.Add ("cancelledRunId", static_cast<GS::Int64> (graph::GraphRuntimeState::Get ().Cancel (graphId)));
         return response;
     }
 };
 
 class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
   protected:
-    NativeCommandResult ExecuteGraph (const GS::ObjectState&, GS::ProcessControl&) const override
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results ();
+        const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results (ReadGraphId (params));
         GS::Array<GS::ObjectState> results;
         for (const graph::RuntimeNodeResult& nodeResult : snapshot.nodes) {
             const graph::NodeStatus& status = nodeResult.status;
@@ -551,26 +561,128 @@ class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
             results.Push (std::move (record));
         }
         GS::ObjectState response;
+        response.Add ("graphId", Text (snapshot.graphId));
         response.Add ("revision", static_cast<GS::Int64> (snapshot.revision));
         response.Add ("lastRunId", static_cast<GS::Int64> (snapshot.lastRunId));
+        response.Add ("lastEventSeq", static_cast<GS::Int64> (snapshot.lastEventSeq));
         response.Add ("results", results);
         return response;
     }
 };
 
+// The delta half of the synchronization contract. A client pairs the
+// lastEventSeq from a snapshot with this call and needs no push channel at all,
+// which is what lets a pytest script, a CLI and the editor share one backend.
+class GraphGetEventsCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const graph::GraphId graphId = ReadGraphId (params);
+        GS::Int64 sinceSeq = 0;
+        GS::Int64 maxEvents = 512;
+        params.Get ("sinceSeq", sinceSeq);
+        params.Get ("maxEvents", maxEvents);
+
+        const graph::RunEventLog::Tail tail = graph::GraphRuntimeState::Get ().Events (
+            graphId, static_cast<graph::EventSeq> (sinceSeq < 0 ? 0 : sinceSeq),
+            static_cast<size_t> (maxEvents < 1 ? 1 : maxEvents));
+
+        GS::Array<GS::ObjectState> events;
+        for (const graph::RunEvent& event : tail.events) {
+            GS::ObjectState record;
+            record.Add ("seq", static_cast<GS::Int64> (event.seq));
+            record.Add ("kind", graph::RunEventKindName (event.kind));
+            record.Add ("runId", static_cast<GS::Int64> (event.runId));
+            record.Add ("graphRevision", static_cast<GS::Int64> (event.graphRevision));
+            record.Add ("nodeId", Text (event.nodeId));
+            record.Add ("timestampMs", static_cast<GS::Int64> (event.timestampMs));
+            record.Add ("message", Text (event.message));
+            record.Add ("durationMilliseconds", event.durationMilliseconds);
+            record.Add ("itemCount", static_cast<GS::Int64> (event.itemCount));
+            record.Add ("plannedCount", static_cast<GS::Int64> (event.plannedCount));
+            record.Add ("executedCount", static_cast<GS::Int64> (event.executedCount));
+            record.Add ("cacheHitCount", static_cast<GS::Int64> (event.cacheHitCount));
+            record.Add ("failedCount", static_cast<GS::Int64> (event.failedCount));
+            record.Add ("blockedCount", static_cast<GS::Int64> (event.blockedCount));
+            events.Push (std::move (record));
+        }
+
+        GS::ObjectState response;
+        response.Add ("graphId", Text (graphId));
+        response.Add ("lastSeq", static_cast<GS::Int64> (tail.lastSeq));
+        // Reported, never hidden: a client whose sequence fell off the ring must
+        // re-snapshot rather than stitch an incomplete tail onto stale state.
+        response.Add ("gap", tail.gap);
+        response.Add ("events", events);
+        return response;
+    }
+};
+
+class GraphGetRunHistoryCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const graph::GraphId graphId = ReadGraphId (params);
+        GS::Int64 maxRuns = 16;
+        params.Get ("maxRuns", maxRuns);
+
+        GS::Array<GS::ObjectState> runs;
+        for (const graph::RunRecord& record :
+             graph::GraphRuntimeState::Get ().RecentRuns (graphId, static_cast<size_t> (maxRuns < 1 ? 1 : maxRuns))) {
+            GS::ObjectState run;
+            run.Add ("runId", static_cast<GS::Int64> (record.runId));
+            run.Add ("graphRevision", static_cast<GS::Int64> (record.graphRevision));
+            run.Add ("startedAtMs", static_cast<GS::Int64> (record.startedAtMs));
+            run.Add ("finishedAtMs", static_cast<GS::Int64> (record.finishedAtMs));
+            run.Add ("finished", record.finished);
+            run.Add ("succeeded", record.succeeded);
+            run.Add ("cancelled", record.cancelled);
+            run.Add ("error", Text (record.error));
+            run.Add ("failedNode", Text (record.failedNode));
+            run.Add ("plannedCount", static_cast<GS::Int64> (record.plannedCount));
+            run.Add ("executedCount", static_cast<GS::Int64> (record.executedCount));
+            run.Add ("cacheHitCount", static_cast<GS::Int64> (record.cacheHitCount));
+            run.Add ("failedCount", static_cast<GS::Int64> (record.failedCount));
+            run.Add ("blockedCount", static_cast<GS::Int64> (record.blockedCount));
+            GS::Array<GS::ObjectState> nodes;
+            for (const graph::NodeRunRecord& node : record.nodes) {
+                GS::ObjectState entry;
+                entry.Add ("nodeId", Text (node.nodeId));
+                entry.Add ("status", StatusName (node.finalState));
+                entry.Add ("message", Text (node.message));
+                entry.Add ("durationMilliseconds", node.durationMilliseconds);
+                entry.Add ("itemCount", static_cast<GS::Int64> (node.itemCount));
+                entry.Add ("cacheHit", node.cacheHit);
+                nodes.Push (std::move (entry));
+            }
+            run.Add ("nodes", nodes);
+            runs.Push (std::move (run));
+        }
+
+        GS::ObjectState response;
+        response.Add ("graphId", Text (graphId));
+        response.Add ("runs", runs);
+        return response;
+    }
+};
+
 const NativeCommandRegistration registrations[] = {
-    { "GraphGetNodeTypes", &MakeRegisteredNativeCommand<GraphGetNodeTypesCommand>, false, kEmptyInputSchema,
+    { "GraphGetNodeTypes", &MakeRegisteredNativeCommand<GraphGetNodeTypesCommand>, false, kGraphInputSchema,
       kCatalogResponseSchema },
-    { "GraphGetState", &MakeRegisteredNativeCommand<GraphGetStateCommand>, false, kEmptyInputSchema,
+    { "GraphGetState", &MakeRegisteredNativeCommand<GraphGetStateCommand>, false, kGraphInputSchema,
       kStateResponseSchema },
     { "GraphApplyEdit", &MakeRegisteredNativeCommand<GraphApplyEditCommand>, false, kEditInputSchema,
       kEditResponseSchema },
     { "GraphEvaluate", &MakeRegisteredNativeCommand<GraphEvaluateCommand>, false, kEvaluateInputSchema,
       kEvaluateResponseSchema },
-    { "GraphCancel", &MakeRegisteredNativeCommand<GraphCancelCommand>, false, kEmptyInputSchema,
+    { "GraphCancel", &MakeRegisteredNativeCommand<GraphCancelCommand>, false, kGraphInputSchema,
       kCancelResponseSchema },
-    { "GraphGetNodeResults", &MakeRegisteredNativeCommand<GraphGetNodeResultsCommand>, false, kEmptyInputSchema,
+    { "GraphGetNodeResults", &MakeRegisteredNativeCommand<GraphGetNodeResultsCommand>, false, kGraphInputSchema,
       kResultsResponseSchema },
+    { "GraphGetEvents", &MakeRegisteredNativeCommand<GraphGetEventsCommand>, false, kEventsInputSchema,
+      kEventsResponseSchema },
+    { "GraphGetRunHistory", &MakeRegisteredNativeCommand<GraphGetRunHistoryCommand>, false, kHistoryInputSchema,
+      kHistoryResponseSchema },
 };
 
 } // namespace

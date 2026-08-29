@@ -9,15 +9,13 @@
 // from a run that is no longer current" are DIFFERENT conditions and both have
 // to be handled. RunId handles the second.
 
+#include "NodeGraph/RunEvents.hpp"
+
 #include <atomic>
 #include <cstdint>
 #include <memory>
 
 namespace evp::nodegraph {
-
-using RunId = uint64_t;
-
-constexpr RunId kNoRun = 0;
 
 // Cooperative only. Nothing here interrupts a running node; it asks. A node that
 // never checks and never returns is contained by the node budget in
@@ -64,9 +62,14 @@ struct EvaluationLimits {
 
 struct RunContext {
     RunId runId = kNoRun;
+    GraphId graphId;
     uint64_t graphRevision = 0;
     CancellationToken cancellation;
     EvaluationLimits limits;
+
+    // Optional. An evaluation with no sink still runs; it is simply unobserved,
+    // which is what keeps the offline tests free of the recorder.
+    RunEventSink events;
 };
 
 } // namespace evp::nodegraph
