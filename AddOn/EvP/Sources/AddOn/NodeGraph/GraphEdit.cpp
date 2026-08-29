@@ -68,7 +68,11 @@ bool ValidateDocument (const GraphDocument& document, const NodeRegistry& regist
             error = "edge names an unknown port";
             return false;
         }
-        if (output->valueType != input->valueType) {
+        // An input declared Absent accepts ANY value. Nothing produces Absent as
+        // an output, so the type is free to mean "any" without becoming
+        // ambiguous - which is what lets an inspector node take whatever is
+        // wired into it instead of needing one variant per type.
+        if (input->valueType != ValueType::Absent && output->valueType != input->valueType) {
             error = "port type mismatch";
             return false;
         }

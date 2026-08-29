@@ -133,7 +133,8 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ReferenceResolver.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunEvents.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunHistory.cpp"
-    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp")
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp")
 
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it

@@ -1,5 +1,7 @@
 #include "NodeGraph/BuiltinNodes.hpp"
 
+#include "NodeGraph/ValueText.hpp"
+
 #include <stdexcept>
 #include <tuple>
 
@@ -55,6 +57,20 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     if (!registry.Register (std::move (scale), error))
         throw std::logic_error (error);
 
+    // The Grasshopper-panel equivalent: wire anything into it and read what came
+    // out. Its input is declared Absent, which the edit rules read as "any type",
+    // so one node inspects every value the runtime has rather than there being a
+    // panel per type.
+    NodeType panel = PureNode ("panel", "Panel", "Shows whatever is wired into it as readable text.");
+    panel.category = "Inspect";
+    panel.inputs.push_back ({ "value", "Value", ValueType::Absent, true, false });
+    panel.outputs.push_back ({ "text", "Text", ValueType::String });
+    panel.outputs.push_back ({ "lines", "Lines", ValueType::List });
+    panel.outputs.push_back ({ "count", "Count", ValueType::Integer });
+    panel.outputs.push_back ({ "summary", "Summary", ValueType::String });
+    if (!registry.Register (std::move (panel), error))
+        throw std::logic_error (error);
+
     NodeType watch = PureNode ("watch", "Watch", "Reports a list without changing it.");
     watch.inputs.push_back (Port ("value", ValueType::List));
     watch.outputs.push_back (Port ("value", ValueType::List));
@@ -83,6 +99,27 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         for (const Value& item : std::get<Value::List> (inputs.at ("list").DataValue ()))
             scaled.emplace_back (Number (item) * factor);
         outputs.emplace ("value", Value (std::move (scaled)));
+    }
+    else if (node.nodeType == "panel") {
+        const Value& value = inputs.at ("value");
+        const std::vector<std::string> lines = FormatValueLines (value);
+        Value::List lineValues;
+        lineValues.reserve (lines.size ());
+        std::string joined;
+        for (size_t i = 0; i < lines.size (); ++i) {
+            lineValues.emplace_back (lines[i]);
+            if (i != 0)
+                joined += "\n";
+            joined += lines[i];
+        }
+        // Both shapes, because a client should not have to split a string to
+        // render a list, nor join a list to show one line.
+        outputs.emplace ("text", Value (joined));
+        outputs.emplace ("lines", Value (std::move (lineValues)));
+        outputs.emplace ("count", Value (static_cast<int64_t> (value.Type () == ValueType::List
+                                                                   ? std::get<Value::List> (value.DataValue ()).size ()
+                                                                   : 1)));
+        outputs.emplace ("summary", Value (DescribeValue (value)));
     }
     else if (node.nodeType == "watch")
         outputs.emplace ("value", inputs.at ("value"));

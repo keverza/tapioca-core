@@ -10746,12 +10746,20 @@
                       },
                       "value": {
                         "$ref": "#/$defs/value"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "summary": {
+                        "type": "string"
                       }
                     },
                     "additionalProperties": false,
                     "required": [
                       "portId",
-                      "value"
+                      "value",
+                      "text",
+                      "summary"
                     ]
                   }
                 }

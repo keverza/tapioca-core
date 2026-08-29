@@ -7,6 +7,7 @@
 #include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+#include "NodeGraph/ValueText.hpp"
 #include "NodeGraph/RunEvents.hpp"
 #include "NodeGraph/RunHistory.hpp"
 #include "NodeGraph/GraphEdit.hpp"
@@ -221,10 +222,10 @@ TEST (NodeGraphValue, HoldsRecursiveListsAndImmutableMeshes)
     EXPECT_EQ (4U, std::get<Value::List> (value.DataValue ()).size ());
 }
 
-TEST (NodeGraphBuiltins, CatalogHasSixSchemaDrivenPureNodes)
+TEST (NodeGraphBuiltins, CatalogHasSevenSchemaDrivenPureNodes)
 {
     const NodeRegistry registry = MakeBuiltinNodeRegistry ();
-    EXPECT_EQ (6U, registry.Types ().size ());
+    EXPECT_EQ (7U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 }
@@ -1272,4 +1273,122 @@ TEST (NodeGraphArchicad, TheProjectClosingMidRunFailsTheNodeRatherThanTheProcess
     const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, closing, &host);
     EXPECT_FALSE (outcome.succeeded);
     EXPECT_NE (std::string::npos, evaluator.Status ("sel").message.find ("no longer available"));
+}
+
+// --- The Panel node --------------------------------------------------------
+
+TEST (NodeGraphPanel, AcceptsAnyValueTypeThroughOneWildcardInput)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+
+    // One panel, three source types. Without the wildcard input this would need
+    // a panel variant per value type.
+    for (const char* source : { "number", "makeList", "archicad.getSelection" }) {
+        GraphDocument graph;
+        Node sourceNode { "src", source };
+        if (std::string (source) == "number")
+            sourceNode.parameters.emplace ("value", Value (1.0));
+        ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { sourceNode } }).accepted) << source;
+        ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+
+        const char* port = std::string (source) == "archicad.getSelection" ? "elements" : "value";
+        const EditResult connected =
+            ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("src", port, "panel", "value") } });
+        EXPECT_TRUE (connected.accepted) << source << ": " << connected.error;
+    }
+}
+
+TEST (NodeGraphPanel, RendersAListOneItemPerLineAndAlsoAsOneString)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+
+    Node two { "two", "number" };
+    two.parameters.emplace ("value", Value (2.0));
+    Node three { "three", "number" };
+    three.parameters.emplace ("value", Value (3.0));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { two } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { three } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "list", "makeList" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("two", "value", "list", "items") } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("three", "value", "list", "items") } })
+                     .accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("list", "value", "panel", "value") } })
+                     .accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteRuntimeNode, { "panel" });
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("panel");
+    ASSERT_NE (nullptr, result);
+    EXPECT_EQ ("2\n3", std::get<std::string> (result->outputs.at ("text").DataValue ()));
+    EXPECT_EQ ("List of 2", std::get<std::string> (result->outputs.at ("summary").DataValue ()));
+    EXPECT_EQ (2, std::get<int64_t> (result->outputs.at ("count").DataValue ()));
+    const Value::List& lines = std::get<Value::List> (result->outputs.at ("lines").DataValue ());
+    ASSERT_EQ (2U, lines.size ());
+    EXPECT_EQ ("2", std::get<std::string> (lines[0].DataValue ()));
+}
+
+TEST (NodeGraphPanel, RendersEveryValueTypeReadably)
+{
+    EXPECT_EQ ("(none)", FormatValue (Value {}));
+    EXPECT_EQ ("true", FormatValue (Value (true)));
+    EXPECT_EQ ("42", FormatValue (Value (int64_t { 42 })));
+    // Not "1.500000" - a panel full of trailing zeroes is a panel a person has
+    // to squint past.
+    EXPECT_EQ ("1.5", FormatValue (Value (1.5)));
+    EXPECT_EQ ("hello", FormatValue (Value (std::string ("hello"))));
+    EXPECT_EQ ("(1, 2, 3)", FormatValue (Value (Point3 { 1.0, 2.0, 3.0 })));
+    EXPECT_EQ ("guid-a", FormatValue (Value (ArchicadElementRef { "guid-a" })));
+    EXPECT_EQ ("[1, 2]", FormatValue (Value (Value::List { Value (1.0), Value (2.0) })));
+
+    auto mesh = std::make_shared<geomsrv::Mesh> ();
+    mesh->vertices = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    mesh->triangles = { 0, 1, 2 };
+    EXPECT_EQ ("Mesh (3 vertices, 1 triangles)", FormatValue (Value (Value::ImmutableMesh (mesh))));
+
+    // An empty list says so rather than rendering as nothing at all.
+    EXPECT_EQ ((std::vector<std::string> { "(empty list)" }), FormatValueLines (Value (Value::List {})));
+}
+
+TEST (NodeGraphPanel, TruncatesLargeAndDeepValuesAndSaysThatItDid)
+{
+    Value::List big;
+    for (int i = 0; i < 40; ++i)
+        big.emplace_back (static_cast<int64_t> (i));
+
+    const std::vector<std::string> lines = FormatValueLines (Value (big), 10);
+    ASSERT_EQ (10U, lines.size ());
+    // A quietly shortened list reads as a wrong answer, so the last line says
+    // how many were left out.
+    EXPECT_NE (std::string::npos, lines.back ().find ("more of 40"));
+
+    // Inline rendering caps items too.
+    EXPECT_NE (std::string::npos, FormatValue (Value (big)).find ("more"));
+
+    // And depth: past the limit a nested list renders as its shape.
+    Value nested (int64_t { 0 });
+    for (int i = 0; i < 8; ++i)
+        nested = Value (Value::List { nested });
+    EXPECT_NE (std::string::npos, FormatValue (nested).find ("items]"));
+}
+
+TEST (NodeGraphPanel, ATypedInputStillRejectsTheWrongType)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    Node number { "num", "number" };
+    number.parameters.emplace ("value", Value (1.0));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { number } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "watch", "watch" } } }).accepted);
+
+    // Watch takes a List. The wildcard is a property of Absent inputs only - it
+    // must not have loosened type checking everywhere.
+    const EditResult rejected =
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("num", "value", "watch", "value") } });
+    EXPECT_FALSE (rejected.accepted);
+    EXPECT_NE (std::string::npos, rejected.error.find ("type mismatch"));
 }
