@@ -17,6 +17,19 @@ const char* ExecutionDomainName (ExecutionDomain domain)
     return "worker";
 }
 
+const char* NodeDisplayName (NodeDisplay display)
+{
+    switch (display) {
+        case NodeDisplay::Ports:
+            return "ports";
+        case NodeDisplay::Text:
+            return "text";
+        case NodeDisplay::Preview:
+            return "preview";
+    }
+    return "ports";
+}
+
 const char* EffectKindName (EffectKind effect)
 {
     switch (effect) {

@@ -64,6 +64,7 @@
           category: 'Unknown',
           description: 'The native catalog did not describe this node type.',
           executionDomain: 'worker',
+          display: 'ports',
           inputs: [],
           outputs: [],
           parameters: [],
@@ -82,6 +83,11 @@
     }))
   }
 
+  async function refreshResults(): Promise<void> {
+    const response = await callTapioca<{ results: NodeResultRecord[] }>('Tapioca.GraphGetNodeResults')
+    results = response.results
+  }
+
   async function reloadState(): Promise<void> {
     applyState(await callTapioca<GraphState>('Tapioca.GraphGetState'))
   }
@@ -93,6 +99,9 @@
       const response = await callTapioca<{ nodeTypes: NodeTypeSchema[] }>('Tapioca.GraphGetNodeTypes')
       catalog = response.nodeTypes
       selectedNodeType = catalog[0]?.nodeType ?? ''
+      // The runtime keeps results across an editor reload, so pick them up on
+      // open rather than showing an empty graph until the next evaluation.
+      await refreshResults()
       await reloadState()
       message = `${catalog.length} native node types / revision ${revision}`
     } catch (error) {
@@ -217,18 +226,14 @@
     failed = false
     try {
       await callTapioca('Tapioca.GraphEvaluate')
-      const response = await callTapioca<{ revision: number; results: NodeResultRecord[] }>(
-        'Tapioca.GraphGetNodeResults',
-      )
-      results = response.results
+      await refreshResults()
       await reloadState()
       const complete = results.filter((result) => result.status === 'complete').length
       message = `Evaluation complete: ${complete}/${results.length} nodes / revision ${revision}`
     } catch (error) {
       failed = true
       message = error instanceof Error ? error.message : String(error)
-      const response = await callTapioca<{ results: NodeResultRecord[] }>('Tapioca.GraphGetNodeResults')
-      results = response.results
+      await refreshResults()
       await reloadState()
     } finally {
       busy = false

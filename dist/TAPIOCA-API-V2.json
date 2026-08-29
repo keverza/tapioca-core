@@ -10979,6 +10979,14 @@
                     "hostUiWrite"
                   ]
                 },
+                "display": {
+                  "type": "string",
+                  "enum": [
+                    "ports",
+                    "text",
+                    "preview"
+                  ]
+                },
                 "generations": {
                   "type": "array",
                   "items": {
@@ -11082,6 +11090,7 @@
                 "description",
                 "executionDomain",
                 "effect",
+                "display",
                 "generations",
                 "inputs",
                 "outputs",

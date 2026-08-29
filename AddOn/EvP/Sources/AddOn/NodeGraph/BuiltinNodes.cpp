@@ -63,6 +63,7 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     // panel per type.
     NodeType panel = PureNode ("panel", "Panel", "Shows whatever is wired into it as readable text.");
     panel.category = "Inspect";
+    panel.display = NodeDisplay::Text;
     panel.inputs.push_back ({ "value", "Value", ValueType::Absent, true, false });
     panel.outputs.push_back ({ "text", "Text", ValueType::String });
     panel.outputs.push_back ({ "lines", "Lines", ValueType::List });
@@ -72,6 +73,7 @@ NodeRegistry MakeBuiltinNodeRegistry ()
         throw std::logic_error (error);
 
     NodeType watch = PureNode ("watch", "Watch", "Reports a list without changing it.");
+    watch.display = NodeDisplay::Preview;
     watch.inputs.push_back (Port ("value", ValueType::List));
     watch.outputs.push_back (Port ("value", ValueType::List));
     if (!registry.Register (std::move (watch), error))

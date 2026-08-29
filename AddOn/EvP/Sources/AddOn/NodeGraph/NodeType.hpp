@@ -42,6 +42,27 @@ const char* EffectKindName (EffectKind effect);
 // an unused enum value is an invitation. The write pipeline is designed for in
 // the architecture document sections 26-27 and arrives with the value.
 
+// How a client should draw the node's body.
+//
+// A hint, not a command: a client is free to ignore it. It exists because the
+// editor was branching on node id - `nodeType === 'watch'` - which means every
+// new inspectable node needs a frontend change, and a renamed node silently
+// loses its rendering. The runtime already owns the schema; it should own this
+// too.
+enum class NodeDisplay {
+    // Ports and status only. The default.
+    Ports,
+
+    // The node has something to READ. A client should show the node's `text`
+    // output in the body, scrollable. This is the Grasshopper-panel shape.
+    Text,
+
+    // The node has something to LOOK at; a client may host a viewport.
+    Preview,
+};
+
+const char* NodeDisplayName (NodeDisplay display);
+
 struct PortSchema {
     std::string id;
     std::string label;
@@ -65,6 +86,7 @@ struct NodeType {
     std::string description;
     ExecutionDomain executionDomain = ExecutionDomain::Worker;
     EffectKind effect = EffectKind::Pure;
+    NodeDisplay display = NodeDisplay::Ports;
 
     // Host state this node reads that its ports do not express. Folded into the
     // node's cache key, so declaring a domain is what makes the node re-run when
