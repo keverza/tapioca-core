@@ -110,12 +110,14 @@ set (EVP_DYNAMO_SOURCES
 # real production sources can no longer be covered by the offline gate.
 set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/BuiltinNodes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/EvaluationPlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Evaluator.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/FaultBarrier.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Graph.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphAlgorithms.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
-    "${EVP_ROOT}/Sources/AddOn/NodeGraph/TopoOrder.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp")
 
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,

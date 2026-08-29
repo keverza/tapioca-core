@@ -1,11 +1,12 @@
 #include "NodeGraph/Evaluator.hpp"
 
+#include "NodeGraph/FaultBarrier.hpp"
+#include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
-#include "NodeGraph/TopoOrder.hpp"
 
-#include <exception>
 #include <chrono>
 #include <set>
+#include <utility>
 
 namespace evp::nodegraph {
 namespace {
@@ -15,99 +16,185 @@ void CombineHash (size_t& seed, size_t value)
     seed ^= value + 0x9e3779b9U + (seed << 6U) + (seed >> 2U);
 }
 
+void CombineText (size_t& seed, const std::string& text)
+{
+    CombineHash (seed, std::hash<std::string> {}(text));
+}
+
+// Sets running_ for the duration of one evaluation and clears it on every exit
+// path, including a thrown one. Reentrancy is rejected by the caller testing the
+// flag before constructing this.
+class RunGuard {
+  public:
+    explicit RunGuard (std::atomic<bool>& flag) : flag_ (flag)
+    {
+    }
+    ~RunGuard ()
+    {
+        flag_.store (false, std::memory_order_relaxed);
+    }
+    RunGuard (const RunGuard&) = delete;
+    RunGuard& operator= (const RunGuard&) = delete;
+
+  private:
+    std::atomic<bool>& flag_;
+};
+
 } // namespace
 
 void Evaluator::Invalidate (const GraphDocument& document, const std::vector<NodeId>& roots)
 {
-    std::set<NodeId> dirty (roots.begin (), roots.end ());
-    bool changed = true;
-    while (changed) {
-        changed = false;
-        for (const Edge& edge : document.Edges ()) {
-            if (dirty.contains (edge.sourceNode) && dirty.insert (edge.targetNode).second)
-                changed = true;
-        }
-    }
-    for (const NodeId& nodeId : dirty) {
-        cache_[nodeId].dirty = true;
-        cache_[nodeId].status = { NodeExecutionState::Dirty, {} };
+    for (const NodeId& nodeId : DownstreamClosure (document, roots)) {
+        CacheEntry& entry = cache_[nodeId];
+        entry.dirty = true;
+        entry.status.state = NodeExecutionState::Dirty;
+        entry.status.message.clear ();
+        entry.status.cacheHit = false;
     }
 }
 
-bool Evaluator::Evaluate (const GraphDocument& document, const NodeRegistry& registry, const NodeExecutor& executor,
-                          std::string& error)
+void Evaluator::BlockDownstream (const GraphDocument& document, const NodeId& origin, const std::string& reason,
+                                 RunId runId, size_t& blockedCount)
 {
+    for (const NodeId& nodeId : DownstreamClosure (document, { origin })) {
+        if (nodeId == origin)
+            continue;
+        CacheEntry& entry = cache_[nodeId];
+        entry.status.state = NodeExecutionState::Blocked;
+        entry.status.message = reason;
+        entry.status.cacheHit = false;
+        entry.status.runId = runId;
+        entry.dirty = true;
+        ++blockedCount;
+    }
+}
+
+EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const NodeRegistry& registry,
+                                       const NodeExecutor& executor, const EvaluationRequest& request,
+                                       const RunContext& context)
+{
+    EvaluationOutcome outcome;
+    outcome.runId = context.runId;
+    outcome.graphRevision = document.Revision ();
+
+    // Rule 6: an evaluation started from inside an evaluation is refused. Two
+    // runs mutating one cache is the failure that produces results belonging to
+    // neither of them.
+    bool expected = false;
+    if (!running_.compare_exchange_strong (expected, true, std::memory_order_acq_rel)) {
+        outcome.error = "an evaluation is already running";
+        return outcome;
+    }
+    const RunGuard guard (running_);
+
     std::erase_if (cache_, [&document] (const auto& item) { return document.FindNode (item.first) == nullptr; });
     for (const auto& [nodeId, node] : document.Nodes ()) {
         (void) node;
         cache_.try_emplace (nodeId);
     }
 
-    const TopoResult topo = BuildTopoOrder (document);
-    if (!topo.IsAcyclic ()) {
-        error = "cannot evaluate a cyclic graph";
-        return false;
+    const PlanOutcome planned = BuildEvaluationPlan (document, registry, request, context);
+    if (!planned.accepted) {
+        outcome.error = planned.error;
+        outcome.cyclicNodes = planned.cyclicNodes;
+        return outcome;
     }
+    const EvaluationPlan& plan = planned.plan;
+    outcome.plannedNodes = plan.requiredNodes;
 
-    const auto failNode = [&] (const NodeId& failedNode, const std::string& message) {
-        cache_[failedNode].status = { NodeExecutionState::Failed, message };
-        std::set<NodeId> blocked { failedNode };
-        bool changed = true;
-        while (changed) {
-            changed = false;
-            for (const Edge& edge : document.Edges ())
-                if (blocked.contains (edge.sourceNode) && blocked.insert (edge.targetNode).second)
-                    changed = true;
+    std::set<NodeId> unusable;
+    outcome.succeeded = true;
+
+    for (const NodeId& nodeId : plan.requiredNodes) {
+        if (context.cancellation.IsCancelled ()) {
+            // Rule 7: cancelling degrades nothing. Nodes that already finished
+            // keep their results; only what did not run is marked cancelled.
+            outcome.cancelled = true;
+            outcome.succeeded = false;
+            outcome.error = "the evaluation was cancelled";
+            for (const NodeId& remaining : plan.requiredNodes) {
+                CacheEntry& entry = cache_[remaining];
+                if (entry.status.runId != context.runId) {
+                    entry.status.state = NodeExecutionState::Cancelled;
+                    entry.status.message = "the evaluation was cancelled";
+                    entry.status.runId = context.runId;
+                }
+            }
+            return outcome;
         }
-        blocked.erase (failedNode);
-        for (const NodeId& nodeId : blocked)
-            cache_[nodeId].status = { NodeExecutionState::Blocked, "upstream node failed: " + failedNode };
-        error = "node " + failedNode + " failed: " + message;
-        return false;
-    };
 
-    auto candidate = cache_;
-    for (const NodeId& nodeId : topo.order) {
+        if (unusable.contains (nodeId))
+            continue;
+
         const Node& node = *document.FindNode (nodeId);
-        const NodeType* nodeType = registry.Find (node.nodeType);
-        if (nodeType == nullptr) {
-            error = "unknown node type: " + node.nodeType;
-            return false;
-        }
+        const NodeType& nodeType = *registry.Find (node.nodeType);
 
-        ValueMap inputs;
+        // Cache key: node identity and parameters by value, upstream results by
+        // OUTPUT REVISION rather than by content. A mesh is never rehashed to
+        // decide whether its consumer is still clean.
         size_t inputHash = std::hash<std::string> {}(node.nodeType);
         for (const auto& [parameterId, value] : node.parameters) {
-            CombineHash (inputHash, std::hash<std::string> {}(parameterId));
+            CombineText (inputHash, parameterId);
             CombineHash (inputHash, value.Hash ());
         }
-        for (const ParameterSchema& parameter : nodeType->parameters) {
+        for (const ParameterSchema& parameter : nodeType.parameters) {
             if (!node.parameters.contains (parameter.id) && parameter.defaultValue) {
-                CombineHash (inputHash, std::hash<std::string> {}(parameter.id));
+                CombineText (inputHash, parameter.id);
                 CombineHash (inputHash, parameter.defaultValue->Hash ());
             }
         }
 
-        for (const PortSchema& input : nodeType->inputs) {
+        ValueMap inputs;
+        bool inputsResolved = true;
+        for (const PortSchema& input : nodeType.inputs) {
             Value::List values;
             for (const Edge& edge : document.Edges ()) {
                 if (edge.targetNode != nodeId || edge.targetPort != input.id)
                     continue;
-                const auto source = candidate.find (edge.sourceNode);
+                const auto source = cache_.find (edge.sourceNode);
                 const std::shared_ptr<const NodeResult> sourceResult =
-                    source == candidate.end () ? nullptr : source->second.result;
+                    source == cache_.end () ? nullptr : source->second.result;
                 if (!sourceResult || !sourceResult->outputs.contains (edge.sourcePort)) {
-                    return failNode (nodeId, "source output is absent: " + edge.sourceNode + "." + edge.sourcePort);
+                    BlockDownstream (document, nodeId,
+                                     "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort,
+                                     context.runId, outcome.blockedCount);
+                    CacheEntry& failing = cache_[nodeId];
+                    failing.status.state = NodeExecutionState::Failed;
+                    failing.status.message = "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort;
+                    failing.status.runId = context.runId;
+                    ++outcome.failedCount;
+                    if (outcome.error.empty ()) {
+                        outcome.error = failing.status.message;
+                        outcome.failedNode = nodeId;
+                    }
+                    outcome.succeeded = false;
+                    inputsResolved = false;
+                    break;
                 }
-                const Value& value = sourceResult->outputs.at (edge.sourcePort);
-                values.push_back (value);
-                CombineHash (inputHash, std::hash<std::string> {}(edge.sourceNode));
-                CombineHash (inputHash, std::hash<std::string> {}(edge.sourcePort));
-                CombineHash (inputHash, value.Hash ());
+                values.push_back (sourceResult->outputs.at (edge.sourcePort));
+                CombineText (inputHash, edge.sourceNode);
+                CombineText (inputHash, edge.sourcePort);
+                CombineHash (inputHash, static_cast<size_t> (sourceResult->outputRevision));
             }
+            if (!inputsResolved)
+                break;
+
             if (values.empty ()) {
                 if (input.required) {
-                    return failNode (nodeId, "required input is unconnected: " + input.id);
+                    BlockDownstream (document, nodeId, "required input is unconnected: " + input.id, context.runId,
+                                     outcome.blockedCount);
+                    CacheEntry& failing = cache_[nodeId];
+                    failing.status.state = NodeExecutionState::Failed;
+                    failing.status.message = "required input is unconnected: " + input.id;
+                    failing.status.runId = context.runId;
+                    ++outcome.failedCount;
+                    if (outcome.error.empty ()) {
+                        outcome.error = failing.status.message;
+                        outcome.failedNode = nodeId;
+                    }
+                    outcome.succeeded = false;
+                    inputsResolved = false;
+                    break;
                 }
                 inputs.emplace (input.id, Value {});
             }
@@ -119,57 +206,111 @@ bool Evaluator::Evaluate (const GraphDocument& document, const NodeRegistry& reg
             }
         }
 
-        CacheEntry& entry = candidate[nodeId];
-        if (entry.result && !entry.dirty && entry.inputHash == inputHash) {
-            entry.dirty = false;
-            entry.status = { NodeExecutionState::Complete, {} };
+        if (!inputsResolved) {
+            for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
+                unusable.insert (blocked);
+            continue;
+        }
+
+        CacheEntry& entry = cache_[nodeId];
+        if (plan.mode == EvaluationMode::Incremental && entry.result && !entry.dirty && entry.inputHash == inputHash) {
+            entry.status.state = NodeExecutionState::Complete;
+            entry.status.message.clear ();
+            entry.status.cacheHit = true;
+            entry.status.runId = context.runId;
+            ++outcome.cacheHitCount;
             continue;
         }
 
         Node effectiveNode = node;
-        for (const ParameterSchema& parameter : nodeType->parameters)
+        for (const ParameterSchema& parameter : nodeType.parameters) {
             if (!effectiveNode.parameters.contains (parameter.id) && parameter.defaultValue)
                 effectiveNode.parameters.emplace (parameter.id, *parameter.defaultValue);
-        ValueMap outputs;
-        std::string nodeError;
-        bool succeeded = false;
-        const auto started = std::chrono::steady_clock::now ();
-        try {
-            succeeded = executor (effectiveNode, inputs, outputs, nodeError);
-        }
-        catch (const std::exception& exception) {
-            nodeError = exception.what ();
-        }
-        catch (...) {
-            nodeError = "unknown exception";
-        }
-        if (!succeeded) {
-            return failNode (nodeId, nodeError);
         }
 
-        for (const auto& [portId, value] : outputs) {
-            const PortSchema* output = FindOutput (*nodeType, portId);
-            if (output == nullptr || output->valueType != value.Type ()) {
-                return failNode (nodeId, "invalid output: " + portId);
+        ValueMap outputs;
+        std::string nodeError;
+        const auto started = std::chrono::steady_clock::now ();
+        // Rule 2: the node body runs behind the fault barrier, so a structured
+        // exception in node code fails the node instead of the process.
+        const GuardOutcome guarded = RunGuarded ([&executor, &effectiveNode, &inputs, &outputs, &nodeError] () {
+            return executor (effectiveNode, inputs, outputs, nodeError);
+        });
+        const double elapsedMs =
+            std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();
+
+        std::string failure;
+        if (!guarded.completed)
+            failure = guarded.fault;
+        else if (!guarded.result)
+            failure = nodeError.empty () ? "the node reported failure without a message" : nodeError;
+        else if (elapsedMs > context.limits.nodeBudgetMs)
+            failure = "the node exceeded its time budget";
+
+        size_t itemCount = 0;
+        if (failure.empty ()) {
+            for (const auto& [portId, value] : outputs) {
+                const PortSchema* output = FindOutput (nodeType, portId);
+                if (output == nullptr || output->valueType != value.Type ()) {
+                    failure = "invalid output: " + portId;
+                    break;
+                }
+                // Rule 5: an oversized or pathologically nested result fails its
+                // node rather than entering the cache.
+                const ValueMeasure measure =
+                    MeasureValue (value, context.limits.maxOutputItems - itemCount, context.limits.maxValueDepth);
+                if (!measure.WithinLimits ()) {
+                    failure = measure.exceededDepth ? "output '" + portId + "' nests too deeply"
+                                                    : "output '" + portId + "' exceeds the output ceiling";
+                    break;
+                }
+                itemCount += measure.items;
             }
         }
-        for (const PortSchema& output : nodeType->outputs) {
-            if (output.required && !outputs.contains (output.id)) {
-                return failNode (nodeId, "omitted output: " + output.id);
+        if (failure.empty ()) {
+            for (const PortSchema& output : nodeType.outputs) {
+                if (output.required && !outputs.contains (output.id)) {
+                    failure = "omitted output: " + output.id;
+                    break;
+                }
             }
+        }
+
+        if (!failure.empty ()) {
+            entry.dirty = true;
+            entry.status.state = NodeExecutionState::Failed;
+            entry.status.message = failure;
+            entry.status.cacheHit = false;
+            entry.status.durationMilliseconds = elapsedMs;
+            entry.status.runId = context.runId;
+            ++entry.status.evaluationCount;
+            ++outcome.failedCount;
+            if (outcome.error.empty ()) {
+                outcome.error = "node " + nodeId + " failed: " + failure;
+                outcome.failedNode = nodeId;
+            }
+            outcome.succeeded = false;
+            BlockDownstream (document, nodeId, "upstream node failed: " + nodeId, context.runId, outcome.blockedCount);
+            for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
+                unusable.insert (blocked);
+            continue;
         }
 
         entry.inputHash = inputHash;
-        const auto elapsed = std::chrono::steady_clock::now () - started;
         entry.result = std::make_shared<const NodeResult> (
-            NodeResult { std::move (outputs), std::chrono::duration<double, std::milli> (elapsed).count () });
+            NodeResult { std::move (outputs), elapsedMs, nextOutputRevision_++, itemCount });
         entry.dirty = false;
-        entry.status = { NodeExecutionState::Complete, {} };
+        entry.status.state = NodeExecutionState::Complete;
+        entry.status.message.clear ();
+        entry.status.cacheHit = false;
+        entry.status.durationMilliseconds = elapsedMs;
+        entry.status.itemCount = itemCount;
+        entry.status.runId = context.runId;
+        ++entry.status.evaluationCount;
+        ++outcome.executedCount;
     }
 
-    cache_ = std::move (candidate);
-    error.clear ();
-    return true;
+    return outcome;
 }
 
 NodeStatus Evaluator::Status (const NodeId& nodeId) const

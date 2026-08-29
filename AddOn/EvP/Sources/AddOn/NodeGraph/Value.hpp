@@ -93,6 +93,24 @@ class Value {
     Data data_;
 };
 
+// How big a value is, and how deeply it nests. Walked ITERATIVELY: a value
+// arriving from a node body is untrusted input, and a recursive walk over a
+// deeply nested list is a stack overflow inside Archicad's process. Stops as
+// soon as either ceiling is passed, so measuring a hostile value is cheap.
+struct ValueMeasure {
+    size_t items = 0;
+    size_t depth = 0;
+    bool exceededItems = false;
+    bool exceededDepth = false;
+
+    bool WithinLimits () const
+    {
+        return !exceededItems && !exceededDepth;
+    }
+};
+
+ValueMeasure MeasureValue (const Value& value, size_t maxItems, size_t maxDepth);
+
 } // namespace evp::nodegraph
 
 #endif

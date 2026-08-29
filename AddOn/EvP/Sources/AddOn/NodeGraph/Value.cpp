@@ -1,7 +1,9 @@
 #include "NodeGraph/Value.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <type_traits>
+#include <vector>
 
 namespace evp::nodegraph {
 namespace {
@@ -58,6 +60,39 @@ size_t Value::Hash () const
         },
         data_);
     return hash;
+}
+
+ValueMeasure MeasureValue (const Value& value, size_t maxItems, size_t maxDepth)
+{
+    ValueMeasure measure;
+
+    struct Frame {
+        const Value* value;
+        size_t depth;
+    };
+    std::vector<Frame> pending { { &value, 1 } };
+    while (!pending.empty ()) {
+        const Frame frame = pending.back ();
+        pending.pop_back ();
+
+        measure.depth = std::max (measure.depth, frame.depth);
+        if (frame.depth > maxDepth) {
+            measure.exceededDepth = true;
+            return measure;
+        }
+
+        ++measure.items;
+        if (measure.items > maxItems) {
+            measure.exceededItems = true;
+            return measure;
+        }
+
+        if (const auto* list = std::get_if<Value::List> (&frame.value->DataValue ())) {
+            for (const Value& item : *list)
+                pending.push_back ({ &item, frame.depth + 1 });
+        }
+    }
+    return measure;
 }
 
 } // namespace evp::nodegraph

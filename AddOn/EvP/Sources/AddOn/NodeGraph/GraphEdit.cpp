@@ -1,7 +1,7 @@
 #include "NodeGraph/GraphEdit.hpp"
 
 #include "NodeGraph/NodeRegistry.hpp"
-#include "NodeGraph/TopoOrder.hpp"
+#include "NodeGraph/GraphAlgorithms.hpp"
 
 #include <algorithm>
 #include <set>
