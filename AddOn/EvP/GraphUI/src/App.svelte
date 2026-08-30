@@ -43,6 +43,7 @@
   let snapEnabled = $state(true)
   let nativeConnected = $state(isNativeBridgeAvailable())
   let marker = $state<HTMLDivElement>()
+  let canvas = $state<HTMLElement>()
 
   function edgeId(edge: GraphEdgeRecord): string {
     return [edge.sourceNode, edge.sourcePort, edge.targetNode, edge.targetPort]
@@ -350,8 +351,18 @@
   }
 
   function movePlainMarker(event: PointerEvent): void {
-    if (diagnosticMode !== 'plain-marker' || marker === undefined) return
-    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    if (diagnosticMode !== 'plain-marker') return
+    moveMarker(event)
+  }
+
+  function moveRawMarker(event: PointerEvent): void {
+    if (diagnosticMode !== 'raw-marker') return
+    moveMarker(event)
+  }
+
+  function moveMarker(event: PointerEvent): void {
+    if (marker === undefined || canvas === undefined) return
+    const bounds = canvas.getBoundingClientRect()
     marker.style.transform = `translate3d(${event.clientX - bounds.left - 12}px, ${event.clientY - bounds.top - 12}px, 0)`
   }
 
@@ -367,11 +378,14 @@
   }
 
   onMount(() => {
+    const rawPointer = (event: Event) => moveRawMarker(event as PointerEvent)
+    window.addEventListener('pointerrawupdate', rawPointer, { passive: true })
     void initialize()
+    return () => window.removeEventListener('pointerrawupdate', rawPointer)
   })
 </script>
 
-<svelte:window onkeydown={handleKeyDown} />
+  <svelte:window onkeydown={handleKeyDown} />
 
 <main>
   <header class="toolbar">
@@ -443,8 +457,8 @@
     </div>
   </header>
 
-  <section class="canvas" aria-label="Node graph canvas" onpointermove={movePlainMarker}>
-    {#if diagnosticMode !== 'plain-marker'}
+  <section class="canvas" aria-label="Node graph canvas" onpointermove={movePlainMarker} bind:this={canvas}>
+    {#if diagnosticMode !== 'plain-marker' && diagnosticMode !== 'raw-marker'}
       <SvelteFlow
       bind:nodes
       bind:edges
@@ -469,7 +483,7 @@
     {:else}
       <div class="plain-stage">
         <div class="plain-marker" bind:this={marker}></div>
-        <p>Move the pointer continuously. This div follows through one direct CSS transform with no Svelte state update.</p>
+        <p>Move continuously. This div follows {diagnosticMode === 'raw-marker' ? 'pointerrawupdate' : 'pointermove'} through one direct CSS transform with no Svelte state update.</p>
       </div>
     {/if}
 

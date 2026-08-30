@@ -1,4 +1,4 @@
-export type DiagnosticMode = 'flow' | 'bare-flow' | 'plain-marker'
+export type DiagnosticMode = 'flow' | 'bare-flow' | 'plain-marker' | 'raw-marker'
 
 export interface Distribution {
   count: number
@@ -36,6 +36,9 @@ export interface PerformanceReport {
   gpuRenderer: string
   frames: Distribution
   pointerGaps: Distribution
+  rawPointerGaps: Distribution
+  rawPointerSupported: boolean
+  coalescedPointerSamples: { total: number; maxPerEvent: number }
   inputToFrame: Distribution
   longTasks: { count: number; totalMs: number; worstMs: number }
   bridgeCalls: BridgeCallSummary[]
@@ -96,6 +99,13 @@ export function diagnoseReport(report: PerformanceReport): string[] {
   const findings: string[] = []
   if (report.longTasks.count > 0) findings.push('JavaScript/main-thread stalls occurred during the capture.')
   if ((report.pointerGaps.p95Ms ?? 0) >= 40) findings.push('Pointer events arrived in noticeable bursts (p95 >= 40 ms).')
+  if (report.rawPointerGaps.count > report.pointerGaps.count * 1.5) {
+    findings.push('Raw pointer updates arrived materially more often than pointermove events; a raw-input drag path may help.')
+  } else if (report.rawPointerSupported && report.rawPointerGaps.count > 0) {
+    findings.push('Raw pointer updates did not provide a materially higher event cadence.')
+  } else {
+    findings.push('Raw pointer updates were unavailable or produced no events.')
+  }
   if ((report.frames.medianMs ?? 0) >= 28) {
     findings.push('Frame cadence was approximately 30 Hz or slower.')
   } else if ((report.frames.p95Ms ?? 0) >= 32) {

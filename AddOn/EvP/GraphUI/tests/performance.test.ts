@@ -25,6 +25,9 @@ function report(mode: PerformanceReport['mode'], frameP95: number): PerformanceR
     gpuRenderer: 'test',
     frames: { count: 300, medianMs: 16.7, p95Ms: frameP95, worstMs: frameP95 },
     pointerGaps: { count: 300, medianMs: 8, p95Ms: 12, worstMs: 16 },
+    rawPointerGaps: { count: 300, medianMs: 8, p95Ms: 12, worstMs: 16 },
+    rawPointerSupported: true,
+    coalescedPointerSamples: { total: 300, maxPerEvent: 1 },
     inputToFrame: { count: 300, medianMs: 5, p95Ms: 12, worstMs: 16 },
     longTasks: { count: 0, totalMs: 0, worstMs: 0 },
     bridgeCalls: [],
@@ -75,10 +78,18 @@ test('diagnosis reports cadence and bridge facts without assigning an unproved c
   assert.deepEqual(diagnoseReport(slow), [
     'JavaScript/main-thread stalls occurred during the capture.',
     'Pointer events arrived in noticeable bursts (p95 >= 40 ms).',
+    'Raw pointer updates did not provide a materially higher event cadence.',
     'Frame cadence was approximately 30 Hz or slower.',
     'Pointer-to-next-frame latency was clearly noticeable.',
     'No native bridge calls occurred during the capture.',
   ])
+})
+
+test('diagnosis identifies materially higher raw pointer cadence', () => {
+  const raw = report('raw-marker', 16)
+  raw.pointerGaps.count = 100
+  raw.rawPointerGaps = { count: 300, medianMs: 4, p95Ms: 8, worstMs: 12 }
+  assert.match(diagnoseReport(raw).join(' '), /Raw pointer updates arrived materially more often/)
 })
 
 test('render-path comparison separates flow work from a shared host cadence limit', () => {

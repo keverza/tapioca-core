@@ -26,24 +26,31 @@
   const EMPTY: Distribution = { count: 0, medianMs: null, p95Ms: null, worstMs: null }
   const rollingFrames: number[] = []
   const rollingPointers: number[] = []
+  const rollingRawPointers: number[] = []
   const rollingLatencies: number[] = []
   let captureFrames: number[] = []
   let capturePointers: number[] = []
+  let captureRawPointers: number[] = []
   let captureLatencies: number[] = []
   let captureLongTasks: number[] = []
   let captureBridgeCalls: BridgeCallSample[] = []
   let previousFrame: number | null = null
   let previousPointer: number | null = null
+  let previousRawPointer: number | null = null
   let lastPointer: number | null = null
   let captureStarted = 0
   let captureTimer: number | undefined
   let recording = $state(false)
   let liveFrames = $state<Distribution>(EMPTY)
   let livePointers = $state<Distribution>(EMPTY)
+  let liveRawPointers = $state<Distribution>(EMPTY)
   let liveLatencies = $state<Distribution>(EMPTY)
   let reports = $state.raw<PerformanceReport[]>([])
   let logs = $state.raw<string[]>(['Ready. Capture each path while continuously moving or dragging for 10 seconds.'])
   let copied = $state(false)
+  let rawPointerSupported = false
+  let coalescedPointerTotal = 0
+  let coalescedPointerMax = 0
 
   function cappedPush(values: number[], value: number): void {
     values.push(value)
@@ -57,11 +64,15 @@
   function startCapture(): void {
     captureFrames = []
     capturePointers = []
+    captureRawPointers = []
     captureLatencies = []
     captureLongTasks = []
     captureBridgeCalls = []
     previousPointer = null
+    previousRawPointer = null
     lastPointer = null
+    coalescedPointerTotal = 0
+    coalescedPointerMax = 0
     captureStarted = performance.now()
     recording = true
     copied = false
@@ -88,6 +99,9 @@
       gpuRenderer: readGpuRenderer(),
       frames: summarize(captureFrames),
       pointerGaps: summarize(capturePointers),
+      rawPointerGaps: summarize(captureRawPointers),
+      rawPointerSupported,
+      coalescedPointerSamples: { total: coalescedPointerTotal, maxPerEvent: coalescedPointerMax },
       inputToFrame: summarize(captureLatencies),
       longTasks: {
         count: captureLongTasks.length,
@@ -159,12 +173,32 @@
       }
       previousPointer = now
       lastPointer = performance.now()
+      if (recording) {
+        const coalescedCount = event.getCoalescedEvents?.().length ?? 0
+        coalescedPointerTotal += coalescedCount
+        coalescedPointerMax = Math.max(coalescedPointerMax, coalescedCount)
+      }
     }
     window.addEventListener('pointermove', pointer, { capture: true, passive: true })
+
+    rawPointerSupported = 'onpointerrawupdate' in window
+    const rawPointer = (rawEvent: Event) => {
+      const event = rawEvent as PointerEvent
+      rawPointerSupported = true
+      const now = event.timeStamp
+      if (previousRawPointer !== null) {
+        const gap = now - previousRawPointer
+        cappedPush(rollingRawPointers, gap)
+        if (recording) captureRawPointers.push(gap)
+      }
+      previousRawPointer = now
+    }
+    window.addEventListener('pointerrawupdate', rawPointer, { capture: true, passive: true })
 
     refreshTimer = window.setInterval(() => {
       liveFrames = summarize(rollingFrames)
       livePointers = summarize(rollingPointers)
+      liveRawPointers = summarize(rollingRawPointers)
       liveLatencies = summarize(rollingLatencies)
     }, 500)
 
@@ -184,6 +218,7 @@
       window.clearInterval(refreshTimer)
       if (captureTimer !== undefined) window.clearTimeout(captureTimer)
       window.removeEventListener('pointermove', pointer, { capture: true })
+      window.removeEventListener('pointerrawupdate', rawPointer, { capture: true })
       unsubscribe()
       observer?.disconnect()
     }
@@ -202,6 +237,7 @@
         <option value="flow">Full SvelteFlow</option>
         <option value="bare-flow">Bare SvelteFlow</option>
         <option value="plain-marker">Plain moving div</option>
+        <option value="raw-marker">Raw-event moving div</option>
       </select>
     </label>
     <p>Full includes graph furniture. Bare keeps the same nodes and wires without the background, controls, or minimap. Plain bypasses Svelte and SvelteFlow for pointer movement.</p>
@@ -211,6 +247,7 @@
     <div><span>Frame median</span><strong>{formatMs(liveFrames.medianMs)}</strong></div>
     <div><span>Frame p95</span><strong>{formatMs(liveFrames.p95Ms)}</strong></div>
     <div><span>Pointer p95</span><strong>{formatMs(livePointers.p95Ms)}</strong></div>
+    <div><span>Raw pointer p95</span><strong>{formatMs(liveRawPointers.p95Ms)}</strong></div>
     <div><span>Input to frame p95</span><strong>{formatMs(liveLatencies.p95Ms)}</strong></div>
   </section>
 
@@ -229,6 +266,8 @@
         <div><dt>Worst frame</dt><dd>{formatMs(reports[0].frames.worstMs)}</dd></div>
         <div><dt>Long tasks</dt><dd>{reports[0].longTasks.count}</dd></div>
         <div><dt>Bridge calls</dt><dd>{reports[0].bridgeCalls.reduce((total, item) => total + item.count, 0)}</dd></div>
+        <div><dt>Raw events</dt><dd>{reports[0].rawPointerGaps.count}</dd></div>
+        <div><dt>Coalesced</dt><dd>{reports[0].coalescedPointerSamples.total}</dd></div>
       </dl>
     </section>
   {/if}
