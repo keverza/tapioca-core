@@ -11,7 +11,10 @@
     type NodeTypes,
   } from '@xyflow/svelte'
   import '@xyflow/svelte/dist/style.css'
-  import { callTapioca } from './bridge'
+  import { onMount } from 'svelte'
+  import { callTapioca, isNativeBridgeAvailable } from './bridge'
+  import PerformancePanel from './PerformancePanel.svelte'
+  import type { DiagnosticMode } from './performance'
   import SchemaNode from './SchemaNode.svelte'
   import type {
     GraphEdgeRecord,
@@ -24,6 +27,7 @@
 
   const nodeTypes: NodeTypes = { schema: SchemaNode }
   const positions: PositionStore = new Map()
+  const SNAP_GRID: [number, number] = [16, 16]
 
   let nodes = $state.raw<Node<SchemaNodeData>[]>([])
   let edges = $state.raw<Edge[]>([])
@@ -34,6 +38,11 @@
   let busy = $state(false)
   let message = $state('Connecting to the native graph runtime...')
   let failed = $state(false)
+  let performanceOpen = $state(false)
+  let diagnosticMode = $state<DiagnosticMode>('flow')
+  let snapEnabled = $state(true)
+  let nativeConnected = $state(isNativeBridgeAvailable())
+  let marker = $state<HTMLDivElement>()
 
   function edgeId(edge: GraphEdgeRecord): string {
     return [edge.sourceNode, edge.sourcePort, edge.targetNode, edge.targetPort]
@@ -96,6 +105,11 @@
     busy = true
     failed = false
     try {
+      if (!nativeConnected) {
+        initializeStandaloneFixture()
+        message = 'Standalone diagnostic fixture / no native bridge'
+        return
+      }
       const response = await callTapioca<{ nodeTypes: NodeTypeSchema[] }>('Tapioca.GraphGetNodeTypes')
       catalog = response.nodeTypes
       selectedNodeType = catalog[0]?.nodeType ?? ''
@@ -112,8 +126,67 @@
     }
   }
 
+  function initializeStandaloneFixture(): void {
+    catalog = [
+      {
+        nodeType: 'diagnostic.source',
+        label: 'Source',
+        category: 'Diagnostic',
+        description: 'Browser-only source used for host comparison.',
+        executionDomain: 'browser',
+        display: 'ports',
+        inputs: [],
+        outputs: [{ portId: 'value', label: 'Value', valueType: 'number' }],
+        parameters: [],
+      },
+      {
+        nodeType: 'diagnostic.sink',
+        label: 'Sink',
+        category: 'Diagnostic',
+        description: 'Browser-only sink used for host comparison.',
+        executionDomain: 'browser',
+        display: 'ports',
+        inputs: [{ portId: 'value', label: 'Value', valueType: 'number' }],
+        outputs: [],
+        parameters: [],
+      },
+    ]
+    selectedNodeType = catalog[0].nodeType
+    applyState({
+      revision: 0,
+      nodes: [
+        { nodeId: 'diagnostic-source', nodeType: 'diagnostic.source', parameters: [] },
+        { nodeId: 'diagnostic-sink', nodeType: 'diagnostic.sink', parameters: [] },
+      ],
+      edges: [
+        {
+          sourceNode: 'diagnostic-source',
+          sourcePort: 'value',
+          targetNode: 'diagnostic-sink',
+          targetPort: 'value',
+        },
+      ],
+    })
+  }
+
   async function addNode(): Promise<void> {
     if (selectedNodeType === '') return
+    if (!nativeConnected) {
+      const schema = catalog.find((item) => item.nodeType === selectedNodeType)
+      if (schema === undefined) return
+      const nodeId = `${selectedNodeType}-${Date.now().toString(36)}`
+      nodes = [
+        ...nodes,
+        {
+          id: nodeId,
+          type: 'schema',
+          position: positionFor(nodeId, nodes.length),
+          data: { schema, parameters: [] },
+        },
+      ]
+      message = `Added browser-only ${nodeId}`
+      return
+    }
     busy = true
     failed = false
     try {
@@ -140,6 +213,23 @@
       await reloadState()
       return
     }
+    if (!nativeConnected) {
+      edges = [
+        ...edges,
+        {
+          id: [connection.source, connection.sourceHandle, connection.target, connection.targetHandle]
+            .map(encodeURIComponent)
+            .join('--'),
+          source: connection.source,
+          sourceHandle: connection.sourceHandle,
+          target: connection.target,
+          targetHandle: connection.targetHandle,
+          type: 'smoothstep',
+        },
+      ]
+      message = 'Connected browser-only diagnostic nodes'
+      return
+    }
     busy = true
     failed = false
     try {
@@ -162,6 +252,17 @@
 
   async function removeElements(selectedNodes: Node<SchemaNodeData>[], selectedEdges: Edge[]): Promise<void> {
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return
+    if (!nativeConnected) {
+      const removedNodeIds = new Set(selectedNodes.map((node) => node.id))
+      const removedEdgeIds = new Set(selectedEdges.map((edge) => edge.id))
+      nodes = nodes.filter((node) => !removedNodeIds.has(node.id))
+      edges = edges.filter(
+        (edge) =>
+          !removedEdgeIds.has(edge.id) && !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target),
+      )
+      message = `Removed ${selectedNodes.length} browser-only nodes and ${selectedEdges.length} connections`
+      return
+    }
     busy = true
     failed = false
     try {
@@ -222,6 +323,10 @@
   }
 
   async function evaluate(): Promise<void> {
+    if (!nativeConnected) {
+      message = 'Evaluation requires the native graph runtime; interaction timing does not.'
+      return
+    }
     busy = true
     failed = false
     try {
@@ -244,7 +349,24 @@
     if (targetNode !== null) positions.set(targetNode.id, { ...targetNode.position })
   }
 
-  $effect(() => {
+  function movePlainMarker(event: PointerEvent): void {
+    if (diagnosticMode !== 'plain-marker' || marker === undefined) return
+    const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    marker.style.transform = `translate3d(${event.clientX - bounds.left - 12}px, ${event.clientY - bounds.top - 12}px, 0)`
+  }
+
+  function closeMenu(event: MouseEvent): void {
+    const menu = (event.currentTarget as HTMLElement).closest('details')
+    menu?.removeAttribute('open')
+  }
+
+  function toggleSnap(event: MouseEvent): void {
+    snapEnabled = !snapEnabled
+    message = `Grid snap ${snapEnabled ? 'enabled at 16 px' : 'disabled'}`
+    closeMenu(event)
+  }
+
+  onMount(() => {
     void initialize()
   })
 </script>
@@ -257,6 +379,59 @@
       <span>Tapioca / Experimental</span>
       <strong>Node Graph</strong>
     </div>
+    <nav class="menu-bar" aria-label="Application menu">
+      <details>
+        <summary>File</summary>
+        <div class="menu-popover">
+          <button
+            onclick={(event) => {
+              closeMenu(event)
+              void reloadState()
+            }}
+            disabled={busy || !nativeConnected}>Refresh graph</button
+          >
+        </div>
+      </details>
+      <details>
+        <summary>Run</summary>
+        <div class="menu-popover">
+          <button
+            onclick={(event) => {
+              closeMenu(event)
+              void evaluate()
+            }}
+            disabled={busy}>Evaluate graph</button
+          >
+        </div>
+      </details>
+      <details>
+        <summary>Flow</summary>
+        <div class="menu-popover">
+          <button class="menu-toggle" role="menuitemcheckbox" aria-checked={snapEnabled} onclick={toggleSnap}>
+            <span class:checked={snapEnabled} aria-hidden="true"></span>
+            Snap to grid
+            <kbd>16 px</kbd>
+          </button>
+        </div>
+      </details>
+      <details>
+        <summary>Debug</summary>
+        <div class="menu-popover menu-right">
+          <button
+            class="menu-toggle"
+            role="menuitemcheckbox"
+            aria-checked={performanceOpen}
+            onclick={(event) => {
+              performanceOpen = !performanceOpen
+              closeMenu(event)
+            }}
+          >
+            <span class:checked={performanceOpen} aria-hidden="true"></span>
+            Interaction timing
+          </button>
+        </div>
+      </details>
+    </nav>
     <div class="actions">
       <select bind:value={selectedNodeType} disabled={busy || catalog.length === 0} aria-label="Node type">
         {#each catalog as item}
@@ -265,31 +440,38 @@
       </select>
       <button class="primary" onclick={addNode} disabled={busy || selectedNodeType === ''}>Add node</button>
       <button onclick={removeSelection} disabled={busy}>Remove selected</button>
-      <button onclick={reloadState} disabled={busy}>Refresh</button>
-      <button class="run" onclick={evaluate} disabled={busy}>Evaluate</button>
     </div>
   </header>
 
-  <section class="canvas" aria-label="Node graph canvas">
-    <SvelteFlow
+  <section class="canvas" aria-label="Node graph canvas" onpointermove={movePlainMarker}>
+    {#if diagnosticMode !== 'plain-marker'}
+      <SvelteFlow
       bind:nodes
       bind:edges
       {nodeTypes}
       fitView
       minZoom={0.15}
       maxZoom={2.5}
-      snapGrid={[16, 16]}
+      snapGrid={snapEnabled ? SNAP_GRID : undefined}
       onconnect={connect}
       onbeforeconnect={(connection) =>
         connection.sourceHandle !== null && connection.targetHandle !== null ? connection : false}
       onbeforedelete={removeFromRuntime}
       onnodedragstop={rememberPosition}
       deleteKey={['Backspace', 'Delete']}
-    >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-      <Controls position="bottom-left" />
-      <MiniMap position="bottom-right" pannable zoomable />
-    </SvelteFlow>
+      >
+        {#if diagnosticMode === 'flow'}
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+          <Controls position="bottom-left" />
+          <MiniMap position="bottom-right" pannable zoomable />
+        {/if}
+      </SvelteFlow>
+    {:else}
+      <div class="plain-stage">
+        <div class="plain-marker" bind:this={marker}></div>
+        <p>Move the pointer continuously. This div follows through one direct CSS transform with no Svelte state update.</p>
+      </div>
+    {/if}
 
     {#if nodes.length === 0 && !busy && !failed}
       <div class="empty">
@@ -298,11 +480,20 @@
         <p>Add a Number node, then connect native ports. Every accepted edit is owned by C++.</p>
       </div>
     {/if}
+
+    {#if performanceOpen}
+      <PerformancePanel
+        bind:mode={diagnosticMode}
+        nodeCount={nodes.length}
+        edgeCount={edges.length}
+        onclose={() => (performanceOpen = false)}
+      />
+    {/if}
   </section>
 
   <footer class:error={failed}>
     <span class:active={busy}></span>
     <p>{message}</p>
-    <code>rev {revision}</code>
+    <code>{nativeConnected ? `rev ${revision}` : 'fixture'}</code>
   </footer>
 </main>

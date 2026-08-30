@@ -2,7 +2,7 @@
   "name": "Tapioca",
   "version": "0.3.0",
   "description": "Archicad selection, preview geometry and explicit translation nodes over Tapioca's command bus.",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "file_hash": null,
   "group": "",
   "contents": "",

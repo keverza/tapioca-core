@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/assert-build.mjs",
+    "test": "node --test tests/*.test.ts",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {

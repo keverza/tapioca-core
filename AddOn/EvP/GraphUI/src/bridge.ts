@@ -1,3 +1,5 @@
+import { publishBridgeCall } from './performance'
+
 type EvPCallReturn = string | PromiseLike<string>
 
 interface EvPBridge {
@@ -25,10 +27,21 @@ export async function callTapioca<T>(command: string, params: Record<string, unk
     throw new Error('The native EvP.call bridge is not available.')
   }
 
-  const raw = await Promise.resolve(window.EvP.call(JSON.stringify({ command, params })))
-  const envelope = JSON.parse(String(raw)) as EvPSuccess<T> | EvPFailure
-  if (!envelope.ok) {
-    throw new Error(envelope.error.message)
+  const started = performance.now()
+  let succeeded = false
+  try {
+    const raw = await Promise.resolve(window.EvP.call(JSON.stringify({ command, params })))
+    const envelope = JSON.parse(String(raw)) as EvPSuccess<T> | EvPFailure
+    if (!envelope.ok) {
+      throw new Error(envelope.error.message)
+    }
+    succeeded = true
+    return envelope.data
+  } finally {
+    publishBridgeCall({ command, durationMs: performance.now() - started, succeeded })
   }
-  return envelope.data
+}
+
+export function isNativeBridgeAvailable(): boolean {
+  return window.EvP !== undefined && typeof window.EvP.call === 'function'
 }

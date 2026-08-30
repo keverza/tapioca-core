@@ -159,3 +159,7 @@ if ($copied -notcontains "EvPPy.dll") {
 }
 
 Write-Host ("Copied to dist\: " + (($copied | Sort-Object -Unique) -join ", ")) -ForegroundColor Green
+
+# Preserve the runtime directory layout and produce the actual GitHub release
+# asset. The flat files above remain convenient build pickups.
+& (Join-Path $PSScriptRoot "Stage-Release.ps1")

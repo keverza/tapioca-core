@@ -25,6 +25,9 @@ __pycache__/
 /dist/*.dll
 /dist/*.gha
 /dist/*.pdb
+# Generated deployable release tree and GitHub release asset.
+/dist/Tapioca/
+/dist/Tapioca-AC29.zip
 /AddOn/EvP/NotebookUI/node_modules/
 /AddOn/EvP/NotebookUI/dist/
 # Dump DATA only. Was `*dump*`, which (core.ignorecase=true on Windows) also
