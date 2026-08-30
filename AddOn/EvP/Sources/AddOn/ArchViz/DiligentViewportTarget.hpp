@@ -45,7 +45,7 @@ struct IEngineFactoryD3D11;
 struct IRenderDevice;
 struct ISwapChain;
 struct ITextureView;
-}   // namespace Diligent
+} // namespace Diligent
 
 namespace geomsrv {
 namespace archviz {
@@ -57,7 +57,7 @@ enum class SurfaceMode : uint8_t {
 };
 
 class DiligentViewportTarget final {
-public:
+  public:
     DiligentViewportTarget ();
     ~DiligentViewportTarget ();
     DiligentViewportTarget (const DiligentViewportTarget&) = delete;
@@ -66,8 +66,8 @@ public:
     // `error` carries the reason on false -- an alert cannot, and neither can a
     // black rectangle.
     bool Create (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                 Diligent::IEngineFactoryD3D11* factory, SurfaceMode mode, void* hwnd,
-                 uint32_t width, uint32_t height, std::string& error);
+                 Diligent::IEngineFactoryD3D11* factory, SurfaceMode mode, void* hwnd, uint32_t width, uint32_t height,
+                 std::string& error);
 
     // ⚠️ CALL IT BEFORE THE DEVICE IS RELEASED, and pass the context: the flip
     // model requires the immediate context to have let go of the back buffers
@@ -87,14 +87,13 @@ public:
 
     // Offscreen mode only. The caller must unbind the colour target before this
     // call; the method copies through a staging texture and returns PNG bytes.
-    bool CapturePng (Diligent::IDeviceContext* context, std::string& png,
-                     std::string& error);
+    bool CapturePng (Diligent::IDeviceContext* context, std::string& png, std::string& error);
 
     // Applied at the next BeginFrame, not here: resizing between a bind and a
     // draw destroys the texture the context is holding.
     void RequestResize (uint32_t width, uint32_t height);
 
-    uint32_t ColorFormat () const;   // raw Diligent::TEXTURE_FORMAT
+    uint32_t ColorFormat () const; // raw Diligent::TEXTURE_FORMAT
     uint32_t DepthFormat () const;
     uint32_t Width () const;
     uint32_t Height () const;
@@ -117,11 +116,11 @@ public:
     // measurement cannot see at all, because that measurement timestamps
     // SUBMISSION (it logs after Present returns), not display.
     //
-    // Setting it needs DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT at
-    // creation, which is why the flag is there even though the waitable handle
-    // itself is not used yet.
-    bool     SetFrameLatency (uint32_t frames, std::string& error);
-    uint32_t FrameLatency () const;      // 0 = never set, i.e. DXGI's default 3
+    // The composition chain uses IDXGISwapChain2. The palette uses its dedicated
+    // D3D11 device's IDXGIDevice1 control, so both interactive surfaces can keep
+    // the queue at one frame without changing presentation mode.
+    bool SetFrameLatency (uint32_t frames, std::string& error);
+    uint32_t FrameLatency () const; // 0 = never set, i.e. DXGI's default 3
 
     // The last non-S_OK Present result, and how many outright failed. Present
     // can return DXGI_STATUS_OCCLUDED and simply not show the frame; discarding
@@ -137,12 +136,12 @@ public:
     // window. Premultiplied transparency is exactly one value.
     const float* ClearColor () const;
 
-private:
+  private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -3,6 +3,7 @@
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
+#include "ArchViz/ImGuiGraphInteractionLab.hpp"
 
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
@@ -104,6 +105,7 @@ struct DiligentHud::Impl {
     float worstMsInWindow = 0.0f;
     float heldWorstMs = 0.0f;
     double heldUntilSeconds = 0.0;
+    ImGuiGraphInteractionLab graphInteractionLab;
 };
 
 namespace {
@@ -222,7 +224,10 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     // TRANSITIONS -- a press and release inside one frame collapses to nothing
     // if only the final held state is carried, and a fast click on a checkbox is
     // exactly that.
-    if (input.inside)
+    // A captured drag may legitimately leave the item. PollHardwareInput still
+    // provides client coordinates there; retaining them while a button is held
+    // is what lets ImGui finish the drag instead of snapping or stalling.
+    if (input.inside || input.buttons != kMouseNone)
         io.AddMousePosEvent (float (input.x), float (input.y));
     else
         io.AddMousePosEvent (-FLT_MAX, -FLT_MAX);
@@ -361,6 +366,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
             ImGui::TextDisabled ("quality -- realistic adds specular + tone mapping");
 
             ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
+            ImGui::Checkbox ("graph interaction lab", &state.showGraphInteractionLab);
 
             // ---- Environment ------------------------------------------------
             //
@@ -780,6 +786,9 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                      (unsigned long long) scene.materials);
     }
     ImGui::End ();
+
+    if (state.showGraphInteractionLab)
+        impl_->graphInteractionLab.Draw (width, height, input, state.frameLatency, state.showGraphInteractionLab);
 
     // ---- the frame-cost badge, ALWAYS ON -----------------------------------
     //

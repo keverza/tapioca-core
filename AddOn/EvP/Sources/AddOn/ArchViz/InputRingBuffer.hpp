@@ -48,15 +48,15 @@ namespace archviz {
 
 // Bit flags, matching the IMGUI_MBUT_* values the bgfx imgui backend expects.
 enum MouseButtonMask : uint8_t {
-    kMouseNone   = 0x00,
-    kMouseLeft   = 0x01,
-    kMouseRight  = 0x02,
+    kMouseNone = 0x00,
+    kMouseLeft = 0x01,
+    kMouseRight = 0x02,
     kMouseMiddle = 0x04,
 };
 
 struct ButtonTransition {
     uint8_t button = kMouseNone;
-    bool    down   = false;
+    bool down = false;
 };
 
 // What the render thread reads once per frame.
@@ -68,15 +68,21 @@ struct InputSnapshot {
     // backbuffer — so the DPI multiply the DG path needed is GONE with it, not
     // moved. Do not reintroduce one.
     int32_t x = 0, y = 0;
-    bool    inside = false;    // is the cursor within the viewport's client rect
-    bool    shift  = false;    // Shift held RIGHT NOW; orbit vs pan reads this live
+    bool inside = false; // is the cursor within the viewport's client rect
+    bool shift = false;  // Shift held RIGHT NOW; orbit vs pan reads this live
     // The wheel BUTTON — Archicad's navigation button. Polled, so it keeps
     // reporting for the whole drag and cannot be lost between two DG operations.
-    bool    navButton = false;
+    bool navButton = false;
 
     // ---- pushed by DG -----------------------------------------------------
-    uint8_t buttons    = kMouseNone;  // left/right held, for ImGui
-    int32_t wheelDelta = 0;           // accumulated since the last snapshot, then cleared
+    uint8_t buttons = kMouseNone; // left/right held, for ImGui
+    int32_t wheelDelta = 0;       // accumulated since the last snapshot, then cleared
+    // Sequence and timestamp of the newest queued event. The interaction lab
+    // displays the delivery age so a responsive-looking widget is backed by a
+    // number rather than an eye-only judgement. Zero timestamp means this frame
+    // received no new event.
+    uint64_t eventSequence = 0;
+    uint64_t eventTickMs = 0;
 
     // ⚠️ THE TRANSITIONS, NOT JUST THE FINAL STATE. A press and release inside
     // ONE frame — 16 ms, which is an ordinary fast click — collapses to "nothing
@@ -85,11 +91,11 @@ struct InputSnapshot {
     // in the viewport actually tick.
     static constexpr int kMaxTransitions = 16;
     ButtonTransition transitions[kMaxTransitions] = {};
-    int              transitionCount = 0;
+    int transitionCount = 0;
 };
 
 class InputRingBuffer final {
-public:
+  public:
     static InputRingBuffer& Get ();
 
     // ---- producer: the DG callbacks, main thread ----
@@ -107,16 +113,16 @@ public:
     // zeroed — the caller fills them.
     InputSnapshot Take ();
 
-private:
+  private:
     InputRingBuffer () = default;
     InputRingBuffer (const InputRingBuffer&) = delete;
     InputRingBuffer& operator= (const InputRingBuffer&) = delete;
 
     mutable std::mutex mutex_;
-    InputSnapshot      state_;
+    InputSnapshot state_;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

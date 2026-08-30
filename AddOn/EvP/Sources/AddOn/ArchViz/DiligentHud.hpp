@@ -62,6 +62,8 @@ struct HudState {
     // away, or -- on the overlay, which is click-through -- impossible to
     // uncollapse at all.
     bool showFpsBadge = true;
+    bool showGraphInteractionLab = true;
+    uint32_t frameLatency = 0;
 
     // Set by the HUD, read by the viewport. `debugView` mirrors
     // DiligentDebugView; the HUD is a SECOND way to set it, alongside the

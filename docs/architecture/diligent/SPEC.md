@@ -141,6 +141,12 @@ state, and navigation-button state are polled in physical client pixels. Archica
 use a main-thread timer because `MainThreadCommand` dispatch is not reliable during a 3D-window
 drag.
 
+The palette captures left/right drags until release and keeps delivering polled client coordinates
+while an ImGui button is held, including beyond the viewport edge. Its dedicated D3D11 device is
+limited to one queued frame; the ImGui graph interaction lab reports that applied queue depth and
+the newest DG-event-to-ImGui-frame age while exercising movable windows, wheel input, sliders,
+integer input and checkboxes. The lab is an interaction test surface, not a second graph runtime.
+
 Camera synchronization is a measured ladder, not a single magic interval. Sampling, prediction,
 composition, frame queuing, and hide-on-navigation are independent concerns. A proposed mode
 must be measured with the shared navigation log and must not be promoted from an eye-only result.

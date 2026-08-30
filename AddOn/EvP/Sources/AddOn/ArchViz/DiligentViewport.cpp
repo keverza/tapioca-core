@@ -147,7 +147,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
         // Render thread, because the swap chain only exists here. The why is in
         // DiligentViewportSupport's ApplyRequestedFrameLatency.
-        if (surface.mode == SurfaceMode::Overlay)
+        if (!offscreen)
             ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);
 
         {
@@ -886,6 +886,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.frames = frames;
                 hudState.width = width;
                 hudState.height = height;
+                hudState.frameLatency = target.FrameLatency ();
                 // ⚠️ THE ANNOTATIONS STILL BLANK: `viewProj` projects them, so
                 // they go stale the way the model does. The split is not "HUD vs
                 // scene", it is "has a pose to be wrong about vs not".
@@ -933,7 +934,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 ++frames;
                 break;
             }
-            if (surface.mode == SurfaceMode::Overlay)
+            if (!offscreen)
                 ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);
             // To Archicad's Present detour, before ours: this frame's back
             // buffer is still buffer 0 (PLAT-RE79 phase 4).

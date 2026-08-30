@@ -1,11 +1,11 @@
 #include "ArchViz/DiligentViewportTarget.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 
 #include <windows.h>
-#include <d3d11.h>   // Must precede any Diligent D3D11 interop header (Probe 1a).
+#include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
 #include <dcomp.h>
-#include <dxgi1_3.h>   // IDXGISwapChain2::SetMaximumFrameLatency
+#include <dxgi1_3.h> // IDXGISwapChain2::SetMaximumFrameLatency
 
 #include <DeviceContextD3D11.h>
 #include <EngineFactoryD3D11.h>
@@ -44,10 +44,10 @@ using Diligent::RefCntAutoPtr;
 // ⚠️ THE VALUES ARE LINEAR, because the render target is _SRGB and the hardware
 // encodes on write. 0.62 linear lands near 0.82 sRGB on screen: clearly light,
 // still dark enough that a white wall reads as white against it.
-constexpr float kOpaqueClear[4] = {0.62f, 0.62f, 0.63f, 1.0f};
+constexpr float kOpaqueClear[4] = { 0.62f, 0.62f, 0.63f, 1.0f };
 // The overlay's. See the header: premultiplied transparency is exactly one
 // value, and any other alpha-zero colour is an additive haze.
-constexpr float kTransparentClear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+constexpr float kTransparentClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 std::string HrText (HRESULT hr)
 {
@@ -56,7 +56,7 @@ std::string HrText (HRESULT hr)
     return std::string (buf);
 }
 
-}   // namespace
+} // namespace
 
 struct DiligentViewportTarget::Impl {
     SurfaceMode mode = SurfaceMode::PaletteChild;
@@ -70,11 +70,11 @@ struct DiligentViewportTarget::Impl {
     // ---- present accounting (PLAT-RE99) ------------------------------------
     // Written from the render thread, read from the main thread for the state
     // command, so atomic. Latency 0 means "never set -- DXGI's default of 3".
-    std::atomic<uint32_t> frameLatency {0};
-    std::atomic<uint32_t> lastPresentResult {0};
-    std::atomic<uint64_t> presentFailures {0};
+    std::atomic<uint32_t> frameLatency { 0 };
+    std::atomic<uint32_t> lastPresentResult { 0 };
+    std::atomic<uint64_t> presentFailures { 0 };
 
-    Diligent::IRenderDevice* device = nullptr;   // borrowed; the caller owns it
+    Diligent::IRenderDevice* device = nullptr; // borrowed; the caller owns it
     RefCntAutoPtr<Diligent::IRenderDeviceD3D11> deviceD3D11;
 
     // ---- the palette-child path -------------------------------------------
@@ -104,7 +104,7 @@ struct DiligentViewportTarget::Impl {
     // rotation is what we think it is. Probe 1b established the pattern.
     struct Wrapped {
         RefCntAutoPtr<Diligent::ITexture> texture;
-        Diligent::ITextureView* view = nullptr;   // owned by `texture`
+        Diligent::ITextureView* view = nullptr; // owned by `texture`
     };
     std::unordered_map<ID3D11Texture2D*, Wrapped> wrapped;
 
@@ -155,33 +155,45 @@ void DiligentViewportTarget::Impl::ReleaseOverlay ()
     }
     wrapped.clear ();
     depthTexture.Release ();
-    if (dcompVisual != nullptr) { dcompVisual->Release (); dcompVisual = nullptr; }
-    if (dcompTarget != nullptr) { dcompTarget->Release (); dcompTarget = nullptr; }
-    if (dcompDevice != nullptr) { dcompDevice->Release (); dcompDevice = nullptr; }
+    if (dcompVisual != nullptr) {
+        dcompVisual->Release ();
+        dcompVisual = nullptr;
+    }
+    if (dcompTarget != nullptr) {
+        dcompTarget->Release ();
+        dcompTarget = nullptr;
+    }
+    if (dcompDevice != nullptr) {
+        dcompDevice->Release ();
+        dcompDevice = nullptr;
+    }
     if (compositionSwapChain != nullptr) {
         compositionSwapChain->Release ();
         compositionSwapChain = nullptr;
     }
 }
 
-DiligentViewportTarget::DiligentViewportTarget () : impl_ (std::make_unique<Impl> ()) {}
-DiligentViewportTarget::~DiligentViewportTarget () { Destroy (nullptr); }
+DiligentViewportTarget::DiligentViewportTarget () : impl_ (std::make_unique<Impl> ())
+{
+}
+DiligentViewportTarget::~DiligentViewportTarget ()
+{
+    Destroy (nullptr);
+}
 
-bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
-                                     Diligent::IDeviceContext* context,
-                                     Diligent::IEngineFactoryD3D11* factory, SurfaceMode mode,
-                                     void* hwnd, uint32_t width, uint32_t height,
-                                     std::string& error)
+bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                                     Diligent::IEngineFactoryD3D11* factory, SurfaceMode mode, void* hwnd,
+                                     uint32_t width, uint32_t height, std::string& error)
 {
     if (device == nullptr || context == nullptr || factory == nullptr ||
-        (mode != SurfaceMode::Offscreen && hwnd == nullptr) ||
-        width == 0 || height == 0) {
+        (mode != SurfaceMode::Offscreen && hwnd == nullptr) || width == 0 || height == 0) {
         error = "DiligentViewportTarget::Create needs a device, a context, a factory, "
                 "a non-zero size and a window unless the surface is offscreen";
         return false;
     }
 
     impl_->device = device;
+    impl_->deviceD3D11 = RefCntAutoPtr<Diligent::IRenderDeviceD3D11> (device, Diligent::IID_RenderDeviceD3D11);
     impl_->mode = mode;
     impl_->width = width;
     impl_->height = height;
@@ -190,9 +202,9 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
         Diligent::SwapChainDesc desc;
         desc.Width = width;
         desc.Height = height;
-        const Diligent::Win32NativeWindow window {static_cast<HWND> (hwnd)};
-        factory->CreateSwapChainD3D11 (device, context, desc, Diligent::FullScreenModeDesc {},
-                                       window, &impl_->swapChain);
+        const Diligent::Win32NativeWindow window { static_cast<HWND> (hwnd) };
+        factory->CreateSwapChainD3D11 (device, context, desc, Diligent::FullScreenModeDesc {}, window,
+                                       &impl_->swapChain);
         if (impl_->swapChain == nullptr) {
             error = "CreateSwapChainD3D11 returned no swap chain";
             return false;
@@ -231,14 +243,12 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
                 error = "could not create the offscreen colour or staging texture";
             return false;
         }
-        ArchVizLog ("ArchViz offscreen target: " + std::to_string (width) + "x" +
-                    std::to_string (height) + ", RGBA8_UNORM_SRGB");
+        ArchVizLog ("ArchViz offscreen target: " + std::to_string (width) + "x" + std::to_string (height) +
+                    ", RGBA8_UNORM_SRGB");
         return true;
     }
 
     // ---- the overlay: DirectComposition ------------------------------------
-    impl_->deviceD3D11 = RefCntAutoPtr<Diligent::IRenderDeviceD3D11> (
-        device, Diligent::IID_RenderDeviceD3D11);
     if (impl_->deviceD3D11 == nullptr) {
         error = "the Diligent device does not expose IRenderDeviceD3D11, so the composition back "
                 "buffer cannot be wrapped";
@@ -258,8 +268,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
     IDXGIDevice* dxgiDevice = nullptr;
     IDXGIAdapter* adapter = nullptr;
     IDXGIFactory2* factory2 = nullptr;
-    HRESULT hr = nativeDevice->QueryInterface (__uuidof (IDXGIDevice),
-                                               reinterpret_cast<void**> (&dxgiDevice));
+    HRESULT hr = nativeDevice->QueryInterface (__uuidof (IDXGIDevice), reinterpret_cast<void**> (&dxgiDevice));
     if (SUCCEEDED (hr))
         hr = dxgiDevice->GetAdapter (&adapter);
     if (SUCCEEDED (hr))
@@ -303,8 +312,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
     // measurement, which timestamps submission rather than display.
     scd.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
-    hr = factory2->CreateSwapChainForComposition (nativeDevice, &scd, nullptr,
-                                                  &impl_->compositionSwapChain);
+    hr = factory2->CreateSwapChainForComposition (nativeDevice, &scd, nullptr, &impl_->compositionSwapChain);
     factory2->Release ();
     if (FAILED (hr) || impl_->compositionSwapChain == nullptr) {
         if (dxgiDevice != nullptr)
@@ -326,8 +334,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device,
     // topmost=TRUE: the visual tree composites above the window's own content.
     // There is none here, but the flag also decides where we sit relative to
     // child windows, and "above" is the overlay's whole premise.
-    hr = impl_->dcompDevice->CreateTargetForHwnd (static_cast<HWND> (hwnd), TRUE,
-                                                  &impl_->dcompTarget);
+    hr = impl_->dcompDevice->CreateTargetForHwnd (static_cast<HWND> (hwnd), TRUE, &impl_->dcompTarget);
     if (SUCCEEDED (hr))
         hr = impl_->dcompDevice->CreateVisual (&impl_->dcompVisual);
     if (SUCCEEDED (hr))
@@ -385,8 +392,7 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
     // it has the same deferred destruction and the same DWM-still-compositing
     // window, so it gets the same treatment.
     if (context != nullptr) {
-        context->SetRenderTargets (0, nullptr, nullptr,
-                                   Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
+        context->SetRenderTargets (0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
         context->Flush ();
     }
 
@@ -421,25 +427,25 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
             if (impl_->mode == SurfaceMode::PaletteChild) {
                 if (impl_->swapChain != nullptr)
                     impl_->swapChain->Resize (w, h);
-            } else if (impl_->mode == SurfaceMode::Overlay && impl_->compositionSwapChain != nullptr) {
+            }
+            else if (impl_->mode == SurfaceMode::Overlay && impl_->compositionSwapChain != nullptr) {
                 // ⚠️ THE WRAPPED VIEWS GO FIRST. ResizeBuffers refuses while any
                 // outstanding reference to a back buffer exists, and every entry
                 // in this map is one -- it fails with DXGI_ERROR_INVALID_CALL and
                 // the overlay then presents at the old size forever, which looks
                 // like the tracker not working rather than like a failed resize.
                 impl_->wrapped.clear ();
-                const HRESULT hr = impl_->compositionSwapChain->ResizeBuffers (
-                    0, w, h, DXGI_FORMAT_UNKNOWN, 0);
+                const HRESULT hr = impl_->compositionSwapChain->ResizeBuffers (0, w, h, DXGI_FORMAT_UNKNOWN, 0);
                 if (FAILED (hr)) {
                     committed = false;
                     // Logged once per run of failures, not once per frame: a
                     // resize that cannot succeed would otherwise fill the log
                     // faster than anything else in it.
                     if (!impl_->resizeFailed)
-                        ArchVizLog ("ArchViz overlay: ResizeBuffers " + HrText (hr) +
-                                    " -- retrying on the next frame");
+                        ArchVizLog ("ArchViz overlay: ResizeBuffers " + HrText (hr) + " -- retrying on the next frame");
                     impl_->resizeFailed = true;
-                } else {
+                }
+                else {
                     impl_->resizeFailed = false;
                 }
                 std::string depthError;
@@ -449,7 +455,8 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
             if (committed) {
                 impl_->width = w;
                 impl_->height = h;
-            } else {
+            }
+            else {
                 // Try again next frame rather than settling at the wrong size.
                 impl_->resizePending = true;
             }
@@ -476,8 +483,8 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
         return false;
 
     ID3D11Texture2D* back = nullptr;
-    if (FAILED (impl_->compositionSwapChain->GetBuffer (
-            0, __uuidof (ID3D11Texture2D), reinterpret_cast<void**> (&back))) ||
+    if (FAILED (
+            impl_->compositionSwapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), reinterpret_cast<void**> (&back))) ||
         back == nullptr)
         return false;
 
@@ -486,8 +493,8 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
         Impl::Wrapped entry;
         // RESOURCE_STATE_RENDER_TARGET, not UNKNOWN: we know what it is, and
         // telling Diligent lets it skip a transition it would otherwise guess at.
-        impl_->deviceD3D11->CreateTexture2DFromD3DResource (
-            back, Diligent::RESOURCE_STATE_RENDER_TARGET, &entry.texture);
+        impl_->deviceD3D11->CreateTexture2DFromD3DResource (back, Diligent::RESOURCE_STATE_RENDER_TARGET,
+                                                            &entry.texture);
         if (entry.texture == nullptr) {
             back->Release ();
             return false;
@@ -542,8 +549,7 @@ void DiligentViewportTarget::Present ()
         impl_->presentFailures.fetch_add (1, std::memory_order_relaxed);
 }
 
-bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context,
-                                         std::string& png, std::string& error)
+bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context, std::string& png, std::string& error)
 {
     png.clear ();
     if (impl_ == nullptr || impl_->mode != SurfaceMode::Offscreen || context == nullptr ||
@@ -561,8 +567,8 @@ bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context,
     context->Flush ();
 
     Diligent::MappedTextureSubresource mapped;
-    context->MapTextureSubresource (impl_->offscreenStaging, 0, 0, Diligent::MAP_READ,
-                                    Diligent::MAP_FLAG_NONE, nullptr, mapped);
+    context->MapTextureSubresource (impl_->offscreenStaging, 0, 0, Diligent::MAP_READ, Diligent::MAP_FLAG_NONE, nullptr,
+                                    mapped);
     if (mapped.pData == nullptr) {
         error = "the offscreen staging texture could not be mapped";
         return false;
@@ -572,9 +578,9 @@ bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context,
     // PNG's stable numeric colour-type value for RGBA. PNGCodec deliberately
     // exposes an int without exporting libpng's private include directory.
     constexpr int kPngColorTypeRgba = 6;
-    const auto encoded = Diligent::EncodePng (
-        static_cast<const Diligent::Uint8*> (mapped.pData), impl_->width, impl_->height,
-        static_cast<Diligent::Uint32> (mapped.Stride), kPngColorTypeRgba, blob);
+    const auto encoded =
+        Diligent::EncodePng (static_cast<const Diligent::Uint8*> (mapped.pData), impl_->width, impl_->height,
+                             static_cast<Diligent::Uint32> (mapped.Stride), kPngColorTypeRgba, blob);
     context->UnmapTextureSubresource (impl_->offscreenStaging, 0, 0);
 
     if (encoded != Diligent::ENCODE_PNG_RESULT_OK || blob == nullptr || blob->GetSize () == 0) {
@@ -593,24 +599,50 @@ bool DiligentViewportTarget::CapturePng (Diligent::IDeviceContext* context,
 // composited. `frames` of 1 means "never hold more than one".
 bool DiligentViewportTarget::SetFrameLatency (uint32_t frames, std::string& error)
 {
-    if (impl_ == nullptr || impl_->compositionSwapChain == nullptr) {
-        error = "no composition swap chain to set the frame latency on";
+    if (impl_ == nullptr) {
+        error = "no viewport target to set the frame latency on";
+        return false;
+    }
+    const uint32_t latency = frames < 1 ? 1 : frames;
+    if (impl_->mode == SurfaceMode::PaletteChild) {
+        if (impl_->deviceD3D11 == nullptr || impl_->deviceD3D11->GetD3D11Device () == nullptr) {
+            error = "the palette device does not expose D3D11 frame latency control";
+            return false;
+        }
+        IDXGIDevice1* dxgiDevice = nullptr;
+        HRESULT hr = impl_->deviceD3D11->GetD3D11Device ()->QueryInterface (__uuidof (IDXGIDevice1),
+                                                                            reinterpret_cast<void**> (&dxgiDevice));
+        if (FAILED (hr) || dxgiDevice == nullptr) {
+            error = "IDXGIDevice1 unavailable " + HrText (hr);
+            return false;
+        }
+        hr = dxgiDevice->SetMaximumFrameLatency (latency);
+        dxgiDevice->Release ();
+        if (FAILED (hr)) {
+            error = "IDXGIDevice1::SetMaximumFrameLatency " + HrText (hr);
+            return false;
+        }
+        impl_->frameLatency.store (latency, std::memory_order_relaxed);
+        return true;
+    }
+    if (impl_->compositionSwapChain == nullptr) {
+        error = "no presentation swap chain to set the frame latency on";
         return false;
     }
     IDXGISwapChain2* swapChain2 = nullptr;
-    HRESULT hr = impl_->compositionSwapChain->QueryInterface (
-        __uuidof (IDXGISwapChain2), reinterpret_cast<void**> (&swapChain2));
+    HRESULT hr = impl_->compositionSwapChain->QueryInterface (__uuidof (IDXGISwapChain2),
+                                                              reinterpret_cast<void**> (&swapChain2));
     if (FAILED (hr) || swapChain2 == nullptr) {
         error = "IDXGISwapChain2 unavailable " + HrText (hr);
         return false;
     }
-    hr = swapChain2->SetMaximumFrameLatency (frames < 1 ? 1 : frames);
+    hr = swapChain2->SetMaximumFrameLatency (latency);
     swapChain2->Release ();
     if (FAILED (hr)) {
         error = "SetMaximumFrameLatency " + HrText (hr);
         return false;
     }
-    impl_->frameLatency.store (frames, std::memory_order_relaxed);
+    impl_->frameLatency.store (latency, std::memory_order_relaxed);
     return true;
 }
 
@@ -638,11 +670,26 @@ void DiligentViewportTarget::RequestResize (uint32_t width, uint32_t height)
     impl_->resizePending = true;
 }
 
-uint32_t DiligentViewportTarget::ColorFormat () const { return impl_->colorFormat; }
-uint32_t DiligentViewportTarget::DepthFormat () const { return impl_->depthFormat; }
-uint32_t DiligentViewportTarget::Width () const { return impl_->width; }
-uint32_t DiligentViewportTarget::Height () const { return impl_->height; }
-SurfaceMode DiligentViewportTarget::Mode () const { return impl_->mode; }
+uint32_t DiligentViewportTarget::ColorFormat () const
+{
+    return impl_->colorFormat;
+}
+uint32_t DiligentViewportTarget::DepthFormat () const
+{
+    return impl_->depthFormat;
+}
+uint32_t DiligentViewportTarget::Width () const
+{
+    return impl_->width;
+}
+uint32_t DiligentViewportTarget::Height () const
+{
+    return impl_->height;
+}
+SurfaceMode DiligentViewportTarget::Mode () const
+{
+    return impl_->mode;
+}
 
 Diligent::ISwapChain* DiligentViewportTarget::DiligentSwapChain () const
 {
@@ -663,8 +710,7 @@ IDXGISwapChain* DiligentViewportTarget::Dxgi () const
     // stays taken, and every reopen fails E_ACCESSDENIED. `GetDXGISwapChain` is
     // documented as NOT adding a reference, so the pointer it returns is
     // BORROWED and is valid for as long as `swapChain` is.
-    RefCntAutoPtr<Diligent::ISwapChainD3D11> native {impl_->swapChain,
-                                                     Diligent::IID_SwapChainD3D11};
+    RefCntAutoPtr<Diligent::ISwapChainD3D11> native { impl_->swapChain, Diligent::IID_SwapChainD3D11 };
     return native != nullptr ? native->GetDXGISwapChain () : nullptr;
 }
 
@@ -673,5 +719,5 @@ const float* DiligentViewportTarget::ClearColor () const
     return impl_->mode == SurfaceMode::Overlay ? kTransparentClear : kOpaqueClear;
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

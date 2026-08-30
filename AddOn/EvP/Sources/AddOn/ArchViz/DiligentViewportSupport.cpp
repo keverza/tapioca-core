@@ -777,7 +777,7 @@ void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t reques
     std::string error;
     if (target.SetFrameLatency (requested, error)) {
         applied = requested;
-        ArchVizLog ("overlay frame latency set to " + std::to_string (requested) +
+        ArchVizLog ("viewport frame latency set to " + std::to_string (requested) +
                     " (DXGI's default is 3, i.e. up to three finished frames may wait)");
     }
     else {
@@ -785,7 +785,7 @@ void ApplyRequestedFrameLatency (DiligentViewportTarget& target, uint32_t reques
         // frame forever, logging every time, on a driver that will never support
         // it -- turning a missing optimisation into a flood.
         applied = requested;
-        ArchVizLog ("overlay frame latency NOT set: " + error);
+        ArchVizLog ("viewport frame latency NOT set: " + error);
     }
 }
 

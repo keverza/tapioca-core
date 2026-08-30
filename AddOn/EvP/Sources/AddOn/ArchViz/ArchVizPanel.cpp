@@ -499,14 +499,11 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // camera sync at all -- a far worse regression than the lag this replaces.
     // `legacy` needs no guard and cannot be refused for that reason.
     std::string syncError;
-    if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::WakePredict,
-                                              kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ false,
-                                              syncError)) {
-        geomsrv::archviz::ArchVizLog ("overlay: wakepredict did not arm -- " + syncError +
-                                      "; falling back to legacy");
-        if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy,
-                                                  kOverlayCameraSyncMs, 1.0, /*hideOnNav*/ false,
-                                                  syncError)) {
+    if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::WakePredict, kOverlayCameraSyncMs, 1.0,
+                                              /*hideOnNav*/ false, syncError)) {
+        geomsrv::archviz::ArchVizLog ("overlay: wakepredict did not arm -- " + syncError + "; falling back to legacy");
+        if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy, kOverlayCameraSyncMs, 1.0,
+                                                  /*hideOnNav*/ false, syncError)) {
             geomsrv::archviz::ArchVizLog ("overlay: camera sync did not arm -- " + syncError);
         }
     }
@@ -636,6 +633,9 @@ void* ArchVizPanel::ViewportWindow () const
 
 void ArchVizPanel::StopRenderer ()
 {
+    if (capturedWindow != nullptr && ::GetCapture () == capturedWindow)
+        ::ReleaseCapture ();
+    capturedWindow = nullptr;
     // ⚠️ UNCONDITIONALLY, AND BEFORE THE EARLY RETURN. The timer is a
     // process-wide Win32 resource that outlives this palette if it is not
     // killed, and it calls ACAPI — leaving it armed after teardown is the exact
@@ -832,11 +832,17 @@ void ArchVizPanel::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool
         button = geomsrv::archviz::kMouseLeft;
     if (ev.IsRightButton ())
         button = geomsrv::archviz::kMouseRight;
-    if (button != geomsrv::archviz::kMouseNone)
+    if (button != geomsrv::archviz::kMouseNone) {
         geomsrv::archviz::InputRingBuffer::Get ().PushButton (button, true);
+        HWND const hwnd = DGGetDialogItemWindow (GetId (), viewport != nullptr ? viewport->GetId () : 0);
+        if (hwnd != nullptr && ::IsWindow (hwnd)) {
+            ::SetCapture (hwnd);
+            if (::GetCapture () == hwnd)
+                capturedWindow = hwnd;
+        }
+    }
 
-    // We own the click. Leaving it unprocessed lets DG do something with it, and
-    // over a render surface there is nothing sensible for DG to do.
+    // A render surface owns its click; DG has nothing else useful to do with it.
     *processed = true;
 }
 
@@ -858,6 +864,9 @@ void ArchVizPanel::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* pr
     else {
         geomsrv::archviz::InputRingBuffer::Get ().PushButton (button, false);
     }
+    if (capturedWindow != nullptr && ::GetCapture () == capturedWindow)
+        ::ReleaseCapture ();
+    capturedWindow = nullptr;
 
     *processed = true;
 }
