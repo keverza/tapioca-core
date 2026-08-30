@@ -634,8 +634,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // TOO BROAD NOW -- the HUD's axonometric toggle also makes the camera
             // orthographic without making it a plan; see PLAT-RE142.
             const bool drawingOverThePlan = camera.IsOrthographic ();
-            const bool modelIsDrawn = !drawingOverThePlan && !blanked;
-
+            const bool modelIsDrawn =
+                !drawingOverThePlan && !blanked && !ShouldIsolateGraphInteraction (hudState, input);
             ApplyShadowSettings (scene, hudState);
 
             gpuTimings.Begin (context, GpuTimingStage::VisibilityGBuffer);
@@ -847,24 +847,24 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             }
 
             // Under the anchors; ⚠️ NOT gated on `offscreen` -- see the helper.
-            if (!annotationsOnly)
+            if (!annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawStorySlices (scene, context, hudState, blanked, viewProj, width, height,
                                           target.ColorFormat (), target.DepthFormat ());
 
             // Grasshopper's preview, over the slices; ⚠️ NOT gated on
             // `offscreen` either -- see the helper.
-            if (!annotationsOnly && !blanked)
+            if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
                                         target.DepthFormat (), modelIsDrawn);
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
-            if (!offscreen && !annotationsOnly)
+            if (!offscreen && !annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
 
-            if (!offscreen && !annotationsOnly && !blanked)
+            if (!offscreen && !annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
 
             // Last, over everything, into the full-surface viewport the gnomon

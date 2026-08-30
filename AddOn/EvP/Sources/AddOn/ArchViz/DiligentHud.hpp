@@ -63,6 +63,8 @@ struct HudState {
     // uncollapse at all.
     bool showFpsBadge = true;
     bool showGraphInteractionLab = true;
+    bool graphInteractionFastPath = false;
+    bool graphInteractionActive = false;
     uint32_t frameLatency = 0;
 
     // Set by the HUD, read by the viewport. `debugView` mirrors

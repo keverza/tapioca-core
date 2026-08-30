@@ -55,6 +55,8 @@ bool ReadHardwarePointer (void* nwh, HardwarePointerPosition& position)
 
     position.x = int32_t (clientPt.x);
     position.y = int32_t (clientPt.y);
+    position.screenX = int32_t (screenPt.x);
+    position.screenY = int32_t (screenPt.y);
     position.inside = CursorIsOverUs (hwnd, screenPt, clientPt);
     return true;
 }
@@ -79,12 +81,43 @@ void ForgetHardwareInputWindow (void* nwh)
 
 void PollHardwareInput (void* nwh, InputSnapshot& io)
 {
+    static thread_local uint64_t pointerSequence = 0;
     HardwarePointerPosition pointer;
     if (!ReadHardwarePointer (nwh, pointer))
         return;
 
     io.x = pointer.x;
     io.y = pointer.y;
+    io.screenX = pointer.screenX;
+    io.screenY = pointer.screenY;
+    RECT client = {};
+    const HWND hwnd = static_cast<HWND> (nwh);
+    if (::GetClientRect (hwnd, &client)) {
+        io.clientWidth = client.right - client.left;
+        io.clientHeight = client.bottom - client.top;
+    }
+    io.dpi = ::GetDpiForWindow (hwnd);
+    io.visible = ::IsWindowVisible (hwnd) != FALSE;
+    const HWND root = ::GetAncestor (hwnd, GA_ROOT);
+    io.hostMinimized = root != nullptr && ::IsIconic (root) != FALSE;
+    if (root != nullptr) {
+        RECT hostRect = {};
+        if (::GetWindowRect (root, &hostRect)) {
+            io.hostX = hostRect.left;
+            io.hostY = hostRect.top;
+            io.hostWidth = hostRect.right - hostRect.left;
+            io.hostHeight = hostRect.bottom - hostRect.top;
+        }
+        io.hostStyle = uint64_t (::GetWindowLongPtr (root, GWL_STYLE));
+        io.hostExStyle = uint64_t (::GetWindowLongPtr (root, GWL_EXSTYLE));
+        io.hostToolWindow = (io.hostExStyle & WS_EX_TOOLWINDOW) != 0;
+    }
+    io.monitor = uint64_t (reinterpret_cast<uintptr_t> (::MonitorFromWindow (hwnd, MONITOR_DEFAULTTONEAREST)));
+    LARGE_INTEGER sample = {};
+    if (::QueryPerformanceCounter (&sample)) {
+        io.pointerQpc = uint64_t (sample.QuadPart);
+        io.pointerSequence = ++pointerSequence;
+    }
     const bool enabled = HardwareInputEnabled (nwh);
     io.inside = enabled && pointer.inside;
     // The high bit is "down now"; the low bit is "pressed since the last call"

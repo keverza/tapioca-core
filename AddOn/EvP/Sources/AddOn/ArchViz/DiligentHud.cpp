@@ -119,6 +119,15 @@ constexpr double kWorstHoldSeconds = 3.0;
 // by a lot is the thing this badge exists to catch.
 constexpr float kSlowFrameMs = 33.0f;
 
+double QpcSeconds ()
+{
+    LARGE_INTEGER counter = {};
+    LARGE_INTEGER frequency = {};
+    if (!::QueryPerformanceCounter (&counter) || !::QueryPerformanceFrequency (&frequency) || frequency.QuadPart <= 0)
+        return 0.0;
+    return double (counter.QuadPart) / double (frequency.QuadPart);
+}
+
 } // namespace
 
 DiligentHud::DiligentHud () : impl_ (new Impl ())
@@ -214,7 +223,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     // inside a render thread in Archicad's process is a hard crash of the host
     // application rather than a message. 1/60 is the honest default for a
     // vsynced present.
-    const double now = double (GetTickCount64 ()) / 1000.0;
+    const double now = QpcSeconds ();
     const double delta = impl_->lastTimeSeconds > 0.0 ? now - impl_->lastTimeSeconds : 0.0;
     impl_->lastTimeSeconds = now;
     io.DeltaTime = delta > 0.0 && delta < 1.0 ? float (delta) : 1.0f / 60.0f;
@@ -788,7 +797,9 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
     ImGui::End ();
 
     if (state.showGraphInteractionLab)
-        impl_->graphInteractionLab.Draw (width, height, input, state.frameLatency, state.showGraphInteractionLab);
+        impl_->graphInteractionLab.Draw (width, height, input, state.frameLatency, state.showGraphInteractionLab,
+                                         state.graphInteractionFastPath);
+    state.graphInteractionActive = ImGui::IsAnyItemActive ();
 
     // ---- the frame-cost badge, ALWAYS ON -----------------------------------
     //

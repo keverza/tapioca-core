@@ -633,9 +633,6 @@ void* ArchVizPanel::ViewportWindow () const
 
 void ArchVizPanel::StopRenderer ()
 {
-    if (capturedWindow != nullptr && ::GetCapture () == capturedWindow)
-        ::ReleaseCapture ();
-    capturedWindow = nullptr;
     // ⚠️ UNCONDITIONALLY, AND BEFORE THE EARLY RETURN. The timer is a
     // process-wide Win32 resource that outlives this palette if it is not
     // killed, and it calls ACAPI — leaving it armed after teardown is the exact
@@ -827,62 +824,22 @@ double ArchVizPanel::DisplayScale () const
 
 void ArchVizPanel::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed)
 {
-    uint8_t button = geomsrv::archviz::kMouseNone;
-    if (ev.IsLeftButton ())
-        button = geomsrv::archviz::kMouseLeft;
-    if (ev.IsRightButton ())
-        button = geomsrv::archviz::kMouseRight;
-    if (button != geomsrv::archviz::kMouseNone) {
-        geomsrv::archviz::InputRingBuffer::Get ().PushButton (button, true);
-        HWND const hwnd = DGGetDialogItemWindow (GetId (), viewport != nullptr ? viewport->GetId () : 0);
-        if (hwnd != nullptr && ::IsWindow (hwnd)) {
-            ::SetCapture (hwnd);
-            if (::GetCapture () == hwnd)
-                capturedWindow = hwnd;
-        }
-    }
-
-    // A render surface owns its click; DG has nothing else useful to do with it.
+    (void) ev;
+    // The child HWND subclass owns this input. DG is only the palette shell.
     *processed = true;
 }
 
 void ArchVizPanel::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* processed)
 {
-    uint8_t button = geomsrv::archviz::kMouseNone;
-    if (ev.IsLeftButton ())
-        button = geomsrv::archviz::kMouseLeft;
-    if (ev.IsRightButton ())
-        button = geomsrv::archviz::kMouseRight;
-    // ⚠️ IF THE BUTTON CANNOT BE IDENTIFIED, RELEASE THEM ALL. A dropped mouse-up
-    // strands an ImGui widget mid-drag (plan §4 risk 2) — releasing one button
-    // too many is trivially recoverable, holding one forever is not. The camera
-    // is no longer at risk from this, because its button is polled.
-    if (button == geomsrv::archviz::kMouseNone) {
-        geomsrv::archviz::InputRingBuffer::Get ().PushButton (
-            uint8_t (geomsrv::archviz::kMouseLeft | geomsrv::archviz::kMouseRight), false);
-    }
-    else {
-        geomsrv::archviz::InputRingBuffer::Get ().PushButton (button, false);
-    }
-    if (capturedWindow != nullptr && ::GetCapture () == capturedWindow)
-        ::ReleaseCapture ();
-    capturedWindow = nullptr;
-
+    (void) ev;
     *processed = true;
 }
 
 void ArchVizPanel::PanelWheelTracked (const DG::PanelWheelTrackEvent& ev, bool* processed)
 {
-    // The wheel arrives at the PANEL, not the item, so it has to be aimed by
-    // hand. Anywhere but the viewport it is not ours; swallowing it there would
-    // break scrolling in anything the palette grows later.
-    if (viewport == nullptr || ev.GetItem () != viewport.get ())
-        return;
-
-    // ACCUMULATE, never assign — several notches land per frame and the render
-    // thread reads once (plan §1.1's second sandbox bug).
-    geomsrv::archviz::InputRingBuffer::Get ().PushWheel (ev.GetYTrackValue ());
-    *processed = true;
+    (void) ev;
+    // WM_MOUSEWHEEL is consumed by the native child HWND subclass.
+    *processed = false;
 }
 
 void ArchVizPanel::PanelResized (const DG::PanelResizeEvent& /*ev*/)

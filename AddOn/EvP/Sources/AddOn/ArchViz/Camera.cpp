@@ -246,7 +246,7 @@ bool Camera::ApplyInput (const InputSnapshot& input, bool imguiWantsMouse, uint3
     if (!imguiWantsMouse && input.wheelDelta != 0) {
         // Multiplicative: each notch changes the distance by a FRACTION, so the
         // zoom feels the same at 2 m and at 200 m.
-        const float wanted = distance_ * std::pow (1.0f - kDollyPerNotch, float (input.wheelDelta));
+        const float wanted = distance_ * std::pow (1.0f - kDollyPerNotch, float (input.wheelDelta) / 120.0f);
         const float clamped = std::clamp (wanted, kMinDistance, kMaxDistance);
         // The factor ACTUALLY applied, which is not the requested one at the
         // limits. Anchoring with the requested factor would slide the target

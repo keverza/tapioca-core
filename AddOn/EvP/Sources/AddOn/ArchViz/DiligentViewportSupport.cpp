@@ -44,6 +44,12 @@
 namespace geomsrv {
 namespace archviz {
 
+bool ShouldIsolateGraphInteraction (const HudState& hud, const InputSnapshot& input)
+{
+    return hud.graphInteractionFastPath && hud.showGraphInteractionLab &&
+           (hud.graphInteractionActive || (hud.wantsMouse && (input.buttons != kMouseNone || input.wheelDelta != 0)));
+}
+
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud)
 {
     DiligentShadowSettings settings;

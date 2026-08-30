@@ -1,7 +1,7 @@
 #ifndef EVP_ARCHVIZ_VIEWPORTCURSOR_HPP
 #define EVP_ARCHVIZ_VIEWPORTCURSOR_HPP
 
-// ArchViz/ViewportCursor — give the viewport child window its own mouse cursor.
+// ArchViz/ViewportCursor — native input and cursor for the viewport child HWND.
 //
 // THE SYMPTOM: the pointer keeps whatever shape it had when it crossed into the
 // viewport. Entering across the palette's splitter leaves a horizontal
@@ -32,15 +32,15 @@ namespace geomsrv {
 namespace archviz {
 namespace viewportcursor {
 
-// Install the arrow cursor on `hwnd`. Idempotent, and safe to call with nullptr
-// or a window that has already been attached. Returns whether a subclass is live.
+// Install native pointer/button/wheel handling and the arrow cursor on `hwnd`.
+// DG remains the palette shell and does not feed the renderer's input stream.
 bool Attach (void* hwnd);
 
 // Restore the original WndProc. Safe to call when nothing is attached.
 void Detach ();
 
-}   // namespace viewportcursor
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace viewportcursor
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -42,6 +42,7 @@ class PlanAnchorLayer;
 struct HudState;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
+bool ShouldIsolateGraphInteraction (const HudState& hud, const InputSnapshot& input);
 
 // Which of the scene's two passes this frame runs, and running it.
 //

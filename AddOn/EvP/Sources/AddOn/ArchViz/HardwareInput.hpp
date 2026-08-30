@@ -35,6 +35,8 @@ namespace archviz {
 struct HardwarePointerPosition {
     int32_t x = 0;
     int32_t y = 0;
+    int32_t screenX = 0;
+    int32_t screenY = 0;
     bool inside = false;
 };
 

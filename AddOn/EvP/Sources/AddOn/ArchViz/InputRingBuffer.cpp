@@ -5,6 +5,16 @@
 namespace geomsrv {
 namespace archviz {
 
+namespace {
+
+uint64_t QpcNow ()
+{
+    LARGE_INTEGER value = {};
+    return ::QueryPerformanceCounter (&value) ? uint64_t (value.QuadPart) : 0;
+}
+
+} // namespace
+
 InputRingBuffer& InputRingBuffer::Get ()
 {
     static InputRingBuffer instance;
@@ -20,7 +30,7 @@ void InputRingBuffer::PushButton (uint8_t button, bool down)
     else
         state_.buttons = uint8_t (state_.buttons & ~button);
     ++state_.eventSequence;
-    state_.eventTickMs = ::GetTickCount64 ();
+    state_.eventQpc = QpcNow ();
 
     if (state_.transitionCount < InputSnapshot::kMaxTransitions) {
         state_.transitions[state_.transitionCount++] = { button, down };
@@ -41,7 +51,16 @@ void InputRingBuffer::PushWheel (int32_t delta)
     // ACCUMULATE. Assigning here is the sandbox's "camera feels slow and jumpy".
     state_.wheelDelta += delta;
     ++state_.eventSequence;
-    state_.eventTickMs = ::GetTickCount64 ();
+    state_.eventQpc = QpcNow ();
+}
+
+void InputRingBuffer::PushPointerMessage (int32_t x, int32_t y)
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    state_.messageX = x;
+    state_.messageY = y;
+    ++state_.pointerMessageSequence;
+    state_.pointerMessageQpc = QpcNow ();
 }
 
 void InputRingBuffer::Reset ()
@@ -60,7 +79,7 @@ InputSnapshot InputRingBuffer::Take ()
     // in the returned copy, from Win32, immediately after this call.
     state_.wheelDelta = 0;
     state_.transitionCount = 0;
-    state_.eventTickMs = 0;
+    state_.eventQpc = 0;
     return out;
 }
 

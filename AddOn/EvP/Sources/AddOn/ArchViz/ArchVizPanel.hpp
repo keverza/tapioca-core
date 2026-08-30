@@ -259,9 +259,6 @@ class ArchVizPanel final : public DG::Palette, public DG::PanelObserver, public 
 
     DG::LeftText statusText;
     std::unique_ptr<DG::UserItem> viewport;
-    // Win32 capture belongs to the DG item's HWND, not the render thread. It
-    // keeps a node/window drag lossless when the pointer leaves the item.
-    HWND capturedWindow = nullptr;
     // So the idle poll does not rewrite an unchanged status line every tick.
     GS::UniString lastStatus;
     // ⚠️ THE LAST DPI SCALE DG ACTUALLY ANSWERED WITH. `DisplayScale()` is asked
