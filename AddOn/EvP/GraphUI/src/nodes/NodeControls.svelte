@@ -1,8 +1,11 @@
 <script lang="ts">
-  import type { GraphParameter, NodeOutputRecord, NodeTypeSchema } from '../types'
+  import type { GraphParameter, NodeOutputRecord } from '../types'
+  import type { NodeDefinition } from './types/node'
+  import type { PortConnectionState, PortLayout } from './types/port'
+  import type { ComponentMessage } from './types/diagnostics'
   import NodePort from './NodePort.svelte'
 
-  let { schema, parameters, outputs }: { schema: NodeTypeSchema; parameters: GraphParameter[]; outputs?: NodeOutputRecord[] } = $props()
+  let { nodeId, definition, parameters, outputs, layout, connections, messages = [] }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[] } = $props()
   function parameterText(parameter?: GraphParameter): string {
     if (parameter?.value?.text !== undefined) return parameter.value.text
     if (parameter?.value?.number !== undefined) return String(parameter.value.number)
@@ -14,14 +17,14 @@
 </script>
 
 <section class="controls nodrag">
-  {#each schema.inputs as input, index}
+  {#each definition.inputs as input, index}
     <div class="row">
-      <NodePort port={input} direction="input" />
+      <NodePort {nodeId} port={input} direction="input" {layout} connection={connections.find((item) => item.portId === input.portId && item.direction === 'input')} messages={messages.filter((message) => message.portId === input.portId)} />
       <output>{parameterText(parameters.find((item) => item.parameterId === input.portId) ?? parameters[index])}</output>
       <small>{input.valueType}</small>
     </div>
   {/each}
-  {#each schema.parameters.filter((parameter) => !schema.inputs.some((input) => input.portId === parameter.parameterId)) as parameter}
+  {#each definition.parameters.filter((parameter) => !definition.inputs.some((input) => input.portId === parameter.parameterId)) as parameter}
     <div class="row internal">
       <span>{parameter.label}</span>
       <output>{parameterText(parameters.find((item) => item.parameterId === parameter.parameterId))}</output>
@@ -30,7 +33,7 @@
   {/each}
 </section>
 <section class="outputs">
-  {#each schema.outputs as output}<NodePort port={output} direction="output" value={outputText(output.portId)} />{/each}
+  {#each definition.outputs as output}<NodePort {nodeId} port={output} direction="output" {layout} value={outputText(output.portId)} connection={connections.find((item) => item.portId === output.portId && item.direction === 'output')} messages={messages.filter((message) => message.portId === output.portId)} />{/each}
 </section>
 
 <style>

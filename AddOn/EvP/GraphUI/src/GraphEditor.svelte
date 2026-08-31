@@ -53,6 +53,7 @@
   import PerformancePanel from './PerformancePanel.svelte'
   import type { DiagnosticMode } from './performance'
   import MasterNode from './nodes/MasterNode.svelte'
+  import { parseNodePresentations, serializeNodePresentations } from './nodes/serialization'
   import ToolStrip from './ToolStrip.svelte'
   import type {
     EvaluationSummary,
@@ -155,6 +156,16 @@
         onvisualchange: handleVisualChange,
         visual: visuals.get(node.nodeId),
         onexecutionchange: (nodeId, mode) => void setExecutionMode(nodeId, mode),
+        portConnections: [
+          ...(schemas.get(node.nodeType)?.inputs ?? []).map((port) => {
+            const matching = state.edges.filter((edge) => edge.targetNode === node.nodeId && edge.targetPort === port.portId)
+            return { portId: port.portId, direction: 'input' as const, connected: matching.length > 0, connectionCount: matching.length, peerLabels: matching.map((edge) => `${edge.sourceNode}.${edge.sourcePort}`) }
+          }),
+          ...(schemas.get(node.nodeType)?.outputs ?? []).map((port) => {
+            const matching = state.edges.filter((edge) => edge.sourceNode === node.nodeId && edge.sourcePort === port.portId)
+            return { portId: port.portId, direction: 'output' as const, connected: matching.length > 0, connectionCount: matching.length, peerLabels: matching.map((edge) => `${edge.targetNode}.${edge.targetPort}`) }
+          }),
+        ],
         onselectionaction: handleSelectionAction,
         selectionBusy: selectionBusyNode === node.nodeId,
         schema: schemas.get(node.nodeType) ?? {
@@ -171,7 +182,13 @@
         parameters: node.parameters,
         executionMode: node.executionMode ?? 'enabled',
         result: resultMap.get(node.nodeId),
+        messages: (() => {
+          const result = resultMap.get(node.nodeId)
+          if (result === undefined || result.message === '') return []
+          return [{ severity: result.status === 'error' ? 'error' as const : result.status === 'blocked' ? 'warning' as const : 'info' as const, code: result.code ?? result.status, title: result.message, nodeId: node.nodeId }]
+        })(),
       },
+      style: `width: ${schemas.get(node.nodeType)?.display === 'preview' ? 292 : 248}px`,
     }))
     edges = state.edges.map((edge) => ({
       id: edgeId(edge),
@@ -190,15 +207,15 @@
   function loadVisuals(): void {
     visuals.clear()
     try {
-      const stored = JSON.parse(localStorage.getItem(visualStorageKey()) ?? '{}') as Record<string, NodeVisualState>
-      for (const [nodeId, visual] of Object.entries(stored)) visuals.set(nodeId, visual)
+      const stored = JSON.parse(localStorage.getItem(visualStorageKey()) ?? '{"version":1,"nodes":[]}')
+      for (const [nodeId, visual] of parseNodePresentations(stored)) visuals.set(nodeId, visual)
     } catch {
       // Invalid presentation metadata must not prevent the native graph from opening.
     }
   }
 
   function persistVisuals(): void {
-    localStorage.setItem(visualStorageKey(), JSON.stringify(Object.fromEntries(visuals)))
+    localStorage.setItem(visualStorageKey(), JSON.stringify(serializeNodePresentations(visuals)))
   }
 
   function handleVisualChange(nodeId: string, visual: NodeVisualState): void {

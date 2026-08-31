@@ -5,23 +5,29 @@
   import ViewerToolbar from './viewer/ViewerToolbar.svelte'
 
   let { result, active, onactive }: { result?: NodeResultRecord; active: boolean; onactive: () => void } = $props()
+  let fitToken = $state(0)
+  let resetToken = $state(0)
 </script>
 
-<section class="nodrag nowheel" aria-label="Native result 3D preview">
+<section class="nodrag nowheel" class:active aria-label="Native result 3D preview" onpointerdown={(event) => active && event.stopPropagation()} onpointermove={(event) => active && event.stopPropagation()} onwheel={(event) => active && event.stopPropagation()}>
   <Canvas dpr={1}>
     <ViewerScene
       itemCount={result?.itemCount ?? 0}
       status={result?.status ?? 'pending'}
+      {active}
+      {fitToken}
+      {resetToken}
     />
   </Canvas>
   <span>{result?.itemCount ?? 0} items</span>
-  <ViewerToolbar {active} {onactive} />
+  <ViewerToolbar {active} {onactive} onfit={() => (fitToken += 1)} onreset={() => (resetToken += 1)} />
 </section>
 
 <style>
   section {
     position: relative;
-    height: 150px;
+    height: 100%;
+    min-height: 150px;
     margin: 0 10px 10px;
     overflow: hidden;
     border: 1px solid #303945;
@@ -45,4 +51,6 @@
     font: 8px/1 ui-monospace, monospace;
     pointer-events: none;
   }
+  section:not(.active) :global(canvas) { pointer-events: none; }
+  section.active { border-color: var(--node-color); }
 </style>

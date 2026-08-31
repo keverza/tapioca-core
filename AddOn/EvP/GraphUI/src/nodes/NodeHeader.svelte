@@ -2,7 +2,8 @@
   import type { NodeResultRecord, NodeTypeSchema } from '../types'
   import NodeStatus from './NodeStatus.svelte'
 
-  let { schema, name, result, onrename, onmenu }: { schema: NodeTypeSchema; name: string; result?: NodeResultRecord; onrename: (name: string) => void; onmenu: () => void } = $props()
+  import type { ComponentMessage } from './types/diagnostics'
+  let { schema, name, result, messages = [], onrename, onmenu }: { schema: NodeTypeSchema; name: string; result?: NodeResultRecord; messages?: ComponentMessage[]; onrename: (name: string) => void; onmenu: () => void } = $props()
   let editing = $state(false)
   let draft = $state('')
 
@@ -17,7 +18,7 @@
   {:else}
     <button class="name nodrag" type="button" ondblclick={begin} title="Double-click to rename">{name}</button>
   {/if}
-  <NodeStatus {result} />
+  <NodeStatus {result} {messages} />
   <button class="quick nodrag" type="button" onclick={onmenu}>Quick</button>
 </header>
 

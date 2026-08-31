@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { ExecutionMode, NodeTypeSchema } from '../../types'
+  import type { DisplayState } from '../types/display'
+  import type { NodeViewMode } from '../types/node'
+  import type { PortLayout } from '../types/port'
 
   let {
     schema,
@@ -7,10 +10,16 @@
     color,
     mode,
     viewerVisible,
+    viewMode,
+    portLayout,
+    display,
     onname,
     oncolor,
     onmode,
     onviewer,
+    onviewmode,
+    onportlayout,
+    ondisplay,
     onclose,
   }: {
     schema: NodeTypeSchema
@@ -18,10 +27,16 @@
     color: string
     mode: ExecutionMode
     viewerVisible: boolean
+    viewMode: NodeViewMode
+    portLayout: PortLayout
+    display: DisplayState
     onname: (name: string) => void
     oncolor: (color: string) => void
     onmode: (mode: ExecutionMode) => void
     onviewer: () => void
+    onviewmode: (mode: NodeViewMode) => void
+    onportlayout: (layout: PortLayout) => void
+    ondisplay: (display: DisplayState) => void
     onclose: () => void
   } = $props()
 
@@ -36,6 +51,36 @@
     <legend>Name</legend>
     <input value={name} oninput={(event) => onname(event.currentTarget.value)} aria-label="Custom node name" />
     <small>{schema.label} / {schema.category}</small>
+  </fieldset>
+
+  <fieldset>
+    <legend>Presentation</legend>
+    <div class="action-grid thirds">
+      {#each ['compact', 'standard', 'expanded'] as item}<button class:active={viewMode === item} type="button" onclick={() => onviewmode(item as NodeViewMode)}>{item}</button>{/each}
+    </div>
+    <div class="state-grid two">
+      <button class:active={portLayout === 'horizontal'} type="button" onclick={() => onportlayout('horizontal')}>Left / right</button>
+      <button class:active={portLayout === 'vertical'} type="button" onclick={() => onportlayout('vertical')}>Top / bottom</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Display</legend>
+    <div class="action-grid thirds">
+      {#each ['primary', 'reference', 'none'] as role}<button class:active={display.displayRole === role} type="button" onclick={() => ondisplay({ ...display, displayRole: role as DisplayState['displayRole'] })}>{role}</button>{/each}
+    </div>
+    <div class="state-grid">
+      <button class:active={display.nodeViewer} type="button" onclick={() => ondisplay({ ...display, nodeViewer: !display.nodeViewer })}>Node viewer</button>
+      <button type="button" disabled title="Canvas preview renderer is not connected to native display state">Canvas</button>
+      <button type="button" disabled title="Archicad overlay requires a native display transaction">Archicad</button>
+    </div>
+    <select value={display.output ?? ''} onchange={(event) => ondisplay({ ...display, output: event.currentTarget.value || undefined })} aria-label="Display output">
+      <option value="">Automatic output</option>
+      {#each schema.outputs as output}<option value={output.portId}>{output.label}</option>{/each}
+    </select>
+    <select value={display.style.representation} onchange={(event) => ondisplay({ ...display, style: { ...display.style, representation: event.currentTarget.value as DisplayState['style']['representation'] } })} aria-label="Display representation">
+      {#each ['default', 'shaded', 'wireframe', 'ghosted', 'points', 'bounds'] as representation}<option value={representation}>{representation}</option>{/each}
+    </select>
   </fieldset>
 
   <fieldset>
@@ -84,6 +129,7 @@
   fieldset > input { width: 100%; height: 27px; padding: 0 7px; }
   fieldset small { color: var(--text-faint); font: 7px/1 ui-monospace, monospace; }
   .state-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  .state-grid.two { grid-template-columns: 1fr 1fr; }
   .state-grid button, .action-grid button { border-radius: 0; }
   button.active { border-color: var(--node-color); background: color-mix(in srgb, var(--node-color) 46%, var(--surface)); color: var(--text); }
   .swatches { display: flex; height: 22px; }
@@ -92,5 +138,7 @@
   .swatches input { width: 27px; height: 22px; padding: 0; border-radius: 0; }
   .action-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
   .action-grid.flow { grid-template-columns: repeat(3, 1fr); }
+  .action-grid.thirds { grid-template-columns: repeat(3, 1fr); }
+  select { width: 100%; height: 27px; padding: 0 6px; font-size: 8px; }
   aside > p { margin: 2px 5px 3px; color: var(--text-faint); font-size: 8px; line-height: 1.4; }
 </style>

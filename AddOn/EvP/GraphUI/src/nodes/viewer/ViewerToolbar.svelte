@@ -1,10 +1,11 @@
 <script lang="ts">
-  let { active, onactive }: { active: boolean; onactive: () => void } = $props()
+  let { active, onactive, onfit, onreset }: { active: boolean; onactive: () => void; onfit: () => void; onreset: () => void } = $props()
 </script>
 
 <div class="toolbar nodrag">
   <button type="button" onclick={onactive}>{active ? 'Return to graph' : 'Activate viewer'}</button>
-  <button type="button" disabled title="Available when viewer navigation is connected">Fit</button>
+  <button type="button" onclick={onfit}>Fit</button>
+  <button type="button" onclick={onreset}>Reset</button>
 </div>
 
 <style>

@@ -43,9 +43,16 @@ src/nodes/
 `-- types/{node,port,display,runtime,diagnostics,references}.ts
 ```
 
-Input/output menus, viewer navigation, and gumball controllers are added when their native
-capabilities exist. Do not create enabled browser-only actions that imply a semantic edit was
-accepted by C++.
+Semantic input/output menu mutations and gumball controllers are enabled only when their native
+capabilities exist. Do not create browser-only actions that imply a semantic edit was accepted by
+C++.
+
+The current frontend contract covers phases 1-7 of the master-node design: versioned definitions
+and presentation serialization, compact/standard/expanded nodes, horizontal or vertical port rails,
+typed connection inspection, capability-filtered port menus, execution state, structured messages,
+display intent, conditional resizing, and an active embedded orbit/pan/zoom viewer. Semantic port
+edits, canvas/Archicad display targets, evaluation behavior, and frozen output remain disabled until
+their expected-revision native commands exist.
 
 ## Svelte Flow rules
 

@@ -1,6 +1,37 @@
 import type { NodeTypeSchema } from '../../types'
 import type { NodeBodyMode } from './node'
 
+export type DisplayRepresentation = 'default' | 'shaded' | 'wireframe' | 'ghosted' | 'points' | 'bounds'
+export type DisplayRole = 'primary' | 'reference' | 'none'
+
+export interface DisplayStyle {
+  representation: DisplayRepresentation
+  opacity?: number
+  lineWidth?: number
+  pointSize?: number
+  showEdges?: boolean
+  showPoints?: boolean
+  showLabels?: boolean
+  colorMode?: string
+}
+
+export interface DisplayState {
+  output?: string
+  nodeViewer: boolean
+  canvasBackground: boolean
+  archicadOverlay: boolean
+  displayRole: DisplayRole
+  style: DisplayStyle
+}
+
+export const DEFAULT_DISPLAY_STATE: DisplayState = {
+  nodeViewer: true,
+  canvasBackground: false,
+  archicadOverlay: false,
+  displayRole: 'none',
+  style: { representation: 'default' },
+}
+
 const CATEGORY_COLORS = ['#d58b4b', '#65a9b8', '#7da76a', '#a580bd', '#c56f72', '#6e91c9']
 
 export function bodyModeFor(schema: NodeTypeSchema): NodeBodyMode {

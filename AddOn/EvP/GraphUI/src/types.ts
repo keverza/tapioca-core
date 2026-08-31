@@ -2,6 +2,8 @@ import type { XYPosition } from '@xyflow/svelte'
 import type { NodeVisualState } from './nodes/types/node'
 import type { PortSchema } from './nodes/types/port'
 import type { ExecutionMode, RuntimeStatus } from './nodes/types/runtime'
+import type { PortConnectionState } from './nodes/types/port'
+import type { ComponentMessage } from './nodes/types/diagnostics'
 
 export type { NodeBodyMode, NodeVisualState } from './nodes/types/node'
 export type { PortDirection, PortSchema, PortTransform } from './nodes/types/port'
@@ -224,6 +226,8 @@ export interface SchemaNodeData extends Record<string, unknown> {
   visual?: NodeVisualState
   onvisualchange?: (nodeId: string, visual: NodeVisualState) => void
   onexecutionchange?: (nodeId: string, mode: ExecutionMode) => void
+  portConnections?: PortConnectionState[]
+  messages?: ComponentMessage[]
 }
 
 export type PositionStore = Map<string, XYPosition>

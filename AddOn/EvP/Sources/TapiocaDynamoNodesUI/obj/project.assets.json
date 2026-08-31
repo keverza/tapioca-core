@@ -45,24 +45,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\iivonis\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "C:\\Users\\Dever\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\iivonis\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodesUI\\Tapioca.DynamoNodesUI.csproj",
+      "projectUniqueName": "C:\\Users\\Dever\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodesUI\\Tapioca.DynamoNodesUI.csproj",
       "projectName": "Tapioca.DynamoNodesUI",
-      "projectPath": "C:\\Users\\iivonis\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodesUI\\Tapioca.DynamoNodesUI.csproj",
-      "packagesPath": "C:\\Users\\iivonis\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\iivonis\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodesUI\\obj\\",
+      "projectPath": "C:\\Users\\Dever\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodesUI\\Tapioca.DynamoNodesUI.csproj",
+      "packagesPath": "C:\\Users\\Dever\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\Dever\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodesUI\\obj\\",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\iivonis\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Users\\Dever\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
@@ -77,8 +72,8 @@
           "framework": "net10.0-windows7.0",
           "targetAlias": "net10.0-windows",
           "projectReferences": {
-            "C:\\Users\\iivonis\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodes\\Tapioca.DynamoNodes.csproj": {
-              "projectPath": "C:\\Users\\iivonis\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodes\\Tapioca.DynamoNodes.csproj"
+            "C:\\Users\\Dever\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodes\\Tapioca.DynamoNodes.csproj": {
+              "projectPath": "C:\\Users\\Dever\\Documents\\CODE\\tapioca-dev\\core\\AddOn\\EvP\\Sources\\TapiocaDynamoNodes\\Tapioca.DynamoNodes.csproj"
             }
           }
         }

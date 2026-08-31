@@ -1,16 +1,25 @@
 <script lang="ts">
-  import { T, useThrelte, useTask } from '@threlte/core'
+  import { T, extend, useThrelte, useTask } from '@threlte/core'
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
   import type { NodeResultRecord } from '../../types'
 
   let {
     itemCount,
     status,
+    active,
+    fitToken,
+    resetToken,
   }: {
     itemCount: number
     status: NodeResultRecord['status']
+    active: boolean
+    fitToken: number
+    resetToken: number
   } = $props()
 
-  const { camera } = useThrelte()
+  extend({ OrbitControls })
+  const { camera, renderer } = useThrelte()
+  let controls = $state<OrbitControls>()
   const assets = Array.from({ length: 24 }, (_, index) => {
     const angle = index * 2.399963
     const radius = 0.45 + Math.sqrt(index) * 0.52
@@ -35,8 +44,22 @@
     $camera.position.set(0, 1.3, 8.5)
   })
 
+  $effect(() => {
+    if (fitToken === 0 || controls === undefined) return
+    const distance = Math.max(5, 4 + Math.sqrt(Math.max(1, itemCount)) * 0.65)
+    controls.target.set(0, 0, 0)
+    $camera.position.set(0, distance * 0.16, distance)
+    controls.update()
+  })
+
+  $effect(() => {
+    if (resetToken === 0 || controls === undefined) return
+    controls.reset()
+  })
+
   useTask((delta) => {
     elapsed += delta
+    controls?.update()
   })
 </script>
 
@@ -46,6 +69,7 @@
     ref.lookAt(0, 0, 0)
   }}
 />
+<T.OrbitControls args={[$camera, renderer.domElement]} bind:ref={controls} enabled={active} enableDamping dampingFactor={0.12} screenSpacePanning />
 <T.AmbientLight intensity={0.7} />
 <T.DirectionalLight intensity={2.5} position={[3, 5, 8]} />
 
