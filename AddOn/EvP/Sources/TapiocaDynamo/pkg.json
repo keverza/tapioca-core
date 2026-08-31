@@ -13,7 +13,9 @@
   "repository_url": "",
   "contains_binaries": true,
   "node_libraries": [
-    "Tapioca.Dynamo"
+    "Tapioca.Dynamo",
+    "Tapioca.DynamoNodes",
+    "Tapioca.DynamoNodesUI"
   ],
   "dependencies": [],
   "host_dependencies": [],

@@ -6,6 +6,12 @@ using Dynamo.Applications;
 using Dynamo.Graph.Nodes;
 using Dynamo.Models;
 
+// Windows-only, declared once for the assembly rather than annotated per call site:
+// this process exists to be launched by a Windows Archicad add-on over a named pipe,
+// and the ASM search it performs (GeometryLibrary) is itself Windows-only. Without
+// this, every DynamoShapeManager call raises CA1416.
+[assembly: System.Runtime.Versioning.SupportedOSPlatform("windows")]
+
 internal static class Program
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -43,11 +49,26 @@ internal static class Program
         DynamoModel? model = null;
         try
         {
-            var startupArguments = StartupUtils.CommandLineArguments.Parse(
-                ["--NoNetworkMode", "--DisableAnalytics"]);
+            // ASM is resolved BEFORE the model is built, because that is the only
+            // moment Dynamo will accept a path for it. Without one, every geometry
+            // node fails with a LibG assembly error that names the wrong file — see
+            // GeometryLibrary. A missing library is reported, not fatal: a graph that
+            // only reads Archicad data still runs.
+            var geometry = GeometryLibrary.Find();
+            string[] arguments = geometry.Path.Length > 0
+                ? ["--NoNetworkMode", "--DisableAnalytics", "--GeometryPath", geometry.Path]
+                : ["--NoNetworkMode", "--DisableAnalytics"];
+
+            var startupArguments = StartupUtils.CommandLineArguments.Parse(arguments);
             var activeModel = StartupUtils.MakeCLIModel(startupArguments);
             model = activeModel;
-            Send(protocol, new { type = "ready", version = DynamoModel.Version });
+            Send(protocol, new
+            {
+                type = "ready",
+                version = DynamoModel.Version,
+                geometry = geometry.Loaded,
+                geometryMessage = geometry.Message
+            });
 
             string? loadedPath = null;
             while (await Console.In.ReadLineAsync() is { } line)

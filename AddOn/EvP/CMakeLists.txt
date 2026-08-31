@@ -509,23 +509,39 @@ endif ()
 
 set (TapiocaDynamoFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/TapiocaDynamo")
 set (TapiocaDynamoProject "${TapiocaDynamoFolder}/Tapioca.Dynamo.csproj")
+# The selection-set node ships as TWO more assemblies beside the ZeroTouch one, and
+# the split is forced rather than stylistic - see Tapioca.DynamoNodes.csproj. The UI
+# project references the model project, which references the ZeroTouch one, so all
+# three are rebuilt whenever any of their sources change.
+set (TapiocaDynamoNodesFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/TapiocaDynamoNodes")
+set (TapiocaDynamoNodesProject "${TapiocaDynamoNodesFolder}/Tapioca.DynamoNodes.csproj")
+set (TapiocaDynamoNodesUiFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/TapiocaDynamoNodesUI")
+set (TapiocaDynamoNodesUiProject "${TapiocaDynamoNodesUiFolder}/Tapioca.DynamoNodesUI.csproj")
 if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${TapiocaDynamoProject}" AND
     EXISTS "${DYNAMO_RUNTIME_DIR}/DynamoServices.dll")
     file (GLOB TapiocaDynamoFiles CONFIGURE_DEPENDS
         "${TapiocaDynamoFolder}/*.cs" "${TapiocaDynamoFolder}/*.csproj"
-        "${TapiocaDynamoFolder}/*.dyn" "${TapiocaDynamoFolder}/*.xml" "${TapiocaDynamoFolder}/pkg.json")
+        "${TapiocaDynamoFolder}/*.dyn" "${TapiocaDynamoFolder}/*.xml" "${TapiocaDynamoFolder}/pkg.json"
+        "${TapiocaDynamoNodesFolder}/*.cs" "${TapiocaDynamoNodesFolder}/*.csproj"
+        "${TapiocaDynamoNodesUiFolder}/*.cs" "${TapiocaDynamoNodesUiFolder}/*.csproj")
     set (TapiocaDynamoPackageDir "${CMAKE_BINARY_DIR}/DynamoPackage/Tapioca")
     set (TapiocaDynamoAssembly "${TapiocaDynamoPackageDir}/bin/Tapioca.Dynamo.dll")
+    set (TapiocaDynamoNodesAssembly "${TapiocaDynamoPackageDir}/bin/Tapioca.DynamoNodes.dll")
+    set (TapiocaDynamoNodesUiAssembly "${TapiocaDynamoPackageDir}/bin/Tapioca.DynamoNodesUI.dll")
     set (TapiocaDynamoCustomization "${TapiocaDynamoPackageDir}/bin/Tapioca.Dynamo_DynamoCustomization.xml")
     set (TapiocaDynamoTemplate "${TapiocaDynamoPackageDir}/TapiocaRoundTripTest.dyn")
     set (TapiocaDynamoManifest "${TapiocaDynamoPackageDir}/pkg.json")
     add_custom_command (
-        OUTPUT "${TapiocaDynamoAssembly}" "${TapiocaDynamoCustomization}"
-            "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}"
+        OUTPUT "${TapiocaDynamoAssembly}" "${TapiocaDynamoNodesAssembly}" "${TapiocaDynamoNodesUiAssembly}"
+            "${TapiocaDynamoCustomization}" "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}"
         DEPENDS ${TapiocaDynamoFiles}
         COMMENT "EvP: building the Tapioca.Dynamo ZeroTouch package"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${TapiocaDynamoPackageDir}/bin"
         COMMAND "${DOTNET_EXECUTABLE}" build "${TapiocaDynamoProject}" -c Release --nologo
+            "-p:DynamoRuntimeDir=${DYNAMO_RUNTIME_DIR}" -o "${TapiocaDynamoPackageDir}/bin"
+        COMMAND "${DOTNET_EXECUTABLE}" build "${TapiocaDynamoNodesProject}" -c Release --nologo
+            "-p:DynamoRuntimeDir=${DYNAMO_RUNTIME_DIR}" -o "${TapiocaDynamoPackageDir}/bin"
+        COMMAND "${DOTNET_EXECUTABLE}" build "${TapiocaDynamoNodesUiProject}" -c Release --nologo
             "-p:DynamoRuntimeDir=${DYNAMO_RUNTIME_DIR}" -o "${TapiocaDynamoPackageDir}/bin"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${TapiocaDynamoFolder}/pkg.json" "${TapiocaDynamoManifest}"
@@ -535,8 +551,8 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${TapiocaDynamoProject}" AND
             "${TapiocaDynamoFolder}/TapiocaRoundTripTest.dyn" "${TapiocaDynamoTemplate}"
         VERBATIM)
     add_custom_target (EvPTapiocaDynamo ALL DEPENDS
-        "${TapiocaDynamoAssembly}" "${TapiocaDynamoCustomization}"
-        "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}")
+        "${TapiocaDynamoAssembly}" "${TapiocaDynamoNodesAssembly}" "${TapiocaDynamoNodesUiAssembly}"
+        "${TapiocaDynamoCustomization}" "${TapiocaDynamoTemplate}" "${TapiocaDynamoManifest}")
     set_target_properties (EvPTapiocaDynamo PROPERTIES FOLDER Resources)
     add_dependencies (${ADDON_LIB} EvPTapiocaDynamo)
 

@@ -42,11 +42,19 @@ bool DecodeRequestHeader (const uint8_t* bytes, size_t size, RequestSizes& sizes
 
 bool IsAllowedCommand (std::string_view command)
 {
-    // Reads support preview and edit staging. The two writes are explicit Apply
+    // Reads support preview and edit staging. The two model writes are explicit Apply
     // operations; arbitrary dispatcher access never crosses the pipe.
-    constexpr std::array<std::string_view, 6> allowed { "Tapioca.GetSelection",      "Tapioca.GetModelElements",
+    //
+    // Tapioca.SetSelection is a THIRD kind: it writes the user's selection, not the
+    // model. It is admitted for one reason — the selection-set node's Reselect button
+    // (TapiocaDynamoNodes/SelectionSetNode.cs), which is a deliberate press and not an
+    // evaluation. NodeGraphSelectionCommands.cpp draws exactly that line for the
+    // node-graph editor, and a graph that moved the selection just by evaluating would
+    // be the defect both are written to prevent.
+    constexpr std::array<std::string_view, 7> allowed { "Tapioca.GetSelection",      "Tapioca.GetModelElements",
                                                         "Tapioca.GetBodyGeometry",   "Tapioca.GetElementDetails",
-                                                        "Tapioca.SetElementDetails", "Tapir.MoveElements" };
+                                                        "Tapioca.SetElementDetails", "Tapioca.SetSelection",
+                                                        "Tapir.MoveElements" };
     for (std::string_view candidate : allowed) {
         if (candidate == command)
             return true;

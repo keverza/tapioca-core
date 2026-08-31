@@ -1,0 +1,16 @@
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.csproj.AssemblyReference.cache
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.AssemblyInfoInputs.cache
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.AssemblyInfo.cs
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.csproj.CoreCompileInputs.cache
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.sourcelink.json
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\bin\Release\net10.0\Tapioca.DynamoNodes.deps.json
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\bin\Release\net10.0\Tapioca.DynamoNodes.dll
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\bin\Release\net10.0\Tapioca.DynamoNodes.pdb
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.dll
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\refint\Tapioca.DynamoNodes.dll
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\Tapioca.DynamoNodes.pdb
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\Sources\TapiocaDynamoNodes\obj\Release\net10.0\ref\Tapioca.DynamoNodes.dll
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\build_29\DynamoPackage\Tapioca\bin\Tapioca.DynamoNodes.deps.json
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\build_29\DynamoPackage\Tapioca\bin\Tapioca.DynamoNodes.dll
+C:\Users\iivonis\Documents\CODE\tapioca-dev\core\AddOn\EvP\build_29\DynamoPackage\Tapioca\bin\Tapioca.DynamoNodes.pdb

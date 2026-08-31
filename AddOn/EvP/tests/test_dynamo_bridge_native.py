@@ -19,9 +19,14 @@ def test_pipe_bridge_dispatches_external_envelope_without_transport_json():
         "Tapioca.GetBodyGeometry",
         "Tapioca.GetElementDetails",
         "Tapioca.SetElementDetails",
+        "Tapioca.SetSelection",
         "Tapir.MoveElements",
     ):
         assert f'"{command}"' in protocol
+    # The allowlist is a FIXED SIZE on purpose: a command added without widening the
+    # array would be silently dropped, and one added without a reason is exactly what
+    # the allowlist exists to stop. Both numbers move together or this fails.
+    assert "std::array<std::string_view, 7> allowed" in protocol
     assert "protocol::IsAllowedCommand" in bridge
     assert "GetNamedPipeClientProcessId" in bridge
     assert "FILE_FLAG_OVERLAPPED" in bridge
@@ -123,3 +128,101 @@ def test_zero_touch_client_acknowledges_the_complete_response_before_disconnect(
     assert bridge.index("pipe.ReadExactly(response);") < bridge.index(
         "pipe.WriteByte(ResponseAck);"
     )
+
+
+def test_selection_set_node_model_stays_free_of_wpf_and_out_of_the_zero_touch_assembly():
+    """The two Dynamo rules that force the three-assembly split.
+
+    1. DynamoModel.LoadNodeLibrary stops importing an assembly's ZeroTouch nodes as
+       soon as that assembly holds one NodeModel. A NodeModel in Tapioca.Dynamo would
+       therefore delete every existing Tapioca node from the library, silently.
+    2. The headless runner is net10.0 with no Windows Desktop framework, so the model
+       must not reference WPF or it could not be loaded there at all.
+
+    Neither failure shows up as a build error, so they are asserted on the source.
+    """
+    sources = EVP_ROOT / "Sources"
+    zero_touch = sources / "TapiocaDynamo"
+    model = (sources / "TapiocaDynamoNodes" / "SelectionSetNode.cs").read_text(encoding="utf-8")
+    model_project = (sources / "TapiocaDynamoNodes" / "Tapioca.DynamoNodes.csproj").read_text(encoding="utf-8")
+    view_project = (sources / "TapiocaDynamoNodesUI" / "Tapioca.DynamoNodesUI.csproj").read_text(encoding="utf-8")
+
+    # Rule 1: no NodeModel anywhere in the ZeroTouch assembly.
+    for source in zero_touch.glob("*.cs"):
+        assert ": NodeModel" not in source.read_text(encoding="utf-8"), source.name
+
+    # Rule 2: the model assembly is WPF-free, and only the view assembly is not. The
+    # REFERENCE is asserted, not the word - both files explain the rule in prose.
+    assert 'Include="DynamoCoreWpf"' not in model_project
+    assert "<UseWPF>" not in model_project
+    assert "<TargetFramework>net10.0</TargetFramework>" in model_project
+    assert 'Include="DynamoCoreWpf"' in view_project
+    assert "<UseWPF>true</UseWPF>" in view_project
+    assert "<TargetFramework>net10.0-windows</TargetFramework>" in view_project
+
+    # The set is stored state, not a live read - the whole reason it is a NodeModel.
+    assert "BuildOutputAst" in model
+    assert "Selection.Current" in model
+
+
+def test_selection_set_node_offers_the_palette_s_five_actions_in_the_palette_s_order():
+    """Update/Add/Remove/Reselect/Clear, matching SelectionSetPanel.hpp and the node
+    graph editor's Get Selection. A user who learned one must not have to learn
+    another, so the vocabulary is asserted rather than left to drift."""
+    sources = EVP_ROOT / "Sources"
+    model = (sources / "TapiocaDynamoNodes" / "SelectionSetNode.cs").read_text(encoding="utf-8")
+    view = (sources / "TapiocaDynamoNodesUI" / "SelectionSetNodeView.cs").read_text(encoding="utf-8")
+
+    actions = ["Update", "Add", "Remove", "Reselect", "Clear"]
+    for action in actions:
+        assert f"public string {action}()" in model, action
+
+    # In order, and every one wired to the model rather than reimplemented in the view.
+    # Matched on the call site rather than the bare label, so a mention in a comment
+    # cannot pass or fail this.
+    positions = [view.index(f'AddButton(buttons, "{action}"') for action in actions]
+    assert positions == sorted(positions)
+    for action in actions:
+        assert f"n.{action}()" in view, action
+
+    manifest = json.loads((sources / "TapiocaDynamo" / "pkg.json").read_text(encoding="utf-8"))
+    assert manifest["node_libraries"] == [
+        "Tapioca.Dynamo",
+        "Tapioca.DynamoNodes",
+        "Tapioca.DynamoNodesUI",
+    ]
+
+    # A declared node library that the installer never copies is a node that exists in
+    # the manifest and nowhere on disk - which Dynamo reports, at most, in a log.
+    host = (ADDON_ROOT / "Dynamo" / "DynamoHost.cpp").read_text(encoding="utf-8")
+    for library in manifest["node_libraries"]:
+        assert f'L"{library}.dll"' in host, library
+
+
+def test_runner_resolves_the_geometry_library_before_building_the_model():
+    """A missing ASM must be one sentence, not a LibG assembly error.
+
+    Dynamo swallows a failed ASM search and leaves the preloader location empty, so the
+    geometry factory path collapses to the runtime root and the first geometry node
+    dies naming a file that was never meant to be there. The probe has to run BEFORE
+    MakeCLIModel, because that is the only moment Dynamo accepts a path for it.
+    """
+    runner = EVP_ROOT / "Sources" / "DynamoRunner"
+    program = (runner / "Program.cs").read_text(encoding="utf-8")
+    probe = (runner / "GeometryLibrary.cs").read_text(encoding="utf-8")
+
+    assert program.index("GeometryLibrary.Find()") < program.index("MakeCLIModel")
+    assert "--GeometryPath" in program
+    assert "geometryMessage" in program
+
+    # The supported majors are read from the runtime's own libg_* folders, never
+    # hardcoded: pinning a different Dynamo must not need a code change here.
+    assert "libg_" in probe
+    assert "GetInstalledAsmVersion2" in probe
+    # An override is CHECKED, not trusted - an ASM of the wrong major cannot bind.
+    assert "GetVersionFromPath" in probe
+    assert "version.Major == found.Major" in probe
+
+    host = (ADDON_ROOT / "Dynamo" / "DynamoHost.cpp").read_text(encoding="utf-8")
+    assert 'response.Get ("geometryMessage", geometryMessage)' in host
+    assert "TAPIOCA_DYNAMO_ASM_DIR" in host

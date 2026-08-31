@@ -407,7 +407,19 @@ void HeadlessStartup ()
         response.Get ("type", type);
         response.Get ("message", message);
         if (type == "ready") {
-            SetHeadlessState (HeadlessState::Ready, "Dynamo runner is ready.");
+            // The runner is READY either way — a graph that only reads Archicad data
+            // runs perfectly well without a geometry library. But a missing ASM is
+            // said HERE rather than left to surface as a LibG assembly error inside
+            // the first geometry node, which names a file the user never asked for
+            // and no version at all. See DynamoRunner/GeometryLibrary.cs.
+            bool geometry = false;
+            GS::UniString geometryMessage;
+            response.Get ("geometry", geometry);
+            response.Get ("geometryMessage", geometryMessage);
+            if (!geometry && !geometryMessage.IsEmpty ())
+                SetHeadlessState (HeadlessState::Ready, "Dynamo runner is ready. " + geometryMessage);
+            else
+                SetHeadlessState (HeadlessState::Ready, "Dynamo runner is ready.");
             return;
         }
         if (type == "error") {
@@ -463,11 +475,31 @@ bool InstallPackage (GS::UniString& error)
 
     const std::wstring root ((const wchar_t*) destinationRoot.ToUStr ().Get ());
     const std::wstring bin ((const wchar_t*) destinationBin.ToUStr ().Get ());
-    return CopyPackageFile (sourceRoot + L"\\pkg.json", root + L"\\pkg.json", error) &&
-           CopyPackageFile (sourceRoot + L"\\TapiocaRoundTripTest.dyn", root + L"\\TapiocaRoundTripTest.dyn", error) &&
-           CopyPackageFile (sourceRoot + L"\\bin\\Tapioca.Dynamo.dll", bin + L"\\Tapioca.Dynamo.dll", error) &&
-           CopyPackageFile (sourceRoot + L"\\bin\\Tapioca.Dynamo_DynamoCustomization.xml",
-                            bin + L"\\Tapioca.Dynamo_DynamoCustomization.xml", error);
+    // ⚠️ NAMED, NOT GLOBBED, and every name here is also a name in pkg.json's
+    // node_libraries. A copy loop over bin\* would quietly ship a stale assembly left
+    // behind by an older build, and a package assembly Dynamo cannot load is a
+    // library that silently loses nodes rather than an error anybody sees.
+    //
+    // The three assemblies are three because Dynamo forces it: ZeroTouch and NodeModel
+    // cannot share one (DynamoModel.LoadNodeLibrary drops the ZeroTouch half), and the
+    // WPF view cannot join the model (the headless runner has no Windows Desktop
+    // framework). See Tapioca.DynamoNodes.csproj.
+    static constexpr const wchar_t* const binaries[] = {
+        L"Tapioca.Dynamo.dll",
+        L"Tapioca.Dynamo_DynamoCustomization.xml",
+        L"Tapioca.DynamoNodes.dll",
+        L"Tapioca.DynamoNodesUI.dll",
+    };
+
+    if (!CopyPackageFile (sourceRoot + L"\\pkg.json", root + L"\\pkg.json", error) ||
+        !CopyPackageFile (sourceRoot + L"\\TapiocaRoundTripTest.dyn", root + L"\\TapiocaRoundTripTest.dyn", error))
+        return false;
+
+    for (const wchar_t* const name : binaries) {
+        if (!CopyPackageFile (sourceRoot + L"\\bin\\" + name, bin + L"\\" + name, error))
+            return false;
+    }
+    return true;
 }
 
 BOOL CALLBACK FindProcessWindow (HWND window, LPARAM parameter)
@@ -525,7 +557,16 @@ bool StartEditor (GS::UniString& error)
     const GS::UniString pipeName = bridge.PipeName ();
     SetEnvironmentVariableW (L"TAPIOCA_DYNAMO_PIPE", (LPCWSTR) pipeName.ToUStr ().Get ());
 
+    // TAPIOCA_DYNAMO_ASM_DIR is forwarded as --GeometryPath, so the editor and the
+    // headless runner resolve the geometry library the same way. Only the OVERRIDE is
+    // forwarded: with none set, Dynamo's own ASM search is already what runs here, and
+    // second-guessing it from C++ would duplicate DynamoShapeManager badly. The
+    // runner's probe (DynamoRunner/GeometryLibrary.cs) is what turns a failed search
+    // into a sentence; the editor prints its own diagnostics to its console.
     std::wstring commandLine = L"\"" + executable + L"\" --NoNetworkMode";
+    GS::UniString asmDirectory;
+    if (evp::ReadEnv (L"TAPIOCA_DYNAMO_ASM_DIR", asmDirectory) && !asmDirectory.IsEmpty ())
+        commandLine += L" --GeometryPath \"" + std::wstring ((const wchar_t*) asmDirectory.ToUStr ().Get ()) + L"\"";
     std::vector<wchar_t> mutableCommandLine (commandLine.begin (), commandLine.end ());
     mutableCommandLine.push_back (L'\0');
 

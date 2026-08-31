@@ -25,6 +25,12 @@
       <HintPath>$(DynamoRuntimeDir)\DynamoServices.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- The ASM/LibG search Dynamo performs internally, run explicitly first so a
+         missing geometry library is a sentence rather than a LibG load error. -->
+    <Reference Include="DynamoShapeManager">
+      <HintPath>$(DynamoRuntimeDir)\DynamoShapeManager.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <Target Name="RequireDynamoRuntimeDir" BeforeTargets="ResolveAssemblyReferences"

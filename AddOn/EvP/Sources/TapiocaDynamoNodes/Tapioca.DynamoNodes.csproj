@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The selection-set NodeModel, and nothing else.
+
+       ⚠️ IT MUST NOT REFERENCE WPF OR DynamoCoreWpf. The headless runner is net10.0
+       with no Windows Desktop framework (as Dynamo's own DynamoCLI is), so an assembly
+       that pulled in WPF could not be loaded there at all — and this node has to
+       evaluate headlessly, because a captured set is just stored data. The buttons
+       live in Tapioca.DynamoNodesUI, which the runner is free to fail to load.
+
+       ⚠️ AND IT MUST NOT BE MERGED INTO Tapioca.Dynamo. DynamoModel.LoadNodeLibrary
+       stops importing an assembly's ZeroTouch nodes as soon as the assembly contains
+       one NodeModel, so merging these would delete every existing Tapioca node from
+       the library. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>Tapioca.DynamoNodes</AssemblyName>
+    <RootNamespace>Tapioca.Nodes</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- Dynamo discovers node types by reflection over the built assembly; no XML doc
+         is consulted, and generating one would only add a file to stage. -->
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TapiocaDynamo\Tapioca.Dynamo.csproj">
+      <Private>false</Private>
+    </ProjectReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="DynamoCore">
+      <HintPath>$(DynamoRuntimeDir)\DynamoCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DynamoServices">
+      <HintPath>$(DynamoRuntimeDir)\DynamoServices.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DesignScriptBuiltin">
+      <HintPath>$(DynamoRuntimeDir)\DesignScriptBuiltin.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ProtoCore">
+      <HintPath>$(DynamoRuntimeDir)\ProtoCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(DynamoRuntimeDir)\Newtonsoft.Json.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="RequireDynamoRuntimeDir" BeforeTargets="ResolveAssemblyReferences"
+          Condition="'$(DynamoRuntimeDir)' == ''">
+    <Error Text="DynamoRuntimeDir must point to the pinned Dynamo runtime directory." />
+  </Target>
+</Project>
