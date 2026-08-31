@@ -1,19 +1,21 @@
 <script lang="ts">
   import { Canvas } from '@threlte/core'
-  import type { NodeResultRecord } from './types'
-  import ThrelteScene from './ThrelteScene.svelte'
+  import type { NodeResultRecord } from '../types'
+  import ViewerScene from './viewer/ViewerScene.svelte'
+  import ViewerToolbar from './viewer/ViewerToolbar.svelte'
 
-  let { result }: { result?: NodeResultRecord } = $props()
+  let { result, active, onactive }: { result?: NodeResultRecord; active: boolean; onactive: () => void } = $props()
 </script>
 
 <section class="nodrag nowheel" aria-label="Native result 3D preview">
   <Canvas dpr={1}>
-    <ThrelteScene
+    <ViewerScene
       itemCount={result?.itemCount ?? 0}
       status={result?.status ?? 'pending'}
     />
   </Canvas>
   <span>{result?.itemCount ?? 0} items</span>
+  <ViewerToolbar {active} {onactive} />
 </section>
 
 <style>

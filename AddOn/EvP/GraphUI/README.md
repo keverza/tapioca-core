@@ -13,10 +13,39 @@ an alternate canvas abstraction.
   presentation and interaction state. They do not call the native bridge directly.
 - `editor.ts` contains pure catalog, validation, viewport, and preference logic. Every new
   pure rule gets a Node test in `tests/`.
-- `SchemaNode.svelte` renders catalog schema. Frontend code must not branch on a concrete
+- `nodes/MasterNode.svelte` renders catalog schema through one body-mode resolver. Its header, body,
+  ports, controls, viewer, menus, diagnostics, and Archicad reference browser live under `nodes/`.
+  Frontend code must not branch on a concrete
   native node type.
 - Shared colors and detail behavior use semantic tokens in `styles.css`; feature
   components do not establish separate themes.
+
+## Node component structure
+
+```text
+src/nodes/
+|-- MasterNode.svelte
+|-- NodeHeader.svelte
+|-- NodeBody.svelte
+|-- NodePort.svelte
+|-- NodeStatus.svelte
+|-- NodeViewer.svelte
+|-- NodeControls.svelte
+|-- menus/NodeMenu.svelte
+|-- diagnostics/MessageIcon.svelte
+|-- diagnostics/MessagePopover.svelte
+|-- viewer/ViewerToolbar.svelte
+|-- viewer/ViewerScene.svelte
+|-- controls/FloatingControlPanel.svelte
+|-- archicad/ElementReference.svelte
+|-- archicad/ParameterBrowser.svelte
+|-- archicad/PropertyReference.svelte
+`-- types/{node,port,display,runtime,diagnostics,references}.ts
+```
+
+Input/output menus, viewer navigation, and gumball controllers are added when their native
+capabilities exist. Do not create enabled browser-only actions that imply a semantic edit was
+accepted by C++.
 
 ## Svelte Flow rules
 

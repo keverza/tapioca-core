@@ -1,12 +1,11 @@
 import type { XYPosition } from '@xyflow/svelte'
+import type { NodeVisualState } from './nodes/types/node'
+import type { PortSchema } from './nodes/types/port'
+import type { ExecutionMode, RuntimeStatus } from './nodes/types/runtime'
 
-export interface PortSchema {
-  portId: string
-  label: string
-  valueType: string
-  required?: boolean
-  acceptsMultiple?: boolean
-}
+export type { NodeBodyMode, NodeVisualState } from './nodes/types/node'
+export type { PortDirection, PortSchema, PortTransform } from './nodes/types/port'
+export type { ExecutionMode, RuntimeStatus } from './nodes/types/runtime'
 
 export interface ParameterSchema {
   parameterId: string
@@ -33,8 +32,6 @@ export interface BypassMapping {
  * Not a status. A mode is authored and persists with the graph; a status is
  * produced by a run and is session-only. See NodeResultRecord['status'].
  */
-export type ExecutionMode = 'enabled' | 'disabled' | 'bypassed' | 'holding'
-
 export interface NodeTypeSchema {
   nodeType: string
   label: string
@@ -126,16 +123,7 @@ export interface NodeResultRecord {
    * Stage F1's public vocabulary. `dirty`, `complete`, `failed` and `skipped`
    * were the old internal spellings and are gone, not aliased.
    */
-  status:
-    | 'pending'
-    | 'running'
-    | 'success'
-    | 'error'
-    | 'blocked'
-    | 'disabled'
-    | 'bypassed'
-    | 'holding'
-    | 'cancelled'
+  status: RuntimeStatus
   /**
    * The stable machine-readable reason, e.g. `node.blocked.sideEffectsWithheld`.
    *
@@ -232,6 +220,10 @@ export interface SchemaNodeData extends Record<string, unknown> {
   onselectionaction?: (nodeId: string, action: SelectionAction) => void
   /** True while an action on THIS node is in flight. */
   selectionBusy?: boolean
+  /** Presentation metadata. It is never sent to the evaluator. */
+  visual?: NodeVisualState
+  onvisualchange?: (nodeId: string, visual: NodeVisualState) => void
+  onexecutionchange?: (nodeId: string, mode: ExecutionMode) => void
 }
 
 export type PositionStore = Map<string, XYPosition>

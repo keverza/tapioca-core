@@ -52,7 +52,7 @@
   } from './library'
   import PerformancePanel from './PerformancePanel.svelte'
   import type { DiagnosticMode } from './performance'
-  import SchemaNode from './SchemaNode.svelte'
+  import MasterNode from './nodes/MasterNode.svelte'
   import ToolStrip from './ToolStrip.svelte'
   import type {
     EvaluationSummary,
@@ -64,10 +64,12 @@
     PositionStore,
     SchemaNodeData,
     SelectionAction,
+    NodeVisualState,
   } from './types'
 
-  const nodeTypes: NodeTypes = { schema: SchemaNode }
+  const nodeTypes: NodeTypes = { schema: MasterNode }
   const positions: PositionStore = new Map()
+  const visuals = new Map<string, NodeVisualState>()
   const SNAP_GRID: [number, number] = [16, 16]
   const { fitView, screenToFlowPosition } = useSvelteFlow<Node<SchemaNodeData>, Edge>()
 
@@ -150,6 +152,9 @@
       type: 'schema',
       position: positionFor(node.nodeId, index),
       data: {
+        onvisualchange: handleVisualChange,
+        visual: visuals.get(node.nodeId),
+        onexecutionchange: (nodeId, mode) => void setExecutionMode(nodeId, mode),
         onselectionaction: handleSelectionAction,
         selectionBusy: selectionBusyNode === node.nodeId,
         schema: schemas.get(node.nodeType) ?? {
@@ -176,6 +181,31 @@
       targetHandle: edge.targetPort,
       type: 'smoothstep',
     }))
+  }
+
+  function visualStorageKey(): string {
+    return `tapioca.graph.visuals.${currentGraphName || graphId}`
+  }
+
+  function loadVisuals(): void {
+    visuals.clear()
+    try {
+      const stored = JSON.parse(localStorage.getItem(visualStorageKey()) ?? '{}') as Record<string, NodeVisualState>
+      for (const [nodeId, visual] of Object.entries(stored)) visuals.set(nodeId, visual)
+    } catch {
+      // Invalid presentation metadata must not prevent the native graph from opening.
+    }
+  }
+
+  function persistVisuals(): void {
+    localStorage.setItem(visualStorageKey(), JSON.stringify(Object.fromEntries(visuals)))
+  }
+
+  function handleVisualChange(nodeId: string, visual: NodeVisualState): void {
+    if (visual.nickname === undefined && visual.color === undefined) visuals.delete(nodeId)
+    else visuals.set(nodeId, visual)
+    persistVisuals()
+    nodes = nodes.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, visual } } : node)
   }
 
   async function refreshResults(): Promise<void> {
@@ -205,7 +235,10 @@
       // The runtime keeps results across an editor reload, so pick them up on
       // open rather than showing an empty graph until the next evaluation.
       await refreshResults()
-      await reloadState()
+      const state = await callTapioca<GraphState>('Tapioca.GraphGetState')
+      graphId = state.graphId ?? 'default'
+      loadVisuals()
+      applyState(state)
       loadEditorAnnotations()
       message = `${catalog.length} native node types / revision ${revision}`
     } catch (error) {
@@ -241,20 +274,14 @@
         parameters: [],
       },
     ]
+    loadVisuals()
     applyState({
       revision: 0,
       nodes: [
         { nodeId: 'diagnostic-source', nodeType: 'diagnostic.source', parameters: [] },
         { nodeId: 'diagnostic-sink', nodeType: 'diagnostic.sink', parameters: [] },
       ],
-      edges: [
-        {
-          sourceNode: 'diagnostic-source',
-          sourcePort: 'value',
-          targetNode: 'diagnostic-sink',
-          targetPort: 'value',
-        },
-      ],
+      edges: [{ sourceNode: 'diagnostic-source', sourcePort: 'value', targetNode: 'diagnostic-sink', targetPort: 'value' }],
     })
     loadEditorAnnotations()
   }
@@ -394,6 +421,8 @@
           !removedEdgeIds.has(edge.id) && !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target),
       )
       removeNodesFromFrames(removedNodeIds)
+      for (const nodeId of removedNodeIds) visuals.delete(nodeId)
+      persistVisuals()
       message = `Removed ${selectedNodes.length} browser-only nodes and ${selectedEdges.length} connections`
       return
     }
@@ -412,6 +441,8 @@
       for (const node of selectedNodes)
         positions.delete(node.id)
       removeNodesFromFrames(new Set(selectedNodes.map((node) => node.id)))
+      for (const node of selectedNodes) visuals.delete(node.id)
+      persistVisuals()
       message = `Removed ${selectedNodes.length} nodes and ${selectedEdges.length} connections`
     } catch (error) {
       failed = true
@@ -686,6 +717,7 @@
       }
       saveAnnotations(localStorage, name, annotations)
       currentGraphName = name
+      persistVisuals()
       closeLibrary()
       message = `Saved "${name}" to the workflow library / ${nodes.length} nodes`
       failed = false
@@ -712,6 +744,7 @@
       positions.clear()
       applyLayoutToPositions(outcome.nodeLayout, positions)
       currentGraphName = name
+      loadVisuals()
       annotations = loadAnnotations(localStorage, name)
       closeLibrary()
       busy = true
@@ -754,6 +787,8 @@
       nodes = []
       edges = []
       positions.clear()
+      visuals.clear()
+      persistVisuals()
       message = 'Cleared the browser-only fixture'
       return
     }
@@ -770,8 +805,10 @@
         })
       }
       positions.clear()
+      visuals.clear()
       annotations = []
       currentGraphName = ''
+      persistVisuals()
       persistAnnotations()
       message = 'New graph'
     } catch (error) {

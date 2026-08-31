@@ -1,6 +1,6 @@
 <script lang="ts">
   import { T, useThrelte, useTask } from '@threlte/core'
-  import type { NodeResultRecord } from './types'
+  import type { NodeResultRecord } from '../../types'
 
   let {
     itemCount,
