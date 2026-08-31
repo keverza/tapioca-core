@@ -40,8 +40,9 @@ from typing import Any
 # 2026-08-31, PLAT-NODEGRAPH-RUNTIME Stage E1: +4 for the node-graph workflow
 # library — GraphLibrarySave/Load/Delete/List. Graph documents only; no run
 # history and no model writes, so these stay host-independent.
-# 2026-08-31, PLAT-NODEGRAPH-RUNTIME: +1 for GraphEraseElements, the atomic
-# node-and-edge removal boundary used by canvas tools and keyboard deletion.
+# 2026-08-31, PLAT-NODEGRAPH-RUNTIME: +1 for GraphSelectionAction, the selection
+# set node's five buttons. It reads and sets Archicad's SELECTION, which is host
+# UI state rather than model state, so it is not a model write.
 EXPECTED_REGISTRY_COMMANDS = 158
 EXPECTED_LOCAL_COMMANDS = 19
 EXPECTED_TOTAL_COMMANDS = 177

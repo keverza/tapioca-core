@@ -1,7 +1,12 @@
 #include "NodeGraph/GraphRuntimeState.hpp"
 
 #include "NodeGraph/ArchicadHost.hpp"
+#include "NodeGraph/ArchicadNodes.hpp"
+#include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+
+#include <algorithm>
+#include <set>
 
 namespace evp::nodegraph {
 
@@ -48,6 +53,126 @@ GraphDocument GraphRuntimeState::Document (const GraphId& graphId) const
     Slot& slot = SlotFor (graphId);
     std::lock_guard lock (slot.documentMutex);
     return slot.document;
+}
+
+GraphRuntimeState::SelectionActionResult GraphRuntimeState::ApplySelectionAction (
+    const GraphId& graphId, const NodeId& nodeId, SelectionAction action)
+{
+    SelectionActionResult result;
+
+    Slot& slot = SlotFor (graphId);
+    std::vector<ArchicadElementRef> stored;
+    {
+        std::lock_guard lock (slot.documentMutex);
+        const Node* node = slot.document.FindNode (nodeId);
+        if (node == nullptr) {
+            result.error = "there is no node called '" + nodeId + "'";
+            return result;
+        }
+        if (node->nodeType != kSelectionSetNodeType) {
+            result.error = "node '" + nodeId + "' is not a selection set";
+            return result;
+        }
+        const auto parameter = node->parameters.find (kSelectionSetParameter);
+        if (parameter != node->parameters.end ())
+            stored = ElementsFromValue (parameter->second);
+        result.revision = slot.document.Revision ();
+    }
+
+    IArchicadHost* host = ActiveArchicadHost ();
+    const bool needsHost = action != SelectionAction::Clear;
+    if (needsHost && (host == nullptr || !host->IsAvailable ())) {
+        result.error = "no Archicad project is open";
+        return result;
+    }
+
+    if (action == SelectionAction::Reselect) {
+        if (stored.empty ()) {
+            result.error = "the set is empty, so there is nothing to select";
+            return result;
+        }
+        // Resolved first and all at once: a stale reference fails the whole
+        // action rather than quietly selecting the subset that still exists,
+        // because a partial selection looks like a correct answer.
+        std::vector<Reference> references;
+        references.reserve (stored.size ());
+        for (const ArchicadElementRef& element : stored)
+            references.push_back (Reference { ReferenceKind::Element, element.guid, {} });
+        const std::vector<ReferenceResolution> resolutions = host->References ().ResolveAll (references);
+        for (size_t i = 0; i < resolutions.size (); ++i) {
+            if (!resolutions[i].Usable ())
+                result.missing.push_back (stored[i].guid);
+        }
+        if (!result.missing.empty ()) {
+            result.count = stored.size ();
+            result.error = "the set names " + std::to_string (result.missing.size ()) +
+                           " element(s) this project no longer has";
+            return result;
+        }
+        if (!host->SetSelection (stored, result.error))
+            return result;
+        result.ok = true;
+        result.count = stored.size ();
+        return result;
+    }
+
+    std::vector<ArchicadElementRef> next;
+    if (action == SelectionAction::Clear) {
+        result.changed = stored.size ();
+    }
+    else {
+        std::vector<ArchicadElementRef> current;
+        if (!host->GetSelection (current, result.error))
+            return result;
+
+        const auto contains = [] (const std::vector<ArchicadElementRef>& list, const std::string& guid) {
+            return std::any_of (list.begin (), list.end (),
+                                [&guid] (const ArchicadElementRef& e) { return e.guid == guid; });
+        };
+
+        if (action == SelectionAction::Update) {
+            next = current;
+            result.changed = current.size ();
+        }
+        else if (action == SelectionAction::Add) {
+            next = stored;
+            for (const ArchicadElementRef& element : current) {
+                if (contains (next, element.guid))
+                    continue;
+                next.push_back (element);
+                ++result.changed;
+            }
+        }
+        else {
+            for (const ArchicadElementRef& element : stored) {
+                if (contains (current, element.guid))
+                    ++result.changed;
+                else
+                    next.push_back (element);
+            }
+        }
+    }
+
+    // Through the ordinary validated edit, so the revision moves, the dirty set
+    // is computed the usual way, and the change persists with the graph like any
+    // other parameter.
+    const EditResult edit =
+        Apply (graphId, GraphEdit { SetParameterEdit { nodeId, kSelectionSetParameter, ValueFromElements (next) } });
+    if (!edit.accepted) {
+        result.error = edit.error;
+        return result;
+    }
+    result.revision = edit.revision;
+    result.count = next.size ();
+
+    // The button IS the run. Evaluating what the change can reach - and nothing
+    // else - is what makes pressing Update show its result without anybody
+    // pressing Evaluate afterwards.
+    EvaluationRequest request;
+    request.targets = TerminalNodesDownstreamOf (Document (graphId), nodeId);
+    result.evaluation = Evaluate (graphId, request);
+    result.ok = true;
+    return result;
 }
 
 GraphMetadata GraphRuntimeState::Metadata (const GraphId& graphId) const

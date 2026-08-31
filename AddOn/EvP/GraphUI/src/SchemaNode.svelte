@@ -1,9 +1,9 @@
 <script lang="ts">
   import { Handle, Position, type Node, type NodeProps } from '@xyflow/svelte'
   import ThreltePreview from './ThreltePreview.svelte'
-  import type { NodeOutputRecord, SchemaNodeData } from './types'
+  import type { NodeOutputRecord, SchemaNodeData, SelectionAction } from './types'
 
-  let { data, selected }: NodeProps<Node<SchemaNodeData>> = $props()
+  let { id, data, selected }: NodeProps<Node<SchemaNodeData>> = $props()
 
   const HEADER_OFFSET = 92
   const PORT_PITCH = 24
@@ -29,6 +29,24 @@
     data.result !== undefined && data.result.status !== 'dirty' && data.result.outputs !== undefined,
   )
 
+  // The command palette's vocabulary, in its order. Reselect is separated
+  // because it is the one action that READS the set and writes Archicad rather
+  // than the other way round.
+  const SELECTION_ACTIONS: { action: SelectionAction; label: string; title: string }[] = [
+    { action: 'update', label: 'Update', title: "Replace the set with Archicad's current selection" },
+    { action: 'add', label: 'Add', title: 'Add the current selection to the set' },
+    { action: 'remove', label: 'Remove', title: 'Take the current selection out of the set' },
+    { action: 'reselect', label: 'Reselect', title: "Select this set's elements in Archicad" },
+    { action: 'clear', label: 'Clear', title: 'Empty the set' },
+  ]
+
+  /** How many elements the set holds, from the node's own stored parameter. */
+  const selectionCount = $derived.by((): number => {
+    const stored = data.parameters.find((parameter) => parameter.parameterId === 'elements')
+    if (stored?.value?.itemCount !== undefined) return stored.value.itemCount
+    return stored?.value?.items?.length ?? 0
+  })
+
   function parameterText(parameter: { value?: { text?: string; number?: number }; numberValue?: number }): string {
     if (parameter.value?.text !== undefined) return parameter.value.text
     if (parameter.value?.number !== undefined) return String(parameter.value.number)
@@ -49,7 +67,26 @@
 
   <p class="schema-description">{data.schema.description}</p>
 
-  {#if data.parameters.length > 0}
+  {#if data.schema.display === 'selectionSet'}
+    <!-- The set is operated on directly. nodrag so a click on a button is a
+         click and not the start of a node drag. -->
+    <section class="selection-set nodrag" aria-label="Selection set">
+      <p class="selection-count">
+        <strong>{selectionCount}</strong>
+        element{selectionCount === 1 ? '' : 's'} captured
+      </p>
+      <div class="selection-actions">
+        {#each SELECTION_ACTIONS as item}
+          <button
+            type="button"
+            title={item.title}
+            disabled={data.selectionBusy === true || data.onselectionaction === undefined}
+            onclick={() => data.onselectionaction?.(id, item.action)}
+          >{item.label}</button>
+        {/each}
+      </div>
+    </section>
+  {:else if data.parameters.length > 0}
     <dl class="schema-parameters">
       {#each data.parameters as parameter}
         <div>

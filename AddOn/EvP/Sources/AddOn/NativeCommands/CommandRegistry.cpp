@@ -28,6 +28,7 @@
 #include "NativeCommands/NotifyCommands.hpp"
 #include "NativeCommands/NodeGraphCommands.hpp"
 #include "NativeCommands/NodeGraphLibraryCommands.hpp"
+#include "NativeCommands/NodeGraphSelectionCommands.hpp"
 #include "NativeCommands/NurbsCommands.hpp"
 #include "NativeCommands/PlanGeometryCommands.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp"
@@ -81,6 +82,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetPlanTrackCommandRegistrations,   &GetArchVizCommandRegistrations,       &GetPointCloudCommandRegistrations,
     &GetViewerSyncCommandRegistrations,  &GetPreviewCommandRegistrations,       &GetNodeGraphCommandRegistrations,
     &GetNodeGraphLibraryCommandRegistrations,
+    &GetNodeGraphSelectionCommandRegistrations,
     &GetGdlPreviewCommandRegistrations,
 };
 

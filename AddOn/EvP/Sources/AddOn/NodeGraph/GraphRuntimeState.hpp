@@ -126,6 +126,50 @@ class GraphRuntimeState final {
     void SetLibrary (std::unique_ptr<IGraphStore> library);
     IGraphStore& Library () const;
 
+    // One of the five actions on a selection-set node.
+    //
+    // ⚠️ THESE ARE NOT EVALUATIONS AND MUST NOT BECOME ONE. A button the user
+    // pressed is a deliberate act, which is exactly what EvaluationRequest's
+    // allowSideEffects gate exists to distinguish from a graph reaching out on
+    // its own during a run. Reselect changes Archicad's selection because the
+    // user asked it to, here, once - not because a node happened to be in a
+    // plan.
+    enum class SelectionAction {
+        // Replace the set with what is selected in Archicad now.
+        Update,
+        // Add the current selection to the set.
+        Add,
+        // Take the current selection out of the set.
+        Remove,
+        // Select the set's elements in Archicad. Reads the set, never writes it.
+        Reselect,
+        // Empty the set.
+        Clear,
+    };
+
+    struct SelectionActionResult {
+        bool ok = false;
+        std::string error;
+
+        // The set's size after the action.
+        size_t count = 0;
+        // How many elements the action actually added, removed or replaced.
+        size_t changed = 0;
+        // References that no longer resolve. Reselect FAILS on these rather
+        // than selecting the survivors; the others report them and carry on,
+        // because a set that cannot drop a deleted element is unusable.
+        std::vector<std::string> missing;
+
+        uint64_t revision = 0;
+
+        // Present when the action changed the set: the run that refreshed
+        // everything the change can reach, so no one has to press Evaluate.
+        std::optional<EvaluationSummary> evaluation;
+    };
+
+    SelectionActionResult ApplySelectionAction (const GraphId& graphId, const NodeId& nodeId,
+                                                SelectionAction action);
+
     // Saves the live graph `graphId` into the library under `name`.
     StoreResult SaveToLibrary (const GraphId& graphId, const std::string& name);
 

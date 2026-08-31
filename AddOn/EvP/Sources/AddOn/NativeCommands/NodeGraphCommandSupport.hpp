@@ -11,9 +11,9 @@
 // memory.
 
 #include "NativeCommands/CommandBase.hpp"
+#include "NodeGraph/FaultBarrier.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 
-#include <exception>
 #include <string>
 
 namespace geomsrv {
@@ -40,9 +40,32 @@ inline graph::GraphId ReadGraphIdParam (const GS::ObjectState& params)
     return GraphUtf8 (graphId);
 }
 
-// Containment rule 1: no graph operation propagates an exception into
-// Archicad's call stack. Every verb runs through this one wrapper rather than
-// relying on each handler to remember a try/catch.
+// Containment rule 1: NO GRAPH OPERATION TAKES ARCHICAD DOWN. Every verb runs
+// through this one wrapper rather than relying on each handler to remember a
+// try/catch.
+//
+// ⚠️ IT IS THE FAULT BARRIER, NOT A try/catch, AND THE DIFFERENCE IS THE WHOLE
+// POINT. This wrapper used to be `try { ... } catch (const std::exception&)
+// catch (...)`, which looks total and is not: under /EHsc an access violation is
+// a STRUCTURED exception, and `catch (...)` is explicitly not required to catch
+// one. So a null dereference or a bad index anywhere in the runtime - the plan
+// builder, the serializer, the store, the value encoder, the catalog projection
+// - went straight past this handler and terminated Archicad with the user's
+// unsaved project in it.
+//
+// The barrier was already applied to NODE BODIES, on the assumption that node
+// code is the untrustworthy part. That assumption was wrong in scope: the
+// runtime around the node is this add-on's code too, and a defect in it is just
+// as fatal and considerably more likely, because every verb runs it and only an
+// evaluation runs a node. RunGuarded translates both C++ and structured
+// exceptions into a returned failure, so the whole verb is contained.
+//
+// The honest caveat is FaultBarrier.hpp's and it applies here unchanged:
+// continuing after an access violation means continuing in a process whose state
+// was, for one instruction, wrong. That is accepted deliberately, because the
+// alternative is not a clean process - it is Archicad terminating. The failure
+// is REPORTED, so a repeatedly faulting verb shows up rather than being retried
+// in silence.
 class GateFreeGraphCommand : public MainThreadCommand {
   public:
     bool NeedsMainThread () const override
@@ -52,17 +75,18 @@ class GateFreeGraphCommand : public MainThreadCommand {
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl& control) const final
     {
-        try {
-            return ExecuteGraph (params, control);
-        }
-        catch (const std::exception& exception) {
-            return NativeCommandResult::Failure (GS::UniString ("the graph runtime raised an error: ", CC_UTF8) +
-                                                 GS::UniString (exception.what (), CC_UTF8));
-        }
-        catch (...) {
-            return NativeCommandResult::Failure (
-                GS::UniString ("the graph runtime raised an unknown error", CC_UTF8));
-        }
+        NativeCommandResult result;
+        const graph::GuardOutcome guarded = graph::RunGuarded ([this, &params, &control, &result] () {
+            result = ExecuteGraph (params, control);
+            return true;
+        });
+        if (guarded.completed)
+            return result;
+        // A structured fault reaches here as its name and code; a thrown
+        // exception as its what(). Both are the same thing to a client: the
+        // graph runtime failed and Archicad is still running.
+        return NativeCommandResult::Failure (GS::UniString ("the graph runtime raised an error: ", CC_UTF8) +
+                                             GS::UniString (guarded.fault.c_str (), CC_UTF8));
     }
 
   protected:

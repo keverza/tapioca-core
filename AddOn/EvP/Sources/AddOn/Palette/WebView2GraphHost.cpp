@@ -1,5 +1,6 @@
 #include "Palette/WebView2GraphHost.hpp"
 
+#include "Palette/GraphLibraryChooser.hpp"
 #include "Python/ApiDispatcher.hpp"
 #include "Python/PathUtils.hpp"
 
@@ -19,9 +20,31 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 constexpr wchar_t kChildClassName[] = L"Tapioca.WebView2GraphChild";
+
+// RSLoadResource failed first when the bundle crossed 1 MiB; the palette now
+// bypasses that GSHandle path. Serving also avoids NavigateToString's separate
+// 2 MiB UTF-16 limit and gives localStorage a non-opaque origin. The .invalid
+// name is reserved and cannot collide with a real site.
 constexpr wchar_t kEditorUrl[] = L"https://graph.tapioca.invalid/index.html";
 constexpr wchar_t kEditorFilter[] = L"https://graph.tapioca.invalid/*";
 
+// The `window.EvP.call` bridge, in the shape the GraphUI bundle already expects
+// from DG::Browser: one JSON request string in, one JSON envelope string out.
+//
+// ⚠️ WITHOUT THIS THE PANEL IS NOT WRONG, IT IS EMPTY. The editor asks the
+// runtime for its catalog through EvP.call, and when the call is unavailable it
+// falls back to a two-node browser fixture - which is exactly what this host
+// showed while it was a pure rendering measurement. The component picker then
+// offers Source and Sink and none of the real node types, because there is
+// nobody to ask.
+//
+// It is installed with AddScriptToExecuteOnDocumentCreated, so it is in place
+// BEFORE the bundle's first line runs. The editor samples the bridge once at
+// startup, and this ordering is what makes that sample right rather than racy.
+//
+// The wire framing is "<id>\n<command>\n<paramsJson>" rather than a JSON
+// message. The request arrives here already JSON-encoded, and splitting it in
+// JavaScript - which has a parser - keeps the native side free of one.
 constexpr wchar_t kBridgeScript[] = L"(function(){"
                                     L"var wv=window.chrome&&window.chrome.webview;"
                                     L"if(!wv)return;"
@@ -80,17 +103,32 @@ std::wstring WideString (const GS::UniString& value)
     return std::wstring (reinterpret_cast<const wchar_t*> (text.Get ()), value.GetLength ());
 }
 
+// The other direction, for a web message coming back off the wire. Windows
+// wchar_t and UniChar::Layout are both UTF-16, so this is a reinterpretation
+// rather than a conversion - and the length is passed explicitly so a request
+// is not truncated at a NUL a page could put in it.
 GS::UniString UniStringFrom (const std::wstring& value)
 {
-    static_assert (sizeof (wchar_t) == sizeof (GS::UniChar::Layout), "UniString expects UTF-16 on Windows");
+    static_assert (sizeof (wchar_t) == sizeof (GS::UniChar::Layout),
+                   "UniString expects UTF-16, which is what wchar_t is on Windows");
     return GS::UniString (reinterpret_cast<const GS::UniChar::Layout*> (value.c_str ()), USize (value.size ()));
 }
 
+// One bridge request, answered on the thread the web view delivered it on -
+// which is the thread that created the controller, which is Archicad's main
+// thread. DispatchApiCall does its own gating from there, and the chooser is a
+// modal dialog that MUST already be on the main thread; see
+// GraphLibraryChooser.hpp for why that one is not a registered verb.
 GS::UniString AnswerBridgeRequest (const GS::UniString& command, const GS::UniString& paramsJson)
 {
+    if (command == GS::UniString (evp::kGraphLibraryBrowseCommand))
+        return evp::RunGraphLibraryChooser (paramsJson);
     return evp::DispatchApiCall (command, paramsJson, "nodegraph");
 }
 
+// The page as the BYTES that go on the wire. The response is served as UTF-8,
+// which is what the document declares, so it is converted once here rather than
+// per request.
 std::vector<char> Utf8Bytes (const GS::UniString& value)
 {
     const auto text = value.ToCStr (0, GS::MaxUSize, CC_UTF8);
@@ -98,6 +136,8 @@ std::vector<char> Utf8Bytes (const GS::UniString& value)
     return std::vector<char> (begin, begin + std::strlen (begin));
 }
 
+// An IStream over a copy of `bytes`, owned by the stream. ole32 is already in
+// this translation unit for CoInitializeEx, so this adds no dependency.
 ComPtr<IStream> StreamOver (const std::vector<char>& bytes)
 {
     const HGLOBAL memory = GlobalAlloc (GMEM_MOVEABLE, bytes.size ());
@@ -111,6 +151,7 @@ ComPtr<IStream> StreamOver (const std::vector<char>& bytes)
     std::memcpy (target, bytes.data (), bytes.size ());
     GlobalUnlock (memory);
     ComPtr<IStream> stream;
+    // TRUE: the stream frees the block, so a failure below cannot leak it.
     if (FAILED (CreateStreamOnHGlobal (memory, TRUE, &stream))) {
         GlobalFree (memory);
         return nullptr;
@@ -125,6 +166,7 @@ struct WebView2GraphHostState {
     HWND child = nullptr;
     ComPtr<ICoreWebView2Controller> controller;
     ComPtr<ICoreWebView2> webView;
+    // Kept so the resource handler can answer every request, including a reload.
     ComPtr<ICoreWebView2Environment> environment;
     std::vector<char> htmlBytes;
     std::atomic<bool> closing = false;
@@ -246,130 +288,148 @@ bool WebView2GraphHost::Start (HWND__* parent, const GS::UniString& html)
     const std::shared_ptr<WebView2GraphHostState> state = state_;
     const HRESULT result = CreateCoreWebView2EnvironmentWithOptions (
         nullptr, userDataPath.c_str (), nullptr,
-        Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler> (
-            [state] (HRESULT environmentResult, ICoreWebView2Environment* environment) -> HRESULT {
-                if (state->closing.load ())
-                    return S_OK;
-                if (FAILED (environmentResult) || environment == nullptr) {
-                    WebView2Log (
-                        GS::UniString::Printf ("environment creation failed: 0x%08X", unsigned (environmentResult)));
-                    return S_OK;
-                }
-                state->environment = environment;
-                return environment->CreateCoreWebView2Controller (
-                    state->child,
-                    Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler> (
-                        [state] (HRESULT controllerResult, ICoreWebView2Controller* controller) -> HRESULT {
-                            if (state->closing.load ())
-                                return S_OK;
-                            if (FAILED (controllerResult) || controller == nullptr) {
-                                WebView2Log (GS::UniString::Printf ("controller creation failed: 0x%08X",
-                                                                    unsigned (controllerResult)));
-                                return S_OK;
-                            }
-                            state->controller = controller;
-                            controller->get_CoreWebView2 (&state->webView);
-                            state->UpdateBounds ();
-
-                            ComPtr<ICoreWebView2Settings> settings;
-                            if (state->webView != nullptr && SUCCEEDED (state->webView->get_Settings (&settings))) {
-                                settings->put_AreDefaultContextMenusEnabled (FALSE);
-                                settings->put_AreDevToolsEnabled (FALSE);
-                                settings->put_IsStatusBarEnabled (FALSE);
-                                settings->put_IsZoomControlEnabled (FALSE);
-                            }
-                            if (state->webView == nullptr)
-                                return S_OK;
-
-                            const std::wstring startupScript = state->TelemetryScript ();
-                            state->webView->AddScriptToExecuteOnDocumentCreated (startupScript.c_str (), nullptr);
-                            state->webView->AddScriptToExecuteOnDocumentCreated (kBridgeScript, nullptr);
-
-                            EventRegistrationToken messageToken = {};
-                            state->webView->add_WebMessageReceived (
-                                Callback<ICoreWebView2WebMessageReceivedEventHandler> (
-                                    [state] (ICoreWebView2*,
-                                             ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
-                                        if (args == nullptr || state->closing.load () || state->webView == nullptr)
-                                            return S_OK;
-                                        LPWSTR raw = nullptr;
-                                        if (FAILED (args->TryGetWebMessageAsString (&raw)) || raw == nullptr)
-                                            return S_OK;
-                                        const std::wstring message (raw);
-                                        CoTaskMemFree (raw);
-
-                                        const size_t firstBreak = message.find (L'\n');
-                                        if (firstBreak == std::wstring::npos)
-                                            return S_OK;
-                                        const size_t secondBreak = message.find (L'\n', firstBreak + 1);
-                                        if (secondBreak == std::wstring::npos)
-                                            return S_OK;
-
-                                        const std::wstring id = message.substr (0, firstBreak);
-                                        const GS::UniString command = UniStringFrom (
-                                            message.substr (firstBreak + 1, secondBreak - firstBreak - 1));
-                                        const GS::UniString params = UniStringFrom (message.substr (secondBreak + 1));
-                                        const GS::UniString envelope = AnswerBridgeRequest (command, params);
-                                        const std::wstring reply = id + L"\n" + WideString (envelope);
-                                        state->webView->PostWebMessageAsString (reply.c_str ());
-                                        return S_OK;
-                                    })
-                                    .Get (),
-                                &messageToken);
-
-                            state->webView->AddWebResourceRequestedFilter (kEditorFilter,
-                                                                           COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
-                            EventRegistrationToken resourceToken = {};
-                            state->webView->add_WebResourceRequested (
-                                Callback<ICoreWebView2WebResourceRequestedEventHandler> (
-                                    [state] (ICoreWebView2*,
-                                             ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
-                                        if (args == nullptr || state->environment == nullptr)
-                                            return S_OK;
-
-                                        ComPtr<ICoreWebView2WebResourceRequest> request;
-                                        LPWSTR uri = nullptr;
-                                        bool wantsDocument = false;
-                                        if (SUCCEEDED (args->get_Request (&request)) && request != nullptr &&
-                                            SUCCEEDED (request->get_Uri (&uri)) && uri != nullptr) {
-                                            wantsDocument = wcscmp (uri, kEditorUrl) == 0;
-                                            CoTaskMemFree (uri);
-                                        }
-
-                                        ComPtr<ICoreWebView2WebResourceResponse> response;
-                                        if (!wantsDocument) {
-                                            if (SUCCEEDED (state->environment->CreateWebResourceResponse (
-                                                    nullptr, 404, L"Not Found", L"", &response))) {
-                                                args->put_Response (response.Get ());
-                                            }
-                                            return S_OK;
-                                        }
-
-                                        const ComPtr<IStream> body = StreamOver (state->htmlBytes);
-                                        if (body == nullptr)
-                                            return S_OK;
-                                        if (FAILED (state->environment->CreateWebResourceResponse (
-                                                body.Get (), 200, L"OK", L"Content-Type: text/html; charset=utf-8",
-                                                &response))) {
-                                            return S_OK;
-                                        }
-                                        args->put_Response (response.Get ());
-                                        return S_OK;
-                                    })
-                                    .Get (),
-                                &resourceToken);
-
-                            const HRESULT navigateResult = state->webView->Navigate (kEditorUrl);
-                            WebView2Log (
-                                SUCCEEDED (navigateResult)
-                                    ? GS::UniString::Printf ("native child HWND controller started, serving %u bytes",
-                                                             unsigned (state->htmlBytes.size ()))
-                                    : GS::UniString::Printf ("Navigate failed: 0x%08X", unsigned (navigateResult)));
+        Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler> ([state] (HRESULT environmentResult,
+                                                                                       ICoreWebView2Environment*
+                                                                                           environment) -> HRESULT {
+            if (state->closing.load ())
+                return S_OK;
+            if (FAILED (environmentResult) || environment == nullptr) {
+                WebView2Log (
+                    GS::UniString::Printf ("environment creation failed: 0x%08X", unsigned (environmentResult)));
+                return S_OK;
+            }
+            state->environment = environment;
+            return environment->CreateCoreWebView2Controller (
+                state->child,
+                Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler> (
+                    [state] (HRESULT controllerResult, ICoreWebView2Controller* controller) -> HRESULT {
+                        if (state->closing.load ())
                             return S_OK;
-                        })
-                        .Get ());
-            })
-            .Get ());
+                        if (FAILED (controllerResult) || controller == nullptr) {
+                            WebView2Log (GS::UniString::Printf ("controller creation failed: 0x%08X",
+                                                                unsigned (controllerResult)));
+                            return S_OK;
+                        }
+                        state->controller = controller;
+                        controller->get_CoreWebView2 (&state->webView);
+                        state->UpdateBounds ();
+
+                        ComPtr<ICoreWebView2Settings> settings;
+                        if (state->webView != nullptr && SUCCEEDED (state->webView->get_Settings (&settings))) {
+                            settings->put_AreDefaultContextMenusEnabled (FALSE);
+                            settings->put_AreDevToolsEnabled (FALSE);
+                            settings->put_IsStatusBarEnabled (FALSE);
+                            settings->put_IsZoomControlEnabled (FALSE);
+                        }
+                        if (state->webView == nullptr)
+                            return S_OK;
+
+                        const std::wstring startupScript = state->TelemetryScript ();
+                        state->webView->AddScriptToExecuteOnDocumentCreated (startupScript.c_str (), nullptr);
+
+                        // Kept separate from the telemetry script because that
+                        // one is re-executed on every monitor change, and the
+                        // bridge must be installed exactly once per document.
+                        state->webView->AddScriptToExecuteOnDocumentCreated (kBridgeScript, nullptr);
+                        EventRegistrationToken messageToken = {};
+                        state->webView->add_WebMessageReceived (
+                            Callback<ICoreWebView2WebMessageReceivedEventHandler> (
+                                [state] (ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                    if (args == nullptr || state->closing.load () || state->webView == nullptr)
+                                        return S_OK;
+
+                                    LPWSTR raw = nullptr;
+                                    if (FAILED (args->TryGetWebMessageAsString (&raw)) || raw == nullptr)
+                                        return S_OK;
+                                    const std::wstring message (raw);
+                                    CoTaskMemFree (raw);
+
+                                    // "<id>\n<command>\n<paramsJson>". A message
+                                    // that is not that shape is not ours; the
+                                    // page has no other reason to post one, but
+                                    // dropping it is cheaper than guessing.
+                                    const size_t firstBreak = message.find (L'\n');
+                                    if (firstBreak == std::wstring::npos)
+                                        return S_OK;
+                                    const size_t secondBreak = message.find (L'\n', firstBreak + 1);
+                                    if (secondBreak == std::wstring::npos)
+                                        return S_OK;
+
+                                    const std::wstring id = message.substr (0, firstBreak);
+                                    const GS::UniString command =
+                                        UniStringFrom (message.substr (firstBreak + 1, secondBreak - firstBreak - 1));
+                                    const GS::UniString params = UniStringFrom (message.substr (secondBreak + 1));
+
+                                    const GS::UniString envelope = AnswerBridgeRequest (command, params);
+                                    // The reply carries the id back rather than
+                                    // relying on order: a command that opens a
+                                    // modal dialog finishes long after a status
+                                    // call the page made behind it.
+                                    const std::wstring reply = id + L"\n" + WideString (envelope);
+                                    state->webView->PostWebMessageAsString (reply.c_str ());
+                                    return S_OK;
+                                })
+                                .Get (),
+                            &messageToken);
+
+                        // Serve the bundle from a virtual origin instead of
+                        // pushing it through NavigateToString's 2 MB cap.
+                        state->webView->AddWebResourceRequestedFilter (kEditorFilter,
+                                                                       COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                        EventRegistrationToken token = {};
+                        state->webView->add_WebResourceRequested (
+                            Callback<ICoreWebView2WebResourceRequestedEventHandler> (
+                                [state] (ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                                    if (args == nullptr || state->environment == nullptr)
+                                        return S_OK;
+
+                                    // Only the document itself. The filter is
+                                    // the whole origin, so a browser-initiated
+                                    // /favicon.ico lands here too, and
+                                    // answering it with a megabyte of HTML
+                                    // would be wrong as well as wasteful.
+                                    ComPtr<ICoreWebView2WebResourceRequest> request;
+                                    LPWSTR uri = nullptr;
+                                    bool wantsDocument = false;
+                                    if (SUCCEEDED (args->get_Request (&request)) && request != nullptr &&
+                                        SUCCEEDED (request->get_Uri (&uri)) && uri != nullptr) {
+                                        wantsDocument = wcscmp (uri, kEditorUrl) == 0;
+                                        CoTaskMemFree (uri);
+                                    }
+
+                                    ComPtr<ICoreWebView2WebResourceResponse> response;
+                                    if (!wantsDocument) {
+                                        if (SUCCEEDED (state->environment->CreateWebResourceResponse (
+                                                nullptr, 404, L"Not Found", L"", &response))) {
+                                            args->put_Response (response.Get ());
+                                        }
+                                        return S_OK;
+                                    }
+
+                                    const ComPtr<IStream> body = StreamOver (state->htmlBytes);
+                                    if (body == nullptr)
+                                        return S_OK;
+                                    if (FAILED (state->environment->CreateWebResourceResponse (
+                                            body.Get (), 200, L"OK", L"Content-Type: text/html; charset=utf-8",
+                                            &response))) {
+                                        return S_OK;
+                                    }
+                                    args->put_Response (response.Get ());
+                                    return S_OK;
+                                })
+                                .Get (),
+                            &token);
+
+                        const HRESULT navigateResult = state->webView->Navigate (kEditorUrl);
+                        WebView2Log (
+                            SUCCEEDED (navigateResult)
+                                ? GS::UniString::Printf ("native child HWND controller started, serving %u bytes",
+                                                         unsigned (state->htmlBytes.size ()))
+                                : GS::UniString::Printf ("Navigate failed: 0x%08X", unsigned (navigateResult)));
+                        return S_OK;
+                    })
+                    .Get ());
+        }).Get ());
     if (FAILED (result)) {
         WebView2Log (GS::UniString::Printf ("environment request failed: 0x%08X", unsigned (result)));
         return false;

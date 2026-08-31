@@ -59,6 +59,13 @@ enum class NodeDisplay {
 
     // The node has something to LOOK at; a client may host a viewport.
     Preview,
+
+    // The node OWNS a set of Archicad elements and is operated on directly:
+    // Update, Add, Remove, Reselect, Clear, exactly as the command palette's
+    // selection rows. A client should draw those five actions and the set's
+    // size. The actions are native verbs, not evaluations - see
+    // NodeGraphSelectionCommands.cpp.
+    SelectionSet,
 };
 
 const char* NodeDisplayName (NodeDisplay display);

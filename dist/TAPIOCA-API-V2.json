@@ -10238,82 +10238,6 @@
       }
     },
     {
-      "name": "Tapioca.GraphEraseElements",
-      "implementation": "native-registry",
-      "inputScheme": {
-        "type": "object",
-        "properties": {
-          "graphId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "nodeIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          "edges": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "sourceNode": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "sourcePort": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "targetNode": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "targetPort": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              "additionalProperties": false,
-              "required": [
-                "sourceNode",
-                "sourcePort",
-                "targetNode",
-                "targetPort"
-              ]
-            }
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "nodeIds",
-          "edges"
-        ]
-      },
-      "outputScheme": {
-        "type": "object",
-        "properties": {
-          "revision": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "dirtyNodes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "revision",
-          "dirtyNodes"
-        ]
-      }
-    },
-    {
       "name": "Tapioca.GraphEvaluate",
       "implementation": "native-registry",
       "inputScheme": {
@@ -11146,7 +11070,8 @@
                   "enum": [
                     "ports",
                     "text",
-                    "preview"
+                    "preview",
+                    "selectionSet"
                   ]
                 },
                 "generations": {
@@ -11231,7 +11156,7 @@
                         "type": "boolean"
                       },
                       "defaultValue": {
-                        "$ref": "#/$defs/parameterValue"
+                        "$ref": "#/$defs/value"
                       }
                     },
                     "additionalProperties": false,
@@ -12124,6 +12049,101 @@
           "error",
           "name",
           "graphId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphSelectionAction",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "update",
+              "add",
+              "remove",
+              "reselect",
+              "clear"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "action"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluated": {
+            "type": "boolean"
+          },
+          "executedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluationError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "graphId",
+          "nodeId",
+          "action",
+          "count",
+          "changed",
+          "missing",
+          "revision",
+          "evaluated",
+          "executedCount",
+          "evaluationError"
         ]
       }
     },

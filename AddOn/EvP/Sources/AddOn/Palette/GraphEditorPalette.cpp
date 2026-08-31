@@ -1,5 +1,6 @@
 #include "Palette/GraphEditorPalette.hpp"
 
+#include "NodeGraph/FaultBarrier.hpp"
 #include "Palette/WebView2GraphHost.hpp"
 #include "Python/PathUtils.hpp"
 #include "ResourceIds.hpp"
@@ -91,13 +92,35 @@ GS::UniString LoadGraphEditorHtmlResource ()
 GraphEditorPalette::GraphEditorPalette ()
     : DG::Palette (ACAPI_GetOwnResModule (), GraphEditorPaletteResId, ACAPI_GetOwnResModule (), paletteGuid)
 {
+    // ⚠️ THE ITEMS ARE BUILT BEFORE EVENT PROCESSING STARTS, AND THE ORDER IS
+    // THE BUG THIS PALETTE SPENT AN AFTERNOON ON.
+    //
+    // BeginEventProcessing makes DG start delivering panel events to the
+    // observer this constructor just attached, and DG delivers a PanelResized
+    // immediately whenever the restored palette geometry differs from the
+    // resource default - which depends on where the user last left the window,
+    // the monitor and the DPI, so it fires on some machines and sessions and not
+    // others. `PanelResized` dereferences `surface`. With the surface created
+    // AFTER this call, that was a null dereference: an access violation inside
+    // BeginEventProcessing that took Archicad down with no Windows Error
+    // Reporting entry and no Archicad crash report to point at it.
+    //
+    // WebUIPalette has the same Attach/BeginEventProcessing order and is fine,
+    // which is what made this look like house style: its `browser` is a MEMBER
+    // INITIALIZED IN THE INITIALISER LIST, so it exists before the body runs.
+    // A unique_ptr built in the body does not.
+    //
+    // The rule: nothing an event handler touches may be constructed after the
+    // event processing that can call it.
     GraphEditorLog ("constructor entered");
     surface = std::make_unique<DG::UserItem> (*this, DG::Rect (0, 0, GetClientWidth (), GetClientHeight ()),
                                               DG::UserItem::Normal, DG::UserItem::NoFrame);
     surface->Show ();
     webView = std::make_unique<WebView2GraphHost> ();
+    GraphEditorLog ("constructor: items created");
     Attach (*this);
     BeginEventProcessing ();
+    GraphEditorLog ("constructor: event processing begun");
 }
 
 GraphEditorPalette::~GraphEditorPalette ()
@@ -131,19 +154,35 @@ void GraphEditorPalette::DestroyInstance ()
 
 void GraphEditorPalette::Open ()
 {
-    if (!HasInstance ())
-        CreateInstance ();
-    GetInstance ().Show ();
-    GetInstance ().LoadGraphEditorPage ();
+    // ⚠️ THE PALETTE IS BEHIND THE FAULT BARRIER, NOT ONLY THE GRAPH RUNTIME.
+    // ADR-007's third constraint is that a node-graph error must never take
+    // Archicad down, and the containment was built for the runtime while the
+    // window that HOSTS it had none - so a fault here was fatal no matter how
+    // well guarded the evaluator was. `catch (...)` would not do: under /EHsc an
+    // access violation is a structured exception and is not required to be
+    // caught by it. A failure now leaves Archicad running and says so in
+    // startup.log.
+    const evp::nodegraph::GuardOutcome guarded = evp::nodegraph::RunGuarded ([] () {
+        if (!HasInstance ())
+            CreateInstance ();
+        GetInstance ().Show ();
+        GetInstance ().LoadGraphEditorPage ();
+        return true;
+    });
+    if (!guarded.completed)
+        GraphEditorLog (GS::UniString ("OPEN FAILED: ", CC_UTF8) + GS::UniString (guarded.fault.c_str (), CC_UTF8));
 }
 
 void GraphEditorPalette::Show ()
 {
+    GraphEditorLog ("show: entered");
     DG::Palette::Show ();
+    GraphEditorLog ("show: palette shown");
     if (webView != nullptr) {
         webView->SetVisible (true);
         webView->Focus ();
     }
+    GraphEditorLog ("show: complete");
 }
 
 void GraphEditorPalette::Hide ()
@@ -155,10 +194,13 @@ void GraphEditorPalette::Hide ()
 
 void GraphEditorPalette::LoadGraphEditorPage ()
 {
+    GraphEditorLog ("page: loading the HTML resource");
     GS::UniString html = LoadGraphEditorHtmlResource ();
     if (html.IsEmpty ())
         html = kResourceFallbackHtml;
+    GraphEditorLog ("page: resolving the surface HWND");
     const HWND surfaceWindow = surface != nullptr ? DGGetDialogItemWindow (GetId (), surface->GetId ()) : nullptr;
+    GraphEditorLog ("page: starting the web view host");
     if (webView != nullptr && webView->Start (surfaceWindow, html))
         webView->Focus ();
     else
@@ -179,6 +221,10 @@ void GraphEditorPalette::PanelMoved (const DG::PanelMoveEvent&)
 
 void GraphEditorPalette::PanelResized (const DG::PanelResizeEvent& ev)
 {
+    // Guarded as well as ordered. The ordering above is the fix; this is the
+    // second line, because a handler that assumes an item exists is one
+    // refactor away from being fatal again - and the other handlers here
+    // already null-check what they touch.
     if (surface == nullptr)
         return;
     BeginMoveResizeItems ();

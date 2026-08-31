@@ -28,7 +28,7 @@ export interface NodeTypeSchema {
    * 'preview'. Driven by the catalog rather than by branching on nodeType here,
    * so a new inspectable node needs no change in this file.
    */
-  display?: 'ports' | 'text' | 'preview'
+  display?: 'ports' | 'text' | 'preview' | 'selectionSet'
   generations?: string[]
   inputs: PortSchema[]
   outputs: PortSchema[]
@@ -99,10 +99,77 @@ export interface NodeResultRecord {
   outputs?: NodeOutputRecord[]
 }
 
+/**
+ * What one evaluation's levels actually overlapped.
+ *
+ * ADR-007's gate is that pure nodes DEMONSTRABLY execute concurrently, and
+ * `peakConcurrency` is the demonstration: it is counted by the node bodies
+ * themselves, not inferred from the timings, so it cannot be produced by fast
+ * sequential execution.
+ */
+export interface ParallelismMetrics {
+  workerThreads: number
+  maxParallel: number
+  peakConcurrency: number
+  wallClockMs: number
+  workMs: number
+  /** Work divided by wall clock. 1.0 means nothing overlapped. */
+  speedup: number
+  levels: {
+    levelIndex: number
+    executedCount: number
+    workerNodeCount: number
+    hostNodeCount: number
+    peakConcurrency: number
+    wallClockMs: number
+    workMs: number
+  }[]
+}
+
+export interface EvaluationSummary {
+  graphId: string
+  runId: number
+  revision: number
+  succeeded: boolean
+  cancelled: boolean
+  error: string
+  failedNode: string
+  executedCount: number
+  cacheHitCount: number
+  failedCount: number
+  blockedCount: number
+  parallelism?: ParallelismMetrics
+}
+
+export type SelectionAction = 'update' | 'add' | 'remove' | 'reselect' | 'clear'
+
+export interface SelectionActionOutcome {
+  ok: boolean
+  error: string
+  nodeId: string
+  action: SelectionAction
+  count: number
+  changed: number
+  missing: string[]
+  revision: number
+  evaluated: boolean
+  executedCount: number
+  /** Separate from `error`: the set can change correctly and the graph downstream still fail. */
+  evaluationError: string
+}
+
 export interface SchemaNodeData extends Record<string, unknown> {
   schema: NodeTypeSchema
   parameters: GraphParameter[]
   result?: NodeResultRecord
+  /**
+   * Present on selection-set nodes. The node draws its own five buttons, so the
+   * handler has to reach it - and it comes through `data` because that is the
+   * only channel Svelte Flow gives a custom node.
+   */
+  onselectionaction?: (nodeId: string, action: SelectionAction) => void
+  /** True while an action on THIS node is in flight. */
+  selectionBusy?: boolean
 }
 
 export type PositionStore = Map<string, XYPosition>

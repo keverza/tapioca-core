@@ -13,6 +13,7 @@
     performanceOpen,
     onrefresh,
     onevaluate,
+    onevaluatesequential,
     onfileaction,
     onfit,
     ontogglesnap,
@@ -26,6 +27,7 @@
     performanceOpen: boolean
     onrefresh: () => void
     onevaluate: () => void
+    onevaluatesequential: () => void
     onfileaction: (action: FileAction) => void
     onfit: () => void
     ontogglesnap: () => void
@@ -223,6 +225,10 @@
             </div>
           {:else if id === 'run'}
             <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onevaluate)}>Evaluate graph</button>
+            <div class="menu-separator" role="separator"></div>
+            <!-- The sequential arm of ADR-007's parallelism measurement. Same
+                 graph, one thread, so the two status lines can be compared. -->
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onevaluatesequential)}>Evaluate one node at a time</button>
           {:else if id === 'flow'}
             <button role="menuitem" type="button" onclick={() => invoke(onfit)}>Fit graph</button>
           {:else}

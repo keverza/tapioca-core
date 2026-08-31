@@ -46,7 +46,22 @@ export function isNativeBridgeAvailable(): boolean {
   return window.EvP !== undefined && typeof window.EvP.call === 'function'
 }
 
-/** Wait briefly for DG::Browser's asynchronous bridge registration. */
+/**
+ * Resolves once the native bridge exists, or false once it plainly will not.
+ *
+ * ⚠️ SAMPLING THE BRIDGE ONCE AT STARTUP IS A RACE IN ONE OF THE TWO HOSTS.
+ * The WebView2 palette installs `window.EvP` with
+ * AddScriptToExecuteOnDocumentCreated, so it is there before this module's
+ * first line and the first check already passes. DG::Browser registers it with
+ * RegisterAsynchJSObject, and the clue is in the name: it can arrive after the
+ * bundle has booted. Losing that race is not a visible error - the editor falls
+ * back to its two-node fixture and the component picker looks like the whole
+ * catalog is two nodes.
+ *
+ * So wait a moment before believing there is no runtime. The cost when there
+ * genuinely is none - a standalone browser - is one short delay at startup, and
+ * the fixture it then shows is a diagnostic, not something anyone is waiting on.
+ */
 export async function waitForNativeBridge(timeoutMs = 3000): Promise<boolean> {
   if (isNativeBridgeAvailable()) return true
   const deadline = performance.now() + timeoutMs

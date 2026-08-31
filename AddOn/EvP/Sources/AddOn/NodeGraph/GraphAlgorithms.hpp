@@ -43,6 +43,16 @@ std::vector<NodeId> DownstreamClosure (const GraphDocument& document, const std:
 // which is still narrower than "cook every node" once branches are disconnected.
 std::vector<NodeId> TerminalNodes (const GraphDocument& document);
 
+// The terminal nodes that `origin` feeds, including `origin` itself when it
+// feeds nothing.
+//
+// This is "recompute what this change affects" as a target set. Evaluating the
+// document's terminals after a local change would cook unrelated branches -
+// §13's whole point - and evaluating `origin` alone would leave the nodes that
+// consume it showing the previous answer. Narrower than the first, wider than
+// the second, and exactly the closure the change can reach.
+std::vector<NodeId> TerminalNodesDownstreamOf (const GraphDocument& document, const NodeId& origin);
+
 } // namespace evp::nodegraph
 
 #endif

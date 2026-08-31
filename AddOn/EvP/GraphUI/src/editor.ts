@@ -1,5 +1,5 @@
 import type { Connection, Edge, Node } from '@xyflow/svelte'
-import type { NodeTypeSchema, SchemaNodeData } from './types'
+import type { NodeTypeSchema, PositionStore, SchemaNodeData } from './types'
 
 export type DetailLevel = 'compact' | 'normal' | 'detailed'
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -74,4 +74,61 @@ export function detailLevelForZoom(zoom: number, current: DetailLevel): DetailLe
 export function initialTheme(storage: Pick<Storage, 'getItem'> | undefined): ThemeMode {
   const value = storage?.getItem('tapioca.graph.theme')
   return value === 'light' || value === 'dark' || value === 'system' ? value : 'system'
+}
+
+// ---------------------------------------------------------------------------
+// Workflow library helpers.
+//
+// Here rather than in library.ts because this module imports nothing at runtime
+// and is therefore the half the offline test runner can load. library.ts is the
+// bridge-calling half.
+// ---------------------------------------------------------------------------
+
+/** How node positions cross to the runtime, which carries them and reads none of them. */
+export interface LayoutField {
+  key: string
+  value: string
+}
+
+export interface LayoutRecord {
+  nodeId: string
+  fields: LayoutField[]
+}
+
+/** The runtime's own name rule, applied here so a bad name is refused before a round trip. */
+export function isValidGraphName(name: string): boolean {
+  if (name.length === 0 || name.length > 128) return false
+  if (name.startsWith('.') || name.includes('..')) return false
+  return /^[A-Za-z0-9._-]+$/.test(name)
+}
+
+export function describeNameRule(): string {
+  return 'Letters, digits, dot, dash and underscore only, and it cannot start with a dot.'
+}
+
+export function layoutFromPositions(positions: PositionStore, nodeIds: Iterable<string>): LayoutRecord[] {
+  const records: LayoutRecord[] = []
+  for (const nodeId of nodeIds) {
+    const position = positions.get(nodeId)
+    if (position === undefined) continue
+    records.push({
+      nodeId,
+      fields: [
+        { key: 'x', value: String(Math.round(position.x)) },
+        { key: 'y', value: String(Math.round(position.y)) },
+      ],
+    })
+  }
+  return records
+}
+
+export function applyLayoutToPositions(layout: LayoutRecord[], positions: PositionStore): void {
+  for (const record of layout) {
+    const x = Number(record.fields.find((field) => field.key === 'x')?.value)
+    const y = Number(record.fields.find((field) => field.key === 'y')?.value)
+    // A layout round-tripped from another client may carry fields this build
+    // does not know. Anything that is not a finite pair is left to the automatic
+    // placement rather than dropped on the origin.
+    if (Number.isFinite(x) && Number.isFinite(y)) positions.set(record.nodeId, { x, y })
+  }
 }

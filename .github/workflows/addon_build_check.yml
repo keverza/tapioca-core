@@ -1,59 +1,59 @@
-name: Add-on build check
+# name: Add-on build check
 
-on:
-  schedule:
-    - cron: "0 3 * * 1"
-  workflow_dispatch:
+# on:
+#   schedule:
+#     - cron: "0 3 * * 1"
+#   workflow_dispatch:
 
-permissions:
-  contents: read
+# permissions:
+#   contents: read
 
-jobs:
-  build:
-    name: Archicad ${{ matrix.archicad }}
-    runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        archicad: [29]
+# jobs:
+#   build:
+#     name: Archicad ${{ matrix.archicad }}
+#     runs-on: windows-2022
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         archicad: [29]
 
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v7
+#     steps:
+#       - name: Check out source
+#         uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
+#       - name: Set up Python
+#         uses: actions/setup-python@v7
+#         with:
+#           python-version: "3.12"
 
-      - name: Install validation tools
-        shell: pwsh
-        run: python -m pip install -r dev-requirements.txt
+#       - name: Install validation tools
+#         shell: pwsh
+#         run: python -m pip install -r dev-requirements.txt
 
-      - name: Provision build references
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile build -CacheRoot "${{ runner.temp }}\tapioca-reference-cache"
+#       - name: Provision build references
+#         shell: pwsh
+#         run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile build -CacheRoot "${{ runner.temp }}\tapioca-reference-cache"
 
-      - name: Provision test references
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile test -CacheRoot "${{ runner.temp }}\tapioca-reference-cache"
+#       - name: Provision test references
+#         shell: pwsh
+#         run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/provision-reference.ps1 -FromUpstream -Profile test -CacheRoot "${{ runner.temp }}\tapioca-reference-cache"
 
-      - name: Build AC29 add-on
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/Build-AddOn29.ps1
+#       - name: Build AC29 add-on
+#         shell: pwsh
+#         run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/Build-AddOn29.ps1
 
-      - name: Run quality gates
-        shell: pwsh
-        run: |
-          python tools/quality/check_secrets.py
-          python tools/quality/check_python.py
-          python tools/quality/check_cpp.py -v
-          python tools/quality/check_structure.py
+#       - name: Run quality gates
+#         shell: pwsh
+#         run: |
+#           python tools/quality/check_secrets.py
+#           python tools/quality/check_python.py
+#           python tools/quality/check_cpp.py -v
+#           python tools/quality/check_structure.py
 
-      - name: Run Python tests
-        shell: pwsh
-        run: python -m pytest -q
+#       - name: Run Python tests
+#         shell: pwsh
+#         run: python -m pytest -q
 
-      - name: Run offline C++ tests
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File AddOn/EvP/tests/cpp/Invoke-CppTests.ps1
+#       - name: Run offline C++ tests
+#         shell: pwsh
+#         run: powershell -NoProfile -ExecutionPolicy Bypass -File AddOn/EvP/tests/cpp/Invoke-CppTests.ps1

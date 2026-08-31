@@ -32,6 +32,7 @@
   import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
   import {
+    applyLayoutToPositions,
     detailLevelForZoom,
     initialTheme,
     isCatalogConnectionValid,
@@ -39,17 +40,29 @@
     type DetailLevel,
     type ThemeMode,
   } from './editor'
+  import LibraryDialog, { type LibraryMode } from './LibraryDialog.svelte'
+  import {
+    applySelectionAction,
+    browseForGraph,
+    deleteGraph,
+    listGraphs,
+    loadGraph,
+    saveGraph,
+    type StoredGraphInfo,
+  } from './library'
   import PerformancePanel from './PerformancePanel.svelte'
   import type { DiagnosticMode } from './performance'
   import SchemaNode from './SchemaNode.svelte'
   import ToolStrip from './ToolStrip.svelte'
   import type {
+    EvaluationSummary,
     GraphEdgeRecord,
     GraphState,
     NodeResultRecord,
     NodeTypeSchema,
     PositionStore,
     SchemaNodeData,
+    SelectionAction,
   } from './types'
 
   const nodeTypes: NodeTypes = { schema: SchemaNode }
@@ -94,6 +107,19 @@
   let marker = $state<HTMLDivElement>()
   let canvas = $state<HTMLElement>()
 
+  // The workflow library. `libraryMode` null means the dialog is closed.
+  let libraryMode = $state<LibraryMode | null>(null)
+  let libraryGraphs = $state.raw<StoredGraphInfo[]>([])
+  let libraryLocation = $state('')
+  let libraryError = $state('')
+  let libraryBusy = $state(false)
+  let currentGraphName = $state('')
+
+  // The selection-set node whose buttons are mid-action, so only that node's
+  // five buttons disable rather than the whole canvas going busy for what is a
+  // sub-second round trip.
+  let selectionBusyNode = $state<string | null>(null)
+
   const effectiveTool = $derived<EffectiveTool>(controlHeld && !controlChord ? 'knife' : activeTool)
   const resolvedAnnotations = $derived(
     annotations.map((annotation) => resolveFrameBounds(annotation, nodes)),
@@ -123,6 +149,8 @@
       type: 'schema',
       position: positionFor(node.nodeId, index),
       data: {
+        onselectionaction: handleSelectionAction,
+        selectionBusy: selectionBusyNode === node.nodeId,
         schema: schemas.get(node.nodeType) ?? {
           nodeType: node.nodeType,
           label: node.nodeType,
@@ -161,6 +189,9 @@
     busy = true
     failed = false
     try {
+      // The bridge may still be arriving; see waitForNativeBridge. Deciding
+      // "there is no runtime" on the first synchronous sample is what makes the
+      // component picker show two diagnostic nodes instead of the catalog.
       nativeConnected = await waitForNativeBridge()
       if (!nativeConnected) {
         initializeStandaloneFixture()
@@ -449,7 +480,19 @@
     controlChord = false
   }
 
-  async function evaluate(): Promise<void> {
+  // ADR-007's gate is an A/B on one graph rather than a claim, so the sequential
+  // arm is a menu item next to the ordinary one and the numbers land in the
+  // status line where both runs can be compared by eye.
+  function describeParallelism(summary: EvaluationSummary): string {
+    const p = summary.parallelism
+    if (p === undefined) return 'no parallelism reported'
+    return (
+      `peak ${p.peakConcurrency}x of ${p.maxParallel} / speedup ${p.speedup.toFixed(2)} / ` +
+      `${p.wallClockMs.toFixed(1)} ms wall of ${p.workMs.toFixed(1)} ms work`
+    )
+  }
+
+  async function evaluate(maxParallel = 0): Promise<void> {
     if (!nativeConnected) {
       message = 'Evaluation requires the native graph runtime; interaction timing does not.'
       return
@@ -457,11 +500,11 @@
     busy = true
     failed = false
     try {
-      await callTapioca('Tapioca.GraphEvaluate')
+      const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', { maxParallel })
       await refreshResults()
       await reloadState()
       const complete = results.filter((result) => result.status === 'complete').length
-      message = `Evaluation complete: ${complete}/${results.length} nodes / revision ${revision}`
+      message = `Evaluation complete: ${complete}/${results.length} nodes / revision ${revision} / ${describeParallelism(summary)}`
     } catch (error) {
       failed = true
       message = error instanceof Error ? error.message : String(error)
@@ -472,13 +515,202 @@
     }
   }
 
+  /**
+   * One of the selection set's five buttons.
+   *
+   * The runtime changes the set AND evaluates what the change reaches, so this
+   * only has to redraw. That is the whole point of routing it through a verb
+   * rather than an edit followed by a manual Evaluate.
+   */
+  async function handleSelectionAction(nodeId: string, action: SelectionAction): Promise<void> {
+    if (!nativeConnected) {
+      message = 'The selection set needs the native graph runtime.'
+      return
+    }
+    selectionBusyNode = nodeId
+    failed = false
+    try {
+      const outcome = await applySelectionAction(nodeId, action)
+      if (!outcome.ok) {
+        failed = true
+        message = outcome.error
+      } else if (action === 'reselect') {
+        message = `Selected ${outcome.count} element${outcome.count === 1 ? '' : 's'} in Archicad`
+      } else {
+        const verb = action === 'update' ? 'Updated' : action === 'add' ? 'Added' : action === 'remove' ? 'Removed' : 'Cleared'
+        message = `${verb}: ${outcome.changed} this press, ${outcome.count} in the set`
+        // Reported separately: the set can change correctly and the graph
+        // downstream of it still fail, and one message for both would make a
+        // successful capture read as a failed one.
+        if (outcome.evaluationError !== '') {
+          failed = true
+          message += ` / downstream: ${outcome.evaluationError}`
+        }
+      }
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      selectionBusyNode = null
+      await refreshResults()
+      await reloadState()
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // File menu. The runtime owns the graph and the library; everything here is
+  // a request and a redraw from whatever it answers.
+  // ---------------------------------------------------------------------
+
+  /**
+   * File > Save / File > Load: the ordinary Windows dialog, in the library folder.
+   *
+   * This is what a person expects from a File menu, and it is what File > Save
+   * now does: the dialog opens on the workflow library, its file-name field IS
+   * the workflow name, and the name comes back here to go through the same
+   * save and load verbs the in-page dialog always used. The runtime stays
+   * name-addressed and sandboxed - the chooser only picks a name, it never
+   * hands the runtime a path.
+   *
+   * The in-page dialog is still the fallback, for the hosts that have no
+   * chooser: a standalone browser, and the DG::Browser bridge, which does not
+   * intercept the verb. Those reject the call, and rejecting is the signal.
+   */
+  async function openFileDialog(mode: LibraryMode): Promise<boolean> {
+    let outcome
+    try {
+      outcome = await browseForGraph(mode, mode === 'save' ? currentGraphName : '')
+    } catch {
+      return false
+    }
+    if (outcome.status === 'cancelled') return true
+    if (!outcome.ok) {
+      failed = true
+      message = outcome.error
+      return true
+    }
+    if (mode === 'save') await performSave(outcome.name)
+    else await performLoad(outcome.name)
+    // performSave and performLoad report a refusal into the in-page dialog,
+    // which is not open on this path. Promote it to the status line rather than
+    // letting a failed save look like a silent one.
+    if (libraryError !== '') {
+      failed = true
+      message = libraryError
+      libraryError = ''
+    }
+    return true
+  }
+
+  async function openLibrary(mode: LibraryMode): Promise<void> {
+    if (!nativeConnected) {
+      message = 'The workflow library needs the native graph runtime.'
+      return
+    }
+    if (await openFileDialog(mode)) return
+    libraryError = ''
+    libraryBusy = true
+    libraryMode = mode
+    try {
+      const listing = await listGraphs()
+      libraryGraphs = listing.graphs
+      libraryLocation = listing.location
+    } catch (error) {
+      libraryError = error instanceof Error ? error.message : String(error)
+    } finally {
+      libraryBusy = false
+    }
+  }
+
+  function closeLibrary(): void {
+    libraryMode = null
+    libraryError = ''
+  }
+
+  async function confirmLibrary(name: string): Promise<void> {
+    if (libraryMode === 'save') await performSave(name)
+    else await performLoad(name)
+  }
+
+  async function performSave(name: string): Promise<void> {
+    libraryBusy = true
+    libraryError = ''
+    try {
+      const outcome = await saveGraph(name, name, positions, nodes.map((node) => node.id))
+      if (!outcome.ok) {
+        libraryError = outcome.error
+        return
+      }
+      saveAnnotations(localStorage, name, annotations)
+      currentGraphName = name
+      closeLibrary()
+      message = `Saved "${name}" to the workflow library / ${nodes.length} nodes`
+      failed = false
+    } catch (error) {
+      libraryError = error instanceof Error ? error.message : String(error)
+    } finally {
+      libraryBusy = false
+    }
+  }
+
+  async function performLoad(name: string): Promise<void> {
+    libraryBusy = true
+    libraryError = ''
+    try {
+      const outcome = await loadGraph(name)
+      if (!outcome.ok) {
+        // Reported in the dialog rather than as a graph failure: the graph on
+        // screen is untouched, which is exactly what the runtime guarantees.
+        libraryError = outcome.error
+        return
+      }
+      // The runtime carried the layout; adopt it BEFORE redrawing so nodes land
+      // where they were saved rather than on the automatic grid.
+      positions.clear()
+      applyLayoutToPositions(outcome.nodeLayout, positions)
+      currentGraphName = name
+      annotations = loadAnnotations(localStorage, name)
+      closeLibrary()
+      busy = true
+      try {
+        await refreshResults()
+        await reloadState()
+        void fitView({ duration: 180, padding: 0.2 })
+        message = `Loaded "${name}" / ${nodes.length} nodes / revision ${revision}`
+        failed = false
+      } finally {
+        busy = false
+      }
+    } catch (error) {
+      libraryError = error instanceof Error ? error.message : String(error)
+    } finally {
+      libraryBusy = false
+    }
+  }
+
+  async function removeFromLibrary(name: string): Promise<void> {
+    libraryBusy = true
+    libraryError = ''
+    try {
+      const outcome = await deleteGraph(name)
+      if (!outcome.ok) {
+        libraryError = outcome.error
+        return
+      }
+      libraryGraphs = libraryGraphs.filter((graph) => graph.name !== name)
+      if (currentGraphName === name) currentGraphName = ''
+    } catch (error) {
+      libraryError = error instanceof Error ? error.message : String(error)
+    } finally {
+      libraryBusy = false
+    }
+  }
+
   async function newGraph(): Promise<void> {
     if (!nativeConnected) {
       nodes = []
       edges = []
       positions.clear()
-      annotations = []
-      persistAnnotations()
       message = 'Cleared the browser-only fixture'
       return
     }
@@ -496,6 +728,7 @@
       }
       positions.clear()
       annotations = []
+      currentGraphName = ''
       persistAnnotations()
       message = 'New graph'
     } catch (error) {
@@ -509,23 +742,24 @@
   }
 
   function handleFileAction(action: 'new' | 'load' | 'save'): void {
-    if (action === 'new') {
-      void newGraph()
-      return
-    }
-    message = `${action === 'load' ? 'Load' : 'Save'} graph is not available in this editor yet.`
+    if (action === 'new') void newGraph()
+    else void openLibrary(action)
   }
 
   function rememberPosition({ targetNode }: { targetNode: Node<SchemaNodeData> | null }): void {
     if (targetNode !== null) positions.set(targetNode.id, { ...targetNode.position })
   }
 
+  function editorMetadataKey(): string {
+    return currentGraphName === '' ? graphId : currentGraphName
+  }
+
   function loadEditorAnnotations(): void {
-    annotations = loadAnnotations(localStorage, graphId)
+    annotations = loadAnnotations(localStorage, editorMetadataKey())
   }
 
   function persistAnnotations(): void {
-    saveAnnotations(localStorage, graphId, annotations)
+    saveAnnotations(localStorage, editorMetadataKey(), annotations)
   }
 
   function createFrameFromSelection(): void {
@@ -789,6 +1023,7 @@
       {performanceOpen}
       onrefresh={() => void reloadState()}
       onevaluate={() => void evaluate()}
+      onevaluatesequential={() => void evaluate(1)}
       onfileaction={handleFileAction}
       onfit={() => void fitView({ duration: 180, padding: 0.2 })}
       ontogglesnap={toggleSnap}
@@ -799,6 +1034,20 @@
       <button onclick={removeSelection} disabled={busy}>Erase selected</button>
     </div>
   </header>
+
+  {#if libraryMode !== null}
+    <LibraryDialog
+      mode={libraryMode}
+      graphs={libraryGraphs}
+      location={libraryLocation}
+      busy={libraryBusy}
+      error={libraryError}
+      suggestedName={currentGraphName}
+      onconfirm={(name) => void confirmLibrary(name)}
+      ondelete={(name) => void removeFromLibrary(name)}
+      oncancel={closeLibrary}
+    />
+  {/if}
 
   <section
     class="canvas"

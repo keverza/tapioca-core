@@ -26,6 +26,8 @@ const char* NodeDisplayName (NodeDisplay display)
             return "text";
         case NodeDisplay::Preview:
             return "preview";
+        case NodeDisplay::SelectionSet:
+            return "selectionSet";
     }
     return "ports";
 }

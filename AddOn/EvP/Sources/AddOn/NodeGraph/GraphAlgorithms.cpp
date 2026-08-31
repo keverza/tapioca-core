@@ -118,4 +118,24 @@ std::vector<NodeId> TerminalNodes (const GraphDocument& document)
     return result;
 }
 
+std::vector<NodeId> TerminalNodesDownstreamOf (const GraphDocument& document, const NodeId& origin)
+{
+    if (document.FindNode (origin) == nullptr)
+        return {};
+
+    const std::vector<NodeId> affected = DownstreamClosure (document, { origin });
+    const std::set<NodeId> reachable (affected.begin (), affected.end ());
+
+    std::vector<NodeId> targets;
+    for (const NodeId& nodeId : TerminalNodes (document)) {
+        if (reachable.contains (nodeId))
+            targets.push_back (nodeId);
+    }
+    // A node whose output nothing consumes is its own target; without this a
+    // lone selection set would evaluate nothing and never publish its result.
+    if (targets.empty ())
+        targets.push_back (origin);
+    return targets;
+}
+
 } // namespace evp::nodegraph

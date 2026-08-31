@@ -726,10 +726,6 @@ main > footer code {
     padding: 10px 12px;
   }
 
-  .tool-strip {
-    order: 2;
-  }
-
   .menu-bar {
     order: 3;
     width: 100%;
@@ -738,6 +734,10 @@ main > footer code {
 
   .menu-root {
     height: 34px;
+  }
+
+  .tool-strip {
+    order: 2;
   }
 
   .menu-popover {
@@ -768,4 +768,231 @@ main > footer code {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   The workflow library dialog.
+
+   Modal because a load REPLACES the document: the graph on screen must not be
+   editable underneath a pending swap.
+   --------------------------------------------------------------------------- */
+
+.dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgb(5 8 11 / 55%);
+}
+
+.dialog {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(520px, calc(100vh - 64px));
+  flex-direction: column;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 24px 56px rgb(0 0 0 / 55%);
+  gap: 10px;
+  transform: translate(-50%, -50%);
+}
+
+.dialog header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dialog header strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.dialog header span {
+  overflow: hidden;
+  color: var(--text-faint);
+  font: 400 9px/1.3 ui-monospace, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  color: var(--text-muted);
+  font-size: 10px;
+  gap: 4px;
+}
+
+.dialog-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: 400 12px/1.2 ui-monospace, monospace;
+}
+
+.dialog-field input:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.dialog-list {
+  overflow-y: auto;
+  min-height: 96px;
+  flex: 1;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--canvas);
+}
+
+.dialog-empty {
+  margin: 0;
+  padding: 14px 10px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: center;
+}
+
+.dialog-row {
+  display: flex;
+  align-items: stretch;
+  border-radius: 3px;
+}
+
+.dialog-row.selected {
+  background: var(--surface-hover);
+}
+
+.dialog-row > button:first-child {
+  display: flex;
+  overflow: hidden;
+  flex: 1;
+  flex-direction: column;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  gap: 2px;
+  text-align: left;
+}
+
+.dialog-row > button:first-child strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog-row > button:first-child span {
+  color: var(--text-faint);
+  font: 400 9px/1.2 ui-monospace, monospace;
+}
+
+.dialog-row:hover:not(.selected) {
+  background: var(--surface-raised);
+}
+
+.dialog-delete {
+  width: 26px;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.dialog-delete:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+
+.dialog-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.dialog-note.danger {
+  color: var(--danger);
+}
+
+.dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.dialog footer button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #1a1200;
+  font-weight: 700;
+}
+
+.dialog footer button.primary:disabled {
+  opacity: 0.5;
+}
+
+/* ---------------------------------------------------------------------------
+   The selection-set node's five actions.
+
+   The command palette's row, on a node: Update, Add, Remove, Reselect, Clear.
+   Same words and same order, so a user who has captured a selection for a
+   command is not learning a second vocabulary here.
+   --------------------------------------------------------------------------- */
+
+.selection-set {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px 8px;
+  gap: 6px;
+}
+
+.selection-count {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.selection-count strong {
+  color: var(--text);
+  font: 700 13px/1 ui-monospace, monospace;
+}
+
+.selection-actions {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+}
+
+.selection-actions button {
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.selection-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.selection-actions button:disabled {
+  opacity: 0.45;
+}
+
+.canvas[data-detail-level='compact'] .selection-actions {
+  display: none;
 }

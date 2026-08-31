@@ -1023,6 +1023,19 @@ class StubHost final : public IArchicadHost {
     }
 };
 
+// A selection-set node already holding `guids`. The set is an ordinary
+// parameter, so seeding one is an ordinary node with a parameter - which is the
+// simplification the node's redesign bought.
+Node SelectionSetNode (const std::string& nodeId, std::initializer_list<std::string> guids)
+{
+    Value::List elements;
+    for (const std::string& guid : guids)
+        elements.emplace_back (ArchicadElementRef { guid });
+    Node node { nodeId, "archicad.getSelection" };
+    node.parameters.emplace ("elements", Value (std::move (elements)));
+    return node;
+}
+
 EvaluationOutcome RunWithHost (Evaluator& evaluator, const GraphDocument& graph, const NodeRegistry& registry,
                                const NodeExecutor& executor, IArchicadHost* host, bool allowSideEffects = false,
                                RunId runId = 1)
@@ -1037,18 +1050,19 @@ EvaluationOutcome RunWithHost (Evaluator& evaluator, const GraphDocument& graph,
 
 } // namespace
 
-TEST (NodeGraphArchicad, GetSelectionReturnsWhatTheHostHolds)
+TEST (NodeGraphArchicad, ASelectionSetEvaluatesToWhatItHoldsWithNoHostAtAll)
 {
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
-
-    StubHost host;
-    host.Holds ({ "guid-a", "guid-b" });
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a", "guid-b" }) } })
+            .accepted);
 
     Evaluator evaluator;
-    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    // NO HOST. The set is a captured parameter, not a live read, so the node
+    // evaluates offline - which is what makes a saved graph inspectable before
+    // a project is even open.
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
 
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("sel");
@@ -1059,12 +1073,12 @@ TEST (NodeGraphArchicad, GetSelectionReturnsWhatTheHostHolds)
     EXPECT_EQ ("guid-a", std::get<ArchicadElementRef> (elements[0].DataValue ()).guid);
 }
 
-TEST (NodeGraphArchicad, ChangingTheSelectionReRunsTheNodeAndNotChangingItDoesNot)
+TEST (NodeGraphArchicad, TheSelectionSetStaysCleanWhileTheUserClicksAroundInTheModel)
 {
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a" }) } }).accepted);
 
     StubHost host;
     host.Holds ({ "guid-a" });
@@ -1074,29 +1088,32 @@ TEST (NodeGraphArchicad, ChangingTheSelectionReRunsTheNodeAndNotChangingItDoesNo
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
     EXPECT_EQ (1U, outcome.executedCount);
 
-    // Nothing changed: the declared generation is identical, so this is a cache
-    // hit rather than a second read of the host.
+    // THE BEHAVIOUR CHANGE, and the reason the node was redesigned. The user
+    // selects something else entirely and the selection generation moves. A node
+    // that mirrored the live selection would go dirty here, re-run, and drag
+    // every downstream node with it - so a graph silently answered differently
+    // every time somebody clicked in the model. A captured set does not.
+    host.Holds ({ "guid-a", "guid-c", "guid-d" });
+    host.generationSource.selection = 2;
     outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 2);
     EXPECT_EQ (0U, outcome.executedCount);
     EXPECT_EQ (1U, outcome.cacheHitCount);
-
-    // The user selected something else. Without the declared generation this
-    // node would serve the old answer forever - which is the whole point of
-    // declaring it.
-    host.Holds ({ "guid-a", "guid-c" });
-    host.generationSource.selection = 2;
-    outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 3);
-    EXPECT_EQ (1U, outcome.executedCount);
-    EXPECT_EQ (0U, outcome.cacheHitCount);
-    EXPECT_EQ (2, std::get<int64_t> (evaluator.Result ("sel")->outputs.at ("count").DataValue ()));
+    EXPECT_EQ (1, std::get<int64_t> (evaluator.Result ("sel")->outputs.at ("count").DataValue ()));
 }
 
 TEST (NodeGraphArchicad, AGraphNeedingArchicadIsRefusedAtTheDoorWithoutAHost)
 {
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
+    // Set Selection is the node that genuinely needs the host now: the set does
+    // not, because it evaluates to what it holds.
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a" }) } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("sel", "elements", "set", "elements") } })
+            .accepted);
 
     Evaluator evaluator;
     // No host at all - the offline and headless case.
@@ -1119,7 +1136,7 @@ TEST (NodeGraphArchicad, SetSelectionIsRefusedUnlessTheRunAsksForSideEffects)
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a" }) } }).accepted);
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
     ASSERT_TRUE (
@@ -1194,7 +1211,8 @@ TEST (NodeGraphArchicad, AStaleReferenceFailsSetSelectionInsteadOfSelectingASubs
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a", "guid-b" }) } })
+            .accepted);
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
     ASSERT_TRUE (
@@ -1210,8 +1228,13 @@ TEST (NodeGraphArchicad, AStaleReferenceFailsSetSelectionInsteadOfSelectingASubs
 
     // One of them is deleted between runs. Selecting only the survivor would
     // look like a correct answer and would not be one.
+    //
+    // The PROJECT generation is what moves here, not the selection one: deleting
+    // an element changes the model, and the selection set deliberately no longer
+    // notices the user selecting something else. Set Selection declares Project,
+    // so this is what re-runs it.
     host.resolver.present.erase ("guid-b");
-    host.generationSource.selection = 2;
+    host.generationSource.project = 2;
     const int callsBefore = host.setSelectionCalls;
     const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true, 2);
     EXPECT_FALSE (outcome.succeeded);
@@ -1223,8 +1246,9 @@ TEST (NodeGraphArchicad, ReferencesAreResolvedInOneBatchNotOnePerElement)
 {
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
-    ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry,
+                            GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "a", "b", "c", "d", "e", "f" }) } })
+                     .accepted);
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
     ASSERT_TRUE (
@@ -1246,8 +1270,10 @@ TEST (NodeGraphReports, OnePassAnswersRunnabilityAndLoadabilityDifferently)
 {
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
+    // Set Selection, not the selection set: the set evaluates to what it holds
+    // and so needs no project, which is the point of the redesign.
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.setSelection" } } }).accepted);
 
     // No host: the graph cannot RUN...
     const GraphResolution offline = ResolveGraph (graph, registry, nullptr);
@@ -1310,7 +1336,12 @@ TEST (NodeGraphArchicad, TheProjectClosingMidRunFailsTheNodeRatherThanTheProcess
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a" }) } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "set", "archicad.setSelection" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("sel", "elements", "set", "elements") } })
+            .accepted);
 
     StubHost host;
     host.Holds ({ "guid-a" });
@@ -1324,9 +1355,9 @@ TEST (NodeGraphArchicad, TheProjectClosingMidRunFailsTheNodeRatherThanTheProcess
     };
 
     Evaluator evaluator;
-    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, closing, &host);
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, closing, &host, true);
     EXPECT_FALSE (outcome.succeeded);
-    EXPECT_NE (std::string::npos, evaluator.Status ("sel").message.find ("no longer available"));
+    EXPECT_NE (std::string::npos, evaluator.Status ("set").message.find ("no longer available"));
 }
 
 // --- The Panel node --------------------------------------------------------
@@ -1339,7 +1370,9 @@ TEST (NodeGraphPanel, AcceptsAnyValueTypeThroughOneWildcardInput)
     // a panel variant per value type.
     for (const char* source : { "number", "makeList", "archicad.getSelection" }) {
         GraphDocument graph;
-        Node sourceNode { "src", source };
+        Node sourceNode = std::string (source) == "archicad.getSelection" ? SelectionSetNode ("src", { "guid-a" })
+                                                                          : Node { "src", source };
+        sourceNode.id = "src";
         if (std::string (source) == "number")
             sourceNode.parameters.emplace ("value", Value (1.0));
         ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { sourceNode } }).accepted) << source;
@@ -1807,27 +1840,41 @@ TEST (NodeGraphParallelism, WorkerDomainNodesAreNeverGivenTheHost)
     EXPECT_TRUE (sawResolver);
 }
 
-TEST (NodeGraphParallelism, ArchicadNodesRunOnTheCoordinatorAndAreCountedSeparately)
+TEST (NodeGraphParallelism, HostDomainNodesRunOnTheCoordinatorAndAreCountedSeparately)
 {
     NodeRegistry registry = MakeParallelRegistry ();
-    RegisterArchicadNodes (registry);
+    std::string error;
+    // A test-local host-domain node rather than whichever production node
+    // happens to be in that domain: this test is about the PARTITION, and
+    // coupling it to the catalog is what made it break when Get Selection
+    // stopped needing the host.
+    NodeType hostNode;
+    hostNode.id = "hostProbe";
+    hostNode.label = "Host Probe";
+    hostNode.executionDomain = ExecutionDomain::ArchicadMainThread;
+    hostNode.effect = EffectKind::ReadModel;
+    hostNode.outputs.push_back ({ "value", "Value", ValueType::Integer });
+    ASSERT_TRUE (registry.Register (std::move (hostNode), error)) << error;
 
     GraphDocument graph = MakeIndependentSlowNodes (registry, 2);
     ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "probe", "hostProbe" } } }).accepted);
     SharedRendezvous ().Expect (1);
 
     StubHost host;
-    host.Holds ({ "guid-1" });
 
     const std::thread::id coordinator = std::this_thread::get_id ();
     std::thread::id hostNodeThread;
     const NodeExecutor executor = [&] (const Node& node, const ValueMap& inputs,
                                        const NodeExecutionContext& execution, ValueMap& outputs,
                                        std::string& nodeError) {
-        if (IsArchicadNodeType (node.nodeType)) {
+        if (node.nodeType == "hostProbe") {
             hostNodeThread = std::this_thread::get_id ();
-            return ExecuteArchicadNode (node, inputs, execution, outputs, nodeError);
+            // The host reaches a host-domain node and nothing else; that is the
+            // other half of the partition.
+            EXPECT_NE (nullptr, execution.archicad);
+            outputs.emplace ("value", Value (int64_t { 1 }));
+            return true;
         }
         return ExecuteSlowNode (node, inputs, execution, outputs, nodeError);
     };
@@ -2415,4 +2462,207 @@ TEST (NodeGraphWorkerPool, StoppingJoinsItsThreadsAndLeavesBatchesRunnable)
         after.fetch_add (1);
     });
     EXPECT_EQ (4, after.load ());
+}
+
+// ---------------------------------------------------------------------------
+// The selection set's five actions.
+//
+// Update, Add, Remove, Reselect, Clear - the command palette's vocabulary, so a
+// user who has captured a selection for a command does not learn a second set of
+// words for a graph. These run through GraphRuntimeState because that is where
+// the action lives: an action is a deliberate user act, not an evaluation, and
+// it evaluates what it affects on the way out.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using SelectionAction = GraphRuntimeState::SelectionAction;
+
+// A graph id of its own per test: the runtime is a process singleton, so two
+// tests sharing a name would share a document.
+GraphId FreshGraphId (const char* label)
+{
+    static std::atomic<int> counter { 0 };
+    return std::string ("test-") + label + "-" + std::to_string (counter.fetch_add (1));
+}
+
+// Installs `host` for the duration of the scope. An action reads the ACTIVE
+// host rather than one passed in, because a button press has no run context to
+// carry one.
+class ScopedHost {
+  public:
+    explicit ScopedHost (IArchicadHost* host)
+    {
+        SetActiveArchicadHost (host);
+    }
+    ~ScopedHost ()
+    {
+        SetActiveArchicadHost (nullptr);
+    }
+    ScopedHost (const ScopedHost&) = delete;
+    ScopedHost& operator= (const ScopedHost&) = delete;
+};
+
+std::vector<std::string> GuidsOf (const GraphDocument& document, const NodeId& nodeId)
+{
+    std::vector<std::string> guids;
+    const Node* node = document.FindNode (nodeId);
+    if (node == nullptr)
+        return guids;
+    const auto parameter = node->parameters.find ("elements");
+    if (parameter == node->parameters.end ())
+        return guids;
+    for (const ArchicadElementRef& element : ElementsFromValue (parameter->second))
+        guids.push_back (element.guid);
+    return guids;
+}
+
+} // namespace
+
+TEST (NodeGraphSelectionSet, UpdateReplacesAddUnionsAndRemoveSubtracts)
+{
+    const GraphId graphId = FreshGraphId ("mutations");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    const ScopedHost installed (&host);
+
+    host.Holds ({ "a", "b" });
+    auto result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ (2U, result.count);
+    EXPECT_EQ ((std::vector<std::string> { "a", "b" }), GuidsOf (runtime.Document (graphId), "sel"));
+
+    // Add UNIONS rather than appending: pressing Add twice on the same selection
+    // must not leave an element in the set twice.
+    host.Holds ({ "b", "c" });
+    result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Add);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ (3U, result.count);
+    EXPECT_EQ (1U, result.changed);
+    EXPECT_EQ ((std::vector<std::string> { "a", "b", "c" }), GuidsOf (runtime.Document (graphId), "sel"));
+
+    result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Add);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ (3U, result.count);
+    EXPECT_EQ (0U, result.changed);
+
+    host.Holds ({ "a" });
+    result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Remove);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ ((std::vector<std::string> { "b", "c" }), GuidsOf (runtime.Document (graphId), "sel"));
+
+    // Update replaces outright, including down to nothing.
+    host.Holds ({});
+    result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ (0U, result.count);
+}
+
+TEST (NodeGraphSelectionSet, AnActionEvaluatesWhatItAffectsSoNobodyPressesEvaluate)
+{
+    const GraphId graphId = FreshGraphId ("evaluates");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { ConnectEdit { Connect ("sel", "elements", "panel", "value") } })
+            .accepted);
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.Holds ({ "a", "b", "c" });
+
+    const auto result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update);
+    ASSERT_TRUE (result.ok) << result.error;
+    ASSERT_TRUE (result.evaluation.has_value ());
+    EXPECT_TRUE (result.evaluation->succeeded) << result.evaluation->error;
+
+    // The CONSUMER already carries the new answer. Without this the set would
+    // change and the panel would keep showing the previous one until somebody
+    // pressed Evaluate, which is exactly the complaint this design answers.
+    const ResultsSnapshot snapshot = runtime.Results (graphId);
+    const auto panel = std::find_if (snapshot.nodes.begin (), snapshot.nodes.end (),
+                                     [] (const RuntimeNodeResult& node) { return node.nodeId == "panel"; });
+    ASSERT_NE (snapshot.nodes.end (), panel);
+    EXPECT_EQ (NodeExecutionState::Complete, panel->status.state);
+    ASSERT_NE (nullptr, panel->result);
+}
+
+TEST (NodeGraphSelectionSet, ClearNeedsNoProjectAndReselectRefusesAStaleSet)
+{
+    const GraphId graphId = FreshGraphId ("reselect");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    {
+        const ScopedHost installed (&host);
+        host.Holds ({ "a", "b" });
+        ASSERT_TRUE (runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update).ok);
+
+        ASSERT_TRUE (runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Reselect).ok);
+        EXPECT_EQ (1, host.setSelectionCalls);
+        EXPECT_EQ (2U, host.applied.size ());
+
+        // One element deleted. Selecting the survivor would look like a correct
+        // answer and would not be one - the same rule Set Selection follows.
+        host.resolver.present.erase ("b");
+        const int callsBefore = host.setSelectionCalls;
+        const auto stale = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Reselect);
+        EXPECT_FALSE (stale.ok);
+        EXPECT_EQ (callsBefore, host.setSelectionCalls);
+        ASSERT_EQ (1U, stale.missing.size ());
+        EXPECT_EQ ("b", stale.missing.front ());
+    }
+
+    // Clear is the one action that needs no project: a set you can no longer
+    // resolve is exactly the one you want to be able to empty.
+    const auto cleared = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Clear);
+    ASSERT_TRUE (cleared.ok) << cleared.error;
+    EXPECT_EQ (0U, cleared.count);
+    EXPECT_TRUE (GuidsOf (runtime.Document (graphId), "sel").empty ());
+}
+
+TEST (NodeGraphSelectionSet, RefusesANodeThatIsNotASelectionSet)
+{
+    const GraphId graphId = FreshGraphId ("wrongnode");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+
+    StubHost host;
+    const ScopedHost installed (&host);
+
+    auto result = runtime.ApplySelectionAction (graphId, "panel", SelectionAction::Update);
+    EXPECT_FALSE (result.ok);
+    EXPECT_NE (std::string::npos, result.error.find ("not a selection set"));
+
+    result = runtime.ApplySelectionAction (graphId, "ghost", SelectionAction::Update);
+    EXPECT_FALSE (result.ok);
+    EXPECT_NE (std::string::npos, result.error.find ("no node called"));
+}
+
+TEST (NodeGraphSelectionSet, TheSetSurvivesASaveAndLoadBecauseItIsAnOrdinaryParameter)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "guid-a", "guid-b" }) } })
+            .accepted);
+
+    MemoryGraphStore store;
+    ASSERT_TRUE (store.Save ("captured", graph, GraphMetadata {}).Ok ());
+
+    SerializedGraph loaded;
+    ASSERT_TRUE (store.Load ("captured", registry, loaded).Ok ());
+    // No extra machinery: the set persists because it IS a parameter, which is
+    // the simplification that made this design worth choosing over a side store.
+    const std::vector<ArchicadElementRef> elements =
+        ElementsFromValue (loaded.document.FindNode ("sel")->parameters.at ("elements"));
+    ASSERT_EQ (2U, elements.size ());
+    EXPECT_EQ ("guid-b", elements[1].guid);
 }

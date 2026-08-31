@@ -21,20 +21,62 @@ Value::List ToValueList (const std::vector<ArchicadElementRef>& elements)
 
 } // namespace
 
+const char* const kSelectionSetNodeType = kGetSelection;
+const char* const kSelectionSetParameter = "elements";
+
+std::vector<ArchicadElementRef> ElementsFromValue (const Value& value)
+{
+    std::vector<ArchicadElementRef> elements;
+    if (value.Type () != ValueType::List)
+        return elements;
+    for (const Value& item : std::get<Value::List> (value.DataValue ())) {
+        if (item.Type () == ValueType::ArchicadElementRef)
+            elements.push_back (std::get<ArchicadElementRef> (item.DataValue ()));
+    }
+    return elements;
+}
+
+Value ValueFromElements (const std::vector<ArchicadElementRef>& elements)
+{
+    return Value (ToValueList (elements));
+}
+
 void RegisterArchicadNodes (NodeRegistry& registry)
 {
     std::string error;
 
+    // A SELECTION SET the user captures, not a live mirror of Archicad's
+    // selection - the command palette's Update/Add/Remove/Reselect/Clear rows,
+    // as a node.
+    //
+    // ⚠️ THIS IS WHY IT IS Pure/Worker AND DECLARES NO GENERATION. The node's
+    // output IS its stored parameter, so evaluating it reads nothing from the
+    // host. That is the whole behavioural point: a graph whose source tracked
+    // the live selection silently changed its answer every time the user
+    // clicked in the model, and every downstream node went dirty with it. A
+    // captured set changes only when the user presses one of its buttons, and
+    // those buttons evaluate what they affect on the spot - so nobody has to
+    // press Evaluate to see the result of pressing Update.
+    //
+    // It also means the set PERSISTS with the graph: it is an ordinary
+    // parameter, so it saves, loads and round-trips with no extra machinery,
+    // and §7.2's rule holds - references stay references and are re-resolved
+    // when something actually uses them.
     NodeType getSelection;
     getSelection.id = kGetSelection;
     getSelection.label = "Get Selection";
     getSelection.category = "Archicad";
-    getSelection.description = "The elements currently selected in Archicad.";
-    getSelection.executionDomain = ExecutionDomain::ArchicadMainThread;
-    getSelection.effect = EffectKind::ReadModel;
-    // Declaring these is what re-runs the node when the user selects something
-    // else. Omitting them would cache the first answer forever.
-    getSelection.generations = { GenerationDomain::Selection, GenerationDomain::Project };
+    getSelection.description =
+        "A set of Archicad elements you capture. Update replaces it with the current selection, "
+        "Add and Remove change it, Reselect selects it in Archicad, Clear empties it.";
+    getSelection.executionDomain = ExecutionDomain::Worker;
+    getSelection.effect = EffectKind::Pure;
+    getSelection.display = NodeDisplay::SelectionSet;
+    // NO DEFAULT VALUE, deliberately. An absent parameter already means an
+    // empty set - ExecuteArchicadNode reads it that way - so a default would be
+    // a second spelling of the same state, and it would put a list into the
+    // catalog's defaultValue where every other node has a scalar.
+    getSelection.parameters.push_back ({ kSelectionSetParameter, "Elements", ValueType::List, false });
     getSelection.outputs.push_back ({ "elements", "Elements", ValueType::List });
     getSelection.outputs.push_back ({ "count", "Count", ValueType::Integer });
     if (!registry.Register (std::move (getSelection), error))
@@ -64,20 +106,24 @@ bool IsArchicadNodeType (const std::string& nodeTypeId)
 bool ExecuteArchicadNode (const Node& node, const ValueMap& inputs, const NodeExecutionContext& context,
                           ValueMap& outputs, std::string& error)
 {
+    // The selection set evaluates to what it holds. No host, no project, no
+    // generation - which is what lets it run offline and stay clean while the
+    // user clicks around in the model.
+    if (node.nodeType == kGetSelection) {
+        const auto stored = node.parameters.find (kSelectionSetParameter);
+        const std::vector<ArchicadElementRef> elements =
+            stored == node.parameters.end () ? std::vector<ArchicadElementRef> {}
+                                             : ElementsFromValue (stored->second);
+        outputs.emplace ("count", Value (static_cast<int64_t> (elements.size ())));
+        outputs.emplace ("elements", ValueFromElements (elements));
+        return true;
+    }
+
     if (context.archicad == nullptr || !context.archicad->IsAvailable ()) {
         // Belt and braces: the plan already refuses this, so reaching here means
         // the project closed between planning and execution.
         error = "the Archicad project is no longer available";
         return false;
-    }
-
-    if (node.nodeType == kGetSelection) {
-        std::vector<ArchicadElementRef> elements;
-        if (!context.archicad->GetSelection (elements, error))
-            return false;
-        outputs.emplace ("count", Value (static_cast<int64_t> (elements.size ())));
-        outputs.emplace ("elements", Value (ToValueList (elements)));
-        return true;
     }
 
     if (node.nodeType == kSetSelection) {
