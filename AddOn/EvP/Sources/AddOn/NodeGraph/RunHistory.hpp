@@ -28,7 +28,7 @@ namespace evp::nodegraph {
 
 struct NodeRunRecord {
     NodeId nodeId;
-    NodeExecutionState finalState = NodeExecutionState::Dirty;
+    NodeExecutionState finalState = NodeExecutionState::Pending;
     std::string message;
     double durationMilliseconds = 0.0;
     size_t itemCount = 0;

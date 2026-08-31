@@ -41,6 +41,12 @@ NodeRegistry MakeBuiltinNodeRegistry ()
         NodeType arithmetic = PureNode (id, label, description);
         arithmetic.inputs = { Port ("left", ValueType::Double), Port ("right", ValueType::Double) };
         arithmetic.outputs.push_back (Port ("value", ValueType::Double));
+        // Stage F3. BOTH inputs are type-compatible with the output, so the
+        // mapping is a DECISION the type makes rather than something anyone
+        // could derive: bypassing an Add passes the LEFT operand through. The
+        // value of declaring it is that it then means the same thing on every
+        // Add in every graph, which an inferred mapping would not.
+        arithmetic.bypassMappings.push_back ({ "left", "value" });
         if (!registry.Register (std::move (arithmetic), error))
             throw std::logic_error (error);
     }
@@ -54,6 +60,7 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     NodeType scale = PureNode ("scaleList", "Scale List", "Multiplies every number in a list.");
     scale.inputs = { Port ("list", ValueType::List), Port ("factor", ValueType::Double) };
     scale.outputs.push_back (Port ("value", ValueType::List));
+    scale.bypassMappings.push_back ({ "list", "value" });
     if (!registry.Register (std::move (scale), error))
         throw std::logic_error (error);
 
@@ -76,7 +83,27 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     watch.display = NodeDisplay::Preview;
     watch.inputs.push_back (Port ("value", ValueType::List));
     watch.outputs.push_back (Port ("value", ValueType::List));
+    watch.bypassMappings.push_back ({ "value", "value" });
     if (!registry.Register (std::move (watch), error))
+        throw std::logic_error (error);
+
+    // Stage F4's hold-capable type. Holding is a CONTRACT a type opts into
+    // rather than a badge every node can wear, so the catalog needs at least one
+    // node that means it - without one, ExecutionMode::Holding is unreachable
+    // and the release path is untestable.
+    //
+    // Typed List rather than "any" because an Absent OUTPUT fails the
+    // publish-time type check, which reads Absent as a type and not as a
+    // wildcard. Damming a bare number therefore wants either a second dam type
+    // or a wildcard rule for outputs, and both are catalog decisions outside
+    // Stage F.
+    NodeType dam = PureNode ("dataDam", "Data Dam", "Holds its input until you release it.");
+    dam.category = "Flow";
+    dam.inputs.push_back (Port ("value", ValueType::List));
+    dam.outputs.push_back (Port ("value", ValueType::List));
+    dam.holdCapable = true;
+    dam.bypassMappings.push_back ({ "value", "value" });
+    if (!registry.Register (std::move (dam), error))
         throw std::logic_error (error);
     return registry;
 }
@@ -123,7 +150,9 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
                                                                    : 1)));
         outputs.emplace ("summary", Value (DescribeValue (value)));
     }
-    else if (node.nodeType == "watch")
+    else if (node.nodeType == "watch" || node.nodeType == "dataDam")
+        // A dam computes nothing; what makes it a dam is that Holding stages
+        // this result instead of publishing it. See Evaluator::PublishNode.
         outputs.emplace ("value", inputs.at ("value"));
     else {
         error = "unknown built-in node type: " + node.nodeType;

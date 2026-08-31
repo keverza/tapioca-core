@@ -26,6 +26,12 @@ const char* RunEventKindName (RunEventKind kind)
             return "nodeBlocked";
         case RunEventKind::NodeCancelled:
             return "nodeCancelled";
+        case RunEventKind::NodeBypassed:
+            return "nodeBypassed";
+        case RunEventKind::NodeHeld:
+            return "nodeHeld";
+        case RunEventKind::NodeReleased:
+            return "nodeReleased";
         case RunEventKind::RunCompleted:
             return "runCompleted";
         case RunEventKind::RunCancelled:

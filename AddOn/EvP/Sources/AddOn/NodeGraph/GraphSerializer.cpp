@@ -45,8 +45,8 @@ const char* ValueTypeName (ValueType type)
 
 JsonValue PointToJson (const Point3& point)
 {
-    return JsonValue::Array (JsonArray { JsonValue::Double (point.x), JsonValue::Double (point.y),
-                                         JsonValue::Double (point.z) });
+    return JsonValue::Array (
+        JsonArray { JsonValue::Double (point.x), JsonValue::Double (point.y), JsonValue::Double (point.z) });
 }
 
 bool PointFromJson (const JsonValue& value, Point3& out, std::string& error)
@@ -126,8 +126,7 @@ bool ValueToJson (const Value& value, JsonValue& out, std::string& error)
             object.emplace ("value", PointsToJson (std::get<Polygon> (value.DataValue ()).points));
             break;
         case ValueType::ArchicadElementRef:
-            object.emplace ("value",
-                            JsonValue::String (std::get<ArchicadElementRef> (value.DataValue ()).guid));
+            object.emplace ("value", JsonValue::String (std::get<ArchicadElementRef> (value.DataValue ()).guid));
             break;
         case ValueType::List: {
             JsonArray items;
@@ -312,6 +311,14 @@ SerializeResult SerializeGraph (const GraphDocument& document, const GraphMetada
         // thing to get wrong.
         encoded.emplace ("nodeType", JsonValue::String (node.nodeType));
 
+        // Stage F: the MODE persists and the retained values do not. A saved
+        // graph remembers that a node is disabled or is a dam; it does not
+        // remember what was in the dam, which is session cache by contract.
+        // Written only when it is not the default, so an ordinary graph's file
+        // is unchanged by this field existing.
+        if (node.executionMode != ExecutionMode::Enabled)
+            encoded.emplace ("executionMode", JsonValue::String (ExecutionModeName (node.executionMode)));
+
         JsonObject parameters;
         for (const auto& [parameterId, value] : node.parameters) {
             JsonValue encodedValue;
@@ -380,8 +387,8 @@ DeserializeResult DeserializeGraph (const std::string& text, const NodeRegistry&
         // Refused rather than attempted. A newer file may mean something this
         // build cannot know, and §35's rule is that an old graph is never
         // silently reinterpreted under new semantics - which cuts both ways.
-        result.error = "this graph was written by a newer version of Tapioca (format " +
-                       std::to_string (formatVersion) + ")";
+        result.error =
+            "this graph was written by a newer version of Tapioca (format " + std::to_string (formatVersion) + ")";
         return result;
     }
     result.graph.formatVersion = static_cast<uint32_t> (formatVersion);
@@ -414,6 +421,19 @@ DeserializeResult DeserializeGraph (const std::string& text, const NodeRegistry&
         if (typeMember == nullptr || !typeMember->AsString (node.nodeType)) {
             result.error = "node " + node.id + " has no nodeType";
             return result;
+        }
+
+        // Absent means enabled, which is what every graph written before Stage F
+        // says. An unknown spelling is REFUSED rather than defaulted: a file
+        // that says "bypassed" in a build that does not know the word must not
+        // load as a normally-executing node and silently change what the graph
+        // computes.
+        if (const JsonValue* mode = encoded.Find ("executionMode"); mode != nullptr) {
+            std::string modeName;
+            if (!mode->AsString (modeName) || !ParseExecutionMode (modeName, node.executionMode)) {
+                result.error = "node " + node.id + " has an unknown executionMode";
+                return result;
+            }
         }
 
         if (const JsonValue* parameters = encoded.Find ("parameters"); parameters != nullptr) {
@@ -464,11 +484,10 @@ DeserializeResult DeserializeGraph (const std::string& text, const NodeRegistry&
                 result.error = "an edge is missing an endpoint";
                 return result;
             }
-            const EditResult edit =
-                ApplyEdit (result.graph.document, registry, GraphEdit { ConnectEdit { edge } });
+            const EditResult edit = ApplyEdit (result.graph.document, registry, GraphEdit { ConnectEdit { edge } });
             if (!edit.accepted) {
-                result.error = "the edge " + edge.sourceNode + "." + edge.sourcePort + " -> " + edge.targetNode +
-                               "." + edge.targetPort + " cannot be loaded: " + edit.error;
+                result.error = "the edge " + edge.sourceNode + "." + edge.sourcePort + " -> " + edge.targetNode + "." +
+                               edge.targetPort + " cannot be loaded: " + edit.error;
                 return result;
             }
         }

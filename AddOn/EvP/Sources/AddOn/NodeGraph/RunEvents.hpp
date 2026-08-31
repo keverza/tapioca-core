@@ -40,6 +40,14 @@ enum class RunEventKind {
     NodeFailed,
     NodeBlocked,
     NodeCancelled,
+
+    // Stage F. Deliberate non-execution and staging are observable in their own
+    // right: folded into NodeCompleted they would be indistinguishable from work
+    // that actually happened, which is the one thing a run log exists to tell
+    // you.
+    NodeBypassed,
+    NodeHeld,
+    NodeReleased,
     RunCompleted,
     RunCancelled,
 };

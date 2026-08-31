@@ -10,7 +10,7 @@
   <Canvas dpr={1}>
     <ThrelteScene
       itemCount={result?.itemCount ?? 0}
-      status={result?.status ?? 'dirty'}
+      status={result?.status ?? 'pending'}
     />
   </Canvas>
   <span>{result?.itemCount ?? 0} items</span>

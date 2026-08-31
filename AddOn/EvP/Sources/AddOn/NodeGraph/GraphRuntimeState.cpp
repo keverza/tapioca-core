@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <set>
+#include <variant>
 
 namespace evp::nodegraph {
 
@@ -55,8 +56,8 @@ GraphDocument GraphRuntimeState::Document (const GraphId& graphId) const
     return slot.document;
 }
 
-GraphRuntimeState::SelectionActionResult GraphRuntimeState::ApplySelectionAction (
-    const GraphId& graphId, const NodeId& nodeId, SelectionAction action)
+GraphRuntimeState::SelectionActionResult
+GraphRuntimeState::ApplySelectionAction (const GraphId& graphId, const NodeId& nodeId, SelectionAction action)
 {
     SelectionActionResult result;
 
@@ -105,8 +106,8 @@ GraphRuntimeState::SelectionActionResult GraphRuntimeState::ApplySelectionAction
         }
         if (!result.missing.empty ()) {
             result.count = stored.size ();
-            result.error = "the set names " + std::to_string (result.missing.size ()) +
-                           " element(s) this project no longer has";
+            result.error =
+                "the set names " + std::to_string (result.missing.size ()) + " element(s) this project no longer has";
             return result;
         }
         if (!host->SetSelection (stored, result.error))
@@ -237,9 +238,31 @@ EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& ed
 {
     Slot& slot = SlotFor (graphId);
     std::lock_guard lock (slot.documentMutex);
+
+    // ⚠️ STAGE F5: A RELEASE IS REFUSED BEFORE THE DOCUMENT MOVES, NOT AFTER.
+    // Its legality is split across two owners - the mode is in the document and
+    // the staged value is in the evaluator - and this is the only place that
+    // holds both. Asking afterwards would mean a revision bump and a dirtied
+    // downstream closure for a release that then turned out to have nothing to
+    // promote, which is a half-applied transaction by any other name.
+    const auto* release = std::get_if<ReleaseHoldingEdit> (&edit.data);
+    if (release != nullptr) {
+        std::string error;
+        std::string code;
+        if (!slot.evaluator.CanRelease (slot.document, release->nodeId, error, code))
+            return EditResult { false, code, error, {}, slot.document.Revision () };
+    }
+
     EditResult result = ApplyEdit (slot.document, registry_, edit);
-    if (result.accepted)
+    if (result.accepted) {
+        if (release != nullptr) {
+            // Promote first, THEN invalidate. Invalidate clears the downstream
+            // statuses that the promotion is the reason for; doing it the other
+            // way round would leave them describing the pre-release run.
+            slot.evaluator.ReleaseHolding (slot.document, release->nodeId);
+        }
         slot.evaluator.Invalidate (slot.document, result.dirtyNodes);
+    }
     return result;
 }
 

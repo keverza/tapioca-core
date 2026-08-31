@@ -80,6 +80,45 @@ bool NodeRegistry::Register (NodeType nodeType, std::string& error)
             return false;
         }
     }
+
+    // Stage F3. Checked HERE, once, rather than on every bypassed evaluation:
+    // an ambiguous or ill-typed table is a defect in the node type, and a defect
+    // in a node type should stop it entering the catalog rather than surface as
+    // a puzzling run-time result later.
+    std::set<std::string> mappedInputs;
+    std::set<std::string> mappedOutputs;
+    for (const BypassMapping& mapping : nodeType.bypassMappings) {
+        const PortSchema* input = FindInput (nodeType, mapping.inputId);
+        const PortSchema* output = FindOutput (nodeType, mapping.outputId);
+        if (input == nullptr || output == nullptr) {
+            error =
+                "bypass mapping names a port this type does not have: " + mapping.inputId + " -> " + mapping.outputId;
+            return false;
+        }
+        if (input->valueType != output->valueType) {
+            error = "bypass mapping is not type-compatible: " + mapping.inputId + " -> " + mapping.outputId;
+            return false;
+        }
+        // One output may be fed by exactly one input and vice versa. Two
+        // mappings onto one output is the ambiguity the declaration exists to
+        // remove.
+        if (!mappedInputs.insert (mapping.inputId).second || !mappedOutputs.insert (mapping.outputId).second) {
+            error =
+                "bypass mapping is ambiguous; a port is mapped twice: " + mapping.inputId + " -> " + mapping.outputId;
+            return false;
+        }
+    }
+    // A partial table would leave a required output absent while bypassed, which
+    // reads to a consumer as a broken node rather than a bypassed one.
+    if (!nodeType.bypassMappings.empty ()) {
+        for (const PortSchema& output : nodeType.outputs) {
+            if (output.required && !mappedOutputs.contains (output.id)) {
+                error = "bypass mapping leaves required output '" + output.id + "' unfed";
+                return false;
+            }
+        }
+    }
+
     types_.emplace (nodeType.id, std::move (nodeType));
     error.clear ();
     return true;

@@ -86,6 +86,18 @@ struct ParameterSchema {
     std::optional<Value> defaultValue;
 };
 
+// Stage F3: one input forwarded to one output while the node is bypassed.
+//
+// ⚠️ THE MAPPING IS DECLARED BY THE TYPE, NEVER INFERRED. A node with two
+// number inputs and one number output has two type-compatible candidates and no
+// correct answer; letting the editor or the evaluator pick one would make bypass
+// mean something different on each node it was applied to. A type that cannot
+// say unambiguously what bypass means simply cannot be bypassed.
+struct BypassMapping {
+    std::string inputId;
+    std::string outputId;
+};
+
 struct NodeType {
     std::string id;
     std::string label;
@@ -94,6 +106,17 @@ struct NodeType {
     ExecutionDomain executionDomain = ExecutionDomain::Worker;
     EffectKind effect = EffectKind::Pure;
     NodeDisplay display = NodeDisplay::Ports;
+
+    // Empty means the type cannot be bypassed, which is the default: bypass is
+    // opt-in per type. NodeRegistry::Register refuses a table that names an
+    // unknown port, mismatches value types, or covers one port twice - so an
+    // unambiguous table is a property of the registry rather than something the
+    // evaluator re-checks on every run.
+    std::vector<BypassMapping> bypassMappings;
+
+    // Stage F4: whether ExecutionMode::Holding is legal for this type. A Data
+    // Dam is a contract about staging a value, not a badge every node can wear.
+    bool holdCapable = false;
 
     // Host state this node reads that its ports do not express. Folded into the
     // node's cache key, so declaring a domain is what makes the node re-run when

@@ -26,7 +26,22 @@
   })
 
   const hasRun = $derived(
-    data.result !== undefined && data.result.status !== 'dirty' && data.result.outputs !== undefined,
+    data.result !== undefined && data.result.status !== 'pending' && data.result.outputs !== undefined,
+  )
+
+  // Stage F. The MODE is what the user set; the STATUS is what the last run did.
+  // They are drawn from different sources on purpose - a node stays visibly
+  // disabled between runs, when there is no result to read a status from.
+  const mode = $derived(data.executionMode ?? 'enabled')
+
+  // 'blocked' covers several situations that are not failures - a withheld side
+  // effect, an upstream disabled node, an unreleased dam - so the red treatment
+  // is reserved for a real error and everything else reads as inert.
+  const looksBroken = $derived(data.result?.status === 'error')
+  const looksInert = $derived(
+    data.result?.status === 'blocked' ||
+      data.result?.status === 'disabled' ||
+      data.result?.status === 'cancelled',
   )
 
   // The command palette's vocabulary, in its order. Reselect is separated
@@ -57,12 +72,20 @@
 
 <article
   class:selected
-  class:error={data.result?.status === 'failed' || data.result?.status === 'blocked'}
-  class:skipped={data.result?.status === 'skipped'}
+  class:error={looksBroken}
+  class:skipped={looksInert}
+  class:disabled={mode === 'disabled'}
+  class:bypassed={mode === 'bypassed'}
+  class:holding={mode === 'holding'}
 >
   <header>
     <span>{data.schema.category}</span>
     <strong>{data.schema.label}</strong>
+    <!-- Named, not colour-coded. The accessibility rule in the handoff is that
+         no status may be conveyed by colour alone, and a mode is the same. -->
+    {#if mode !== 'enabled'}
+      <em class="mode-badge">{mode}</em>
+    {/if}
   </header>
 
   <p class="schema-description">{data.schema.description}</p>
@@ -163,9 +186,9 @@
     {/if}
   {/if}
 
-  <footer class:complete={data.result?.status === 'complete'}>
+  <footer class:complete={data.result?.status === 'success'}>
     <span>{data.result?.status ?? 'not run'}{data.result?.cacheHit ? ' (cached)' : ''}</span>
-    {#if data.result?.status === 'complete'}
+    {#if data.result?.status === 'success'}
       <span>{data.result.durationMilliseconds.toFixed(2)} ms / {data.result.itemCount} items</span>
     {:else if data.result?.message}
       <span>{data.result.message}</span>
@@ -195,6 +218,37 @@
 
   article.skipped {
     border-color: #6a7482;
+  }
+
+  /* Stage F. A MODE outlives a run, so it is drawn on the node itself and not
+     on the footer's status line - a disabled node has to still look disabled
+     when there is no result at all. Every one of these is paired with the text
+     badge below; none of them is the only signal. */
+  article.disabled {
+    border-style: dashed;
+    opacity: 0.55;
+  }
+
+  article.bypassed {
+    border-style: dashed;
+    border-color: var(--accent);
+  }
+
+  article.holding {
+    border-color: #c9922f;
+  }
+
+  .mode-badge {
+    justify-self: start;
+    margin-top: 3px;
+    padding: 1px 6px;
+    border: 1px solid currentcolor;
+    border-radius: 999px;
+    color: var(--muted-text, #9aa4b2);
+    font: 600 9px/1.4 'Segoe UI', sans-serif;
+    font-style: normal;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
   }
 
   header {

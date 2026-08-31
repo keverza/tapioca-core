@@ -82,6 +82,35 @@ int64_t Integer (const Value& value)
     return std::get<int64_t> (value.DataValue ());
 }
 
+// How many times each node's body ran, counted safely.
+//
+// ⚠️ A BARE std::map HERE IS A DATA RACE, NOT A SHORTCUT. Independent nodes of
+// one level run CONCURRENTLY - one on a pool thread, one on the coordinator -
+// and NodeExecutor's contract in Evaluator.hpp says in as many words that a body
+// must be safe to call from several threads at once. Two unguarded
+// `++counts[id]` calls on the same map lost an increment often enough to make
+// two cache tests fail intermittently in the full suite while passing alone,
+// which reads as a runtime bug and is not one.
+class ExecutionCounter {
+  public:
+    void Record (const std::string& nodeId)
+    {
+        const std::lock_guard<std::mutex> lock (mutex_);
+        ++counts_[nodeId];
+    }
+
+    int operator[] (const std::string& nodeId) const
+    {
+        const std::lock_guard<std::mutex> lock (mutex_);
+        const auto found = counts_.find (nodeId);
+        return found == counts_.end () ? 0 : found->second;
+    }
+
+  private:
+    mutable std::mutex mutex_;
+    std::map<std::string, int> counts_;
+};
+
 // Every test drives the evaluator through one run context, so a test that cares
 // about run identity or cancellation can supply its own.
 EvaluationOutcome RunGraph (Evaluator& evaluator, const GraphDocument& graph, const NodeRegistry& registry,
@@ -166,8 +195,7 @@ TEST (NodeGraphEdits, RemovesNodesAndEdgesInOneAtomicRevision)
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { right } }).accepted);
     const uint64_t revision = graph.Revision ();
 
-    const EditResult result =
-        ApplyEdit (graph, registry, GraphEdit { RemoveElementsEdit { { "one" }, { right } } });
+    const EditResult result = ApplyEdit (graph, registry, GraphEdit { RemoveElementsEdit { { "one" }, { right } } });
 
     ASSERT_TRUE (result.accepted) << result.error;
     EXPECT_EQ (revision + 1, graph.Revision ());
@@ -186,8 +214,7 @@ TEST (NodeGraphEdits, RejectsWholeElementRemovalWhenOneIdIsUnknown)
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { edge } }).accepted);
     const uint64_t revision = graph.Revision ();
 
-    const EditResult result =
-        ApplyEdit (graph, registry, GraphEdit { RemoveElementsEdit { { "missing" }, { edge } } });
+    const EditResult result = ApplyEdit (graph, registry, GraphEdit { RemoveElementsEdit { { "missing" }, { edge } } });
 
     EXPECT_FALSE (result.accepted);
     EXPECT_EQ (revision, graph.Revision ());
@@ -224,10 +251,10 @@ TEST (NodeGraphEvaluator, CachesResultsAndPropagatesDirtDownstream)
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("two", "value", "sum", "right") } }).accepted);
 
-    std::map<std::string, int> executions;
+    ExecutionCounter executions;
     const NodeExecutor executor = [&executions] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
                                                  ValueMap& outputs, std::string&) {
-        ++executions[node.id];
+        executions.Record (node.id);
         if (node.nodeType == "number")
             outputs.emplace ("value", node.parameters.at ("value"));
         else
@@ -276,12 +303,21 @@ TEST (NodeGraphValue, HoldsRecursiveListsAndImmutableMeshes)
     EXPECT_EQ (4U, std::get<Value::List> (value.DataValue ()).size ());
 }
 
-TEST (NodeGraphBuiltins, CatalogHasSevenSchemaDrivenPureNodes)
+TEST (NodeGraphBuiltins, CatalogHasEightSchemaDrivenPureNodes)
 {
     const NodeRegistry registry = MakeBuiltinNodeRegistry ();
-    EXPECT_EQ (7U, registry.Types ().size ());
+    // Eight since Stage F added the Data Dam, which the catalog needs for
+    // ExecutionMode::Holding to be reachable at all.
+    EXPECT_EQ (8U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
+
+    // Stage F3/F4 capability is declared, not inferred, so it is assertable.
+    EXPECT_TRUE (registry.Find ("dataDam")->holdCapable);
+    EXPECT_FALSE (registry.Find ("add")->holdCapable);
+    EXPECT_TRUE (registry.Find ("panel")->bypassMappings.empty ());
+    ASSERT_EQ (1U, registry.Find ("add")->bypassMappings.size ());
+    EXPECT_EQ ("left", registry.Find ("add")->bypassMappings.front ().inputId);
 }
 
 TEST (NodeGraphBuiltins, EvaluatesArithmeticListMapAndWatchWorkflow)
@@ -348,7 +384,7 @@ TEST (NodeGraphEvaluator, FailurePreservesLastGoodResult)
     };
     EXPECT_FALSE (RunGraph (evaluator, graph, registry, fails).succeeded);
     EXPECT_EQ (first, evaluator.Result ("one"));
-    EXPECT_EQ (NodeExecutionState::Failed, evaluator.Status ("one").state);
+    EXPECT_EQ (NodeExecutionState::Error, evaluator.Status ("one").state);
 }
 
 // --- Stage A: demand-driven evaluation ------------------------------------
@@ -372,10 +408,10 @@ TEST (NodeGraphPlan, EvaluatesOnlyTheUpstreamClosureOfItsTargets)
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("c", "value", "ignored", "right") } }).accepted);
 
-    std::map<std::string, int> executions;
+    ExecutionCounter executions;
     const NodeExecutor executor = [&executions] (const Node& node, const ValueMap& inputs, const NodeExecutionContext&,
                                                  ValueMap& outputs, std::string&) {
-        ++executions[node.id];
+        executions.Record (node.id);
         if (node.nodeType == "number")
             outputs.emplace ("value", node.parameters.at ("value"));
         else
@@ -468,7 +504,7 @@ TEST (NodeGraphRun, CancellationKeepsFinishedResultsAndMarksTheRestCancelled)
     EXPECT_TRUE (outcome.cancelled);
     EXPECT_FALSE (outcome.succeeded);
     // Rule 7: what finished is kept, exactly as it was.
-    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("a").state);
+    EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("a").state);
     ASSERT_NE (nullptr, evaluator.Result ("a"));
     EXPECT_EQ (1, Integer (evaluator.Result ("a")->outputs.at ("value")));
     EXPECT_EQ (NodeExecutionState::Cancelled, evaluator.Status ("sum").state);
@@ -494,10 +530,10 @@ TEST (NodeGraphContainment, ThrowingNodeFailsThatNodeOnly)
     };
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, executor);
     EXPECT_FALSE (outcome.succeeded);
-    EXPECT_EQ (NodeExecutionState::Failed, evaluator.Status ("a").state);
+    EXPECT_EQ (NodeExecutionState::Error, evaluator.Status ("a").state);
     EXPECT_NE (std::string::npos, evaluator.Status ("a").message.find ("node exploded"));
     // The independent branch still finished: a failure is scoped, not global.
-    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("b").state);
+    EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("b").state);
 }
 
 #if defined(_MSC_VER)
@@ -623,11 +659,11 @@ TEST (NodeGraphContainment, FailedNodeBlocksItsDownstreamWithANamedReason)
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, executor);
     EXPECT_FALSE (outcome.succeeded);
     EXPECT_EQ ("a", outcome.failedNode);
-    EXPECT_EQ (NodeExecutionState::Failed, evaluator.Status ("a").state);
+    EXPECT_EQ (NodeExecutionState::Error, evaluator.Status ("a").state);
     EXPECT_EQ (NodeExecutionState::Blocked, evaluator.Status ("sum").state);
     EXPECT_NE (std::string::npos, evaluator.Status ("sum").message.find ("upstream node failed: a"));
     // b is independent of the failure and must not be collateral damage.
-    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("b").state);
+    EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("b").state);
 }
 
 TEST (NodeGraphRun, CacheHitsAreReportedSeparatelyFromExecutions)
@@ -1155,8 +1191,13 @@ TEST (NodeGraphArchicad, SetSelectionIsRefusedUnlessTheRunAsksForSideEffects)
     EXPECT_EQ (0, host.setSelectionCalls);
     EXPECT_FALSE (outcome.effectsCommitted);
     EXPECT_EQ ((std::vector<NodeId> { "set" }), outcome.skippedEffectNodes);
-    EXPECT_EQ (NodeExecutionState::Skipped, evaluator.Status ("set").state);
-    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("sel").state);
+    // Stage F1 retired `Skipped`. A withheld side effect is Blocked - there is
+    // no value - and the CODE is what says it was withheld on purpose rather
+    // than lost to a broken upstream. Asserting the pair is the point: a client
+    // that read only the state would show this node as an error.
+    EXPECT_EQ (NodeExecutionState::Blocked, evaluator.Status ("set").state);
+    EXPECT_EQ (statuscode::kBlockedSideEffects, evaluator.Status ("set").code);
+    EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("sel").state);
 
     // A deliberate Run.
     outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true, 2);
@@ -1775,9 +1816,8 @@ TEST (NodeGraphParallelism, AFaultInAPooledNodeFailsThatNodeOnly)
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "boom", "faulting" } } }).accepted);
     SharedRendezvous ().Expect (1);
 
-    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs,
-                                      const NodeExecutionContext& execution, ValueMap& outputs,
-                                      std::string& nodeError) {
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs, const NodeExecutionContext& execution,
+                                      ValueMap& outputs, std::string& nodeError) {
         if (node.nodeType == "faulting")
             throw std::runtime_error ("the node threw on a pool thread");
         return ExecuteSlowNode (node, inputs, execution, outputs, nodeError);
@@ -1795,8 +1835,8 @@ TEST (NodeGraphParallelism, AFaultInAPooledNodeFailsThatNodeOnly)
     EXPECT_EQ ("boom", outcome.failedNode);
     // The independent siblings still completed: a fault contained on a pool
     // thread must not take the rest of its level with it.
-    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("a").state);
-    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("b").state);
+    EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("a").state);
+    EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("b").state);
 }
 
 TEST (NodeGraphParallelism, WorkerDomainNodesAreNeverGivenTheHost)
@@ -1857,17 +1897,15 @@ TEST (NodeGraphParallelism, HostDomainNodesRunOnTheCoordinatorAndAreCountedSepar
     ASSERT_TRUE (registry.Register (std::move (hostNode), error)) << error;
 
     GraphDocument graph = MakeIndependentSlowNodes (registry, 2);
-    ASSERT_TRUE (
-        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "probe", "hostProbe" } } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "probe", "hostProbe" } } }).accepted);
     SharedRendezvous ().Expect (1);
 
     StubHost host;
 
     const std::thread::id coordinator = std::this_thread::get_id ();
     std::thread::id hostNodeThread;
-    const NodeExecutor executor = [&] (const Node& node, const ValueMap& inputs,
-                                       const NodeExecutionContext& execution, ValueMap& outputs,
-                                       std::string& nodeError) {
+    const NodeExecutor executor = [&] (const Node& node, const ValueMap& inputs, const NodeExecutionContext& execution,
+                                       ValueMap& outputs, std::string& nodeError) {
         if (node.nodeType == "hostProbe") {
             hostNodeThread = std::this_thread::get_id ();
             // The host reaches a host-domain node and nothing else; that is the
@@ -2040,8 +2078,7 @@ TEST (NodeGraphPersistence, RoundTripsAGraphThroughTextUnchanged)
     // The reloaded graph still evaluates to the same answer, which is the only
     // property a user actually cares about.
     Evaluator evaluator;
-    const EvaluationOutcome outcome =
-        RunGraph (evaluator, read.graph.document, registry, ExecuteNumberAddNode);
+    const EvaluationOutcome outcome = RunGraph (evaluator, read.graph.document, registry, ExecuteNumberAddNode);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
     EXPECT_EQ (12, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
 }
@@ -2134,9 +2171,9 @@ TEST (NodeGraphPersistence, RejectsAFileThatWouldProduceAnInvalidGraph)
 
     // And a cycle, which the document must never be able to hold however it was
     // constructed.
-    const DeserializeResult cyclic = load (
-        R"({"format":"tapioca-nodegraph","formatVersion":1,"nodes":[{"id":"s","nodeType":"add"}],)"
-        R"("edges":[{"sourceNode":"s","sourcePort":"sum","targetNode":"s","targetPort":"left"}]})");
+    const DeserializeResult cyclic =
+        load (R"({"format":"tapioca-nodegraph","formatVersion":1,"nodes":[{"id":"s","nodeType":"add"}],)"
+              R"("edges":[{"sourceNode":"s","sourcePort":"sum","targetNode":"s","targetPort":"left"}]})");
     EXPECT_FALSE (cyclic.ok);
     EXPECT_NE (std::string::npos, cyclic.error.find ("cycle"));
 }
@@ -2247,10 +2284,10 @@ class TemporaryLibrary {
     TemporaryLibrary ()
     {
         static std::atomic<int> counter { 0 };
-        path_ = std::filesystem::temp_directory_path () /
-                ("tapioca-graphstore-" + std::to_string (counter.fetch_add (1)) + "-" +
-                 std::to_string (static_cast<long long> (
-                     std::chrono::steady_clock::now ().time_since_epoch ().count ())));
+        path_ =
+            std::filesystem::temp_directory_path () /
+            ("tapioca-graphstore-" + std::to_string (counter.fetch_add (1)) + "-" +
+             std::to_string (static_cast<long long> (std::chrono::steady_clock::now ().time_since_epoch ().count ())));
     }
 
     ~TemporaryLibrary ()
@@ -2335,7 +2372,10 @@ TEST (NodeGraphFileStore, ListsSortedAndWithoutLoading)
     ASSERT_TRUE (store.Save ("alpha", graph, metadata).Ok ());
 
     // Anything that is not one of ours is ignored rather than listed.
-    { std::ofstream stray (library.Path () / "notes.txt"); stray << "hello"; }
+    {
+        std::ofstream stray (library.Path () / "notes.txt");
+        stray << "hello";
+    }
 
     const std::vector<StoredGraphInfo> listing = store.List ();
     ASSERT_EQ (2U, listing.size ());
@@ -2569,8 +2609,7 @@ TEST (NodeGraphSelectionSet, AnActionEvaluatesWhatItAffectsSoNobodyPressesEvalua
         runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
     ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
     ASSERT_TRUE (
-        runtime.Apply (graphId, GraphEdit { ConnectEdit { Connect ("sel", "elements", "panel", "value") } })
-            .accepted);
+        runtime.Apply (graphId, GraphEdit { ConnectEdit { Connect ("sel", "elements", "panel", "value") } }).accepted);
 
     StubHost host;
     const ScopedHost installed (&host);
@@ -2588,7 +2627,7 @@ TEST (NodeGraphSelectionSet, AnActionEvaluatesWhatItAffectsSoNobodyPressesEvalua
     const auto panel = std::find_if (snapshot.nodes.begin (), snapshot.nodes.end (),
                                      [] (const RuntimeNodeResult& node) { return node.nodeId == "panel"; });
     ASSERT_NE (snapshot.nodes.end (), panel);
-    EXPECT_EQ (NodeExecutionState::Complete, panel->status.state);
+    EXPECT_EQ (NodeExecutionState::Success, panel->status.state);
     ASSERT_NE (nullptr, panel->result);
 }
 
@@ -2665,4 +2704,349 @@ TEST (NodeGraphSelectionSet, TheSetSurvivesASaveAndLoadBecauseItIsAnOrdinaryPara
         ElementsFromValue (loaded.document.FindNode ("sel")->parameters.at ("elements"));
     ASSERT_EQ (2U, elements.size ());
     EXPECT_EQ ("guid-b", elements[1].guid);
+}
+
+// ===========================================================================
+// Stage F - flow control.
+//
+// Every test below has the same shape, because it is the only shape that proves
+// anything: build a graph whose DOWNSTREAM node reports what the mode did.
+// Asserting the modal node's own status would pass just as well against an
+// implementation in which the mode is a label and nothing else.
+// ===========================================================================
+
+namespace {
+
+struct FlowFixture {
+    NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    GraphDocument graph;
+    Evaluator evaluator;
+
+    bool Add (const char* id, const char* nodeType, double value = 0.0)
+    {
+        Node node { id, nodeType };
+        if (node.nodeType == "number")
+            node.parameters.emplace ("value", Value (value));
+        return ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { std::move (node) } }).accepted;
+    }
+
+    bool Wire (const Edge& edge)
+    {
+        return ApplyEdit (graph, registry, GraphEdit { ConnectEdit { edge } }).accepted;
+    }
+
+    EditResult Mode (const char* nodeId, ExecutionMode mode)
+    {
+        return ApplyEdit (graph, registry, GraphEdit { SetExecutionModeEdit { nodeId, mode } });
+    }
+
+    EvaluationOutcome Run (RunId runId = 1)
+    {
+        RunContext context;
+        context.runId = runId;
+        return evaluator.Evaluate (graph, registry, ExecuteBuiltinNode, EvaluationRequest {}, context);
+    }
+};
+
+// left(2) + right(40) -> sum. `sum` is the node whose mode each test changes,
+// and the two operands differ so that forwarding the wrong one is visible.
+//
+// Filled through a reference rather than returned: FlowFixture owns an Evaluator,
+// whose in-flight flag is a std::atomic and therefore neither copyable nor
+// movable. That is a property worth keeping - an evaluator being copied mid-run
+// is not a thing that should compile.
+void BuildArithmeticChain (FlowFixture& fixture)
+{
+    EXPECT_TRUE (fixture.Add ("left", "number", 2.0));
+    EXPECT_TRUE (fixture.Add ("right", "number", 40.0));
+    EXPECT_TRUE (fixture.Add ("sum", "add"));
+    EXPECT_TRUE (fixture.Wire (Connect ("left", "value", "sum", "left")));
+    EXPECT_TRUE (fixture.Wire (Connect ("right", "value", "sum", "right")));
+}
+
+double OutputNumber (const Evaluator& evaluator, const NodeId& nodeId, const PortId& portId)
+{
+    const std::shared_ptr<const NodeResult> result = evaluator.Result (nodeId);
+    EXPECT_NE (nullptr, result) << nodeId << " published nothing";
+    if (result == nullptr)
+        return 0.0;
+    EXPECT_TRUE (result->outputs.contains (portId));
+    return std::get<double> (result->outputs.at (portId).DataValue ());
+}
+
+void BuildDammedChain (FlowFixture& fixture)
+{
+    EXPECT_TRUE (fixture.Add ("one", "number", 1.0));
+    EXPECT_TRUE (fixture.Add ("collect", "makeList"));
+    EXPECT_TRUE (fixture.Add ("dam", "dataDam"));
+    EXPECT_TRUE (fixture.Add ("tail", "watch"));
+    EXPECT_TRUE (fixture.Wire (Connect ("one", "value", "collect", "items")));
+    EXPECT_TRUE (fixture.Wire (Connect ("collect", "value", "dam", "value")));
+    EXPECT_TRUE (fixture.Wire (Connect ("dam", "value", "tail", "value")));
+}
+
+} // namespace
+
+TEST (NodeGraphFlowControl, DisabledPublishesNothingAndDoesNotFailTheRun)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    ASSERT_TRUE (fixture.Mode ("sum", ExecutionMode::Disabled).accepted);
+    const EvaluationOutcome outcome = fixture.Run ();
+
+    // The run SUCCEEDED. Disabling is an instruction, not a fault, and a graph
+    // with a switched-off branch must not report itself as broken - that is what
+    // would make "did anything fail" useless as a signal.
+    EXPECT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (0U, outcome.failedCount);
+
+    EXPECT_EQ (NodeExecutionState::Disabled, fixture.evaluator.Status ("sum").state);
+    EXPECT_EQ (statuscode::kDisabled, fixture.evaluator.Status ("sum").code);
+    EXPECT_EQ (nullptr, fixture.evaluator.Result ("sum")) << "a disabled node must publish no output";
+
+    // Upstream is untouched: only what DEPENDS on the disabled node is affected.
+    EXPECT_EQ (NodeExecutionState::Success, fixture.evaluator.Status ("left").state);
+}
+
+TEST (NodeGraphFlowControl, DisabledDoesNotRequireItsInputsToBeWired)
+{
+    FlowFixture fixture;
+    ASSERT_TRUE (fixture.Add ("sum", "add"));
+    // `add` has two REQUIRED inputs and neither is connected. Enabled, that is a
+    // hard failure; disabled it is none of the run's business, and the
+    // difference is between switching a node off and being told off for it.
+    ASSERT_TRUE (fixture.Mode ("sum", ExecutionMode::Disabled).accepted);
+
+    const EvaluationOutcome outcome = fixture.Run ();
+    EXPECT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (NodeExecutionState::Disabled, fixture.evaluator.Status ("sum").state);
+}
+
+TEST (NodeGraphFlowControl, DownstreamOfDisabledIsBlockedRatherThanFailed)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    ASSERT_TRUE (fixture.Add ("collect", "makeList"));
+    ASSERT_TRUE (fixture.Wire (Connect ("sum", "value", "collect", "items")));
+    ASSERT_TRUE (fixture.Mode ("sum", ExecutionMode::Disabled).accepted);
+
+    fixture.Run ();
+    const NodeStatus downstream = fixture.evaluator.Status ("collect");
+    EXPECT_EQ (NodeExecutionState::Blocked, downstream.state);
+    EXPECT_EQ (statuscode::kBlockedUpstreamDisabled, downstream.code);
+}
+
+TEST (NodeGraphFlowControl, BypassForwardsTheDeclaredInputWithoutRunningTheBody)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    ASSERT_TRUE (fixture.Mode ("sum", ExecutionMode::Bypassed).accepted);
+
+    const EvaluationOutcome outcome = fixture.Run ();
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    // 2, not 42. `add` declares left -> value, so bypassing forwards the LEFT
+    // operand; had the body run this would be 42. That is the assertion which
+    // distinguishes a bypass from a decorative label.
+    EXPECT_DOUBLE_EQ (2.0, OutputNumber (fixture.evaluator, "sum", "value"));
+    EXPECT_EQ (NodeExecutionState::Bypassed, fixture.evaluator.Status ("sum").state);
+    EXPECT_EQ (statuscode::kBypassed, fixture.evaluator.Status ("sum").code);
+
+    // Nothing executed, so the run's work counters must not claim otherwise.
+    EXPECT_EQ (2U, outcome.executedCount) << "only the two number nodes ran";
+}
+
+TEST (NodeGraphFlowControl, BypassKeepsDownstreamRunnable)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    ASSERT_TRUE (fixture.Add ("collect", "makeList"));
+    ASSERT_TRUE (fixture.Wire (Connect ("sum", "value", "collect", "items")));
+    ASSERT_TRUE (fixture.Mode ("sum", ExecutionMode::Bypassed).accepted);
+
+    fixture.Run ();
+    // The whole difference between Bypassed and Disabled: consumers still run.
+    EXPECT_EQ (NodeExecutionState::Success, fixture.evaluator.Status ("collect").state);
+}
+
+TEST (NodeGraphFlowControl, BypassIsRefusedForATypeThatDeclaresNoMapping)
+{
+    FlowFixture fixture;
+    ASSERT_TRUE (fixture.Add ("readout", "panel"));
+
+    // `panel` accepts any type and emits four unrelated ones, so no mapping is
+    // derivable. The refusal IS the feature: guessing would make bypass mean
+    // something different on every node it touched.
+    const EditResult rejected = fixture.Mode ("readout", ExecutionMode::Bypassed);
+    EXPECT_FALSE (rejected.accepted);
+    EXPECT_EQ ("mode.bypassUnsupported", rejected.code);
+    // Atomic: a refused edit leaves the document exactly as it was.
+    EXPECT_EQ (ExecutionMode::Enabled, fixture.graph.FindNode ("readout")->executionMode);
+}
+
+TEST (NodeGraphRegistry, RefusesAnAmbiguousOrIllTypedBypassTable)
+{
+    NodeRegistry registry;
+    std::string error;
+
+    NodeType twoOntoOne;
+    twoOntoOne.id = "twoOntoOne";
+    twoOntoOne.inputs.push_back ({ "a", "A", ValueType::Double });
+    twoOntoOne.inputs.push_back ({ "b", "B", ValueType::Double });
+    twoOntoOne.outputs.push_back ({ "out", "Out", ValueType::Double });
+    twoOntoOne.bypassMappings = { { "a", "out" }, { "b", "out" } };
+    EXPECT_FALSE (registry.Register (std::move (twoOntoOne), error));
+    EXPECT_NE (std::string::npos, error.find ("ambiguous")) << error;
+
+    NodeType mistyped;
+    mistyped.id = "mistyped";
+    mistyped.inputs.push_back ({ "a", "A", ValueType::Double });
+    mistyped.outputs.push_back ({ "out", "Out", ValueType::String });
+    mistyped.bypassMappings = { { "a", "out" } };
+    EXPECT_FALSE (registry.Register (std::move (mistyped), error));
+    EXPECT_NE (std::string::npos, error.find ("type-compatible")) << error;
+
+    NodeType partial;
+    partial.id = "partial";
+    partial.inputs.push_back ({ "a", "A", ValueType::Double });
+    partial.outputs.push_back ({ "out", "Out", ValueType::Double });
+    partial.outputs.push_back ({ "other", "Other", ValueType::Double });
+    partial.bypassMappings = { { "a", "out" } };
+    // `other` is required and unfed, which reads to a consumer as a broken node
+    // rather than a bypassed one.
+    EXPECT_FALSE (registry.Register (std::move (partial), error));
+    EXPECT_NE (std::string::npos, error.find ("unfed")) << error;
+}
+
+TEST (NodeGraphFlowControl, HoldingStagesInsteadOfPublishingAndBlocksUntilReleased)
+{
+    FlowFixture fixture;
+    BuildDammedChain (fixture);
+    ASSERT_TRUE (fixture.Mode ("dam", ExecutionMode::Holding).accepted);
+    fixture.Run (1);
+
+    // Before the first release the dam HAS run, so something is staged - but it
+    // published nothing, so its consumer has no value to work with.
+    EXPECT_EQ (NodeExecutionState::Holding, fixture.evaluator.Status ("dam").state);
+    EXPECT_EQ (statuscode::kHoldingStaged, fixture.evaluator.Status ("dam").code);
+    EXPECT_EQ (nullptr, fixture.evaluator.Result ("dam"));
+    EXPECT_EQ (NodeExecutionState::Blocked, fixture.evaluator.Status ("tail").state);
+    EXPECT_EQ (statuscode::kBlockedUpstreamHolding, fixture.evaluator.Status ("tail").code);
+}
+
+TEST (NodeGraphFlowControl, ReleasePromotesTheStagedValueAndDirtiesDownstream)
+{
+    FlowFixture fixture;
+    BuildDammedChain (fixture);
+    ASSERT_TRUE (fixture.Mode ("dam", ExecutionMode::Holding).accepted);
+    fixture.Run (1);
+
+    std::string error;
+    std::string code;
+    ASSERT_TRUE (fixture.evaluator.CanRelease (fixture.graph, "dam", error, code)) << error;
+    const std::vector<NodeId> dirtied = fixture.evaluator.ReleaseHolding (fixture.graph, "dam");
+    EXPECT_EQ ((std::vector<NodeId> { "tail" }), dirtied) << "the dam itself must not be dirtied by its own release";
+
+    fixture.evaluator.Invalidate (fixture.graph, dirtied);
+    fixture.Run (2);
+
+    EXPECT_EQ (statuscode::kHoldingReleased, fixture.evaluator.Status ("dam").code);
+    EXPECT_NE (nullptr, fixture.evaluator.Result ("dam"));
+    EXPECT_EQ (NodeExecutionState::Success, fixture.evaluator.Status ("tail").state);
+}
+
+TEST (NodeGraphFlowControl, ReleaseIsRefusedWhenThereIsNothingToPromote)
+{
+    FlowFixture fixture;
+    ASSERT_TRUE (fixture.Add ("dam", "dataDam"));
+    ASSERT_TRUE (fixture.Add ("sum", "add"));
+
+    std::string error;
+    std::string code;
+    // Holding but never evaluated: nothing to promote, and accepting would dirty
+    // the downstream closure in exchange for no new data.
+    ASSERT_TRUE (fixture.Mode ("dam", ExecutionMode::Holding).accepted);
+    EXPECT_FALSE (fixture.evaluator.CanRelease (fixture.graph, "dam", error, code));
+    EXPECT_EQ ("release.nothingStaged", code);
+
+    EXPECT_FALSE (fixture.evaluator.CanRelease (fixture.graph, "sum", error, code));
+    EXPECT_EQ ("release.notHolding", code);
+
+    EXPECT_FALSE (fixture.evaluator.CanRelease (fixture.graph, "absent", error, code));
+    EXPECT_EQ ("release.unknownNode", code);
+}
+
+TEST (NodeGraphFlowControl, HoldIsRefusedForATypeThatIsNotHoldCapable)
+{
+    FlowFixture fixture;
+    ASSERT_TRUE (fixture.Add ("sum", "add"));
+    const EditResult rejected = fixture.Mode ("sum", ExecutionMode::Holding);
+    EXPECT_FALSE (rejected.accepted);
+    EXPECT_EQ ("mode.holdUnsupported", rejected.code);
+}
+
+TEST (NodeGraphFlowControl, AModeChangeInvalidatesTheCachedResultItWouldOtherwiseReuse)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    fixture.Run (1);
+    EXPECT_DOUBLE_EQ (42.0, OutputNumber (fixture.evaluator, "sum", "value"));
+
+    // The regression this pins: the mode is folded into the cache key, so a
+    // switch to bypass cannot be answered out of the enabled run's cache. A key
+    // that ignored the mode would return 42 here, and the bypass would look as
+    // though it had silently failed.
+    const EditResult accepted = fixture.Mode ("sum", ExecutionMode::Bypassed);
+    ASSERT_TRUE (accepted.accepted);
+    fixture.evaluator.Invalidate (fixture.graph, accepted.dirtyNodes);
+    fixture.Run (2);
+    EXPECT_DOUBLE_EQ (2.0, OutputNumber (fixture.evaluator, "sum", "value"));
+}
+
+TEST (NodeGraphFlowControl, SettingTheModeItAlreadyHasIsRefusedRatherThanBumpingTheRevision)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    const uint64_t before = fixture.graph.Revision ();
+    const EditResult rejected = fixture.Mode ("sum", ExecutionMode::Enabled);
+    EXPECT_FALSE (rejected.accepted);
+    EXPECT_EQ ("mode.unchanged", rejected.code);
+    EXPECT_EQ (before, fixture.graph.Revision ());
+}
+
+TEST (NodeGraphFlowControl, ModePersistsThroughSerializationAndRetainedValuesDoNot)
+{
+    FlowFixture fixture;
+    BuildArithmeticChain (fixture);
+    ASSERT_TRUE (fixture.Add ("dam", "dataDam"));
+    ASSERT_TRUE (fixture.Mode ("sum", ExecutionMode::Disabled).accepted);
+    ASSERT_TRUE (fixture.Mode ("dam", ExecutionMode::Holding).accepted);
+
+    const SerializeResult written = SerializeGraph (fixture.graph, GraphMetadata {});
+    ASSERT_TRUE (written.ok) << written.error;
+
+    const DeserializeResult read = DeserializeGraph (written.text, fixture.registry);
+    ASSERT_TRUE (read.ok) << read.error;
+    EXPECT_EQ (ExecutionMode::Disabled, read.graph.document.FindNode ("sum")->executionMode);
+    EXPECT_EQ (ExecutionMode::Holding, read.graph.document.FindNode ("dam")->executionMode);
+
+    // The retained half is session cache by contract, so nothing about a staged
+    // or released value may reach the file.
+    EXPECT_EQ (std::string::npos, written.text.find ("staged"));
+    EXPECT_EQ (std::string::npos, written.text.find ("released"));
+}
+
+TEST (NodeGraphFlowControl, AGraphFileCannotSmuggleInAModeTheTypeDoesNotSupport)
+{
+    // The second ingress. A hand-edited file saying "holding" on a type that
+    // cannot hold would otherwise load into a state no command could produce,
+    // after which the evaluator is reasoning about a node whose type never
+    // agreed to it.
+    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    GraphDocument graph;
+    Node node { "sum", "add" };
+    node.executionMode = ExecutionMode::Holding;
+    const EditResult rejected = ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { std::move (node) } });
+    EXPECT_FALSE (rejected.accepted);
+    EXPECT_EQ ("mode.holdUnsupported", rejected.code);
 }

@@ -24,9 +24,9 @@
   let elapsed = $state(0)
   const visibleAssets = $derived(assets.slice(0, Math.min(24, Math.max(1, itemCount))))
   const color = $derived(
-    status === 'complete'
+    status === 'success'
       ? '#75c695'
-      : status === 'failed' || status === 'blocked'
+      : status === 'error' || status === 'blocked'
         ? '#e36d5b'
         : '#ffb000',
   )

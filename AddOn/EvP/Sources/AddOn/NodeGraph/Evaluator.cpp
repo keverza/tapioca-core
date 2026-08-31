@@ -97,25 +97,52 @@ const UnavailableReferenceResolver& OfflineResolver ()
 
 } // namespace
 
+const char* NodeExecutionStateName (NodeExecutionState state)
+{
+    switch (state) {
+        case NodeExecutionState::Pending:
+            return "pending";
+        case NodeExecutionState::Running:
+            return "running";
+        case NodeExecutionState::Success:
+            return "success";
+        case NodeExecutionState::Error:
+            return "error";
+        case NodeExecutionState::Blocked:
+            return "blocked";
+        case NodeExecutionState::Disabled:
+            return "disabled";
+        case NodeExecutionState::Bypassed:
+            return "bypassed";
+        case NodeExecutionState::Holding:
+            return "holding";
+        case NodeExecutionState::Cancelled:
+            return "cancelled";
+    }
+    return "pending";
+}
+
 void Evaluator::Invalidate (const GraphDocument& document, const std::vector<NodeId>& roots)
 {
     for (const NodeId& nodeId : DownstreamClosure (document, roots)) {
         CacheEntry& entry = cache_[nodeId];
         entry.dirty = true;
-        entry.status.state = NodeExecutionState::Dirty;
+        entry.status.state = NodeExecutionState::Pending;
+        entry.status.code = statuscode::kPending;
         entry.status.message.clear ();
         entry.status.cacheHit = false;
     }
 }
 
-void Evaluator::BlockDownstream (const GraphDocument& document, const NodeId& origin, const std::string& reason,
-                                 const RunContext& context, size_t& blockedCount)
+void Evaluator::BlockDownstream (const GraphDocument& document, const NodeId& origin, const char* code,
+                                 const std::string& reason, const RunContext& context, size_t& blockedCount)
 {
     for (const NodeId& nodeId : DownstreamClosure (document, { origin })) {
         if (nodeId == origin)
             continue;
         CacheEntry& entry = cache_[nodeId];
         entry.status.state = NodeExecutionState::Blocked;
+        entry.status.code = code;
         entry.status.message = reason;
         entry.status.cacheHit = false;
         entry.status.runId = context.runId;
@@ -136,6 +163,12 @@ struct Evaluator::PreparedNode {
     ValueMap inputs;
     size_t inputHash = 0;
     ExecutionDomain domain = ExecutionDomain::Worker;
+
+    // Carried with the prepared node rather than re-read from the document in
+    // the publish phase, so publish decides with the same mode prepare keyed the
+    // cache on.
+    ExecutionMode executionMode = ExecutionMode::Enabled;
+
     NodeExecutionContext execution;
 
     // Filled by the execute phase and read by the publish phase.
@@ -145,7 +178,28 @@ struct Evaluator::PreparedNode {
     double elapsedMs = 0.0;
 };
 
-void Evaluator::FailNode (const NodeId& nodeId, const std::string& message, double elapsedMs, PhaseState& state)
+// Stage F2/F3/F4: a node that did not run because the USER said so.
+//
+// ⚠️ SEPARATE FROM FailNode ON PURPOSE. Both stop the node and block what is
+// downstream of it, and there the resemblance ends: this one does not increment
+// failedCount, does not set outcome.error, and does not clear outcome.succeeded.
+// A graph full of deliberately disabled branches is a graph that ran correctly,
+// and reporting it as a failed run would make the one signal that matters -
+// something is actually broken - useless.
+void Evaluator::SuppressNode (const NodeId& nodeId, const char* blockedCode, const std::string& reason,
+                              PhaseState& state)
+{
+    const GraphDocument& document = *state.document;
+    const RunContext& context = *state.context;
+    EvaluationOutcome& outcome = *state.outcome;
+
+    BlockDownstream (document, nodeId, blockedCode, reason, context, outcome.blockedCount);
+    for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
+        state.unusable->insert (blocked);
+}
+
+void Evaluator::FailNode (const NodeId& nodeId, const char* code, const std::string& message, double elapsedMs,
+                          PhaseState& state)
 {
     const GraphDocument& document = *state.document;
     const RunContext& context = *state.context;
@@ -153,7 +207,8 @@ void Evaluator::FailNode (const NodeId& nodeId, const std::string& message, doub
 
     CacheEntry& failing = cache_[nodeId];
     failing.dirty = true;
-    failing.status.state = NodeExecutionState::Failed;
+    failing.status.state = NodeExecutionState::Error;
+    failing.status.code = code;
     failing.status.message = message;
     failing.status.cacheHit = false;
     failing.status.durationMilliseconds = elapsedMs;
@@ -174,7 +229,8 @@ void Evaluator::FailNode (const NodeId& nodeId, const std::string& message, doub
         failed.durationMilliseconds = elapsedMs;
         context.events (std::move (failed));
     }
-    BlockDownstream (document, nodeId, "upstream node failed: " + nodeId, context, outcome.blockedCount);
+    BlockDownstream (document, nodeId, statuscode::kBlockedUpstreamFailed, "upstream node failed: " + nodeId, context,
+                     outcome.blockedCount);
     for (const NodeId& blocked : DownstreamClosure (document, { nodeId }))
         state.unusable->insert (blocked);
 }
@@ -193,11 +249,38 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
     const Node& node = *document.FindNode (nodeId);
     const NodeType& nodeType = *registry.Find (node.nodeType);
 
+    // Stage F2, and BEFORE the inputs are gathered rather than after. A disabled
+    // node is switched off; whether its required inputs happen to be wired is
+    // none of this run's business, and checking first would report "required
+    // input is unconnected" about a node the user has explicitly told the graph
+    // to ignore.
+    if (node.executionMode == ExecutionMode::Disabled) {
+        CacheEntry& disabled = cache_[nodeId];
+        disabled.dirty = true;
+        // The old result is DROPPED, not kept. Leaving it would let consumers go
+        // on reading a value from a node that is publishing nothing.
+        disabled.result.reset ();
+        disabled.status.state = NodeExecutionState::Disabled;
+        disabled.status.code = statuscode::kDisabled;
+        disabled.status.message = "this node is disabled and published no output";
+        disabled.status.cacheHit = false;
+        disabled.status.durationMilliseconds = 0.0;
+        disabled.status.itemCount = 0;
+        disabled.status.runId = context.runId;
+        SuppressNode (nodeId, statuscode::kBlockedUpstreamDisabled, "upstream node is disabled: " + nodeId, state);
+        return false;
+    }
+
     // Cache key: node identity and parameters by value, upstream results by
     // OUTPUT REVISION rather than by content, and the host state this node
     // declared it reads. That last part is what stops a model-reading node from
     // serving a stale answer after the user changes the model.
     size_t inputHash = std::hash<std::string> {}(node.nodeType);
+    // The MODE is part of the key. Switching a node between enabled, bypassed
+    // and holding changes what it publishes without changing one parameter or
+    // one wire, so a key that ignored the mode would serve the previous mode's
+    // answer straight out of the cache.
+    CombineHash (inputHash, static_cast<size_t> (node.executionMode));
     for (const auto& [parameterId, value] : node.parameters) {
         CombineText (inputHash, parameterId);
         CombineHash (inputHash, value.Hash ());
@@ -223,8 +306,8 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
             const std::shared_ptr<const NodeResult> sourceResult =
                 source == cache_.end () ? nullptr : source->second.result;
             if (!sourceResult || !sourceResult->outputs.contains (edge.sourcePort)) {
-                FailNode (nodeId, "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, 0.0,
-                          state);
+                FailNode (nodeId, statuscode::kErrorInput,
+                          "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, 0.0, state);
                 return false;
             }
             values.push_back (sourceResult->outputs.at (edge.sourcePort));
@@ -235,7 +318,7 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
 
         if (values.empty ()) {
             if (input.required) {
-                FailNode (nodeId, "required input is unconnected: " + input.id, 0.0, state);
+                FailNode (nodeId, statuscode::kErrorInput, "required input is unconnected: " + input.id, 0.0, state);
                 return false;
             }
             inputs.emplace (input.id, Value {});
@@ -250,7 +333,12 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
 
     CacheEntry& entry = cache_[nodeId];
     if (plan.mode == EvaluationMode::Incremental && entry.result && !entry.dirty && entry.inputHash == inputHash) {
-        entry.status.state = NodeExecutionState::Complete;
+        // A holding node keeps reporting Holding on a cache hit. Its published
+        // value is the released one and has not changed; saying Success here
+        // would tell the user the dam had passed data through.
+        const bool holding = node.executionMode == ExecutionMode::Holding;
+        entry.status.state = holding ? NodeExecutionState::Holding : NodeExecutionState::Success;
+        entry.status.code = holding ? statuscode::kHoldingReleased : statuscode::kCacheHit;
         entry.status.message.clear ();
         entry.status.cacheHit = true;
         entry.status.runId = context.runId;
@@ -267,11 +355,20 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
         return false;
     }
 
+    // Stage F3, and AFTER the inputs are gathered, unlike Disabled: bypass
+    // forwards inputs, so it needs them. Nothing below this point runs, because
+    // a bypassed node has no body to run.
+    if (node.executionMode == ExecutionMode::Bypassed) {
+        PublishBypass (nodeId, nodeType, inputs, inputHash, state);
+        return false;
+    }
+
     prepared.nodeId = nodeId;
     prepared.nodeType = &nodeType;
     prepared.inputHash = inputHash;
     prepared.inputs = std::move (inputs);
     prepared.domain = nodeType.executionDomain;
+    prepared.executionMode = node.executionMode;
 
     prepared.effectiveNode = node;
     for (const ParameterSchema& parameter : nodeType.parameters) {
@@ -296,6 +393,66 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
     return true;
 }
 
+bool Evaluator::PublishBypass (const NodeId& nodeId, const NodeType& nodeType, const ValueMap& inputs, size_t inputHash,
+                               PhaseState& state)
+{
+    const RunContext& context = *state.context;
+    EvaluationOutcome& outcome = *state.outcome;
+
+    // The registry already proved the table is unambiguous and type-compatible
+    // (NodeRegistry::Register), so nothing here re-derives which input feeds
+    // which output. What it cannot prove is that an OPTIONAL mapped input was
+    // actually wired on this graph, which is the one check left to make.
+    ValueMap outputs;
+    size_t itemCount = 0;
+    for (const BypassMapping& mapping : nodeType.bypassMappings) {
+        const auto value = inputs.find (mapping.inputId);
+        if (value == inputs.end () || value->second.Type () == ValueType::Absent) {
+            FailNode (nodeId, statuscode::kErrorInput,
+                      "bypass needs input '" + mapping.inputId + "', which carried no value", 0.0, state);
+            return false;
+        }
+        const ValueMeasure measure =
+            MeasureValue (value->second, context.limits.maxOutputItems - itemCount, context.limits.maxValueDepth);
+        if (!measure.WithinLimits ()) {
+            FailNode (nodeId, statuscode::kErrorOutput,
+                      "bypassed output '" + mapping.outputId + "' exceeds the output ceiling", 0.0, state);
+            return false;
+        }
+        itemCount += measure.items;
+        outputs.emplace (mapping.outputId, value->second);
+    }
+
+    CacheEntry& entry = cache_[nodeId];
+    entry.inputHash = inputHash;
+    entry.result =
+        std::make_shared<const NodeResult> (NodeResult { std::move (outputs), 0.0, nextOutputRevision_++, itemCount });
+    entry.dirty = false;
+    entry.status.state = NodeExecutionState::Bypassed;
+    entry.status.code = statuscode::kBypassed;
+    entry.status.message = "this node is bypassed; its inputs were forwarded to its outputs";
+    entry.status.cacheHit = false;
+    entry.status.durationMilliseconds = 0.0;
+    entry.status.itemCount = itemCount;
+    entry.status.runId = context.runId;
+
+    // Deliberately NOT counted in executedCount: nothing executed. A bypassed
+    // node that inflated the executed count would make the parallelism
+    // measurement in ParallelismMetrics report work that never happened.
+    if (context.events) {
+        RunEvent bypassed;
+        bypassed.kind = RunEventKind::NodeBypassed;
+        bypassed.runId = context.runId;
+        bypassed.graphRevision = context.graphRevision;
+        bypassed.nodeId = nodeId;
+        bypassed.itemCount = itemCount;
+        bypassed.message = entry.status.message;
+        context.events (std::move (bypassed));
+    }
+    (void) outcome;
+    return true;
+}
+
 void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
 {
     const RunContext& context = *state.context;
@@ -304,12 +461,21 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
     const NodeId& nodeId = prepared.nodeId;
 
     std::string failure;
-    if (!prepared.guarded.completed)
+    // The code travels WITH the message from the point the cause is known.
+    // Deriving it afterwards from the prose would be exactly the fragile string
+    // matching that having codes at all is meant to remove.
+    const char* failureCode = statuscode::kErrorBody;
+    if (!prepared.guarded.completed) {
         failure = prepared.guarded.fault;
-    else if (!prepared.guarded.result)
+        failureCode = statuscode::kErrorFault;
+    }
+    else if (!prepared.guarded.result) {
         failure = prepared.nodeError.empty () ? "the node reported failure without a message" : prepared.nodeError;
-    else if (prepared.elapsedMs > context.limits.nodeBudgetMs)
+    }
+    else if (prepared.elapsedMs > context.limits.nodeBudgetMs) {
         failure = "the node exceeded its time budget";
+        failureCode = statuscode::kErrorBudget;
+    }
 
     size_t itemCount = 0;
     if (failure.empty ()) {
@@ -317,6 +483,7 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
             const PortSchema* output = FindOutput (nodeType, portId);
             if (output == nullptr || output->valueType != value.Type ()) {
                 failure = "invalid output: " + portId;
+                failureCode = statuscode::kErrorOutput;
                 break;
             }
             // Rule 5: an oversized or pathologically nested result fails its node
@@ -326,6 +493,7 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
             if (!measure.WithinLimits ()) {
                 failure = measure.exceededDepth ? "output '" + portId + "' nests too deeply"
                                                 : "output '" + portId + "' exceeds the output ceiling";
+                failureCode = statuscode::kErrorOutput;
                 break;
             }
             itemCount += measure.items;
@@ -335,6 +503,7 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
         for (const PortSchema& output : nodeType.outputs) {
             if (output.required && !prepared.outputs.contains (output.id)) {
                 failure = "omitted output: " + output.id;
+                failureCode = statuscode::kErrorOutput;
                 break;
             }
         }
@@ -342,23 +511,61 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
 
     if (!failure.empty ()) {
         ++cache_[nodeId].status.evaluationCount;
-        FailNode (nodeId, "node " + nodeId + " failed: " + failure, prepared.elapsedMs, state);
+        FailNode (nodeId, failureCode, "node " + nodeId + " failed: " + failure, prepared.elapsedMs, state);
         return;
     }
 
     CacheEntry& entry = cache_[nodeId];
     entry.inputHash = prepared.inputHash;
-    entry.result = std::make_shared<const NodeResult> (
+    auto computed = std::make_shared<const NodeResult> (
         NodeResult { std::move (prepared.outputs), prepared.elapsedMs, nextOutputRevision_++, itemCount });
     entry.dirty = false;
-    entry.status.state = NodeExecutionState::Complete;
-    entry.status.message.clear ();
     entry.status.cacheHit = false;
     entry.status.durationMilliseconds = prepared.elapsedMs;
-    entry.status.itemCount = itemCount;
     entry.status.runId = context.runId;
     ++entry.status.evaluationCount;
     ++outcome.executedCount;
+
+    // ⚠️ STAGE F4: A HOLDING NODE RAN, BUT IT DID NOT PUBLISH. This is the whole
+    // of the Data Dam. `result` is what consumers read, and for a holding node
+    // it stays pointed at the last RELEASED value however many times the node
+    // recomputes. Assigning `computed` to `result` here - the obvious-looking
+    // line - would make holding a decoration that changes nothing.
+    if (prepared.executionMode == ExecutionMode::Holding) {
+        entry.staged = std::move (computed);
+        entry.result = entry.released;
+        const bool released = entry.released != nullptr;
+        entry.status.state = NodeExecutionState::Holding;
+        entry.status.code = released ? statuscode::kHoldingReleased : statuscode::kHoldingStaged;
+        entry.status.message = released ? "holding: consumers see the last released value; a newer one is staged"
+                                        : "holding: nothing has been released yet, so this node publishes no output";
+        entry.status.itemCount = released ? entry.released->itemCount : 0;
+        if (!released) {
+            // Before the first release there is genuinely no value. Consumers
+            // are Blocked rather than Error: the node is doing exactly what it
+            // was told to.
+            SuppressNode (nodeId, statuscode::kBlockedUpstreamHolding,
+                          "upstream node is holding and has released nothing: " + nodeId, state);
+        }
+        if (context.events) {
+            RunEvent held;
+            held.kind = RunEventKind::NodeHeld;
+            held.runId = context.runId;
+            held.graphRevision = context.graphRevision;
+            held.nodeId = nodeId;
+            held.durationMilliseconds = prepared.elapsedMs;
+            held.itemCount = entry.staged->itemCount;
+            held.message = entry.status.message;
+            context.events (std::move (held));
+        }
+        return;
+    }
+
+    entry.result = std::move (computed);
+    entry.status.state = NodeExecutionState::Success;
+    entry.status.code = statuscode::kSuccess;
+    entry.status.message.clear ();
+    entry.status.itemCount = itemCount;
     if (context.events) {
         RunEvent completed;
         completed.kind = RunEventKind::NodeCompleted;
@@ -401,8 +608,17 @@ bool Evaluator::RunLevel (size_t levelIndex, const std::vector<NodeId>& level, P
             workerNodes.push_back (index);
     }
 
-    for (const size_t index : runnable)
+    for (const size_t index : runnable) {
+        // Stage F1's Running. Set before the bodies go out so that a run
+        // cancelled mid-level leaves the nodes that were in flight
+        // distinguishable from the ones that never started.
+        CacheEntry& entry = cache_[prepared[index].nodeId];
+        entry.status.state = NodeExecutionState::Running;
+        entry.status.code = statuscode::kRunning;
+        entry.status.message.clear ();
+        entry.status.runId = context.runId;
         Emit (context, RunEventKind::NodeStarted, prepared[index].nodeId);
+    }
 
     // EXECUTE. Nothing below touches the cache, the outcome or the event sink -
     // that separation is what lets the bodies run on several threads while the
@@ -546,9 +762,8 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
     // number that was actually used rather than the zero that asked for a
     // default.
     outcome.parallelism.workerThreads = SharedWorkerPool ().ThreadCount ();
-    outcome.parallelism.maxParallel = request.maxParallel == 0
-                                          ? SharedWorkerPool ().ThreadCount () + 1
-                                          : request.maxParallel;
+    outcome.parallelism.maxParallel =
+        request.maxParallel == 0 ? SharedWorkerPool ().ThreadCount () + 1 : request.maxParallel;
 
     std::set<NodeId> unusable;
     outcome.succeeded = true;
@@ -571,8 +786,16 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
         outcome.error = "the evaluation was cancelled";
         for (const NodeId& remaining : plan.requiredNodes) {
             CacheEntry& entry = cache_[remaining];
-            if (entry.status.runId != context.runId) {
+            // A node left Running by the cancelled level belongs here too. It
+            // carries THIS run's id, so the "did not reach a conclusion" test
+            // has to be the state as well as the run - otherwise a node stays
+            // Running forever and the editor shows a spinner with nothing
+            // behind it.
+            const bool untouched = entry.status.runId != context.runId;
+            const bool inFlight = entry.status.state == NodeExecutionState::Running;
+            if (untouched || inFlight) {
                 entry.status.state = NodeExecutionState::Cancelled;
+                entry.status.code = statuscode::kCancelled;
                 entry.status.message = "the evaluation was cancelled";
                 entry.status.runId = context.runId;
                 Emit (context, RunEventKind::NodeCancelled, remaining);
@@ -588,9 +811,16 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
 
     // An effectful node that was not permitted is reported, not hidden. Nothing
     // is wrong with it; this run simply did not ask for it.
+    //
+    // ⚠️ Stage F1 RETIRED THE `Skipped` STATE, IT DID NOT DELETE THE MEANING.
+    // The public vocabulary has nine members and this is not one of them, so a
+    // withheld side effect is Blocked - "there is nothing to work with" - and
+    // the CODE says which flavour of nothing. A client that wants to say
+    // "withheld" rather than "blocked" branches on kBlockedSideEffects.
     for (const NodeId& nodeId : plan.skippedEffectNodes) {
         CacheEntry& entry = cache_[nodeId];
-        entry.status.state = NodeExecutionState::Skipped;
+        entry.status.state = NodeExecutionState::Blocked;
+        entry.status.code = statuscode::kBlockedSideEffects;
         entry.status.message = "this node changes Archicad and runs only on an explicit run";
         entry.status.cacheHit = false;
         entry.status.runId = context.runId;
@@ -604,6 +834,7 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
             for (const NodeId& nodeId : plan.deferredNodes) {
                 CacheEntry& entry = cache_[nodeId];
                 entry.status.state = NodeExecutionState::Blocked;
+                entry.status.code = statuscode::kBlockedEffectsNotApplied;
                 entry.status.message = "not applied: the evaluation failed before it could be";
                 entry.status.runId = context.runId;
                 ++outcome.blockedCount;
@@ -621,6 +852,68 @@ EvaluationOutcome Evaluator::Evaluate (const GraphDocument& document, const Node
 
     EmitRunFinished (context, outcome, RunEventKind::RunCompleted);
     return outcome;
+}
+
+bool Evaluator::CanRelease (const GraphDocument& document, const NodeId& nodeId, std::string& error,
+                            std::string& code) const
+{
+    const Node* node = document.FindNode (nodeId);
+    if (node == nullptr) {
+        error = "there is no node called '" + nodeId + "'";
+        code = "release.unknownNode";
+        return false;
+    }
+    if (node->executionMode != ExecutionMode::Holding) {
+        error = "'" + nodeId + "' is not holding, so there is nothing to release";
+        code = "release.notHolding";
+        return false;
+    }
+    const auto entry = cache_.find (nodeId);
+    if (entry == cache_.end () || entry->second.staged == nullptr) {
+        // Not an error the user caused; it is the honest state of a dam that has
+        // not been filled yet. Still a refusal, because pretending to release
+        // would dirty the whole downstream closure for no new data.
+        error = "'" + nodeId + "' has nothing staged; evaluate the graph first";
+        code = "release.nothingStaged";
+        return false;
+    }
+    error.clear ();
+    code.clear ();
+    return true;
+}
+
+std::vector<NodeId> Evaluator::ReleaseHolding (const GraphDocument& document, const NodeId& nodeId)
+{
+    const auto entry = cache_.find (nodeId);
+    if (entry == cache_.end () || entry->second.staged == nullptr)
+        return {};
+
+    CacheEntry& held = entry->second;
+    held.released = held.staged;
+    held.result = held.released;
+    held.status.state = NodeExecutionState::Holding;
+    held.status.code = statuscode::kHoldingReleased;
+    held.status.message = "holding: the staged value has been released";
+    held.status.itemCount = held.released->itemCount;
+
+    // ⚠️ THE RELEASED VALUE GETS A NEW OUTPUT REVISION. Downstream cache keys are
+    // built from the upstream output revision rather than from its contents, so
+    // without this a consumer would compare the released value's old revision,
+    // find it unchanged, and serve its own cached result - which is precisely
+    // the stale answer the dam was opened to replace.
+    held.result = std::make_shared<const NodeResult> (NodeResult {
+        held.released->outputs, held.released->durationMilliseconds, nextOutputRevision_++, held.released->itemCount });
+    held.released = held.result;
+
+    // Everything downstream now has different inputs. The node itself is NOT
+    // dirtied: it has published, and re-running it would only stage again.
+    std::vector<NodeId> dirtied;
+    for (const NodeId& downstream : DownstreamClosure (document, { nodeId })) {
+        if (downstream == nodeId)
+            continue;
+        dirtied.push_back (downstream);
+    }
+    return dirtied;
 }
 
 void Evaluator::Reset ()

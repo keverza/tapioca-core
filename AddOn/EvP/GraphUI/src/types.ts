@@ -15,6 +15,26 @@ export interface ParameterSchema {
   required: boolean
 }
 
+/**
+ * Stage F3. One input forwarded to one output while the node is bypassed.
+ *
+ * Declared by the node TYPE, never inferred here: a node with two compatible
+ * inputs has no derivable answer, and a client that guessed would make bypass
+ * mean something different from what the runtime does.
+ */
+export interface BypassMapping {
+  inputId: string
+  outputId: string
+}
+
+/**
+ * Stage F. What the user has told the graph to do with a node.
+ *
+ * Not a status. A mode is authored and persists with the graph; a status is
+ * produced by a run and is session-only. See NodeResultRecord['status'].
+ */
+export type ExecutionMode = 'enabled' | 'disabled' | 'bypassed' | 'holding'
+
 export interface NodeTypeSchema {
   nodeType: string
   label: string
@@ -30,6 +50,15 @@ export interface NodeTypeSchema {
    */
   display?: 'ports' | 'text' | 'preview' | 'selectionSet'
   generations?: string[]
+  /**
+   * Empty means this type cannot be bypassed. The picker and context menu grey
+   * the action from this rather than attempting the edit and reporting the
+   * refusal - an action offered and then refused is worse than one never
+   * offered.
+   */
+  bypassMappings?: BypassMapping[]
+  /** Whether ExecutionMode 'holding' is legal for this type. */
+  holdCapable?: boolean
   inputs: PortSchema[]
   outputs: PortSchema[]
   parameters: ParameterSchema[]
@@ -57,6 +86,12 @@ export interface GraphParameter {
 export interface GraphNodeRecord {
   nodeId: string
   nodeType: string
+  /**
+   * Stage F, and it arrives with the STATE rather than with the results, because
+   * it is document state: a client that read it from the per-run results would
+   * lose every disabled node the moment the run cache was dropped.
+   */
+  executionMode?: ExecutionMode
   parameters: GraphParameter[]
 }
 
@@ -87,7 +122,29 @@ export interface NodeOutputRecord {
 
 export interface NodeResultRecord {
   nodeId: string
-  status: 'dirty' | 'complete' | 'failed' | 'blocked' | 'cancelled' | 'skipped'
+  /**
+   * Stage F1's public vocabulary. `dirty`, `complete`, `failed` and `skipped`
+   * were the old internal spellings and are gone, not aliased.
+   */
+  status:
+    | 'pending'
+    | 'running'
+    | 'success'
+    | 'error'
+    | 'blocked'
+    | 'disabled'
+    | 'bypassed'
+    | 'holding'
+    | 'cancelled'
+  /**
+   * The stable machine-readable reason, e.g. `node.blocked.sideEffectsWithheld`.
+   *
+   * ⚠️ BRANCH ON THIS, NEVER ON `message`. Several distinct situations share one
+   * status - a withheld side effect, an upstream disabled node and an unreleased
+   * dam are all `blocked` - and only the code tells them apart. `message` is
+   * prose for a person and may be reworded at any time.
+   */
+  code?: string
   message: string
   durationMilliseconds: number
   itemCount: number
@@ -161,6 +218,11 @@ export interface SelectionActionOutcome {
 export interface SchemaNodeData extends Record<string, unknown> {
   schema: NodeTypeSchema
   parameters: GraphParameter[]
+  /**
+   * Stage F. Carried on the node rather than read from `result`, so a node stays
+   * visibly disabled BETWEEN runs - when there is no result to read at all.
+   */
+  executionMode?: ExecutionMode
   result?: NodeResultRecord
   /**
    * Present on selection-set nodes. The node draws its own five buttons, so the

@@ -20,10 +20,46 @@ using RunId = uint64_t;
 
 constexpr RunId kNoRun = 0;
 
+// Stage F: what the user has told the graph to do with this node, as opposed to
+// what happened to it on the last run.
+//
+// ⚠️ A MODE IS DOCUMENT STATE AND A STATUS IS RUN STATE. They are separate types
+// because they have separate lifetimes: a mode is authored, persists with the
+// graph and survives a restart; a status is produced by an evaluation and is
+// session-only. Collapsing them - "the node is disabled" as a status - is what
+// makes a reload silently re-enable everything the user switched off.
+enum class ExecutionMode {
+    // Normal evaluation and caching.
+    Enabled,
+
+    // Does not execute and publishes no output. Consumers become Blocked with a
+    // dependency reason rather than Error: nothing is broken.
+    Disabled,
+
+    // Does not execute; the type's declared input-to-output mappings forward
+    // compatible values, so consumers still run. Legal ONLY for a type that
+    // declares unambiguous mappings - see NodeType::bypassMappings.
+    Bypassed,
+
+    // Data Dam. The node executes, but its result is STAGED rather than
+    // published; consumers keep seeing the last released value until an explicit
+    // release promotes the staged one. Legal only for a hold-capable type.
+    Holding,
+};
+
+const char* ExecutionModeName (ExecutionMode mode);
+
+// Parses the wire spelling. False for anything else, so an unknown mode from a
+// client is a rejection rather than a silent fall back to Enabled.
+bool ParseExecutionMode (const std::string& name, ExecutionMode& mode);
+
 struct Node {
     NodeId id;
     std::string nodeType;
     std::map<std::string, Value> parameters;
+
+    // Persisted with the graph. See ExecutionMode.
+    ExecutionMode executionMode = ExecutionMode::Enabled;
 };
 
 struct Edge {

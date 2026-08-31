@@ -54,21 +54,97 @@ struct NodeResult {
     size_t itemCount = 0;
 };
 
+// Stage F1: the ONE public status vocabulary.
+//
+// ⚠️ THESE NAMES CROSS THE BRIDGE VERBATIM. `dirty`, `complete`, `failed` and
+// `skipped` were the internal spellings and are gone rather than aliased: two
+// vocabularies for one concept is how a client ends up rendering some states and
+// silently ignoring others.
+//
+// A status answers "what happened on the last run". It is NOT ExecutionMode,
+// which answers "what did the user ask for" - see Graph.hpp. Disabled, Bypassed
+// and Holding appear in both because a mode that suppresses execution has to be
+// visible as an outcome too; the mode is the cause and the status is the report.
 enum class NodeExecutionState {
-    Dirty,
-    Complete,
-    Failed,
-    Blocked,
-    Cancelled,
+    // Known to need running and not yet run in this run.
+    Pending,
 
-    // In the plan, permitted to exist, and deliberately not run: an effectful
-    // node on an evaluation that did not ask for side effects. Distinct from
-    // Blocked, because nothing is wrong.
-    Skipped,
+    // The body is executing. Observable through the event stream; a client that
+    // only polls between runs will rarely catch it.
+    Running,
+
+    // Ran, or was satisfied from cache, and published its outputs.
+    Success,
+
+    // This node is what went wrong. Its consumers are Blocked, not Error.
+    Error,
+
+    // Did not run because something it depends on did not produce a value.
+    // ⚠️ Blocked means "nothing to work with", NOT "broken". It also carries the
+    // deliberate non-runs - a withheld side effect, an upstream Disabled node,
+    // an unreleased hold - which are separated by the status CODE, not by
+    // inventing a status per cause.
+    Blocked,
+
+    // ExecutionMode::Disabled. Deliberately not run; publishes nothing.
+    Disabled,
+
+    // ExecutionMode::Bypassed. Not run; its declared mappings forwarded inputs
+    // to outputs, so consumers have values and did run.
+    Bypassed,
+
+    // ExecutionMode::Holding. Ran, but the result was staged rather than
+    // published. Consumers see the last released value, or are Blocked when
+    // there has never been one.
+    Holding,
+
+    // The run was cancelled before this node reached a conclusion.
+    Cancelled,
 };
 
+const char* NodeExecutionStateName (NodeExecutionState state);
+
+// Stable machine-readable reasons. Prose is for people and may be reworded;
+// TESTS AND CLIENTS BRANCH ON THESE, so a code is append-only in the same way a
+// persisted enum name is.
+namespace statuscode {
+
+constexpr const char* kPending = "node.pending";
+constexpr const char* kRunning = "node.running";
+constexpr const char* kSuccess = "node.success";
+constexpr const char* kCacheHit = "node.success.cacheHit";
+constexpr const char* kCancelled = "node.cancelled";
+
+// Error causes.
+constexpr const char* kErrorBody = "node.error.body";
+constexpr const char* kErrorFault = "node.error.fault";
+constexpr const char* kErrorBudget = "node.error.budget";
+constexpr const char* kErrorOutput = "node.error.output";
+constexpr const char* kErrorInput = "node.error.input";
+
+// Blocked causes, which is where the deliberate non-runs live.
+constexpr const char* kBlockedUpstreamFailed = "node.blocked.upstreamFailed";
+constexpr const char* kBlockedUpstreamDisabled = "node.blocked.upstreamDisabled";
+constexpr const char* kBlockedUpstreamHolding = "node.blocked.upstreamHolding";
+constexpr const char* kBlockedSideEffects = "node.blocked.sideEffectsWithheld";
+constexpr const char* kBlockedEffectsNotApplied = "node.blocked.effectsNotApplied";
+
+// Mode outcomes.
+constexpr const char* kDisabled = "node.disabled";
+constexpr const char* kBypassed = "node.bypassed";
+constexpr const char* kHoldingStaged = "node.holding.staged";
+constexpr const char* kHoldingReleased = "node.holding.released";
+
+} // namespace statuscode
+
 struct NodeStatus {
-    NodeExecutionState state = NodeExecutionState::Dirty;
+    NodeExecutionState state = NodeExecutionState::Pending;
+
+    // Stable, machine-readable; see namespace statuscode. Always set alongside
+    // `state`, because a client that has to parse `message` to tell a withheld
+    // side effect from a real dependency failure has no contract at all.
+    std::string code = statuscode::kPending;
+
     std::string message;
 
     // True when the last run satisfied this node from cache without executing it.
@@ -173,6 +249,11 @@ using NodeExecutor =
 
 class NodeRegistry;
 
+// Forward-declared rather than included: only references appear here, and
+// pulling NodeType.hpp into the evaluator's public header would put the whole
+// catalog schema in front of every one of its consumers.
+struct NodeType;
+
 class Evaluator {
   public:
     // Marks `roots` and everything downstream of them dirty. Cheap metadata
@@ -194,6 +275,16 @@ class Evaluator {
     NodeStatus Status (const NodeId& nodeId) const;
     bool IsDirty (const NodeId& nodeId) const;
 
+    // Stage F4. Whether a release would do anything, asked BEFORE the document
+    // moves so a refused release changes nothing at all - the mode lives in the
+    // document and the staged value lives here, and only the caller holding both
+    // locks can make that one decision atomically.
+    bool CanRelease (const GraphDocument& document, const NodeId& nodeId, std::string& error, std::string& code) const;
+
+    // Promotes the staged value to released and returns the nodes whose inputs
+    // therefore changed. Call only after CanRelease said yes.
+    std::vector<NodeId> ReleaseHolding (const GraphDocument& document, const NodeId& nodeId);
+
     // True while an evaluation is in flight on this evaluator. A run requested
     // from inside a run is rejected rather than allowed to reenter the cache.
     bool IsRunning () const
@@ -205,7 +296,19 @@ class Evaluator {
     struct CacheEntry {
         bool dirty = true;
         size_t inputHash = 0;
+
+        // What CONSUMERS read. For a holding node this is `released`, which is
+        // deliberately not what the node last computed.
         std::shared_ptr<const NodeResult> result;
+
+        // Stage F4, and BOUNDED SESSION CACHE RATHER THAN GRAPH DATA. Neither
+        // survives Reset() or a restart, and the serializer has no idea they
+        // exist: after a reload a holding node has no released value until
+        // something is staged and released again, which is the documented
+        // contract rather than an accident of this implementation.
+        std::shared_ptr<const NodeResult> staged;
+        std::shared_ptr<const NodeResult> released;
+
         NodeStatus status;
     };
 
@@ -241,7 +344,20 @@ class Evaluator {
     // Records the failure, blocks everything downstream of it, and adds that
     // closure to the run's unusable set so a later level does not try to run a
     // node whose inputs can never arrive. COORDINATOR THREAD ONLY.
-    void FailNode (const NodeId& nodeId, const std::string& message, double elapsedMs, PhaseState& state);
+    void FailNode (const NodeId& nodeId, const char* code, const std::string& message, double elapsedMs,
+                   PhaseState& state);
+
+    // Stage F3. Publishes a bypassed node's outputs by forwarding its inputs
+    // through the type's declared mappings, without running any body. Returns
+    // false when a mapped input carried no value, having failed the node.
+    // COORDINATOR THREAD ONLY.
+    bool PublishBypass (const NodeId& nodeId, const NodeType& nodeType, const ValueMap& inputs, size_t inputHash,
+                        PhaseState& state);
+
+    // Marks `origin` and its downstream closure unusable for the rest of the run
+    // WITHOUT calling it a failure, and blocks the closure with `code`. The
+    // deliberate non-runs go through here; FailNode is only for real faults.
+    void SuppressNode (const NodeId& nodeId, const char* blockedCode, const std::string& reason, PhaseState& state);
 
     // Prepare every node of one level, run the worker-domain members across the
     // pool and the Archicad-domain members on this thread, then publish in
@@ -254,8 +370,8 @@ class Evaluator {
 
     // Marks `origin` failed and everything downstream of it blocked, so an
     // independent branch of the same plan can still finish.
-    void BlockDownstream (const GraphDocument& document, const NodeId& origin, const std::string& reason,
-                          const RunContext& context, size_t& blockedCount);
+    void BlockDownstream (const GraphDocument& document, const NodeId& origin, const char* code,
+                          const std::string& reason, const RunContext& context, size_t& blockedCount);
 
     std::map<NodeId, CacheEntry> cache_;
     uint64_t nextOutputRevision_ = 1;

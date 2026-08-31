@@ -56,6 +56,7 @@
   import ToolStrip from './ToolStrip.svelte'
   import type {
     EvaluationSummary,
+    ExecutionMode,
     GraphEdgeRecord,
     GraphState,
     NodeResultRecord,
@@ -163,6 +164,7 @@
           parameters: [],
         },
         parameters: node.parameters,
+        executionMode: node.executionMode ?? 'enabled',
         result: resultMap.get(node.nodeId),
       },
     }))
@@ -503,7 +505,7 @@
       const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', { maxParallel })
       await refreshResults()
       await reloadState()
-      const complete = results.filter((result) => result.status === 'complete').length
+      const complete = results.filter((result) => result.status === 'success').length
       message = `Evaluation complete: ${complete}/${results.length} nodes / revision ${revision} / ${describeParallelism(summary)}`
     } catch (error) {
       failed = true
@@ -555,6 +557,47 @@
       await refreshResults()
       await reloadState()
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Stage F flow control.
+  //
+  // Both go through Tapioca.GraphApplyEdit, the SAME endpoint as a wire or a
+  // parameter, because a mode change moves the document exactly as those do.
+  // The browser never synthesizes the outcome: it asks, and then redraws
+  // whatever the runtime says the graph now is.
+  // ---------------------------------------------------------------------
+
+  async function applyFlowControlEdit(params: Record<string, unknown>, describe: string): Promise<void> {
+    if (!nativeConnected) {
+      message = 'Flow control needs the native graph runtime.'
+      return
+    }
+    busy = true
+    failed = false
+    try {
+      await callTapioca('Tapioca.GraphApplyEdit', { graphId, ...params })
+      await reloadState()
+      await refreshResults()
+      message = describe
+    } catch (error) {
+      // The runtime's refusal is shown as itself. It already names the reason -
+      // "declares no bypass mapping", "is not a hold-capable node" - and
+      // replacing that with a generic bridge failure is the exact behaviour the
+      // handoff rules out.
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      busy = false
+    }
+  }
+
+  async function setExecutionMode(nodeId: string, mode: ExecutionMode): Promise<void> {
+    await applyFlowControlEdit({ editKind: 'setExecutionMode', nodeId, mode }, `${nodeId} is now ${mode}`)
+  }
+
+  async function releaseHolding(nodeId: string): Promise<void> {
+    await applyFlowControlEdit({ editKind: 'releaseHolding', nodeId }, `Released ${nodeId}`)
   }
 
   // ---------------------------------------------------------------------
@@ -845,8 +888,36 @@
   function contextActions() {
     if (contextTarget?.kind === 'node') {
       const node = contextTarget.node
+      const mode = node.data.executionMode ?? 'enabled'
+      const schema = node.data.schema
+      // Stage F. Capability comes from the CATALOG, so an action this node type
+      // cannot support is greyed rather than offered and then refused - and the
+      // reason travels with it, because a grey label with no explanation is the
+      // thing the handoff explicitly rules out.
+      const canBypass = (schema.bypassMappings?.length ?? 0) > 0
+      const canHold = schema.holdCapable === true
+      const modeAction = (label: string, target: ExecutionMode, allowed: boolean, why: string) => ({
+        label: mode === target ? `${label} (current)` : label,
+        disabled: busy || !nativeConnected || mode === target || !allowed,
+        title: allowed ? undefined : why,
+        run: () => void setExecutionMode(node.id, target),
+      })
       return [
         { label: 'Fit node', run: () => void fitView({ nodes: [node], duration: 180, padding: 0.8 }) },
+        modeAction('Enable', 'enabled', true, ''),
+        modeAction('Disable', 'disabled', true, ''),
+        modeAction(
+          'Bypass',
+          'bypassed',
+          canBypass,
+          `${schema.label} declares no bypass mapping, so there is no unambiguous input to forward.`,
+        ),
+        modeAction('Hold', 'holding', canHold, `${schema.label} is not a hold-capable node.`),
+        {
+          label: 'Release held value',
+          disabled: busy || !nativeConnected || mode !== 'holding',
+          run: () => void releaseHolding(node.id),
+        },
         { label: 'Delete node', disabled: busy, run: () => void removeElements([node], []) },
       ]
     }

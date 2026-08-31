@@ -58,13 +58,16 @@ void InMemoryRunHistoryStore::Apply (const RunEvent& event)
             NodeFor (*record, event.nodeId);
             break;
 
-        case RunEventKind::NodeStarted:
-            NodeFor (*record, event.nodeId).cacheHit = false;
+        case RunEventKind::NodeStarted: {
+            NodeRunRecord& node = NodeFor (*record, event.nodeId);
+            node.cacheHit = false;
+            node.finalState = NodeExecutionState::Running;
             break;
+        }
 
         case RunEventKind::NodeCacheHit: {
             NodeRunRecord& node = NodeFor (*record, event.nodeId);
-            node.finalState = NodeExecutionState::Complete;
+            node.finalState = NodeExecutionState::Success;
             node.cacheHit = true;
             node.itemCount = event.itemCount;
             break;
@@ -72,7 +75,7 @@ void InMemoryRunHistoryStore::Apply (const RunEvent& event)
 
         case RunEventKind::NodeCompleted: {
             NodeRunRecord& node = NodeFor (*record, event.nodeId);
-            node.finalState = NodeExecutionState::Complete;
+            node.finalState = NodeExecutionState::Success;
             node.durationMilliseconds = event.durationMilliseconds;
             node.itemCount = event.itemCount;
             node.cacheHit = false;
@@ -85,7 +88,7 @@ void InMemoryRunHistoryStore::Apply (const RunEvent& event)
 
         case RunEventKind::NodeFailed: {
             NodeRunRecord& node = NodeFor (*record, event.nodeId);
-            node.finalState = NodeExecutionState::Failed;
+            node.finalState = NodeExecutionState::Error;
             node.message = event.message;
             node.durationMilliseconds = event.durationMilliseconds;
             if (record->failedNode.empty ()) {
@@ -105,6 +108,29 @@ void InMemoryRunHistoryStore::Apply (const RunEvent& event)
         case RunEventKind::NodeCancelled: {
             NodeRunRecord& node = NodeFor (*record, event.nodeId);
             node.finalState = NodeExecutionState::Cancelled;
+            break;
+        }
+
+        // Stage F. Folding these into NodeCompleted would make the history say
+        // that a bypassed node ran and that a dam published, which is the
+        // opposite of what each of them means.
+        case RunEventKind::NodeBypassed: {
+            NodeRunRecord& node = NodeFor (*record, event.nodeId);
+            node.finalState = NodeExecutionState::Bypassed;
+            node.message = event.message;
+            node.itemCount = event.itemCount;
+            node.cacheHit = false;
+            break;
+        }
+
+        case RunEventKind::NodeHeld:
+        case RunEventKind::NodeReleased: {
+            NodeRunRecord& node = NodeFor (*record, event.nodeId);
+            node.finalState = NodeExecutionState::Holding;
+            node.message = event.message;
+            node.durationMilliseconds = event.durationMilliseconds;
+            node.itemCount = event.itemCount;
+            node.cacheHit = false;
             break;
         }
 
