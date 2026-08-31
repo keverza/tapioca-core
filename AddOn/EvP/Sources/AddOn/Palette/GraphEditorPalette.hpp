@@ -3,8 +3,12 @@
 
 #include "APIEnvir.h"
 #include "ACAPinc.h"
-#include "DGBrowser.hpp"
 #include "DGModule.hpp"
+#include "DGUserItem.hpp"
+
+#include <memory>
+
+class WebView2GraphHost;
 
 class GraphEditorPalette final : public DG::Palette, public DG::PanelObserver {
   public:
@@ -26,9 +30,10 @@ class GraphEditorPalette final : public DG::Palette, public DG::PanelObserver {
     void Show ();
     void Hide ();
     void LoadGraphEditorPage ();
-    void RegisterJavaScriptObject ();
+    void ResizeWebView ();
 
     void PanelCloseRequested (const DG::PanelCloseRequestEvent& ev, bool* accepted) override;
+    void PanelMoved (const DG::PanelMoveEvent& ev) override;
     void PanelResized (const DG::PanelResizeEvent& ev) override;
 
     static GSErrCode PaletteControlCallBack (Int32 referenceId, API_PaletteMessageID messageId, GS::IntPtr param);
@@ -36,7 +41,8 @@ class GraphEditorPalette final : public DG::Palette, public DG::PanelObserver {
     static const GS::Guid paletteGuid;
     static GS::Ref<GraphEditorPalette> instance;
 
-    DG::Browser browser;
+    std::unique_ptr<DG::UserItem> surface;
+    std::unique_ptr<WebView2GraphHost> webView;
 };
 
 #endif

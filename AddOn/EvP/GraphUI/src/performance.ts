@@ -26,7 +26,7 @@ export interface PerformanceReport {
   capturedAt: string
   durationMs: number
   mode: DiagnosticMode
-  host: 'DG::Browser' | 'standalone browser'
+  host: 'DG::Browser' | 'WebView2 child HWND' | 'standalone browser'
   browser: string
   nodeCount: number
   edgeCount: number
@@ -42,6 +42,35 @@ export interface PerformanceReport {
   inputToFrame: Distribution
   longTasks: { count: number; totalMs: number; worstMs: number }
   bridgeCalls: BridgeCallSummary[]
+  nativeTelemetry: {
+    actualDisplayRefreshHz: number | null
+    topology: string
+    archicadSwapChainIntercepted: boolean
+  }
+  lowLevelTimings: {
+    renderCpuMs: null
+    gpuFrameMs: null
+    presentMs: null
+    waitForFrameMs: null
+    source: string
+  }
+}
+
+declare global {
+  interface Window {
+    __tapiocaHost?: string
+    __tapiocaNativeTelemetry?: {
+      actualDisplayRefreshHz?: number
+      topology?: string
+      archicadSwapChainIntercepted?: boolean
+    }
+  }
+}
+
+export function hostName(marker: string | undefined): PerformanceReport['host'] {
+  if (marker === 'ready') return 'DG::Browser'
+  if (marker === 'webview2-child') return 'WebView2 child HWND'
+  return 'standalone browser'
 }
 
 type BridgeListener = (sample: BridgeCallSample) => void

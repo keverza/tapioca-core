@@ -5,6 +5,7 @@
     compareRenderPaths,
     diagnoseReport,
     elapsedMilliseconds,
+    hostName,
     readGpuRenderer,
     subscribeBridgeCalls,
     summarize,
@@ -89,7 +90,7 @@
       capturedAt: new Date().toISOString(),
       durationMs,
       mode,
-      host: document.documentElement.dataset.tapiocaHost === 'ready' ? 'DG::Browser' : 'standalone browser',
+      host: hostName(window.__tapiocaHost ?? document.documentElement.dataset.tapiocaHost),
       browser: browserName(navigator.userAgent),
       nodeCount,
       edgeCount,
@@ -109,6 +110,18 @@
         worstMs: Math.max(0, ...captureLongTasks),
       },
       bridgeCalls: summarizeBridgeCalls(captureBridgeCalls),
+      nativeTelemetry: {
+        actualDisplayRefreshHz: window.__tapiocaNativeTelemetry?.actualDisplayRefreshHz ?? null,
+        topology: window.__tapiocaNativeTelemetry?.topology ?? 'browser control',
+        archicadSwapChainIntercepted: window.__tapiocaNativeTelemetry?.archicadSwapChainIntercepted ?? false,
+      },
+      lowLevelTimings: {
+        renderCpuMs: null,
+        gpuFrameMs: null,
+        presentMs: null,
+        waitForFrameMs: null,
+        source: 'WebView2 does not expose Chromium render, GPU, Present, or wait timings; capture those externally with ETW/PresentMon.',
+      },
     }
     reports = [report, ...reports].slice(0, 8)
     line(

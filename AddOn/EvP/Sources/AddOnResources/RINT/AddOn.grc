@@ -324,9 +324,7 @@
 
 /* --- The schema-driven node graph editor ---------------------------------- */
 'GDLG' 32570  Palette | topCaption | close | grow   0   0  1080  720  "Tapioca Node Graph" {
-/* [  1] */ Browser         0   0  1080  720
 }
 
 'DLGH' 32570  DLG_32570_GraphEditorPalette {
-1	"Tapioca Node Graph"			Browser_0
 }

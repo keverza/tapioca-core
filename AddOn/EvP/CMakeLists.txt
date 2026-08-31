@@ -39,6 +39,7 @@ set (REF_DIR "${CMAKE_SOURCE_DIR}/../reference")
 set (HTTPLIB_INC "${REF_DIR}/cpp-httplib-master"        CACHE PATH "cpp-httplib include dir")
 set (MSGPACK_INC "${REF_DIR}/msgpack-c-cpp_master/include" CACHE PATH "msgpack-c include dir")
 set (NANORT_INC  "${REF_DIR}/nanort-release"            CACHE PATH "nanort include dir")
+set (WEBVIEW2_DIR "${REF_DIR}/webview2-1.0.2478.35" CACHE PATH "Microsoft WebView2 SDK package")
 
 # Embedded CPython (P0+). Build-time only: headers + import lib are vendored, but
 # python312.dll itself is DELAY-LOADED at runtime from wherever PythonHost
@@ -319,7 +320,7 @@ target_include_directories (${ADDON_LIB} PRIVATE
     ${ResourceObjectsDir}                     # generated ResourceMDIDIds.hpp
     ${AC_API_DEVKIT_DIR}/Support/Inc)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE
-    ${HTTPLIB_INC} ${MSGPACK_INC} ${NANORT_INC})
+    ${HTTPLIB_INC} ${MSGPACK_INC} ${NANORT_INC} "${WEBVIEW2_DIR}/build/native/include")
 
 file (GLOB ModuleFolders ${AC_API_DEVKIT_DIR}/Support/Modules/*)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE ${ModuleFolders})
@@ -329,6 +330,7 @@ target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS})
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.
 target_link_libraries (${ADDON_LIB} d3dcompiler dxguid gdi32)
+target_link_libraries (${ADDON_LIB} "${WEBVIEW2_DIR}/build/native/x64/WebView2LoaderStatic.lib" version)
 # winmm: timeBeginPeriod, which the overlay's camera sync holds while it is armed.
 # Without it SetTimer cannot fire between Windows' 15.625 ms ticks and the sync
 # interval is only advisory — see ArchVizPanelCamera's HoldTimerResolution.

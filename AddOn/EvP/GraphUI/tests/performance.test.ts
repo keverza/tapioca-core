@@ -31,6 +31,18 @@ function report(mode: PerformanceReport['mode'], frameP95: number): PerformanceR
     inputToFrame: { count: 300, medianMs: 5, p95Ms: 12, worstMs: 16 },
     longTasks: { count: 0, totalMs: 0, worstMs: 0 },
     bridgeCalls: [],
+    nativeTelemetry: {
+      actualDisplayRefreshHz: null,
+      topology: 'browser control',
+      archicadSwapChainIntercepted: false,
+    },
+    lowLevelTimings: {
+      renderCpuMs: null,
+      gpuFrameMs: null,
+      presentMs: null,
+      waitForFrameMs: null,
+      source: 'not exposed',
+    },
   }
 }
 

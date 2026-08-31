@@ -1,14 +1,13 @@
 #include "Palette/GraphEditorPalette.hpp"
 
-#include "Python/ApiDispatcher.hpp"
+#include "Palette/WebView2GraphHost.hpp"
 #include "Python/PathUtils.hpp"
 #include "ResourceIds.hpp"
 
+#include "DGWin.h"
+
 #include <cstring>
 #include <string>
-
-#include "ObjectState.hpp"
-#include "ObjectStateJSONConversion.hpp"
 
 const GS::Guid GraphEditorPalette::paletteGuid ("{D08D1A6F-962C-4C96-A20B-9B176981AEB2}");
 GS::Ref<GraphEditorPalette> GraphEditorPalette::instance;
@@ -75,75 +74,23 @@ GS::UniString LoadGraphEditorHtmlResource ()
     return html;
 }
 
-GS::Ref<JS::Base> JavaScriptString (const GS::UniString& value)
-{
-    return new JS::Value (value);
-}
-
-GS::UniString JavaScriptStringValue (const GS::Ref<JS::Base>& parameter)
-{
-    const GS::Ref<JS::Value> value = GS::DynamicCast<JS::Value> (parameter);
-    if (value == nullptr || value->GetType () != JS::Value::STRING)
-        return GS::EmptyUniString;
-    return value->GetString ();
-}
-
-GS::Ref<JS::Base> DispatchJavaScriptCall (GS::Ref<JS::Base> parameter)
-{
-    const GS::UniString requestJson = JavaScriptStringValue (parameter);
-    GS::ObjectState request;
-    if (requestJson.IsEmpty () || JSON::ConvertToObjectState (requestJson, request) != NoError)
-        return JavaScriptString ("{\"ok\":false,\"error\":{\"code\":\"BadRequest\",\"message\":\"EvP.call expects a "
-                                 "JSON object string.\"}}");
-
-    GS::UniString command;
-    GS::ObjectState params;
-    request.Get ("command", command);
-    request.Get ("params", params);
-    if (command.IsEmpty ())
-        return JavaScriptString (
-            "{\"ok\":false,\"error\":{\"code\":\"BadRequest\",\"message\":\"EvP.call requires command.\"}}");
-
-    GS::UniString paramsJson;
-    if (JSON::CreateFromObjectState (params, paramsJson) != NoError)
-        return JavaScriptString ("{\"ok\":false,\"error\":{\"code\":\"BadRequest\",\"message\":\"EvP.call params could "
-                                 "not be serialized.\"}}");
-
-    return JavaScriptString (evp::DispatchApiCall (command, paramsJson, "webui"));
-}
-
 } // namespace
 
 GraphEditorPalette::GraphEditorPalette ()
-    : DG::Palette (ACAPI_GetOwnResModule (), GraphEditorPaletteResId, ACAPI_GetOwnResModule (), paletteGuid),
-      browser (GetReference (), GraphEditorBrowserId)
+    : DG::Palette (ACAPI_GetOwnResModule (), GraphEditorPaletteResId, ACAPI_GetOwnResModule (), paletteGuid)
 {
     GraphEditorLog ("constructor entered");
     Attach (*this);
     BeginEventProcessing ();
-
-    browser.SetContextMenuMode (DG::BrowserBase::ContextMenuMode::Disabled);
-    browser.SetScrollBarVisibility (true);
-    RegisterJavaScriptObject ();
-
-    browser.onLoadingStateChange += [] (const DG::BrowserBase&, const DG::BrowserLoadingStateChangeArg& event) {
-        GraphEditorLog (event.isLoading ? "browser load started" : "browser load finished");
-        if (!event.isLoading && GraphEditorPalette::HasInstance ()) {
-            GraphEditorPalette& palette = GraphEditorPalette::GetInstance ();
-            const bool accepted = palette.browser.ExecuteJS ("document.documentElement.dataset.tapiocaHost='ready'");
-            GraphEditorLog (accepted ? "post-load JavaScript accepted" : "post-load JavaScript rejected");
-            palette.browser.DisableNavigation (true);
-            palette.browser.SetFocus ();
-        }
-    };
-    browser.onLoadError += [] (const DG::BrowserBase&, const DG::BrowserLoadErrorArg& event) {
-        GraphEditorLog (
-            GS::UniString::Printf ("browser load error %d at %T", (int) event.errorCode, event.url.ToPrintf ()));
-    };
+    surface = std::make_unique<DG::UserItem> (*this, DG::Rect (0, 0, GetClientWidth (), GetClientHeight ()),
+                                              DG::UserItem::Normal, DG::UserItem::NoFrame);
+    surface->Show ();
+    webView = std::make_unique<WebView2GraphHost> ();
 }
 
 GraphEditorPalette::~GraphEditorPalette ()
 {
+    webView.reset ();
     EndEventProcessing ();
 }
 
@@ -181,29 +128,29 @@ void GraphEditorPalette::Open ()
 void GraphEditorPalette::Show ()
 {
     DG::Palette::Show ();
-    browser.SetFocus ();
+    if (webView != nullptr) {
+        webView->SetVisible (true);
+        webView->Focus ();
+    }
 }
 
 void GraphEditorPalette::Hide ()
 {
+    if (webView != nullptr)
+        webView->SetVisible (false);
     DG::Palette::Hide ();
 }
 
 void GraphEditorPalette::LoadGraphEditorPage ()
 {
-    browser.DisableNavigation (false);
     GS::UniString html = LoadGraphEditorHtmlResource ();
     if (html.IsEmpty ())
         html = kResourceFallbackHtml;
-    browser.LoadHTML (html);
-}
-
-void GraphEditorPalette::RegisterJavaScriptObject ()
-{
-    JS::Object* evpObject = new JS::Object ("EvP");
-    evpObject->AddItem (new JS::Function ("call", DispatchJavaScriptCall));
-    browser.RegisterAsynchJSObject (evpObject);
-    GraphEditorLog ("EvP.call browser bridge registered");
+    const HWND surfaceWindow = surface != nullptr ? DGGetDialogItemWindow (GetId (), surface->GetId ()) : nullptr;
+    if (webView != nullptr && webView->Start (surfaceWindow, html))
+        webView->Focus ();
+    else
+        GraphEditorLog ("WebView2 child host did not start");
 }
 
 void GraphEditorPalette::PanelCloseRequested (const DG::PanelCloseRequestEvent&, bool* accepted)
@@ -212,11 +159,24 @@ void GraphEditorPalette::PanelCloseRequested (const DG::PanelCloseRequestEvent&,
     *accepted = true;
 }
 
+void GraphEditorPalette::PanelMoved (const DG::PanelMoveEvent&)
+{
+    if (webView != nullptr)
+        webView->RefreshNativeTelemetry ();
+}
+
 void GraphEditorPalette::PanelResized (const DG::PanelResizeEvent& ev)
 {
     BeginMoveResizeItems ();
-    browser.Resize (ev.GetHorizontalChange (), ev.GetVerticalChange ());
+    surface->Resize (ev.GetHorizontalChange (), ev.GetVerticalChange ());
     EndMoveResizeItems ();
+    ResizeWebView ();
+}
+
+void GraphEditorPalette::ResizeWebView ()
+{
+    if (webView != nullptr)
+        webView->Resize ();
 }
 
 GSErrCode GraphEditorPalette::PaletteControlCallBack (Int32, API_PaletteMessageID messageId, GS::IntPtr param)

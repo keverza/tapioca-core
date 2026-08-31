@@ -3,6 +3,7 @@ reference_root: AddOn/reference
 profiles:
   build: "Dependencies consumed by the add-on configure/build graph."
   test: "Dependencies consumed by the offline C++ test graph."
+  webview: "WebView2 SDK used by the native child-HWND interaction benchmark."
 entries:
   - path: archicad29-api-devkit
     kind: directory
@@ -108,3 +109,16 @@ entries:
     download:
       url: https://www.nuget.org/api/v2/package/python/3.12.10
       archive_subpath: tools
+
+  - path: webview2-1.0.2478.35
+    kind: directory
+    profiles: [build, webview]
+    authority: "Microsoft Edge WebView2 SDK"
+    version: "1.0.2478.35"
+    source: "https://www.nuget.org/packages/Microsoft.Web.WebView2/1.0.2478.35"
+    provenance: >-
+      Pinned native WebView2 SDK consumed by the child-HWND graph interaction
+      benchmark; the Evergreen runtime remains a machine prerequisite.
+    download:
+      url: https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2478.35
+      sha256: b1df2d7fe955a3378603735f910b126647e43033213b5cc071b8d6f0168a3b96

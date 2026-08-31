@@ -173,7 +173,6 @@ constexpr short WebUIHtmlResId = 32561; // 'DATA', embedded WebUI/index.html
 // The node-graph experiment palette ('GDLG' 32570). C++ owns the graph; this
 // browser is only its schema-driven editor view.
 constexpr short GraphEditorPaletteResId = 32570;
-constexpr short GraphEditorBrowserId = 1;
 constexpr short GraphEditorHtmlResId = 32571; // 'DATA', generated GraphUI/dist/index.html
 
 #endif
