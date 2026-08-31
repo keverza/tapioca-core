@@ -127,6 +127,9 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphReports.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphRuntimeState.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphSerializer.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphStore.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeExecution.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ProjectGenerations.cpp"
@@ -134,7 +137,8 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunEvents.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunHistory.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp"
-    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp")
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/WorkerPool.cpp")
 
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it

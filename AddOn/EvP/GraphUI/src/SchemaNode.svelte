@@ -47,10 +47,10 @@
     <strong>{data.schema.label}</strong>
   </header>
 
-  <p>{data.schema.description}</p>
+  <p class="schema-description">{data.schema.description}</p>
 
   {#if data.parameters.length > 0}
-    <dl>
+    <dl class="schema-parameters">
       {#each data.parameters as parameter}
         <div>
           <dt>{parameter.parameterId}</dt>
@@ -71,7 +71,7 @@
             style={`top: ${HEADER_OFFSET + index * PORT_PITCH}px`}
           />
           <span>{input.label}</span>
-          <small>{input.valueType === 'absent' ? 'any' : input.valueType}</small>
+          <small class="port-type">{input.valueType === 'absent' ? 'any' : input.valueType}</small>
         </div>
       {/each}
     </div>
@@ -81,11 +81,11 @@
           <!-- The value, not just the type. Before this, a node could run
                successfully and leave nothing on screen to look at. -->
           {#if outputFor(output.portId) !== undefined}
-            <small class="value" title={outputFor(output.portId)?.text}>
+            <small class="value port-value" title={outputFor(output.portId)?.text}>
               {outputFor(output.portId)?.summary}
             </small>
           {:else}
-            <small>{output.valueType}</small>
+            <small class="port-type">{output.valueType}</small>
           {/if}
           <span>{output.label}</span>
           <Handle
@@ -140,20 +140,20 @@
   article {
     width: 228px;
     overflow: hidden;
-    border: 1px solid #29313b;
+    border: 1px solid var(--border);
     border-radius: 5px;
-    background: #151a20;
-    color: #e8edf2;
+    background: var(--surface);
+    color: var(--text);
     box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
   }
 
   article.selected {
-    border-color: #ffb000;
-    box-shadow: 0 0 0 1px #ffb000, 0 10px 28px rgb(0 0 0 / 38%);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent), 0 10px 28px rgb(0 0 0 / 38%);
   }
 
   article.error {
-    border-color: #e36d5b;
+    border-color: var(--danger);
   }
 
   article.skipped {
@@ -164,12 +164,12 @@
     display: grid;
     gap: 2px;
     padding: 9px 12px;
-    border-bottom: 1px solid #303945;
-    background: #202731;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-raised);
   }
 
   header span {
-    color: #ffb000;
+    color: var(--accent);
     font: 600 9px/1.2 'Segoe UI', sans-serif;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -183,13 +183,13 @@
     min-height: 30px;
     margin: 0;
     padding: 8px 12px;
-    color: #9aa8b7;
+    color: var(--text-muted);
     font: 11px/1.35 'Segoe UI', sans-serif;
   }
 
   dl {
     margin: 0 12px 8px;
-    border: 1px solid #2a333e;
+    border: 1px solid var(--border);
     border-radius: 3px;
   }
 
@@ -207,7 +207,7 @@
   }
 
   dd {
-    color: #ffcb5b;
+    color: var(--accent-soft);
   }
 
   .ports {
@@ -229,7 +229,7 @@
   }
 
   .port small {
-    color: #718092;
+    color: var(--text-faint);
     font-size: 8px;
     text-transform: uppercase;
   }
@@ -237,7 +237,7 @@
   .port small.value {
     max-width: 96px;
     overflow: hidden;
-    color: #ffcb5b;
+    color: var(--accent-soft);
     font: 9px/1.2 ui-monospace, monospace;
     text-overflow: ellipsis;
     text-transform: none;
@@ -252,9 +252,9 @@
   .panel {
     margin: 0 10px 10px;
     overflow: hidden;
-    border: 1px solid #303945;
+    border: 1px solid var(--border);
     border-radius: 4px;
-    background: #0d1116;
+    background: var(--canvas);
   }
 
   .panel ol {
@@ -273,19 +273,19 @@
   }
 
   .panel li:nth-child(even) {
-    background: #11161c;
+    background: color-mix(in srgb, var(--surface) 72%, var(--canvas));
   }
 
   .panel .index {
     flex: none;
     min-width: 16px;
-    color: #4d5765;
+    color: var(--text-faint);
     text-align: right;
     user-select: none;
   }
 
   .panel .line {
-    color: #d7e2ee;
+    color: var(--text);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -293,15 +293,15 @@
   .panel .empty {
     min-height: 0;
     padding: 10px 8px;
-    color: #5c6673;
+    color: var(--text-faint);
     font: 10px/1.2 ui-monospace, monospace;
     text-align: center;
   }
 
   .panel-summary {
     padding: 4px 8px;
-    border-top: 1px solid #222a33;
-    color: #718092;
+    border-top: 1px solid var(--border);
+    color: var(--text-faint);
     font: 9px/1.2 ui-monospace, monospace;
   }
 
@@ -310,8 +310,8 @@
     justify-content: space-between;
     gap: 8px;
     padding: 6px 10px;
-    background: #101419;
-    color: #718092;
+    background: var(--canvas);
+    color: var(--text-faint);
     font: 9px/1.2 ui-monospace, monospace;
   }
 
@@ -322,9 +322,9 @@
   .preview-hint {
     margin: 0 10px 10px;
     padding: 9px;
-    border: 1px dashed #303945;
+    border: 1px dashed var(--border);
     border-radius: 4px;
-    color: #718092;
+    color: var(--text-faint);
     font: 9px/1.2 ui-monospace, monospace;
     text-align: center;
   }
@@ -332,7 +332,7 @@
   :global(.svelte-flow__handle) {
     width: 8px;
     height: 8px;
-    border: 1px solid #151a20;
-    background: #ffb000;
+    border: 1px solid var(--surface);
+    background: var(--accent);
   }
 </style>

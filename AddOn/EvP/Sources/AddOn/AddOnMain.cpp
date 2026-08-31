@@ -30,6 +30,7 @@
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
 #include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
 #include "NodeGraph/ArchicadHostImpl.hpp"         // the graph runtime's one ACAPI seam
+#include "NodeGraph/WorkerPool.hpp"                // joined on quit, never at static destruction
 #include "Notify/ChangeTracker.hpp"               // E25 — the model change token
 #include "Notify/BackgroundArm.hpp"               // E25 — its background arming thread
 #include "Python/MainThreadGate.hpp"
@@ -154,6 +155,10 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // a kill second, and neither wants to run during an unload. Stop is
             // a no-op when no worker was ever started.
             evp::grasshopper::GhWorkerHost::Get ().Stop ();
+            // The graph runtime's level pool. Joined here for the same reason as
+            // everything else on this line: its threads run code in this module,
+            // and static destruction would join them under the loader lock.
+            evp::nodegraph::ShutDownWorkerPool ();
             evp::MainThreadGate::Get ().BeginShutdown ();
             evp::dynamo::Release ();
             break;
@@ -479,6 +484,11 @@ GSErrCode FreeData (void)
     // flight sees no host and fails its Archicad nodes cleanly, instead of
     // marshalling ACAPI work into a module that is being unloaded.
     evp::nodegraph::SetActiveArchicadHost (nullptr);
+    // After the host is detached and before the gate closes: a pool thread that
+    // outlived this module would be Windows running freed code, and joining at
+    // static destruction would do it under the loader lock. Idempotent, so the
+    // Quit path above having done it already is fine.
+    evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into

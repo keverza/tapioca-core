@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 153,
+      "nativeRegistry": 157,
       "dispatcherLocal": 19,
-      "total": 172
+      "total": 176
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -10263,6 +10263,11 @@
           },
           "allowSideEffects": {
             "type": "boolean"
+          },
+          "maxParallel": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
           }
         },
         "additionalProperties": false,
@@ -10332,6 +10337,86 @@
             "items": {
               "type": "string"
             }
+          },
+          "parallelism": {
+            "type": "object",
+            "properties": {
+              "workerThreads": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxParallel": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "peakConcurrency": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "wallClockMs": {
+                "type": "number"
+              },
+              "workMs": {
+                "type": "number"
+              },
+              "speedup": {
+                "type": "number"
+              },
+              "levels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "levelIndex": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "executedCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "workerNodeCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "hostNodeCount": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "peakConcurrency": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "wallClockMs": {
+                      "type": "number"
+                    },
+                    "workMs": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "levelIndex",
+                    "executedCount",
+                    "workerNodeCount",
+                    "hostNodeCount",
+                    "peakConcurrency",
+                    "wallClockMs",
+                    "workMs"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "workerThreads",
+              "maxParallel",
+              "peakConcurrency",
+              "wallClockMs",
+              "workMs",
+              "speedup",
+              "levels"
+            ]
           }
         },
         "additionalProperties": false,
@@ -10351,7 +10436,8 @@
           "failedCount",
           "blockedCount",
           "effectsCommitted",
-          "skippedEffectNodes"
+          "skippedEffectNodes",
+          "parallelism"
         ]
       }
     },
@@ -11644,6 +11730,325 @@
             ]
           }
         }
+      }
+    },
+    {
+      "name": "Tapioca.GraphLibraryDelete",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "notFound",
+              "invalid",
+              "ioFailed",
+              "invalidId"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "status",
+          "error",
+          "name",
+          "graphId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphLibraryList",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "location": {
+            "type": "string"
+          },
+          "graphs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "nodeCount": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "label",
+                "description",
+                "nodeCount"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "location",
+          "graphs"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphLibraryLoad",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "notFound",
+              "invalid",
+              "ioFailed",
+              "invalidId"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "nodeLayout": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nodeId": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "key",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "nodeId",
+                "fields"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "status",
+          "error",
+          "name",
+          "graphId",
+          "revision",
+          "label",
+          "description",
+          "nodeLayout"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphLibrarySave",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "nodeLayout": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "nodeId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "key",
+                      "value"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "nodeId",
+                "fields"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "notFound",
+              "invalid",
+              "ioFailed",
+              "invalidId"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "status",
+          "error",
+          "name",
+          "graphId"
+        ]
       }
     },
     {

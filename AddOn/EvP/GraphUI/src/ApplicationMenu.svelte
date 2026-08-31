@@ -1,0 +1,168 @@
+<script lang="ts">
+  import { onMount } from 'svelte'
+  import type { ThemeMode } from './editor'
+
+  type MenuId = 'file' | 'run' | 'flow' | 'debug'
+
+  let {
+    busy,
+    nativeConnected,
+    snapEnabled,
+    theme,
+    performanceOpen,
+    onrefresh,
+    onevaluate,
+    onopenpicker,
+    ontogglesnap,
+    ontheme,
+    ontoggleperformance,
+  }: {
+    busy: boolean
+    nativeConnected: boolean
+    snapEnabled: boolean
+    theme: ThemeMode
+    performanceOpen: boolean
+    onrefresh: () => void
+    onevaluate: () => void
+    onopenpicker: () => void
+    ontogglesnap: () => void
+    ontheme: (theme: ThemeMode) => void
+    ontoggleperformance: () => void
+  } = $props()
+
+  const menuIds: MenuId[] = ['file', 'run', 'flow', 'debug']
+  let activeMenu = $state<MenuId | null>(null)
+  let root = $state<HTMLElement>()
+  let headingElements = $state.raw<Partial<Record<MenuId, HTMLButtonElement>>>({})
+  let hoverMenus = false
+
+  onMount(() => {
+    hoverMenus = window.matchMedia('(hover: hover) and (pointer: fine)').matches
+    const closeOutside = (event: PointerEvent) => {
+      if (root !== undefined && !root.contains(event.target as globalThis.Node)) close()
+    }
+    window.addEventListener('pointerdown', closeOutside)
+    return () => window.removeEventListener('pointerdown', closeOutside)
+  })
+
+  function setHeading(id: MenuId, element: HTMLButtonElement): void {
+    headingElements = { ...headingElements, [id]: element }
+  }
+
+  function registerHeading(element: HTMLButtonElement, id: MenuId): { destroy: () => void } {
+    setHeading(id, element)
+    return {
+      destroy: () => {
+        const next = { ...headingElements }
+        delete next[id]
+        headingElements = next
+      },
+    }
+  }
+
+  function close(restoreFocus = true): void {
+    const previous = activeMenu
+    activeMenu = null
+    if (restoreFocus && previous !== null) queueMicrotask(() => headingElements[previous]?.focus())
+  }
+
+  function open(id: MenuId, focusFirst = false): void {
+    activeMenu = id
+    if (id === 'flow') onopenpicker()
+    if (focusFirst) {
+      queueMicrotask(() => {
+        root?.querySelector<HTMLElement>(`#menu-${id} [role^="menuitem"]:not([disabled])`)?.focus()
+      })
+    }
+  }
+
+  function toggle(id: MenuId): void {
+    if (activeMenu === id) close()
+    else open(id)
+  }
+
+  function moveHeading(id: MenuId, offset: number): void {
+    const index = menuIds.indexOf(id)
+    const next = menuIds[(index + offset + menuIds.length) % menuIds.length]
+    headingElements[next]?.focus()
+    if (activeMenu !== null) open(next)
+  }
+
+  function headingKey(event: KeyboardEvent, id: MenuId): void {
+    if (event.key === 'ArrowRight') moveHeading(id, 1)
+    else if (event.key === 'ArrowLeft') moveHeading(id, -1)
+    else if (event.key === 'ArrowDown') open(id, true)
+    else if (event.key === 'Escape') close()
+    else return
+    event.preventDefault()
+  }
+
+  function menuKey(event: KeyboardEvent, id: MenuId): void {
+    const items = Array.from(
+      (event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role^="menuitem"]:not([disabled])'),
+    )
+    const index = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === 'ArrowDown') items[(index + 1) % items.length]?.focus()
+    else if (event.key === 'ArrowUp') items[(index - 1 + items.length) % items.length]?.focus()
+    else if (event.key === 'Home') items[0]?.focus()
+    else if (event.key === 'End') items.at(-1)?.focus()
+    else if (event.key === 'ArrowRight') moveHeading(id, 1)
+    else if (event.key === 'ArrowLeft') moveHeading(id, -1)
+    else if (event.key === 'Escape') close()
+    else return
+    event.preventDefault()
+  }
+
+  function invoke(action: () => void): void {
+    close()
+    action()
+  }
+</script>
+
+<nav class="menu-bar" aria-label="Application menu" bind:this={root}>
+  {#each menuIds as id}
+    <div class="menu-root">
+      <button
+        use:registerHeading={id}
+        class:open={activeMenu === id}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={activeMenu === id}
+        onclick={() => toggle(id)}
+        onpointerenter={() => {
+          if (hoverMenus && activeMenu !== null && activeMenu !== id) open(id)
+        }}
+        onkeydown={(event) => headingKey(event, id)}
+      >{id[0].toUpperCase() + id.slice(1)}</button>
+
+      {#if activeMenu === id}
+        <div id={`menu-${id}`} class:menu-right={id === 'debug'} class="menu-popover" role="menu" tabindex="-1" onkeydown={(event) => menuKey(event, id)}>
+          {#if id === 'file'}
+            <button role="menuitem" type="button" disabled={busy || !nativeConnected} onclick={() => invoke(onrefresh)}>Refresh graph</button>
+          {:else if id === 'run'}
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onevaluate)}>Evaluate graph</button>
+          {:else if id === 'flow'}
+            <button role="menuitem" type="button" onclick={() => invoke(onopenpicker)}>Open components</button>
+            <button role="menuitemcheckbox" class="menu-toggle" type="button" aria-checked={snapEnabled} onclick={() => invoke(ontogglesnap)}>
+              <span class:checked={snapEnabled} aria-hidden="true"></span>
+              Snap to grid
+              <kbd>16 px</kbd>
+            </button>
+            <div class="menu-separator" role="separator"></div>
+            {#each ['system', 'dark', 'light'] as mode}
+              <button role="menuitemradio" class="menu-toggle" type="button" aria-checked={theme === mode} onclick={() => invoke(() => ontheme(mode as ThemeMode))}>
+                <span class:checked={theme === mode} aria-hidden="true"></span>
+                {mode[0].toUpperCase() + mode.slice(1)} theme
+              </button>
+            {/each}
+          {:else}
+            <button role="menuitemcheckbox" class="menu-toggle" type="button" aria-checked={performanceOpen} onclick={() => invoke(ontoggleperformance)}>
+              <span class:checked={performanceOpen} aria-hidden="true"></span>
+              Interaction timing
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
+  {/each}
+</nav>

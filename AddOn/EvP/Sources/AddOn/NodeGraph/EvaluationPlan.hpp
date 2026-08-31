@@ -44,6 +44,16 @@ struct EvaluationRequest {
     // effectful node without it is not an error: the node is reported as
     // skipped, with the reason, and the rest of the graph still evaluates.
     bool allowSideEffects = false;
+
+    // How many node bodies may run at once, counting the coordinator thread.
+    // 0 lets the runtime decide; 1 is fully sequential.
+    //
+    // A REQUEST-LEVEL KNOB BECAUSE ADR-007'S GATE IS AN A/B. "Pure nodes
+    // demonstrably execute concurrently" is shown by running one graph at 1 and
+    // at N and comparing the measured overlap, and a client that has to be
+    // rebuilt between the two arms cannot show it on the user's machine with
+    // the user's graph.
+    size_t maxParallel = 0;
 };
 
 struct EvaluationPlan {

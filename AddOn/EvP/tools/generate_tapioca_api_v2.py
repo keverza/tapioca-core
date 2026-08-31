@@ -37,9 +37,12 @@ from typing import Any
 # hierarchy and owning render-queue producer.
 # 2026-08-25, PLAT-WATCH-API: +2 for retained preview-scene and watch-trace
 # ingestion. Both are host-independent native store writes, not model writes.
-EXPECTED_REGISTRY_COMMANDS = 153
+# 2026-08-31, PLAT-NODEGRAPH-RUNTIME Stage E1: +4 for the node-graph workflow
+# library — GraphLibrarySave/Load/Delete/List. Graph documents only; no run
+# history and no model writes, so these stay host-independent.
+EXPECTED_REGISTRY_COMMANDS = 157
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 172
+EXPECTED_TOTAL_COMMANDS = 176
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

@@ -3,17 +3,16 @@
 
 #include "NativeCommands/NodeGraphCommands.hpp"
 
+#include "NativeCommands/NodeGraphCommandSupport.hpp"
+
 #include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 #include "NodeGraph/ValueText.hpp"
 
-#include <exception>
 #include <string>
 
 namespace geomsrv {
 namespace {
-
-namespace graph = evp::nodegraph;
 
 // ---------------------------------------------------------------------------
 // Value encoding
@@ -39,8 +38,6 @@ namespace graph = evp::nodegraph;
 // instead. A client that needs more asks the node for its preview.
 constexpr size_t kMaxEncodedListItems = 256;
 
-// Every verb takes an optional graphId. Omitting it means the default graph, so
-// a single-graph client needs to know nothing about the addressing.
 constexpr const char kGraphInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
 
@@ -62,10 +59,10 @@ constexpr const char kEditResponseSchema[] =
 // a watch and an auto-evaluated branch all leave it out, which is what keeps a
 // graph from changing the user's selection while they are editing.
 constexpr const char kEvaluateInputSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"targets":{"type":"array","items":{"type":"string","minLength":1}},"mode":{"type":"string","enum":["incremental","forced"]},"allowSideEffects":{"type":"boolean"}},"additionalProperties":false,"required":[]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"targets":{"type":"array","items":{"type":"string","minLength":1}},"mode":{"type":"string","enum":["incremental","forced"]},"allowSideEffects":{"type":"boolean"},"maxParallel":{"type":"integer","minimum":0,"maximum":64}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kEvaluateResponseSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"revision":{"type":"integer","minimum":0},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"cyclicNodes":{"type":"array","items":{"type":"string"}},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0},"effectsCommitted":{"type":"boolean"},"skippedEffectNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["graphId","runId","lastEventSeq","revision","succeeded","cancelled","error","failedNode","cyclicNodes","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount","effectsCommitted","skippedEffectNodes"]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"runId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"revision":{"type":"integer","minimum":0},"succeeded":{"type":"boolean"},"cancelled":{"type":"boolean"},"error":{"type":"string"},"failedNode":{"type":"string"},"cyclicNodes":{"type":"array","items":{"type":"string"}},"plannedCount":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"cacheHitCount":{"type":"integer","minimum":0},"failedCount":{"type":"integer","minimum":0},"blockedCount":{"type":"integer","minimum":0},"effectsCommitted":{"type":"boolean"},"skippedEffectNodes":{"type":"array","items":{"type":"string"}},"parallelism":{"type":"object","properties":{"workerThreads":{"type":"integer","minimum":0},"maxParallel":{"type":"integer","minimum":0},"peakConcurrency":{"type":"integer","minimum":0},"wallClockMs":{"type":"number"},"workMs":{"type":"number"},"speedup":{"type":"number"},"levels":{"type":"array","items":{"type":"object","properties":{"levelIndex":{"type":"integer","minimum":0},"executedCount":{"type":"integer","minimum":0},"workerNodeCount":{"type":"integer","minimum":0},"hostNodeCount":{"type":"integer","minimum":0},"peakConcurrency":{"type":"integer","minimum":0},"wallClockMs":{"type":"number"},"workMs":{"type":"number"}},"additionalProperties":false,"required":["levelIndex","executedCount","workerNodeCount","hostNodeCount","peakConcurrency","wallClockMs","workMs"]}}},"additionalProperties":false,"required":["workerThreads","maxParallel","peakConcurrency","wallClockMs","workMs","speedup","levels"]}},"additionalProperties":false,"required":["graphId","runId","lastEventSeq","revision","succeeded","cancelled","error","failedNode","cyclicNodes","plannedCount","executedCount","cacheHitCount","failedCount","blockedCount","effectsCommitted","skippedEffectNodes","parallelism"]})json";
 
 constexpr const char kCancelResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"cancelledRunId":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["graphId","cancelledRunId"]})json";
@@ -100,16 +97,6 @@ constexpr const char kCompatibilityInputSchema[] =
 
 constexpr const char kCompatibilityResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"status":{"type":"string","enum":["compatible","needsMigration","unsupportedFormat","missingNodeType","missingCapability"]},"runtimeFormatVersion":{"type":"integer","minimum":1},"missingNodeTypes":{"type":"array","items":{"type":"string"}},"findings":{"type":"array","items":{"type":"object","properties":{"severity":{"type":"string","enum":["warning","error"]},"nodeId":{"type":"string"},"kind":{"type":"string"},"detail":{"type":"string"}},"additionalProperties":false,"required":["severity","nodeId","kind","detail"]}}},"additionalProperties":false,"required":["graphId","status","runtimeFormatVersion","missingNodeTypes","findings"]})json";
-
-std::string Utf8 (const GS::UniString& value)
-{
-    return value.ToCStr (0, GS::MaxUSize, CC_UTF8).Get ();
-}
-
-GS::UniString Text (const std::string& value)
-{
-    return GS::UniString (value.c_str (), CC_UTF8);
-}
 
 const char* ValueTypeName (graph::ValueType valueType)
 {
@@ -182,7 +169,7 @@ GS::ObjectState EncodeValue (const graph::Value& value, bool expand)
             state.Add ("number", std::get<double> (value.DataValue ()));
             break;
         case graph::ValueType::String:
-            state.Add ("text", Text (std::get<std::string> (value.DataValue ())));
+            state.Add ("text", GraphText (std::get<std::string> (value.DataValue ())));
             break;
         case graph::ValueType::Point3: {
             const graph::Point3& point = std::get<graph::Point3> (value.DataValue ());
@@ -207,7 +194,7 @@ GS::ObjectState EncodeValue (const graph::Value& value, bool expand)
             break;
         }
         case graph::ValueType::ArchicadElementRef:
-            state.Add ("text", Text (std::get<graph::ArchicadElementRef> (value.DataValue ()).guid));
+            state.Add ("text", GraphText (std::get<graph::ArchicadElementRef> (value.DataValue ()).guid));
             break;
         case graph::ValueType::List: {
             const graph::Value::List& list = std::get<graph::Value::List> (value.DataValue ());
@@ -235,7 +222,7 @@ bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std:
         error = "the value is missing valueType";
         return false;
     }
-    const std::string valueType = Utf8 (valueTypeName);
+    const std::string valueType = GraphUtf8 (valueTypeName);
 
     if (valueType == "bool") {
         bool flag = false;
@@ -262,9 +249,9 @@ bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std:
             return false;
         }
         if (valueType == "string")
-            out = graph::Value (Utf8 (text));
+            out = graph::Value (GraphUtf8 (text));
         else
-            out = graph::Value (graph::ArchicadElementRef { Utf8 (text) });
+            out = graph::Value (graph::ArchicadElementRef { GraphUtf8 (text) });
         return true;
     }
     if (valueType == "point3") {
@@ -280,14 +267,6 @@ bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std:
     return false;
 }
 
-graph::GraphId ReadGraphId (const GS::ObjectState& params)
-{
-    GS::UniString graphId;
-    if (!params.Get ("graphId", graphId) || graphId.IsEmpty ())
-        return graph::kDefaultGraphId;
-    return Utf8 (graphId);
-}
-
 graph::Edge ReadEdge (const GS::ObjectState& params)
 {
     GS::UniString sourceNode, sourcePort, targetNode, targetPort;
@@ -295,36 +274,8 @@ graph::Edge ReadEdge (const GS::ObjectState& params)
     params.Get ("sourcePort", sourcePort);
     params.Get ("targetNode", targetNode);
     params.Get ("targetPort", targetPort);
-    return { Utf8 (sourceNode), Utf8 (sourcePort), Utf8 (targetNode), Utf8 (targetPort) };
+    return { GraphUtf8 (sourceNode), GraphUtf8 (sourcePort), GraphUtf8 (targetNode), GraphUtf8 (targetPort) };
 }
-
-// Containment rule 1: no graph operation propagates an exception into
-// Archicad's call stack. Every verb below runs through this one wrapper rather
-// than relying on each handler to remember a try/catch.
-class GateFreeGraphCommand : public MainThreadCommand {
-  public:
-    bool NeedsMainThread () const override
-    {
-        return false;
-    }
-
-    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl& control) const final
-    {
-        try {
-            return ExecuteGraph (params, control);
-        }
-        catch (const std::exception& exception) {
-            return NativeCommandResult::Failure (GS::UniString ("the graph runtime raised an error: ", CC_UTF8) +
-                                                 GS::UniString (exception.what (), CC_UTF8));
-        }
-        catch (...) {
-            return NativeCommandResult::Failure (GS::UniString ("the graph runtime raised an unknown error", CC_UTF8));
-        }
-    }
-
-  protected:
-    virtual NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl& control) const = 0;
-};
 
 class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
   protected:
@@ -334,10 +285,10 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
         const graph::NodeRegistry registry = graph::GraphRuntimeState::Get ().Catalog ();
         for (const auto& [nodeTypeId, nodeType] : registry.Types ()) {
             GS::ObjectState record;
-            record.Add ("nodeType", Text (nodeTypeId));
-            record.Add ("label", Text (nodeType.label));
-            record.Add ("category", Text (nodeType.category));
-            record.Add ("description", Text (nodeType.description));
+            record.Add ("nodeType", GraphText (nodeTypeId));
+            record.Add ("label", GraphText (nodeType.label));
+            record.Add ("category", GraphText (nodeType.category));
+            record.Add ("description", GraphText (nodeType.description));
             record.Add ("executionDomain", DomainName (nodeType.executionDomain));
             record.Add ("effect", graph::EffectKindName (nodeType.effect));
             record.Add ("display", graph::NodeDisplayName (nodeType.display));
@@ -348,8 +299,8 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
             GS::Array<GS::ObjectState> inputs, outputs, parameters;
             for (const graph::PortSchema& port : nodeType.inputs) {
                 GS::ObjectState state;
-                state.Add ("portId", Text (port.id));
-                state.Add ("label", Text (port.label));
+                state.Add ("portId", GraphText (port.id));
+                state.Add ("label", GraphText (port.label));
                 state.Add ("valueType", ValueTypeName (port.valueType));
                 state.Add ("required", port.required);
                 state.Add ("acceptsMultiple", port.acceptsMultiple);
@@ -357,15 +308,15 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
             }
             for (const graph::PortSchema& port : nodeType.outputs) {
                 GS::ObjectState state;
-                state.Add ("portId", Text (port.id));
-                state.Add ("label", Text (port.label));
+                state.Add ("portId", GraphText (port.id));
+                state.Add ("label", GraphText (port.label));
                 state.Add ("valueType", ValueTypeName (port.valueType));
                 outputs.Push (std::move (state));
             }
             for (const graph::ParameterSchema& parameter : nodeType.parameters) {
                 GS::ObjectState state;
-                state.Add ("parameterId", Text (parameter.id));
-                state.Add ("label", Text (parameter.label));
+                state.Add ("parameterId", GraphText (parameter.id));
+                state.Add ("label", GraphText (parameter.label));
                 state.Add ("valueType", ValueTypeName (parameter.valueType));
                 state.Add ("required", parameter.required);
                 if (parameter.defaultValue.has_value ())
@@ -387,18 +338,18 @@ class GraphGetStateCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphId graphId = ReadGraphIdParam (params);
         const graph::GraphDocument document = graph::GraphRuntimeState::Get ().Document (graphId);
         const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results (graphId);
         GS::Array<GS::ObjectState> nodes, edges;
         for (const auto& [nodeId, node] : document.Nodes ()) {
             GS::ObjectState record;
-            record.Add ("nodeId", Text (nodeId));
-            record.Add ("nodeType", Text (node.nodeType));
+            record.Add ("nodeId", GraphText (nodeId));
+            record.Add ("nodeType", GraphText (node.nodeType));
             GS::Array<GS::ObjectState> parameters;
             for (const auto& [parameterId, value] : node.parameters) {
                 GS::ObjectState parameter;
-                parameter.Add ("parameterId", Text (parameterId));
+                parameter.Add ("parameterId", GraphText (parameterId));
                 parameter.Add ("value", EncodeValue (value, true));
                 parameters.Push (std::move (parameter));
             }
@@ -407,14 +358,14 @@ class GraphGetStateCommand : public GateFreeGraphCommand {
         }
         for (const graph::Edge& edge : document.Edges ()) {
             GS::ObjectState record;
-            record.Add ("sourceNode", Text (edge.sourceNode));
-            record.Add ("sourcePort", Text (edge.sourcePort));
-            record.Add ("targetNode", Text (edge.targetNode));
-            record.Add ("targetPort", Text (edge.targetPort));
+            record.Add ("sourceNode", GraphText (edge.sourceNode));
+            record.Add ("sourcePort", GraphText (edge.sourcePort));
+            record.Add ("targetNode", GraphText (edge.targetNode));
+            record.Add ("targetPort", GraphText (edge.targetPort));
             edges.Push (std::move (record));
         }
         GS::ObjectState response;
-        response.Add ("graphId", Text (graphId));
+        response.Add ("graphId", GraphText (graphId));
         response.Add ("revision", static_cast<GS::Int64> (document.Revision ()));
         response.Add ("lastRunId", static_cast<GS::Int64> (snapshot.lastRunId));
         response.Add ("lastEventSeq", static_cast<GS::Int64> (snapshot.lastEventSeq));
@@ -430,7 +381,7 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
     {
         GS::UniString editKindValue;
         params.Get ("editKind", editKindValue);
-        const std::string editKind = Utf8 (editKindValue);
+        const std::string editKind = GraphUtf8 (editKindValue);
         graph::GraphEdit edit;
         std::string error;
 
@@ -438,7 +389,7 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
             GS::UniString nodeId, nodeType;
             params.Get ("nodeId", nodeId);
             params.Get ("nodeType", nodeType);
-            graph::Node node { Utf8 (nodeId), Utf8 (nodeType) };
+            graph::Node node { GraphUtf8 (nodeId), GraphUtf8 (nodeType) };
 
             GS::Array<GS::ObjectState> parameters;
             if (params.Get ("parameters", parameters)) {
@@ -448,8 +399,8 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
                     graph::Value value;
                     if (!parameter.Get ("parameterId", parameterId) || !parameter.Get ("value", valueState) ||
                         !DecodeParameterValue (valueState, value, error))
-                        return NativeCommandResult::Failure (Text (error.empty () ? "invalid parameter" : error));
-                    node.parameters.insert_or_assign (Utf8 (parameterId), std::move (value));
+                        return NativeCommandResult::Failure (GraphText (error.empty () ? "invalid parameter" : error));
+                    node.parameters.insert_or_assign (GraphUtf8 (parameterId), std::move (value));
                 }
             }
             double numberValue = 0.0;
@@ -460,7 +411,7 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
         else if (editKind == "removeNode") {
             GS::UniString nodeId;
             params.Get ("nodeId", nodeId);
-            edit.data = graph::RemoveNodeEdit { Utf8 (nodeId) };
+            edit.data = graph::RemoveNodeEdit { GraphUtf8 (nodeId) };
         }
         else if (editKind == "connect") {
             edit.data = graph::ConnectEdit { ReadEdge (params) };
@@ -477,23 +428,23 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
             double numberValue = 0.0;
             if (params.Get ("value", valueState)) {
                 if (!DecodeParameterValue (valueState, value, error))
-                    return NativeCommandResult::Failure (Text (error));
+                    return NativeCommandResult::Failure (GraphText (error));
             }
             else if (params.Get ("numberValue", numberValue)) {
                 value = graph::Value (numberValue);
             }
             else {
-                return NativeCommandResult::Failure (Text ("setParam requires a value"));
+                return NativeCommandResult::Failure (GraphText ("setParam requires a value"));
             }
-            edit.data = graph::SetParameterEdit { Utf8 (nodeId), Utf8 (parameterId), std::move (value) };
+            edit.data = graph::SetParameterEdit { GraphUtf8 (nodeId), GraphUtf8 (parameterId), std::move (value) };
         }
 
-        const graph::EditResult result = graph::GraphRuntimeState::Get ().Apply (ReadGraphId (params), edit);
+        const graph::EditResult result = graph::GraphRuntimeState::Get ().Apply (ReadGraphIdParam (params), edit);
         if (!result.accepted)
-            return NativeCommandResult::Failure (Text (result.error));
+            return NativeCommandResult::Failure (GraphText (result.error));
         GS::Array<GS::UniString> dirtyNodes;
         for (const graph::NodeId& nodeId : result.dirtyNodes)
-            dirtyNodes.Push (Text (nodeId));
+            dirtyNodes.Push (GraphText (nodeId));
         GS::ObjectState response;
         response.Add ("revision", static_cast<GS::Int64> (result.revision));
         response.Add ("dirtyNodes", dirtyNodes);
@@ -509,35 +460,41 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         GS::Array<GS::UniString> targets;
         if (params.Get ("targets", targets)) {
             for (const GS::UniString& target : targets)
-                request.targets.push_back (Utf8 (target));
+                request.targets.push_back (GraphUtf8 (target));
         }
         GS::UniString mode;
-        if (params.Get ("mode", mode) && Utf8 (mode) == "forced")
+        if (params.Get ("mode", mode) && GraphUtf8 (mode) == "forced")
             request.mode = graph::EvaluationMode::Forced;
         // Absent means refused. A client has to ask for side effects in so many
         // words; nothing infers them from context.
         bool allowSideEffects = false;
         if (params.Get ("allowSideEffects", allowSideEffects))
             request.allowSideEffects = allowSideEffects;
+        // 0 keeps the runtime's own choice. Present so a client can run the same
+        // graph sequentially and in parallel and compare, which is how ADR-007's
+        // gate is answered rather than asserted.
+        GS::Int64 maxParallel = 0;
+        if (params.Get ("maxParallel", maxParallel) && maxParallel > 0)
+            request.maxParallel = static_cast<size_t> (maxParallel);
 
         const graph::EvaluationSummary summary =
-            graph::GraphRuntimeState::Get ().Evaluate (ReadGraphId (params), request);
+            graph::GraphRuntimeState::Get ().Evaluate (ReadGraphIdParam (params), request);
 
         // A failed graph is a REPORTED outcome, not a failed command. The
         // difference matters: a client has to be able to render which node
         // failed and why, and a command failure carries only a string.
         GS::Array<GS::UniString> cyclicNodes;
         for (const graph::NodeId& nodeId : summary.cyclicNodes)
-            cyclicNodes.Push (Text (nodeId));
+            cyclicNodes.Push (GraphText (nodeId));
         GS::ObjectState response;
-        response.Add ("graphId", Text (summary.graphId));
+        response.Add ("graphId", GraphText (summary.graphId));
         response.Add ("runId", static_cast<GS::Int64> (summary.runId));
         response.Add ("lastEventSeq", static_cast<GS::Int64> (summary.lastEventSeq));
         response.Add ("revision", static_cast<GS::Int64> (summary.revision));
         response.Add ("succeeded", summary.succeeded);
         response.Add ("cancelled", summary.cancelled);
-        response.Add ("error", Text (summary.error));
-        response.Add ("failedNode", Text (summary.failedNode));
+        response.Add ("error", GraphText (summary.error));
+        response.Add ("failedNode", GraphText (summary.failedNode));
         response.Add ("cyclicNodes", cyclicNodes);
         response.Add ("plannedCount", static_cast<GS::Int64> (summary.plannedCount));
         response.Add ("executedCount", static_cast<GS::Int64> (summary.executedCount));
@@ -547,8 +504,30 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         response.Add ("effectsCommitted", summary.effectsCommitted);
         GS::Array<GS::UniString> skipped;
         for (const graph::NodeId& nodeId : summary.skippedEffectNodes)
-            skipped.Push (Text (nodeId));
+            skipped.Push (GraphText (nodeId));
         response.Add ("skippedEffectNodes", skipped);
+
+        GS::Array<GS::ObjectState> levels;
+        for (const graph::LevelMetrics& level : summary.parallelism.levels) {
+            GS::ObjectState record;
+            record.Add ("levelIndex", static_cast<GS::Int64> (level.levelIndex));
+            record.Add ("executedCount", static_cast<GS::Int64> (level.executedCount));
+            record.Add ("workerNodeCount", static_cast<GS::Int64> (level.workerNodeCount));
+            record.Add ("hostNodeCount", static_cast<GS::Int64> (level.hostNodeCount));
+            record.Add ("peakConcurrency", static_cast<GS::Int64> (level.peakConcurrency));
+            record.Add ("wallClockMs", level.wallClockMs);
+            record.Add ("workMs", level.workMs);
+            levels.Push (record);
+        }
+        GS::ObjectState parallelism;
+        parallelism.Add ("workerThreads", static_cast<GS::Int64> (summary.parallelism.workerThreads));
+        parallelism.Add ("maxParallel", static_cast<GS::Int64> (summary.parallelism.maxParallel));
+        parallelism.Add ("peakConcurrency", static_cast<GS::Int64> (summary.parallelism.peakConcurrency));
+        parallelism.Add ("wallClockMs", summary.parallelism.wallClockMs);
+        parallelism.Add ("workMs", summary.parallelism.workMs);
+        parallelism.Add ("speedup", summary.parallelism.Speedup ());
+        parallelism.Add ("levels", levels);
+        response.Add ("parallelism", parallelism);
         return response;
     }
 };
@@ -557,9 +536,9 @@ class GraphCancelCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphId graphId = ReadGraphIdParam (params);
         GS::ObjectState response;
-        response.Add ("graphId", Text (graphId));
+        response.Add ("graphId", GraphText (graphId));
         response.Add ("cancelledRunId", static_cast<GS::Int64> (graph::GraphRuntimeState::Get ().Cancel (graphId)));
         return response;
     }
@@ -569,15 +548,15 @@ class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results (ReadGraphId (params));
+        const graph::ResultsSnapshot snapshot = graph::GraphRuntimeState::Get ().Results (ReadGraphIdParam (params));
         GS::Array<GS::ObjectState> results;
         for (const graph::RuntimeNodeResult& nodeResult : snapshot.nodes) {
             const graph::NodeStatus& status = nodeResult.status;
             const std::shared_ptr<const graph::NodeResult>& result = nodeResult.result;
             GS::ObjectState record;
-            record.Add ("nodeId", Text (nodeResult.nodeId));
+            record.Add ("nodeId", GraphText (nodeResult.nodeId));
             record.Add ("status", StatusName (status.state));
-            record.Add ("message", Text (status.message));
+            record.Add ("message", GraphText (status.message));
             record.Add ("durationMilliseconds", status.durationMilliseconds);
             record.Add ("itemCount", static_cast<GS::Int64> (status.itemCount));
             record.Add ("cacheHit", status.cacheHit);
@@ -588,13 +567,13 @@ class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
             if (result) {
                 for (const auto& [portId, value] : result->outputs) {
                     GS::ObjectState output;
-                    output.Add ("portId", Text (portId));
+                    output.Add ("portId", GraphText (portId));
                     output.Add ("value", EncodeValue (value, true));
                     // The same renderer the Panel node uses, on EVERY output, so
                     // a client can show what a node produced without the user
                     // having to wire an inspector to it first.
-                    output.Add ("text", Text (graph::FormatValue (value)));
-                    output.Add ("summary", Text (graph::DescribeValue (value)));
+                    output.Add ("text", GraphText (graph::FormatValue (value)));
+                    output.Add ("summary", GraphText (graph::DescribeValue (value)));
                     outputs.Push (std::move (output));
                 }
             }
@@ -602,7 +581,7 @@ class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
             results.Push (std::move (record));
         }
         GS::ObjectState response;
-        response.Add ("graphId", Text (snapshot.graphId));
+        response.Add ("graphId", GraphText (snapshot.graphId));
         response.Add ("revision", static_cast<GS::Int64> (snapshot.revision));
         response.Add ("lastRunId", static_cast<GS::Int64> (snapshot.lastRunId));
         response.Add ("lastEventSeq", static_cast<GS::Int64> (snapshot.lastEventSeq));
@@ -618,7 +597,7 @@ class GraphGetEventsCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphId graphId = ReadGraphIdParam (params);
         GS::Int64 sinceSeq = 0;
         GS::Int64 maxEvents = 512;
         params.Get ("sinceSeq", sinceSeq);
@@ -635,9 +614,9 @@ class GraphGetEventsCommand : public GateFreeGraphCommand {
             record.Add ("kind", graph::RunEventKindName (event.kind));
             record.Add ("runId", static_cast<GS::Int64> (event.runId));
             record.Add ("graphRevision", static_cast<GS::Int64> (event.graphRevision));
-            record.Add ("nodeId", Text (event.nodeId));
+            record.Add ("nodeId", GraphText (event.nodeId));
             record.Add ("timestampMs", static_cast<GS::Int64> (event.timestampMs));
-            record.Add ("message", Text (event.message));
+            record.Add ("message", GraphText (event.message));
             record.Add ("durationMilliseconds", event.durationMilliseconds);
             record.Add ("itemCount", static_cast<GS::Int64> (event.itemCount));
             record.Add ("plannedCount", static_cast<GS::Int64> (event.plannedCount));
@@ -649,7 +628,7 @@ class GraphGetEventsCommand : public GateFreeGraphCommand {
         }
 
         GS::ObjectState response;
-        response.Add ("graphId", Text (graphId));
+        response.Add ("graphId", GraphText (graphId));
         response.Add ("lastSeq", static_cast<GS::Int64> (tail.lastSeq));
         // Reported, never hidden: a client whose sequence fell off the ring must
         // re-snapshot rather than stitch an incomplete tail onto stale state.
@@ -663,7 +642,7 @@ class GraphGetRunHistoryCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphId graphId = ReadGraphIdParam (params);
         GS::Int64 maxRuns = 16;
         params.Get ("maxRuns", maxRuns);
 
@@ -678,8 +657,8 @@ class GraphGetRunHistoryCommand : public GateFreeGraphCommand {
             run.Add ("finished", record.finished);
             run.Add ("succeeded", record.succeeded);
             run.Add ("cancelled", record.cancelled);
-            run.Add ("error", Text (record.error));
-            run.Add ("failedNode", Text (record.failedNode));
+            run.Add ("error", GraphText (record.error));
+            run.Add ("failedNode", GraphText (record.failedNode));
             run.Add ("plannedCount", static_cast<GS::Int64> (record.plannedCount));
             run.Add ("executedCount", static_cast<GS::Int64> (record.executedCount));
             run.Add ("cacheHitCount", static_cast<GS::Int64> (record.cacheHitCount));
@@ -688,9 +667,9 @@ class GraphGetRunHistoryCommand : public GateFreeGraphCommand {
             GS::Array<GS::ObjectState> nodes;
             for (const graph::NodeRunRecord& node : record.nodes) {
                 GS::ObjectState entry;
-                entry.Add ("nodeId", Text (node.nodeId));
+                entry.Add ("nodeId", GraphText (node.nodeId));
                 entry.Add ("status", StatusName (node.finalState));
-                entry.Add ("message", Text (node.message));
+                entry.Add ("message", GraphText (node.message));
                 entry.Add ("durationMilliseconds", node.durationMilliseconds);
                 entry.Add ("itemCount", static_cast<GS::Int64> (node.itemCount));
                 entry.Add ("cacheHit", node.cacheHit);
@@ -701,7 +680,7 @@ class GraphGetRunHistoryCommand : public GateFreeGraphCommand {
         }
 
         GS::ObjectState response;
-        response.Add ("graphId", Text (graphId));
+        response.Add ("graphId", GraphText (graphId));
         response.Add ("runs", runs);
         return response;
     }
@@ -713,9 +692,9 @@ GS::Array<GS::ObjectState> FindingStates (const std::vector<graph::GraphFinding>
     for (const graph::GraphFinding& finding : findings) {
         GS::ObjectState state;
         state.Add ("severity", graph::FindingSeverityName (finding.severity));
-        state.Add ("nodeId", Text (finding.nodeId));
-        state.Add ("kind", Text (finding.kind));
-        state.Add ("detail", Text (finding.detail));
+        state.Add ("nodeId", GraphText (finding.nodeId));
+        state.Add ("kind", GraphText (finding.kind));
+        state.Add ("detail", GraphText (finding.detail));
         states.Push (std::move (state));
     }
     return states;
@@ -728,10 +707,10 @@ class GraphGetDependenciesCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphId graphId = ReadGraphIdParam (params);
         const graph::GraphDependencyReport report = graph::GraphRuntimeState::Get ().Dependencies (graphId);
         GS::ObjectState response;
-        response.Add ("graphId", Text (graphId));
+        response.Add ("graphId", GraphText (graphId));
         response.Add ("canEvaluate", report.canEvaluate);
         response.Add ("resolvedReferences", static_cast<GS::Int64> (report.resolvedReferences));
         response.Add ("unresolvedReferences", static_cast<GS::Int64> (report.unresolvedReferences));
@@ -749,7 +728,7 @@ class GraphGetCompatibilityCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::GraphId graphId = ReadGraphId (params);
+        const graph::GraphId graphId = ReadGraphIdParam (params);
         GS::Int64 formatVersion = 0;
         params.Get ("formatVersion", formatVersion);
 
@@ -758,10 +737,10 @@ class GraphGetCompatibilityCommand : public GateFreeGraphCommand {
 
         GS::Array<GS::UniString> missing;
         for (const std::string& nodeType : report.missingNodeTypes)
-            missing.Push (Text (nodeType));
+            missing.Push (GraphText (nodeType));
 
         GS::ObjectState response;
-        response.Add ("graphId", Text (graphId));
+        response.Add ("graphId", GraphText (graphId));
         response.Add ("status", graph::CompatibilityStatusName (report.status));
         response.Add ("runtimeFormatVersion", static_cast<GS::Int64> (graph::kGraphFormatVersion));
         response.Add ("missingNodeTypes", missing);
@@ -769,6 +748,7 @@ class GraphGetCompatibilityCommand : public GateFreeGraphCommand {
         return response;
     }
 };
+
 
 const NativeCommandRegistration registrations[] = {
     { "GraphGetNodeTypes", &MakeRegisteredNativeCommand<GraphGetNodeTypesCommand>, false, kGraphInputSchema,

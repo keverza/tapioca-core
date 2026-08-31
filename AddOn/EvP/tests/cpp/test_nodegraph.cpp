@@ -13,11 +13,23 @@
 #include "NodeGraph/GraphEdit.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
+#include "NodeGraph/GraphSerializer.hpp"
+#include "NodeGraph/GraphStore.hpp"
+#include "NodeGraph/Json.hpp"
+#include "NodeGraph/WorkerPool.hpp"
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <filesystem>
+#include <fstream>
 #include <map>
+#include <mutex>
+#include <memory>
+#include <thread>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -1391,4 +1403,974 @@ TEST (NodeGraphPanel, ATypedInputStillRejectsTheWrongType)
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("num", "value", "watch", "value") } });
     EXPECT_FALSE (rejected.accepted);
     EXPECT_NE (std::string::npos, rejected.error.find ("type mismatch"));
+}
+
+// ---------------------------------------------------------------------------
+// Stage D - domains and parallelism.
+//
+// ADR-007's gate is that pure nodes DEMONSTRABLY execute concurrently, so these
+// MEASURE overlap rather than assert that a pool exists. The measurement is peak
+// observed concurrency, counted by the node bodies themselves: a wall-clock
+// ratio on a loaded build machine is a flaky test, and a rendezvous that cannot
+// complete unless N bodies are genuinely inside at once is not.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// How many bodies can be inside a level at once on THIS machine. The pool is
+// sized from hardware concurrency, so a test that hard-codes four passes on a
+// developer's desktop and hangs on a two-core build agent.
+size_t AvailableConcurrency ()
+{
+    return SharedWorkerPool ().ThreadCount () + 1;
+}
+
+// Blocks each body until `expected` of them have arrived, which is what proves
+// overlap without sleeping for a fixed time.
+class Rendezvous {
+  public:
+    void Expect (size_t expected)
+    {
+        const std::lock_guard<std::mutex> lock (mutex_);
+        expected_ = expected;
+        peak_ = 0;
+        inside_ = 0;
+        arrivals_ = 0;
+    }
+
+    void Enter ()
+    {
+        std::unique_lock<std::mutex> lock (mutex_);
+        ++inside_;
+        // `arrivals_` is monotonic and `inside_` is not, and the wait must use
+        // the monotonic one: the last body to arrive decrements `inside_` on its
+        // way out, so a predicate reading it would go false again under the
+        // bodies still waiting and cost every one of them the full timeout.
+        ++arrivals_;
+        peak_ = std::max (peak_, inside_);
+        if (arrivals_ >= expected_) {
+            arrived_.notify_all ();
+        }
+        else {
+            // Bounded, so a run that CANNOT reach the count fails an assertion
+            // rather than hanging the whole suite.
+            arrived_.wait_for (lock, std::chrono::seconds (2), [this] () { return arrivals_ >= expected_; });
+        }
+        --inside_;
+    }
+
+    size_t Peak () const
+    {
+        const std::lock_guard<std::mutex> lock (mutex_);
+        return peak_;
+    }
+
+  private:
+    mutable std::mutex mutex_;
+    std::condition_variable arrived_;
+    size_t inside_ = 0;
+    size_t arrivals_ = 0;
+    size_t peak_ = 0;
+    size_t expected_ = 1;
+};
+
+Rendezvous& SharedRendezvous ()
+{
+    static Rendezvous rendezvous;
+    return rendezvous;
+}
+
+NodeRegistry MakeParallelRegistry ()
+{
+    NodeRegistry registry;
+    std::string error;
+
+    NodeType slow;
+    slow.id = "slow";
+    slow.label = "Slow";
+    slow.executionDomain = ExecutionDomain::Worker;
+    slow.outputs.push_back ({ "value", "Value", ValueType::Integer });
+    EXPECT_TRUE (registry.Register (std::move (slow), error)) << error;
+
+    return registry;
+}
+
+bool ExecuteSlowNode (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs, std::string&)
+{
+    SharedRendezvous ().Enter ();
+    outputs.emplace ("value", Value (int64_t { 1 }));
+    return true;
+}
+
+// The number/add registry's bodies, as a named executor several Stage D tests
+// share.
+bool ExecuteNumberAddNode (const Node& node, const ValueMap& inputs, const NodeExecutionContext&, ValueMap& outputs,
+                           std::string&)
+{
+    if (node.nodeType == "number")
+        outputs.emplace ("value", node.parameters.at ("value"));
+    else
+        outputs.emplace ("sum", Value (Integer (inputs.at ("left")) + Integer (inputs.at ("right"))));
+    return true;
+}
+
+GraphDocument MakeIndependentSlowNodes (const NodeRegistry& registry, size_t count)
+{
+    GraphDocument graph;
+    for (size_t i = 0; i < count; ++i) {
+        const std::string id (1, static_cast<char> ('a' + static_cast<int> (i)));
+        EXPECT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { id, "slow" } } }).accepted);
+    }
+    return graph;
+}
+
+} // namespace
+
+TEST (NodeGraphWorkerPool, RunsEveryTaskExactlyOnceAndHonoursTheCap)
+{
+    for (const size_t cap : { size_t { 1 }, size_t { 2 }, size_t { 4 } }) {
+        WorkerPool pool (3);
+        std::vector<std::atomic<int>> visits (32);
+        std::atomic<size_t> inFlight { 0 };
+        std::atomic<size_t> peak { 0 };
+
+        pool.RunBatch (visits.size (), cap, [&] (size_t index) {
+            const size_t now = inFlight.fetch_add (1) + 1;
+            size_t seen = peak.load ();
+            while (now > seen && !peak.compare_exchange_weak (seen, now)) {
+            }
+            visits[index].fetch_add (1);
+            std::this_thread::sleep_for (std::chrono::milliseconds (1));
+            inFlight.fetch_sub (1);
+        });
+
+        for (const std::atomic<int>& visited : visits)
+            EXPECT_EQ (1, visited.load ());
+        EXPECT_LE (peak.load (), cap) << "cap " << cap << " was exceeded";
+    }
+}
+
+TEST (NodeGraphWorkerPool, ContainsAThrowingTaskRatherThanStrandingTheBatch)
+{
+    WorkerPool pool (2);
+    std::atomic<int> completed { 0 };
+    pool.RunBatch (8, 3, [&] (size_t index) {
+        if (index % 2 == 0)
+            throw std::runtime_error ("task failed");
+        completed.fetch_add (1);
+    });
+    EXPECT_EQ (4, completed.load ());
+}
+
+TEST (NodeGraphWorkerPool, ZeroThreadsRunsTheBatchOnTheSubmitter)
+{
+    WorkerPool pool (0);
+    const std::thread::id submitter = std::this_thread::get_id ();
+    std::atomic<int> ran { 0 };
+    pool.RunBatch (5, 0, [&] (size_t) {
+        EXPECT_EQ (submitter, std::this_thread::get_id ());
+        ran.fetch_add (1);
+    });
+    EXPECT_EQ (5, ran.load ());
+}
+
+TEST (NodeGraphParallelism, IndependentPureNodesRunConcurrently)
+{
+    const size_t width = AvailableConcurrency ();
+    if (width < 2)
+        GTEST_SKIP () << "this machine offers no concurrency to measure";
+
+    const NodeRegistry registry = MakeParallelRegistry ();
+    // Nodes with no edge between them: one topological level, `width` ways.
+    const GraphDocument graph = MakeIndependentSlowNodes (registry, width);
+    SharedRendezvous ().Expect (width);
+
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 1;
+    EvaluationRequest request;
+    request.maxParallel = width;
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, ExecuteSlowNode, request, context);
+
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (width, outcome.executedCount);
+    // The gate itself: every body was inside at one instant, which cannot happen
+    // unless they genuinely ran at the same time.
+    EXPECT_EQ (width, outcome.parallelism.peakConcurrency);
+    EXPECT_EQ (width, SharedRendezvous ().Peak ());
+    ASSERT_EQ (1U, outcome.parallelism.levels.size ());
+    EXPECT_EQ (width, outcome.parallelism.levels.front ().workerNodeCount);
+    EXPECT_EQ (0U, outcome.parallelism.levels.front ().hostNodeCount);
+    // Work exceeds wall clock exactly to the extent the level overlapped.
+    EXPECT_GT (outcome.parallelism.Speedup (), 1.0);
+}
+
+TEST (NodeGraphParallelism, MaxParallelOneIsTheSequentialArm)
+{
+    const NodeRegistry registry = MakeParallelRegistry ();
+    const GraphDocument graph = MakeIndependentSlowNodes (registry, 4);
+    // Nothing waits for anybody: at maxParallel 1 a rendezvous of four could
+    // never complete, and the point of the arm is that the run still does.
+    SharedRendezvous ().Expect (1);
+
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 1;
+    EvaluationRequest request;
+    request.maxParallel = 1;
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, ExecuteSlowNode, request, context);
+
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (4U, outcome.executedCount);
+    EXPECT_EQ (1U, outcome.parallelism.peakConcurrency);
+    EXPECT_EQ (1U, outcome.parallelism.maxParallel);
+}
+
+TEST (NodeGraphParallelism, ADependencyChainHasNoLevelToParallelise)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 2).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("a", "value", "sum", "left") } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteNumberAddNode);
+
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    // Two levels: the two numbers, then the add that consumes them. The second
+    // has one member, so there is nothing in it to overlap - which is a property
+    // of the graph and not a defect in the pool.
+    ASSERT_EQ (2U, outcome.parallelism.levels.size ());
+    EXPECT_EQ (2U, outcome.parallelism.levels[0].executedCount);
+    EXPECT_EQ (1U, outcome.parallelism.levels[1].executedCount);
+    EXPECT_EQ (3U, outcome.executedCount);
+    EXPECT_EQ (3, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+}
+
+TEST (NodeGraphParallelism, PublicationOrderFollowsTheLevelNotTheScheduler)
+{
+    const size_t width = AvailableConcurrency ();
+    if (width < 2)
+        GTEST_SKIP () << "this machine offers no concurrency to measure";
+
+    const NodeRegistry registry = MakeParallelRegistry ();
+    const GraphDocument graph = MakeIndependentSlowNodes (registry, width);
+    SharedRendezvous ().Expect (width);
+
+    RunEventLog log;
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 1;
+    context.events = [&log] (RunEvent&& event) { log.Append (std::move (event)); };
+    EvaluationRequest request;
+    request.maxParallel = width;
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, ExecuteSlowNode, request, context);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    // Whatever order the bodies finished in, completions are published in level
+    // order - otherwise the stream is a different document on every run and no
+    // client can hold a snapshot against it.
+    std::vector<NodeId> completed;
+    for (const RunEvent& event : log.Since (kNoEvent, 1000).events) {
+        if (event.kind == RunEventKind::NodeCompleted)
+            completed.push_back (event.nodeId);
+    }
+    std::vector<NodeId> expected;
+    for (size_t i = 0; i < width; ++i)
+        expected.push_back (std::string (1, static_cast<char> ('a' + static_cast<int> (i))));
+    EXPECT_EQ (expected, completed);
+}
+
+TEST (NodeGraphParallelism, AFaultInAPooledNodeFailsThatNodeOnly)
+{
+    NodeRegistry registry = MakeParallelRegistry ();
+    std::string error;
+    NodeType faulting;
+    faulting.id = "faulting";
+    faulting.label = "Faulting";
+    faulting.outputs.push_back ({ "value", "Value", ValueType::Integer });
+    ASSERT_TRUE (registry.Register (std::move (faulting), error)) << error;
+
+    GraphDocument graph = MakeIndependentSlowNodes (registry, 2);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "boom", "faulting" } } }).accepted);
+    SharedRendezvous ().Expect (1);
+
+    const NodeExecutor executor = [] (const Node& node, const ValueMap& inputs,
+                                      const NodeExecutionContext& execution, ValueMap& outputs,
+                                      std::string& nodeError) {
+        if (node.nodeType == "faulting")
+            throw std::runtime_error ("the node threw on a pool thread");
+        return ExecuteSlowNode (node, inputs, execution, outputs, nodeError);
+    };
+
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 1;
+    EvaluationRequest request;
+    request.maxParallel = 3;
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, executor, request, context);
+
+    EXPECT_FALSE (outcome.succeeded);
+    EXPECT_EQ (1U, outcome.failedCount);
+    EXPECT_EQ ("boom", outcome.failedNode);
+    // The independent siblings still completed: a fault contained on a pool
+    // thread must not take the rest of its level with it.
+    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("a").state);
+    EXPECT_EQ (NodeExecutionState::Complete, evaluator.Status ("b").state);
+}
+
+TEST (NodeGraphParallelism, WorkerDomainNodesAreNeverGivenTheHost)
+{
+    NodeRegistry registry;
+    std::string error;
+    NodeType probe;
+    probe.id = "probe";
+    probe.label = "Probe";
+    probe.executionDomain = ExecutionDomain::Worker;
+    probe.outputs.push_back ({ "value", "Value", ValueType::Integer });
+    ASSERT_TRUE (registry.Register (std::move (probe), error)) << error;
+
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "p", "probe" } } }).accepted);
+
+    StubHost host;
+    bool sawHost = true;
+    bool sawResolver = false;
+    const NodeExecutor executor = [&] (const Node&, const ValueMap&, const NodeExecutionContext& execution,
+                                       ValueMap& outputs, std::string&) {
+        sawHost = execution.archicad != nullptr;
+        // A worker-domain node still gets A resolver - the one that answers
+        // Missing with a reason - rather than a null pointer it would have to
+        // check for.
+        sawResolver = execution.references != nullptr;
+        outputs.emplace ("value", Value (int64_t { 1 }));
+        return true;
+    };
+
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 1;
+    context.archicad = &host;
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, executor, EvaluationRequest {}, context);
+
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    // The structural half of "no worker thread calls ACAPI": the pointer is not
+    // there to be called.
+    EXPECT_FALSE (sawHost);
+    EXPECT_TRUE (sawResolver);
+}
+
+TEST (NodeGraphParallelism, ArchicadNodesRunOnTheCoordinatorAndAreCountedSeparately)
+{
+    NodeRegistry registry = MakeParallelRegistry ();
+    RegisterArchicadNodes (registry);
+
+    GraphDocument graph = MakeIndependentSlowNodes (registry, 2);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+    SharedRendezvous ().Expect (1);
+
+    StubHost host;
+    host.Holds ({ "guid-1" });
+
+    const std::thread::id coordinator = std::this_thread::get_id ();
+    std::thread::id hostNodeThread;
+    const NodeExecutor executor = [&] (const Node& node, const ValueMap& inputs,
+                                       const NodeExecutionContext& execution, ValueMap& outputs,
+                                       std::string& nodeError) {
+        if (IsArchicadNodeType (node.nodeType)) {
+            hostNodeThread = std::this_thread::get_id ();
+            return ExecuteArchicadNode (node, inputs, execution, outputs, nodeError);
+        }
+        return ExecuteSlowNode (node, inputs, execution, outputs, nodeError);
+    };
+
+    Evaluator evaluator;
+    RunContext context;
+    context.runId = 1;
+    context.archicad = &host;
+    EvaluationRequest request;
+    request.maxParallel = 3;
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, executor, request, context);
+
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    // On the coordinator, so MainThreadGate::Invoke keeps its inline path when
+    // the coordinator is Archicad's own thread.
+    EXPECT_EQ (coordinator, hostNodeThread);
+    ASSERT_EQ (1U, outcome.parallelism.levels.size ());
+    EXPECT_EQ (2U, outcome.parallelism.levels.front ().workerNodeCount);
+    EXPECT_EQ (1U, outcome.parallelism.levels.front ().hostNodeCount);
+}
+
+// ---------------------------------------------------------------------------
+// Stage E1 - persistence.
+//
+// The format is DevKit-free on purpose, so these run offline: a workflow library
+// that outlives the project it was authored in is exactly the thing that must be
+// testable without a host.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A registry with one node type per persistable value kind, so a round trip test
+// covers the vocabulary rather than the two types the other tests happen to use.
+NodeRegistry MakeStorageRegistry ()
+{
+    NodeRegistry registry = MakeRegistry ();
+    std::string error;
+
+    NodeType parameters;
+    parameters.id = "parameters";
+    parameters.label = "Parameters";
+    parameters.outputs.push_back ({ "out", "Out", ValueType::Integer });
+    parameters.parameters.push_back ({ "flag", "Flag", ValueType::Bool });
+    parameters.parameters.push_back ({ "count", "Count", ValueType::Integer });
+    parameters.parameters.push_back ({ "ratio", "Ratio", ValueType::Double });
+    parameters.parameters.push_back ({ "label", "Label", ValueType::String });
+    parameters.parameters.push_back ({ "origin", "Origin", ValueType::Point3 });
+    parameters.parameters.push_back ({ "path", "Path", ValueType::Polyline });
+    parameters.parameters.push_back ({ "outline", "Outline", ValueType::Polygon });
+    parameters.parameters.push_back ({ "element", "Element", ValueType::ArchicadElementRef });
+    parameters.parameters.push_back ({ "items", "Items", ValueType::List });
+    EXPECT_TRUE (registry.Register (std::move (parameters), error)) << error;
+
+    return registry;
+}
+
+} // namespace
+
+TEST (NodeGraphJson, RoundTripsEveryScalarKindAndPreservesIntegerness)
+{
+    using namespace evp::nodegraph::json;
+
+    JsonObject root;
+    root.emplace ("flag", JsonValue::Bool (true));
+    root.emplace ("count", JsonValue::Integer (-42));
+    root.emplace ("ratio", JsonValue::Double (0.1));
+    root.emplace ("text", JsonValue::String ("a \"quoted\" line\nand a tab\t."));
+    root.emplace ("nothing", JsonValue {});
+    root.emplace ("items", JsonValue::Array (JsonArray { JsonValue::Integer (1), JsonValue::Integer (2) }));
+
+    const std::string text = Write (JsonValue::Object (std::move (root)));
+    const ParseResult parsed = Parse (text);
+    ASSERT_TRUE (parsed.ok) << parsed.error;
+
+    bool flag = false;
+    EXPECT_TRUE (parsed.value.Find ("flag")->AsBool (flag));
+    EXPECT_TRUE (flag);
+
+    int64_t count = 0;
+    EXPECT_TRUE (parsed.value.Find ("count")->AsInteger (count));
+    EXPECT_EQ (-42, count);
+    EXPECT_TRUE (parsed.value.Find ("count")->IsIntegral ());
+
+    double ratio = 0.0;
+    EXPECT_TRUE (parsed.value.Find ("ratio")->AsDouble (ratio));
+    // 17 significant digits, so a stored parameter reloads to the same double
+    // rather than to one that computes a slightly different model.
+    EXPECT_DOUBLE_EQ (0.1, ratio);
+    EXPECT_FALSE (parsed.value.Find ("ratio")->IsIntegral ());
+
+    std::string decoded;
+    EXPECT_TRUE (parsed.value.Find ("text")->AsString (decoded));
+    EXPECT_EQ ("a \"quoted\" line\nand a tab\t.", decoded);
+
+    EXPECT_TRUE (parsed.value.Find ("nothing")->IsNull ());
+    ASSERT_NE (nullptr, parsed.value.Find ("items")->AsArray ());
+    EXPECT_EQ (2U, parsed.value.Find ("items")->AsArray ()->size ());
+}
+
+TEST (NodeGraphJson, RejectsMalformedDocumentsWithAReason)
+{
+    using namespace evp::nodegraph::json;
+
+    for (const char* bad : { "{", "{\"a\":}", "[1,]", "{\"a\":1}trailing", "\"unterminated", "{\"a\":1,\"a\":2}" })
+        EXPECT_FALSE (Parse (bad).ok) << "accepted: " << bad;
+
+    const ParseResult repeated = Parse ("{\"a\":1,\"a\":2}");
+    EXPECT_NE (std::string::npos, repeated.error.find ("repeated"));
+}
+
+TEST (NodeGraphJson, RefusesToRecurseIntoADeeplyNestedDocument)
+{
+    using namespace evp::nodegraph::json;
+
+    std::string deep;
+    for (int i = 0; i < 500; ++i)
+        deep += '[';
+    for (int i = 0; i < 500; ++i)
+        deep += ']';
+
+    // Bounded rather than recursed into: a corrupt file must not be able to
+    // overflow the stack inside Archicad's process.
+    const ParseResult parsed = Parse (deep);
+    EXPECT_FALSE (parsed.ok);
+    EXPECT_NE (std::string::npos, parsed.error.find ("deeply"));
+}
+
+TEST (NodeGraphPersistence, RoundTripsAGraphThroughTextUnchanged)
+{
+    const NodeRegistry registry = MakeStorageRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 7).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 5).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("a", "value", "sum", "left") } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
+
+    GraphMetadata metadata;
+    metadata.label = "Sum two numbers";
+    metadata.description = "the smallest graph that does anything";
+    metadata.nodeLayout["a"] = { { "x", "10" }, { "y", "20" } };
+
+    const SerializeResult written = SerializeGraph (graph, metadata);
+    ASSERT_TRUE (written.ok) << written.error;
+
+    const DeserializeResult read = DeserializeGraph (written.text, registry);
+    ASSERT_TRUE (read.ok) << read.error;
+
+    EXPECT_EQ (graph.Nodes ().size (), read.graph.document.Nodes ().size ());
+    EXPECT_EQ (graph.Edges ().size (), read.graph.document.Edges ().size ());
+    EXPECT_EQ ("Sum two numbers", read.graph.metadata.label);
+    EXPECT_EQ ("20", read.graph.metadata.nodeLayout.at ("a").at ("y"));
+    EXPECT_EQ (7, Integer (read.graph.document.FindNode ("a")->parameters.at ("value")));
+
+    // Writing what was read produces the same text: the format has no member
+    // whose meaning depends on having been written by this process.
+    const SerializeResult rewritten = SerializeGraph (read.graph.document, read.graph.metadata);
+    ASSERT_TRUE (rewritten.ok) << rewritten.error;
+    EXPECT_EQ (written.text, rewritten.text);
+
+    // The reloaded graph still evaluates to the same answer, which is the only
+    // property a user actually cares about.
+    Evaluator evaluator;
+    const EvaluationOutcome outcome =
+        RunGraph (evaluator, read.graph.document, registry, ExecuteNumberAddNode);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (12, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+}
+
+TEST (NodeGraphPersistence, RoundTripsEveryPersistableValueKind)
+{
+    const NodeRegistry registry = MakeStorageRegistry ();
+    GraphDocument graph;
+    Node node { "p", "parameters" };
+    node.parameters.emplace ("flag", Value (true));
+    node.parameters.emplace ("count", Value (int64_t { -9 }));
+    node.parameters.emplace ("ratio", Value (2.5));
+    node.parameters.emplace ("label", Value (std::string ("wall thickness")));
+    node.parameters.emplace ("origin", Value (Point3 { 1.0, 2.0, 3.0 }));
+    node.parameters.emplace ("path", Value (Polyline { { Point3 { 0, 0, 0 }, Point3 { 1, 1, 1 } } }));
+    node.parameters.emplace ("outline", Value (Polygon { { Point3 { 0, 0, 0 }, Point3 { 1, 0, 0 } } }));
+    node.parameters.emplace ("element", Value (ArchicadElementRef { "guid-1" }));
+    node.parameters.emplace ("items", Value (Value::List { Value (int64_t { 1 }), Value (std::string ("two")) }));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    const SerializeResult written = SerializeGraph (graph, GraphMetadata {});
+    ASSERT_TRUE (written.ok) << written.error;
+    const DeserializeResult read = DeserializeGraph (written.text, registry);
+    ASSERT_TRUE (read.ok) << read.error;
+
+    const Node& reloaded = *read.graph.document.FindNode ("p");
+    EXPECT_EQ (ValueType::Bool, reloaded.parameters.at ("flag").Type ());
+    EXPECT_EQ (-9, Integer (reloaded.parameters.at ("count")));
+    EXPECT_DOUBLE_EQ (2.5, std::get<double> (reloaded.parameters.at ("ratio").DataValue ()));
+    EXPECT_EQ ("wall thickness", std::get<std::string> (reloaded.parameters.at ("label").DataValue ()));
+    EXPECT_DOUBLE_EQ (3.0, std::get<Point3> (reloaded.parameters.at ("origin").DataValue ()).z);
+    EXPECT_EQ (2U, std::get<Polyline> (reloaded.parameters.at ("path").DataValue ()).points.size ());
+    EXPECT_EQ ("guid-1", std::get<ArchicadElementRef> (reloaded.parameters.at ("element").DataValue ()).guid);
+    EXPECT_EQ (2U, std::get<Value::List> (reloaded.parameters.at ("items").DataValue ()).size ());
+
+    // Integer and Double stay distinct across the file. A format that rounded
+    // one into the other would change what the node computes.
+    EXPECT_EQ (ValueType::Integer, reloaded.parameters.at ("count").Type ());
+    EXPECT_EQ (ValueType::Double, reloaded.parameters.at ("ratio").Type ());
+}
+
+TEST (NodeGraphPersistence, RefusesToStoreAMeshAsAParameter)
+{
+    NodeRegistry registry;
+    std::string error;
+    NodeType holder;
+    holder.id = "holder";
+    holder.label = "Holder";
+    holder.outputs.push_back ({ "out", "Out", ValueType::Integer });
+    holder.parameters.push_back ({ "mesh", "Mesh", ValueType::Mesh });
+    ASSERT_TRUE (registry.Register (std::move (holder), error)) << error;
+
+    GraphDocument graph;
+    Node node { "m", "holder" };
+    node.parameters.emplace ("mesh", Value (std::make_shared<const geomsrv::Mesh> ()));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    // A mesh is a RESULT. Storing one inside the program that computes it would
+    // be a cache wearing a parameter's clothes.
+    const SerializeResult written = SerializeGraph (graph, GraphMetadata {});
+    EXPECT_FALSE (written.ok);
+    EXPECT_NE (std::string::npos, written.error.find ("mesh"));
+    EXPECT_NE (std::string::npos, written.error.find ("m"));
+}
+
+TEST (NodeGraphPersistence, RejectsAFileThatWouldProduceAnInvalidGraph)
+{
+    const NodeRegistry registry = MakeRegistry ();
+
+    const auto load = [&registry] (const std::string& text) { return DeserializeGraph (text, registry); };
+
+    EXPECT_NE (std::string::npos, load ("{}").error.find ("not a Tapioca node graph"));
+
+    EXPECT_NE (std::string::npos,
+               load (R"({"format":"tapioca-nodegraph","formatVersion":99,"nodes":[]})").error.find ("newer"));
+
+    // An unknown node type is caught by the same edit validation an interactive
+    // add goes through, so the message names the node.
+    const DeserializeResult unknown = load (
+        R"({"format":"tapioca-nodegraph","formatVersion":1,"nodes":[{"id":"x","nodeType":"nosuch"}],"edges":[]})");
+    EXPECT_FALSE (unknown.ok);
+    EXPECT_NE (std::string::npos, unknown.error.find ("x"));
+
+    // A dangling edge, likewise: never silently dropped.
+    const DeserializeResult dangling = load (
+        R"({"format":"tapioca-nodegraph","formatVersion":1,"nodes":[{"id":"a","nodeType":"number","parameters":{"value":{"valueType":"integer","value":1}}}],)"
+        R"("edges":[{"sourceNode":"a","sourcePort":"value","targetNode":"ghost","targetPort":"left"}]})");
+    EXPECT_FALSE (dangling.ok);
+    EXPECT_NE (std::string::npos, dangling.error.find ("ghost"));
+
+    // And a cycle, which the document must never be able to hold however it was
+    // constructed.
+    const DeserializeResult cyclic = load (
+        R"({"format":"tapioca-nodegraph","formatVersion":1,"nodes":[{"id":"s","nodeType":"add"}],)"
+        R"("edges":[{"sourceNode":"s","sourcePort":"sum","targetNode":"s","targetPort":"left"}]})");
+    EXPECT_FALSE (cyclic.ok);
+    EXPECT_NE (std::string::npos, cyclic.error.find ("cycle"));
+}
+
+TEST (NodeGraphStore, SavesLoadsListsAndDeletes)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 3).accepted);
+
+    GraphMetadata metadata;
+    metadata.label = "One number";
+
+    MemoryGraphStore store;
+    EXPECT_FALSE (store.Exists ("daylight"));
+    EXPECT_EQ (StoreStatus::NotFound, store.Delete ("daylight").status);
+
+    SerializedGraph loaded;
+    EXPECT_EQ (StoreStatus::NotFound, store.Load ("daylight", registry, loaded).status);
+
+    ASSERT_TRUE (store.Save ("daylight", graph, metadata).Ok ());
+    EXPECT_TRUE (store.Exists ("daylight"));
+
+    ASSERT_TRUE (store.Load ("daylight", registry, loaded).Ok ());
+    EXPECT_EQ (1U, loaded.document.Nodes ().size ());
+    EXPECT_EQ (3, Integer (loaded.document.FindNode ("a")->parameters.at ("value")));
+    EXPECT_EQ ("One number", loaded.metadata.label);
+
+    const std::vector<StoredGraphInfo> listing = store.List ();
+    ASSERT_EQ (1U, listing.size ());
+    EXPECT_EQ ("daylight", listing.front ().graphId);
+    EXPECT_EQ ("One number", listing.front ().label);
+    // A listing must not have to load every graph to say how big it is.
+    EXPECT_EQ (1U, listing.front ().nodeCount);
+
+    ASSERT_TRUE (store.Delete ("daylight").Ok ());
+    EXPECT_FALSE (store.Exists ("daylight"));
+    EXPECT_TRUE (store.List ().empty ());
+}
+
+TEST (NodeGraphStore, SavingTwiceReplacesRatherThanAccumulates)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    MemoryGraphStore store;
+
+    GraphDocument first;
+    ASSERT_TRUE (AddNode (first, registry, "a", "number", 1).accepted);
+    ASSERT_TRUE (store.Save ("w", first, GraphMetadata {}).Ok ());
+
+    GraphDocument second;
+    ASSERT_TRUE (AddNode (second, registry, "a", "number", 2).accepted);
+    ASSERT_TRUE (AddNode (second, registry, "b", "number", 3).accepted);
+    ASSERT_TRUE (store.Save ("w", second, GraphMetadata {}).Ok ());
+
+    SerializedGraph loaded;
+    ASSERT_TRUE (store.Load ("w", registry, loaded).Ok ());
+    EXPECT_EQ (2U, loaded.document.Nodes ().size ());
+    EXPECT_EQ (1U, store.List ().size ());
+}
+
+TEST (NodeGraphStore, RefusesAGraphNameNoBackendCouldHold)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+
+    MemoryGraphStore store;
+    // The rule is a file-backed backend's rule applied here too, so a name that
+    // saves to memory today cannot fail to save to the library tomorrow.
+    for (const char* bad : { "", "..", "../escape", "with/slash", "back\\slash", ".hidden", "a b" })
+        EXPECT_EQ (StoreStatus::InvalidId, store.Save (bad, graph, GraphMetadata {}).status) << "accepted: " << bad;
+
+    for (const char* good : { "daylight", "Massing_v2", "site.analysis", "a-b-c" })
+        EXPECT_TRUE (store.Save (good, graph, GraphMetadata {}).Ok ()) << "refused: " << good;
+}
+
+TEST (NodeGraphStore, AStoredGraphNamingAnUnknownNodeTypeFailsAtLoadNotAtRun)
+{
+    NodeRegistry writer = MakeRegistry ();
+    std::string error;
+    NodeType extra;
+    extra.id = "extra";
+    extra.label = "Extra";
+    extra.outputs.push_back ({ "value", "Value", ValueType::Integer });
+    ASSERT_TRUE (writer.Register (std::move (extra), error)) << error;
+
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, writer, GraphEdit { AddNodeEdit { Node { "e", "extra" } } }).accepted);
+
+    MemoryGraphStore store;
+    ASSERT_TRUE (store.Save ("w", graph, GraphMetadata {}).Ok ());
+
+    // A build without that node type refuses the load and names the node, rather
+    // than loading a graph that fails at its first evaluation.
+    const NodeRegistry reader = MakeRegistry ();
+    SerializedGraph loaded;
+    const StoreResult result = store.Load ("w", reader, loaded);
+    EXPECT_EQ (StoreStatus::Invalid, result.status);
+    EXPECT_NE (std::string::npos, result.error.find ("e"));
+}
+
+namespace {
+
+// A directory of its own per test, removed afterwards, so a failing test cannot
+// leave state that makes the next one pass or fail for the wrong reason.
+class TemporaryLibrary {
+  public:
+    TemporaryLibrary ()
+    {
+        static std::atomic<int> counter { 0 };
+        path_ = std::filesystem::temp_directory_path () /
+                ("tapioca-graphstore-" + std::to_string (counter.fetch_add (1)) + "-" +
+                 std::to_string (static_cast<long long> (
+                     std::chrono::steady_clock::now ().time_since_epoch ().count ())));
+    }
+
+    ~TemporaryLibrary ()
+    {
+        std::error_code code;
+        std::filesystem::remove_all (path_, code);
+    }
+
+    std::string Root () const
+    {
+        return path_.string ();
+    }
+
+    const std::filesystem::path& Path () const
+    {
+        return path_;
+    }
+
+  private:
+    std::filesystem::path path_;
+};
+
+} // namespace
+
+TEST (NodeGraphFileStore, SurvivesTheProcessThatWroteIt)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 4).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 6).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("a", "value", "sum", "left") } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
+
+    GraphMetadata metadata;
+    metadata.label = "Daylight";
+
+    const TemporaryLibrary library;
+    {
+        FileGraphStore store (library.Root ());
+        // The library directory does not exist yet: the first save creates it.
+        ASSERT_TRUE (store.Save ("daylight", graph, metadata).Ok ());
+    }
+
+    // A DIFFERENT store object over the same directory, which is what "restart
+    // Archicad and load it again" reduces to.
+    FileGraphStore reopened (library.Root ());
+    EXPECT_TRUE (reopened.Exists ("daylight"));
+
+    SerializedGraph loaded;
+    ASSERT_TRUE (reopened.Load ("daylight", registry, loaded).Ok ());
+    EXPECT_EQ (3U, loaded.document.Nodes ().size ());
+    EXPECT_EQ (2U, loaded.document.Edges ().size ());
+    EXPECT_EQ ("Daylight", loaded.metadata.label);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunGraph (evaluator, loaded.document, registry, ExecuteNumberAddNode);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (10, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+}
+
+TEST (NodeGraphFileStore, ListsSortedAndWithoutLoading)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "b", "number", 2).accepted);
+
+    const TemporaryLibrary library;
+    FileGraphStore store (library.Root ());
+
+    // An empty library lists nothing rather than failing: a user who has never
+    // saved a workflow should not be shown an error.
+    EXPECT_TRUE (store.List ().empty ());
+
+    GraphMetadata metadata;
+    metadata.label = "Zed";
+    ASSERT_TRUE (store.Save ("zed", graph, metadata).Ok ());
+    metadata.label = "Alpha";
+    ASSERT_TRUE (store.Save ("alpha", graph, metadata).Ok ());
+
+    // Anything that is not one of ours is ignored rather than listed.
+    { std::ofstream stray (library.Path () / "notes.txt"); stray << "hello"; }
+
+    const std::vector<StoredGraphInfo> listing = store.List ();
+    ASSERT_EQ (2U, listing.size ());
+    EXPECT_EQ ("alpha", listing[0].graphId);
+    EXPECT_EQ ("Alpha", listing[0].label);
+    EXPECT_EQ (2U, listing[0].nodeCount);
+    EXPECT_EQ ("zed", listing[1].graphId);
+}
+
+TEST (NodeGraphFileStore, ACorruptFileIsListedButRefusedOnLoad)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    const TemporaryLibrary library;
+    std::error_code code;
+    std::filesystem::create_directories (library.Path (), code);
+    {
+        std::ofstream broken (library.Path () / "broken.tapiocagraph.json");
+        broken << "{ this is not json";
+    }
+
+    FileGraphStore store (library.Root ());
+
+    // Listed by name, so the user can see it and repair or delete it. A library
+    // that hides a graph is worse than one that shows a graph needing repair.
+    const std::vector<StoredGraphInfo> listing = store.List ();
+    ASSERT_EQ (1U, listing.size ());
+    EXPECT_EQ ("broken", listing.front ().graphId);
+    EXPECT_EQ (0U, listing.front ().nodeCount);
+
+    SerializedGraph loaded;
+    const StoreResult result = store.Load ("broken", registry, loaded);
+    EXPECT_EQ (StoreStatus::Invalid, result.status);
+    EXPECT_NE (std::string::npos, result.error.find ("JSON"));
+}
+
+TEST (NodeGraphFileStore, AFailedSaveLeavesThePreviousGraphIntact)
+{
+    NodeRegistry registry = MakeRegistry ();
+    std::string error;
+    NodeType holder;
+    holder.id = "holder";
+    holder.label = "Holder";
+    holder.outputs.push_back ({ "out", "Out", ValueType::Integer });
+    holder.parameters.push_back ({ "mesh", "Mesh", ValueType::Mesh });
+    ASSERT_TRUE (registry.Register (std::move (holder), error)) << error;
+
+    GraphDocument good;
+    ASSERT_TRUE (AddNode (good, registry, "a", "number", 8).accepted);
+
+    const TemporaryLibrary library;
+    FileGraphStore store (library.Root ());
+    ASSERT_TRUE (store.Save ("w", good, GraphMetadata {}).Ok ());
+
+    // A graph that cannot be serialised at all - the save fails before any file
+    // is touched.
+    GraphDocument unserialisable;
+    Node node { "m", "holder" };
+    node.parameters.emplace ("mesh", Value (std::make_shared<const geomsrv::Mesh> ()));
+    ASSERT_TRUE (ApplyEdit (unserialisable, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+    EXPECT_EQ (StoreStatus::Invalid, store.Save ("w", unserialisable, GraphMetadata {}).status);
+
+    // The workflow that was already there is untouched, which is the whole
+    // reason a save is write-then-rename.
+    SerializedGraph loaded;
+    ASSERT_TRUE (store.Load ("w", registry, loaded).Ok ());
+    EXPECT_EQ (8, Integer (loaded.document.FindNode ("a")->parameters.at ("value")));
+
+    // And no partial file was left lying about.
+    EXPECT_FALSE (std::filesystem::exists (library.Path () / "w.tapiocagraph.json.partial"));
+}
+
+TEST (NodeGraphFileStore, DeletesAndReportsAMissingGraph)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+
+    const TemporaryLibrary library;
+    FileGraphStore store (library.Root ());
+    EXPECT_EQ (StoreStatus::NotFound, store.Delete ("missing").status);
+
+    ASSERT_TRUE (store.Save ("w", graph, GraphMetadata {}).Ok ());
+    ASSERT_TRUE (store.Delete ("w").Ok ());
+    EXPECT_FALSE (store.Exists ("w"));
+    EXPECT_EQ (StoreStatus::NotFound, store.Delete ("w").status);
+}
+
+TEST (NodeGraphFileStore, RefusesAnUnusableNameBeforeTouchingTheFilesystem)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "a", "number", 1).accepted);
+
+    const TemporaryLibrary library;
+    FileGraphStore store (library.Root ());
+    // The path-traversal shapes in particular: a name is never allowed to reach
+    // outside the library.
+    for (const char* bad : { "../escape", "..", "with/slash", "back\\slash", "" })
+        EXPECT_EQ (StoreStatus::InvalidId, store.Save (bad, graph, GraphMetadata {}).status) << "accepted: " << bad;
+    EXPECT_FALSE (std::filesystem::exists (library.Path ()));
+}
+
+TEST (NodeGraphWorkerPool, StoppingJoinsItsThreadsAndLeavesBatchesRunnable)
+{
+    WorkerPool pool (3);
+    EXPECT_EQ (3U, pool.ThreadCount ());
+
+    std::atomic<int> before { 0 };
+    pool.RunBatch (6, 0, [&] (size_t) { before.fetch_add (1); });
+    EXPECT_EQ (6, before.load ());
+
+    // The add-on stops the pool on Archicad's quit and unload paths rather than
+    // letting static destruction join threads under the loader lock.
+    pool.Stop ();
+    EXPECT_EQ (0U, pool.ThreadCount ());
+    pool.Stop (); // idempotent
+
+    // A batch submitted after the stop still runs - inline, on the submitter -
+    // so an evaluation finishing during teardown completes instead of failing.
+    const std::thread::id submitter = std::this_thread::get_id ();
+    std::atomic<int> after { 0 };
+    pool.RunBatch (4, 0, [&] (size_t) {
+        EXPECT_EQ (submitter, std::this_thread::get_id ());
+        after.fetch_add (1);
+    });
+    EXPECT_EQ (4, after.load ());
 }

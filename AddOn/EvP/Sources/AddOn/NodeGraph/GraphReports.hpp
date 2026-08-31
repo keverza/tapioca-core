@@ -10,6 +10,7 @@
 // about, and two walkers over one truth drift. So: one pass, two projections.
 
 #include "NodeGraph/Graph.hpp"
+#include "NodeGraph/GraphSerializer.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/ReferenceResolver.hpp"
 
@@ -109,8 +110,8 @@ struct CompatibilityReport {
 CompatibilityReport MakeCompatibilityReport (const GraphDocument& document, const NodeRegistry& registry,
                                              const GraphResolution& resolution, uint32_t formatVersion);
 
-// The graph format this runtime writes and reads.
-constexpr uint32_t kGraphFormatVersion = 1;
+// The format version lives with the serializer that writes it - see
+// GraphSerializer.hpp. A report only compares against it.
 
 } // namespace evp::nodegraph
 

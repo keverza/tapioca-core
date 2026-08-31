@@ -13,7 +13,8 @@ GraphRuntimeState& GraphRuntimeState::Get ()
     return state;
 }
 
-GraphRuntimeState::GraphRuntimeState () : registry_ (MakeRuntimeNodeRegistry ())
+GraphRuntimeState::GraphRuntimeState ()
+    : registry_ (MakeRuntimeNodeRegistry ()), library_ (std::make_unique<FileGraphStore> ())
 {
 }
 
@@ -47,6 +48,64 @@ GraphDocument GraphRuntimeState::Document (const GraphId& graphId) const
     Slot& slot = SlotFor (graphId);
     std::lock_guard lock (slot.documentMutex);
     return slot.document;
+}
+
+GraphMetadata GraphRuntimeState::Metadata (const GraphId& graphId) const
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    return slot.metadata;
+}
+
+void GraphRuntimeState::SetMetadata (const GraphId& graphId, GraphMetadata metadata)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    slot.metadata = std::move (metadata);
+}
+
+void GraphRuntimeState::SetLibrary (std::unique_ptr<IGraphStore> library)
+{
+    std::lock_guard lock (libraryMutex_);
+    library_ = std::move (library);
+}
+
+IGraphStore& GraphRuntimeState::Library () const
+{
+    std::lock_guard lock (libraryMutex_);
+    return *library_;
+}
+
+StoreResult GraphRuntimeState::SaveToLibrary (const GraphId& graphId, const std::string& name)
+{
+    Slot& slot = SlotFor (graphId);
+    GraphDocument document;
+    GraphMetadata metadata;
+    {
+        std::lock_guard lock (slot.documentMutex);
+        document = slot.document;
+        metadata = slot.metadata;
+    }
+    // Serialised OUTSIDE the document lock, on a copy: writing a file is slow
+    // enough that holding the lock across it would stall every edit the user
+    // makes while a large workflow is being saved.
+    return Library ().Save (name, document, metadata);
+}
+
+StoreResult GraphRuntimeState::LoadFromLibrary (const std::string& name, const GraphId& graphId)
+{
+    SerializedGraph loaded;
+    const StoreResult result = Library ().Load (name, registry_, loaded);
+    if (!result.Ok ())
+        return result;
+
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    slot.document = std::move (loaded.document);
+    slot.metadata = std::move (loaded.metadata);
+    // The cache belonged to the previous program.
+    slot.evaluator.Reset ();
+    return result;
 }
 
 EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& edit)
@@ -125,6 +184,7 @@ EvaluationSummary GraphRuntimeState::Evaluate (const GraphId& graphId, const Eva
     summary.blockedCount = outcome.blockedCount;
     summary.skippedEffectNodes = outcome.skippedEffectNodes;
     summary.effectsCommitted = outcome.effectsCommitted;
+    summary.parallelism = outcome.parallelism;
     return summary;
 }
 

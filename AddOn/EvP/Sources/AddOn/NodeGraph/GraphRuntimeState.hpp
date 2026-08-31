@@ -13,6 +13,7 @@
 #include "NodeGraph/Evaluator.hpp"
 #include "NodeGraph/GraphEdit.hpp"
 #include "NodeGraph/GraphReports.hpp"
+#include "NodeGraph/GraphStore.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/RunContext.hpp"
 #include "NodeGraph/RunHistory.hpp"
@@ -55,6 +56,12 @@ struct EvaluationSummary {
     // True when the deferred phase ran, so a client can say "applied" rather
     // than inferring it from a node status.
     bool effectsCommitted = false;
+
+    // What the run's levels actually overlapped. Carried out to the client
+    // because ADR-007's parallelism gate is answered by MEASURING one graph at
+    // maxParallel 1 and again at N, and a number that never leaves the runtime
+    // cannot answer it on the user's machine with the user's graph.
+    ParallelismMetrics parallelism;
 };
 
 struct RuntimeNodeResult {
@@ -106,11 +113,33 @@ class GraphRuntimeState final {
 
     std::vector<RunRecord> RecentRuns (const GraphId& graphId, size_t maxRuns) const;
 
+    // Editor layout and labels for a live graph. The runtime CARRIES this and
+    // never reads a member of it: §34 allows layout to live alongside the graph
+    // provided the evaluator does not depend on it, and holding it here is what
+    // makes node positions survive a palette that closes and reopens.
+    GraphMetadata Metadata (const GraphId& graphId) const;
+    void SetMetadata (const GraphId& graphId, GraphMetadata metadata);
+
+    // The workflow library, one per process. Replaceable so a test can point the
+    // runtime at a temporary directory, and so a project-embedded backend could
+    // arrive without any verb changing.
+    void SetLibrary (std::unique_ptr<IGraphStore> library);
+    IGraphStore& Library () const;
+
+    // Saves the live graph `graphId` into the library under `name`.
+    StoreResult SaveToLibrary (const GraphId& graphId, const std::string& name);
+
+    // Replaces the live graph `graphId` with the library's `name`. The document
+    // is swapped only after the load has fully succeeded, so a graph that
+    // cannot be read leaves the one on screen alone.
+    StoreResult LoadFromLibrary (const std::string& name, const GraphId& graphId);
+
   private:
     // One graph's whole world. Held by unique_ptr so a reference handed out
     // under the map lock stays valid while the map grows.
     struct Slot {
         GraphDocument document;
+        GraphMetadata metadata;
         Evaluator evaluator;
         RunRecorder recorder;
 
@@ -133,6 +162,9 @@ class GraphRuntimeState final {
     mutable std::mutex mapMutex_;
     mutable std::map<GraphId, std::unique_ptr<Slot>> graphs_;
     NodeRegistry registry_;
+
+    mutable std::mutex libraryMutex_;
+    std::unique_ptr<IGraphStore> library_;
 };
 
 } // namespace evp::nodegraph
