@@ -22,7 +22,7 @@
   let activeIndex = $state(0)
   let searchInput = $state<HTMLInputElement>()
 
-  const filtered = $derived(filterCatalog(catalog, query))
+  const filtered = $derived(query.trim() === '' ? catalog : filterCatalog(catalog, query))
   const groups = $derived(groupCatalog(filtered))
 
   $effect(() => {
@@ -103,7 +103,9 @@
           {/each}
         </section>
       {:else}
-        <p class="catalog-empty">No component matches every search term.</p>
+        <p class="catalog-empty">
+          {catalog.length === 0 ? 'The native runtime returned no components.' : 'No component matches every search term.'}
+        </p>
       {/each}
     </div>
   </aside>

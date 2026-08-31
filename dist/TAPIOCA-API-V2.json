@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 157,
+      "nativeRegistry": 158,
       "dispatcherLocal": 19,
-      "total": 176
+      "total": 177
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -10234,6 +10234,82 @@
         "required": [
           "graphId",
           "cancelledRunId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphEraseElements",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sourceNode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourcePort": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetNode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetPort": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "sourceNode",
+                "sourcePort",
+                "targetNode",
+                "targetPort"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeIds",
+          "edges"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dirtyNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "dirtyNodes"
         ]
       }
     },

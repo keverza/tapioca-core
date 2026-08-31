@@ -145,6 +145,42 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
                     return edge.sourceNode == operation.nodeId || edge.targetNode == operation.nodeId;
                 });
             }
+            else if constexpr (std::is_same_v<T, RemoveElementsEdit>) {
+                if (operation.nodeIds.empty () && operation.edges.empty ()) {
+                    error = "removeElements requires at least one element";
+                    return false;
+                }
+                const std::set<NodeId> removedNodes (operation.nodeIds.begin (), operation.nodeIds.end ());
+                for (const NodeId& nodeId : removedNodes) {
+                    if (!candidate.nodes_.contains (nodeId)) {
+                        error = "unknown node: " + nodeId;
+                        return false;
+                    }
+                }
+                for (const Edge& requested : operation.edges) {
+                    if (std::find_if (candidate.edges_.begin (), candidate.edges_.end (), [&] (const Edge& edge) {
+                            return SameEdge (edge, requested);
+                        }) == candidate.edges_.end ()) {
+                        error = "edge does not exist";
+                        return false;
+                    }
+                }
+                for (const Edge& edge : candidate.edges_) {
+                    const bool removesEdge = removedNodes.contains (edge.sourceNode) ||
+                                             removedNodes.contains (edge.targetNode) ||
+                                             std::any_of (operation.edges.begin (), operation.edges.end (),
+                                                          [&] (const Edge& requested) { return SameEdge (edge, requested); });
+                    if (removesEdge && !removedNodes.contains (edge.targetNode))
+                        dirtyRoots.insert (edge.targetNode);
+                }
+                for (const NodeId& nodeId : removedNodes)
+                    candidate.nodes_.erase (nodeId);
+                std::erase_if (candidate.edges_, [&] (const Edge& edge) {
+                    return removedNodes.contains (edge.sourceNode) || removedNodes.contains (edge.targetNode) ||
+                           std::any_of (operation.edges.begin (), operation.edges.end (),
+                                        [&] (const Edge& requested) { return SameEdge (edge, requested); });
+                });
+            }
             else if constexpr (std::is_same_v<T, ConnectEdit>) {
                 candidate.edges_.push_back (operation.edge);
                 dirtyRoots.insert (operation.edge.targetNode);

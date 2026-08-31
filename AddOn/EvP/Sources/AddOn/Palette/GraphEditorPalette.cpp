@@ -6,6 +6,7 @@
 
 #include "DGWin.h"
 
+#include <cstdint>
 #include <cstring>
 #include <string>
 
@@ -36,22 +37,33 @@ void GraphEditorLog (const GS::UniString& message)
 
 GS::UniString LoadGraphEditorHtmlResource ()
 {
-    GSHandle data = RSLoadResource ('DATA', ACAPI_GetOwnResModule (), GraphEditorHtmlResId);
-    if (data == nullptr) {
+    const HMODULE resourceModule = reinterpret_cast<HMODULE> (ACAPI_GetOwnResModule ());
+    const HRSRC resource = FindResourceW (resourceModule, MAKEINTRESOURCEW (GraphEditorHtmlResId), L"DATA");
+    if (resource == nullptr) {
         GraphEditorLog (GS::UniString::Printf ("HTML resource %d is missing", GraphEditorHtmlResId));
         return GS::EmptyUniString;
     }
 
-    const GSSize handleSize = BMhGetSize (data);
-    if (handleSize <= 0) {
-        GraphEditorLog (
-            GS::UniString::Printf ("HTML resource %d has invalid size %d", GraphEditorHtmlResId, (int) handleSize));
-        BMhKill (&data);
+    const DWORD resourceSize = SizeofResource (resourceModule, resource);
+    const HGLOBAL loadedResource = LoadResource (resourceModule, resource);
+    const void* resourceData = loadedResource != nullptr ? LockResource (loadedResource) : nullptr;
+    if (resourceData == nullptr || resourceSize < sizeof (std::uint32_t)) {
+        GraphEditorLog (GS::UniString::Printf ("HTML resource %d could not be read", GraphEditorHtmlResId));
         return GS::EmptyUniString;
     }
 
-    const std::string bytes (*data, *data + handleSize);
-    BMhKill (&data);
+    // ResConv prefixes DATA resources with their unpadded payload size. Reading
+    // the resource directly avoids RSLoadResource's 1 MiB GSHandle ceiling.
+    std::uint32_t payloadSize = 0;
+    std::memcpy (&payloadSize, resourceData, sizeof (payloadSize));
+    if (payloadSize == 0 || payloadSize > resourceSize - sizeof (payloadSize)) {
+        GraphEditorLog (GS::UniString::Printf ("HTML resource %d has invalid size %u", GraphEditorHtmlResId,
+                                               static_cast<unsigned int> (payloadSize)));
+        return GS::EmptyUniString;
+    }
+
+    const char* payload = static_cast<const char*> (resourceData) + sizeof (payloadSize);
+    const std::string bytes (payload, payload + payloadSize);
     if (bytes.find ('\0') != std::string::npos) {
         GraphEditorLog ("HTML resource contains an embedded NUL byte");
         return GS::EmptyUniString;
@@ -70,7 +82,7 @@ GS::UniString LoadGraphEditorHtmlResource ()
     }
 
     GraphEditorLog (GS::UniString::Printf ("loaded HTML resource %d with %u bytes", GraphEditorHtmlResId,
-                                           (unsigned int) handleSize));
+                                           static_cast<unsigned int> (payloadSize)));
     return html;
 }
 
@@ -80,12 +92,12 @@ GraphEditorPalette::GraphEditorPalette ()
     : DG::Palette (ACAPI_GetOwnResModule (), GraphEditorPaletteResId, ACAPI_GetOwnResModule (), paletteGuid)
 {
     GraphEditorLog ("constructor entered");
-    Attach (*this);
-    BeginEventProcessing ();
     surface = std::make_unique<DG::UserItem> (*this, DG::Rect (0, 0, GetClientWidth (), GetClientHeight ()),
                                               DG::UserItem::Normal, DG::UserItem::NoFrame);
     surface->Show ();
     webView = std::make_unique<WebView2GraphHost> ();
+    Attach (*this);
+    BeginEventProcessing ();
 }
 
 GraphEditorPalette::~GraphEditorPalette ()
@@ -167,6 +179,8 @@ void GraphEditorPalette::PanelMoved (const DG::PanelMoveEvent&)
 
 void GraphEditorPalette::PanelResized (const DG::PanelResizeEvent& ev)
 {
+    if (surface == nullptr)
+        return;
     BeginMoveResizeItems ();
     surface->Resize (ev.GetHorizontalChange (), ev.GetVerticalChange ());
     EndMoveResizeItems ();

@@ -1,5 +1,6 @@
 #include "Palette/WebView2GraphHost.hpp"
 
+#include "Python/ApiDispatcher.hpp"
 #include "Python/PathUtils.hpp"
 
 #include <windows.h>
@@ -8,7 +9,9 @@
 #include <WebView2.h>
 
 #include <atomic>
+#include <cstring>
 #include <string>
+#include <vector>
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -16,6 +19,37 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 constexpr wchar_t kChildClassName[] = L"Tapioca.WebView2GraphChild";
+constexpr wchar_t kEditorUrl[] = L"https://graph.tapioca.invalid/index.html";
+constexpr wchar_t kEditorFilter[] = L"https://graph.tapioca.invalid/*";
+
+constexpr wchar_t kBridgeScript[] = L"(function(){"
+                                    L"var wv=window.chrome&&window.chrome.webview;"
+                                    L"if(!wv)return;"
+                                    L"var next=0,pending={};"
+                                    L"wv.addEventListener('message',function(event){"
+                                    L"var text=String(event.data),cut=text.indexOf('\\n');"
+                                    L"if(cut<0)return;"
+                                    L"var id=text.slice(0,cut),resolve=pending[id];"
+                                    L"if(resolve===undefined)return;"
+                                    L"delete pending[id];"
+                                    L"resolve(text.slice(cut+1));"
+                                    L"});"
+                                    L"window.EvP={call:function(requestJson){"
+                                    L"return new Promise(function(resolve){"
+                                    L"var request=null;"
+                                    L"try{request=JSON.parse(String(requestJson));}catch(error){request=null;}"
+                                    L"if(request===null||typeof request.command!=='string'||request.command===''){"
+                                    L"resolve('{\"ok\":false,\"error\":{\"code\":\"BadRequest\",\"message\":"
+                                    L"\"EvP.call expects a JSON object string carrying a command.\"}}');"
+                                    L"return;"
+                                    L"}"
+                                    L"var id=String(++next);"
+                                    L"pending[id]=resolve;"
+                                    L"wv.postMessage(id+'\\n'+request.command+'\\n'+"
+                                    L"JSON.stringify(request.params===undefined?{}:request.params));"
+                                    L"});"
+                                    L"}};"
+                                    L"})();";
 
 void WebView2Log (const GS::UniString& message)
 {
@@ -46,6 +80,44 @@ std::wstring WideString (const GS::UniString& value)
     return std::wstring (reinterpret_cast<const wchar_t*> (text.Get ()), value.GetLength ());
 }
 
+GS::UniString UniStringFrom (const std::wstring& value)
+{
+    static_assert (sizeof (wchar_t) == sizeof (GS::UniChar::Layout), "UniString expects UTF-16 on Windows");
+    return GS::UniString (reinterpret_cast<const GS::UniChar::Layout*> (value.c_str ()), USize (value.size ()));
+}
+
+GS::UniString AnswerBridgeRequest (const GS::UniString& command, const GS::UniString& paramsJson)
+{
+    return evp::DispatchApiCall (command, paramsJson, "nodegraph");
+}
+
+std::vector<char> Utf8Bytes (const GS::UniString& value)
+{
+    const auto text = value.ToCStr (0, GS::MaxUSize, CC_UTF8);
+    const char* begin = text.Get ();
+    return std::vector<char> (begin, begin + std::strlen (begin));
+}
+
+ComPtr<IStream> StreamOver (const std::vector<char>& bytes)
+{
+    const HGLOBAL memory = GlobalAlloc (GMEM_MOVEABLE, bytes.size ());
+    if (memory == nullptr)
+        return nullptr;
+    void* target = GlobalLock (memory);
+    if (target == nullptr) {
+        GlobalFree (memory);
+        return nullptr;
+    }
+    std::memcpy (target, bytes.data (), bytes.size ());
+    GlobalUnlock (memory);
+    ComPtr<IStream> stream;
+    if (FAILED (CreateStreamOnHGlobal (memory, TRUE, &stream))) {
+        GlobalFree (memory);
+        return nullptr;
+    }
+    return stream;
+}
+
 } // namespace
 
 struct WebView2GraphHostState {
@@ -53,7 +125,8 @@ struct WebView2GraphHostState {
     HWND child = nullptr;
     ComPtr<ICoreWebView2Controller> controller;
     ComPtr<ICoreWebView2> webView;
-    std::wstring html;
+    ComPtr<ICoreWebView2Environment> environment;
+    std::vector<char> htmlBytes;
     std::atomic<bool> closing = false;
     bool comInitialized = false;
 
@@ -151,7 +224,7 @@ bool WebView2GraphHost::Start (HWND__* parent, const GS::UniString& html)
     }
 
     state_->parent = parent;
-    state_->html = WideString (html);
+    state_->htmlBytes = Utf8Bytes (html);
     const HRESULT comResult = CoInitializeEx (nullptr, COINIT_APARTMENTTHREADED);
     state_->comInitialized = SUCCEEDED (comResult);
     if (FAILED (comResult) && comResult != RPC_E_CHANGED_MODE) {
@@ -182,6 +255,7 @@ bool WebView2GraphHost::Start (HWND__* parent, const GS::UniString& html)
                         GS::UniString::Printf ("environment creation failed: 0x%08X", unsigned (environmentResult)));
                     return S_OK;
                 }
+                state->environment = environment;
                 return environment->CreateCoreWebView2Controller (
                     state->child,
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler> (
@@ -209,11 +283,88 @@ bool WebView2GraphHost::Start (HWND__* parent, const GS::UniString& html)
 
                             const std::wstring startupScript = state->TelemetryScript ();
                             state->webView->AddScriptToExecuteOnDocumentCreated (startupScript.c_str (), nullptr);
-                            const HRESULT navigateResult = state->webView->NavigateToString (state->html.c_str ());
-                            WebView2Log (SUCCEEDED (navigateResult)
-                                             ? "native child HWND controller started"
-                                             : GS::UniString::Printf ("NavigateToString failed: 0x%08X",
-                                                                      unsigned (navigateResult)));
+                            state->webView->AddScriptToExecuteOnDocumentCreated (kBridgeScript, nullptr);
+
+                            EventRegistrationToken messageToken = {};
+                            state->webView->add_WebMessageReceived (
+                                Callback<ICoreWebView2WebMessageReceivedEventHandler> (
+                                    [state] (ICoreWebView2*,
+                                             ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                                        if (args == nullptr || state->closing.load () || state->webView == nullptr)
+                                            return S_OK;
+                                        LPWSTR raw = nullptr;
+                                        if (FAILED (args->TryGetWebMessageAsString (&raw)) || raw == nullptr)
+                                            return S_OK;
+                                        const std::wstring message (raw);
+                                        CoTaskMemFree (raw);
+
+                                        const size_t firstBreak = message.find (L'\n');
+                                        if (firstBreak == std::wstring::npos)
+                                            return S_OK;
+                                        const size_t secondBreak = message.find (L'\n', firstBreak + 1);
+                                        if (secondBreak == std::wstring::npos)
+                                            return S_OK;
+
+                                        const std::wstring id = message.substr (0, firstBreak);
+                                        const GS::UniString command = UniStringFrom (
+                                            message.substr (firstBreak + 1, secondBreak - firstBreak - 1));
+                                        const GS::UniString params = UniStringFrom (message.substr (secondBreak + 1));
+                                        const GS::UniString envelope = AnswerBridgeRequest (command, params);
+                                        const std::wstring reply = id + L"\n" + WideString (envelope);
+                                        state->webView->PostWebMessageAsString (reply.c_str ());
+                                        return S_OK;
+                                    })
+                                    .Get (),
+                                &messageToken);
+
+                            state->webView->AddWebResourceRequestedFilter (kEditorFilter,
+                                                                           COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                            EventRegistrationToken resourceToken = {};
+                            state->webView->add_WebResourceRequested (
+                                Callback<ICoreWebView2WebResourceRequestedEventHandler> (
+                                    [state] (ICoreWebView2*,
+                                             ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                                        if (args == nullptr || state->environment == nullptr)
+                                            return S_OK;
+
+                                        ComPtr<ICoreWebView2WebResourceRequest> request;
+                                        LPWSTR uri = nullptr;
+                                        bool wantsDocument = false;
+                                        if (SUCCEEDED (args->get_Request (&request)) && request != nullptr &&
+                                            SUCCEEDED (request->get_Uri (&uri)) && uri != nullptr) {
+                                            wantsDocument = wcscmp (uri, kEditorUrl) == 0;
+                                            CoTaskMemFree (uri);
+                                        }
+
+                                        ComPtr<ICoreWebView2WebResourceResponse> response;
+                                        if (!wantsDocument) {
+                                            if (SUCCEEDED (state->environment->CreateWebResourceResponse (
+                                                    nullptr, 404, L"Not Found", L"", &response))) {
+                                                args->put_Response (response.Get ());
+                                            }
+                                            return S_OK;
+                                        }
+
+                                        const ComPtr<IStream> body = StreamOver (state->htmlBytes);
+                                        if (body == nullptr)
+                                            return S_OK;
+                                        if (FAILED (state->environment->CreateWebResourceResponse (
+                                                body.Get (), 200, L"OK", L"Content-Type: text/html; charset=utf-8",
+                                                &response))) {
+                                            return S_OK;
+                                        }
+                                        args->put_Response (response.Get ());
+                                        return S_OK;
+                                    })
+                                    .Get (),
+                                &resourceToken);
+
+                            const HRESULT navigateResult = state->webView->Navigate (kEditorUrl);
+                            WebView2Log (
+                                SUCCEEDED (navigateResult)
+                                    ? GS::UniString::Printf ("native child HWND controller started, serving %u bytes",
+                                                             unsigned (state->htmlBytes.size ()))
+                                    : GS::UniString::Printf ("Navigate failed: 0x%08X", unsigned (navigateResult)));
                             return S_OK;
                         })
                         .Get ());

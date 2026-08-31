@@ -3,6 +3,7 @@
   import type { ThemeMode } from './editor'
 
   type MenuId = 'file' | 'run' | 'flow' | 'debug'
+  type FileAction = 'new' | 'load' | 'save'
 
   let {
     busy,
@@ -12,7 +13,8 @@
     performanceOpen,
     onrefresh,
     onevaluate,
-    onopenpicker,
+    onfileaction,
+    onfit,
     ontogglesnap,
     ontheme,
     ontoggleperformance,
@@ -24,7 +26,8 @@
     performanceOpen: boolean
     onrefresh: () => void
     onevaluate: () => void
-    onopenpicker: () => void
+    onfileaction: (action: FileAction) => void
+    onfit: () => void
     ontogglesnap: () => void
     ontheme: (theme: ThemeMode) => void
     ontoggleperformance: () => void
@@ -32,7 +35,9 @@
 
   const menuIds: MenuId[] = ['file', 'run', 'flow', 'debug']
   let activeMenu = $state<MenuId | null>(null)
+  let displayOptionsOpen = $state(false)
   let root = $state<HTMLElement>()
+  let displayOptionsButton = $state<HTMLButtonElement>()
   let headingElements = $state.raw<Partial<Record<MenuId, HTMLButtonElement>>>({})
   let hoverMenus = false
 
@@ -63,12 +68,13 @@
   function close(restoreFocus = true): void {
     const previous = activeMenu
     activeMenu = null
+    displayOptionsOpen = false
     if (restoreFocus && previous !== null) queueMicrotask(() => headingElements[previous]?.focus())
   }
 
   function open(id: MenuId, focusFirst = false): void {
+    if (activeMenu !== id) displayOptionsOpen = false
     activeMenu = id
-    if (id === 'flow') onopenpicker()
     if (focusFirst) {
       queueMicrotask(() => {
         root?.querySelector<HTMLElement>(`#menu-${id} [role^="menuitem"]:not([disabled])`)?.focus()
@@ -113,6 +119,39 @@
     event.preventDefault()
   }
 
+  function openDisplayOptions(focusFirst = false): void {
+    displayOptionsOpen = true
+    if (focusFirst) {
+      queueMicrotask(() => {
+        root?.querySelector<HTMLElement>('#menu-display-options [role^="menuitem"]')?.focus()
+      })
+    }
+  }
+
+  function displayOptionsButtonKey(event: KeyboardEvent): void {
+    if (event.key !== 'ArrowRight' && event.key !== 'Enter' && event.key !== ' ') return
+    openDisplayOptions(true)
+    event.stopPropagation()
+    event.preventDefault()
+  }
+
+  function displayOptionsKey(event: KeyboardEvent): void {
+    const items = Array.from(
+      (event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>('[role^="menuitem"]'),
+    )
+    const index = items.indexOf(document.activeElement as HTMLElement)
+    if (event.key === 'ArrowDown') items[(index + 1) % items.length]?.focus()
+    else if (event.key === 'ArrowUp') items[(index - 1 + items.length) % items.length]?.focus()
+    else if (event.key === 'Home') items[0]?.focus()
+    else if (event.key === 'End') items.at(-1)?.focus()
+    else if (event.key === 'ArrowLeft' || event.key === 'Escape') {
+      displayOptionsOpen = false
+      queueMicrotask(() => displayOptionsButton?.focus())
+    } else return
+    event.stopPropagation()
+    event.preventDefault()
+  }
+
   function invoke(action: () => void): void {
     close()
     action()
@@ -138,23 +177,54 @@
       {#if activeMenu === id}
         <div id={`menu-${id}`} class:menu-right={id === 'debug'} class="menu-popover" role="menu" tabindex="-1" onkeydown={(event) => menuKey(event, id)}>
           {#if id === 'file'}
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(() => onfileaction('new'))}>New graph</button>
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(() => onfileaction('load'))}>Load graph...</button>
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(() => onfileaction('save'))}>Save graph...</button>
+            <div class="menu-separator" role="separator"></div>
             <button role="menuitem" type="button" disabled={busy || !nativeConnected} onclick={() => invoke(onrefresh)}>Refresh graph</button>
+            <div
+              class="menu-submenu-root"
+              role="presentation"
+              onpointerenter={() => openDisplayOptions()}
+              onpointerleave={() => (displayOptionsOpen = false)}
+            >
+              <button
+                bind:this={displayOptionsButton}
+                class="submenu-trigger"
+                role="menuitem"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={displayOptionsOpen}
+                onclick={() => (displayOptionsOpen ? (displayOptionsOpen = false) : openDisplayOptions())}
+                onkeydown={displayOptionsButtonKey}
+              >Display Options<span aria-hidden="true">&#x203a;</span></button>
+              {#if displayOptionsOpen}
+                <div
+                  id="menu-display-options"
+                  class="menu-popover menu-submenu"
+                  role="menu"
+                  tabindex="-1"
+                  onkeydown={displayOptionsKey}
+                >
+                  <button role="menuitemcheckbox" class="menu-toggle" type="button" aria-checked={snapEnabled} onclick={() => invoke(ontogglesnap)}>
+                    <span class:checked={snapEnabled} aria-hidden="true"></span>
+                    Snap to grid
+                    <kbd>16 px</kbd>
+                  </button>
+                  <div class="menu-separator" role="separator"></div>
+                  {#each ['system', 'dark', 'light'] as mode}
+                    <button role="menuitemradio" class="menu-toggle" type="button" aria-checked={theme === mode} onclick={() => invoke(() => ontheme(mode as ThemeMode))}>
+                      <span class:checked={theme === mode} aria-hidden="true"></span>
+                      {mode[0].toUpperCase() + mode.slice(1)} theme
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
           {:else if id === 'run'}
             <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onevaluate)}>Evaluate graph</button>
           {:else if id === 'flow'}
-            <button role="menuitem" type="button" onclick={() => invoke(onopenpicker)}>Open components</button>
-            <button role="menuitemcheckbox" class="menu-toggle" type="button" aria-checked={snapEnabled} onclick={() => invoke(ontogglesnap)}>
-              <span class:checked={snapEnabled} aria-hidden="true"></span>
-              Snap to grid
-              <kbd>16 px</kbd>
-            </button>
-            <div class="menu-separator" role="separator"></div>
-            {#each ['system', 'dark', 'light'] as mode}
-              <button role="menuitemradio" class="menu-toggle" type="button" aria-checked={theme === mode} onclick={() => invoke(() => ontheme(mode as ThemeMode))}>
-                <span class:checked={theme === mode} aria-hidden="true"></span>
-                {mode[0].toUpperCase() + mode.slice(1)} theme
-              </button>
-            {/each}
+            <button role="menuitem" type="button" onclick={() => invoke(onfit)}>Fit graph</button>
           {:else}
             <button role="menuitemcheckbox" class="menu-toggle" type="button" aria-checked={performanceOpen} onclick={() => invoke(ontoggleperformance)}>
               <span class:checked={performanceOpen} aria-hidden="true"></span>

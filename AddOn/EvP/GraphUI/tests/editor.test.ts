@@ -37,6 +37,8 @@ function graphNode(id: string, schema: NodeTypeSchema): Node<SchemaNodeData> {
 }
 
 test('catalog search ANDs tokens across schema and ports', () => {
+  assert.deepEqual(filterCatalog([sourceSchema, targetSchema], ''), [sourceSchema, targetSchema])
+  assert.deepEqual(filterCatalog([sourceSchema, targetSchema], '   '), [sourceSchema, targetSchema])
   assert.deepEqual(filterCatalog([sourceSchema, targetSchema], 'display input'), [targetSchema])
   assert.deepEqual(filterCatalog([sourceSchema, targetSchema], 'numeric value'), [sourceSchema])
   assert.equal(groupCatalog([sourceSchema, targetSchema]).size, 2)

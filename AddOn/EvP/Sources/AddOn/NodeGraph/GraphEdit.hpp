@@ -17,6 +17,11 @@ struct RemoveNodeEdit {
     NodeId nodeId;
 };
 
+struct RemoveElementsEdit {
+    std::vector<NodeId> nodeIds;
+    std::vector<Edge> edges;
+};
+
 struct ConnectEdit {
     Edge edge;
 };
@@ -32,7 +37,8 @@ struct SetParameterEdit {
 };
 
 struct GraphEdit {
-    using Data = std::variant<AddNodeEdit, RemoveNodeEdit, ConnectEdit, DisconnectEdit, SetParameterEdit>;
+    using Data =
+        std::variant<AddNodeEdit, RemoveNodeEdit, RemoveElementsEdit, ConnectEdit, DisconnectEdit, SetParameterEdit>;
     Data data;
 };
 

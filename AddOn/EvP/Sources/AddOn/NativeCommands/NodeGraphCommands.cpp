@@ -55,6 +55,9 @@ constexpr const char kEditInputSchema[] =
 constexpr const char kEditResponseSchema[] =
     R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["revision","dirtyNodes"]})json";
 
+constexpr const char kEraseElementsInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeIds":{"type":"array","items":{"type":"string","minLength":1}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["nodeIds","edges"]})json";
+
 // allowSideEffects defaults to FALSE and must be sent deliberately. A preview,
 // a watch and an auto-evaluated branch all leave it out, which is what keeps a
 // graph from changing the user's selection while they are editing.
@@ -452,6 +455,38 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
     }
 };
 
+class GraphEraseElementsCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Array<GS::UniString> nodeIds;
+        GS::Array<GS::ObjectState> edgeStates;
+        params.Get ("nodeIds", nodeIds);
+        params.Get ("edges", edgeStates);
+
+        graph::RemoveElementsEdit remove;
+        remove.nodeIds.reserve (nodeIds.GetSize ());
+        remove.edges.reserve (edgeStates.GetSize ());
+        for (const GS::UniString& nodeId : nodeIds)
+            remove.nodeIds.push_back (GraphUtf8 (nodeId));
+        for (const GS::ObjectState& edge : edgeStates)
+            remove.edges.push_back (ReadEdge (edge));
+
+        const graph::EditResult result =
+            graph::GraphRuntimeState::Get ().Apply (ReadGraphIdParam (params), graph::GraphEdit { std::move (remove) });
+        if (!result.accepted)
+            return NativeCommandResult::Failure (GraphText (result.error));
+
+        GS::Array<GS::UniString> dirtyNodes;
+        for (const graph::NodeId& nodeId : result.dirtyNodes)
+            dirtyNodes.Push (GraphText (nodeId));
+        GS::ObjectState response;
+        response.Add ("revision", static_cast<GS::Int64> (result.revision));
+        response.Add ("dirtyNodes", dirtyNodes);
+        return response;
+    }
+};
+
 class GraphEvaluateCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
@@ -757,6 +792,8 @@ const NativeCommandRegistration registrations[] = {
       kStateResponseSchema },
     { "GraphApplyEdit", &MakeRegisteredNativeCommand<GraphApplyEditCommand>, false, kEditInputSchema,
       kEditResponseSchema },
+    { "GraphEraseElements", &MakeRegisteredNativeCommand<GraphEraseElementsCommand>, false,
+      kEraseElementsInputSchema, kEditResponseSchema },
     { "GraphEvaluate", &MakeRegisteredNativeCommand<GraphEvaluateCommand>, false, kEvaluateInputSchema,
       kEvaluateResponseSchema },
     { "GraphCancel", &MakeRegisteredNativeCommand<GraphCancelCommand>, false, kGraphInputSchema,

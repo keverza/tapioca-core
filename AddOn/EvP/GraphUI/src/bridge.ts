@@ -45,3 +45,14 @@ export async function callTapioca<T>(command: string, params: Record<string, unk
 export function isNativeBridgeAvailable(): boolean {
   return window.EvP !== undefined && typeof window.EvP.call === 'function'
 }
+
+/** Wait briefly for DG::Browser's asynchronous bridge registration. */
+export async function waitForNativeBridge(timeoutMs = 3000): Promise<boolean> {
+  if (isNativeBridgeAvailable()) return true
+  const deadline = performance.now() + timeoutMs
+  while (performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    if (isNativeBridgeAvailable()) return true
+  }
+  return false
+}

@@ -29,6 +29,10 @@ Use the library's public example seams directly:
 - Use `onmove` and the public viewport shape for contextual detail.
 - Use `colorMode` and `colorModeSSR` for the canvas, with application tokens for chrome.
 - Use Svelte Flow node, edge, and pane events for contextual actions.
+- Render presentation-only rectangles and visual frames through `ViewportPortal target="back"`;
+  they belong to versioned editor metadata and never enter the semantic node array.
+- Pointer-path tools may collect browser hit previews, but eraser and scissors deletion must
+  submit one `Tapioca.GraphEraseElements` command on pointer-up.
 
 Tapioca has one deliberate difference from the standalone examples: C++ owns semantic
 graph state. `onbeforeconnect` always returns `false`, submits the candidate to the native

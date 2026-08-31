@@ -16,8 +16,19 @@
   } from '@xyflow/svelte'
   import '@xyflow/svelte/dist/style.css'
   import { onMount } from 'svelte'
+  import AnnotationLayer from './AnnotationLayer.svelte'
+  import {
+    annotationFromSelection,
+    boundsFromPoints,
+    loadAnnotations,
+    resolveFrameBounds,
+    saveAnnotations,
+    type EditorAnnotation,
+    type EditorTool,
+    type EffectiveTool,
+  } from './annotations'
   import ApplicationMenu from './ApplicationMenu.svelte'
-  import { callTapioca, isNativeBridgeAvailable } from './bridge'
+  import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
   import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
   import {
@@ -31,6 +42,7 @@
   import PerformancePanel from './PerformancePanel.svelte'
   import type { DiagnosticMode } from './performance'
   import SchemaNode from './SchemaNode.svelte'
+  import ToolStrip from './ToolStrip.svelte'
   import type {
     GraphEdgeRecord,
     GraphState,
@@ -50,6 +62,10 @@
     | { kind: 'node'; x: number; y: number; node: Node<SchemaNodeData> }
     | { kind: 'edge'; x: number; y: number; edge: Edge }
 
+  type ToolGesture =
+    | { kind: 'rectangle'; pointerId: number; start: XYPosition }
+    | { kind: 'erase'; pointerId: number; last: XYPosition }
+
   let nodes = $state.raw<Node<SchemaNodeData>[]>([])
   let edges = $state.raw<Edge[]>([])
   let catalog = $state.raw<NodeTypeSchema[]>([])
@@ -65,9 +81,23 @@
   let theme = $state<ThemeMode>('system')
   let detailLevel = $state<DetailLevel>('normal')
   let contextTarget = $state<ContextTarget | null>(null)
+  let activeTool = $state<EditorTool>('select')
+  let controlHeld = $state(false)
+  let controlChord = $state(false)
+  let toolGesture = $state<ToolGesture | null>(null)
+  let erasedNodeIds = $state.raw<string[]>([])
+  let erasedEdgeIds = $state.raw<string[]>([])
+  let annotations = $state.raw<EditorAnnotation[]>([])
+  let annotationDraft = $state<EditorAnnotation>()
+  let graphId = $state('default')
   let nativeConnected = $state(isNativeBridgeAvailable())
   let marker = $state<HTMLDivElement>()
   let canvas = $state<HTMLElement>()
+
+  const effectiveTool = $derived<EffectiveTool>(controlHeld && !controlChord ? 'knife' : activeTool)
+  const resolvedAnnotations = $derived(
+    annotations.map((annotation) => resolveFrameBounds(annotation, nodes)),
+  )
 
   function edgeId(edge: GraphEdgeRecord): string {
     return [edge.sourceNode, edge.sourcePort, edge.targetNode, edge.targetPort]
@@ -85,6 +115,7 @@
 
   function applyState(state: GraphState): void {
     revision = state.revision
+    graphId = state.graphId ?? 'default'
     const schemas = new Map(catalog.map((item) => [item.nodeType, item]))
     const resultMap = new Map(results.map((item) => [item.nodeId, item]))
     nodes = state.nodes.map((node, index) => ({
@@ -130,6 +161,7 @@
     busy = true
     failed = false
     try {
+      nativeConnected = await waitForNativeBridge()
       if (!nativeConnected) {
         initializeStandaloneFixture()
         message = 'Standalone diagnostic fixture / no native bridge'
@@ -141,6 +173,7 @@
       // open rather than showing an empty graph until the next evaluation.
       await refreshResults()
       await reloadState()
+      loadEditorAnnotations()
       message = `${catalog.length} native node types / revision ${revision}`
     } catch (error) {
       failed = true
@@ -190,6 +223,7 @@
         },
       ],
     })
+    loadEditorAnnotations()
   }
 
   async function addNode(nodeType: string, requestedPosition?: XYPosition): Promise<void> {
@@ -326,25 +360,25 @@
         (edge) =>
           !removedEdgeIds.has(edge.id) && !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target),
       )
+      removeNodesFromFrames(removedNodeIds)
       message = `Removed ${selectedNodes.length} browser-only nodes and ${selectedEdges.length} connections`
       return
     }
     busy = true
     failed = false
     try {
-      for (const edge of selectedEdges) {
-        await callTapioca('Tapioca.GraphApplyEdit', {
-          editKind: 'disconnect',
+      await callTapioca('Tapioca.GraphEraseElements', {
+        nodeIds: selectedNodes.map((node) => node.id),
+        edges: selectedEdges.map((edge) => ({
           sourceNode: edge.source,
-          sourcePort: edge.sourceHandle,
+          sourcePort: edge.sourceHandle ?? '',
           targetNode: edge.target,
-          targetPort: edge.targetHandle,
-        })
-      }
-      for (const node of selectedNodes) {
-        await callTapioca('Tapioca.GraphApplyEdit', { editKind: 'removeNode', nodeId: node.id })
+          targetPort: edge.targetHandle ?? '',
+        })),
+      })
+      for (const node of selectedNodes)
         positions.delete(node.id)
-      }
+      removeNodesFromFrames(new Set(selectedNodes.map((node) => node.id)))
       message = `Removed ${selectedNodes.length} nodes and ${selectedEdges.length} connections`
     } catch (error) {
       failed = true
@@ -374,23 +408,45 @@
   }
 
   function handleKeyDown(event: KeyboardEvent): void {
+    const target = event.target
+    const editing =
+      target instanceof HTMLElement &&
+      (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
+
+    if (event.key === 'Control') {
+      if (!editing) controlHeld = true
+      return
+    }
+    if (event.ctrlKey && event.key.toLocaleLowerCase() === 'g' && !editing) {
+      controlChord = true
+      createFrameFromSelection()
+      event.preventDefault()
+      return
+    }
     if (event.key !== 'Escape') return
     if (contextTarget !== null) {
       contextTarget = null
       event.preventDefault()
       return
     }
-    const target = event.target
-    if (
-      target instanceof HTMLElement &&
-      (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName))
-    ) {
+    if (editing && target instanceof HTMLElement) {
       target.blur()
     }
+
+    activeTool = 'select'
+    toolGesture = null
+    annotationDraft = undefined
+    clearErasePreview()
 
     nodes = nodes.map((node) => (node.selected ? { ...node, selected: false } : node))
     edges = edges.map((edge) => (edge.selected ? { ...edge, selected: false } : edge))
     event.preventDefault()
+  }
+
+  function handleKeyUp(event: KeyboardEvent): void {
+    if (event.key !== 'Control') return
+    controlHeld = false
+    controlChord = false
   }
 
   async function evaluate(): Promise<void> {
@@ -416,8 +472,97 @@
     }
   }
 
+  async function newGraph(): Promise<void> {
+    if (!nativeConnected) {
+      nodes = []
+      edges = []
+      positions.clear()
+      annotations = []
+      persistAnnotations()
+      message = 'Cleared the browser-only fixture'
+      return
+    }
+    if (nodes.length > 0 && !window.confirm(`Discard ${nodes.length} unsaved nodes and start a new graph?`)) {
+      return
+    }
+    busy = true
+    failed = false
+    try {
+      if (nodes.length > 0) {
+        await callTapioca('Tapioca.GraphEraseElements', {
+          nodeIds: nodes.map((node) => node.id),
+          edges: [],
+        })
+      }
+      positions.clear()
+      annotations = []
+      persistAnnotations()
+      message = 'New graph'
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      await reloadState()
+      await refreshResults()
+      busy = false
+    }
+  }
+
+  function handleFileAction(action: 'new' | 'load' | 'save'): void {
+    if (action === 'new') {
+      void newGraph()
+      return
+    }
+    message = `${action === 'load' ? 'Load' : 'Save'} graph is not available in this editor yet.`
+  }
+
   function rememberPosition({ targetNode }: { targetNode: Node<SchemaNodeData> | null }): void {
     if (targetNode !== null) positions.set(targetNode.id, { ...targetNode.position })
+  }
+
+  function loadEditorAnnotations(): void {
+    annotations = loadAnnotations(localStorage, graphId)
+  }
+
+  function persistAnnotations(): void {
+    saveAnnotations(localStorage, graphId, annotations)
+  }
+
+  function createFrameFromSelection(): void {
+    const frame = annotationFromSelection(
+      `frame-${Date.now().toString(36)}`,
+      nodes.filter((node) => node.selected),
+    )
+    if (frame === undefined) {
+      message = 'Select one or more nodes before grouping.'
+      return
+    }
+    annotations = [...annotations, frame]
+    persistAnnotations()
+    message = `Grouped ${frame.memberNodeIds.length} nodes in a visual frame / Ctrl+G`
+  }
+
+  function removeNodesFromFrames(removedNodeIds: Set<string>): void {
+    if (removedNodeIds.size === 0) return
+    annotations = annotations
+      .map((annotation) =>
+        annotation.kind === 'frame'
+          ? {
+              ...annotation,
+              memberNodeIds: annotation.memberNodeIds.filter((nodeId) => !removedNodeIds.has(nodeId)),
+            }
+          : annotation,
+      )
+      .filter((annotation) => annotation.kind !== 'frame' || annotation.memberNodeIds.length > 0)
+    persistAnnotations()
+  }
+
+  function setActiveTool(tool: EditorTool): void {
+    activeTool = tool
+    toolGesture = null
+    annotationDraft = undefined
+    clearErasePreview()
+    message = tool === 'select' ? 'Selection tool' : tool === 'eraser' ? 'Eraser tool' : 'Rectangle tool'
   }
 
   function setTheme(value: ThemeMode): void {
@@ -481,6 +626,127 @@
     ]
   }
 
+  function isToolUi(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element &&
+      target.closest('.component-picker, .component-rail, .svelte-flow__controls, .svelte-flow__minimap') !== null
+    )
+  }
+
+  function addEraseHitsAt(clientX: number, clientY: number, knifeOnly: boolean): void {
+    const nextNodes = new Set(erasedNodeIds)
+    const nextEdges = new Set(erasedEdgeIds)
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const edge = element.closest<HTMLElement>('.svelte-flow__edge[data-id]')
+      if (edge !== null) nextEdges.add(edge.dataset.id ?? '')
+      if (!knifeOnly) {
+        const node = element.closest<HTMLElement>('.svelte-flow__node[data-id]')
+        if (node !== null) nextNodes.add(node.dataset.id ?? '')
+      }
+    }
+    nextNodes.delete('')
+    nextEdges.delete('')
+    erasedNodeIds = [...nextNodes]
+    erasedEdgeIds = [...nextEdges]
+    syncErasePreview()
+  }
+
+  function addEraseHitsAlong(start: XYPosition, end: XYPosition, knifeOnly: boolean): void {
+    const distance = Math.hypot(end.x - start.x, end.y - start.y)
+    const steps = Math.max(1, Math.ceil(distance / 6))
+    for (let index = 0; index <= steps; index += 1) {
+      const amount = index / steps
+      addEraseHitsAt(
+        start.x + (end.x - start.x) * amount,
+        start.y + (end.y - start.y) * amount,
+        knifeOnly,
+      )
+    }
+  }
+
+  function syncErasePreview(): void {
+    const nodeIds = new Set(erasedNodeIds)
+    const edgeIds = new Set(erasedEdgeIds)
+    nodes = nodes.map((node) => ({ ...node, class: nodeIds.has(node.id) ? 'erase-preview' : undefined }))
+    edges = edges.map((edge) => ({ ...edge, class: edgeIds.has(edge.id) ? 'erase-preview' : undefined }))
+  }
+
+  function clearErasePreview(): void {
+    erasedNodeIds = []
+    erasedEdgeIds = []
+    nodes = nodes.map((node) => ({ ...node, class: undefined }))
+    edges = edges.map((edge) => ({ ...edge, class: undefined }))
+  }
+
+  function handleToolPointerDown(event: PointerEvent): void {
+    if (busy || effectiveTool === 'select' || isToolUi(event.target)) return
+    contextTarget = null
+    if (effectiveTool === 'rectangle') {
+      if (!(event.target instanceof Element) || event.target.closest('.svelte-flow__pane') === null) return
+      const start = screenToFlowPosition({ x: event.clientX, y: event.clientY }, { snapToGrid: snapEnabled })
+      toolGesture = { kind: 'rectangle', pointerId: event.pointerId, start }
+      annotationDraft = {
+        id: 'rectangle-draft',
+        kind: 'rectangle',
+        bounds: boundsFromPoints(start, start),
+        label: '',
+        memberNodeIds: [],
+      }
+    } else {
+      const point = { x: event.clientX, y: event.clientY }
+      toolGesture = { kind: 'erase', pointerId: event.pointerId, last: point }
+      addEraseHitsAt(event.clientX, event.clientY, effectiveTool === 'knife')
+    }
+    canvas?.setPointerCapture(event.pointerId)
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  function handleToolPointerMove(event: PointerEvent): void {
+    if (toolGesture === null || event.pointerId !== toolGesture.pointerId) return
+    if (toolGesture.kind === 'rectangle') {
+      const end = screenToFlowPosition({ x: event.clientX, y: event.clientY }, { snapToGrid: snapEnabled })
+      annotationDraft = {
+        id: 'rectangle-draft',
+        kind: 'rectangle',
+        bounds: boundsFromPoints(toolGesture.start, end),
+        label: '',
+        memberNodeIds: [],
+      }
+    } else {
+      const end = { x: event.clientX, y: event.clientY }
+      addEraseHitsAlong(toolGesture.last, end, effectiveTool === 'knife')
+      toolGesture = { ...toolGesture, last: end }
+    }
+    event.preventDefault()
+  }
+
+  function handleToolPointerUp(event: PointerEvent): void {
+    if (toolGesture === null || event.pointerId !== toolGesture.pointerId) return
+    const completed = toolGesture
+    toolGesture = null
+    if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId)
+
+    if (completed.kind === 'rectangle') {
+      const draft = annotationDraft
+      annotationDraft = undefined
+      if (draft !== undefined && draft.bounds.width >= 8 && draft.bounds.height >= 8) {
+        annotations = [
+          ...annotations,
+          { ...draft, id: `rectangle-${Date.now().toString(36)}`, label: 'Annotation' },
+        ]
+        persistAnnotations()
+        message = 'Created presentation-only rectangle.'
+      }
+    } else {
+      const selectedNodes = nodes.filter((node) => erasedNodeIds.includes(node.id))
+      const selectedEdges = edges.filter((edge) => erasedEdgeIds.includes(edge.id))
+      clearErasePreview()
+      void removeElements(selectedNodes, selectedEdges)
+    }
+    event.preventDefault()
+  }
+
   function movePlainMarker(event: PointerEvent): void {
     if (diagnosticMode !== 'plain-marker') return
     moveMarker(event)
@@ -506,7 +772,7 @@
   })
 </script>
 
-  <svelte:window onkeydown={handleKeyDown} />
+  <svelte:window onkeydown={handleKeyDown} onkeyup={handleKeyUp} />
 
 <main data-theme={theme}>
   <header class="toolbar">
@@ -514,6 +780,7 @@
       <span>Tapioca / Experimental</span>
       <strong>Node Graph</strong>
     </div>
+    <ToolStrip tool={activeTool} {effectiveTool} disabled={busy} onchange={setActiveTool} />
     <ApplicationMenu
       {busy}
       {nativeConnected}
@@ -522,7 +789,8 @@
       {performanceOpen}
       onrefresh={() => void reloadState()}
       onevaluate={() => void evaluate()}
-      onopenpicker={() => (pickerOpen = true)}
+      onfileaction={handleFileAction}
+      onfit={() => void fitView({ duration: 180, padding: 0.2 })}
       ontogglesnap={toggleSnap}
       ontheme={setTheme}
       ontoggleperformance={() => (performanceOpen = !performanceOpen)}
@@ -535,9 +803,18 @@
   <section
     class="canvas"
     class:picker-open={pickerOpen}
+    class:tool-eraser={effectiveTool === 'eraser'}
+    class:tool-rectangle={effectiveTool === 'rectangle'}
+    class:tool-knife={effectiveTool === 'knife'}
     aria-label="Node graph canvas"
     data-detail-level={detailLevel}
-    onpointermove={movePlainMarker}
+    onpointerdown={handleToolPointerDown}
+    onpointermove={(event) => {
+      movePlainMarker(event)
+      handleToolPointerMove(event)
+    }}
+    onpointerup={handleToolPointerUp}
+    onpointercancel={handleToolPointerUp}
     bind:this={canvas}
   >
     <ComponentPicker
@@ -559,6 +836,10 @@
       colorMode={theme as ColorMode}
       colorModeSSR="dark"
       snapGrid={snapEnabled ? SNAP_GRID : undefined}
+      panOnDrag={effectiveTool === 'select'}
+      nodesDraggable={effectiveTool === 'select'}
+      nodesConnectable={effectiveTool === 'select'}
+      elementsSelectable={effectiveTool === 'select'}
       {isValidConnection}
       onbeforeconnect={requestConnection}
       onbeforedelete={removeFromRuntime}
@@ -572,6 +853,7 @@
       onedgecontextmenu={openEdgeContext}
       deleteKey={['Backspace', 'Delete']}
       >
+        <AnnotationLayer annotations={resolvedAnnotations} draft={annotationDraft} />
         {#if diagnosticMode === 'flow'}
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls position="bottom-left" />

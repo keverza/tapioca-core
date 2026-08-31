@@ -86,7 +86,8 @@ main {
 }
 
 .toolbar {
-  z-index: 2;
+  position: relative;
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -117,6 +118,8 @@ main {
 }
 
 .menu-bar {
+  position: relative;
+  z-index: 51;
   display: flex;
   align-self: stretch;
   align-items: center;
@@ -127,6 +130,58 @@ main {
 .menu-root {
   position: relative;
   height: 100%;
+}
+
+.tool-strip {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.tool-strip button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.tool-strip button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  color: var(--accent-soft);
+}
+
+.tool-strip button > span:first-child,
+.knife-indicator span {
+  font-size: 14px;
+}
+
+.rectangle-icon {
+  width: 12px;
+  height: 9px;
+  border: 1px solid currentColor;
+}
+
+.knife-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 7px;
+  border-left: 1px solid var(--border);
+  color: var(--text-faint);
+  font: 9px/1 ui-monospace, monospace;
+}
+
+.knife-indicator.active {
+  color: var(--danger);
 }
 
 .menu-root > button {
@@ -152,7 +207,7 @@ main {
 
 .menu-popover {
   position: absolute;
-  z-index: 10;
+  z-index: 60;
   top: calc(100% - 7px);
   left: 0;
   min-width: 190px;
@@ -182,6 +237,25 @@ main {
 
 .menu-popover button:not(.menu-toggle) {
   grid-template-columns: 1fr;
+}
+
+.menu-submenu-root {
+  position: relative;
+}
+
+.menu-popover button.submenu-trigger {
+  grid-template-columns: minmax(120px, 1fr) auto;
+}
+
+.submenu-trigger span {
+  color: var(--text-faint);
+  font-size: 16px;
+}
+
+.menu-submenu {
+  top: -5px;
+  left: 100%;
+  min-width: 205px;
 }
 
 .menu-popover button:hover:not(:disabled) {
@@ -267,6 +341,66 @@ select:disabled {
     linear-gradient(rgb(255 255 255 / 1.5%) 1px, transparent 1px),
     linear-gradient(90deg, rgb(255 255 255 / 1.5%) 1px, transparent 1px);
   background-size: 80px 80px;
+}
+
+.canvas.tool-eraser,
+.canvas.tool-knife {
+  cursor: crosshair;
+}
+
+.canvas.tool-rectangle {
+  cursor: cell;
+}
+
+.annotation-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.graph-annotation {
+  position: absolute;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.graph-annotation.rectangle {
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.graph-annotation.frame {
+  border: 1px dashed color-mix(in srgb, #6ea8d9 70%, transparent);
+  background: color-mix(in srgb, #6ea8d9 7%, transparent);
+}
+
+.graph-annotation > span {
+  position: absolute;
+  top: -22px;
+  left: 8px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font: 9px/1 ui-monospace, monospace;
+  white-space: nowrap;
+}
+
+.graph-annotation.draft {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.svelte-flow__node.erase-preview > :first-child {
+  outline: 2px solid var(--danger);
+  filter: saturate(0.35);
+  opacity: 0.62;
+}
+
+.svelte-flow__edge.erase-preview path {
+  stroke: var(--danger) !important;
+  stroke-width: 5 !important;
+  stroke-dasharray: 8 5;
 }
 
 .canvas.picker-open .svelte-flow {
@@ -590,6 +724,10 @@ main > footer code {
     flex-direction: column;
     gap: 8px;
     padding: 10px 12px;
+  }
+
+  .tool-strip {
+    order: 2;
   }
 
   .menu-bar {

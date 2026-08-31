@@ -153,6 +153,48 @@ TEST (NodeGraphEdits, RejectsTypeMismatchOccupiedInputAndUnknownIds)
     EXPECT_EQ (1U, graph.Edges ().size ());
 }
 
+TEST (NodeGraphEdits, RemovesNodesAndEdgesInOneAtomicRevision)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "one", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "two", "number", 2).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    const Edge left = Connect ("one", "value", "sum", "left");
+    const Edge right = Connect ("two", "value", "sum", "right");
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { left } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { right } }).accepted);
+    const uint64_t revision = graph.Revision ();
+
+    const EditResult result =
+        ApplyEdit (graph, registry, GraphEdit { RemoveElementsEdit { { "one" }, { right } } });
+
+    ASSERT_TRUE (result.accepted) << result.error;
+    EXPECT_EQ (revision + 1, graph.Revision ());
+    EXPECT_EQ (nullptr, graph.FindNode ("one"));
+    EXPECT_TRUE (graph.Edges ().empty ());
+    EXPECT_NE (result.dirtyNodes.end (), std::find (result.dirtyNodes.begin (), result.dirtyNodes.end (), "sum"));
+}
+
+TEST (NodeGraphEdits, RejectsWholeElementRemovalWhenOneIdIsUnknown)
+{
+    const NodeRegistry registry = MakeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (AddNode (graph, registry, "one", "number", 1).accepted);
+    ASSERT_TRUE (AddNode (graph, registry, "sum", "add").accepted);
+    const Edge edge = Connect ("one", "value", "sum", "left");
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { edge } }).accepted);
+    const uint64_t revision = graph.Revision ();
+
+    const EditResult result =
+        ApplyEdit (graph, registry, GraphEdit { RemoveElementsEdit { { "missing" }, { edge } } });
+
+    EXPECT_FALSE (result.accepted);
+    EXPECT_EQ (revision, graph.Revision ());
+    EXPECT_NE (nullptr, graph.FindNode ("one"));
+    EXPECT_EQ (1U, graph.Edges ().size ());
+}
+
 TEST (NodeGraphTopoOrder, IsDeterministicAndIncludesDisconnectedNodes)
 {
     const NodeRegistry registry = MakeRegistry ();
