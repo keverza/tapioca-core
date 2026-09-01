@@ -27,15 +27,22 @@
   section {
     position: relative;
     height: 100%;
-    min-height: 150px;
-    margin: 0 10px 10px;
     overflow: hidden;
     border: 1px solid #303945;
     border-radius: 4px;
     background: radial-gradient(circle at 50% 35%, #26313b 0%, #0c1014 72%);
   }
 
+  /*
+   * Taken OUT OF FLOW, so the canvas can never contribute to the height of the
+   * box it is measuring itself against. In flow it did, and the node grew a
+   * little on every frame for as long as it stayed selected. NodeBody gives
+   * this section a definite height; the canvas just fills it.
+   */
   section :global(canvas) {
+    position: absolute;
+    inset: 0;
+    display: block;
     width: 100% !important;
     height: 100% !important;
   }

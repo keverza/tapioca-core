@@ -5,7 +5,8 @@
   let {
     annotations,
     draft,
-  }: { annotations: EditorAnnotation[]; draft?: EditorAnnotation } = $props()
+    selectedId,
+  }: { annotations: EditorAnnotation[]; draft?: EditorAnnotation; selectedId?: string } = $props()
 </script>
 
 <ViewportPortal target="back">
@@ -14,10 +15,11 @@
       <div
         class:frame={annotation.kind === 'frame'}
         class:rectangle={annotation.kind === 'rectangle'}
+        class:selected={annotation.id === selectedId}
         class="graph-annotation"
         style={`left:${annotation.bounds.x}px;top:${annotation.bounds.y}px;width:${annotation.bounds.width}px;height:${annotation.bounds.height}px`}
       >
-        <span>{annotation.label}</span>
+        {#if annotation.label !== ''}<span>{annotation.label}</span>{/if}
       </div>
     {/each}
     {#if draft !== undefined}

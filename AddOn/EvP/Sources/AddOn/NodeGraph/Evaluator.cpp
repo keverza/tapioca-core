@@ -317,11 +317,25 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
         }
 
         if (values.empty ()) {
-            if (input.required) {
+            // Nothing is wired to this port, so the node falls back to the
+            // input's INTERNALISED value - a parameter stored under the input's
+            // own id, which is how a typed-in number reaches a port that has no
+            // declared parameter. GraphEdit's ValidateNode is what keeps the
+            // type honest, and the value is already folded into inputHash above
+            // with every other parameter, so retyping it invalidates the cache.
+            //
+            // An edge always wins: this branch is only reached when there is none.
+            const auto internalised = node.parameters.find (input.id);
+            if (internalised != node.parameters.end () && internalised->second.Type () != ValueType::Absent) {
+                inputs.emplace (input.id, internalised->second);
+            }
+            else if (input.required) {
                 FailNode (nodeId, statuscode::kErrorInput, "required input is unconnected: " + input.id, 0.0, state);
                 return false;
             }
-            inputs.emplace (input.id, Value {});
+            else {
+                inputs.emplace (input.id, Value {});
+            }
         }
         else if (input.acceptsMultiple) {
             inputs.emplace (input.id, Value (std::move (values)));

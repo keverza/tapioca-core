@@ -18,9 +18,12 @@
   import { onMount } from 'svelte'
   import AnnotationLayer from './AnnotationLayer.svelte'
   import {
+    annotationAtPoint,
     annotationFromSelection,
     boundsFromPoints,
     loadAnnotations,
+    removeAnnotation,
+    renameAnnotation,
     resolveFrameBounds,
     saveAnnotations,
     type EditorAnnotation,
@@ -31,9 +34,12 @@
   import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
   import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
+  import { parsePortReference, serializePortReference } from './nodes/types/portReference'
   import {
     applyLayoutToPositions,
+    describeValueRule,
     detailLevelForZoom,
+    graphValueFromText,
     initialTheme,
     isCatalogConnectionValid,
     NODE_DRAG_MIME,
@@ -50,9 +56,11 @@
     saveGraph,
     type StoredGraphInfo,
   } from './library'
+  import NodeSearch from './NodeSearch.svelte'
   import PerformancePanel from './PerformancePanel.svelte'
   import type { DiagnosticMode } from './performance'
   import MasterNode from './nodes/MasterNode.svelte'
+  import { requestQuickMenu, requestRename } from './nodes/renameRequest.svelte'
   import { parseNodePresentations, serializeNodePresentations } from './nodes/serialization'
   import ToolStrip from './ToolStrip.svelte'
   import type {
@@ -62,6 +70,7 @@
     GraphState,
     NodeResultRecord,
     NodeTypeSchema,
+    PortReference,
     PositionStore,
     SchemaNodeData,
     SelectionAction,
@@ -69,6 +78,15 @@
   } from './types'
 
   const nodeTypes: NodeTypes = { schema: MasterNode }
+  /**
+   * MIDDLE mouse pans; left drag is a selection rectangle.
+   *
+   * Panning on left-drag is what every node editor this one is measured against
+   * does NOT do, and it cost the rubber-band selection to have it: a drag on
+   * empty canvas is how a person selects a group, and the pan is a deliberate
+   * middle-button gesture. 1 is the middle button.
+   */
+  const PAN_BUTTONS = [1]
   const positions: PositionStore = new Map()
   const visuals = new Map<string, NodeVisualState>()
   const SNAP_GRID: [number, number] = [16, 16]
@@ -78,6 +96,7 @@
     | { kind: 'pane'; x: number; y: number }
     | { kind: 'node'; x: number; y: number; node: Node<SchemaNodeData> }
     | { kind: 'edge'; x: number; y: number; edge: Edge }
+    | { kind: 'port'; x: number; y: number; nodeId: string; portId: string; direction: 'input' | 'output' }
 
   type ToolGesture =
     | { kind: 'rectangle'; pointerId: number; start: XYPosition }
@@ -106,6 +125,21 @@
   let erasedEdgeIds = $state.raw<string[]>([])
   let annotations = $state.raw<EditorAnnotation[]>([])
   let annotationDraft = $state<EditorAnnotation>()
+  // Presentation-only rectangles are selected here rather than by the flow
+  // library, which knows nothing about them: they are drawn on the layer BEHIND
+  // the nodes and take no pointer events, so the canvas hit-tests their stored
+  // bounds instead. See annotationAtPoint.
+  let selectedAnnotationId = $state<string | null>(null)
+  // Double-click-anywhere component search. Carries the flow-space position the
+  // node lands on as well as the screen point the palette is drawn at.
+  let searchTarget = $state<{ x: number; y: number; position: XYPosition } | null>(null)
+  /**
+   * A locked solution refuses to evaluate. Editing stays open - the point is to
+   * change several things without paying for a run after each one - and the
+   * runtime is never told, because the runtime does not evaluate unless it is
+   * asked. Locking is therefore exactly "stop asking".
+   */
+  let solutionLocked = $state(false)
   let graphId = $state('default')
   let nativeConnected = $state(isNativeBridgeAvailable())
   let marker = $state<HTMLDivElement>()
@@ -156,6 +190,10 @@
         onvisualchange: handleVisualChange,
         visual: visuals.get(node.nodeId),
         onexecutionchange: (nodeId, mode) => void setExecutionMode(nodeId, mode),
+        onparameterchange: (nodeId, parameterId, valueType, text) =>
+          void setParameter(nodeId, parameterId, valueType, text),
+        onportreference: (reference, target) => connectReference(reference, target),
+        onportcontextmenu: (event, target) => openPortContext(event, target),
         portConnections: [
           ...(schemas.get(node.nodeType)?.inputs ?? []).map((port) => {
             const matching = state.edges.filter((edge) => edge.targetNode === node.nodeId && edge.targetPort === port.portId)
@@ -414,6 +452,109 @@
     }
   }
 
+  /**
+   * A value typed into a control.
+   *
+   * Goes through Tapioca.GraphApplyEdit like a wire does, because that is what
+   * it is: a document edit the runtime owns. The text is turned into the
+   * runtime's encoding HERE and refused here when it is not one - a box that
+   * will not take "six" says so immediately, where a round trip would answer
+   * with a type-mismatch two states later.
+   */
+  async function setParameter(nodeId: string, parameterId: string, valueType: string, text: string): Promise<void> {
+    const value = graphValueFromText(valueType, text)
+    if (value === undefined) {
+      if (text.trim() === '') return
+      failed = true
+      message = `"${text.trim()}" is not ${describeValueRule(valueType)}.`
+      return
+    }
+    if (!nativeConnected) {
+      message = 'Typed-in values need the native graph runtime.'
+      return
+    }
+    busy = true
+    failed = false
+    try {
+      await callTapioca('Tapioca.GraphApplyEdit', { graphId, editKind: 'setParam', nodeId, parameterId, value })
+      await reloadState()
+      message = `${nodeId}.${parameterId} = ${text.trim()} / revision ${revision}`
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+      await reloadState()
+    } finally {
+      busy = false
+    }
+  }
+
+  /**
+   * A port reference pasted onto an input.
+   *
+   * The clipboard names a port; the only thing that can be done with a named
+   * port is wire it up, so this is a connection request and goes through the
+   * same validation every dragged wire does.
+   */
+  function connectReference(reference: PortReference, target: { nodeId: string; portId: string }): void {
+    if (reference.direction !== 'output') {
+      failed = true
+      message = 'That reference names an input. Copy an OUTPUT port to paste it onto an input.'
+      return
+    }
+    if (!nodes.some((node) => node.id === reference.nodeId)) {
+      failed = true
+      message = `The reference names ${reference.nodeId}, which is not in this graph.`
+      return
+    }
+    requestConnection({
+      source: reference.nodeId,
+      sourceHandle: reference.portId,
+      target: target.nodeId,
+      targetHandle: target.portId,
+    })
+  }
+
+  function copyPortReference(nodeId: string, portId: string, direction: 'input' | 'output'): void {
+    const node = nodes.find((item) => item.id === nodeId)
+    const ports = direction === 'input' ? node?.data.schema.inputs : node?.data.schema.outputs
+    const valueType = ports?.find((port) => port.portId === portId)?.valueType ?? ''
+    void navigator.clipboard?.writeText(
+      serializePortReference({ kind: 'nodePort', nodeId, portId, direction, valueType }),
+    )
+    message = `Copied a reference to ${nodeId}.${portId}`
+    failed = false
+  }
+
+  /** Paste onto an input: the clipboard names a port, so this wires it up. */
+  async function pastePortReference(nodeId: string, portId: string): Promise<void> {
+    let text: string | undefined
+    try {
+      text = await navigator.clipboard?.readText()
+    } catch {
+      failed = true
+      message = 'The clipboard is not readable here. Copy a port reference and paste it into the input box instead.'
+      return
+    }
+    const reference = text === undefined ? undefined : parsePortReference(text)
+    if (reference === undefined) {
+      failed = true
+      message = 'The clipboard does not hold a port reference.'
+      return
+    }
+    connectReference(reference, { nodeId, portId })
+  }
+
+  /** Every wire on one port, dropped in a single erase. */
+  async function disconnectPort(nodeId: string, portId: string, direction: 'input' | 'output'): Promise<void> {
+    const affected = edges.filter((edge) =>
+      direction === 'input'
+        ? edge.target === nodeId && edge.targetHandle === portId
+        : edge.source === nodeId && edge.sourceHandle === portId,
+    )
+    if (affected.length === 0) return
+    await removeElements([], affected)
+  }
+
   const isValidConnection: IsValidConnection = (connection) =>
     isCatalogConnectionValid(connection, nodes, edges)
 
@@ -504,7 +645,25 @@
       event.preventDefault()
       return
     }
+    // Delete removes the selected annotation. The flow library's own delete key
+    // only reaches nodes and edges, and an annotation is neither.
+    if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      !editing &&
+      selectedAnnotationId !== null &&
+      !nodes.some((node) => node.selected) &&
+      !edges.some((edge) => edge.selected)
+    ) {
+      deleteAnnotation(selectedAnnotationId)
+      event.preventDefault()
+      return
+    }
     if (event.key !== 'Escape') return
+    if (searchTarget !== null) {
+      searchTarget = null
+      event.preventDefault()
+      return
+    }
     if (contextTarget !== null) {
       contextTarget = null
       event.preventDefault()
@@ -517,6 +676,7 @@
     activeTool = 'select'
     toolGesture = null
     annotationDraft = undefined
+    selectedAnnotationId = null
     clearErasePreview()
 
     nodes = nodes.map((node) => (node.selected ? { ...node, selected: false } : node))
@@ -543,6 +703,11 @@
   }
 
   async function evaluate(maxParallel = 0): Promise<void> {
+    if (solutionLocked) {
+      failed = true
+      message = 'The solution is locked. Resume it to evaluate.'
+      return
+    }
     if (!nativeConnected) {
       message = 'Evaluation requires the native graph runtime; interaction timing does not.'
       return
@@ -873,6 +1038,49 @@
     message = `Grouped ${frame.memberNodeIds.length} nodes in a visual frame / Ctrl+G`
   }
 
+  // -------------------------------------------------------------------------
+  // Annotations are presentation only: they live in this browser's storage and
+  // the runtime never sees one. That is exactly why they need their own delete
+  // and rename - nothing else in the editor can reach them, which is what made
+  // a stray rectangle permanent.
+  // -------------------------------------------------------------------------
+
+  function selectedAnnotation(): EditorAnnotation | undefined {
+    return resolvedAnnotations.find((annotation) => annotation.id === selectedAnnotationId)
+  }
+
+  function deleteAnnotation(id: string): void {
+    const removed = resolvedAnnotations.find((annotation) => annotation.id === id)
+    annotations = removeAnnotation(annotations, id)
+    if (selectedAnnotationId === id) selectedAnnotationId = null
+    persistAnnotations()
+    message = `Deleted the ${removed?.kind ?? 'annotation'} "${removed?.label || 'untitled'}"`
+  }
+
+  function promptRenameAnnotation(id: string): void {
+    const annotation = resolvedAnnotations.find((item) => item.id === id)
+    if (annotation === undefined) return
+    const label = window.prompt('Annotation label', annotation.label)
+    if (label === null) return
+    annotations = renameAnnotation(annotations, id, label)
+    persistAnnotations()
+    message = label.trim() === '' ? 'Cleared the annotation label' : `Renamed the annotation to "${label.trim()}"`
+  }
+
+  function clearAnnotations(): void {
+    if (annotations.length === 0) return
+    const count = annotations.length
+    annotations = []
+    selectedAnnotationId = null
+    persistAnnotations()
+    message = `Removed ${count} annotation${count === 1 ? '' : 's'}`
+  }
+
+  /** Which annotation, if any, a canvas press landed in. */
+  function annotationAt(event: MouseEvent): EditorAnnotation | undefined {
+    return annotationAtPoint(resolvedAnnotations, screenToFlowPosition({ x: event.clientX, y: event.clientY }))
+  }
+
   function removeNodesFromFrames(removedNodeIds: Set<string>): void {
     if (removedNodeIds.size === 0) return
     annotations = annotations
@@ -901,6 +1109,14 @@
     localStorage.setItem('tapioca.graph.theme', value)
   }
 
+  function toggleSolutionLock(): void {
+    solutionLocked = !solutionLocked
+    failed = false
+    message = solutionLocked
+      ? 'Solution locked / edits are accepted, nothing is evaluated until you resume'
+      : 'Solution resumed / Evaluate is available again'
+  }
+
   function toggleSnap(): void {
     snapEnabled = !snapEnabled
     message = `Grid snap ${snapEnabled ? 'enabled at 16 px' : 'disabled'}`
@@ -918,14 +1134,50 @@
     }
   }
 
+  function handlePaneClick(event: MouseEvent): void {
+    contextTarget = null
+    const annotation = annotationAt(event)
+    selectedAnnotationId = annotation?.id ?? null
+    if (annotation !== undefined) {
+      message = `Selected the ${annotation.kind} "${annotation.label || 'untitled'}" / Delete removes it, right-click renames it`
+      failed = false
+    }
+  }
+
   function openPaneContext({ event }: { event: MouseEvent }): void {
     event.preventDefault()
+    // Right-clicking an annotation selects it, so the menu that opens is about
+    // the thing under the pointer rather than about the canvas in general.
+    selectedAnnotationId = annotationAt(event)?.id ?? null
     contextTarget = { kind: 'pane', ...contextPosition(event) }
+  }
+
+  /**
+   * Double-click anywhere: the component search, at the pointer, placing the
+   * node where it was double-clicked. The rail is still the way to BROWSE the
+   * catalog; this is the way to place something whose name you know.
+   */
+  function handlePaneDoubleClick(event: MouseEvent): void {
+    if (!(event.target instanceof Element) || event.target.closest('.svelte-flow__pane') === null) return
+    if (busy || effectiveTool !== 'select') return
+    contextTarget = null
+    const point = contextPosition(event)
+    searchTarget = {
+      ...point,
+      position: screenToFlowPosition({ x: event.clientX, y: event.clientY }, { snapToGrid: snapEnabled }),
+    }
   }
 
   function openNodeContext({ node, event }: { node: Node<SchemaNodeData>; event: MouseEvent }): void {
     event.preventDefault()
     contextTarget = { kind: 'node', node, ...contextPosition(event) }
+  }
+
+  function openPortContext(
+    event: MouseEvent,
+    target: { nodeId: string; portId: string; direction: 'input' | 'output' },
+  ): void {
+    contextTarget = { kind: 'port', ...target, ...contextPosition(event) }
   }
 
   function openEdgeContext({ edge, event }: { edge: Edge; event: MouseEvent }): void {
@@ -934,12 +1186,73 @@
   }
 
   function contextLabel(): string {
+    if (contextTarget?.kind === 'port') {
+      const port = contextPort()
+      return port === undefined ? 'Port' : `${port.label} / ${port.valueType}`
+    }
     if (contextTarget?.kind === 'node') return contextTarget.node.data.schema.label
     if (contextTarget?.kind === 'edge') return 'Connection'
+    const annotation = selectedAnnotation()
+    if (annotation !== undefined) return annotation.kind === 'frame' ? 'Frame' : 'Annotation'
     return 'Canvas'
   }
 
+  function contextPort() {
+    // Copied to a local first: narrowing does not survive into the callbacks
+    // below, because `contextTarget` is reactive state and reads as a getter.
+    const target = contextTarget
+    if (target?.kind !== 'port') return undefined
+    const node = nodes.find((item) => item.id === target.nodeId)
+    const ports = target.direction === 'input' ? node?.data.schema.inputs : node?.data.schema.outputs
+    return ports?.find((port) => port.portId === target.portId)
+  }
+
   function contextActions() {
+    // Ports go through the SAME menu as everything else. The transforms are
+    // grouped rather than listed flat, because they are a different kind of
+    // thing from the four verbs above them.
+    if (contextTarget?.kind === 'port') {
+      const { nodeId, portId, direction } = contextTarget
+      const connected = edges.some((edge) =>
+        direction === 'input'
+          ? edge.target === nodeId && edge.targetHandle === portId
+          : edge.source === nodeId && edge.sourceHandle === portId,
+      )
+      const native = 'Requires a native expected-revision graph edit'
+      const transforms =
+        direction === 'input'
+          ? ['reverse', 'simplify', 'flatten', 'graft', 'reparameterize']
+          : ['simplify', 'flatten', 'graft']
+      return [
+        { label: 'Copy reference', run: () => copyPortReference(nodeId, portId, direction) },
+        ...(direction === 'input'
+          ? [{ label: 'Paste reference', run: () => void pastePortReference(nodeId, portId) }]
+          : []),
+        {
+          label: direction === 'input' ? 'Disconnect' : 'Disconnect all',
+          disabled: !connected || busy,
+          title: connected ? undefined : `Nothing is wired to this ${direction}.`,
+          run: () => void disconnectPort(nodeId, portId, direction),
+        },
+        ...(direction === 'input'
+          ? [
+              { label: 'Internalise', disabled: true, title: native, run: () => {} },
+              { label: 'Promote parameter', disabled: true, title: native, run: () => {} },
+            ]
+          : [
+              { label: 'Promote as graph output', disabled: true, title: native, run: () => {} },
+              { label: 'Inspect data', disabled: true, title: 'Requires native runtime value inspection', run: () => {} },
+              { label: 'Set as display output', disabled: true, title: native, run: () => {} },
+            ]),
+        ...transforms.map((transform) => ({
+          label: transform,
+          disabled: true,
+          title: native,
+          group: 'Modifiers',
+          run: () => {},
+        })),
+      ]
+    }
     if (contextTarget?.kind === 'node') {
       const node = contextTarget.node
       const mode = node.data.executionMode ?? 'enabled'
@@ -957,6 +1270,8 @@
         run: () => void setExecutionMode(node.id, target),
       })
       return [
+        { label: 'Quick actions', title: 'Also: middle-click the node', run: () => requestQuickMenu(node.id) },
+        { label: 'Rename', title: 'Also: right-click the node title', run: () => requestRename(node.id) },
         { label: 'Fit node', run: () => void fitView({ nodes: [node], duration: 180, padding: 0.8 }) },
         modeAction('Enable', 'enabled', true, ''),
         modeAction('Disable', 'disabled', true, ''),
@@ -979,9 +1294,35 @@
       const edge = contextTarget.edge
       return [{ label: 'Disconnect', disabled: busy, run: () => void removeElements([], [edge]) }]
     }
+    // The canvas menu. An annotation under the pointer puts its own two verbs at
+    // the top rather than opening a different menu: it IS the canvas menu, for
+    // the piece of canvas that was clicked.
+    const annotation = selectedAnnotation()
     return [
-      { label: 'Open components', run: () => (pickerOpen = true) },
+      ...(annotation === undefined
+        ? []
+        : [
+            { label: `Rename "${annotation.label || 'untitled'}"`, run: () => promptRenameAnnotation(annotation.id) },
+            { label: `Delete ${annotation.kind}`, run: () => deleteAnnotation(annotation.id) },
+          ]),
+      {
+        label: solutionLocked ? 'Resume solution' : 'Lock solution',
+        title: solutionLocked
+          ? 'Allow Evaluate to run again'
+          : 'Keep editing without evaluating; Evaluate is refused until you resume',
+        run: toggleSolutionLock,
+      },
+      {
+        label: pickerOpen ? 'Close components catalog' : 'Open components catalog',
+        run: () => (pickerOpen = !pickerOpen),
+      },
       { label: 'Fit graph', disabled: nodes.length === 0, run: () => void fitView({ duration: 180, padding: 0.2 }) },
+      {
+        label: 'Clear annotations',
+        disabled: annotations.length === 0,
+        title: annotations.length === 0 ? 'This graph has no rectangles or frames.' : undefined,
+        run: clearAnnotations,
+      },
     ]
   }
 
@@ -1149,6 +1490,8 @@
       onrefresh={() => void reloadState()}
       onevaluate={() => void evaluate()}
       onevaluatesequential={() => void evaluate(1)}
+      {solutionLocked}
+      ontogglelock={toggleSolutionLock}
       onfileaction={handleFileAction}
       onfit={() => void fitView({ duration: 180, padding: 0.2 })}
       ontogglesnap={toggleSnap}
@@ -1189,6 +1532,7 @@
     }}
     onpointerup={handleToolPointerUp}
     onpointercancel={handleToolPointerUp}
+    ondblclick={handlePaneDoubleClick}
     bind:this={canvas}
   >
     <ComponentPicker
@@ -1210,7 +1554,10 @@
       colorMode={theme as ColorMode}
       colorModeSSR="dark"
       snapGrid={snapEnabled ? SNAP_GRID : undefined}
-      panOnDrag={effectiveTool === 'select'}
+      panOnDrag={effectiveTool === 'select' ? PAN_BUTTONS : false}
+      selectionOnDrag={effectiveTool === 'select'}
+      panOnScroll={false}
+      zoomOnDoubleClick={false}
       nodesDraggable={effectiveTool === 'select'}
       nodesConnectable={effectiveTool === 'select'}
       elementsSelectable={effectiveTool === 'select'}
@@ -1221,13 +1568,13 @@
       onmove={handleMove}
       ondragover={handleDragOver}
       ondrop={handleDrop}
-      onpaneclick={() => (contextTarget = null)}
+      onpaneclick={({ event }) => handlePaneClick(event)}
       onpanecontextmenu={openPaneContext}
       onnodecontextmenu={openNodeContext}
       onedgecontextmenu={openEdgeContext}
       deleteKey={['Backspace', 'Delete']}
       >
-        <AnnotationLayer annotations={resolvedAnnotations} draft={annotationDraft} />
+        <AnnotationLayer annotations={resolvedAnnotations} draft={annotationDraft} selectedId={selectedAnnotationId ?? undefined} />
         {#if diagnosticMode === 'flow'}
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls position="bottom-left" />
@@ -1239,6 +1586,16 @@
         <div class="plain-marker" bind:this={marker}></div>
         <p>Move continuously. This div follows {diagnosticMode === 'raw-marker' ? 'pointerrawupdate' : 'pointermove'} through one direct CSS transform with no Svelte state update.</p>
       </div>
+    {/if}
+
+    {#if searchTarget !== null}
+      <NodeSearch
+        {catalog}
+        x={searchTarget.x}
+        y={searchTarget.y}
+        onplace={(nodeType) => void addNode(nodeType, searchTarget?.position)}
+        onclose={() => (searchTarget = null)}
+      />
     {/if}
 
     {#if contextTarget !== null}
@@ -1272,6 +1629,7 @@
   <footer class:error={failed}>
     <span class:active={busy}></span>
     <p>{message}</p>
+    {#if solutionLocked}<code class="locked">solution locked</code>{/if}
     <code>{nativeConnected ? `rev ${revision}` : 'fixture'}</code>
   </footer>
 </main>

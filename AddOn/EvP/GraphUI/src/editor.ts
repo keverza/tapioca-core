@@ -1,5 +1,5 @@
 import type { Connection, Edge, Node } from '@xyflow/svelte'
-import type { NodeTypeSchema, PositionStore, SchemaNodeData } from './types'
+import type { GraphValue, NodeTypeSchema, PositionStore, SchemaNodeData } from './types'
 
 export type DetailLevel = 'compact' | 'normal' | 'detailed'
 export type ThemeMode = 'light' | 'dark' | 'system'
@@ -131,4 +131,60 @@ export function applyLayoutToPositions(layout: LayoutRecord[], positions: Positi
     // placement rather than dropped on the origin.
     if (Number.isFinite(x) && Number.isFinite(y)) positions.set(record.nodeId, { x, y })
   }
+}
+
+// ---------------------------------------------------------------------------
+// Typed-in values.
+// ---------------------------------------------------------------------------
+
+/**
+ * What a person typed, in the runtime's value encoding - or `undefined` when
+ * the text is not a value of that type at all.
+ *
+ * Refusing here rather than sending it is the point: the runtime would reject a
+ * mistyped parameter anyway, and a round trip that comes back "parameter type
+ * mismatch" tells the user less than the box that would not take the text.
+ *
+ * An EMPTY box is `undefined` too, and means "leave it alone". The native
+ * setParam encoding has no spelling for an absent value, so there is nothing
+ * honest to send for a cleared box; wiring an edge is how an internalised input
+ * is overridden.
+ */
+export function graphValueFromText(valueType: string, text: string): GraphValue | undefined {
+  const trimmed = text.trim()
+  if (trimmed === '') return undefined
+
+  if (valueType === 'double') {
+    const number = Number(trimmed)
+    return Number.isFinite(number) ? { valueType, number } : undefined
+  }
+  if (valueType === 'integer') {
+    const number = Number(trimmed)
+    return Number.isInteger(number) ? { valueType, number } : undefined
+  }
+  if (valueType === 'bool') {
+    const lowered = trimmed.toLocaleLowerCase()
+    if (['true', 'yes', 'on', '1'].includes(lowered)) return { valueType, bool: true }
+    if (['false', 'no', 'off', '0'].includes(lowered)) return { valueType, bool: false }
+    return undefined
+  }
+  if (valueType === 'string') return { valueType, text: trimmed }
+  if (valueType === 'archicadElementRef') return { valueType, text: trimmed }
+  if (valueType === 'point3') {
+    const numbers = trimmed.split(/[\s,]+/).map(Number)
+    return numbers.length === 3 && numbers.every(Number.isFinite) ? { valueType, numbers } : undefined
+  }
+  // list, mesh, polyline, polygon: produced by a node, never typed.
+  return undefined
+}
+
+/** What a box of this type will accept, for the message when it did not. */
+export function describeValueRule(valueType: string): string {
+  if (valueType === 'double') return 'a number'
+  if (valueType === 'integer') return 'a whole number'
+  if (valueType === 'bool') return 'true or false'
+  if (valueType === 'string') return 'any text'
+  if (valueType === 'point3') return 'three numbers, e.g. "0, 0, 1"'
+  if (valueType === 'archicadElementRef') return 'an element GUID'
+  return `no typed value - ${valueType} comes from a connection`
 }

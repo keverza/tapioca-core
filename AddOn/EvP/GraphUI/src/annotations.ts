@@ -66,6 +66,51 @@ export function resolveFrameBounds(
   return resolved === undefined ? annotation : { ...resolved, label: annotation.label }
 }
 
+/** Remove one annotation by id. A no-op for an id that is not there. */
+export function removeAnnotation(
+  annotations: EditorAnnotation[],
+  id: string,
+): EditorAnnotation[] {
+  return annotations.filter((annotation) => annotation.id !== id)
+}
+
+/**
+ * Rename one annotation.
+ *
+ * An empty name is kept as an empty label rather than refused: a rectangle with
+ * no caption is a legitimate thing to want, and it is also how a caption is
+ * removed once it has been typed.
+ */
+export function renameAnnotation(
+  annotations: EditorAnnotation[],
+  id: string,
+  label: string,
+): EditorAnnotation[] {
+  return annotations.map((annotation) =>
+    annotation.id === id ? { ...annotation, label: label.trim() } : annotation,
+  )
+}
+
+/** The topmost annotation containing a flow-space point, or undefined. */
+export function annotationAtPoint(
+  annotations: EditorAnnotation[],
+  point: XYPosition,
+): EditorAnnotation | undefined {
+  // Last first: later annotations are drawn on top, so they are hit first.
+  for (let index = annotations.length - 1; index >= 0; index -= 1) {
+    const { bounds } = annotations[index]
+    if (
+      point.x >= bounds.x &&
+      point.x <= bounds.x + bounds.width &&
+      point.y >= bounds.y &&
+      point.y <= bounds.y + bounds.height
+    ) {
+      return annotations[index]
+    }
+  }
+  return undefined
+}
+
 export function loadAnnotations(
   storage: Pick<Storage, 'getItem'> | undefined,
   graphKey: string,

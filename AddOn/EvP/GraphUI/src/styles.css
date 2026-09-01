@@ -386,6 +386,23 @@ select:disabled {
   white-space: nowrap;
 }
 
+/*
+ * Selection is drawn here and hit-tested in the editor, against the stored
+ * bounds, rather than by making the layer take pointer events: this layer sits
+ * BEHIND the nodes on purpose, and a rectangle that swallowed presses would
+ * take them from the canvas it is drawn under.
+ */
+.graph-annotation.selected {
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.graph-annotation.selected > span {
+  border: 1px solid var(--accent);
+  color: var(--text);
+}
+
 .graph-annotation.draft {
   border-style: dashed;
   background: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -594,6 +611,16 @@ select:disabled {
   background: var(--surface-hover);
 }
 
+.context-menu .group {
+  margin-top: 4px;
+  padding: 7px 10px 3px;
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font: 9px/1 ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -677,7 +704,7 @@ select:disabled {
 
 main > footer {
   display: grid;
-  grid-template-columns: 8px 1fr auto;
+  grid-template-columns: 8px 1fr auto auto;
   align-items: center;
   gap: 9px;
   padding: 0 12px;
@@ -712,6 +739,15 @@ main > footer p {
 
 main > footer code {
   color: #687686;
+}
+
+/* Not a colour change on the whole footer: a locked solution is a MODE the user
+   chose, not a failure, and it has to stay legible next to a red error line. */
+main > footer code.locked {
+  padding: 2px 6px;
+  border: 1px solid #c9922f;
+  border-radius: 2px;
+  color: #c9922f;
 }
 
 @media (max-width: 720px) {

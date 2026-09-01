@@ -28,6 +28,12 @@ test('body modes stay declarative and independent of concrete node types', () =>
   assert.equal(bodyModeFor(schema('preview')), 'viewer')
   assert.equal(bodyModeFor(schema('preview', 1)), 'parameters+viewer')
   assert.equal(bodyModeFor(schema('selectionSet')), 'custom')
+
+  // A node with no parameters but with inputs still gets the row body: its
+  // unconnected inputs are typed into, so it needs somewhere to type.
+  const withInput = schema('ports')
+  withInput.inputs = [{ portId: 'left', label: 'Left', valueType: 'double' }]
+  assert.equal(bodyModeFor(withInput), 'parameters')
 })
 
 test('appearance defaults are deterministic and nicknames remain optional', () => {

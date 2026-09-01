@@ -14,6 +14,8 @@
     onrefresh,
     onevaluate,
     onevaluatesequential,
+    solutionLocked,
+    ontogglelock,
     onfileaction,
     onfit,
     ontogglesnap,
@@ -28,6 +30,8 @@
     onrefresh: () => void
     onevaluate: () => void
     onevaluatesequential: () => void
+    solutionLocked: boolean
+    ontogglelock: () => void
     onfileaction: (action: FileAction) => void
     onfit: () => void
     ontogglesnap: () => void
@@ -229,6 +233,13 @@
             <!-- The sequential arm of ADR-007's parallelism measurement. Same
                  graph, one thread, so the two status lines can be compared. -->
             <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onevaluatesequential)}>Evaluate one node at a time</button>
+            <div class="menu-separator" role="separator"></div>
+            <!-- Locking refuses evaluation and leaves editing open, so a batch
+                 of edits costs one run rather than one run each. -->
+            <button role="menuitemcheckbox" class="menu-toggle" type="button" aria-checked={solutionLocked} onclick={() => invoke(ontogglelock)}>
+              <span class:checked={solutionLocked} aria-hidden="true"></span>
+              Lock solution
+            </button>
           {:else if id === 'flow'}
             <button role="menuitem" type="button" onclick={() => invoke(onfit)}>Fit graph</button>
           {:else}

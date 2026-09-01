@@ -9,9 +9,15 @@
   import { bodyModeFor, categoryColor, nodeDisplayName } from './types/display'
   import { DEFAULT_DISPLAY_STATE } from './types/display'
   import { definitionFromSchema } from './contracts'
+  import { clearRequest, pendingRequest } from './renameRequest.svelte'
 
   let { id, data, selected }: NodeProps<Node<SchemaNodeData>> = $props()
   let menuOpen = $state(false)
+  let header = $state<ReturnType<typeof NodeHeader>>()
+  // Measured so the quick menu's hole can be sized to clear this node; a ring
+  // with a fixed hole covers the thing it is a menu for.
+  let nodeWidth = $state(0)
+  let nodeHeight = $state(0)
   let inspectorOpen = $state(false)
   let browserOpen = $state(false)
 
@@ -39,6 +45,34 @@
   function updateVisual(change: Partial<NonNullable<SchemaNodeData['visual']>>): void {
     data.onvisualchange?.(id, { ...data.visual, ...change })
   }
+
+  /**
+   * MIDDLE-CLICK opens the quick menu.
+   *
+   * Handled on pointerdown and stopped here rather than on `auxclick`, because
+   * the middle button is also the canvas pan gesture: letting the press reach
+   * the viewport would start a pan under the menu that just opened. Stopping it
+   * on the node means middle-drag still pans everywhere else.
+   */
+  // The canvas context menu asked for this node by id; the field and the menu
+  // are both here.
+  $effect(() => {
+    const kind = pendingRequest(id)
+    if (kind === undefined) return
+    clearRequest()
+    if (kind === 'rename') header?.begin()
+    else menuOpen = true
+  })
+
+  function pointerDown(event: PointerEvent): void {
+    if (event.button !== 1) return
+    event.preventDefault()
+    event.stopPropagation()
+    // Opens, rather than toggles. Closing is a press on the node in the hole,
+    // Escape, or choosing something - and a toggle here would fight the
+    // outside-press that has already run on this very press.
+    menuOpen = true
+  }
 </script>
 
 <article
@@ -54,30 +88,46 @@
   class:primary-display={display.displayRole === 'primary'}
   class:reference-display={display.displayRole === 'reference'}
   style={`--node-color: ${nodeColor}`}
+  onpointerdown={pointerDown}
+  bind:clientWidth={nodeWidth}
+  bind:clientHeight={nodeHeight}
 >
   {#if selected && definition.capabilities.resizable && viewMode !== 'compact'}
     <NodeResizer minWidth={definition.presentation.minSize?.width} minHeight={definition.presentation.minSize?.height} maxWidth={definition.presentation.maxSize?.width} maxHeight={definition.presentation.maxSize?.height} />
   {/if}
   <div class="type-rail"></div>
-  <NodeHeader schema={data.schema} name={displayName} result={data.result} messages={data.messages} onrename={updateName} onmenu={() => (menuOpen = !menuOpen)} />
-  <NodeBody {id} {data} {definition} {bodyMode} {viewMode} {portLayout} {selected} {viewerVisible} onbrowse={() => (browserOpen = true)} />
+  <NodeHeader bind:this={header} schema={data.schema} name={displayName} result={data.result} messages={data.messages} onrename={updateName} />
+  <NodeBody {id} {data} {definition} {bodyMode} {viewMode} {portLayout} {viewerVisible} onbrowse={() => (browserOpen = true)} />
 
   {#if menuOpen}
     <NodeMenu
+      {mode}
+      {nodeWidth}
+      {nodeHeight}
       hasViewer={bodyMode === 'viewer' || bodyMode === 'parameters+viewer'}
       hasReference={data.schema.display === 'selectionSet'}
+      {viewerVisible}
+      canBypass={definition.capabilities.bypass}
+      canHold={definition.capabilities.freeze}
       oninspect={() => (inspectorOpen = true)}
-      onrename={() => (inspectorOpen = true)}
+      onrename={() => header?.begin()}
+      onbrowse={() => (browserOpen = true)}
+      hasBrowser={data.schema.display === 'selectionSet' || (data.result?.outputs?.length ?? 0) > 0 || data.parameters.length > 0}
       onview={() => data.schema.display === 'selectionSet' ? (browserOpen = true) : updateVisual({ display: { ...display, nodeViewer: !viewerVisible } })}
       oncontrols={() => (inspectorOpen = true)}
       ontoggleenabled={() => data.onexecutionchange?.(id, mode === 'disabled' ? 'enabled' : 'disabled')}
+      onbypass={() => data.onexecutionchange?.(id, mode === 'bypassed' ? 'enabled' : 'bypassed')}
+      onhold={() => data.onexecutionchange?.(id, mode === 'holding' ? 'enabled' : 'holding')}
       onclose={() => (menuOpen = false)}
     />
   {/if}
   {#if browserOpen}
-    <ParameterBrowser nodeId={id} count={selectionCount} parameters={data.parameters} busy={data.selectionBusy} onclose={() => (browserOpen = false)} onselectionaction={data.onselectionaction} />
+    <div class="panel-anchor">
+      <ParameterBrowser nodeId={id} count={selectionCount} parameters={data.parameters} outputs={data.result?.outputs} isSelectionSet={data.schema.display === 'selectionSet'} busy={data.selectionBusy} onclose={() => (browserOpen = false)} onselectionaction={data.onselectionaction} />
+    </div>
   {/if}
   {#if inspectorOpen}
+    <div class="panel-anchor">
     <FloatingControlPanel
       schema={data.schema}
       name={displayName}
@@ -96,6 +146,7 @@
       ondisplay={(nextDisplay) => updateVisual({ display: nextDisplay })}
       onclose={() => (inspectorOpen = false)}
     />
+    </div>
   {/if}
 </article>
 
@@ -111,4 +162,16 @@
   article.primary-display::after { position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; border: 1px solid var(--surface); border-radius: 50%; background: var(--node-color); content: ''; }
   article.reference-display::after { position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; border: 1px solid var(--node-color); border-radius: 50%; background: var(--surface); content: ''; }
   .type-rail { position: absolute; z-index: 2; inset: 0 auto 0 0; width: 3px; background: var(--node-color); pointer-events: none; }
+  /*
+   * The node's own box, so a panel that asks for `left: calc(100% + 10px)`
+   * lands to the RIGHT OF THE NODE. A zero-sized anchor made 100% mean 0 and
+   * dropped every panel on top of the node it belongs to. It takes no pointer
+   * events of its own so it cannot shadow the node underneath.
+   *
+   * These panels do NOT close on an outside press. A panel you are working out
+   * of has to survive a click on the canvas or on another node - only menus,
+   * which are transient by definition, put themselves away.
+   */
+  .panel-anchor { position: absolute; z-index: 14; inset: 0; pointer-events: none; }
+  .panel-anchor > :global(*) { pointer-events: auto; }
 </style>

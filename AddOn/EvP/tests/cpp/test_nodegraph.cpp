@@ -320,6 +320,46 @@ TEST (NodeGraphBuiltins, CatalogHasEightSchemaDrivenPureNodes)
     EXPECT_EQ ("left", registry.Find ("add")->bypassMappings.front ().inputId);
 }
 
+// An input with nothing wired to it falls back to the value typed into the node
+// - Grasshopper's "internalised" input. It is stored as a parameter under the
+// INPUT'S OWN ID, which is what lets a node type that declares no parameters at
+// all (Multiply declares none) still take a typed-in operand.
+TEST (NodeGraphBuiltins, InternalisedInputValueSuppliesAnUnconnectedPort)
+{
+    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "product", "multiply" } } }).accepted);
+
+    // Refused before it reaches the document: an internalised value is checked
+    // against the PORT's declared type, exactly as an edge into it would be.
+    const EditResult mistyped =
+        ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "left", Value (std::string ("six")) } });
+    EXPECT_FALSE (mistyped.accepted);
+    EXPECT_FALSE (ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "nosuchport", Value (6.0) } })
+                      .accepted);
+
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "left", Value (6.0) } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "right", Value (7.0) } }).accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteBuiltinNode);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_DOUBLE_EQ (42.0, std::get<double> (evaluator.Result ("product")->outputs.at ("value").DataValue ()));
+
+    // A wire beats the typed-in value rather than merging with it.
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { [] {
+                                Node node { "ten", "number" };
+                                node.parameters.emplace ("value", Value (10.0));
+                                return node;
+                            }() } })
+                     .accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("ten", "value", "product", "left") } })
+                     .accepted);
+    Evaluator wired;
+    ASSERT_TRUE (RunGraph (wired, graph, registry, ExecuteBuiltinNode).succeeded);
+    EXPECT_DOUBLE_EQ (70.0, std::get<double> (wired.Result ("product")->outputs.at ("value").DataValue ()));
+}
+
 TEST (NodeGraphBuiltins, EvaluatesArithmeticListMapAndWatchWorkflow)
 {
     const NodeRegistry registry = MakeBuiltinNodeRegistry ();

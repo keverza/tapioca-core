@@ -2,9 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Node } from '@xyflow/svelte'
 import {
+  annotationAtPoint,
   annotationFromSelection,
   boundsFromPoints,
   loadAnnotations,
+  removeAnnotation,
+  renameAnnotation,
   resolveFrameBounds,
   saveAnnotations,
 } from '../src/annotations.ts'
@@ -59,4 +62,39 @@ test('editor metadata round-trips and rejects malformed storage', () => {
   assert.deepEqual(loadAnnotations(storage, 'default'), [annotation])
   values.set('tapioca.graph.editor.broken', '{')
   assert.deepEqual(loadAnnotations(storage, 'broken'), [])
+})
+
+test('an annotation can be renamed and deleted, which is what makes one temporary', () => {
+  const rectangle = {
+    id: 'rectangle-1',
+    kind: 'rectangle' as const,
+    bounds: { x: 10, y: 20, width: 100, height: 60 },
+    label: 'Annotation',
+    memberNodeIds: [],
+  }
+  const renamed = renameAnnotation([rectangle], 'rectangle-1', '  Staging area  ')
+  assert.equal(renamed[0].label, 'Staging area')
+  // An empty label is kept as empty rather than refused: that is how a caption
+  // is removed once it has been typed.
+  assert.equal(renameAnnotation(renamed, 'rectangle-1', '   ')[0].label, '')
+  assert.deepEqual(renameAnnotation([rectangle], 'missing', 'x'), [rectangle])
+
+  assert.deepEqual(removeAnnotation([rectangle], 'rectangle-1'), [])
+  assert.deepEqual(removeAnnotation([rectangle], 'missing'), [rectangle])
+})
+
+test('hit testing picks the topmost annotation under a point', () => {
+  const under = {
+    id: 'under',
+    kind: 'rectangle' as const,
+    bounds: { x: 0, y: 0, width: 200, height: 200 },
+    label: 'Under',
+    memberNodeIds: [],
+  }
+  const over = { ...under, id: 'over', bounds: { x: 50, y: 50, width: 50, height: 50 }, label: 'Over' }
+  assert.equal(annotationAtPoint([under, over], { x: 60, y: 60 })?.id, 'over')
+  assert.equal(annotationAtPoint([under, over], { x: 10, y: 10 })?.id, 'under')
+  assert.equal(annotationAtPoint([under, over], { x: 400, y: 10 }), undefined)
+  // The edges belong to the rectangle, so a press on the border selects it.
+  assert.equal(annotationAtPoint([under], { x: 200, y: 200 })?.id, 'under')
 })

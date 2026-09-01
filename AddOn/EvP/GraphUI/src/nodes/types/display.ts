@@ -37,7 +37,12 @@ const CATEGORY_COLORS = ['#d58b4b', '#65a9b8', '#7da76a', '#a580bd', '#c56f72', 
 export function bodyModeFor(schema: NodeTypeSchema): NodeBodyMode {
   if (schema.display === 'preview') return schema.parameters.length > 0 ? 'parameters+viewer' : 'viewer'
   if (schema.display === 'text' || schema.display === 'selectionSet') return 'custom'
-  if (schema.parameters.length > 0) return 'parameters'
+  // INPUTS count as well as parameters. An input with nothing wired to it takes
+  // a typed-in value - the runtime stores it as a parameter under the port's own
+  // id - so a node like Multiply, which declares no parameters at all, still
+  // needs the row body that has somewhere to type. The bare port pills are for
+  // node types that have nothing to fill in.
+  if (schema.parameters.length > 0 || schema.inputs.length > 0) return 'parameters'
   return 'none'
 }
 

@@ -29,12 +29,29 @@ bool ValidateNode (const Node& node, const NodeRegistry& registry, std::string& 
     }
     for (const auto& [parameterId, value] : node.parameters) {
         const ParameterSchema* parameter = FindParameter (*nodeType, parameterId);
-        if (parameter == nullptr) {
+        if (parameter != nullptr) {
+            if (parameter->valueType != value.Type ()) {
+                error = "parameter type mismatch: " + parameterId;
+                return false;
+            }
+            continue;
+        }
+        // A parameter named after an INPUT PORT is that input's internalised
+        // value: what the node uses when nothing is wired to the port. It is
+        // stored as an ordinary parameter rather than as a third kind of field
+        // so it travels with the document, hashes into the evaluation cache and
+        // round-trips through the library with no new plumbing. An edge always
+        // wins over it; see Evaluator's input gathering.
+        const PortSchema* input = FindInput (*nodeType, parameterId);
+        if (input == nullptr) {
             error = "unknown parameter: " + parameterId;
             return false;
         }
-        if (parameter->valueType != value.Type ()) {
-            error = "parameter type mismatch: " + parameterId;
+        // Absent means "any type" on an input, exactly as it does for an edge,
+        // and an Absent VALUE is how an internalised input is cleared again.
+        if (value.Type () != ValueType::Absent && input->valueType != ValueType::Absent &&
+            input->valueType != value.Type ()) {
+            error = "internalised input type mismatch: " + parameterId;
             return false;
         }
     }

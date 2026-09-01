@@ -4,10 +4,12 @@ import type { PortSchema } from './nodes/types/port'
 import type { ExecutionMode, RuntimeStatus } from './nodes/types/runtime'
 import type { PortConnectionState } from './nodes/types/port'
 import type { ComponentMessage } from './nodes/types/diagnostics'
+import type { PortReference } from './nodes/types/portReference'
 
 export type { NodeBodyMode, NodeVisualState } from './nodes/types/node'
 export type { PortDirection, PortSchema, PortTransform } from './nodes/types/port'
 export type { ExecutionMode, RuntimeStatus } from './nodes/types/runtime'
+export type { PortReference } from './nodes/types/portReference'
 
 export interface ParameterSchema {
   parameterId: string
@@ -226,6 +228,22 @@ export interface SchemaNodeData extends Record<string, unknown> {
   visual?: NodeVisualState
   onvisualchange?: (nodeId: string, visual: NodeVisualState) => void
   onexecutionchange?: (nodeId: string, mode: ExecutionMode) => void
+  /**
+   * A value typed into a control. The node hands over TEXT and the port's
+   * declared type; turning that into the runtime's value encoding is the
+   * editor's job, because only the editor knows what the runtime accepts.
+   */
+  onparameterchange?: (nodeId: string, parameterId: string, valueType: string, text: string) => void
+  /** A port reference pasted onto one of this node's inputs: a connection request. */
+  onportreference?: (reference: PortReference, target: { nodeId: string; portId: string }) => void
+  /**
+   * A right-click on one of this node's ports. The editor answers with THE
+   * context menu; the port draws none of its own.
+   */
+  onportcontextmenu?: (
+    event: MouseEvent,
+    target: { nodeId: string; portId: string; direction: 'input' | 'output' },
+  ) => void
   portConnections?: PortConnectionState[]
   messages?: ComponentMessage[]
 }
