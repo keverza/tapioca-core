@@ -59,6 +59,21 @@ entries:
       ref: v2.5.6
       recursive: true
 
+  - path: freetype-master
+    kind: directory
+    profiles: [build]
+    authority: "FreeType"
+    version: "2.14.3"
+    source: "https://github.com/freetype/freetype"
+    provenance: >-
+      Pinned FreeType source used for static TTF/OTF glyph loading by the native
+      Diligent text renderer.
+    download:
+      provider: git_clone
+      url: https://github.com/freetype/freetype.git
+      ref: VER-2-14-3
+      recursive: false
+
   - path: iconoir-v7.12.1
     kind: directory
     profiles: [build]
@@ -110,6 +125,36 @@ entries:
     download:
       url: https://github.com/msgpack/msgpack-c/archive/refs/tags/cpp-8.0.0.zip
       archive_subpath: msgpack-c-cpp-8.0.0
+
+  - path: msdf-atlas-gen-master
+    kind: directory
+    profiles: [build]
+    authority: "msdf-atlas-gen"
+    version: "1.4.0"
+    source: "https://github.com/Chlumsky/msdf-atlas-gen"
+    provenance: >-
+      Pinned atlas-packing library source. Tapioca supplies msdfgen separately and
+      disables the standalone, Artery Font, PNG, Skia, vcpkg and install paths.
+    download:
+      provider: git_clone
+      url: https://github.com/Chlumsky/msdf-atlas-gen.git
+      ref: v1.4
+      recursive: false
+
+  - path: msdfgen-master
+    kind: directory
+    profiles: [build]
+    authority: "msdfgen"
+    version: "1.13"
+    source: "https://github.com/Chlumsky/msdfgen"
+    provenance: >-
+      Pinned MTSDF generator built with FreeType extensions and without PNG, SVG,
+      Skia, OpenMP, vcpkg, standalone tools or installation rules.
+    download:
+      provider: git_clone
+      url: https://github.com/Chlumsky/msdfgen.git
+      ref: v1.13
+      recursive: false
 
   - path: nanort-release
     kind: directory

@@ -309,6 +309,7 @@ file (GLOB_RECURSE AddOnSourceFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.c 
 # handedness, cull-winding and sticky-init lessons this renderer inherited
 # without re-deriving them.
 include ("${CMAKE_CURRENT_LIST_DIR}/cmake/Diligent.cmake")
+include ("${CMAKE_CURRENT_LIST_DIR}/cmake/TextRendering.cmake")
 
 set (AddOnFiles ${AddOnHeaderFiles} ${AddOnSourceFiles})
 source_group (TREE "${AddOnSourcesFolderAbsolute}" PREFIX "Sources" FILES ${AddOnFiles})
@@ -374,7 +375,7 @@ target_include_directories (${ADDON_LIB} SYSTEM PRIVATE
 file (GLOB ModuleFolders ${AC_API_DEVKIT_DIR}/Support/Modules/*)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE ${ModuleFolders})
 
-target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} TapiocaClipper2)
+target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} ${TAPIOCA_TEXT_LIBS} TapiocaClipper2)
 # d3dcompiler/dxguid/gdi32 came in through ARCHVIZ_LIBS with bgfx. The Diligent
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.
