@@ -70,7 +70,9 @@
     EvaluationSummary,
     ExecutionMode,
     GraphEdgeRecord,
+    GraphNodeRecord,
     GraphState,
+    GraphValue,
     NodeResultRecord,
     AttributeListing,
     NodeTypeSchema,
@@ -174,6 +176,47 @@
   // sub-second round trip.
   let selectionBusyNode = $state<string | null>(null)
 
+  // The node whose host effect is being committed, for the same reason: one
+  // node's press should not grey the whole canvas.
+  let executeBusyNode = $state<string | null>(null)
+
+  /**
+   * The Tapioca overlay: on, off, and in flight.
+   *
+   * ⚠️ ASKED FOR RATHER THAN ASSUMED. Pressing the button posts a job to
+   * Archicad's main thread and returns immediately - "posted" is not "running" -
+   * and the overlay can also be closed from the palette, by a project close, or
+   * by a device loss, none of which come back through here. So the state is
+   * READ from DiligentViewportState after every attempt, and a button that
+   * showed what it last asked for rather than what is true would be the thing
+   * telling the user their preview is on while nothing is drawing.
+   */
+  let overlayRunning = $state(false)
+  let overlayBusy = $state(false)
+
+  /**
+   * AUTOMATIC EVALUATION.
+   *
+   * ⚠️ THE SOLUTION IS ALWAYS LIVE; "Run" IS NOT A STEP. A graph you have to run
+   * is a graph whose displayed result may be stale, and nothing on screen says
+   * which - the preview, the panels and the node viewports would all be showing
+   * the last run rather than the current document. So every accepted edit
+   * schedules a run, and the manual Evaluate stays only as a forced re-run.
+   *
+   * ⚠️ AND IT COMMITS NO HOST EFFECT, EVER. `allowSideEffects` is left at its
+   * refused default here; an effectful node is reported as skipped on every
+   * automatic pass and waits for its own button. Continuous evaluation and
+   * continuous side effects are very different promises, and only the first one
+   * is safe to make while somebody is dragging a wire.
+   *
+   * Driven off the document REVISION rather than from each edit site: the
+   * revision changes exactly when an edit is accepted, so a new kind of edit
+   * added later cannot forget to trigger a run, and a refused edit does not.
+   */
+  let autoRunRevision = $state(0)
+  let autoRunTimer: ReturnType<typeof setTimeout> | undefined
+  let autoRunPending = false
+
   const effectiveTool = $derived<EffectiveTool>(controlHeld && !controlChord ? 'knife' : activeTool)
   const resolvedAnnotations = $derived(
     annotations.map((annotation) => resolveFrameBounds(annotation, nodes)),
@@ -200,7 +243,56 @@
     return position
   }
 
+  /**
+   * What a node's own viewport should draw.
+   *
+   * ⚠️ IT FOLLOWS THE SAME WIRE THE RUNTIME'S PREVIEW PROJECTION DOES. A Preview
+   * node is a TERMINAL with no outputs, so its geometry is not in its own result -
+   * it is on the node upstream of it. Resolving it here, the same way, is what
+   * keeps the node's viewport and the Archicad overlay from disagreeing about
+   * what a node is showing; reading the node's own outputs would leave every
+   * Preview viewport permanently blank.
+   *
+   * A node that DOES publish outputs - Watch - draws those, which is what it has.
+   */
+  function viewerValuesFor(
+    node: GraphNodeRecord,
+    schema: NodeTypeSchema | undefined,
+    edges: GraphEdgeRecord[],
+    resultMap: Map<string, NodeResultRecord>,
+  ): GraphValue[] {
+    const own = resultMap.get(node.nodeId)
+    if ((schema?.outputs.length ?? 0) > 0) {
+      return (own?.outputs ?? []).map((output) => output.value)
+    }
+
+    const values: GraphValue[] = []
+    for (const edge of edges) {
+      if (edge.targetNode !== node.nodeId) continue
+      const upstream = resultMap.get(edge.sourceNode)
+      const output = upstream?.outputs?.find((item) => item.portId === edge.sourcePort)
+      if (output !== undefined) values.push(output.value)
+    }
+    if (values.length > 0) return values
+
+    // Nothing wired: the internalised value typed into the port itself, which is
+    // the same fallback the evaluator applies.
+    const stored = node.parameters.find((parameter) => parameter.value !== undefined)
+    return stored?.value === undefined ? [] : [stored.value]
+  }
+
   function applyState(state: GraphState): void {
+    // ⚠️ THE AUTOMATIC RUN IS TRIGGERED FROM HERE, off the revision the runtime
+    // reports, rather than from each of the eight call sites that apply an edit.
+    // The revision moves exactly when an edit is ACCEPTED - not when one is
+    // refused, and not when the state is merely refreshed - so a new kind of
+    // edit added later cannot forget to trigger a run, and a rejected one does
+    // not cause a pointless one. An evaluation does not bump it, so this cannot
+    // feed itself.
+    if (state.revision !== autoRunRevision) {
+      autoRunRevision = state.revision
+      scheduleAutoRun()
+    }
     revision = state.revision
     graphId = state.graphId ?? 'default'
     const schemas = new Map(catalog.map((item) => [item.nodeType, item]))
@@ -235,6 +327,12 @@
         ],
         onselectionaction: handleSelectionAction,
         selectionBusy: selectionBusyNode === node.nodeId,
+        viewerValues:
+          schemas.get(node.nodeType)?.display === 'preview'
+            ? viewerValuesFor(node, schemas.get(node.nodeType), state.edges, resultMap)
+            : undefined,
+        onexecute: handleExecute,
+        executeBusy: executeBusyNode === node.nodeId,
         schema: schemas.get(node.nodeType) ?? {
           nodeType: node.nodeType,
           label: node.nodeType,
@@ -836,6 +934,146 @@
       `peak ${p.peakConcurrency}x of ${p.maxParallel} / speedup ${p.speedup.toFixed(2)} / ` +
       `${p.wallClockMs.toFixed(1)} ms wall of ${p.workMs.toFixed(1)} ms work`
     )
+  }
+
+  /**
+   * Coalesced, because one gesture is many edits.
+   *
+   * A drag across a canvas, a slider release and a paste all land as several
+   * accepted edits in a few milliseconds; running each would queue runs behind a
+   * document lock the next edit is waiting on. The runtime cancels a superseded
+   * run on its own, so the cost of getting this wrong is wasted work rather than
+   * a wrong answer - but the wasted work is on Archicad's process.
+   */
+  function scheduleAutoRun(): void {
+    if (solutionLocked || !nativeConnected) return
+    if (autoRunTimer !== undefined) clearTimeout(autoRunTimer)
+    autoRunTimer = setTimeout(() => {
+      autoRunTimer = undefined
+      if (busy) {
+        // A run is already in flight. Remember that the document moved AFTER it
+        // started, so its results are already stale, and try again when it ends.
+        autoRunPending = true
+        return
+      }
+      void autoEvaluate()
+    }, 90)
+  }
+
+  /**
+   * The automatic pass. Quieter than the manual one on purpose: it happens
+   * constantly, and a status line rewritten on every keystroke is noise that
+   * hides the messages worth reading. Only a FAILURE speaks.
+   */
+  async function autoEvaluate(): Promise<void> {
+    if (solutionLocked || !nativeConnected || busy) return
+    busy = true
+    try {
+      await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {})
+      await refreshResults()
+      await reloadState()
+      failed = false
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+      await refreshResults()
+    } finally {
+      busy = false
+      if (autoRunPending) {
+        autoRunPending = false
+        scheduleAutoRun()
+      }
+    }
+  }
+
+  /**
+   * One press of a node's own Send button.
+   *
+   * ⚠️ TARGETED AND EFFECTFUL, AND THE ONLY CALL IN THIS FILE THAT ASKS FOR SIDE
+   * EFFECTS. `targets` narrows the plan to this node and what it needs, so
+   * pressing Send on one node does not commit a second effectful node sitting
+   * elsewhere in the same graph - which is what a graph-wide effectful Run would
+   * do, and is the kind of surprise that only shows up in someone's model.
+   */
+  async function handleExecute(nodeId: string): Promise<void> {
+    if (!nativeConnected) {
+      message = 'Sending to Archicad needs the native graph runtime.'
+      return
+    }
+    executeBusyNode = nodeId
+    failed = false
+    try {
+      const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {
+        targets: [nodeId],
+        allowSideEffects: true,
+      })
+      await refreshResults()
+      await reloadState()
+      if (!summary.succeeded) {
+        failed = true
+        message = summary.error || `${nodeId} failed`
+      } else if (summary.effectsCommitted === false) {
+        // Refused rather than performed, which the runtime reports rather than
+        // throwing. Saying "sent" here would be a lie the model would not back up.
+        failed = true
+        message = `${nodeId} was not committed: ${summary.skippedEffectNodes?.join(', ') || 'the runtime skipped it'}`
+      } else {
+        message = `Sent ${nodeId} to Archicad`
+      }
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      executeBusyNode = null
+    }
+  }
+
+  /** What the viewport actually reports, not what we last asked it for. */
+  async function refreshOverlayState(): Promise<void> {
+    if (!nativeConnected) return
+    try {
+      const state = await callTapioca<{ running: boolean; overlay: boolean; failureMessage: string }>(
+        'Tapioca.DiligentViewportState',
+        {},
+      )
+      overlayRunning = state.running === true
+      // A failure the viewport is holding is worth surfacing once: an overlay
+      // that failed to start looks exactly like one nobody switched on.
+      if (state.running !== true && (state.failureMessage ?? '') !== '') {
+        failed = true
+        message = `Tapioca overlay: ${state.failureMessage}`
+      }
+    } catch {
+      // The viewport commands are not available in this build or this host.
+      // Not an error to report - the button simply stays off.
+      overlayRunning = false
+    }
+  }
+
+  /**
+   * Switch the Tapioca overlay on or off.
+   *
+   * The two verbs already exist natively; this is the graph editor finally
+   * reaching them, so that a Preview node set to draw in Archicad has somewhere
+   * to draw WITHOUT the user going to find the palette that owns the viewport.
+   */
+  async function toggleOverlay(): Promise<void> {
+    if (!nativeConnected) {
+      message = 'The Tapioca overlay needs the native runtime.'
+      return
+    }
+    overlayBusy = true
+    failed = false
+    try {
+      await callTapioca(overlayRunning ? 'Tapioca.CloseDiligentOverlay' : 'Tapioca.OpenDiligentOverlay', {})
+      message = overlayRunning ? 'Closing the Tapioca overlay' : 'Opening the Tapioca overlay'
+      await refreshOverlayState()
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      overlayBusy = false
+    }
   }
 
   async function evaluate(maxParallel = 0): Promise<void> {
@@ -1609,6 +1847,9 @@
     const rawPointer = (event: Event) => moveRawMarker(event as PointerEvent)
     window.addEventListener('pointerrawupdate', rawPointer, { passive: true })
     void initialize()
+    // Read what the overlay is ACTUALLY doing rather than opening on "off":
+    // it may already be running from the palette that owns the viewport.
+    void refreshOverlayState()
     return () => window.removeEventListener('pointerrawupdate', rawPointer)
   })
 </script>
@@ -1628,7 +1869,7 @@
       {snapEnabled}
       {theme}
       {performanceOpen}
-      onrefresh={() => void reloadState()}
+      onrefresh={() => { void reloadState(); void refreshOverlayState() }}
       onevaluate={() => void evaluate()}
       onevaluatesequential={() => void evaluate(1)}
       {solutionLocked}
@@ -1640,6 +1881,15 @@
       ontoggleperformance={() => (performanceOpen = !performanceOpen)}
     />
     <div class="actions">
+      <button
+        class="overlay"
+        class:on={overlayRunning}
+        onclick={() => void toggleOverlay()}
+        disabled={overlayBusy || !nativeConnected}
+        title={overlayRunning
+          ? 'Close the Tapioca overlay. Preview nodes set to draw in Archicad will have nowhere to draw.'
+          : 'Open the Tapioca overlay, so Preview nodes set to draw in Archicad appear over the model.'}
+      >{overlayRunning ? 'Overlay on' : 'Overlay off'}</button>
       <button onclick={removeSelection} disabled={busy}>Erase selected</button>
     </div>
   </header>

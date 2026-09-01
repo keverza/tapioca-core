@@ -19,6 +19,7 @@
   import AttributePicker from './AttributePicker.svelte'
   import BooleanControl from './BooleanControl.svelte'
   import NumberControl from './NumberControl.svelte'
+  import PreviewTargetControl from './PreviewTargetControl.svelte'
   import SelectControl from './SelectControl.svelte'
   import TextControl from './TextControl.svelte'
   import VectorControl from './VectorControl.svelte'
@@ -102,6 +103,8 @@
   />
 {:else if widget === 'boolean'}
   <BooleanControl value={boolOf(value)} label={field.label} {disabled} oncommit={commit} />
+{:else if widget === 'previewTarget'}
+  <PreviewTargetControl {value} options={field.ui?.options ?? []} label={field.label} {disabled} oncommit={commit} />
 {:else if widget === 'select' && source !== 'none'}
   <!-- An Archicad domain. A native <option> can carry text and nothing else, so
        a fill list would read as "25 %, 50 %, 75 %" and a composite list as a

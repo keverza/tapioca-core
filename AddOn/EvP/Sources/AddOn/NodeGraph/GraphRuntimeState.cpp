@@ -4,6 +4,8 @@
 #include "NodeGraph/ArchicadNodes.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+#include "NodeGraph/PreviewProjection.hpp"
+#include "Preview/GraphPreviewStore.hpp"
 
 #include <algorithm>
 #include <set>
@@ -234,6 +236,22 @@ StoreResult GraphRuntimeState::LoadFromLibrary (const std::string& name, const G
     return result;
 }
 
+// The graph's results -> the viewport, in the one place that holds the document
+// and the evaluator together.
+//
+// ⚠️ CALLED WITH slot.documentMutex HELD, AND FROM EVERY PATH THAT CHANGES WHAT
+// THE GRAPH SHOWS - a run, and an edit. The edit case is the one that is easy to
+// forget and impossible to miss once seen: deleting a Preview node without
+// republishing leaves its geometry on screen, attached to a node that no longer
+// exists, until something else happens to run. Stale preview is worse than none,
+// because nothing about it says it is stale.
+void GraphRuntimeState::PublishPreviewLocked (const GraphId& graphId, Slot& slot)
+{
+    const PreviewProjection projection = ProjectGraphPreview (
+        graphId, slot.document, registry_, [&slot] (const NodeId& nodeId) { return slot.evaluator.Result (nodeId); });
+    evp::preview::GraphPreviewStore::Get ().PublishGraph (graphId, projection.primitives);
+}
+
 EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& edit)
 {
     Slot& slot = SlotFor (graphId);
@@ -262,6 +280,7 @@ EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& ed
             slot.evaluator.ReleaseHolding (slot.document, release->nodeId);
         }
         slot.evaluator.Invalidate (slot.document, result.dirtyNodes);
+        PublishPreviewLocked (graphId, slot);
     }
     return result;
 }
@@ -314,6 +333,8 @@ EvaluationSummary GraphRuntimeState::Evaluate (const GraphId& graphId, const Eva
         }
         slot.lastRunId = context.runId;
     }
+
+    PublishPreviewLocked (graphId, slot);
 
     EvaluationSummary summary;
     summary.graphId = graphId;

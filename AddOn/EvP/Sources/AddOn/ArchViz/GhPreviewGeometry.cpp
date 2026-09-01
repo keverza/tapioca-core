@@ -231,6 +231,35 @@ void AppendPolyline (const GhPreviewPrimitive& primitive, uint32_t rgba, GhPrevi
         AppendSegment (At (primitive.positions, points - 1), At (primitive.positions, 0), rgba, bucket);
 }
 
+// One point, as a three-armed cross.
+//
+// ⚠️ A POINT HAS NO EXTENT, SO SOMETHING HAS TO BE INVENTED, and the choice is
+// three axis-aligned arms rather than a screen-facing dot for one reason: this
+// is a MODELLING preview, and a cross reads as a coordinate - it says which way
+// is up and it lines up with the grid and with every other marker. A dot would
+// be easier to see and would tell you less. The arm length is the style's, in
+// metres; see the note on it.
+//
+// It costs three segments, which is why the deferred-kind escape below no longer
+// covers PointMarker: "Tapioca does not draw those yet" was the honest report
+// while it was true, and a point is the first thing anyone wires into a preview.
+void AppendPointMarker (const GhPreviewPrimitive& primitive, uint32_t rgba, float halfLength, GhPreviewBucket& bucket)
+{
+    if (primitive.positions.size () < 3)
+        return;
+
+    const Vec3 at = At (primitive.positions, 0);
+    for (int axis = 0; axis < 3; ++axis) {
+        Vec3 from = at;
+        Vec3 to = at;
+        float* const fromComponent = axis == 0 ? &from.x : (axis == 1 ? &from.y : &from.z);
+        float* const toComponent = axis == 0 ? &to.x : (axis == 1 ? &to.y : &to.z);
+        *fromComponent -= halfLength;
+        *toComponent += halfLength;
+        AppendSegment (from, to, rgba, bucket);
+    }
+}
+
 } // namespace
 
 uint32_t GhPreviewColour (uint8_t flags, const GhPreviewStyle& style)
@@ -274,7 +303,10 @@ GhPreviewDrawables BuildGhPreviewDrawables (const GhPreviewSnapshot& snapshot, P
                [] (const GhPreviewPrimitive* left, const GhPreviewPrimitive* right) { return left->id < right->id; });
 
     for (const GhPreviewPrimitive* primitive : ordered) {
-        const uint32_t rgba = GhPreviewColour (primitive->flags, style);
+        // The producer's own colour when it has one, the flags otherwise. See
+        // GhPreviewPrimitive::hasOwnColour: selection and highlight are still
+        // decided once, in one place, for everything that does not carry one.
+        const uint32_t rgba = primitive->hasOwnColour ? primitive->rgba : GhPreviewColour (primitive->flags, style);
         GhPreviewBucket& bucket = (primitive->flags & PreviewFlagXRay) != 0 ? drawables.xray : drawables.depthTested;
 
         switch (primitive->kind) {
@@ -297,6 +329,16 @@ GhPreviewDrawables BuildGhPreviewDrawables (const GhPreviewSnapshot& snapshot, P
                     continue;
                 }
                 AppendPolyline (*primitive, rgba, bucket);
+                break;
+            }
+
+            case PreviewKind::PointMarker: {
+                if (drawables.depthTested.lineVertices.size () + drawables.xray.lineVertices.size () + 3 * 6 >
+                    limits.maxLineVertices) {
+                    drawables.truncated = true;
+                    continue;
+                }
+                AppendPointMarker (*primitive, rgba, style.pointMarkerHalfLength, bucket);
                 break;
             }
 
@@ -333,8 +375,8 @@ GhPreviewDrawables BuildGhPreviewDrawables (const GhPreviewSnapshot& snapshot, P
             }
 
             default:
-                // PointMarker, PlaneGizmo, Arrow3D, Bounds, PointCloud and
-                // BillboardSprite: the cheap host-built set, and the long tail.
+                // PlaneGizmo, Arrow3D, PointCloud and BillboardSprite: the
+                // cheap host-built set, and the long tail.
                 // Counted so the viewport can say they were not drawn.
                 ++drawables.deferredKinds;
                 break;

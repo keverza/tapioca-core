@@ -90,9 +90,24 @@
       <option value="">Automatic output</option>
       {#each schema.outputs as output}<option value={output.portId}>{output.label}</option>{/each}
     </select>
-    <select value={display.style.representation} onchange={(event) => ondisplay({ ...display, style: { ...display.style, representation: event.currentTarget.value as DisplayState['style']['representation'] } })} aria-label="Display representation">
-      {#each ['default', 'shaded', 'wireframe', 'ghosted', 'points', 'bounds'] as representation}<option value={representation}>{representation}</option>{/each}
-    </select>
+    <!--
+      ⚠️ THE THREE THE VIEWER ACTUALLY DRAWS, AND NO MORE. This was a dropdown of
+      six, of which 'points' and 'bounds' were never implemented and 'default'
+      meant the same as 'shaded' - so four of the six either did nothing or did
+      the same thing, and the only way to find out was to pick one. A control
+      that offers a mode it cannot honour is worse than one that offers fewer.
+      A graph saved with 'default' still loads and reads as Shaded.
+    -->
+    <div class="action-grid thirds">
+      {#each [['shaded', 'Shaded'], ['ghosted', 'Ghosted'], ['wireframe', 'Wireframe']] as [value, label]}
+        <button
+          type="button"
+          class:active={display.style.representation === value ||
+            (value === 'shaded' && display.style.representation === 'default')}
+          onclick={() => ondisplay({ ...display, style: { ...display.style, representation: value as DisplayState['style']['representation'] } })}
+        >{label}</button>
+      {/each}
+    </div>
   </fieldset>
 
   <fieldset>

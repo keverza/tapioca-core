@@ -8,6 +8,7 @@
 
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "Preview/GhPreviewCache.hpp"
+#include "Preview/GraphPreviewStore.hpp"
 
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- a failed bind must say so, not crash
@@ -204,14 +205,17 @@ void DiligentScene::DrawGhPreview (Diligent::IDeviceContext* context, const floa
     if (impl_->ghPreviewInitFailed)
         return;
 
-    std::shared_ptr<const evp::preview::GhPreviewSnapshot> snapshot =
-        evp::preview::GhPreviewCache::Get ().SnapshotCopy ();
-    const uint64_t generation = snapshot != nullptr ? snapshot->generation : 0;
+    // ⚠️ TWO PRODUCERS - Grasshopper's mirror of another process and the node
+    // graph's own store. They stay separate (see Preview/GraphPreviewStore.hpp);
+    // the merge lives there, where a test can reach it.
+    const evp::preview::MergedPreview merged = evp::preview::MergePreviewSnapshots (
+        evp::preview::GhPreviewCache::Get ().SnapshotCopy (), evp::preview::GraphPreviewStore::Get ().SnapshotCopy ());
+    const std::shared_ptr<const evp::preview::GhPreviewSnapshot> snapshot = merged.snapshot;
 
-    // Nothing has ever been previewed. Do not build a layer for it: a user who
-    // never opens Grasshopper should not pay four PSO compilations for a feature
-    // they are not using.
-    if (generation == 0 && impl_->ghPreviewGeneration == 0)
+    // Neither has ever previewed anything. Do not build a layer for it: a user
+    // who opens neither Grasshopper nor a graph should not pay four PSO
+    // compilations for a feature they are not using.
+    if (merged.generation == 0 && impl_->ghPreviewGeneration == 0)
         return;
 
     if (!impl_->ghPreview.IsReady ()) {
@@ -228,8 +232,8 @@ void DiligentScene::DrawGhPreview (Diligent::IDeviceContext* context, const floa
     // preview costs this integer compare and nothing else. Orbiting, zooming and
     // panning change the CAMERA -- which arrives as `viewProj` and is consumed by
     // the shaders -- so a drag never reaches this branch at all.
-    if (generation != impl_->ghPreviewGeneration) {
-        impl_->ghPreviewGeneration = generation;
+    if (merged.generation != impl_->ghPreviewGeneration) {
+        impl_->ghPreviewGeneration = merged.generation;
 
         GhPreviewLimits limits;
         const GhPreviewDrawables drawables =

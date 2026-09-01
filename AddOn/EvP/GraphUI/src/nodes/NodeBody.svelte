@@ -49,6 +49,22 @@
   <section class="text nodrag nowheel">{#if panelLines.length === 0}<p>{data.result ? '(nothing)' : 'Not evaluated'}</p>{:else}<ol>{#each panelLines as line, index}<li><span>{index + 1}</span><code>{line}</code></li>{/each}</ol>{/if}</section>
 {/if}
 
+{#if viewMode !== 'compact' && definition.capabilities.execute}
+  <!--
+    ⚠️ THE ONE PLACE A GRAPH REACHES INTO ARCHICAD, AND IT IS A PRESS. The graph
+    re-evaluates continuously and commits NOTHING while it does; every automatic
+    pass reports this node as skipped. Nothing about a wire being dragged should
+    change the user's document, so the commit is a separate, visible, per-node
+    act - and it says what it will do rather than "Run", which reads as "compute"
+    and is what the graph is already doing on its own.
+  -->
+  <section class="execute nodrag">
+    <button type="button" disabled={data.executeBusy || !data.onexecute} onclick={() => data.onexecute?.(id)}>
+      {data.executeBusy ? 'Sending...' : 'Send to Archicad'}
+    </button>
+  </section>
+{/if}
+
 <!--
   The preview is driven by the node's DISPLAY FLAG, not by selection. Having to
   click a node to see what it produced makes the preview a thing you go and
@@ -57,7 +73,7 @@
   section - and the node stops drawing one.
 -->
 {#if viewMode !== 'compact' && viewerVisible && (bodyMode === 'viewer' || bodyMode === 'parameters+viewer')}
-  <section class="viewer" class:active={viewerActive}><NodeViewer result={data.result} active={viewerActive} onactive={toggleViewer} /></section>
+  <section class="viewer" class:active={viewerActive}><NodeViewer values={data.viewerValues ?? []} representation={data.visual?.display?.style?.representation ?? 'default'} color={data.visual?.color ?? '#75c695'} active={viewerActive} onactive={toggleViewer} /></section>
 {/if}
 </div>
 
@@ -66,6 +82,10 @@
   /* No padding on the axis the handles sit on, so a port row reaches the node's
      edge and its nub lands on the border rather than over the label. The row
      carries its own clearance instead; see NodePort. */
+  .execute { padding: 0 9px 8px 11px; }
+  .execute button { width: 100%; height: 21px; border: 1px solid var(--border); border-radius: 3px; background: var(--accent, #4c8cd8); color: #fff; font: 600 10px/1 'Segoe UI', sans-serif; cursor: pointer; }
+  .execute button:hover:not(:disabled) { filter: brightness(1.1); }
+  .execute button:disabled { background: var(--surface); color: var(--text-faint); cursor: default; }
   .ports { display: flex; justify-content: space-between; min-height: 25px; padding: 7px 0 8px; gap: 10px; }
   .ports > div { display: grid; min-width: 0; flex: 1 1 0; align-content: start; gap: 5px; }
   .vertical .ports { display: grid; padding: 0; gap: 8px; }

@@ -1,25 +1,62 @@
 <script lang="ts">
   import { Canvas } from '@threlte/core'
-  import type { NodeResultRecord } from '../types'
+  import type { GraphValue } from '../types'
+  import type { DisplayRepresentation } from './types/display'
   import ViewerScene from './viewer/ViewerScene.svelte'
   import ViewerToolbar from './viewer/ViewerToolbar.svelte'
+  import { isEmptyGeometry, viewerGeometryFrom } from './viewer/geometry'
 
-  let { result, active, onactive }: { result?: NodeResultRecord; active: boolean; onactive: () => void } = $props()
+  let {
+    values,
+    representation,
+    color,
+    active,
+    onactive,
+  }: {
+    values: GraphValue[]
+    representation: DisplayRepresentation
+    color: string
+    active: boolean
+    onactive: () => void
+  } = $props()
   let fitToken = $state(0)
   let resetToken = $state(0)
+
+  const geometry = $derived(viewerGeometryFrom(values))
+  const empty = $derived(isEmptyGeometry(geometry))
+
+  /**
+   * ⚠️ THE CAPTION SAYS WHAT IS AND IS NOT BEING SHOWN. This viewport used to
+   * draw substitute boxes from an item count, so "nothing here" and "the graph
+   * produced nothing" and "the mesh was too big to send" all looked identical -
+   * and all three looked like geometry. They are three different messages now.
+   */
+  const caption = $derived.by(() => {
+    const parts: string[] = []
+    const shapes = geometry.meshes.length + geometry.lines.length + geometry.points.length
+    if (shapes > 0) parts.push(`${shapes} shape${shapes === 1 ? '' : 's'}`)
+    if (geometry.truncated) parts.push('too large to show here')
+    if (geometry.nonGeometric > 0) parts.push(`${geometry.nonGeometric} non-geometric`)
+    if (parts.length === 0) parts.push('nothing to show')
+    return parts.join(' / ')
+  })
 </script>
 
-<section class="nodrag nowheel" class:active aria-label="Native result 3D preview" onpointerdown={(event) => active && event.stopPropagation()} onpointermove={(event) => active && event.stopPropagation()} onwheel={(event) => active && event.stopPropagation()}>
+<section
+  class="nodrag nowheel"
+  class:active
+  aria-label="Node geometry preview"
+  onpointerdown={(event) => active && event.stopPropagation()}
+  onpointermove={(event) => active && event.stopPropagation()}
+  onwheel={(event) => active && event.stopPropagation()}
+>
   <Canvas dpr={1}>
-    <ViewerScene
-      itemCount={result?.itemCount ?? 0}
-      status={result?.status ?? 'pending'}
-      {active}
-      {fitToken}
-      {resetToken}
-    />
+    <ViewerScene {geometry} {representation} {color} {active} {fitToken} {resetToken} />
   </Canvas>
-  <span>{result?.itemCount ?? 0} items</span>
+  {#if empty}
+    <p>{caption}</p>
+  {/if}
+  <span>{caption}</span>
   <ViewerToolbar {active} {onactive} onfit={() => (fitToken += 1)} onreset={() => (resetToken += 1)} />
 </section>
 
@@ -45,6 +82,19 @@
     display: block;
     width: 100% !important;
     height: 100% !important;
+  }
+
+  p {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    color: #6d7b89;
+    font: 9px/1 'Segoe UI', sans-serif;
+    text-align: center;
+    transform: translateY(-50%);
+    pointer-events: none;
   }
 
   span {

@@ -68,6 +68,19 @@ struct GhPreviewPrimitive {
     uint64_t contentHash = 0;
     uint32_t revision = 0;
     bool closed = false;
+
+    // An EXPLICIT colour, when the producer had one.
+    //
+    // ⚠️ THE FLAGS ARE STILL THE RULE, AND THIS IS THE EXCEPTION. Grasshopper's
+    // wire carries no per-primitive colour: everything it sends is coloured from
+    // `flags` against the viewport's style, so selection and highlight stay one
+    // decision made in one place. The node graph is a SECOND producer in the same
+    // process, and there a preview node's colour is a parameter the author set on
+    // the node - a fact the flags cannot express and the style must not override.
+    // Left false, nothing changes for anything that existed before.
+    bool hasOwnColour = false;
+    uint32_t rgba = 0; // 0xRRGGBBAA, matching every other colour in this renderer
+
     std::vector<float> positions;
     std::vector<float> normals;
     std::vector<uint32_t> indices;

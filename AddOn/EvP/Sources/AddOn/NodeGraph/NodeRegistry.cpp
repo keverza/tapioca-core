@@ -68,6 +68,8 @@ const char* ParameterWidgetName (ParameterWidget widget)
             return "point";
         case ParameterWidget::Color:
             return "color";
+        case ParameterWidget::PreviewTarget:
+            return "previewTarget";
         case ParameterWidget::ReadOnly:
             return "readOnly";
     }
@@ -154,6 +156,28 @@ bool ValidateParameterUi (const NodeType& nodeType, const ParameterSchema& param
                 return false;
             }
             break;
+        case ParameterWidget::PreviewTarget:
+            if (parameter.valueType != ValueType::String) {
+                error = "widget 'previewTarget' needs a string parameter" + where;
+                return false;
+            }
+            // ⚠️ THE THREE SPELLINGS ARE CHECKED HERE, AT REGISTRATION. A client
+            // dispatches on this widget and then reads the VALUE; a node type
+            // that offered "archicadOverlay" instead of "archicad" would compile,
+            // register, and then silently draw in the wrong place - which is a
+            // picture, not an error, and the worst kind of bug on this path.
+            if (ui.options.size () != 3) {
+                error = "widget 'previewTarget' names exactly the three targets" + where;
+                return false;
+            }
+            for (const ParameterOption& option : ui.options) {
+                const std::string* text = std::get_if<std::string> (&option.value.DataValue ());
+                if (text == nullptr || (*text != "node" && *text != "archicad" && *text != "both")) {
+                    error = "widget 'previewTarget' options must be 'node', 'archicad' and 'both'" + where;
+                    return false;
+                }
+            }
+            break;
         case ParameterWidget::Vector:
         case ParameterWidget::Point:
             if (parameter.valueType != ValueType::Point3) {
@@ -226,6 +250,13 @@ bool ValidateParameterUi (const NodeType& nodeType, const ParameterSchema& param
         }
     }
 
+    // Below here the SELECT rules. A previewTarget carries options too, and its
+    // own rule above has already checked them exactly - so it leaves before the
+    // "options on a non-select" refusal, which would otherwise reject the very
+    // options it requires.
+    if (ui.widget == ParameterWidget::PreviewTarget)
+        return true;
+
     if (!ui.options.empty () && ui.optionSource != ParameterOptionSource::None) {
         error = "a select takes literal options or an option source, not both" + where;
         return false;
@@ -286,6 +317,32 @@ bool NodeRegistry::Register (NodeType nodeType, std::string& error)
     for (const ParameterSchema& parameter : nodeType.parameters) {
         if (!ValidateParameterUi (nodeType, parameter, error))
             return false;
+    }
+
+    // ⚠️ AN INPUT THAT HAS A TYPED-IN FALLBACK IS NOT REQUIRED, AND IS
+    // NORMALISED HERE RATHER THAN LEFT TO EACH DECLARATION.
+    //
+    // The evaluator resolves an unwired input from the INTERNALISED parameter -
+    // one stored under the input's own id - and fails the node only when there
+    // is neither. But a freshly placed node stores no parameters at all: the
+    // catalog's defaultValue is what the editor shows in the mini-UI, not
+    // something written onto the node. So a node whose ports were declared
+    // required failed the moment it was placed, with "required input is
+    // unconnected", even though its own controls were sitting there full of
+    // perfectly good numbers.
+    //
+    // That is the wrong shape for this catalog. A Box knows how big it is; its
+    // ports exist so something UPSTREAM can take over, not so the node is
+    // useless without them. Deriving the flag from "does this input have a
+    // defaulted parameter of the same id" states that once and cannot drift,
+    // where twenty hand-written `false`s would eventually miss one - and the one
+    // that is missed is a node that looks broken on the canvas.
+    for (PortSchema& input : nodeType.inputs) {
+        if (!input.required)
+            continue;
+        const ParameterSchema* fallback = FindParameter (nodeType, input.id);
+        if (fallback != nullptr && fallback->defaultValue.has_value ())
+            input.required = false;
     }
 
     // Stage F3. Checked HERE, once, rather than on every bypassed evaluation:

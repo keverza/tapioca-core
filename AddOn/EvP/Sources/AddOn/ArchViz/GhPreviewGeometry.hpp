@@ -135,6 +135,19 @@ struct GhPreviewDrawables {
 // What a preview primitive looks like. Colours are RGBA8 in 0xRRGGBBAA order,
 // matching every other layer here.
 struct GhPreviewStyle {
+    // How long each arm of a point marker's cross is, in METRES.
+    //
+    // ⚠️ WORLD-SIZED, UNLIKE THE RIBBON'S WIDTH, and that is a compromise rather
+    // than an oversight. The ribbon is screen-width because a curve is read
+    // against the building at every zoom; a marker is read against the thing it
+    // marks, so a world size is the honest one - a 50 mm cross on a setting-out
+    // point stays 50 mm. The cost is that from across the site it shrinks to
+    // nothing, which is the correct answer for a 50 mm object and the wrong one
+    // for "where is my point". Whoever finds that intolerable should make it
+    // screen-sized in the SHADER, as the ribbon already is, not by scaling
+    // vertices here against a camera this file must not learn about.
+    float pointMarkerHalfLength = 0.05f;
+
     uint32_t rgba = 0x4CA64CFFu;            // ordinary preview geometry
     uint32_t selectedRgba = 0x2ECC40FFu;    // selected on the Grasshopper canvas
     uint32_t highlightedRgba = 0xFFD400FFu; // highlighted (a watch, a warning)

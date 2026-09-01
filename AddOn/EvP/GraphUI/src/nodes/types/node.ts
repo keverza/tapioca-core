@@ -14,6 +14,8 @@ export interface NodeCapabilities {
   disable: boolean
   freeze: boolean
   resizable: boolean
+  /** This node performs a host effect and needs a press to commit it. */
+  execute: boolean
   nodeViewer: boolean
   canvasPreview: boolean
   overlayPreview: boolean

@@ -7,6 +7,9 @@
 #include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+#include "Geometry/Transforms.hpp"
+#include "NodeGraph/PreviewProjection.hpp"
+#include "Preview/GraphPreviewStore.hpp"
 #include "NodeGraph/ValueText.hpp"
 #include "NodeGraph/RunEvents.hpp"
 #include "NodeGraph/RunHistory.hpp"
@@ -305,20 +308,22 @@ TEST (NodeGraphValue, HoldsRecursiveListsAndImmutableMeshes)
 
 TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
 {
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     // Counted by CATEGORY rather than as one number, because the total is now a
     // library that grows: a bare count told you a node had been added and
     // nothing about whether it landed where a user would look for it.
     std::map<std::string, size_t> byCategory;
     for (const auto& [id, nodeType] : registry.Types ())
         ++byCategory[nodeType.category];
-    EXPECT_EQ (6U, byCategory["Core"]);      // number, add, multiply, makeList, scaleList, watch
-    EXPECT_EQ (1U, byCategory["Inspect"]);   // panel
-    EXPECT_EQ (1U, byCategory["Flow"]);      // dataDam - Stage F, so Holding is reachable
+    EXPECT_EQ (8U, byCategory["Core"]);      // number, the four arithmetic nodes, makeList, scaleList, watch
+    EXPECT_EQ (2U, byCategory["Inspect"]);   // panel, preview
+    EXPECT_EQ (2U, byCategory["Flow"]);      // dataDam - Stage F, so Holding is reachable
     EXPECT_EQ (2U, byCategory["Input"]);     // numberSlider, booleanToggle
-    EXPECT_EQ (8U, byCategory["Archicad"]);  // one attribute picker per domain
-    EXPECT_EQ (11U, byCategory["Geometry"]); // inputs, GLM vectors and Clipper2 polygons
-    EXPECT_EQ (29U, registry.Types ().size ());
+    EXPECT_EQ (10U, byCategory["Archicad"]); // one attribute picker per domain, plus the two selection nodes
+    EXPECT_EQ (21U, byCategory["Geometry"]); // inputs, vectors, polygons, solids, curves and the surface makers
+    EXPECT_EQ (6U, byCategory["Transform"]); // move, rotate, scale, mirror and the two arrays
+    EXPECT_EQ (2U, byCategory["Math"]);      // remap, random
+    EXPECT_EQ (53U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -336,7 +341,7 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
 // all (Multiply declares none) still take a typed-in operand.
 TEST (NodeGraphBuiltins, InternalisedInputValueSuppliesAnUnconnectedPort)
 {
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "product", "multiply" } } }).accepted);
 
@@ -374,7 +379,7 @@ TEST (NodeGraphBuiltins, InternalisedInputValueSuppliesAnUnconnectedPort)
 
 TEST (NodeGraphBuiltins, EvaluatesArithmeticListMapAndWatchWorkflow)
 {
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     const auto addNode = [&] (const char* id, const char* nodeType, double numberValue = 0.0) {
         Node node { id, nodeType };
@@ -2770,7 +2775,7 @@ TEST (NodeGraphSelectionSet, TheSetSurvivesASaveAndLoadBecauseItIsAnOrdinaryPara
 namespace {
 
 struct FlowFixture {
-    NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     Evaluator evaluator;
 
@@ -3094,7 +3099,7 @@ TEST (NodeGraphFlowControl, AGraphFileCannotSmuggleInAModeTheTypeDoesNotSupport)
     // cannot hold would otherwise load into a state no command could produce,
     // after which the evaluator is reasoning about a node whose type never
     // agreed to it.
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
     Node node { "sum", "add" };
     node.executionMode = ExecutionMode::Holding;
@@ -3246,7 +3251,7 @@ TEST (NodeGraphRegistry, AParameterWithoutADescriptorStaysLegal)
 {
     // Every parameter registered before UI-1 is in this state, and the catalog
     // has to keep admitting them - the client falls back to the value type.
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     const NodeType* add = registry.Find ("add");
     ASSERT_NE (nullptr, add);
     for (const ParameterSchema& parameter : add->parameters)
@@ -3284,7 +3289,7 @@ TEST (NodeGraphInputLibrary, TheSliderClampsAndRoundsInTheNodeRatherThanInTheCon
     // A range a client honours is not a range: a graph loaded from a file, a
     // pasted value or a second client must not be able to produce an
     // out-of-range answer either.
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     Node node { "s", "numberSlider" };
     node.parameters.emplace ("value", Value (999.0));
     node.parameters.emplace ("minimum", Value (0.0));
@@ -3294,7 +3299,7 @@ TEST (NodeGraphInputLibrary, TheSliderClampsAndRoundsInTheNodeRatherThanInTheCon
     ValueMap outputs;
     std::string error;
     NodeExecutionContext context;
-    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, outputs, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (node, {}, context, outputs, error)) << error;
     EXPECT_DOUBLE_EQ (10.0, std::get<double> (outputs.at ("value").DataValue ()));
 
     Node rounded { "r", "numberSlider" };
@@ -3303,13 +3308,13 @@ TEST (NodeGraphInputLibrary, TheSliderClampsAndRoundsInTheNodeRatherThanInTheCon
     rounded.parameters.emplace ("maximum", Value (10.0));
     rounded.parameters.emplace ("decimals", Value (static_cast<int64_t> (2)));
     ValueMap roundedOutputs;
-    ASSERT_TRUE (ExecuteBuiltinNode (rounded, {}, context, roundedOutputs, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (rounded, {}, context, roundedOutputs, error)) << error;
     EXPECT_DOUBLE_EQ (1.23, std::get<double> (roundedOutputs.at ("value").DataValue ()));
 }
 
 TEST (NodeGraphInputLibrary, APointAssemblesIndependentlyWiredCoordinates)
 {
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     const NodeType* pointType = registry.Find ("point");
     ASSERT_NE (nullptr, pointType);
     ASSERT_EQ (3U, pointType->inputs.size ());
@@ -3327,13 +3332,13 @@ TEST (NodeGraphInputLibrary, APointAssemblesIndependentlyWiredCoordinates)
     ValueMap typedOutputs;
     std::string error;
     NodeExecutionContext context;
-    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, typedOutputs, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (node, {}, context, typedOutputs, error)) << error;
     EXPECT_DOUBLE_EQ (2.0, std::get<Point3> (typedOutputs.at ("point").DataValue ()).y);
 
     ValueMap inputs;
     inputs.emplace ("y", Value (8.0));
     ValueMap wiredOutputs;
-    ASSERT_TRUE (ExecuteBuiltinNode (node, inputs, context, wiredOutputs, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (node, inputs, context, wiredOutputs, error)) << error;
     const Point3 wired = std::get<Point3> (wiredOutputs.at ("point").DataValue ());
     EXPECT_DOUBLE_EQ (1.0, wired.x);
     EXPECT_DOUBLE_EQ (8.0, wired.y);
@@ -3349,7 +3354,7 @@ TEST (NodeGraphInputLibrary, AVectorReportsItsLengthBesideItself)
     ValueMap outputs;
     std::string error;
     NodeExecutionContext context;
-    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, outputs, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (node, {}, context, outputs, error)) << error;
     EXPECT_DOUBLE_EQ (5.0, std::get<double> (outputs.at ("length").DataValue ()));
 }
 
@@ -3360,7 +3365,7 @@ TEST (NodeGraphGeometry, VectorAndPolygonNodesUseTheGeometryEngine)
 
     Node cross { "cross", "geom.vectorCross" };
     ValueMap crossOutputs;
-    ASSERT_TRUE (ExecuteBuiltinNode (
+    ASSERT_TRUE (ExecuteRuntimeNode (
         cross, { { "left", Value (Point3 { 1.0, 0.0, 0.0 }) }, { "right", Value (Point3 { 0.0, 1.0, 0.0 }) } }, context,
         crossOutputs, error))
         << error;
@@ -3370,7 +3375,7 @@ TEST (NodeGraphGeometry, VectorAndPolygonNodesUseTheGeometryEngine)
     Polygon clip { { { 1.0, 0.0, 0.0 }, { 3.0, 0.0, 0.0 }, { 3.0, 2.0, 0.0 }, { 1.0, 2.0, 0.0 } } };
     Node unite { "union", "geom.polygonUnion" };
     ValueMap unionOutputs;
-    ASSERT_TRUE (ExecuteBuiltinNode (unite, { { "subject", Value (subject) }, { "clip", Value (clip) } }, context,
+    ASSERT_TRUE (ExecuteRuntimeNode (unite, { { "subject", Value (subject) }, { "clip", Value (clip) } }, context,
                                      unionOutputs, error))
         << error;
     const Value::List& polygons = std::get<Value::List> (unionOutputs.at ("polygons").DataValue ());
@@ -3383,7 +3388,7 @@ TEST (NodeGraphInputLibrary, EveryAttributePickerIsPureAndAnswersWithWhatWasPick
     // The pickers must not need Archicad to EVALUATE. What needs Archicad is
     // listing the choices, and that is a separate native verb - so a graph
     // carrying a layer name still runs with no project open.
-    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     for (const char* id : { "attribute.layer", "attribute.fill", "attribute.lineType", "attribute.surface",
                             "attribute.buildingMaterial", "attribute.composite", "attribute.profile" }) {
         const NodeType* type = registry.Find (id);
@@ -3409,6 +3414,976 @@ TEST (NodeGraphInputLibrary, EveryAttributePickerIsPureAndAnswersWithWhatWasPick
     ValueMap outputs;
     std::string error;
     NodeExecutionContext context;
-    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, outputs, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (node, {}, context, outputs, error)) << error;
     EXPECT_EQ ("Existing Structures", std::get<std::string> (outputs.at ("value").DataValue ()));
+}
+
+// ---------------------------------------------------------------------------
+// The preview component: a run's results -> what the viewport draws.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A Preview node with something wired into it.
+//
+// ⚠️ THE GEOMETRY IS ON THE NODE UPSTREAM, which is the whole shape of this
+// feature: a Preview is a TERMINAL with no outputs, so the projection follows the
+// edge into it rather than reading a result of its own. The fixture therefore
+// builds a source node too, and the Preview's own result carries nothing but the
+// fact that it RAN - which is what says the last evaluation reached it.
+struct PreviewFixture {
+    GraphDocument document;
+    NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    std::map<NodeId, std::shared_ptr<const NodeResult>> results;
+
+    void AddPreview (const std::string& nodeId, const Value& geometry, std::map<std::string, Value> parameters = {})
+    {
+        GraphEdit edit;
+        AddNodeEdit add;
+        add.node.id = nodeId;
+        add.node.nodeType = kPreviewNodeType;
+        add.node.parameters = std::move (parameters);
+        edit.data = add;
+        const EditResult result = ApplyEdit (document, registry, edit);
+        EXPECT_TRUE (result.accepted) << result.error;
+
+        // A source whose output the Preview is wired to. `panel` is used because
+        // its input is Absent - "any type" - so the edit rules accept a wire from
+        // it into the Preview whatever the geometry happens to be.
+        const std::string sourceId = nodeId + "-source";
+        GraphEdit sourceEdit;
+        AddNodeEdit source;
+        source.node.id = sourceId;
+        source.node.nodeType = "panel";
+        sourceEdit.data = source;
+        EXPECT_TRUE (ApplyEdit (document, registry, sourceEdit).accepted);
+
+        GraphEdit connectEdit;
+        ConnectEdit wire;
+        wire.edge = Edge { sourceId, "text", nodeId, kPreviewGeometryInput };
+        connectEdit.data = wire;
+        EXPECT_TRUE (ApplyEdit (document, registry, connectEdit).accepted);
+
+        auto upstream = std::make_shared<NodeResult> ();
+        upstream->outputs.emplace ("text", geometry);
+        results[sourceId] = upstream;
+        // The Preview publishes nothing; its result exists only to say it ran.
+        results[nodeId] = std::make_shared<NodeResult> ();
+    }
+
+    PreviewResultLookup Lookup ()
+    {
+        return [this] (const NodeId& nodeId) -> std::shared_ptr<const NodeResult> {
+            const auto found = results.find (nodeId);
+            return found == results.end () ? nullptr : found->second;
+        };
+    }
+};
+
+Value PolylineValue (size_t points)
+{
+    Polyline polyline;
+    for (size_t index = 0; index < points; ++index)
+        polyline.points.push_back (Point3 { static_cast<double> (index), 0.0, 0.0 });
+    return Value (std::move (polyline));
+}
+
+} // namespace
+
+TEST (NodeGraphPreview, ProjectsGeometryByValueType)
+{
+    PreviewFixture fixture;
+    Polygon polygon;
+    polygon.points = { Point3 { 0, 0, 0 }, Point3 { 1, 0, 0 }, Point3 { 1, 1, 0 } };
+    fixture.AddPreview (
+        "p", Value (Value::List { Value (Point3 { 1.0, 2.0, 3.0 }), PolylineValue (4), Value (std::move (polygon)) }));
+
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+
+    ASSERT_EQ (3U, projection.primitives.size ());
+    EXPECT_EQ (evp::preview::PreviewKind::PointMarker, projection.primitives[0]->kind);
+    EXPECT_EQ (evp::preview::PreviewKind::Polyline3D, projection.primitives[1]->kind);
+    EXPECT_FALSE (projection.primitives[1]->closed);
+    // A polygon is a CLOSED polyline and says so with the flag rather than by
+    // repeating its first point.
+    EXPECT_EQ (evp::preview::PreviewKind::Polyline3D, projection.primitives[2]->kind);
+    EXPECT_TRUE (projection.primitives[2]->closed);
+    EXPECT_EQ (9U, projection.primitives[2]->positions.size ());
+    EXPECT_EQ (1U, projection.enabledNodes);
+    EXPECT_EQ (0U, projection.nonGeometricValues);
+    EXPECT_FALSE (projection.truncated);
+}
+
+TEST (NodeGraphPreview, CountsValuesThatHaveNoGeometry)
+{
+    // "I wired a number into Preview" and "my geometry never arrived" look the
+    // same in an empty viewport. They must not be the same in the report.
+    PreviewFixture fixture;
+    fixture.AddPreview ("p", Value (Value::List { Value (42.0), Value (std::string ("hello")) }));
+
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+
+    EXPECT_TRUE (projection.primitives.empty ());
+    EXPECT_EQ (2U, projection.nonGeometricValues);
+    EXPECT_EQ (1U, projection.enabledNodes);
+}
+
+TEST (NodeGraphPreview, ShowSwitchAndExecutionModeBothSuppressIt)
+{
+    PreviewFixture fixture;
+    fixture.AddPreview ("off", PolylineValue (2), { { kPreviewEnabledParameter, Value (false) } });
+    fixture.AddPreview ("on", PolylineValue (2));
+
+    PreviewProjection projection = ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    EXPECT_EQ (2U, projection.previewNodes);
+    EXPECT_EQ (1U, projection.enabledNodes);
+    ASSERT_EQ (1U, projection.primitives.size ());
+
+    // A node disabled on the canvas did not run, so its cached result describes a
+    // graph that no longer exists. Drawing it would be a picture of geometry the
+    // graph is not producing.
+    GraphEdit edit;
+    SetExecutionModeEdit mode;
+    mode.nodeId = "on";
+    mode.mode = ExecutionMode::Disabled;
+    edit.data = mode;
+    ASSERT_TRUE (ApplyEdit (fixture.document, fixture.registry, edit).accepted);
+
+    projection = ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    EXPECT_EQ (0U, projection.enabledNodes);
+    EXPECT_TRUE (projection.primitives.empty ());
+}
+
+TEST (NodeGraphPreview, PrimitiveIdsAreStableAndCannotCollideWithGrasshopper)
+{
+    PreviewFixture fixture;
+    fixture.AddPreview ("p", Value (Value::List { PolylineValue (2), PolylineValue (3) }));
+
+    const PreviewProjection first =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    const PreviewProjection again =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    ASSERT_EQ (2U, first.primitives.size ());
+    EXPECT_EQ (first.primitives[0]->id, again.primitives[0]->id);
+    EXPECT_NE (first.primitives[0]->id, first.primitives[1]->id);
+
+    // The worker allocates ids from a counter, so the top bit partitions the two
+    // producers by construction rather than by hoping.
+    for (const auto& primitive : first.primitives)
+        EXPECT_NE (0ull, primitive->id & evp::preview::kGraphPreviewIdBit);
+
+    // A different graph with the same node id is a different primitive.
+    const PreviewProjection other =
+        ProjectGraphPreview ("other", fixture.document, fixture.registry, fixture.Lookup ());
+    EXPECT_NE (first.primitives[0]->id, other.primitives[0]->id);
+}
+
+TEST (NodeGraphPreview, ColourIsTheNodesWhenItParsesAndTheStylesWhenItDoesNot)
+{
+    uint32_t rgba = 0;
+    EXPECT_TRUE (ParsePreviewColour ("#FF8000", rgba));
+    EXPECT_EQ (0xFF8000FFu, rgba);
+    EXPECT_TRUE (ParsePreviewColour ("#ff800080", rgba));
+    EXPECT_EQ (0xFF800080u, rgba);
+    EXPECT_FALSE (ParsePreviewColour ("orange", rgba));
+    EXPECT_FALSE (ParsePreviewColour ("#FF80", rgba));
+    EXPECT_FALSE (ParsePreviewColour ("#GG0000", rgba));
+
+    PreviewFixture fixture;
+    fixture.AddPreview ("good", PolylineValue (2), { { kPreviewColorParameter, Value (std::string ("#123456")) } });
+    fixture.AddPreview ("bad", PolylineValue (2), { { kPreviewColorParameter, Value (std::string ("nonsense")) } });
+
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    ASSERT_EQ (2U, projection.primitives.size ());
+    // Ordered by node id, so "bad" comes before "good". A colour that does not
+    // parse leaves the primitive to the viewport style: a mistyped colour should
+    // show the geometry, not hide it.
+    EXPECT_FALSE (projection.primitives[0]->hasOwnColour);
+    EXPECT_TRUE (projection.primitives[1]->hasOwnColour);
+    EXPECT_EQ (0x123456FFu, projection.primitives[1]->rgba);
+}
+
+TEST (NodeGraphPreview, TruncatesRatherThanAllocatingWithoutBound)
+{
+    PreviewFixture fixture;
+    Value::List many;
+    for (int index = 0; index < 50; ++index)
+        many.push_back (PolylineValue (2));
+    fixture.AddPreview ("p", Value (std::move (many)));
+
+    PreviewProjectionLimits limits;
+    limits.maxPrimitives = 10;
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup (), limits);
+    EXPECT_EQ (10U, projection.primitives.size ());
+    EXPECT_TRUE (projection.truncated);
+}
+
+TEST (NodeGraphPreview, StoreReplacesAGraphsWholeSetAndDropsItWhenEmpty)
+{
+    // A store of its own, not GraphPreviewStore::Get (): the accessor is an
+    // accessor and not a singleton contract, and a test that used the
+    // process-wide one would leak state into whatever ran next.
+    evp::preview::GraphPreviewStore store;
+    EXPECT_EQ (nullptr, store.SnapshotCopy ());
+
+    auto primitive = std::make_shared<evp::preview::GhPreviewPrimitive> ();
+    store.PublishGraph ("a", { primitive, primitive });
+    store.PublishGraph ("b", { primitive });
+    EXPECT_EQ (2U, store.GraphCount ());
+    EXPECT_EQ (3U, store.Count ());
+    ASSERT_NE (nullptr, store.SnapshotCopy ());
+    EXPECT_EQ (3U, store.SnapshotCopy ()->primitives.size ());
+
+    // Publishing nothing is how a graph says it draws nothing. It is the same
+    // state as having been cleared, so it is the same entry - otherwise
+    // GraphCount would count graphs that draw nothing.
+    const uint64_t before = store.Generation ();
+    store.PublishGraph ("a", {});
+    EXPECT_EQ (1U, store.GraphCount ());
+    EXPECT_EQ (1U, store.Count ());
+    EXPECT_GT (store.Generation (), before);
+
+    // ... and republishing nothing changes nothing, so the renderer's generation
+    // compare does not rebuild a layer for it.
+    const uint64_t settled = store.Generation ();
+    store.PublishGraph ("a", {});
+    EXPECT_EQ (settled, store.Generation ());
+
+    store.ClearAll ();
+    EXPECT_EQ (0U, store.GraphCount ());
+    EXPECT_TRUE (store.SnapshotCopy ()->primitives.empty ());
+}
+
+TEST (NodeGraphPreview, MergingTheTwoProducersKeepsBothAndTracksEitherChanging)
+{
+    // The renderer rebuilds its buffers only when the combined generation moves,
+    // so the merge has to notice EITHER producer changing. A sum would not: two
+    // generations moving in opposite directions by the same amount would freeze
+    // the viewport on old geometry with nothing in the log to say so.
+    auto ghPrimitive = std::make_shared<evp::preview::GhPreviewPrimitive> ();
+    ghPrimitive->id = 7;
+    auto graphPrimitive = std::make_shared<evp::preview::GhPreviewPrimitive> ();
+    graphPrimitive->id = evp::preview::GraphPreviewPrimitiveId ("g", "n", 0);
+
+    auto gh = std::make_shared<evp::preview::GhPreviewSnapshot> ();
+    gh->generation = 4;
+    gh->primitives.push_back (ghPrimitive);
+    auto graph = std::make_shared<evp::preview::GhPreviewSnapshot> ();
+    graph->generation = 9;
+    graph->primitives.push_back (graphPrimitive);
+
+    // Neither: nothing to draw and no layer to build.
+    EXPECT_EQ (0U, evp::preview::MergePreviewSnapshots (nullptr, nullptr).generation);
+    EXPECT_EQ (nullptr, evp::preview::MergePreviewSnapshots (nullptr, nullptr).snapshot);
+
+    // One side alone is handed straight through rather than copied.
+    EXPECT_EQ (gh, evp::preview::MergePreviewSnapshots (gh, nullptr).snapshot);
+    EXPECT_EQ (graph, evp::preview::MergePreviewSnapshots (nullptr, graph).snapshot);
+
+    const evp::preview::MergedPreview both = evp::preview::MergePreviewSnapshots (gh, graph);
+    ASSERT_NE (nullptr, both.snapshot);
+    EXPECT_EQ (2U, both.snapshot->primitives.size ());
+    EXPECT_NE (0U, both.generation);
+
+    auto ghMoved = std::make_shared<evp::preview::GhPreviewSnapshot> (*gh);
+    ghMoved->generation = 5;
+    auto graphMoved = std::make_shared<evp::preview::GhPreviewSnapshot> (*graph);
+    graphMoved->generation = 8;
+    // Each half moving alone changes it ...
+    EXPECT_NE (both.generation, evp::preview::MergePreviewSnapshots (ghMoved, graph).generation);
+    EXPECT_NE (both.generation, evp::preview::MergePreviewSnapshots (gh, graphMoved).generation);
+    // ... and so does the pair that a sum would have called equal.
+    EXPECT_NE (both.generation, evp::preview::MergePreviewSnapshots (ghMoved, graphMoved).generation);
+}
+
+TEST (NodeGraphPreview, RuntimePublishesOnEveryRunAndWithdrawsOnDelete)
+{
+    // The end-to-end shape, through the runtime rather than the projection: an
+    // ordinary evaluation must fill the viewport, and DELETING the node must
+    // empty it without waiting for something else to run. Stale preview is worse
+    // than none, because nothing about it says it is stale.
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "preview-test-graph";
+
+    GraphEdit addPoint;
+    AddNodeEdit point;
+    point.node.id = "pt";
+    point.node.nodeType = "point";
+    point.node.parameters = { { "x", Value (1.0) }, { "y", Value (2.0) }, { "z", Value (3.0) } };
+    addPoint.data = point;
+    ASSERT_TRUE (runtime.Apply (graphId, addPoint).accepted);
+
+    GraphEdit addPreview;
+    AddNodeEdit previewNode;
+    previewNode.node.id = "pv";
+    previewNode.node.nodeType = kPreviewNodeType;
+    addPreview.data = previewNode;
+    ASSERT_TRUE (runtime.Apply (graphId, addPreview).accepted);
+
+    GraphEdit connect;
+    ConnectEdit wire;
+    wire.edge = Edge { "pt", "point", "pv", "geometry" };
+    connect.data = wire;
+    ASSERT_TRUE (runtime.Apply (graphId, connect).accepted);
+
+    EvaluationRequest request;
+    const EvaluationSummary summary = runtime.Evaluate (graphId, request);
+    ASSERT_TRUE (summary.succeeded) << summary.error;
+
+    auto snapshot = evp::preview::GraphPreviewStore::Get ().SnapshotCopy ();
+    ASSERT_NE (nullptr, snapshot);
+    ASSERT_EQ (1U, snapshot->primitives.size ());
+    EXPECT_EQ (evp::preview::PreviewKind::PointMarker, snapshot->primitives[0]->kind);
+
+    GraphEdit remove;
+    RemoveNodeEdit removal;
+    removal.nodeId = "pv";
+    remove.data = removal;
+    ASSERT_TRUE (runtime.Apply (graphId, remove).accepted);
+
+    snapshot = evp::preview::GraphPreviewStore::Get ().SnapshotCopy ();
+    ASSERT_NE (nullptr, snapshot);
+    EXPECT_TRUE (snapshot->primitives.empty ());
+
+    evp::preview::GraphPreviewStore::Get ().ClearAll ();
+}
+
+TEST (NodeGraphPreview, ThePreviewNodeIsATerminalWithNoOutputs)
+{
+    // ⚠️ NO OUTPUTS, AND THE PROJECTION FOLLOWS THE WIRE INSTEAD. The node had a
+    // pass-through output only because outputs are the only thing the evaluator
+    // caches - which put two ports on a terminal that nobody would ever wire and
+    // made "List of 1" appear beside a node whose whole job is to show a shape.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* preview = registry.Find (kPreviewNodeType);
+    ASSERT_NE (nullptr, preview);
+    EXPECT_TRUE (preview->outputs.empty ());
+    ASSERT_EQ (1U, preview->inputs.size ());
+    EXPECT_EQ (kPreviewGeometryInput, preview->inputs.front ().id);
+
+    // And it still projects, from the node upstream of it.
+    PreviewFixture fixture;
+    fixture.AddPreview ("p", PolylineValue (3));
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    EXPECT_EQ (1U, projection.enabledNodes);
+    EXPECT_EQ (1U, projection.primitives.size ());
+}
+
+TEST (NodeGraphPreview, TheTargetParameterDecidesWhetherArchicadDrawsIt)
+{
+    // ONE switch for both halves. The runtime reads it for the overlay and the
+    // editor reads the same parameter for the node viewport; a switch each would
+    // let them disagree, and "showing nothing" would have two causes that look
+    // the same.
+    EXPECT_TRUE (PreviewTargetDrawsInArchicad ("both"));
+    EXPECT_TRUE (PreviewTargetDrawsInArchicad ("archicad"));
+    EXPECT_FALSE (PreviewTargetDrawsInArchicad ("node"));
+    // An absent or unrecognised target DRAWS: a graph saved by a later build
+    // should show its geometry rather than hide it, because a viewport that
+    // silently shows nothing is indistinguishable from a node that produced
+    // nothing and the user would debug the wrong half.
+    EXPECT_TRUE (PreviewTargetDrawsInArchicad (""));
+    EXPECT_TRUE (PreviewTargetDrawsInArchicad ("hologram"));
+
+    PreviewFixture fixture;
+    fixture.AddPreview ("here", PolylineValue (2), { { kPreviewTargetParameter, Value (std::string ("archicad")) } });
+    fixture.AddPreview ("nodeOnly", PolylineValue (2), { { kPreviewTargetParameter, Value (std::string ("node")) } });
+
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+    EXPECT_EQ (2U, projection.previewNodes);
+    ASSERT_EQ (1U, projection.primitives.size ());
+    // The node-only one is still a preview node - it is previewing, just not
+    // here - so it is counted and not drawn.
+    EXPECT_EQ (1U, projection.enabledNodes);
+}
+
+TEST (NodeGraphPreview, ThePreviewTargetWidgetIsPinnedToItsThreeSpellings)
+{
+    // A client dispatches on this widget and then reads the VALUE. A node type
+    // offering "archicadOverlay" instead of "archicad" would register happily
+    // and then draw in the wrong place, which is a picture rather than an error.
+    NodeRegistry registry;
+    std::string error;
+
+    const auto typeWith = [] (std::vector<ParameterOption> options, ValueType valueType) {
+        NodeType type { "t", "T", "Core", "" };
+        ParameterSchema parameter { "target", "Draw in", valueType, false, Value (std::string ("both")) };
+        ParameterUi ui;
+        ui.widget = ParameterWidget::PreviewTarget;
+        ui.options = std::move (options);
+        parameter.ui = std::move (ui);
+        type.parameters.push_back (std::move (parameter));
+        type.outputs.push_back ({ "out", "Out", ValueType::String });
+        return type;
+    };
+
+    const std::vector<ParameterOption> good { { "Node", Value (std::string ("node")) },
+                                              { "Archicad", Value (std::string ("archicad")) },
+                                              { "Both", Value (std::string ("both")) } };
+    EXPECT_TRUE (registry.Register (typeWith (good, ValueType::String), error)) << error;
+
+    NodeRegistry other;
+    const std::vector<ParameterOption> misspelt { { "Node", Value (std::string ("node")) },
+                                                  { "Archicad", Value (std::string ("archicadOverlay")) },
+                                                  { "Both", Value (std::string ("both")) } };
+    EXPECT_FALSE (other.Register (typeWith (misspelt, ValueType::String), error));
+    EXPECT_FALSE (other.Register (typeWith ({ good[0], good[1] }, ValueType::String), error));
+    EXPECT_FALSE (other.Register (typeWith (good, ValueType::Bool), error));
+}
+
+// ---------------------------------------------------------------------------
+// Solids
+// ---------------------------------------------------------------------------
+
+TEST (NodeGraphGeometry, TheSolidNodesProduceMeshesAndRefuseDegenerateOnes)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node box;
+    box.id = "b";
+    box.nodeType = "geom.box";
+    box.parameters = { { "centre", Value (Point3 { 1.0, 2.0, 3.0 }) },
+                       { "width", Value (2.0) },
+                       { "depth", Value (2.0) },
+                       { "height", Value (2.0) } };
+    ASSERT_TRUE (ExecuteRuntimeNode (box, {}, context, outputs, error)) << error;
+    ASSERT_EQ (ValueType::Mesh, outputs.at ("mesh").Type ());
+    const auto mesh = std::get<Value::ImmutableMesh> (outputs.at ("mesh").DataValue ());
+    ASSERT_NE (nullptr, mesh);
+    // 24 vertices, not 8: shared corners would average three face normals and
+    // the box would render as a rounded lump with no edges.
+    EXPECT_EQ (24U, mesh->VertexCount ());
+    EXPECT_EQ (12U, mesh->TriangleCount ());
+    EXPECT_EQ (mesh->vertices.size (), mesh->normals.size ());
+    // Centred on the point it was given, not anchored at it.
+    EXPECT_NEAR (0.0, mesh->bounds.mn[0], 1e-9);
+    EXPECT_NEAR (2.0, mesh->bounds.mx[0], 1e-9);
+    // Centre z = 3, height 2, so the box spans 2..4 on Z.
+    EXPECT_NEAR (2.0, mesh->bounds.mn[2], 1e-9);
+    EXPECT_NEAR (4.0, mesh->bounds.mx[2], 1e-9);
+
+    // A zero extent is REFUSED rather than built: it is far more often a wire
+    // into the wrong port than a request, and a degenerate solid hides that.
+    Node flat = box;
+    flat.parameters["height"] = Value (0.0);
+    outputs.clear ();
+    error.clear ();
+    EXPECT_FALSE (ExecuteRuntimeNode (flat, {}, context, outputs, error));
+    EXPECT_FALSE (error.empty ());
+
+    Node sphere;
+    sphere.id = "s";
+    sphere.nodeType = "geom.sphere";
+    sphere.parameters = { { "centre", Value (Point3 { 0.0, 0.0, 0.0 }) },
+                          { "radius", Value (1.0) },
+                          { "segments", Value (static_cast<int64_t> (8)) } };
+    outputs.clear ();
+    error.clear ();
+    ASSERT_TRUE (ExecuteRuntimeNode (sphere, {}, context, outputs, error)) << error;
+    const auto ball = std::get<Value::ImmutableMesh> (outputs.at ("mesh").DataValue ());
+    ASSERT_NE (nullptr, ball);
+    EXPECT_GT (ball->TriangleCount (), 0U);
+    // Every vertex is on the sphere, and its normal points out of the centre.
+    for (std::size_t index = 0; index + 2 < ball->vertices.size (); index += 3) {
+        const double x = ball->vertices[index];
+        const double y = ball->vertices[index + 1];
+        const double z = ball->vertices[index + 2];
+        EXPECT_NEAR (1.0, std::sqrt (x * x + y * y + z * z), 1e-9);
+        EXPECT_NEAR (x, static_cast<double> (ball->normals[index]), 1e-6);
+    }
+
+    // ⚠️ THE SEGMENT COUNT IS AN INTEGER PARAMETER, AND IT HAS TO REACH THE
+    // BUILDER. A reader that accepted only Double silently returned the default
+    // instead - the node ran, produced a plausible sphere, and ignored what the
+    // user typed.
+    Node coarse = sphere;
+    coarse.parameters["segments"] = Value (static_cast<int64_t> (4));
+    outputs.clear ();
+    ASSERT_TRUE (ExecuteRuntimeNode (coarse, {}, context, outputs, error)) << error;
+    const auto lumpy = std::get<Value::ImmutableMesh> (outputs.at ("mesh").DataValue ());
+    EXPECT_LT (lumpy->TriangleCount (), ball->TriangleCount ());
+
+    // A ceiling, not a clamp: the cost is quadratic, and a typed extra zero
+    // would allocate gigabytes inside Archicad before anything could report it.
+    Node absurd = sphere;
+    absurd.parameters["segments"] = Value (static_cast<int64_t> (100000));
+    outputs.clear ();
+    error.clear ();
+    EXPECT_FALSE (ExecuteRuntimeNode (absurd, {}, context, outputs, error));
+    EXPECT_FALSE (error.empty ());
+}
+
+TEST (NodeGraphPreview, ASolidReachesTheViewportAsOneMeshPrimitive)
+{
+    // The whole chain the solids exist for: a mesh value becomes a mesh
+    // primitive with its normals intact, so the renderer flat-shades it rather
+    // than drawing a silhouette.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+    Node box;
+    box.id = "b";
+    box.nodeType = "geom.box";
+    ASSERT_TRUE (ExecuteRuntimeNode (box, {}, context, outputs, error)) << error;
+
+    PreviewFixture fixture;
+    fixture.AddPreview ("p", outputs.at ("mesh"));
+    const PreviewProjection projection =
+        ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
+
+    ASSERT_EQ (1U, projection.primitives.size ());
+    EXPECT_EQ (evp::preview::PreviewKind::TriangleMesh, projection.primitives[0]->kind);
+    EXPECT_EQ (24U * 3U, projection.primitives[0]->positions.size ());
+    EXPECT_EQ (projection.primitives[0]->positions.size (), projection.primitives[0]->normals.size ());
+    EXPECT_EQ (12U * 3U, projection.primitives[0]->indices.size ());
+}
+
+// ---------------------------------------------------------------------------
+// A node has to work the moment it is placed.
+// ---------------------------------------------------------------------------
+
+// ⚠️ THE INVARIANT THIS WHOLE CATALOG RESTS ON. A freshly placed node stores no
+// parameters at all - the catalog's defaultValue is what the editor SHOWS in the
+// mini-UI, not something written onto the node - so a node whose ports were
+// declared required failed the instant it was dropped on the canvas, reporting
+// "required input is unconnected" while its own controls sat there full of
+// perfectly good numbers.
+//
+// A Box knows how big it is. Its ports exist so something upstream can take
+// over, not so the node is useless without them. NodeRegistry::Register derives
+// the flag from "does this input have a defaulted parameter of the same id",
+// and this is what proves it holds for every type at once rather than for the
+// twenty somebody remembered.
+TEST (NodeGraphBuiltins, EveryNodeWithTypedInDefaultsEvaluatesWithNothingWired)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+
+    for (const auto& [id, nodeType] : registry.Types ()) {
+        // Only the types that claim to be self-sufficient: every input either
+        // has a defaulted parameter behind it or is optional.
+        bool selfSufficient = true;
+        for (const PortSchema& input : nodeType.inputs) {
+            if (input.required)
+                selfSufficient = false;
+        }
+        if (!selfSufficient || nodeType.executionDomain != ExecutionDomain::Worker ||
+            nodeType.effect != EffectKind::Pure) {
+            continue;
+        }
+
+        Node node;
+        node.id = "n";
+        node.nodeType = id;
+        // The parameters the runtime would resolve from the catalog. Applied
+        // here because the EDITOR shows them and the evaluator resolves them;
+        // the node body has to agree with both.
+        for (const ParameterSchema& parameter : nodeType.parameters) {
+            if (parameter.defaultValue.has_value ())
+                node.parameters[parameter.id] = *parameter.defaultValue;
+        }
+
+        ValueMap inputs;
+        for (const PortSchema& input : nodeType.inputs) {
+            const auto stored = node.parameters.find (input.id);
+            inputs.emplace (input.id, stored == node.parameters.end () ? Value {} : stored->second);
+        }
+
+        ValueMap outputs;
+        std::string error;
+        EXPECT_TRUE (ExecuteRuntimeNode (node, inputs, context, outputs, error))
+            << id << " cannot evaluate from its own defaults: " << error;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transforms
+// ---------------------------------------------------------------------------
+
+TEST (NodeGraphTransform, AMirrorReversesMeshWindingAsWellAsPositions)
+{
+    // A reflected solid whose triangles keep their order is inside-out. It looks
+    // correct until something culls back faces, and then half of it disappears -
+    // a picture, with nothing in any log.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node box;
+    box.id = "b";
+    box.nodeType = "geom.box";
+    ASSERT_TRUE (ExecuteRuntimeNode (box, {}, context, outputs, error)) << error;
+    const Value mesh = outputs.at ("mesh");
+    const auto before = std::get<Value::ImmutableMesh> (mesh.DataValue ());
+
+    Node mirror;
+    mirror.id = "m";
+    mirror.nodeType = "geom.mirror";
+    mirror.parameters = { { "origin", Value (Point3 { 0.0, 0.0, 0.0 }) },
+                          { "normal", Value (Point3 { 1.0, 0.0, 0.0 }) } };
+    ValueMap mirrorInputs;
+    mirrorInputs.emplace ("geometry", mesh);
+    outputs.clear ();
+    ASSERT_TRUE (ExecuteRuntimeNode (mirror, mirrorInputs, context, outputs, error)) << error;
+
+    const Value::List& moved = std::get<Value::List> (outputs.at ("geometry").DataValue ());
+    ASSERT_EQ (1U, moved.size ());
+    const auto after = std::get<Value::ImmutableMesh> (moved[0].DataValue ());
+    ASSERT_NE (nullptr, after);
+    ASSERT_EQ (before->triangles.size (), after->triangles.size ());
+
+    // X is negated ...
+    EXPECT_NEAR (-before->vertices[0], after->vertices[0], 1e-9);
+    EXPECT_NEAR (before->vertices[1], after->vertices[1], 1e-9);
+    // ... and the winding of every triangle is reversed.
+    for (std::size_t index = 0; index + 2 < before->triangles.size (); index += 3) {
+        EXPECT_EQ (before->triangles[index], after->triangles[index]);
+        EXPECT_EQ (before->triangles[index + 1], after->triangles[index + 2]);
+        EXPECT_EQ (before->triangles[index + 2], after->triangles[index + 1]);
+    }
+}
+
+TEST (NodeGraphTransform, ANonUniformScaleKeepsNormalsPerpendicular)
+{
+    // The inverse-transpose case, and the reason ApplyToNormal exists at all: a
+    // normal transformed as a direction stops being perpendicular to its surface
+    // the moment the axes scale differently, and the shading then goes visibly
+    // wrong on exactly one axis.
+    geomsrv::engine::Transform transform;
+    std::string error;
+    ASSERT_TRUE (geomsrv::engine::Scaling ({ 0, 0, 0 }, { 4.0, 1.0, 1.0 }, transform, error)) << error;
+
+    // A surface running diagonally in XY: the edge (1,1,0), whose normal is
+    // (1,-1,0) before the scale.
+    const geomsrv::engine::Vector3 edge = geomsrv::engine::ApplyToDirection (transform, { 1.0, 1.0, 0.0 });
+    const geomsrv::engine::Vector3 normal = geomsrv::engine::ApplyToNormal (transform, { 1.0, -1.0, 0.0 });
+    EXPECT_NEAR (0.0, geomsrv::engine::Dot (edge, normal), 1e-9);
+
+    // Transformed as a direction instead, it would NOT be - which is the bug
+    // this test exists to keep out.
+    const geomsrv::engine::Vector3 wrong = geomsrv::engine::ApplyToDirection (transform, { 1.0, -1.0, 0.0 });
+    EXPECT_GT (std::fabs (geomsrv::engine::Dot (edge, wrong)), 1e-6);
+}
+
+TEST (NodeGraphTransform, RotationTurnsAboutItsOwnOriginRatherThanTheWorlds)
+{
+    // Rotating a facade about the world origin instead of about its own corner
+    // moves it a long way rather than a little, and the result still looks like
+    // geometry - just somewhere else.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node rotate;
+    rotate.id = "r";
+    rotate.nodeType = "geom.rotate";
+    rotate.parameters = { { "origin", Value (Point3 { 10.0, 0.0, 0.0 }) },
+                          { "axis", Value (Point3 { 0.0, 0.0, 1.0 }) },
+                          { "angle", Value (90.0) } };
+    ValueMap inputs;
+    inputs.emplace ("geometry", Value (Point3 { 11.0, 0.0, 0.0 }));
+    ASSERT_TRUE (ExecuteRuntimeNode (rotate, inputs, context, outputs, error)) << error;
+
+    const Value::List& moved = std::get<Value::List> (outputs.at ("geometry").DataValue ());
+    ASSERT_EQ (1U, moved.size ());
+    const Point3 point = std::get<Point3> (moved[0].DataValue ());
+    // One metre out along +X from (10,0,0), turned a quarter turn, is one metre
+    // out along +Y from the same place.
+    EXPECT_NEAR (10.0, point.x, 1e-9);
+    EXPECT_NEAR (1.0, point.y, 1e-9);
+}
+
+TEST (NodeGraphTransform, AnArrayCountsTheOriginalAsOneOfTheCopies)
+{
+    // A count of five means five things. The other reading puts every array one
+    // bay too long, which reads as a modelling decision rather than an
+    // off-by-one.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node array;
+    array.id = "a";
+    array.nodeType = "geom.arrayLinear";
+    array.parameters = { { "step", Value (Point3 { 2.0, 0.0, 0.0 }) }, { "count", Value (static_cast<int64_t> (5)) } };
+    ValueMap inputs;
+    inputs.emplace ("geometry", Value (Point3 { 0.0, 0.0, 0.0 }));
+    ASSERT_TRUE (ExecuteRuntimeNode (array, inputs, context, outputs, error)) << error;
+
+    EXPECT_EQ (5, std::get<int64_t> (outputs.at ("count").DataValue ()));
+    const Value::List& copies = std::get<Value::List> (outputs.at ("geometry").DataValue ());
+    ASSERT_EQ (5U, copies.size ());
+    // The first copy is the original, in place. A transformed point stays a
+    // point - the array does not wrap each copy in a list of its own, which
+    // would make every downstream node strip a level that carries no meaning.
+    EXPECT_NEAR (0.0, std::get<Point3> (copies[0].DataValue ()).x, 1e-9);
+    EXPECT_NEAR (8.0, std::get<Point3> (copies[4].DataValue ()).x, 1e-9);
+}
+
+// ---------------------------------------------------------------------------
+// Curves
+// ---------------------------------------------------------------------------
+
+TEST (NodeGraphCurves, AHorizontalArcDoesNotCollapse)
+{
+    // ⚠️ THE CASE A FIXED SEED AXIS GETS WRONG. Building the arc's plane by
+    // crossing its normal with a constant axis gives a zero-length result when
+    // the normal IS that axis - which for a Z-up model is a horizontal arc, the
+    // single commonest one there is. The arc then collapses to its centre point.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node arc;
+    arc.id = "a";
+    arc.nodeType = "geom.arc";
+    arc.parameters = { { "centre", Value (Point3 { 0.0, 0.0, 0.0 }) },
+                       { "normal", Value (Point3 { 0.0, 0.0, 1.0 }) },
+                       { "radius", Value (2.0) },
+                       { "start", Value (0.0) },
+                       { "sweep", Value (360.0) },
+                       { "segments", Value (static_cast<int64_t> (16)) } };
+    ASSERT_TRUE (ExecuteRuntimeNode (arc, {}, context, outputs, error)) << error;
+
+    const Polyline& curve = std::get<Polyline> (outputs.at ("curve").DataValue ());
+    ASSERT_EQ (17U, curve.points.size ());
+    for (const Point3& point : curve.points) {
+        EXPECT_NEAR (2.0, std::sqrt (point.x * point.x + point.y * point.y), 1e-9);
+        EXPECT_NEAR (0.0, point.z, 1e-9);
+    }
+}
+
+TEST (NodeGraphCurves, CurvesAreSampledByLengthRatherThanByPointIndex)
+{
+    // "The midpoint of this curve" has to mean the same place whether the
+    // polyline was drawn evenly or not. Indexing gives an answer that drifts
+    // towards wherever the points happen to be dense - here, the short end.
+    Polyline uneven;
+    uneven.points = { Point3 { 0, 0, 0 }, Point3 { 1, 0, 0 }, Point3 { 2, 0, 0 }, Point3 { 10, 0, 0 } };
+
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node pointOn;
+    pointOn.id = "p";
+    pointOn.nodeType = "geom.pointOnCurve";
+    pointOn.parameters = { { "t", Value (0.5) } };
+    ValueMap inputs;
+    inputs.emplace ("curve", Value (uneven));
+    ASSERT_TRUE (ExecuteRuntimeNode (pointOn, inputs, context, outputs, error)) << error;
+
+    // Half of ten metres is five metres along, not the second of four points.
+    EXPECT_NEAR (5.0, std::get<Point3> (outputs.at ("point").DataValue ()).x, 1e-9);
+
+    Node divide;
+    divide.id = "d";
+    divide.nodeType = "geom.divideCurve";
+    divide.parameters = { { "count", Value (static_cast<int64_t> (10)) }, { "includeEnds", Value (true) } };
+    outputs.clear ();
+    ASSERT_TRUE (ExecuteRuntimeNode (divide, inputs, context, outputs, error)) << error;
+    // N segments is N+1 points. An off-by-one here puts every facade panel half
+    // a bay out.
+    EXPECT_EQ (11, std::get<int64_t> (outputs.at ("count").DataValue ()));
+}
+
+TEST (NodeGraphCurves, AConcaveOutlineExtrudesWithoutTrianglesOutsideIt)
+{
+    // ⚠️ THE REASON THE CAPS GO THROUGH A TRIANGULATOR. A fan from the first
+    // vertex is only correct for a convex outline, and floor plates, cores and
+    // L-shaped footprints are concave by default - a fan over one of those puts
+    // triangles OUTSIDE the shape, which reads as the outline being wrong.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Polygon lShape;
+    lShape.points = { Point3 { 0, 0, 0 }, Point3 { 4, 0, 0 }, Point3 { 4, 1, 0 },
+                      Point3 { 1, 1, 0 }, Point3 { 1, 4, 0 }, Point3 { 0, 4, 0 } };
+
+    Node extrude;
+    extrude.id = "e";
+    extrude.nodeType = "geom.extrude";
+    extrude.parameters = { { "direction", Value (Point3 { 0.0, 0.0, 3.0 }) } };
+    ValueMap inputs;
+    inputs.emplace ("outline", Value (lShape));
+    ASSERT_TRUE (ExecuteRuntimeNode (extrude, inputs, context, outputs, error)) << error;
+
+    const auto mesh = std::get<Value::ImmutableMesh> (outputs.at ("mesh").DataValue ());
+    ASSERT_NE (nullptr, mesh);
+    EXPECT_GT (mesh->TriangleCount (), 0U);
+    // The solid spans exactly the outline and the sweep, and nothing else. A fan
+    // triangulation would still satisfy this - what it would break is the notch,
+    // so the area is checked below rather than only the bounds.
+    EXPECT_NEAR (0.0, mesh->bounds.mn[0], 1e-9);
+    EXPECT_NEAR (4.0, mesh->bounds.mx[0], 1e-9);
+    EXPECT_NEAR (0.0, mesh->bounds.mn[2], 1e-9);
+    EXPECT_NEAR (3.0, mesh->bounds.mx[2], 1e-9);
+
+    // The two caps together are twice the L's area of 7, not twice the area of
+    // its convex hull. Summed as projected triangle areas in XY.
+    double capArea = 0.0;
+    for (std::size_t index = 0; index + 2 < mesh->triangles.size (); index += 3) {
+        const uint32_t a = mesh->triangles[index];
+        const uint32_t b = mesh->triangles[index + 1];
+        const uint32_t c = mesh->triangles[index + 2];
+        const double ax = mesh->vertices[a * 3], ay = mesh->vertices[a * 3 + 1], az = mesh->vertices[a * 3 + 2];
+        const double bx = mesh->vertices[b * 3], by = mesh->vertices[b * 3 + 1], bz = mesh->vertices[b * 3 + 2];
+        const double cx = mesh->vertices[c * 3], cy = mesh->vertices[c * 3 + 1], cz = mesh->vertices[c * 3 + 2];
+        // Only the horizontal caps contribute; the walls are vertical.
+        if (std::fabs (az - bz) > 1e-9 || std::fabs (az - cz) > 1e-9)
+            continue;
+        capArea += std::fabs ((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) * 0.5;
+    }
+    EXPECT_NEAR (14.0, capArea, 1e-6);
+}
+
+TEST (NodeGraphCurves, ALoftRefusesMismatchedCurvesRatherThanResamplingOne)
+{
+    // Resampling silently is the wrong favour: WHICH curve to resample onto
+    // changes the shape, so a loft that quietly picked one would give an answer
+    // nobody asked for and no way to see why.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Polyline bottom;
+    bottom.points = { Point3 { 0, 0, 0 }, Point3 { 1, 0, 0 }, Point3 { 2, 0, 0 } };
+    Polyline top;
+    top.points = { Point3 { 0, 0, 1 }, Point3 { 2, 0, 1 } };
+
+    Node loft;
+    loft.id = "l";
+    loft.nodeType = "geom.loft";
+    ValueMap inputs;
+    inputs.emplace ("from", Value (bottom));
+    inputs.emplace ("to", Value (top));
+    EXPECT_FALSE (ExecuteRuntimeNode (loft, inputs, context, outputs, error));
+    EXPECT_NE (std::string::npos, error.find ("Divide Curve"));
+}
+
+// ---------------------------------------------------------------------------
+// Numbers and flow
+// ---------------------------------------------------------------------------
+
+TEST (NodeGraphMath, RandomIsRepeatableFromItsSeed)
+{
+    // ⚠️ THE SOLUTION RUNS CONTINUOUSLY NOW. A Random that answered differently
+    // on each evaluation would jitter the model on every keystroke anywhere
+    // upstream, and nothing on screen would say why. The seed is what makes
+    // "random" a value rather than an event.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    std::string error;
+
+    Node random;
+    random.id = "r";
+    random.nodeType = "math.random";
+    random.parameters = { { "seed", Value (static_cast<int64_t> (7)) },
+                          { "count", Value (static_cast<int64_t> (5)) },
+                          { "minimum", Value (0.0) },
+                          { "maximum", Value (10.0) } };
+
+    ValueMap first;
+    ValueMap again;
+    ASSERT_TRUE (ExecuteRuntimeNode (random, {}, context, first, error)) << error;
+    ASSERT_TRUE (ExecuteRuntimeNode (random, {}, context, again, error)) << error;
+
+    const Value::List& a = std::get<Value::List> (first.at ("values").DataValue ());
+    const Value::List& b = std::get<Value::List> (again.at ("values").DataValue ());
+    ASSERT_EQ (5U, a.size ());
+    for (std::size_t index = 0; index < a.size (); ++index) {
+        const double value = std::get<double> (a[index].DataValue ());
+        EXPECT_EQ (value, std::get<double> (b[index].DataValue ()));
+        EXPECT_GE (value, 0.0);
+        EXPECT_LE (value, 10.0);
+    }
+
+    // A different seed is a different set, or the seed does nothing.
+    Node other = random;
+    other.parameters["seed"] = Value (static_cast<int64_t> (8));
+    ValueMap different;
+    ASSERT_TRUE (ExecuteRuntimeNode (other, {}, context, different, error)) << error;
+    const Value::List& c = std::get<Value::List> (different.at ("values").DataValue ());
+    EXPECT_NE (std::get<double> (a[0].DataValue ()), std::get<double> (c[0].DataValue ()));
+}
+
+TEST (NodeGraphMath, DivideAndRemapRefuseTheirDegenerateCasesRatherThanReturningInfinity)
+{
+    // An infinity propagates silently through every downstream node and surfaces
+    // as geometry somewhere off in space; the node that produced it is then the
+    // last place anyone looks.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    ValueMap outputs;
+    std::string error;
+
+    Node divide;
+    divide.id = "d";
+    divide.nodeType = "divide";
+    ValueMap divideInputs;
+    divideInputs.emplace ("left", Value (1.0));
+    divideInputs.emplace ("right", Value (0.0));
+    EXPECT_FALSE (ExecuteRuntimeNode (divide, divideInputs, context, outputs, error));
+
+    Node remap;
+    remap.id = "r";
+    remap.nodeType = "math.remap";
+    remap.parameters = { { "value", Value (0.5) },
+                         { "sourceMin", Value (1.0) },
+                         { "sourceMax", Value (1.0) },
+                         { "targetMin", Value (0.0) },
+                         { "targetMax", Value (10.0) } };
+    outputs.clear ();
+    error.clear ();
+    EXPECT_FALSE (ExecuteRuntimeNode (remap, {}, context, outputs, error));
+
+    // ... and the ordinary case works, with the clamp honoured.
+    remap.parameters["sourceMax"] = Value (2.0);
+    remap.parameters["value"] = Value (5.0);
+    remap.parameters["clamp"] = Value (true);
+    outputs.clear ();
+    ASSERT_TRUE (ExecuteRuntimeNode (remap, {}, context, outputs, error)) << error;
+    EXPECT_NEAR (10.0, std::get<double> (outputs.at ("value").DataValue ()), 1e-9);
+}
+
+TEST (NodeGraphFlowControl, IfPassesTheBranchItsConditionNames)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    NodeExecutionContext context;
+    std::string error;
+
+    Node conditional;
+    conditional.id = "c";
+    conditional.nodeType = "flow.if";
+    ValueMap inputs;
+    inputs.emplace ("ifTrue", Value (std::string ("yes")));
+    inputs.emplace ("ifFalse", Value (std::string ("no")));
+
+    for (const bool condition : { true, false }) {
+        conditional.parameters["condition"] = Value (condition);
+        ValueMap outputs;
+        ASSERT_TRUE (ExecuteRuntimeNode (conditional, inputs, context, outputs, error)) << error;
+        EXPECT_EQ (condition, std::get<bool> (outputs.at ("taken").DataValue ()));
+        const Value::List& taken = std::get<Value::List> (outputs.at ("value").DataValue ());
+        ASSERT_EQ (1U, taken.size ());
+        EXPECT_EQ (condition ? "yes" : "no", std::get<std::string> (taken[0].DataValue ()));
+    }
 }

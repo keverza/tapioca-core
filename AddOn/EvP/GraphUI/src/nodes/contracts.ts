@@ -26,6 +26,16 @@ export function capabilitiesFor(schema: NodeTypeSchema): NodeCapabilities {
     disable: true,
     freeze: schema.holdCapable === true,
     resizable: viewer || schema.parameters.length > 2 || schema.display === 'text',
+    /**
+     * ⚠️ ONLY EFFECTFUL NODES GET THE BUTTON, AND EVERY EFFECTFUL NODE GETS IT.
+     * Automatic evaluation runs the graph continuously and NEVER commits a host
+     * effect - `allowSideEffects` defaults to refused, so an effectful node is
+     * reported as skipped on every automatic pass. This button is the deliberate
+     * act that commits it. Keyed on the catalog's `effect`, so a node type added
+     * later gets its button with no change here; recognising particular node ids
+     * is the branch this whole contract layer exists to remove.
+     */
+    execute: schema.effect === 'hostUiWrite',
     nodeViewer: viewer,
     canvasPreview: false,
     overlayPreview: false,

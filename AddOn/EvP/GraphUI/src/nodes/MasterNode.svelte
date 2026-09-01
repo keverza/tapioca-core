@@ -6,7 +6,7 @@
   import NodeBody from './NodeBody.svelte'
   import NodeHeader from './NodeHeader.svelte'
   import NodeMenu from './menus/NodeMenu.svelte'
-  import { bodyModeFor, categoryColor, nodeDisplayName } from './types/display'
+  import { bodyModeFor, categoryColor, nodeDisplayName, previewTargetOf } from './types/display'
   import { DEFAULT_DISPLAY_STATE } from './types/display'
   import { definitionFromSchema } from './contracts'
   import { clearRequest, pendingRequest } from './renameRequest.svelte'
@@ -27,7 +27,15 @@
   const viewMode = $derived(data.visual?.viewMode ?? 'standard')
   const portLayout = $derived(data.visual?.portLayout ?? definition.presentation.portLayout)
   const display = $derived(data.visual?.display ?? DEFAULT_DISPLAY_STATE)
-  const viewerVisible = $derived(display.nodeViewer)
+  /**
+   * ⚠️ ONE SWITCH FOR BOTH HALVES WHEN THE NODE HAS ONE. A node carrying a
+   * previewTarget parameter says where it draws, and that parameter is
+   * authoritative over the browser-only eye toggle: two controls for one fact
+   * would let them disagree, and "showing nothing" would then have two causes
+   * that look identical. Nodes with no such parameter - Watch - keep the eye.
+   */
+  const previewTarget = $derived(previewTargetOf(data.schema, data.parameters))
+  const viewerVisible = $derived(previewTarget === undefined ? display.nodeViewer : previewTarget !== 'archicad')
   const nodeColor = $derived(data.visual?.color ?? categoryColor(data.schema.category))
   const displayName = $derived(nodeDisplayName(data.schema, data.visual?.nickname))
   const status = $derived(data.result?.status ?? 'pending')

@@ -49,7 +49,19 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
     "${GEOM_DIR}/VertexWeld.cpp"
-    "${GEOM_DIR}/GeometryEngine.cpp")
+    "${GEOM_DIR}/GeometryEngine.cpp"
+    # Primitives.cpp builds the solids the node catalog offers. Pure maths with
+    # no ACAPI, and every way of getting it wrong is a PICTURE - a rounded box, a
+    # black pole, a solid half-missing under back-face culling - so it belongs
+    # under an offline gate rather than in front of someone in Archicad.
+    "${GEOM_DIR}/Primitives.cpp"
+    # Curves.cpp and Transforms.cpp are the other two halves of the modelling
+    # catalog, and both fail as PICTURES rather than as errors - an arc that
+    # collapses because its plane normal was crossed with a parallel axis, a
+    # mirrored mesh that is inside-out, a normal transformed as a direction under
+    # a non-uniform scale. None of those logs anything.
+    "${GEOM_DIR}/Curves.cpp"
+    "${GEOM_DIR}/Transforms.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
 # Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
@@ -126,6 +138,16 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Evaluator.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/FaultBarrier.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Graph.cpp"
+    # GeometryNodes is the geometry and transform FAMILY, split out of
+    # BuiltinNodes the way ArchicadNodes already is: a family is the unit of
+    # ownership, and one file carrying inputs, inspection, flow AND every solid,
+    # curve and transform had grown past the point where anyone could find the
+    # one they came for.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/GeometryNodes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ParameterDescriptors.cpp"
+    # NodeInputs is the one place that states "a wired input wins over the
+    # typed-in one", so no family can implement that precedence backwards.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeInputs.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphAlgorithms.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphReports.cpp"
@@ -135,6 +157,15 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeExecution.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
+    # PreviewProjection turns a graph's RESULTS into preview primitives. It is
+    # here, in the node-graph suite rather than the preview one, because what it
+    # has to get right is a graph question: which nodes preview, whether a
+    # disabled one still does, and what a list of mixed values becomes.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/PreviewProjection.cpp"
+    # The store it publishes into is Preview/GraphPreviewStore.cpp, listed with
+    # the other preview sources below - one binary, so listing it twice would be
+    # deduplicated rather than an error, which is exactly why it is worth not
+    # doing.
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ProjectGenerations.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ReferenceResolver.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunEvents.cpp"
@@ -337,6 +368,7 @@ set (EVP_PREVIEW_SOURCES
      # compared against; an unordered buffer flickers under any transparency.
      # ⚠️ THE GPU HALF IS ArchViz/GhPreviewLayer.cpp AND IS DELIBERATELY ABSENT --
      # it owns nothing but buffers, PSOs and draws.
+     "${EVP_ROOT}/Sources/AddOn/Preview/GraphPreviewStore.cpp"
      "${EVP_ROOT}/Sources/AddOn/ArchViz/GhPreviewGeometry.cpp"
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/OverlayOwnership.cpp"
      # PlanOverlay/OverlayBinding.cpp decides which Archicad window an overlay

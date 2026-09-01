@@ -1,9 +1,18 @@
 #include "NodeGraph/BuiltinNodes.hpp"
 
+#include "NodeGraph/NodeInputs.hpp"
+#include "NodeGraph/ParameterDescriptors.hpp"
+
 #include "Geometry/GeometryEngine.hpp"
+#include "Geometry/Curves.hpp"
+#include "Geometry/Primitives.hpp"
+#include "Geometry/Transforms.hpp"
+#include "NodeGraph/PreviewProjection.hpp"
 #include "NodeGraph/ValueText.hpp"
 
 #include <algorithm>
+#include <vector>
+#include <memory>
 #include <cmath>
 #include <cstdint>
 #include <stdexcept>
@@ -28,25 +37,6 @@ double Number (const Value& value)
     return std::get<double> (value.DataValue ());
 }
 
-// A number wherever it came from. A slider's bound is authored as a Double and
-// its decimals as an Integer, and both reach ExecuteBuiltinNode as parameters -
-// so the one place that reads them must accept either rather than throwing a
-// bad_variant_access at the user.
-double AnyNumber (const Value& value, double fallback)
-{
-    if (value.Type () == ValueType::Double)
-        return std::get<double> (value.DataValue ());
-    if (value.Type () == ValueType::Integer)
-        return static_cast<double> (std::get<int64_t> (value.DataValue ()));
-    return fallback;
-}
-
-double ParameterNumber (const Node& node, const char* id, double fallback)
-{
-    const auto found = node.parameters.find (id);
-    return found == node.parameters.end () ? fallback : AnyNumber (found->second, fallback);
-}
-
 // The slider's own contract, applied by the NODE and not by the control.
 //
 // WARNING: A RANGE A CLIENT HONOURS IS NOT A RANGE. The editor clamps so the
@@ -64,84 +54,6 @@ double ClampAndRound (double value, double minimum, double maximum, int decimals
         return clamped;
     const double scale = std::pow (10.0, static_cast<double> (std::min (decimals, 15)));
     return std::round (clamped * scale) / scale;
-}
-
-double ScalarFrom (const ValueMap& inputs, const Node& node, const char* id, double fallback)
-{
-    const auto wired = inputs.find (id);
-    if (wired != inputs.end () && wired->second.Type () == ValueType::Double)
-        return std::get<double> (wired->second.DataValue ());
-    const auto stored = node.parameters.find (id);
-    if (stored != node.parameters.end () && stored->second.Type () == ValueType::Double)
-        return std::get<double> (stored->second.DataValue ());
-    return fallback;
-}
-
-Point3 ComponentsFrom (const ValueMap& inputs, const Node& node, double defaultZ)
-{
-    return { ScalarFrom (inputs, node, "x", 0.0), ScalarFrom (inputs, node, "y", 0.0),
-             ScalarFrom (inputs, node, "z", defaultZ) };
-}
-
-geomsrv::engine::Vector3 ToEngineVector (const Point3& value)
-{
-    return { value.x, value.y, value.z };
-}
-
-Point3 FromEngineVector (const geomsrv::engine::Vector3& value)
-{
-    return { value.x, value.y, value.z };
-}
-
-geomsrv::engine::Polygon ToEnginePolygon (const Polygon& value)
-{
-    geomsrv::engine::Polygon result;
-    result.points.reserve (value.points.size ());
-    for (const Point3& point : value.points)
-        result.points.push_back (ToEngineVector (point));
-    return result;
-}
-
-Value PolygonListValue (const std::vector<geomsrv::engine::Polygon>& polygons)
-{
-    Value::List values;
-    values.reserve (polygons.size ());
-    for (const geomsrv::engine::Polygon& source : polygons) {
-        Polygon polygon;
-        polygon.points.reserve (source.points.size ());
-        for (const geomsrv::engine::Vector3& point : source.points)
-            polygon.points.push_back (FromEngineVector (point));
-        values.emplace_back (std::move (polygon));
-    }
-    return Value (std::move (values));
-}
-
-// The stored parameter, verbatim, for the nodes whose whole job is to hold one.
-Value StoredOr (const Node& node, const char* id, Value fallback)
-{
-    const auto found = node.parameters.find (id);
-    if (found == node.parameters.end () || found->second.Type () == ValueType::Absent)
-        return fallback;
-    return found->second;
-}
-
-ParameterUi NumberUi (const char* section, int order, const char* help, int decimals,
-                      const char* decimalsFrom = nullptr)
-{
-    ParameterUi ui;
-    ui.widget = ParameterWidget::Number;
-    ui.section = section;
-    ui.order = order;
-    ui.help = help;
-    ui.decimals = decimals;
-    // A sibling that governs the precision, when one does. The slider's range
-    // fields follow the SAME decimals setting the value does: a slider showing
-    // two decimals whose minimum box shows three is telling the user its range
-    // is finer than its value can express, and the step it nudges by has to
-    // agree with both or the arrows land on numbers the field then rounds away.
-    if (decimalsFrom != nullptr)
-        ui.decimalsParameter = decimalsFrom;
-    return ui;
 }
 
 // One Archicad attribute picker.
@@ -187,12 +99,20 @@ NodeRegistry MakeBuiltinNodeRegistry ()
 
     NodeType number = PureNode ("number", "Number", "Provides a numeric constant.");
     number.outputs.push_back (Port ("value", ValueType::Double));
-    number.parameters.push_back ({ "value", "Value", ValueType::Double, true });
+    // A DEFAULT, so a Number node placed and left alone is zero rather than a
+    // node that throws. It is the same rule the rest of the catalog follows -
+    // the mini-UI holds the value and the port is for taking that over - and it
+    // is what lets the "every node evaluates from its own defaults" test cover
+    // this type rather than carve out an exception for it.
+    number.parameters.push_back ({ "value", "Value", ValueType::Double, true, Value (0.0) });
     if (!registry.Register (std::move (number), error))
         throw std::logic_error (error);
 
-    for (const auto& [id, label, description] : { std::tuple { "add", "Add", "Adds two numbers." },
-                                                  std::tuple { "multiply", "Multiply", "Multiplies two numbers." } }) {
+    for (const auto& [id, label, description] :
+         { std::tuple { "add", "Add", "Adds two numbers." },
+           std::tuple { "subtract", "Subtract", "Subtracts the right number from the left." },
+           std::tuple { "multiply", "Multiply", "Multiplies two numbers." },
+           std::tuple { "divide", "Divide", "Divides the left number by the right." } }) {
         NodeType arithmetic = PureNode (id, label, description);
         arithmetic.inputs = { Port ("left", ValueType::Double), Port ("right", ValueType::Double) };
         arithmetic.outputs.push_back (Port ("value", ValueType::Double));
@@ -232,6 +152,76 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     panel.outputs.push_back ({ "count", "Count", ValueType::Integer });
     panel.outputs.push_back ({ "summary", "Summary", ValueType::String });
     if (!registry.Register (std::move (panel), error))
+        throw std::logic_error (error);
+
+    // The viewport's end of the graph.
+    //
+    // ⚠️ PURE, AND THAT IS THE POINT. Showing geometry in the model is plainly a
+    // side effect, so the tempting shape is EffectKind::HostUiWrite - and that
+    // would be wrong here for a reason worth stating: HostUiWrite nodes are
+    // deferred to a second phase and REFUSED unless the request allowed side
+    // effects, which only a deliberate Run does. A preview that appears only when
+    // you press Run is not a preview. So the node stays a pass-through, and the
+    // runtime PROJECTS the results into the preview store afterwards - see
+    // NodeGraph/PreviewProjection.hpp for the whole argument.
+    //
+    // Its input is declared Absent, which the edit rules read as "any type", so
+    // one node previews a point, a curve, a mesh and a list of all three.
+    NodeType preview =
+        PureNode (kPreviewNodeType, "Preview", "Shows whatever is wired into it in the Tapioca 3D viewport.");
+    preview.category = "Inspect";
+    preview.display = NodeDisplay::Preview;
+    preview.inputs.push_back ({ "geometry", "Geometry", ValueType::Absent, true, false });
+    // ⚠️ NO OUTPUTS. A Preview is a TERMINAL: it is the end of a branch, not a
+    // stage in one. It had a pass-through output only because the projection read
+    // its result, and outputs are the only thing the evaluator caches - which put
+    // two ports on the node that nobody would ever wire and made "List of 1"
+    // appear beside a node whose whole job is to show you a shape. The projection
+    // now walks the EDGE INTO the node and reads the upstream node's output
+    // instead, which is where the geometry actually is.
+    ParameterUi previewEnabledUi;
+    previewEnabledUi.widget = ParameterWidget::Boolean;
+    previewEnabledUi.section = "Preview";
+    previewEnabledUi.order = 0;
+    previewEnabledUi.help = "Show this geometry in the viewport. Off leaves the graph running and draws nothing.";
+    ParameterSchema previewEnabled { kPreviewEnabledParameter, "Show", ValueType::Bool, false, Value (true) };
+    previewEnabled.ui = std::move (previewEnabledUi);
+    preview.parameters.push_back (std::move (previewEnabled));
+    // ⚠️ ONE CONTROL FOR BOTH HALVES, NOT TWO. The node has its own viewport and
+    // the model has an overlay, and a switch for each would let them disagree -
+    // "showing nothing" would then have two causes that look identical. The
+    // runtime reads this for the overlay; the editor reads the same parameter for
+    // the node viewport, dispatching on the widget rather than on the node id.
+    ParameterUi previewTargetUi;
+    previewTargetUi.widget = ParameterWidget::PreviewTarget;
+    previewTargetUi.section = "Preview";
+    previewTargetUi.order = 1;
+    previewTargetUi.help = "Where this geometry is drawn.";
+    previewTargetUi.options = { { "Node", Value (std::string ("node")) },
+                                { "Archicad", Value (std::string ("archicad")) },
+                                { "Both", Value (std::string ("both")) } };
+    ParameterSchema previewTarget { kPreviewTargetParameter, "Draw in", ValueType::String, false,
+                                    Value (std::string ("both")) };
+    previewTarget.ui = std::move (previewTargetUi);
+    preview.parameters.push_back (std::move (previewTarget));
+    ParameterUi previewColorUi;
+    previewColorUi.widget = ParameterWidget::Color;
+    previewColorUi.section = "Preview";
+    previewColorUi.order = 2;
+    previewColorUi.help = "The colour this node's geometry is drawn in.";
+    ParameterSchema previewColor { kPreviewColorParameter, "Colour", ValueType::String, false,
+                                   Value (std::string ("#4CA64C")) };
+    previewColor.ui = std::move (previewColorUi);
+    preview.parameters.push_back (std::move (previewColor));
+    ParameterUi previewXRayUi;
+    previewXRayUi.widget = ParameterWidget::Boolean;
+    previewXRayUi.section = "Preview";
+    previewXRayUi.order = 3;
+    previewXRayUi.help = "Draw through the model, so geometry inside a wall stays visible.";
+    ParameterSchema previewXRay { kPreviewXRayParameter, "X-ray", ValueType::Bool, false, Value (false) };
+    previewXRay.ui = std::move (previewXRayUi);
+    preview.parameters.push_back (std::move (previewXRay));
+    if (!registry.Register (std::move (preview), error))
         throw std::logic_error (error);
 
     NodeType watch = PureNode ("watch", "Watch", "Reports a list without changing it.");
@@ -361,89 +351,66 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     }
 
     // ------------------------------------------------------------------
-    // Geometry. Coordinates are separate scalar inputs so each component can be
-    // wired or referenced independently; the node assembles the Point3 output.
+    // Numbers and flow.
     // ------------------------------------------------------------------
-    NodeType point = PureNode ("point", "Point", "A position in space.");
-    point.category = "Geometry";
-    for (const auto& [id, label] : { std::pair { "x", "X" }, std::pair { "y", "Y" }, std::pair { "z", "Z" } }) {
-        point.inputs.push_back ({ id, label, ValueType::Double, false, false });
-        ParameterSchema coordinate { id, label, ValueType::Double, false, Value (0.0) };
-        coordinate.ui = NumberUi ("Value", static_cast<int> (point.parameters.size ()), "A point coordinate.", 2);
-        coordinate.ui->unit = "mm";
-        point.parameters.push_back (std::move (coordinate));
+    NodeType remap = PureNode ("math.remap", "Remap", "Moves a number from one range into another.");
+    remap.category = "Math";
+    remap.inputs = { Port ("value", ValueType::Double),     Port ("sourceMin", ValueType::Double),
+                     Port ("sourceMax", ValueType::Double), Port ("targetMin", ValueType::Double),
+                     Port ("targetMax", ValueType::Double), Port ("clamp", ValueType::Bool) };
+    remap.outputs.push_back (Port ("value", ValueType::Double));
+    const std::pair<const char*, double> remapFields[] = {
+        { "value", 0.5 }, { "sourceMin", 0.0 }, { "sourceMax", 1.0 }, { "targetMin", 0.0 }, { "targetMax", 100.0 },
+    };
+    int remapOrder = 0;
+    for (const auto& [id, defaultValue] : remapFields) {
+        ParameterSchema field { id, id, ValueType::Double, false, Value (defaultValue) };
+        field.ui = NumberUi ("Remap", remapOrder++, "A remap bound.", 3);
+        remap.parameters.push_back (std::move (field));
     }
-    point.outputs.push_back (Port ("point", ValueType::Point3));
-    if (!registry.Register (std::move (point), error))
+    ParameterSchema remapClamp { "clamp", "Clamp", ValueType::Bool, false, Value (true) };
+    remapClamp.ui = BooleanUi ("Remap", remapOrder, "Keep the result inside the target range.");
+    remap.parameters.push_back (std::move (remapClamp));
+    if (!registry.Register (std::move (remap), error))
         throw std::logic_error (error);
 
-    // A direction and a length, not a position - which is why it carries no
-    // unit and offers no pick-in-model affordance.
-    NodeType vector = PureNode ("vector", "Vector", "A direction and a length.");
-    vector.category = "Geometry";
-    for (const auto& [id, label, defaultValue] :
-         { std::tuple { "x", "X", 0.0 }, std::tuple { "y", "Y", 0.0 }, std::tuple { "z", "Z", 1.0 } }) {
-        vector.inputs.push_back ({ id, label, ValueType::Double, false, false });
-        ParameterSchema component { id, label, ValueType::Double, false, Value (defaultValue) };
-        component.ui = NumberUi ("Value", static_cast<int> (vector.parameters.size ()), "A vector component.", 3);
-        vector.parameters.push_back (std::move (component));
-    }
-    vector.outputs.push_back (Port ("vector", ValueType::Point3));
-    vector.outputs.push_back (Port ("length", ValueType::Double));
-    if (!registry.Register (std::move (vector), error))
+    NodeType random = PureNode ("math.random", "Random", "A repeatable run of random numbers.");
+    random.category = "Math";
+    random.inputs = { Port ("seed", ValueType::Integer), Port ("count", ValueType::Integer),
+                      Port ("minimum", ValueType::Double), Port ("maximum", ValueType::Double) };
+    random.outputs.push_back (Port ("values", ValueType::List));
+    // ⚠️ SEEDED, AND THEREFORE REPEATABLE. A node that returned different numbers
+    // on every evaluation would make the whole graph unstable: the solution runs
+    // continuously now, so an unseeded Random would jitter the model on every
+    // keystroke anywhere upstream. The seed is what makes "random" a value rather
+    // than an event.
+    ParameterSchema randomSeed { "seed", "Seed", ValueType::Integer, false, Value (static_cast<int64_t> (1)) };
+    randomSeed.ui =
+        CountUi ("Random", 0, "Change this for a different set. The same seed always gives the same set.", 0, 1000000);
+    random.parameters.push_back (std::move (randomSeed));
+    ParameterSchema randomCount { "count", "Count", ValueType::Integer, false, Value (static_cast<int64_t> (10)) };
+    randomCount.ui = CountUi ("Random", 1, "How many numbers.", 1, 100000);
+    random.parameters.push_back (std::move (randomCount));
+    ParameterSchema randomMin { "minimum", "Minimum", ValueType::Double, false, Value (0.0) };
+    randomMin.ui = NumberUi ("Random", 2, "The lowest number it may produce.", 3);
+    random.parameters.push_back (std::move (randomMin));
+    ParameterSchema randomMax { "maximum", "Maximum", ValueType::Double, false, Value (1.0) };
+    randomMax.ui = NumberUi ("Random", 3, "The highest number it may produce.", 3);
+    random.parameters.push_back (std::move (randomMax));
+    if (!registry.Register (std::move (random), error))
         throw std::logic_error (error);
 
-    for (const auto& [id, label, description] :
-         { std::tuple { "geom.vectorAdd", "Vector Add", "Adds two vectors." },
-           std::tuple { "geom.vectorCross", "Vector Cross", "Returns the cross product of two vectors." } }) {
-        NodeType operation = PureNode (id, label, description);
-        operation.category = "Geometry";
-        operation.inputs = { Port ("left", ValueType::Point3), Port ("right", ValueType::Point3) };
-        operation.outputs.push_back (Port ("vector", ValueType::Point3));
-        if (!registry.Register (std::move (operation), error))
-            throw std::logic_error (error);
-    }
-
-    NodeType vectorDot = PureNode ("geom.vectorDot", "Vector Dot", "Returns the dot product of two vectors.");
-    vectorDot.category = "Geometry";
-    vectorDot.inputs = { Port ("left", ValueType::Point3), Port ("right", ValueType::Point3) };
-    vectorDot.outputs.push_back (Port ("value", ValueType::Double));
-    if (!registry.Register (std::move (vectorDot), error))
-        throw std::logic_error (error);
-
-    NodeType vectorUnit = PureNode ("geom.vectorUnit", "Unit Vector", "Normalizes a vector to unit length.");
-    vectorUnit.category = "Geometry";
-    vectorUnit.inputs.push_back (Port ("vector", ValueType::Point3));
-    vectorUnit.outputs.push_back (Port ("vector", ValueType::Point3));
-    vectorUnit.bypassMappings.push_back ({ "vector", "vector" });
-    if (!registry.Register (std::move (vectorUnit), error))
-        throw std::logic_error (error);
-
-    NodeType polygon = PureNode ("geom.polygon", "Polygon", "Builds a planar polygon from connected points.");
-    polygon.category = "Geometry";
-    polygon.inputs.push_back (Port ("points", ValueType::Point3, true));
-    polygon.outputs.push_back (Port ("polygon", ValueType::Polygon));
-    if (!registry.Register (std::move (polygon), error))
-        throw std::logic_error (error);
-
-    for (const auto& [id, label, description] :
-         { std::tuple { "geom.polygonUnion", "Polygon Union", "Unites two coplanar polygons." },
-           std::tuple { "geom.polygonDifference", "Polygon Difference", "Subtracts the clip polygon." },
-           std::tuple { "geom.polygonIntersection", "Polygon Intersection", "Intersects two coplanar polygons." } }) {
-        NodeType operation = PureNode (id, label, description);
-        operation.category = "Geometry";
-        operation.inputs = { Port ("subject", ValueType::Polygon), Port ("clip", ValueType::Polygon) };
-        operation.outputs.push_back (Port ("polygons", ValueType::List));
-        if (!registry.Register (std::move (operation), error))
-            throw std::logic_error (error);
-    }
-
-    NodeType polygonOffset =
-        PureNode ("geom.polygonOffset", "Polygon Offset", "Offsets a planar polygon with mitered joins.");
-    polygonOffset.category = "Geometry";
-    polygonOffset.inputs = { Port ("polygon", ValueType::Polygon), Port ("distance", ValueType::Double) };
-    polygonOffset.outputs.push_back (Port ("polygons", ValueType::List));
-    if (!registry.Register (std::move (polygonOffset), error))
+    NodeType conditional = PureNode ("flow.if", "If", "Passes one of two inputs through, by a condition.");
+    conditional.category = "Flow";
+    conditional.inputs.push_back ({ "condition", "Condition", ValueType::Bool, false, false });
+    conditional.inputs.push_back ({ "ifTrue", "If true", ValueType::Absent, false, false });
+    conditional.inputs.push_back ({ "ifFalse", "If false", ValueType::Absent, false, false });
+    conditional.outputs.push_back (Port ("value", ValueType::List));
+    conditional.outputs.push_back (Port ("taken", ValueType::Bool));
+    ParameterSchema conditionParameter { "condition", "Condition", ValueType::Bool, false, Value (true) };
+    conditionParameter.ui = BooleanUi ("If", 0, "Which branch is passed through.");
+    conditional.parameters.push_back (std::move (conditionParameter));
+    if (!registry.Register (std::move (conditional), error))
         throw std::logic_error (error);
 
     NodeType dam = PureNode ("dataDam", "Data Dam", "Holds its input until you release it.");
@@ -464,7 +431,7 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
     (void) context;
 
     if (node.nodeType == "number")
-        outputs.emplace ("value", node.parameters.at ("value"));
+        outputs.emplace ("value", StoredOr (node, "value", Value (0.0)));
     else if (node.nodeType == "numberSlider") {
         const double minimum = ParameterNumber (node, "minimum", 0.0);
         const double maximum = ParameterNumber (node, "maximum", 100.0);
@@ -474,64 +441,6 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
     }
     else if (node.nodeType == "booleanToggle")
         outputs.emplace ("value", StoredOr (node, "value", Value (false)));
-    else if (node.nodeType == "point")
-        outputs.emplace ("point", Value (ComponentsFrom (inputs, node, 0.0)));
-    else if (node.nodeType == "vector") {
-        const Point3 vector = ComponentsFrom (inputs, node, 1.0);
-        outputs.emplace ("vector", Value (vector));
-        outputs.emplace ("length", Value (std::sqrt (vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)));
-    }
-    else if (node.nodeType == "geom.vectorAdd" || node.nodeType == "geom.vectorCross") {
-        const auto left = ToEngineVector (std::get<Point3> (inputs.at ("left").DataValue ()));
-        const auto right = ToEngineVector (std::get<Point3> (inputs.at ("right").DataValue ()));
-        const geomsrv::engine::Vector3 result = node.nodeType == "geom.vectorAdd"
-                                                    ? geomsrv::engine::Add (left, right)
-                                                    : geomsrv::engine::Cross (left, right);
-        outputs.emplace ("vector", Value (FromEngineVector (result)));
-    }
-    else if (node.nodeType == "geom.vectorDot") {
-        const auto left = ToEngineVector (std::get<Point3> (inputs.at ("left").DataValue ()));
-        const auto right = ToEngineVector (std::get<Point3> (inputs.at ("right").DataValue ()));
-        outputs.emplace ("value", Value (geomsrv::engine::Dot (left, right)));
-    }
-    else if (node.nodeType == "geom.vectorUnit") {
-        geomsrv::engine::Vector3 result;
-        if (!geomsrv::engine::Unit (ToEngineVector (std::get<Point3> (inputs.at ("vector").DataValue ())), result,
-                                    error))
-            return false;
-        outputs.emplace ("vector", Value (FromEngineVector (result)));
-    }
-    else if (node.nodeType == "geom.polygon") {
-        Polygon polygon;
-        for (const Value& item : std::get<Value::List> (inputs.at ("points").DataValue ()))
-            polygon.points.push_back (std::get<Point3> (item.DataValue ()));
-        if (polygon.points.size () < 3) {
-            error = "polygon requires at least three points";
-            return false;
-        }
-        outputs.emplace ("polygon", Value (std::move (polygon)));
-    }
-    else if (node.nodeType == "geom.polygonUnion" || node.nodeType == "geom.polygonDifference" ||
-             node.nodeType == "geom.polygonIntersection") {
-        geomsrv::engine::PolygonOperation operation = geomsrv::engine::PolygonOperation::Union;
-        if (node.nodeType == "geom.polygonDifference")
-            operation = geomsrv::engine::PolygonOperation::Difference;
-        else if (node.nodeType == "geom.polygonIntersection")
-            operation = geomsrv::engine::PolygonOperation::Intersection;
-        std::vector<geomsrv::engine::Polygon> result;
-        if (!geomsrv::engine::BooleanPolygons (ToEnginePolygon (std::get<Polygon> (inputs.at ("subject").DataValue ())),
-                                               ToEnginePolygon (std::get<Polygon> (inputs.at ("clip").DataValue ())),
-                                               operation, result, error))
-            return false;
-        outputs.emplace ("polygons", PolygonListValue (result));
-    }
-    else if (node.nodeType == "geom.polygonOffset") {
-        std::vector<geomsrv::engine::Polygon> result;
-        if (!geomsrv::engine::OffsetPolygon (ToEnginePolygon (std::get<Polygon> (inputs.at ("polygon").DataValue ())),
-                                             Number (inputs.at ("distance")), result, error))
-            return false;
-        outputs.emplace ("polygons", PolygonListValue (result));
-    }
     else if (node.nodeType.rfind ("attribute.", 0) == 0)
         // Every picker answers with what the user picked. The list it was picked
         // FROM comes from Archicad; the pick itself is the graph's own state.
@@ -548,6 +457,81 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         for (const Value& item : std::get<Value::List> (inputs.at ("list").DataValue ()))
             scaled.emplace_back (Number (item) * factor);
         outputs.emplace ("value", Value (std::move (scaled)));
+    }
+    else if (node.nodeType == "subtract")
+        outputs.emplace ("value",
+                         Value (ScalarFrom (inputs, node, "left", 0.0) - ScalarFrom (inputs, node, "right", 0.0)));
+    else if (node.nodeType == "divide") {
+        const double right = ScalarFrom (inputs, node, "right", 1.0);
+        // Refused, not infinity. An infinity propagates silently through every
+        // downstream node and surfaces as geometry somewhere off in space; the
+        // node that produced it is then the last place anyone looks.
+        if (right == 0.0) {
+            error = "cannot divide by zero";
+            return false;
+        }
+        outputs.emplace ("value", Value (ScalarFrom (inputs, node, "left", 0.0) / right));
+    }
+    else if (node.nodeType == "math.remap") {
+        const double sourceMin = ScalarFrom (inputs, node, "sourceMin", 0.0);
+        const double sourceMax = ScalarFrom (inputs, node, "sourceMax", 1.0);
+        if (sourceMin == sourceMax) {
+            // A source range of zero width has no answer: every input maps to
+            // the whole target range at once.
+            error = "the source range is empty - its minimum and maximum are the same";
+            return false;
+        }
+        const double targetMin = ScalarFrom (inputs, node, "targetMin", 0.0);
+        const double targetMax = ScalarFrom (inputs, node, "targetMax", 100.0);
+        const double value = ScalarFrom (inputs, node, "value", 0.0);
+        double fraction = (value - sourceMin) / (sourceMax - sourceMin);
+        if (BoolFrom (inputs, node, "clamp", true))
+            fraction = std::min (std::max (fraction, 0.0), 1.0);
+        outputs.emplace ("value", Value (targetMin + fraction * (targetMax - targetMin)));
+    }
+    else if (node.nodeType == "math.random") {
+        const int64_t count = static_cast<int64_t> (ScalarFrom (inputs, node, "count", 10.0));
+        if (count < 1 || count > 100000) {
+            error = "Random produces between 1 and 100000 numbers";
+            return false;
+        }
+        const double minimum = ScalarFrom (inputs, node, "minimum", 0.0);
+        const double maximum = ScalarFrom (inputs, node, "maximum", 1.0);
+        // ⚠️ SEEDED AND SELF-CONTAINED - no global generator, no clock. The
+        // solution runs continuously now, so a Random that answered differently
+        // each evaluation would jitter the model on every keystroke anywhere
+        // upstream, and nothing on screen would say why. splitmix64 is used
+        // rather than <random> because its sequence is fixed by the standard's
+        // arithmetic rather than by an implementation's engine, so the same seed
+        // gives the same numbers on every machine and every build.
+        uint64_t state = static_cast<uint64_t> (ScalarFrom (inputs, node, "seed", 1.0));
+        Value::List values;
+        values.reserve (static_cast<size_t> (count));
+        for (int64_t index = 0; index < count; ++index) {
+            state += 0x9E3779B97F4A7C15ull;
+            uint64_t z = state;
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+            z = z ^ (z >> 31);
+            // 53 bits, which is every bit a double can hold exactly.
+            const double unit = static_cast<double> (z >> 11) / 9007199254740992.0;
+            values.emplace_back (minimum + unit * (maximum - minimum));
+        }
+        outputs.emplace ("values", Value (std::move (values)));
+    }
+    else if (node.nodeType == "flow.if") {
+        const bool condition = BoolFrom (inputs, node, "condition", true);
+        const auto branch = inputs.find (condition ? "ifTrue" : "ifFalse");
+        Value taken = branch == inputs.end () ? Value {} : branch->second;
+        outputs.emplace ("value", taken.Type () == ValueType::List ? std::move (taken)
+                                                                   : Value (Value::List { std::move (taken) }));
+        outputs.emplace ("taken", Value (condition));
+    }
+    else if (node.nodeType == kPreviewNodeType) {
+        // Nothing. The node produces no value; what makes the geometry appear is
+        // NodeGraph/PreviewProjection following the edge into this node after the
+        // run. Executing it is still what marks it reached, which is how a
+        // preview downstream of a disabled branch stops drawing.
     }
     else if (node.nodeType == "panel") {
         const Value& value = inputs.at ("value");

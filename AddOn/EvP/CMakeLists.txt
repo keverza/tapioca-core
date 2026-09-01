@@ -90,18 +90,45 @@ file (GLOB_RECURSE NotebookUIFiles CONFIGURE_DEPENDS
     "${NotebookUIFolder}/scripts/*")
 list (APPEND NotebookUIFiles
     "${NotebookUIFolder}/index.html"
-    "${NotebookUIFolder}/package.json"
-    "${NotebookUIFolder}/package-lock.json"
     "${NotebookUIFolder}/tsconfig.json"
     "${NotebookUIFolder}/vite.config.ts")
 
 find_program (NPM_EXECUTABLE NAMES npm.cmd npm REQUIRED)
+
+# ⚠️ `npm ci` DELETES node_modules AND REINSTALLS IT. It must therefore depend on
+# the LOCKFILE and nothing else. Listed among the bundle's sources - as it was -
+# it re-ran on every edit to a single .svelte file, which was wrong three ways:
+# it reinstalled several hundred megabytes to rebuild one bundle, it made an
+# incremental UI build take minutes, and on Windows it FAILED outright whenever
+# any process still held one of the installed native binaries open:
+#
+#   npm error EPERM: operation not permitted, unlink
+#   '...\node_modules\@rolldown\.binding-win32-x64-msvc-...\rolldown-binding.win32-x64-msvc.node'
+#
+# A loaded .node is a mapped image and cannot be unlinked on Windows, so an
+# editor's language server, a watcher, or an interrupted install of its own is
+# enough to break an unrelated C++ build. Installing only when the lockfile moves
+# removes the whole class.
+#
+# ⚠️ THE STAMP LIVES INSIDE node_modules ON PURPOSE. A stamp in the build tree
+# would survive someone deleting node_modules by hand, and the next build would
+# then run typecheck against a tree that is not there and fail with something
+# that looks nothing like "your dependencies are missing".
+set (NotebookUIInstallStamp "${NotebookUIFolder}/node_modules/.tapioca-install.stamp")
+add_custom_command (
+    OUTPUT "${NotebookUIInstallStamp}"
+    DEPENDS "${NotebookUIFolder}/package.json" "${NotebookUIFolder}/package-lock.json"
+    WORKING_DIRECTORY "${NotebookUIFolder}"
+    COMMENT "EvP: installing the Tapioca Notebook UI dependencies"
+    COMMAND "${NPM_EXECUTABLE}" ci
+    COMMAND "${CMAKE_COMMAND}" -E touch "${NotebookUIInstallStamp}"
+    VERBATIM)
+
 add_custom_command (
     OUTPUT "${NotebookUIOutput}"
-    DEPENDS ${NotebookUIFiles}
+    DEPENDS ${NotebookUIFiles} "${NotebookUIInstallStamp}"
     WORKING_DIRECTORY "${NotebookUIFolder}"
     COMMENT "EvP: building the self-contained Tapioca Notebook UI"
-    COMMAND "${NPM_EXECUTABLE}" ci
     COMMAND "${NPM_EXECUTABLE}" run typecheck
     COMMAND "${NPM_EXECUTABLE}" run build
     VERBATIM)
@@ -117,18 +144,28 @@ file (GLOB_RECURSE GraphUIFiles CONFIGURE_DEPENDS
     "${GraphUIFolder}/scripts/*")
 list (APPEND GraphUIFiles
     "${GraphUIFolder}/index.html"
-    "${GraphUIFolder}/package.json"
-    "${GraphUIFolder}/package-lock.json"
     "${GraphUIFolder}/svelte.config.js"
     "${GraphUIFolder}/tsconfig.json"
     "${GraphUIFolder}/vite.config.ts")
 
+# Installation is keyed on the lockfile, not on the sources. See the note on
+# NotebookUIInstallStamp above for what running `npm ci` per source edit costs
+# and for the Windows unlink failure it produces.
+set (GraphUIInstallStamp "${GraphUIFolder}/node_modules/.tapioca-install.stamp")
+add_custom_command (
+    OUTPUT "${GraphUIInstallStamp}"
+    DEPENDS "${GraphUIFolder}/package.json" "${GraphUIFolder}/package-lock.json"
+    WORKING_DIRECTORY "${GraphUIFolder}"
+    COMMENT "EvP: installing the Tapioca Node Graph UI dependencies"
+    COMMAND "${NPM_EXECUTABLE}" ci
+    COMMAND "${CMAKE_COMMAND}" -E touch "${GraphUIInstallStamp}"
+    VERBATIM)
+
 add_custom_command (
     OUTPUT "${GraphUIOutput}"
-    DEPENDS ${GraphUIFiles}
+    DEPENDS ${GraphUIFiles} "${GraphUIInstallStamp}"
     WORKING_DIRECTORY "${GraphUIFolder}"
     COMMENT "EvP: building the self-contained Tapioca Node Graph UI"
-    COMMAND "${NPM_EXECUTABLE}" ci
     COMMAND "${NPM_EXECUTABLE}" run typecheck
     COMMAND "${NPM_EXECUTABLE}" run build
     VERBATIM)

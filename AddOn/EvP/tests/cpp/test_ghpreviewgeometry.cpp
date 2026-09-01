@@ -393,15 +393,88 @@ TEST (GhPreviewGeometry, TextBecomesALabelWithItsAnchorAndFacingRatherThanGeomet
 // they were not drawn rather than showing nothing and explaining nothing.
 TEST (GhPreviewGeometry, KindsThisBuildDoesNotDrawYetAreCountedRatherThanDropped)
 {
-    const GhPreviewDrawables drawables =
-        BuildGhPreviewDrawables (Snapshot ({ OfKind (1, PreviewKind::PointMarker), OfKind (2, PreviewKind::PlaneGizmo),
-                                             OfKind (3, PreviewKind::Arrow3D), OfKind (4, PreviewKind::PointCloud),
-                                             OfKind (5, PreviewKind::BillboardSprite) }),
-                                 PreviewSurface::Model3D, kStyle, kNoLimit);
+    // PointMarker is NOT in this list any more; it is drawn. See the point-cross
+    // tests below.
+    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (
+        Snapshot ({ OfKind (2, PreviewKind::PlaneGizmo), OfKind (3, PreviewKind::Arrow3D),
+                    OfKind (4, PreviewKind::PointCloud), OfKind (5, PreviewKind::BillboardSprite) }),
+        PreviewSurface::Model3D, kStyle, kNoLimit);
 
-    EXPECT_EQ (drawables.deferredKinds, 5u);
+    EXPECT_EQ (drawables.deferredKinds, 4u);
     EXPECT_TRUE (drawables.depthTested.Empty ());
     EXPECT_EQ (drawables.LabelCount (), 0u);
+}
+
+// ---------------------------------------------------------------------------
+// PointMarker -- the first thing anyone wires into a preview
+// ---------------------------------------------------------------------------
+
+// A point has no extent, so something has to be invented. Three axis-aligned
+// arms rather than a screen-facing dot, because this is a MODELLING preview: a
+// cross reads as a coordinate, lines up with the grid and with every other
+// marker, and says which way is up. A dot would be easier to see and would tell
+// you less.
+TEST (GhPreviewGeometry, APointBecomesAThreeArmedCrossRatherThanNothing)
+{
+    const GhPreviewDrawables drawables = BuildGhPreviewDrawables (Snapshot ({ OfKind (1, PreviewKind::PointMarker) }),
+                                                                  PreviewSurface::Model3D, kStyle, kNoLimit);
+
+    EXPECT_EQ (drawables.deferredKinds, 0u);
+    // Three segments, six vertices each.
+    EXPECT_EQ (drawables.depthTested.lineVertices.size (), 3u * 6u);
+}
+
+// Each arm is centred ON the point and reaches the style's half-length along one
+// axis only. A marker offset from the thing it marks is worse than no marker.
+TEST (GhPreviewGeometry, EachArmOfAPointCrossIsCentredOnThePoint)
+{
+    GhPreviewStyle style = kStyle;
+    style.pointMarkerHalfLength = 0.5f;
+
+    auto primitive = OfKind (1, PreviewKind::PointMarker);
+    primitive->positions = { 1.0f, 2.0f, 3.0f };
+
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ primitive }), PreviewSurface::Model3D, style, kNoLimit);
+
+    ASSERT_FALSE (drawables.depthTested.lineVertices.empty ());
+    for (const GhPreviewLineVertex& vertex : drawables.depthTested.lineVertices) {
+        // Exactly one component is off the centre, by exactly the half-length.
+        int moved = 0;
+        if (vertex.x != 1.0f) {
+            ++moved;
+            EXPECT_TRUE (vertex.x == 0.5f || vertex.x == 1.5f);
+        }
+        if (vertex.y != 2.0f) {
+            ++moved;
+            EXPECT_TRUE (vertex.y == 1.5f || vertex.y == 2.5f);
+        }
+        if (vertex.z != 3.0f) {
+            ++moved;
+            EXPECT_TRUE (vertex.z == 2.5f || vertex.z == 3.5f);
+        }
+        EXPECT_EQ (moved, 1);
+    }
+}
+
+// The producer's own colour, when it has one. Grasshopper's wire carries none,
+// so everything from that side is still coloured from its flags against the
+// style; a node graph preview node carries the colour its author set, which the
+// flags cannot express and the style must not override.
+TEST (GhPreviewGeometry, AnExplicitColourOutranksTheStyleAndAbsenceKeepsIt)
+{
+    auto plain = OfKind (1, PreviewKind::PointMarker);
+    auto owned = OfKind (2, PreviewKind::PointMarker);
+    owned->hasOwnColour = true;
+    owned->rgba = 0x12345678u;
+
+    const GhPreviewDrawables drawables =
+        BuildGhPreviewDrawables (Snapshot ({ plain, owned }), PreviewSurface::Model3D, kStyle, kNoLimit);
+
+    ASSERT_EQ (drawables.depthTested.lineVertices.size (), 2u * 3u * 6u);
+    // Ordered by id: the plain one first.
+    EXPECT_EQ (drawables.depthTested.lineVertices.front ().rgba, GhPreviewColour (PreviewFlagVisible, kStyle));
+    EXPECT_EQ (drawables.depthTested.lineVertices.back ().rgba, 0x12345678u);
 }
 
 // ---------------------------------------------------------------------------

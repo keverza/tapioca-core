@@ -1,4 +1,4 @@
-import type { GraphValue, NodeTypeSchema } from '../../types'
+import type { GraphParameter, GraphValue, NodeTypeSchema } from '../../types'
 import type { NodeBodyMode } from './node'
 
 export type DisplayRepresentation = 'default' | 'shaded' | 'wireframe' | 'ghosted' | 'points' | 'bounds'
@@ -33,6 +33,30 @@ export const DEFAULT_DISPLAY_STATE: DisplayState = {
 }
 
 const CATEGORY_COLORS = ['#d58b4b', '#65a9b8', '#7da76a', '#a580bd', '#c56f72', '#6e91c9']
+
+/**
+ * Where a node's preview is drawn: in its own viewport, in Archicad, or both.
+ *
+ * ⚠️ READ OFF THE `previewTarget` WIDGET, NOT OFF THE NODE TYPE. The widget enum
+ * is the only thing a client may dispatch on - recognising the Preview node by
+ * its id is exactly the branch that enum exists to remove, and it would silently
+ * stop working the day the node is renamed.
+ *
+ * ⚠️ AND AN UNKNOWN TARGET DRAWS. A graph saved by a later build naming a fourth
+ * target should show its geometry rather than hide it: a viewport that silently
+ * shows nothing is indistinguishable from a node that produced nothing, and the
+ * user would debug the wrong half. The native side takes the same view; see
+ * PreviewTargetDrawsInArchicad.
+ */
+export type PreviewTarget = 'node' | 'archicad' | 'both'
+
+export function previewTargetOf(schema: NodeTypeSchema, parameters: GraphParameter[]): PreviewTarget | undefined {
+  const descriptor = schema.parameters.find((parameter) => parameter.ui?.widget === 'previewTarget')
+  if (descriptor === undefined) return undefined
+  const stored = parameters.find((parameter) => parameter.parameterId === descriptor.parameterId)
+  const text = stored?.value?.text ?? descriptor.defaultValue?.text
+  return text === 'node' || text === 'archicad' ? text : 'both'
+}
 
 export function bodyModeFor(schema: NodeTypeSchema): NodeBodyMode {
   if (schema.display === 'preview') return schema.parameters.length > 0 ? 'parameters+viewer' : 'viewer'

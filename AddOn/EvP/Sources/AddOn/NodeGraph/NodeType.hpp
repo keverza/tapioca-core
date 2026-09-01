@@ -115,6 +115,20 @@ enum class ParameterWidget {
     // A canonical hex colour string. No new ValueType: the value stays String.
     Color,
 
+    // WHERE this node's preview is drawn: in the node's own viewport, as an
+    // overlay in the Archicad viewport, or both.
+    //
+    // ⚠️ A WIDGET RATHER THAN A NODE-TYPE RULE, BECAUSE THE WIDGET ENUM IS THE
+    // ONLY THING A CLIENT MAY DISPATCH ON. The editor has to READ this parameter
+    // as well as edit it - a node told to draw only in Archicad must stop drawing
+    // its own viewport - and the alternative was a client that recognises the
+    // Preview node by its id, which is exactly the branch this whole enum exists
+    // to remove. Any later node that previews somewhere can carry one.
+    //
+    // The value stays String, and the three spellings are fixed below; a client
+    // that meets a fourth shows it as a plain select rather than guessing.
+    PreviewTarget,
+
     // Shown, not edited. The fallback for a value a client cannot author.
     ReadOnly,
 };

@@ -34,6 +34,7 @@ export type ParameterWidget =
   | 'point'
   | 'color'
   | 'readOnly'
+  | 'previewTarget'
 
 /**
  * Where a select's choices come from when they are not literal.
@@ -183,6 +184,12 @@ export interface GraphValue {
   number?: number
   text?: string
   numbers?: number[]
+  /**
+   * A mesh's triangles, into `numbers` read as xyz triples. Present only on a
+   * top-level mesh within the encoding cap; a mesh inside a list, or one past the
+   * cap, arrives as counts with `truncated`.
+   */
+  indices?: number[]
   itemCount?: number
   truncated?: boolean
   items?: GraphValue[]
@@ -298,6 +305,18 @@ export interface EvaluationSummary {
   cacheHitCount: number
   failedCount: number
   blockedCount: number
+  /**
+   * Whether the run actually committed its host effects.
+   *
+   * ⚠️ FALSE IS NOT A FAILURE, AND MUST NOT BE READ AS SUCCESS EITHER. A run that
+   * did not ask for side effects reports every effectful node as skipped and
+   * still succeeds - which is exactly what every automatic pass does. Only a
+   * deliberate press asks, and only then does this distinguish "sent" from
+   * "the runtime declined to send".
+   */
+  effectsCommitted?: boolean
+  /** The effectful nodes this run reported rather than performed. */
+  skippedEffectNodes?: string[]
   parallelism?: ParallelismMetrics
 }
 
@@ -350,6 +369,25 @@ export interface SchemaNodeData extends Record<string, unknown> {
   onselectionaction?: (nodeId: string, action: SelectionAction) => void
   /** True while an action on THIS node is in flight. */
   selectionBusy?: boolean
+  /**
+   * Present on nodes that perform a host effect. Automatic evaluation never
+   * commits one - `allowSideEffects` defaults to refused - so this press is the
+   * deliberate act that does, and it is per node rather than graph-wide: two
+   * effectful nodes in one graph are two decisions.
+   */
+  onexecute?: (nodeId: string) => void
+  /** True while THIS node's effect is being committed. */
+  executeBusy?: boolean
+  /**
+   * What this node's viewer should draw.
+   *
+   * ⚠️ RESOLVED BY THE EDITOR, NOT READ OFF THE NODE'S OWN RESULT, because a
+   * Preview node has NO OUTPUTS - it is a terminal, and its geometry lives on the
+   * node upstream of it. The editor follows the same wire the runtime's preview
+   * projection does, so the node's viewport and the Archicad overlay cannot
+   * disagree about what this node is showing.
+   */
+  viewerValues?: GraphValue[]
   /** Presentation metadata. It is never sent to the evaluator. */
   visual?: NodeVisualState
   onvisualchange?: (nodeId: string, visual: NodeVisualState) => void

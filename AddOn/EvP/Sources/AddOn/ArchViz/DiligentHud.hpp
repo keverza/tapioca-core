@@ -62,7 +62,17 @@ struct HudState {
     // away, or -- on the overlay, which is click-through -- impossible to
     // uncollapse at all.
     bool showFpsBadge = true;
-    bool showGraphInteractionLab = true;
+
+    // OFF by default.
+    //
+    // ⚠️ THIS IS AN EXPERIMENT, NOT A FEATURE, AND THE OVERLAY IS NOT THE PLACE
+    // TO LEAVE ONE RUNNING. The interaction lab was on by default while it was
+    // the thing being looked at; now that the overlay's job is to show a graph's
+    // PREVIEW over the model, a panel of unrelated ImGui nodes sitting on top of
+    // the building is the first thing a user sees and the last thing they
+    // expected. The checkbox in the HUD still turns it on for whoever is
+    // measuring it.
+    bool showGraphInteractionLab = false;
     bool graphInteractionFastPath = false;
     bool graphInteractionActive = false;
     uint32_t frameLatency = 0;

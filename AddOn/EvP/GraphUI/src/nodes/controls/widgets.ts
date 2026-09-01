@@ -79,6 +79,7 @@ const KNOWN_WIDGETS = new Set<string>([
   'vector',
   'point',
   'color',
+  'previewTarget',
   'readOnly',
 ])
 

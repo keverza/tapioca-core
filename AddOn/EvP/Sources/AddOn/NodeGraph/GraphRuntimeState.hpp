@@ -167,8 +167,7 @@ class GraphRuntimeState final {
         std::optional<EvaluationSummary> evaluation;
     };
 
-    SelectionActionResult ApplySelectionAction (const GraphId& graphId, const NodeId& nodeId,
-                                                SelectionAction action);
+    SelectionActionResult ApplySelectionAction (const GraphId& graphId, const NodeId& nodeId, SelectionAction action);
 
     // Saves the live graph `graphId` into the library under `name`.
     StoreResult SaveToLibrary (const GraphId& graphId, const std::string& name);
@@ -179,6 +178,12 @@ class GraphRuntimeState final {
     StoreResult LoadFromLibrary (const std::string& name, const GraphId& graphId);
 
   private:
+    struct Slot;
+
+    // What the viewport draws, republished from the document and the cache.
+    // Called with the slot's document mutex held; see the definition.
+    void PublishPreviewLocked (const GraphId& graphId, Slot& slot);
+
     // One graph's whole world. Held by unique_ptr so a reference handed out
     // under the map lock stays valid while the map grows.
     struct Slot {
