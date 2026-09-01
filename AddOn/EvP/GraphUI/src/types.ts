@@ -92,8 +92,10 @@ export interface ParameterUi {
  * AttributeSwatch.svelte for why that split is the useful one.
  */
 export interface AttributePreview {
-  kind: 'color' | 'pattern' | 'line' | 'composite'
+  kind: 'color' | 'pattern' | 'line' | 'composite' | 'surface'
   color?: string
+  /** Surfaces only: whether the surface carries a texture image. */
+  hasTexture?: boolean
   fillKind?: 'vector' | 'symbol' | 'solid' | 'empty' | 'linearGradient' | 'radialGradient' | 'image'
   /** Eight rows of eight bits, one byte each, high bit leftmost. */
   pattern?: number[]
@@ -316,6 +318,21 @@ export interface SelectionActionOutcome {
   evaluationError: string
 }
 
+/**
+ * One domain's whole answer.
+ *
+ * More than the rows, because a pen listing also carries the project's pen SETS
+ * - the picker draws its set dropdown from the same response that carried the
+ * pens, rather than from a second round trip that could disagree with it about
+ * which set is showing.
+ */
+export interface AttributeListing {
+  attributes: AttributeRow[]
+  penSets?: string[]
+  /** Which set these pens came from; absent means the project's current one. */
+  penSet?: string
+}
+
 export interface SchemaNodeData extends Record<string, unknown> {
   schema: NodeTypeSchema
   parameters: GraphParameter[]
@@ -345,6 +362,8 @@ export interface SchemaNodeData extends Record<string, unknown> {
   onparameterchange?: (nodeId: string, parameterId: string, valueType: string, text: string) => void
   /** A port reference pasted onto one of this node's inputs: a connection request. */
   onportreference?: (reference: PortReference, target: { nodeId: string; portId: string }) => void
+  oncopyportreference?: (nodeId: string, portId: string, direction: 'input' | 'output') => void
+  onpasteportreference?: (nodeId: string, portId: string) => void
   /**
    * A right-click on one of this node's ports. The editor answers with THE
    * context menu; the port draws none of its own.
@@ -365,9 +384,9 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * and the row also carries the swatch, folder and layer flags the picker
    * draws. Converting here would throw all of that away.
    */
-  attributeRows?: Record<string, AttributeRow[]>
+  attributeListings?: Record<string, AttributeListing>
   /** A select with nothing to show asking for its domain to be listed. */
-  onrequestoptions?: (source: ParameterOptionSource) => void
+  onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void
   portConnections?: PortConnectionState[]
   messages?: ComponentMessage[]
 }

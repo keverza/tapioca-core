@@ -27,7 +27,7 @@ import type {
   ParameterWidget,
 } from '../../types'
 
-export type { AttributePreview, AttributeRow } from '../../types'
+export type { AttributeListing, AttributePreview, AttributeRow } from '../../types'
 
 /** The widget set actually rendered. `auto` is resolved away before dispatch. */
 export type ControlWidget = Exclude<ParameterWidget, 'auto'>
@@ -234,18 +234,36 @@ export function isKnownOption(options: ParameterOption[], value: GraphValue | un
   return options.some((option) => optionKey(option.value) === key)
 }
 
-/** The set bits of an 8x8 fill pattern, as cells to draw. */
-export function patternCells(pattern: number[]): { x: number; y: number }[] {
+/**
+ * The set bits of an 8x8 fill pattern, as cells to draw - REPEATED.
+ *
+ * ⚠️ ONE TILE IS NOT A PREVIEW OF A HATCH. A fill's 8x8 cell says what the
+ * pattern is made of; what a person recognises is the pattern REPEATING, and a
+ * single tile of a diagonal hatch reads as three unrelated dots. Two by two is
+ * the smallest repeat that shows the seam continuing, which is the whole point,
+ * and it costs at most 256 one-pixel rects.
+ */
+export function patternCells(pattern: number[], tiles = 2): { x: number; y: number }[] {
   const cells: { x: number; y: number }[] = []
   for (let y = 0; y < 8; y += 1) {
     const row = pattern[y]
     if (typeof row !== 'number') continue
     for (let x = 0; x < 8; x += 1) {
       // High bit leftmost, which is how API_Pattern reads.
-      if ((row & (0x80 >> x)) !== 0) cells.push({ x, y })
+      if ((row & (0x80 >> x)) === 0) continue
+      for (let tileY = 0; tileY < tiles; tileY += 1) {
+        for (let tileX = 0; tileX < tiles; tileX += 1) {
+          cells.push({ x: x + tileX * 8, y: y + tileY * 8 })
+        }
+      }
     }
   }
   return cells
+}
+
+/** The viewBox edge a tiled pattern needs. */
+export function patternExtent(tiles = 2): number {
+  return 8 * tiles
 }
 
 /**
@@ -339,6 +357,53 @@ export function groupChoices(choices: AttributeChoice[]): { folder: string; choi
     if (right.folder === '') return 1
     return left.folder.localeCompare(right.folder)
   })
+}
+
+/**
+ * Whether ANY row in this listing has something to draw.
+ *
+ * ⚠️ A COLUMN OF EMPTY BOXES IS WORSE THAN NO COLUMN. Profiles and layers carry
+ * no preview - there is nothing the API hands over that would make a useful
+ * 14px picture of a profile - so a picker that reserved the swatch column anyway
+ * drew a placeholder in every row, which reads as pictures that failed to load
+ * rather than as a list that has none.
+ */
+export function hasSwatches(choices: AttributeChoice[]): boolean {
+  return choices.some((choice) => choice.row.preview !== undefined)
+}
+
+/**
+ * Whether this listing is nothing but flat colours.
+ *
+ * True for pens, and that is what earns them Archicad's palette GRID instead of
+ * a list: 255 rows of "Pen 137" is a scroll through indistinguishable words,
+ * while the same 255 colours in a grid is a thing the eye picks from directly.
+ * Derived from the DATA rather than from the domain name, so no branch here
+ * knows what a pen is - a future colour-only domain gets the grid for free.
+ */
+export function isColorGrid(choices: AttributeChoice[]): boolean {
+  return (
+    choices.length > 0 &&
+    choices.every((choice) => choice.row.preview?.kind === 'color' && choice.row.preview.color !== undefined)
+  )
+}
+
+/**
+ * How many columns Archicad's own pen palette uses.
+ *
+ * Twenty, and it is worth pinning rather than letting the grid wrap to whatever
+ * the popover is wide: the pen numbers are LAID OUT in that grid, so a user who
+ * knows where pen 41 sits reaches for the same place here. Reflowing the columns
+ * would keep every colour and lose the map.
+ */
+export const PEN_GRID_COLUMNS = 20
+
+/** Swatch sizes the picker offers, in CSS pixels. */
+export const ICON_SIZES = { small: 11, medium: 15, large: 22 } as const
+export type IconSize = keyof typeof ICON_SIZES
+
+export function isIconSize(value: unknown): value is IconSize {
+  return value === 'small' || value === 'medium' || value === 'large'
 }
 
 /** Whether grouping would show the user anything a flat list does not. */

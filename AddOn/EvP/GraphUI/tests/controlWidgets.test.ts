@@ -8,7 +8,13 @@ import {
   filterChoices,
   groupChoices,
   hasFolders,
+  hasSwatches,
+  ICON_SIZES,
+  isColorGrid,
+  isIconSize,
   patternCells,
+  patternExtent,
+  PEN_GRID_COLUMNS,
   skinBands,
   componentLabels,
   componentsOf,
@@ -210,6 +216,21 @@ test('inputs keep their declared order and parameters follow it in descriptor or
   assert.equal(fields[1]?.ui, undefined)
 })
 
+test('Point and Vector component schemas project three independently bindable coordinate fields', () => {
+  const inputs = ['x', 'y', 'z'].map((id) => ({ portId: id, label: id.toUpperCase(), valueType: 'double' }))
+  const parameters: ParameterSchema[] = inputs.map((input, order) => ({
+    parameterId: input.portId,
+    label: input.label,
+    valueType: 'double',
+    required: false,
+    defaultValue: { valueType: 'double', number: input.portId === 'z' ? 1 : 0 },
+    ui: ui({ widget: 'number', order }),
+  }))
+  const fields = fieldsFor(inputs, parameters)
+  assert.deepEqual(fields.map((field) => field.id), ['x', 'y', 'z'])
+  assert.equal(fields.every((field) => field.isPort && field.valueType === 'double'), true)
+})
+
 test('section headings are drawn only when they distinguish something', () => {
   const parameters: ParameterSchema[] = [
     { parameterId: 'value', label: 'Value', valueType: 'double', required: false, ui: ui({ section: 'Value' }) },
@@ -301,15 +322,16 @@ test('every structure has words as well as a shape', () => {
 test('a fill pattern draws from its eight bytes, high bit leftmost', () => {
   // The swatch is what tells 25 %, 50 % and 75 % apart; as words they are three
   // indistinguishable strings.
+  // One tile, so this reads the bits themselves; the tiling is covered below.
   const solidRow = [0xff, 0, 0, 0, 0, 0, 0, 0]
-  const cells = patternCells(solidRow)
+  const cells = patternCells(solidRow, 1)
   assert.equal(cells.length, 8)
   assert.deepEqual(cells.map((cell) => cell.x), [0, 1, 2, 3, 4, 5, 6, 7])
   assert.equal(cells.every((cell) => cell.y === 0), true)
 
   // 0x80 is the LEFTMOST bit, which is how API_Pattern reads it.
-  assert.deepEqual(patternCells([0x80, 0, 0, 0, 0, 0, 0, 0]), [{ x: 0, y: 0 }])
-  assert.deepEqual(patternCells([0x01, 0, 0, 0, 0, 0, 0, 0]), [{ x: 7, y: 0 }])
+  assert.deepEqual(patternCells([0x80, 0, 0, 0, 0, 0, 0, 0], 1), [{ x: 0, y: 0 }])
+  assert.deepEqual(patternCells([0x01, 0, 0, 0, 0, 0, 0, 0], 1), [{ x: 7, y: 0 }])
   assert.deepEqual(patternCells([]), [])
 })
 
@@ -383,4 +405,108 @@ test('a choice keeps the row beside the option it submits', () => {
   const [choice] = choicesFromAttributes(rows, 'integer')
   assert.deepEqual(choice?.option.value, { valueType: 'integer', number: 1 })
   assert.equal(choice?.row.preview?.color, '#101010')
+})
+
+test('a listing with nothing to draw reserves no swatch column', () => {
+  // The bug this pins: profiles and layers carry no preview, and a picker that
+  // reserved the column anyway drew a placeholder box in every row - which
+  // reads as pictures that failed to load rather than as a list with none.
+  const bare = choicesFromAttributes(
+    [
+      { label: 'CW Frame 80/160', name: 'CW Frame 80/160', index: 1, folder: 'Architectural/Curtain Wall' },
+      { label: 'Rail Wood Simple', name: 'Rail Wood Simple', index: 2, folder: 'Architectural/Railing' },
+    ],
+    'string',
+  )
+  assert.equal(hasSwatches(bare), false)
+
+  const withPreview = choicesFromAttributes(
+    [
+      { label: 'Solid', name: 'Solid', index: 1, preview: { kind: 'pattern', fillKind: 'solid' } },
+      { label: 'Air Space', name: 'Air Space', index: 2 },
+    ],
+    'string',
+  )
+  // One row with a picture is enough to earn the column; the other simply draws
+  // nothing in it.
+  assert.equal(hasSwatches(withPreview), true)
+})
+
+test('a listing that is nothing but colours earns the palette grid', () => {
+  // Decided from the DATA, not from the domain name - no branch anywhere knows
+  // what a pen is, so a future colour-only domain gets the grid for free.
+  const pens = choicesFromAttributes(
+    [
+      { label: '1  Thin', number: 1, index: 1, preview: { kind: 'color', color: '#101010' } },
+      { label: '2  Thick', number: 2, index: 2, preview: { kind: 'color', color: '#d01010' } },
+    ],
+    'integer',
+  )
+  assert.equal(isColorGrid(pens), true)
+
+  const fills = choicesFromAttributes(
+    [{ label: '25 %', name: '25 %', index: 1, preview: { kind: 'pattern', pattern: [1, 0, 0, 0, 0, 0, 0, 0] } }],
+    'string',
+  )
+  assert.equal(isColorGrid(fills), false)
+  // A colour row with no colour resolved cannot be picked out of a grid.
+  const unresolved = choicesFromAttributes(
+    [{ label: 'Material', name: 'Material', index: 1, preview: { kind: 'color' } }],
+    'string',
+  )
+  assert.equal(isColorGrid(unresolved), false)
+  assert.equal(isColorGrid([]), false)
+})
+
+test('the icon size is a closed set, and anything else falls back', () => {
+  // It is read back from browser storage, which can hold whatever a previous
+  // version or a person with devtools put there.
+  assert.equal(isIconSize('small'), true)
+  assert.equal(isIconSize('large'), true)
+  assert.equal(isIconSize('enormous'), false)
+  assert.equal(isIconSize(null), false)
+  assert.equal(isIconSize(undefined), false)
+  assert.ok(ICON_SIZES.small < ICON_SIZES.medium && ICON_SIZES.medium < ICON_SIZES.large)
+})
+
+test('a fill pattern is tiled, because one cell is not a preview of a hatch', () => {
+  // A single 8x8 tile of a diagonal hatch reads as three unrelated dots; what a
+  // person recognises is the pattern REPEATING across the seam.
+  const single = patternCells([0x80, 0, 0, 0, 0, 0, 0, 0], 1)
+  assert.deepEqual(single, [{ x: 0, y: 0 }])
+
+  const tiled = patternCells([0x80, 0, 0, 0, 0, 0, 0, 0])
+  assert.equal(tiled.length, 4, 'one set bit becomes four in a 2x2 tiling')
+  assert.deepEqual(
+    tiled.map((cell) => `${cell.x},${cell.y}`).sort(),
+    ['0,0', '0,8', '8,0', '8,8'],
+  )
+  // The viewBox has to grow with the tiling or the repeats fall outside it.
+  assert.equal(patternExtent(), 16)
+  assert.equal(patternExtent(1), 8)
+})
+
+test('a surface is a colour and a hatch, so it is not a flat-colour grid', () => {
+  // The grid is for listings that are nothing BUT colour; a surface carries a
+  // hatch and a texture mark beside the colour and needs its rows.
+  const surfaces = choicesFromAttributes(
+    [
+      {
+        label: 'Tinkas - BALTAS',
+        name: 'Tinkas - BALTAS',
+        index: 1,
+        preview: { kind: 'surface', color: '#eeeeee', pattern: [1, 0, 0, 0, 0, 0, 0, 0], hasTexture: true },
+      },
+    ],
+    'string',
+  )
+  assert.equal(isColorGrid(surfaces), false)
+  assert.equal(hasSwatches(surfaces), true)
+  assert.equal(surfaces[0]?.row.preview?.hasTexture, true)
+})
+
+test('the pen palette keeps Archicad’s twenty columns', () => {
+  // The pen NUMBERS are positions in that grid, so reflowing the columns to fit
+  // the popover would keep every colour and lose the map.
+  assert.equal(PEN_GRID_COLUMNS, 20)
 })

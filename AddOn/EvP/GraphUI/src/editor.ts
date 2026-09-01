@@ -5,6 +5,8 @@ export type DetailLevel = 'compact' | 'normal' | 'detailed'
 export type ThemeMode = 'light' | 'dark' | 'system'
 
 export const NODE_DRAG_MIME = 'application/svelteflow'
+export const REFERENCE_EDGE_COLOR = '#8a8f98'
+export const REFERENCE_EDGE_STYLE = `stroke: ${REFERENCE_EDGE_COLOR}; stroke-width: 1.4; stroke-dasharray: 5 5;`
 
 export function filterCatalog(catalog: NodeTypeSchema[], query: string): NodeTypeSchema[] {
   const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)

@@ -66,15 +66,21 @@ double ClampAndRound (double value, double minimum, double maximum, int decimals
     return std::round (clamped * scale) / scale;
 }
 
-Point3 PointFrom (const ValueMap& inputs, const Node& node, const char* id)
+double ScalarFrom (const ValueMap& inputs, const Node& node, const char* id, double fallback)
 {
     const auto wired = inputs.find (id);
-    if (wired != inputs.end () && wired->second.Type () == ValueType::Point3)
-        return std::get<Point3> (wired->second.DataValue ());
+    if (wired != inputs.end () && wired->second.Type () == ValueType::Double)
+        return std::get<double> (wired->second.DataValue ());
     const auto stored = node.parameters.find (id);
-    if (stored != node.parameters.end () && stored->second.Type () == ValueType::Point3)
-        return std::get<Point3> (stored->second.DataValue ());
-    return Point3 {};
+    if (stored != node.parameters.end () && stored->second.Type () == ValueType::Double)
+        return std::get<double> (stored->second.DataValue ());
+    return fallback;
+}
+
+Point3 ComponentsFrom (const ValueMap& inputs, const Node& node, double defaultZ)
+{
+    return { ScalarFrom (inputs, node, "x", 0.0), ScalarFrom (inputs, node, "y", 0.0),
+             ScalarFrom (inputs, node, "z", defaultZ) };
 }
 
 geomsrv::engine::Vector3 ToEngineVector (const Point3& value)
@@ -119,7 +125,8 @@ Value StoredOr (const Node& node, const char* id, Value fallback)
     return found->second;
 }
 
-ParameterUi NumberUi (const char* section, int order, const char* help, int decimals)
+ParameterUi NumberUi (const char* section, int order, const char* help, int decimals,
+                      const char* decimalsFrom = nullptr)
 {
     ParameterUi ui;
     ui.widget = ParameterWidget::Number;
@@ -127,18 +134,13 @@ ParameterUi NumberUi (const char* section, int order, const char* help, int deci
     ui.order = order;
     ui.help = help;
     ui.decimals = decimals;
-    return ui;
-}
-
-ParameterUi VectorUi (ParameterWidget widget, const char* help, const char* unit, int decimals)
-{
-    ParameterUi ui;
-    ui.widget = widget;
-    ui.section = "Value";
-    ui.help = help;
-    ui.unit = unit;
-    ui.decimals = decimals;
-    ui.components = { "X", "Y", "Z" };
+    // A sibling that governs the precision, when one does. The slider's range
+    // fields follow the SAME decimals setting the value does: a slider showing
+    // two decimals whose minimum box shows three is telling the user its range
+    // is finer than its value can express, and the step it nudges by has to
+    // agree with both or the arrows land on numbers the field then rounds away.
+    if (decimalsFrom != nullptr)
+        ui.decimalsParameter = decimalsFrom;
     return ui;
 }
 
@@ -281,13 +283,13 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     sliderValue.ui = std::move (sliderUi);
     slider.parameters.push_back (std::move (sliderValue));
     ParameterSchema sliderMin { "minimum", "Minimum", ValueType::Double, false, Value (0.0) };
-    sliderMin.ui = NumberUi ("Range", 1, "The lowest value the slider can reach.", 3);
+    sliderMin.ui = NumberUi ("Range", 1, "The lowest value the slider can reach.", 3, "decimals");
     slider.parameters.push_back (std::move (sliderMin));
     ParameterSchema sliderMax { "maximum", "Maximum", ValueType::Double, false, Value (100.0) };
-    sliderMax.ui = NumberUi ("Range", 2, "The highest value the slider can reach.", 3);
+    sliderMax.ui = NumberUi ("Range", 2, "The highest value the slider can reach.", 3, "decimals");
     slider.parameters.push_back (std::move (sliderMax));
     ParameterSchema sliderStep { "step", "Step", ValueType::Double, false, Value (0.1) };
-    ParameterUi stepUi = NumberUi ("Range", 3, "How far one nudge of the slider moves the value.", 3);
+    ParameterUi stepUi = NumberUi ("Range", 3, "How far one nudge of the slider moves the value.", 3, "decimals");
     stepUi.minimum = 0.0;
     sliderStep.ui = std::move (stepUi);
     slider.parameters.push_back (std::move (sliderStep));
@@ -359,21 +361,19 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     }
 
     // ------------------------------------------------------------------
-    // Geometry. One row of component fields per point, which is the shape the
-    // reference design asks for - and it falls out of the value model rather
-    // than being drawn specially: ONE Point3 parameter under the input port's
-    // own id, so the same row is an editable triple when nothing is wired and
-    // the upstream value when something is. Three separate x/y/z ports would
-    // have made that impossible.
+    // Geometry. Coordinates are separate scalar inputs so each component can be
+    // wired or referenced independently; the node assembles the Point3 output.
     // ------------------------------------------------------------------
     NodeType point = PureNode ("point", "Point", "A position in space.");
     point.category = "Geometry";
-    point.inputs.push_back ({ "point", "Point", ValueType::Point3, false, false });
-    ParameterSchema pointValue { "point", "Point", ValueType::Point3, false, Value (Point3 {}) };
-    pointValue.ui = VectorUi (ParameterWidget::Point, "The point's coordinates.", "mm", 2);
-    point.parameters.push_back (std::move (pointValue));
+    for (const auto& [id, label] : { std::pair { "x", "X" }, std::pair { "y", "Y" }, std::pair { "z", "Z" } }) {
+        point.inputs.push_back ({ id, label, ValueType::Double, false, false });
+        ParameterSchema coordinate { id, label, ValueType::Double, false, Value (0.0) };
+        coordinate.ui = NumberUi ("Value", static_cast<int> (point.parameters.size ()), "A point coordinate.", 2);
+        coordinate.ui->unit = "mm";
+        point.parameters.push_back (std::move (coordinate));
+    }
     point.outputs.push_back (Port ("point", ValueType::Point3));
-    point.bypassMappings.push_back ({ "point", "point" });
     if (!registry.Register (std::move (point), error))
         throw std::logic_error (error);
 
@@ -381,10 +381,13 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     // unit and offers no pick-in-model affordance.
     NodeType vector = PureNode ("vector", "Vector", "A direction and a length.");
     vector.category = "Geometry";
-    vector.inputs.push_back ({ "vector", "Vector", ValueType::Point3, false, false });
-    ParameterSchema vectorValue { "vector", "Vector", ValueType::Point3, false, Value (Point3 { 0.0, 0.0, 1.0 }) };
-    vectorValue.ui = VectorUi (ParameterWidget::Vector, "The vector's components.", "", 3);
-    vector.parameters.push_back (std::move (vectorValue));
+    for (const auto& [id, label, defaultValue] :
+         { std::tuple { "x", "X", 0.0 }, std::tuple { "y", "Y", 0.0 }, std::tuple { "z", "Z", 1.0 } }) {
+        vector.inputs.push_back ({ id, label, ValueType::Double, false, false });
+        ParameterSchema component { id, label, ValueType::Double, false, Value (defaultValue) };
+        component.ui = NumberUi ("Value", static_cast<int> (vector.parameters.size ()), "A vector component.", 3);
+        vector.parameters.push_back (std::move (component));
+    }
     vector.outputs.push_back (Port ("vector", ValueType::Point3));
     vector.outputs.push_back (Port ("length", ValueType::Double));
     if (!registry.Register (std::move (vector), error))
@@ -472,9 +475,9 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
     else if (node.nodeType == "booleanToggle")
         outputs.emplace ("value", StoredOr (node, "value", Value (false)));
     else if (node.nodeType == "point")
-        outputs.emplace ("point", Value (PointFrom (inputs, node, "point")));
+        outputs.emplace ("point", Value (ComponentsFrom (inputs, node, 0.0)));
     else if (node.nodeType == "vector") {
-        const Point3 vector = PointFrom (inputs, node, "vector");
+        const Point3 vector = ComponentsFrom (inputs, node, 1.0);
         outputs.emplace ("vector", Value (vector));
         outputs.emplace ("length", Value (std::sqrt (vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)));
     }

@@ -12553,6 +12553,10 @@
               "composite",
               "profile"
             ]
+          },
+          "penSet": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "additionalProperties": false,
@@ -12579,6 +12583,15 @@
           "count": {
             "type": "integer",
             "minimum": 0
+          },
+          "penSets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "penSet": {
+            "type": "string"
           },
           "attributes": {
             "type": "array",
@@ -12618,7 +12631,8 @@
                         "color",
                         "pattern",
                         "line",
-                        "composite"
+                        "composite",
+                        "surface"
                       ]
                     },
                     "color": {
@@ -12645,6 +12659,9 @@
                         "minimum": 0,
                         "maximum": 255
                       }
+                    },
+                    "hasTexture": {
+                      "type": "boolean"
                     },
                     "lineKind": {
                       "type": "string",

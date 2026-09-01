@@ -1,6 +1,6 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
-  import type { GraphParameter, NodeOutputRecord, SelectionAction } from '../../types'
+  import type { GraphParameter, NodeOutputRecord, NodeTypeSchema, SelectionAction } from '../../types'
   import { filterValueTree, nodeValueTree } from '../types/valueTree'
   import ValueTreeRow from './ValueTreeRow.svelte'
 
@@ -9,19 +9,23 @@
     count,
     parameters,
     outputs = [],
+    outputPorts = [],
     busy = false,
     isSelectionSet = false,
     onclose,
     onselectionaction,
+    oncopyreference,
   }: {
     nodeId: string
     count: number
     parameters: GraphParameter[]
     outputs?: NodeOutputRecord[]
+    outputPorts?: NodeTypeSchema['outputs']
     busy?: boolean
     isSelectionSet?: boolean
     onclose: () => void
     onselectionaction?: (nodeId: string, action: SelectionAction) => void
+    oncopyreference?: (nodeId: string, portId: string, direction: 'output') => void
   } = $props()
 
   let query = $state('')
@@ -64,6 +68,7 @@
     <div class="reference-actions">
       <button type="button" disabled={busy || onselectionaction === undefined} onclick={() => onselectionaction?.(nodeId, 'update')}>Replace selection</button>
       <button type="button" disabled={busy || onselectionaction === undefined} onclick={() => onselectionaction?.(nodeId, 'reselect')}>Show in Archicad</button>
+      <button type="button" disabled={outputPorts.length === 0 || oncopyreference === undefined} title={outputPorts.length === 0 ? 'This node has no output reference.' : 'Copy this Archicad reference output'} onclick={() => { const output = outputPorts[0]; if (output !== undefined) oncopyreference?.(nodeId, output.portId, 'output') }}>Copy reference</button>
     </div>
   {/if}
 
@@ -113,7 +118,7 @@
   header span, label span { color: var(--text-faint); font: 8px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
   header strong { overflow: hidden; font-size: 12px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
   button { height: 25px; padding: 0 7px; font-size: 9px; }
-  .reference-actions { display: flex; gap: 5px; padding: 8px 9px 0; }
+  .reference-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; padding: 8px 9px 0; }
   label { display: grid; gap: 5px; padding: 8px 9px; }
   input { width: 100%; height: 27px; padding: 0 7px; }
   nav { display: flex; padding: 0 9px 6px; border-bottom: 1px solid var(--border); gap: 5px; }

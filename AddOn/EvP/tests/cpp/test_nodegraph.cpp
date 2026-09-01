@@ -3307,13 +3307,22 @@ TEST (NodeGraphInputLibrary, TheSliderClampsAndRoundsInTheNodeRatherThanInTheCon
     EXPECT_DOUBLE_EQ (1.23, std::get<double> (roundedOutputs.at ("value").DataValue ()));
 }
 
-TEST (NodeGraphInputLibrary, APointTakesItsWiredInputOverItsTypedOne)
+TEST (NodeGraphInputLibrary, APointAssemblesIndependentlyWiredCoordinates)
 {
-    // The same port id carries both, which is what lets one row be an editable
-    // triple when nothing is wired and the upstream value when something is.
     const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeType* pointType = registry.Find ("point");
+    ASSERT_NE (nullptr, pointType);
+    ASSERT_EQ (3U, pointType->inputs.size ());
+    EXPECT_EQ ("x", pointType->inputs[0].id);
+    EXPECT_EQ ("y", pointType->inputs[1].id);
+    EXPECT_EQ ("z", pointType->inputs[2].id);
+    EXPECT_TRUE (std::all_of (pointType->inputs.begin (), pointType->inputs.end (),
+                              [] (const PortSchema& port) { return port.valueType == ValueType::Double; }));
+
     Node node { "p", "point" };
-    node.parameters.emplace ("point", Value (Point3 { 1.0, 2.0, 3.0 }));
+    node.parameters.emplace ("x", Value (1.0));
+    node.parameters.emplace ("y", Value (2.0));
+    node.parameters.emplace ("z", Value (3.0));
 
     ValueMap typedOutputs;
     std::string error;
@@ -3322,16 +3331,21 @@ TEST (NodeGraphInputLibrary, APointTakesItsWiredInputOverItsTypedOne)
     EXPECT_DOUBLE_EQ (2.0, std::get<Point3> (typedOutputs.at ("point").DataValue ()).y);
 
     ValueMap inputs;
-    inputs.emplace ("point", Value (Point3 { 7.0, 8.0, 9.0 }));
+    inputs.emplace ("y", Value (8.0));
     ValueMap wiredOutputs;
     ASSERT_TRUE (ExecuteBuiltinNode (node, inputs, context, wiredOutputs, error)) << error;
-    EXPECT_DOUBLE_EQ (8.0, std::get<Point3> (wiredOutputs.at ("point").DataValue ()).y);
+    const Point3 wired = std::get<Point3> (wiredOutputs.at ("point").DataValue ());
+    EXPECT_DOUBLE_EQ (1.0, wired.x);
+    EXPECT_DOUBLE_EQ (8.0, wired.y);
+    EXPECT_DOUBLE_EQ (3.0, wired.z);
 }
 
 TEST (NodeGraphInputLibrary, AVectorReportsItsLengthBesideItself)
 {
     Node node { "v", "vector" };
-    node.parameters.emplace ("vector", Value (Point3 { 3.0, 4.0, 0.0 }));
+    node.parameters.emplace ("x", Value (3.0));
+    node.parameters.emplace ("y", Value (4.0));
+    node.parameters.emplace ("z", Value (0.0));
     ValueMap outputs;
     std::string error;
     NodeExecutionContext context;

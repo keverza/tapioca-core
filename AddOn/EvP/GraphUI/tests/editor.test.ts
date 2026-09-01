@@ -7,6 +7,8 @@ import {
   groupCatalog,
   initialTheme,
   isCatalogConnectionValid,
+  REFERENCE_EDGE_COLOR,
+  REFERENCE_EDGE_STYLE,
 } from '../src/editor.ts'
 import type { NodeTypeSchema, SchemaNodeData } from '../src/types.ts'
 
@@ -71,4 +73,9 @@ test('theme preference defaults safely to system', () => {
   assert.equal(initialTheme(undefined), 'system')
   assert.equal(initialTheme({ getItem: () => 'dark' }), 'dark')
   assert.equal(initialTheme({ getItem: () => 'invalid' }), 'system')
+})
+
+test('a pasted reference uses a dotted neutral connection treatment', () => {
+  assert.match(REFERENCE_EDGE_STYLE, /stroke-dasharray/)
+  assert.match(REFERENCE_EDGE_STYLE, new RegExp(REFERENCE_EDGE_COLOR))
 })

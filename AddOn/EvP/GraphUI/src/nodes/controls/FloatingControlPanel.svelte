@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ExecutionMode, NodeTypeSchema } from '../../types'
+  import type { PortConnectionState } from '../types/port'
   import type { DisplayState } from '../types/display'
   import type { NodeViewMode } from '../types/node'
   import type { PortLayout } from '../types/port'
@@ -13,6 +14,8 @@
     viewMode,
     portLayout,
     display,
+    nodeId,
+    connections = [],
     onname,
     oncolor,
     onmode,
@@ -20,6 +23,8 @@
     onviewmode,
     onportlayout,
     ondisplay,
+    oncopyreference,
+    onpastereference,
     onclose,
   }: {
     schema: NodeTypeSchema
@@ -30,6 +35,8 @@
     viewMode: NodeViewMode
     portLayout: PortLayout
     display: DisplayState
+    nodeId: string
+    connections?: PortConnectionState[]
     onname: (name: string) => void
     oncolor: (color: string) => void
     onmode: (mode: ExecutionMode) => void
@@ -37,11 +44,16 @@
     onviewmode: (mode: NodeViewMode) => void
     onportlayout: (layout: PortLayout) => void
     ondisplay: (display: DisplayState) => void
+    oncopyreference?: (nodeId: string, portId: string, direction: 'input' | 'output') => void
+    onpastereference?: (nodeId: string, portId: string) => void
     onclose: () => void
   } = $props()
 
   const colors = ['#d58b4b', '#65a9b8', '#7da76a', '#a580bd', '#c56f72', '#d2c66c', '#8194aa', '#d9d9d9']
   const canBypass = $derived((schema.bypassMappings?.length ?? 0) > 0)
+  function inputConnection(portId: string): PortConnectionState | undefined {
+    return connections.find((connection) => connection.direction === 'input' && connection.portId === portId)
+  }
 </script>
 
 <aside class="inspector nodrag nowheel" aria-label="Node inspector">
@@ -97,6 +109,26 @@
   </fieldset>
 
   <fieldset>
+    <legend>References</legend>
+    {#each schema.inputs as input (input.portId)}
+      {@const connection = inputConnection(input.portId)}
+      <div class="reference-row">
+        <span>{input.label}</span>
+        <code title={connection?.peerLabels?.[0]}>{connection?.peerLabels?.[0] ?? 'local'}</code>
+        <button type="button" disabled={!connection?.connected || oncopyreference === undefined} title={connection?.connected ? 'Copy the upstream output reference' : 'This input has no upstream reference'} onclick={() => oncopyreference?.(nodeId, input.portId, 'input')}>Copy</button>
+        <button type="button" disabled={onpastereference === undefined} onclick={() => onpastereference?.(nodeId, input.portId)}>Paste</button>
+      </div>
+    {/each}
+    {#each schema.outputs as output (output.portId)}
+      <div class="reference-row output-reference">
+        <span>{output.label}</span><code>{output.valueType}</code>
+        <button type="button" disabled={oncopyreference === undefined} onclick={() => oncopyreference?.(nodeId, output.portId, 'output')}>Copy</button>
+        <span></span>
+      </div>
+    {/each}
+  </fieldset>
+
+  <fieldset>
     <legend>Data</legend>
     <div class="action-grid">
       <button type="button" disabled title="Port-scoped operation">Disconnect</button>
@@ -137,6 +169,10 @@
   .swatches button.active { outline: 2px solid var(--text); outline-offset: -3px; }
   .swatches input { width: 27px; height: 22px; padding: 0; border-radius: 0; }
   .action-grid { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .reference-row { display: grid; grid-template-columns: minmax(48px, .8fr) minmax(60px, 1fr) 42px 42px; align-items: center; gap: 3px; }
+  .reference-row > span { overflow: hidden; color: var(--text-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+  .reference-row code { overflow: hidden; color: var(--text-faint); font: 8px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .reference-row button { height: 22px; padding: 0 4px; }
   .action-grid.flow { grid-template-columns: repeat(3, 1fr); }
   .action-grid.thirds { grid-template-columns: repeat(3, 1fr); }
   select { width: 100%; height: 27px; padding: 0 6px; font-size: 8px; }

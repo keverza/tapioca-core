@@ -4,6 +4,7 @@
     BackgroundVariant,
     Controls,
     MiniMap,
+    MarkerType,
     SvelteFlow,
     useSvelteFlow,
     type ColorMode,
@@ -43,6 +44,8 @@
     initialTheme,
     isCatalogConnectionValid,
     NODE_DRAG_MIME,
+    REFERENCE_EDGE_COLOR,
+    REFERENCE_EDGE_STYLE,
     type DetailLevel,
     type ThemeMode,
   } from './editor'
@@ -69,7 +72,7 @@
     GraphEdgeRecord,
     GraphState,
     NodeResultRecord,
-    AttributeRow,
+    AttributeListing,
     NodeTypeSchema,
     PortReference,
     PositionStore,
@@ -105,6 +108,7 @@
 
   let nodes = $state.raw<Node<SchemaNodeData>[]>([])
   let edges = $state.raw<Edge[]>([])
+  let referenceEdgeIds = $state.raw<Set<string>>(new Set())
   let catalog = $state.raw<NodeTypeSchema[]>([])
   /**
    * What the native attribute listing answered, keyed by option source.
@@ -115,7 +119,7 @@
    * which is what the control shows as "listing"; an empty array means the
    * project genuinely has none.
    */
-  let attributeRows = $state.raw<Record<string, AttributeRow[]>>({})
+  let attributeListings = $state.raw<Record<string, AttributeListing>>({})
   const optionRequests = new Set<string>()
   let results = $state.raw<NodeResultRecord[]>([])
   let revision = $state(0)
@@ -181,6 +185,13 @@
       .join('--')
   }
 
+  function referenceLabel(edge: GraphEdgeRecord, state: GraphState): string {
+    const source = state.nodes.find((node) => node.nodeId === edge.sourceNode)
+    const name = visuals.get(edge.sourceNode)?.nickname?.trim() || edge.sourceNode
+    const outputCount = catalog.find((schema) => schema.nodeType === source?.nodeType)?.outputs.length ?? 1
+    return `\\${name}${outputCount > 1 ? `.${edge.sourcePort}` : ''}`
+  }
+
   function positionFor(nodeId: string, index: number) {
     const retained = positions.get(nodeId)
     if (retained !== undefined) return retained
@@ -204,16 +215,18 @@
         onexecutionchange: (nodeId, mode) => void setExecutionMode(nodeId, mode),
         onparameterchange: (nodeId, parameterId, valueType, text) =>
           void setParameter(nodeId, parameterId, valueType, text),
-        attributeRows,
-        onrequestoptions: (source) => {
-          void listAttributeOptions(source)
+        attributeListings,
+        onrequestoptions: (source, penSet) => {
+          void listAttributeOptions(source, penSet)
         },
         onportreference: (reference, target) => connectReference(reference, target),
+        oncopyportreference: (nodeId, portId, direction) => void copyPortReference(nodeId, portId, direction),
+        onpasteportreference: (nodeId, portId) => void pastePortReference(nodeId, portId),
         onportcontextmenu: (event, target) => openPortContext(event, target),
         portConnections: [
           ...(schemas.get(node.nodeType)?.inputs ?? []).map((port) => {
             const matching = state.edges.filter((edge) => edge.targetNode === node.nodeId && edge.targetPort === port.portId)
-            return { portId: port.portId, direction: 'input' as const, connected: matching.length > 0, connectionCount: matching.length, peerLabels: matching.map((edge) => `${edge.sourceNode}.${edge.sourcePort}`) }
+            return { portId: port.portId, direction: 'input' as const, connected: matching.length > 0, connectionCount: matching.length, peerLabels: matching.map((edge) => referenceLabel(edge, state)) }
           }),
           ...(schemas.get(node.nodeType)?.outputs ?? []).map((port) => {
             const matching = state.edges.filter((edge) => edge.sourceNode === node.nodeId && edge.sourcePort === port.portId)
@@ -244,14 +257,30 @@
       },
       style: `width: ${schemas.get(node.nodeType)?.display === 'preview' ? 292 : 248}px`,
     }))
-    edges = state.edges.map((edge) => ({
-      id: edgeId(edge),
-      source: edge.sourceNode,
-      sourceHandle: edge.sourcePort,
-      target: edge.targetNode,
-      targetHandle: edge.targetPort,
-      type: 'smoothstep',
-    }))
+    edges = state.edges.map((edge) => {
+      const id = edgeId(edge)
+      const reference = referenceEdgeIds.has(id)
+      return {
+        id,
+        source: edge.sourceNode,
+        sourceHandle: edge.sourcePort,
+        target: edge.targetNode,
+        targetHandle: edge.targetPort,
+        type: 'smoothstep',
+        ...(reference
+          ? {
+              style: REFERENCE_EDGE_STYLE,
+              markerEnd: { type: MarkerType.ArrowClosed, color: REFERENCE_EDGE_COLOR, width: 14, height: 14 },
+              ariaLabel: `Reference ${edge.sourceNode}.${edge.sourcePort} to ${edge.targetNode}.${edge.targetPort}`,
+            }
+          : {}),
+      }
+    })
+    const liveEdgeIds = new Set(edges.map((edge) => edge.id))
+    if ([...referenceEdgeIds].some((id) => !liveEdgeIds.has(id))) {
+      referenceEdgeIds = new Set([...referenceEdgeIds].filter((id) => liveEdgeIds.has(id)))
+      persistReferenceEdges()
+    }
   }
 
   function visualStorageKey(): string {
@@ -266,10 +295,20 @@
     } catch {
       // Invalid presentation metadata must not prevent the native graph from opening.
     }
+    try {
+      const stored = JSON.parse(localStorage.getItem(`${visualStorageKey()}.references`) ?? '[]')
+      referenceEdgeIds = new Set(Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [])
+    } catch {
+      referenceEdgeIds = new Set()
+    }
   }
 
   function persistVisuals(): void {
     localStorage.setItem(visualStorageKey(), JSON.stringify(serializeNodePresentations(visuals)))
+  }
+
+  function persistReferenceEdges(): void {
+    localStorage.setItem(`${visualStorageKey()}.references`, JSON.stringify([...referenceEdgeIds]))
   }
 
   function handleVisualChange(nodeId: string, visual: NodeVisualState): void {
@@ -426,7 +465,7 @@
     void addNode(nodeType, position)
   }
 
-  async function connect(connection: Connection): Promise<void> {
+  async function connect(connection: Connection, reference = false): Promise<void> {
     if (connection.sourceHandle === null || connection.targetHandle === null) {
       await reloadState()
       return
@@ -443,6 +482,12 @@
           target: connection.target,
           targetHandle: connection.targetHandle,
           type: 'smoothstep',
+          ...(reference
+            ? {
+                style: REFERENCE_EDGE_STYLE,
+                markerEnd: { type: MarkerType.ArrowClosed, color: REFERENCE_EDGE_COLOR, width: 14, height: 14 },
+              }
+            : {}),
         },
       ]
       message = 'Connected browser-only diagnostic nodes'
@@ -458,6 +503,15 @@
         targetNode: connection.target,
         targetPort: connection.targetHandle,
       })
+      if (reference) {
+        referenceEdgeIds = new Set(referenceEdgeIds).add(edgeId({
+          sourceNode: connection.source,
+          sourcePort: connection.sourceHandle,
+          targetNode: connection.target,
+          targetPort: connection.targetHandle,
+        }))
+        persistReferenceEdges()
+      }
       message = `Connected ${connection.source} to ${connection.target}`
     } catch (error) {
       failed = true
@@ -478,20 +532,28 @@
    * an error banner, because a picker with no project open is an ordinary state
    * and not a fault.
    */
-  async function listAttributeOptions(source: string): Promise<void> {
-    if (source === 'none' || optionRequests.has(source)) return
-    optionRequests.add(source)
+  async function listAttributeOptions(source: string, penSet?: string): Promise<void> {
+    if (source === 'none') return
+    // Keyed by source AND set, so choosing another pen set re-lists rather than
+    // being swallowed as "already asked" - while a second node asking for the
+    // same set still costs nothing.
+    const key = `${source}|${penSet ?? ''}`
+    if (optionRequests.has(key)) return
+    optionRequests.add(key)
     if (!nativeConnected) {
-      publishAttributeOptions(source, [])
+      publishAttributeListing(source, { attributes: [] })
       return
     }
     try {
-      const listing = await callTapioca<{ attributes: AttributeRow[] }>('Tapioca.ListAttributes', { kind: source })
-      publishAttributeOptions(source, listing.attributes ?? [])
+      const listing = await callTapioca<AttributeListing>('Tapioca.ListAttributes', {
+        kind: source,
+        ...(penSet === undefined ? {} : { penSet }),
+      })
+      publishAttributeListing(source, { ...listing, attributes: listing.attributes ?? [] })
     } catch {
       // Deliberately quiet: no project open is the common case, and the control
       // already says so. Re-asking is a matter of reopening the editor.
-      publishAttributeOptions(source, [])
+      publishAttributeListing(source, { attributes: [] })
     }
   }
 
@@ -505,9 +567,9 @@
    * what closes that loop; it is a shallow remap of presentation data and does
    * not touch positions, selection or anything semantic.
    */
-  function publishAttributeOptions(source: string, rows: AttributeRow[]): void {
-    attributeRows = { ...attributeRows, [source]: rows }
-    nodes = nodes.map((node) => ({ ...node, data: { ...node.data, attributeRows } }))
+  function publishAttributeListing(source: string, listing: AttributeListing): void {
+    attributeListings = { ...attributeListings, [source]: listing }
+    nodes = nodes.map((node) => ({ ...node, data: { ...node.data, attributeListings } }))
   }
 
   /**
@@ -569,18 +631,34 @@
       sourceHandle: reference.portId,
       target: target.nodeId,
       targetHandle: target.portId,
-    })
+    }, true)
   }
 
-  function copyPortReference(nodeId: string, portId: string, direction: 'input' | 'output'): void {
-    const node = nodes.find((item) => item.id === nodeId)
-    const ports = direction === 'input' ? node?.data.schema.inputs : node?.data.schema.outputs
-    const valueType = ports?.find((port) => port.portId === portId)?.valueType ?? ''
-    void navigator.clipboard?.writeText(
-      serializePortReference({ kind: 'nodePort', nodeId, portId, direction, valueType }),
-    )
-    message = `Copied a reference to ${nodeId}.${portId}`
-    failed = false
+  async function copyPortReference(nodeId: string, portId: string, direction: 'input' | 'output'): Promise<void> {
+    let sourceNodeId = nodeId
+    let sourcePortId = portId
+    if (direction === 'input') {
+      const upstream = edges.find((edge) => edge.target === nodeId && edge.targetHandle === portId)
+      if (upstream === undefined || upstream.sourceHandle === null || upstream.sourceHandle === undefined) {
+        failed = true
+        message = 'That input has no upstream reference to copy.'
+        return
+      }
+      sourceNodeId = upstream.source
+      sourcePortId = upstream.sourceHandle
+    }
+    const node = nodes.find((item) => item.id === sourceNodeId)
+    const valueType = node?.data.schema.outputs.find((port) => port.portId === sourcePortId)?.valueType ?? ''
+    try {
+      await navigator.clipboard.writeText(
+        serializePortReference({ kind: 'nodePort', nodeId: sourceNodeId, portId: sourcePortId, direction: 'output', valueType }),
+      )
+      message = `Copied a reference to ${sourceNodeId}.${sourcePortId}`
+      failed = false
+    } catch {
+      failed = true
+      message = 'The clipboard is not writable here.'
+    }
   }
 
   /** Paste onto an input: the clipboard names a port, so this wires it up. */
@@ -616,13 +694,13 @@
   const isValidConnection: IsValidConnection = (connection) =>
     isCatalogConnectionValid(connection, nodes, edges)
 
-  function requestConnection(connection: Connection): false {
+  function requestConnection(connection: Connection, reference = false): false {
     if (!isCatalogConnectionValid(connection, nodes, edges)) {
       failed = true
       message = 'Connection rejected by the native catalog projection.'
       return false
     }
-    void connect(connection)
+    void connect(connection, reference)
     return false
   }
 
@@ -1282,7 +1360,12 @@
           ? ['reverse', 'simplify', 'flatten', 'graft', 'reparameterize']
           : ['simplify', 'flatten', 'graft']
       return [
-        { label: 'Copy reference', run: () => copyPortReference(nodeId, portId, direction) },
+        {
+          label: direction === 'input' ? 'Copy upstream reference' : 'Copy reference',
+          disabled: direction === 'input' && !connected,
+          title: direction === 'input' && !connected ? 'This input has no upstream reference.' : undefined,
+          run: () => void copyPortReference(nodeId, portId, direction),
+        },
         ...(direction === 'input'
           ? [{ label: 'Paste reference', run: () => void pastePortReference(nodeId, portId) }]
           : []),

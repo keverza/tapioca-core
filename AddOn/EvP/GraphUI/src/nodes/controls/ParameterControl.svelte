@@ -14,8 +14,8 @@
    * wire is the value, and a box that still took typing would be offering an
    * edit the runtime discards.
    */
-  import type { AttributeRow, GraphParameter, GraphValue, ParameterOptionSource } from '../../types'
-  import type { PortReference } from '../types/portReference'
+  import type { AttributeListing, GraphParameter, GraphValue, ParameterOptionSource } from '../../types'
+  import { parsePortReference, type PortReference } from '../types/portReference'
   import AttributePicker from './AttributePicker.svelte'
   import BooleanControl from './BooleanControl.svelte'
   import NumberControl from './NumberControl.svelte'
@@ -38,7 +38,7 @@
     parameters,
     connected = false,
     upstream = '',
-    attributeRows = {},
+    attributeListings = {},
     disabled = false,
     oncommit,
     onreference,
@@ -48,11 +48,11 @@
     parameters: GraphParameter[]
     connected?: boolean
     upstream?: string
-    attributeRows?: Record<string, AttributeRow[]>
+    attributeListings?: Record<string, AttributeListing>
     disabled?: boolean
     oncommit: (id: string, valueType: string, text: string) => void
     onreference?: (reference: PortReference, portId: string) => void
-    onrequestoptions?: (source: ParameterOptionSource) => void
+    onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void
   } = $props()
 
   const widget = $derived(resolveWidget(field.valueType, field.ui))
@@ -62,18 +62,35 @@
   // Literal options declared by the node type. An Archicad domain has none and
   // is served by the picker below instead.
   const options = $derived(field.ui?.options ?? [])
-  const choices = $derived(choicesFromAttributes(attributeRows[source] ?? [], field.valueType))
+  const listing = $derived(attributeListings[source])
+  const choices = $derived(choicesFromAttributes(listing?.attributes ?? [], field.valueType))
   // A source that has been asked for and has not answered yet. `undefined` is
-  // "never asked"; an empty array is "asked, and the project has none".
-  const loading = $derived(source !== 'none' && attributeRows[source] === undefined)
+  // "never asked"; an empty listing is "asked, and the project has none".
+  const loading = $derived(source !== 'none' && listing === undefined)
 
   function commit(text: string): void {
     oncommit(field.id, field.valueType, text)
   }
+
+  function handlePaste(event: ClipboardEvent): void {
+    if (!field.isPort || onreference === undefined) return
+    const reference = parsePortReference(event.clipboardData?.getData('text/plain') ?? '')
+    if (reference === undefined) return
+    event.preventDefault()
+    event.stopPropagation()
+    onreference(reference, field.id)
+  }
 </script>
 
+<div class="control" onpaste={handlePaste}>
 {#if connected}
-  <output class="upstream" title={upstream}>{upstream}</output>
+  <!-- Focusable because it is a PASTE TARGET - a port reference dropped on a
+       connected input is a rewire request, and a paste needs somewhere to land.
+       A readonly <input> rather than an <output> carrying a tabindex: <output>
+       is non-interactive by definition, so making it tabbable is a claim no role
+       can honestly back, while a readonly input IS the element for "text you can
+       focus and paste over but not type into". -->
+  <input class="upstream" title={upstream} value={upstream} readonly aria-label={`${field.label}, from ${upstream}`} />
 {:else if widget === 'number' || widget === 'slider'}
   <NumberControl
     value={numberOf(value)}
@@ -93,6 +110,7 @@
   <AttributePicker
     {value}
     {choices}
+    {listing}
     {source}
     {loading}
     label={field.label}
@@ -121,15 +139,19 @@
     swatch={widget === 'color'}
     {disabled}
     oncommit={commit}
-    onreference={onreference === undefined ? undefined : (reference) => onreference(reference, field.id)}
   />
 {:else}
   <!-- readOnly: a list, a mesh, a polyline. Produced by a node, never authored,
        so the honest control is the value itself. -->
   <output class="read-only" title={textOf(value)}>{textOf(value) || '—'}</output>
 {/if}
+</div>
 
 <style>
-  output { display: block; overflow: hidden; min-height: 19px; padding: 4px 5px; background: var(--canvas); color: var(--text-faint); font: 9px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .control { min-width: 0; }
+  output, .upstream { display: block; box-sizing: border-box; width: 100%; overflow: hidden; min-height: 19px; padding: 4px 5px; border: 0; background: var(--canvas); color: var(--text-faint); font: 9px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  /* Dashed, because a connected input is showing a value it does not own. */
+  .upstream { border: 1px dashed #858b94; color: #b5bac2; }
+  .upstream:focus { border-color: var(--node-color); outline: none; }
   .read-only { font-style: italic; }
 </style>

@@ -277,14 +277,46 @@ GS::UniString BuildingMaterialColor (const API_AttributeIndex& index)
     return GS::UniString ();
 }
 
+// A fill's 8x8 bit pattern, by index.
+//
+// A surface names a fill, and the surface picker draws it beside the colour -
+// which is what tells one "Tinkas - GRUBUS" from the next when their colours are
+// nearly the same. Read here rather than by the caller so a surface row costs
+// one lookup and the fill listing keeps its own path.
+bool FillPattern (const API_AttributeIndex& index, GS::Array<GS::Int32>& rows)
+{
+    if (!index.IsPositive ())
+        return false;
+    API_Attribute fill = {};
+    fill.header.typeID = API_FilltypeID;
+    fill.header.index = index;
+    if (ACAPI_Attribute_Get (&fill) != NoError)
+        return false;
+    for (short row = 0; row < 8; ++row)
+        rows.Push (static_cast<GS::Int32> (fill.filltype.bitPat[row]));
+    return true;
+}
+
 // One attribute's swatch definition. Absent for kinds that have nothing to
 // draw - a layer is a name and two flags, and inventing a swatch for it would
 // be decoration rather than information.
 bool AttributePreview (API_AttrTypeID typeID, const API_Attribute& attribute, GS::ObjectState& preview)
 {
     if (typeID == API_MaterialID) {
-        preview.Add ("kind", GS::UniString ("color"));
+        // A surface is a colour AND a fill AND, sometimes, a texture. Archicad's
+        // own surface list shows all three, and it needs to: a project's
+        // renders and plasters run to dozens of near-identical colours, and the
+        // hatch beside them is what separates a roof tile from a render.
+        preview.Add ("kind", GS::UniString ("surface"));
         preview.Add ("color", HexColor (attribute.material.surfaceRGB));
+        GS::Array<GS::Int32> rows;
+        if (FillPattern (attribute.material.ifill, rows))
+            preview.Add ("pattern", rows);
+        // The texture NAME is the signal, not the status bits: those describe
+        // how a texture is mapped and are meaningless when there is none.
+        const GS::UniString textureName (attribute.material.texture.texName);
+        if (!textureName.IsEmpty ())
+            preview.Add ("hasTexture", true);
         return true;
     }
 
@@ -355,6 +387,44 @@ bool AttributePreview (API_AttrTypeID typeID, const API_Attribute& attribute, GS
     }
 
     return false;
+}
+
+// The project's named pen tables.
+//
+// Listed alongside the pens themselves rather than behind a second verb: a pen
+// picker needs both to draw one dropdown, and two round trips to fill one panel
+// is two chances for them to disagree about which set is showing.
+void CollectPenSets (GS::Array<GS::UniString>& names)
+{
+    GS::Array<API_Attribute> tables;
+    if (ACAPI_Attribute_GetAttributesByType (API_PenTableID, tables) != NoError)
+        return;
+    for (const API_Attribute& table : tables) {
+        const GS::UniString name (table.header.name);
+        if (!name.IsEmpty ())
+            names.Push (name);
+    }
+}
+
+// The 255 pens of a NAMED pen table.
+//
+// WARNING: THIS DOES NOT CHANGE WHICH PEN SET THE PROJECT USES, and must not.
+// Picking a pen to feed a graph is a read; switching the active pen table
+// restyles every drawing in the project, which is a document write nobody asked
+// for. Reading the table's own definition keeps the two apart - the picker can
+// show any set without the act of looking changing anything.
+bool PensOfSet (const GS::UniString& setName, GS::Array<API_Pen>& pens)
+{
+    API_AttributeIndex index;
+    if (!AttributeNameToIndex (API_PenTableID, setName, index))
+        return false;
+    API_AttributeDefExt defs = {};
+    if (ACAPI_Attribute_GetDefExt (API_PenTableID, index, &defs) != NoError)
+        return false;
+    if (defs.penTable_Items != nullptr)
+        pens = *defs.penTable_Items;
+    ACAPI_DisposeAttrDefsHdlsExt (&defs);
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -441,13 +511,39 @@ class ListAttributesCommand : public MainThreadCommand {
         // PENS are not in the attribute table; they live in the active pen
         // table and are read one at a time by index.
         if (kind == "pen") {
-            UInt32 count = 0;
-            if (const GSErrCode err = ACAPI_Attribute_GetPenNum (count); err != NoError)
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Attribute_GetPenNum", err, "listing pens"));
-            for (UInt32 i = 1; i <= count; ++i) {
-                API_Pen pen = {};
-                pen.index = static_cast<short> (i);
-                if (ACAPI_Attribute_GetPen (pen) != NoError)
+            // Every named pen table, so the picker can offer the set dropdown
+            // from the same answer that carried the pens.
+            GS::Array<GS::UniString> penSets;
+            CollectPenSets (penSets);
+            os.Add ("penSets", penSets);
+
+            GS::UniString requestedSet;
+            params.Get ("penSet", requestedSet);
+
+            GS::Array<API_Pen> pens;
+            if (!requestedSet.IsEmpty ()) {
+                if (!PensOfSet (requestedSet, pens))
+                    return NativeCommandResult::Failure (
+                        GS::UniString::Printf ("no pen set named \"%T\"", requestedSet.ToPrintf ()));
+                os.Add ("penSet", requestedSet);
+            }
+            else {
+                // No set named: the project's CURRENT pens, which is what a
+                // picker should open on.
+                UInt32 count = 0;
+                if (const GSErrCode err = ACAPI_Attribute_GetPenNum (count); err != NoError)
+                    return NativeCommandResult::Failure (
+                        EVP_ACAPI_FAIL ("ACAPI_Attribute_GetPenNum", err, "listing pens"));
+                for (UInt32 i = 1; i <= count; ++i) {
+                    API_Pen pen = {};
+                    pen.index = static_cast<short> (i);
+                    if (ACAPI_Attribute_GetPen (pen) == NoError)
+                        pens.Push (pen);
+                }
+            }
+
+            for (const API_Pen& pen : pens) {
+                if (pen.index <= 0)
                     continue; // a gap in the table is not a failure of the listing
                 const GS::UniString description (pen.description);
                 GS::ObjectState row;
@@ -562,7 +658,8 @@ const NativeCommandRegistration kAttributeCommandRegistrations[] = {
       R"json({
             "type":"object",
             "properties":{
-                "kind":{"type":"string","enum":["layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]}
+                "kind":{"type":"string","enum":["layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]},
+                "penSet":{"type":"string","minLength":1}
             },
             "additionalProperties":false,
             "required":["kind"]
@@ -572,6 +669,8 @@ const NativeCommandRegistration kAttributeCommandRegistrations[] = {
             "properties":{
                 "kind":{"type":"string","enum":["layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]},
                 "count":{"type":"integer","minimum":0},
+                "penSets":{"type":"array","items":{"type":"string"}},
+                "penSet":{"type":"string"},
                 "attributes":{
                     "type":"array",
                     "items":{
@@ -588,10 +687,11 @@ const NativeCommandRegistration kAttributeCommandRegistrations[] = {
                             "preview":{
                                 "type":"object",
                                 "properties":{
-                                    "kind":{"type":"string","enum":["color","pattern","line","composite"]},
+                                    "kind":{"type":"string","enum":["color","pattern","line","composite","surface"]},
                                     "color":{"type":"string"},
                                     "fillKind":{"type":"string","enum":["vector","symbol","solid","empty","linearGradient","radialGradient","image"]},
                                     "pattern":{"type":"array","minItems":8,"maxItems":8,"items":{"type":"integer","minimum":0,"maximum":255}},
+                                    "hasTexture":{"type":"boolean"},
                                     "lineKind":{"type":"string","enum":["solid","dashed","symbol"]},
                                     "dashes":{"type":"array","items":{"type":"number"}},
                                     "thickness":{"type":"number"},

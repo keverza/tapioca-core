@@ -17,7 +17,7 @@
    * already sends. A node that declares one section has no chevron and loses
    * nothing.
    */
-  import type { AttributeRow, GraphParameter, NodeOutputRecord, ParameterOptionSource } from '../types'
+  import type { AttributeListing, GraphParameter, NodeOutputRecord, ParameterOptionSource } from '../types'
   import type { NodeDefinition } from './types/node'
   import type { PortConnectionState, PortLayout } from './types/port'
   import type { ComponentMessage } from './types/diagnostics'
@@ -27,7 +27,7 @@
   import { portStructure } from './types/display'
   import { fieldsFor, sectionsFor, shouldShowSectionHeadings, withDefaults } from './controls/widgets'
 
-  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeRows = {}, onparameter, onreference, onportmenu, onrequestoptions }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeRows?: Record<string, AttributeRow[]>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource) => void } = $props()
+  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeListings = {}, onparameter, onreference, onportmenu, onrequestoptions }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeListings?: Record<string, AttributeListing>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void } = $props()
 
   /**
    * The stored values PLUS the catalog defaults. A freshly placed node stores
@@ -65,6 +65,20 @@
   function upstreamText(portId: string): string {
     return connections.find((item) => item.portId === portId && item.direction === 'input')?.peerLabels?.[0] ?? 'connected'
   }
+  /**
+   * A row whose label just repeats the node's own name.
+   *
+   * A node called Layer with one parameter called Layer said it twice and left
+   * the value squeezed into a third of the width - "Interior - Stair & R..." in
+   * a box that had room for the whole thing. When the label adds nothing, the
+   * control takes its space instead. Compared against the TYPE's label rather
+   * than a nickname: renaming a node to "Roof layer" should not suddenly make
+   * its parameter label reappear.
+   */
+  function repeatsNodeName(field: (typeof fields)[number]): boolean {
+    return !field.isPort && field.label.trim().toLocaleLowerCase() === definition.label.trim().toLocaleLowerCase()
+  }
+
   /** The right-hand cell: the unit if the descriptor names one, else the type. */
   function suffix(valueType: string, unit: string | undefined): string {
     return unit !== undefined && unit !== '' ? unit : valueType
@@ -76,8 +90,11 @@
     class="row"
     class:internal={!field.isPort}
     class:wide={field.ui?.widget === 'slider' || field.ui?.widget === 'vector' || field.ui?.widget === 'point'}
+    class:unlabelled={repeatsNodeName(field)}
   >
-    {#if field.isPort}
+    {#if repeatsNodeName(field)}
+      <!-- No label cell at all; the control spans it. -->
+    {:else if field.isPort}
       {@const port = portFor(field.id)}
       {#if port !== undefined}
         <NodePort {nodeId} {port} direction="input" {layout} structure={portStructure(port)} connection={connections.find((item) => item.portId === field.id && item.direction === 'input')} messages={messages.filter((message) => message.portId === field.id)} oncontextmenu={onportmenu} />
@@ -88,7 +105,7 @@
     <ParameterControl
       {field}
       parameters={effective}
-      {attributeRows}
+      {attributeListings}
       connected={field.isPort && isConnected(field.id)}
       upstream={upstreamText(field.id)}
       disabled={onparameter === undefined}
@@ -144,6 +161,9 @@
   /* A slider needs its track AND its field; a point needs three boxes. Both
      take the label's width, because the control is the thing being operated. */
   .row.wide { grid-template-columns: minmax(42px, .55fr) minmax(112px, 2fr) 26px; }
+  /* One column for the control, because the label it would have carried is the
+     node's own name and is already at the top of the node. */
+  .row.unlabelled { grid-template-columns: minmax(0, 1fr) 30px; }
   .row.internal { padding-left: 14px; }
   .row > span { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
   small { padding-left: 5px; overflow: hidden; color: var(--text-faint); font: 7px/1 ui-monospace, monospace; text-overflow: ellipsis; }

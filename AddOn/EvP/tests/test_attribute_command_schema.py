@@ -67,6 +67,17 @@ def test_list_attributes_schemas_are_valid_and_strict():
     assert set(row["properties"]) == {
         "label", "name", "number", "index", "color", "hidden", "locked", "folder", "preview",
     }
+    # A pen listing carries the project's pen SETS alongside the pens, so the
+    # picker draws its set dropdown from the same answer rather than a second
+    # round trip that could disagree about which set is showing.
+    assert set(output_schema["properties"]) == {
+        "kind", "count", "attributes", "penSets", "penSet",
+    }
+    assert input_schema["properties"]["penSet"]["minLength"] == 1
+    assert "penSet" not in input_schema["required"], (
+        "a pen listing with no set named must answer with the project's current "
+        "pens; requiring the set would make the common case the special one"
+    )
 
     # The swatch is sent as a DEFINITION, never as an image: the 8x8 bit
     # pattern, the dash lengths, the skin thicknesses. That is what keeps a
@@ -74,7 +85,9 @@ def test_list_attributes_schemas_are_valid_and_strict():
     preview = row["properties"]["preview"]
     assert preview["additionalProperties"] is False
     assert preview["required"] == ["kind"]
-    assert preview["properties"]["kind"]["enum"] == ["color", "pattern", "line", "composite"]
+    assert preview["properties"]["kind"]["enum"] == [
+        "color", "pattern", "line", "composite", "surface",
+    ]
     pattern = preview["properties"]["pattern"]
     assert pattern["minItems"] == 8 and pattern["maxItems"] == 8, (
         "a fill pattern is eight rows of eight bits; a variable length would be "

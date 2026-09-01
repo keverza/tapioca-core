@@ -123,13 +123,15 @@
   {/if}
   {#if browserOpen}
     <div class="panel-anchor">
-      <ParameterBrowser nodeId={id} count={selectionCount} parameters={data.parameters} outputs={data.result?.outputs} isSelectionSet={data.schema.display === 'selectionSet'} busy={data.selectionBusy} onclose={() => (browserOpen = false)} onselectionaction={data.onselectionaction} />
+      <ParameterBrowser nodeId={id} count={selectionCount} parameters={data.parameters} outputs={data.result?.outputs} outputPorts={data.schema.outputs} isSelectionSet={data.schema.display === 'selectionSet'} busy={data.selectionBusy} onclose={() => (browserOpen = false)} onselectionaction={data.onselectionaction} oncopyreference={data.oncopyportreference} />
     </div>
   {/if}
   {#if inspectorOpen}
     <div class="panel-anchor">
     <FloatingControlPanel
       schema={data.schema}
+      nodeId={id}
+      connections={data.portConnections}
       name={displayName}
       color={nodeColor}
       {mode}
@@ -144,6 +146,8 @@
       onviewmode={(nextMode) => updateVisual({ viewMode: nextMode })}
       onportlayout={(layout) => updateVisual({ portLayout: layout })}
       ondisplay={(nextDisplay) => updateVisual({ display: nextDisplay })}
+      oncopyreference={data.oncopyportreference}
+      onpastereference={data.onpasteportreference}
       onclose={() => (inspectorOpen = false)}
     />
     </div>
