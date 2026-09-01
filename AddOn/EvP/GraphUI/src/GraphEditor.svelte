@@ -31,8 +31,7 @@
     type EffectiveTool,
   } from './annotations'
   import ApplicationMenu from './ApplicationMenu.svelte'
-  import { optionsFromAttributes, type AttributeRow } from './nodes/controls/widgets'
-import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
+  import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
   import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
   import { parsePortReference, serializePortReference } from './nodes/types/portReference'
@@ -70,8 +69,8 @@ import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bri
     GraphEdgeRecord,
     GraphState,
     NodeResultRecord,
+    AttributeRow,
     NodeTypeSchema,
-    ParameterOption,
     PortReference,
     PositionStore,
     SchemaNodeData,
@@ -116,7 +115,7 @@ import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bri
    * which is what the control shows as "listing"; an empty array means the
    * project genuinely has none.
    */
-  let attributeOptions = $state.raw<Record<string, ParameterOption[]>>({})
+  let attributeRows = $state.raw<Record<string, AttributeRow[]>>({})
   const optionRequests = new Set<string>()
   let results = $state.raw<NodeResultRecord[]>([])
   let revision = $state(0)
@@ -205,14 +204,9 @@ import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bri
         onexecutionchange: (nodeId, mode) => void setExecutionMode(nodeId, mode),
         onparameterchange: (nodeId, parameterId, valueType, text) =>
           void setParameter(nodeId, parameterId, valueType, text),
-        attributeOptions,
+        attributeRows,
         onrequestoptions: (source) => {
-          // The value type decides whether the listing's `name` or its `number`
-          // becomes the option value, and only the schema knows it.
-          const parameter = schemas
-            .get(node.nodeType)
-            ?.parameters.find((item) => item.ui?.optionSource === source)
-          void listAttributeOptions(source, parameter?.valueType ?? 'string')
+          void listAttributeOptions(source)
         },
         onportreference: (reference, target) => connectReference(reference, target),
         onportcontextmenu: (event, target) => openPortContext(event, target),
@@ -484,7 +478,7 @@ import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bri
    * an error banner, because a picker with no project open is an ordinary state
    * and not a fault.
    */
-  async function listAttributeOptions(source: string, valueType: string): Promise<void> {
+  async function listAttributeOptions(source: string): Promise<void> {
     if (source === 'none' || optionRequests.has(source)) return
     optionRequests.add(source)
     if (!nativeConnected) {
@@ -493,7 +487,7 @@ import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bri
     }
     try {
       const listing = await callTapioca<{ attributes: AttributeRow[] }>('Tapioca.ListAttributes', { kind: source })
-      publishAttributeOptions(source, optionsFromAttributes(listing.attributes ?? [], valueType))
+      publishAttributeOptions(source, listing.attributes ?? [])
     } catch {
       // Deliberately quiet: no project open is the common case, and the control
       // already says so. Re-asking is a matter of reopening the editor.
@@ -511,9 +505,9 @@ import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bri
    * what closes that loop; it is a shallow remap of presentation data and does
    * not touch positions, selection or anything semantic.
    */
-  function publishAttributeOptions(source: string, options: ParameterOption[]): void {
-    attributeOptions = { ...attributeOptions, [source]: options }
-    nodes = nodes.map((node) => ({ ...node, data: { ...node.data, attributeOptions } }))
+  function publishAttributeOptions(source: string, rows: AttributeRow[]): void {
+    attributeRows = { ...attributeRows, [source]: rows }
+    nodes = nodes.map((node) => ({ ...node, data: { ...node.data, attributeRows } }))
   }
 
   /**

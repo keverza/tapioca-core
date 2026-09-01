@@ -12605,6 +12605,87 @@
                 },
                 "locked": {
                   "type": "boolean"
+                },
+                "folder": {
+                  "type": "string"
+                },
+                "preview": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "color",
+                        "pattern",
+                        "line",
+                        "composite"
+                      ]
+                    },
+                    "color": {
+                      "type": "string"
+                    },
+                    "fillKind": {
+                      "type": "string",
+                      "enum": [
+                        "vector",
+                        "symbol",
+                        "solid",
+                        "empty",
+                        "linearGradient",
+                        "radialGradient",
+                        "image"
+                      ]
+                    },
+                    "pattern": {
+                      "type": "array",
+                      "minItems": 8,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      }
+                    },
+                    "lineKind": {
+                      "type": "string",
+                      "enum": [
+                        "solid",
+                        "dashed",
+                        "symbol"
+                      ]
+                    },
+                    "dashes": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      }
+                    },
+                    "thickness": {
+                      "type": "number"
+                    },
+                    "skins": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "thickness": {
+                            "type": "number"
+                          },
+                          "color": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "thickness"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "kind"
+                  ]
                 }
               },
               "additionalProperties": false,

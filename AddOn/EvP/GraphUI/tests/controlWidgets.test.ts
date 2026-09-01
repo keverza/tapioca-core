@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   boolOf,
+  choicesFromAttributes,
   clampNumber,
+  dashArrayFor,
+  filterChoices,
+  groupChoices,
+  hasFolders,
+  patternCells,
+  skinBands,
   componentLabels,
   componentsOf,
   fieldsFor,
@@ -289,4 +296,91 @@ test('every structure has words as well as a shape', () => {
   assert.equal(describeStructure('item'), 'single item')
   assert.equal(describeStructure('list'), 'list')
   assert.equal(describeStructure('tree'), 'tree of lists')
+})
+
+test('a fill pattern draws from its eight bytes, high bit leftmost', () => {
+  // The swatch is what tells 25 %, 50 % and 75 % apart; as words they are three
+  // indistinguishable strings.
+  const solidRow = [0xff, 0, 0, 0, 0, 0, 0, 0]
+  const cells = patternCells(solidRow)
+  assert.equal(cells.length, 8)
+  assert.deepEqual(cells.map((cell) => cell.x), [0, 1, 2, 3, 4, 5, 6, 7])
+  assert.equal(cells.every((cell) => cell.y === 0), true)
+
+  // 0x80 is the LEFTMOST bit, which is how API_Pattern reads it.
+  assert.deepEqual(patternCells([0x80, 0, 0, 0, 0, 0, 0, 0]), [{ x: 0, y: 0 }])
+  assert.deepEqual(patternCells([0x01, 0, 0, 0, 0, 0, 0, 0]), [{ x: 7, y: 0 }])
+  assert.deepEqual(patternCells([]), [])
+})
+
+test('only a dashed line gets a dash array, and it is scaled to the swatch', () => {
+  // A symbol line is circles or zigzags; approximating it with dashes would say
+  // something untrue about it.
+  assert.equal(dashArrayFor({ kind: 'line', lineKind: 'solid' }), undefined)
+  assert.equal(dashArrayFor({ kind: 'line', lineKind: 'symbol', dashes: [1, 1] }), undefined)
+  assert.equal(dashArrayFor({ kind: 'line', lineKind: 'dashed' }), undefined)
+  // Scaled so one repeat spans a third of the 24-unit swatch, whatever the
+  // drawing units were: at true size a fine dash is invisible.
+  assert.equal(dashArrayFor({ kind: 'line', lineKind: 'dashed', dashes: [0.002, 0.002] }), '4.00 4.00')
+  assert.equal(dashArrayFor({ kind: 'line', lineKind: 'dashed', dashes: [200, 200] }), '4.00 4.00')
+})
+
+test('composite skins are proportional bands, not a scale drawing', () => {
+  const bands = skinBands([{ thickness: 0.1, color: '#111111' }, { thickness: 0.3 }])
+  assert.equal(bands.length, 2)
+  assert.equal(bands[0]?.offset, 0)
+  assert.equal(bands[0]?.fraction, 0.25)
+  assert.equal(bands[1]?.offset, 0.25)
+  // Compared with a tolerance: the fractions are a running division and 0.3/0.4
+  // is not exactly 0.75 in binary floating point. Asserting equality here would
+  // be testing the arithmetic, not the banding.
+  assert.ok(Math.abs((bands[1]?.fraction ?? 0) - 0.75) < 1e-9)
+  // A skin whose building material's pen did not resolve still occupies its
+  // share; it just has no colour of its own.
+  assert.equal(bands[1]?.color, undefined)
+  assert.deepEqual(skinBands([{ thickness: 0 }]), [])
+})
+
+test('search matches the name and the folder, and every term must match', () => {
+  const choices = choicesFromAttributes(
+    [
+      { label: 'Brick Double Plastered', name: 'Brick Double Plastered', index: 1, folder: 'Exterior' },
+      { label: 'Stud Partition', name: 'Stud Partition', index: 2, folder: 'Interior' },
+      { label: 'Basement Wall', name: 'Basement Wall', index: 3 },
+    ],
+    'string',
+  )
+  assert.equal(filterChoices(choices, '').length, 3)
+  assert.equal(filterChoices(choices, 'brick')[0]?.option.label, 'Brick Double Plastered')
+  // Typing a folder name finds its contents.
+  assert.equal(filterChoices(choices, 'interior').length, 1)
+  // Every term, in any order.
+  assert.equal(filterChoices(choices, 'plastered brick').length, 1)
+  assert.equal(filterChoices(choices, 'brick interior').length, 0)
+})
+
+test('folders group with the ungrouped attributes first and unnamed', () => {
+  const choices = choicesFromAttributes(
+    [
+      { label: 'Interior Thing', name: 'Interior Thing', index: 1, folder: 'Interior' },
+      { label: 'Loose', name: 'Loose', index: 2 },
+      { label: 'Exterior Thing', name: 'Exterior Thing', index: 3, folder: 'Exterior' },
+    ],
+    'string',
+  )
+  const groups = groupChoices(choices)
+  // The root group carries an empty name and is drawn with no heading: filing
+  // an ungrouped attribute under a nameless folder is a claim the eye undoes.
+  assert.deepEqual(groups.map((group) => group.folder), ['', 'Exterior', 'Interior'])
+  assert.equal(hasFolders(choices), true)
+  assert.equal(hasFolders(choicesFromAttributes([{ label: 'A', name: 'A', index: 1 }], 'string')), false)
+})
+
+test('a choice keeps the row beside the option it submits', () => {
+  // The option is what gets sent; the row is what gets drawn. Pairing them is
+  // what stops identity and presentation drifting apart.
+  const rows = [{ label: '1  Thin', number: 1, index: 1, preview: { kind: 'color' as const, color: '#101010' } }]
+  const [choice] = choicesFromAttributes(rows, 'integer')
+  assert.deepEqual(choice?.option.value, { valueType: 'integer', number: 1 })
+  assert.equal(choice?.row.preview?.color, '#101010')
 })

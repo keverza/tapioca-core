@@ -14,8 +14,9 @@
    * wire is the value, and a box that still took typing would be offering an
    * edit the runtime discards.
    */
-  import type { GraphParameter, GraphValue, ParameterOption, ParameterOptionSource } from '../../types'
+  import type { AttributeRow, GraphParameter, GraphValue, ParameterOptionSource } from '../../types'
   import type { PortReference } from '../types/portReference'
+  import AttributePicker from './AttributePicker.svelte'
   import BooleanControl from './BooleanControl.svelte'
   import NumberControl from './NumberControl.svelte'
   import SelectControl from './SelectControl.svelte'
@@ -23,6 +24,7 @@
   import VectorControl from './VectorControl.svelte'
   import {
     boolOf,
+    choicesFromAttributes,
     numberOf,
     parameterValue,
     resolveRange,
@@ -36,7 +38,7 @@
     parameters,
     connected = false,
     upstream = '',
-    attributeOptions = {},
+    attributeRows = {},
     disabled = false,
     oncommit,
     onreference,
@@ -46,7 +48,7 @@
     parameters: GraphParameter[]
     connected?: boolean
     upstream?: string
-    attributeOptions?: Record<string, ParameterOption[]>
+    attributeRows?: Record<string, AttributeRow[]>
     disabled?: boolean
     oncommit: (id: string, valueType: string, text: string) => void
     onreference?: (reference: PortReference, portId: string) => void
@@ -57,14 +59,13 @@
   const value = $derived<GraphValue | undefined>(parameterValue(parameters, field.id))
   const range = $derived(resolveRange(field.ui, parameters))
   const source = $derived(field.ui?.optionSource ?? 'none')
-  const options = $derived(
-    field.ui?.options !== undefined && field.ui.options.length > 0
-      ? field.ui.options
-      : (attributeOptions[source] ?? []),
-  )
+  // Literal options declared by the node type. An Archicad domain has none and
+  // is served by the picker below instead.
+  const options = $derived(field.ui?.options ?? [])
+  const choices = $derived(choicesFromAttributes(attributeRows[source] ?? [], field.valueType))
   // A source that has been asked for and has not answered yet. `undefined` is
   // "never asked"; an empty array is "asked, and the project has none".
-  const loading = $derived(source !== 'none' && attributeOptions[source] === undefined)
+  const loading = $derived(source !== 'none' && attributeRows[source] === undefined)
 
   function commit(text: string): void {
     oncommit(field.id, field.valueType, text)
@@ -84,6 +85,21 @@
   />
 {:else if widget === 'boolean'}
   <BooleanControl value={boolOf(value)} label={field.label} {disabled} oncommit={commit} />
+{:else if widget === 'select' && source !== 'none'}
+  <!-- An Archicad domain. A native <option> can carry text and nothing else, so
+       a fill list would read as "25 %, 50 %, 75 %" and a composite list as a
+       wall of near-identical names; the picker draws the swatch, the folder and
+       the search box that make those lists usable. -->
+  <AttributePicker
+    {value}
+    {choices}
+    {source}
+    {loading}
+    label={field.label}
+    {disabled}
+    oncommit={commit}
+    onrequest={onrequestoptions}
+  />
 {:else if widget === 'select'}
   <SelectControl
     {value}

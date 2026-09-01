@@ -17,6 +17,8 @@
  */
 
 import type {
+  AttributePreview,
+  AttributeRow,
   GraphParameter,
   GraphValue,
   ParameterOption,
@@ -24,6 +26,8 @@ import type {
   ParameterUi,
   ParameterWidget,
 } from '../../types'
+
+export type { AttributePreview, AttributeRow } from '../../types'
 
 /** The widget set actually rendered. `auto` is resolved away before dispatch. */
 export type ControlWidget = Exclude<ParameterWidget, 'auto'>
@@ -230,15 +234,116 @@ export function isKnownOption(options: ParameterOption[], value: GraphValue | un
   return options.some((option) => optionKey(option.value) === key)
 }
 
-/** One row of the native attribute listing. */
-export interface AttributeRow {
-  label: string
-  name?: string
-  number?: number
-  index: number
-  color?: string
-  hidden?: boolean
-  locked?: boolean
+/** The set bits of an 8x8 fill pattern, as cells to draw. */
+export function patternCells(pattern: number[]): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = []
+  for (let y = 0; y < 8; y += 1) {
+    const row = pattern[y]
+    if (typeof row !== 'number') continue
+    for (let x = 0; x < 8; x += 1) {
+      // High bit leftmost, which is how API_Pattern reads.
+      if ((row & (0x80 >> x)) !== 0) cells.push({ x, y })
+    }
+  }
+  return cells
+}
+
+/**
+ * A line type's SVG dash array.
+ *
+ * The dash and gap lengths arrive in the runtime's own units, and the swatch is
+ * 24 units wide, so one full repeat is scaled to about a third of the box rather
+ * than drawn at true size: at true size a fine dash is invisible and a coarse
+ * one fills the swatch with a single stroke, and neither tells the line types
+ * apart - which is the only job the swatch has.
+ *
+ * `undefined` for a solid line AND for a symbol line: a symbol line is circles
+ * or zigzags, and approximating it with dashes would say something untrue.
+ */
+export function dashArrayFor(preview: AttributePreview): string | undefined {
+  if (preview.lineKind !== 'dashed') return undefined
+  const dashes = (preview.dashes ?? []).filter((length) => Number.isFinite(length) && length > 0)
+  if (dashes.length === 0) return undefined
+  const total = dashes.reduce((sum, length) => sum + length, 0)
+  if (total <= 0) return undefined
+  const scale = 8 / total
+  return dashes.map((length) => (length * scale).toFixed(2)).join(' ')
+}
+
+/**
+ * A composite's skins as proportional bands.
+ *
+ * PROPORTIONAL, NOT TO SCALE. A 275 mm cavity wall and a 100 mm partition drawn
+ * to scale would differ only in how much of the box they filled, and the swatch
+ * exists to say what the build-up is - the thickness is already a column on the
+ * row.
+ */
+export function skinBands(
+  skins: { thickness: number; color?: string }[],
+): { offset: number; fraction: number; color?: string }[] {
+  const usable = skins.filter((skin) => Number.isFinite(skin.thickness) && skin.thickness > 0)
+  const total = usable.reduce((sum, skin) => sum + skin.thickness, 0)
+  if (total <= 0) return []
+  const bands: { offset: number; fraction: number; color?: string }[] = []
+  let offset = 0
+  for (const skin of usable) {
+    const fraction = skin.thickness / total
+    bands.push({ offset, fraction, color: skin.color })
+    offset += fraction
+  }
+  return bands
+}
+
+/** An option paired with the row it came from, so the picker can draw it. */
+export interface AttributeChoice {
+  option: ParameterOption
+  row: AttributeRow
+}
+
+/**
+ * The picker's rows, filtered the way the component picker already filters.
+ *
+ * Search matches the NAME and the FOLDER, so "exterior" finds a folder's
+ * contents and "brick" finds the brick composites wherever they live. Every term
+ * must match, in any order - the same rule the component search follows, because
+ * two search boxes in one editor that disagree about what a space means is worse
+ * than either rule on its own.
+ */
+export function filterChoices(choices: AttributeChoice[], query: string): AttributeChoice[] {
+  const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter((term) => term !== '')
+  if (terms.length === 0) return choices
+  return choices.filter((choice) => {
+    const haystack = `${choice.row.label} ${choice.row.folder ?? ''}`.toLocaleLowerCase()
+    return terms.every((term) => haystack.includes(term))
+  })
+}
+
+/**
+ * Grouped by folder, root first.
+ *
+ * The root group carries an empty name and is drawn with no heading: an
+ * ungrouped attribute belongs to no folder, and filing it under a nameless one
+ * is a claim the eye then has to undo.
+ */
+export function groupChoices(choices: AttributeChoice[]): { folder: string; choices: AttributeChoice[] }[] {
+  const groups: { folder: string; choices: AttributeChoice[] }[] = []
+  for (const choice of choices) {
+    const folder = choice.row.folder ?? ''
+    const existing = groups.find((group) => group.folder === folder)
+    if (existing === undefined) groups.push({ folder, choices: [choice] })
+    else existing.choices.push(choice)
+  }
+  return groups.sort((left, right) => {
+    if (left.folder === right.folder) return 0
+    if (left.folder === '') return -1
+    if (right.folder === '') return 1
+    return left.folder.localeCompare(right.folder)
+  })
+}
+
+/** Whether grouping would show the user anything a flat list does not. */
+export function hasFolders(choices: AttributeChoice[]): boolean {
+  return choices.some((choice) => (choice.row.folder ?? '') !== '')
 }
 
 /**
@@ -250,17 +355,29 @@ export interface AttributeRow {
  * already the answer and no kind-specific branch is needed here.
  */
 export function optionsFromAttributes(rows: AttributeRow[], valueType: string): ParameterOption[] {
-  const options: ParameterOption[] = []
+  return choicesFromAttributes(rows, valueType).map((choice) => choice.option)
+}
+
+/**
+ * The same conversion, keeping each row beside its option.
+ *
+ * The picker needs both halves - the option is what gets submitted, the row
+ * carries the swatch, the folder and the layer flags that make the list
+ * readable - and pairing them here is what stops an option's identity and its
+ * presentation drifting apart inside the component.
+ */
+export function choicesFromAttributes(rows: AttributeRow[], valueType: string): AttributeChoice[] {
+  const choices: AttributeChoice[] = []
   for (const row of rows) {
     if (valueType === 'integer') {
       if (typeof row.number !== 'number') continue
-      options.push({ label: row.label, value: { valueType, number: row.number } })
+      choices.push({ option: { label: row.label, value: { valueType, number: row.number } }, row })
       continue
     }
     if (row.name === undefined || row.name === '') continue
-    options.push({ label: row.label, value: { valueType: 'string', text: row.name } })
+    choices.push({ option: { label: row.label, value: { valueType: 'string', text: row.name } }, row })
   }
-  return options
+  return choices
 }
 
 /** The stored value of one parameter. */

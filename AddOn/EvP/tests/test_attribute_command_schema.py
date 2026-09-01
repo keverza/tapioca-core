@@ -65,8 +65,27 @@ def test_list_attributes_schemas_are_valid_and_strict():
     # depends on the kind - so neither can be required.
     assert row["required"] == ["label", "index"]
     assert set(row["properties"]) == {
-        "label", "name", "number", "index", "color", "hidden", "locked",
+        "label", "name", "number", "index", "color", "hidden", "locked", "folder", "preview",
     }
+
+    # The swatch is sent as a DEFINITION, never as an image: the 8x8 bit
+    # pattern, the dash lengths, the skin thicknesses. That is what keeps a
+    # whole fill list one small response and lets the client draw at any size.
+    preview = row["properties"]["preview"]
+    assert preview["additionalProperties"] is False
+    assert preview["required"] == ["kind"]
+    assert preview["properties"]["kind"]["enum"] == ["color", "pattern", "line", "composite"]
+    pattern = preview["properties"]["pattern"]
+    assert pattern["minItems"] == 8 and pattern["maxItems"] == 8, (
+        "a fill pattern is eight rows of eight bits; a variable length would be "
+        "a different thing than the one API_Pattern hands over"
+    )
+    assert pattern["items"]["maximum"] == 255
+    skin = preview["properties"]["skins"]["items"]
+    assert skin["additionalProperties"] is False
+    # A skin always has a thickness; its colour comes from the building
+    # material's cut-fill pen and may not resolve.
+    assert skin["required"] == ["thickness"]
 
 
 def test_the_pen_kind_is_the_one_keyed_by_number():

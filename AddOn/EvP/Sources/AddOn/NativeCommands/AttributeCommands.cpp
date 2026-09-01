@@ -17,6 +17,8 @@
 #include <memory>
 #include <utility>
 
+#include "HashTable.hpp"
+
 namespace geomsrv {
 
 namespace {
@@ -189,6 +191,216 @@ class GetAttributeInfoCommand : public MainThreadCommand {
 };
 
 // ---------------------------------------------------------------------------
+// Preview data for an attribute picker.
+//
+// WHY THE NATIVE SIDE DRAWS NOTHING AND SENDS DATA INSTEAD. A picker row is a
+// swatch plus a name, and the swatch is the half that makes a fill list usable -
+// "25 %" and "50 %" are indistinguishable as words. But Archicad's own preview
+// is a vector image the API does not hand out, so the honest arrangement is to
+// send the DEFINITION - the 8x8 bit pattern, the dash lengths, the skin
+// thicknesses and their colours - and let the client draw it. That keeps the
+// bridge free of images, keeps the payload small enough to send the whole list
+// at once, and means a client can draw the swatch at any size it likes.
+//
+// Everything here is MAIN THREAD ONLY and reads only. Handles from GetDefExt are
+// disposed on every path, including the early ones.
+// ---------------------------------------------------------------------------
+
+GS::UniString HexColor (const API_RGBColor& rgb)
+{
+    return GS::UniString::Printf ("#%02X%02X%02X", static_cast<int> (rgb.f_red * 255.0 + 0.5),
+                                  static_cast<int> (rgb.f_green * 255.0 + 0.5),
+                                  static_cast<int> (rgb.f_blue * 255.0 + 0.5));
+}
+
+// A pen's colour. Pens are read one at a time from the active pen table rather
+// than from the attribute table - they are not attributes and have no GUID.
+bool PenColor (short penIndex, GS::UniString& hex)
+{
+    if (penIndex <= 0)
+        return false;
+    API_Pen pen = {};
+    pen.index = penIndex;
+    if (ACAPI_Attribute_GetPen (pen) != NoError)
+        return false;
+    hex = HexColor (pen.rgb);
+    return true;
+}
+
+const char* FillKindName (API_FillSubtype subType)
+{
+    switch (subType) {
+        case APIFill_Vector:
+            return "vector";
+        case APIFill_Symbol:
+            return "symbol";
+        case APIFill_Solid:
+            return "solid";
+        case APIFill_Empty:
+            return "empty";
+        case APIFill_LinearGradient:
+            return "linearGradient";
+        case APIFill_RadialGradient:
+            return "radialGradient";
+        case APIFill_Image:
+            return "image";
+    }
+    return "vector";
+}
+
+const char* LineKindName (API_LtypTypeID type)
+{
+    switch (type) {
+        case APILine_SolidLine:
+            return "solid";
+        case APILine_DashedLine:
+            return "dashed";
+        case APILine_SymbolLine:
+            return "symbol";
+    }
+    return "solid";
+}
+
+// The building material's cut-fill pen colour, which is what a composite skin
+// reads as at swatch size. Cached by the caller: a composite list re-asks for
+// the same handful of materials on nearly every row.
+GS::UniString BuildingMaterialColor (const API_AttributeIndex& index)
+{
+    API_Attribute material = {};
+    material.header.typeID = API_BuildingMaterialID;
+    material.header.index = index;
+    if (ACAPI_Attribute_Get (&material) != NoError)
+        return GS::UniString ();
+    GS::UniString hex;
+    if (PenColor (material.buildingMaterial.cutFillPen, hex))
+        return hex;
+    return GS::UniString ();
+}
+
+// One attribute's swatch definition. Absent for kinds that have nothing to
+// draw - a layer is a name and two flags, and inventing a swatch for it would
+// be decoration rather than information.
+bool AttributePreview (API_AttrTypeID typeID, const API_Attribute& attribute, GS::ObjectState& preview)
+{
+    if (typeID == API_MaterialID) {
+        preview.Add ("kind", GS::UniString ("color"));
+        preview.Add ("color", HexColor (attribute.material.surfaceRGB));
+        return true;
+    }
+
+    if (typeID == API_BuildingMaterialID) {
+        preview.Add ("kind", GS::UniString ("color"));
+        const GS::UniString hex = BuildingMaterialColor (attribute.header.index);
+        if (!hex.IsEmpty ())
+            preview.Add ("color", hex);
+        return true;
+    }
+
+    if (typeID == API_FilltypeID) {
+        preview.Add ("kind", GS::UniString ("pattern"));
+        preview.Add ("fillKind", GS::UniString (FillKindName (attribute.filltype.subType)));
+        // The 8x8 bit pattern, one byte per row. This is what makes 25 %, 50 %
+        // and 75 % tell themselves apart in a list, and it is eight numbers
+        // rather than an image.
+        GS::Array<GS::Int32> rows;
+        for (short row = 0; row < 8; ++row)
+            rows.Push (static_cast<GS::Int32> (attribute.filltype.bitPat[row]));
+        preview.Add ("pattern", rows);
+        return true;
+    }
+
+    if (typeID == API_LinetypeID) {
+        preview.Add ("kind", GS::UniString ("line"));
+        preview.Add ("lineKind", GS::UniString (LineKindName (attribute.linetype.type)));
+        if (attribute.linetype.type == APILine_DashedLine && attribute.linetype.nItems > 0) {
+            API_AttributeDefExt defs = {};
+            if (ACAPI_Attribute_GetDefExt (API_LinetypeID, attribute.header.index, &defs) == NoError) {
+                GS::Array<double> dashes;
+                if (defs.ltype_dashItems != nullptr) {
+                    for (Int32 i = 0; i < attribute.linetype.nItems; ++i) {
+                        dashes.Push ((*defs.ltype_dashItems)[i].dash);
+                        dashes.Push ((*defs.ltype_dashItems)[i].gap);
+                    }
+                }
+                ACAPI_DisposeAttrDefsHdlsExt (&defs);
+                if (!dashes.IsEmpty ())
+                    preview.Add ("dashes", dashes);
+            }
+        }
+        return true;
+    }
+
+    if (typeID == API_CompWallID) {
+        preview.Add ("kind", GS::UniString ("composite"));
+        preview.Add ("thickness", attribute.compWall.totalThick);
+        API_AttributeDefExt defs = {};
+        if (ACAPI_Attribute_GetDefExt (API_CompWallID, attribute.header.index, &defs) == NoError) {
+            GS::Array<GS::ObjectState> skins;
+            if (defs.cwall_compItems != nullptr) {
+                for (short i = 0; i < attribute.compWall.nComps; ++i) {
+                    const API_CWallComponent& component = (*defs.cwall_compItems)[i];
+                    GS::ObjectState skin;
+                    skin.Add ("thickness", component.fillThick);
+                    const GS::UniString hex = BuildingMaterialColor (component.buildingMaterial);
+                    if (!hex.IsEmpty ())
+                        skin.Add ("color", hex);
+                    skins.Push (std::move (skin));
+                }
+            }
+            ACAPI_DisposeAttrDefsHdlsExt (&defs);
+            if (!skins.IsEmpty ())
+                preview.Add ("skins", skins);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Attribute folders -> a slash-joined path per attribute.
+//
+// Folders are addressed by GUID and their content lists attribute GUIDs, so the
+// walk builds guid -> path once and the listing looks each row up. Pens are
+// excluded by construction: they are not attributes, have no GUID, and are not
+// foldered.
+//
+// Depth-capped and visited-guarded. A malformed or cyclic folder tree must not
+// hang Archicad on the main thread - the same rule the navigator walk follows.
+// ---------------------------------------------------------------------------
+constexpr Int32 kMaxFolderDepth = 12;
+
+void CollectFolderPaths (const API_AttributeFolder& folder, const GS::UniString& path, Int32 depth,
+                         GS::HashTable<GS::Guid, GS::UniString>& paths)
+{
+    if (depth > kMaxFolderDepth)
+        return;
+    API_AttributeFolderContent content = {};
+    if (ACAPI_Attribute_GetFolderContent (folder, content) != NoError)
+        return;
+    for (const GS::Guid& attributeId : content.attributeIds)
+        if (!paths.ContainsKey (attributeId))
+            paths.Add (attributeId, path);
+    for (const API_AttributeFolder& child : content.subFolders) {
+        // The folder's own name is the last element of its path; the struct's
+        // name field is documented as unused.
+        const GS::UniString name = child.path.IsEmpty () ? GS::UniString () : child.path.GetLast ();
+        const GS::UniString childPath = path.IsEmpty () ? name : path + "/" + name;
+        CollectFolderPaths (child, childPath, depth + 1, paths);
+    }
+}
+
+bool CollectAttributeFolders (API_AttrTypeID typeID, GS::HashTable<GS::Guid, GS::UniString>& paths)
+{
+    API_AttributeFolder root = {};
+    root.typeID = typeID;
+    if (ACAPI_Attribute_GetFolder (root) != NoError)
+        return false;
+    CollectFolderPaths (root, GS::UniString (), 0, paths);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // EvP.ListAttributes { kind } -> every attribute of that kind in the open
 // project, as a picker's rows.
 //
@@ -245,10 +457,13 @@ class ListAttributesCommand : public MainThreadCommand {
                              : GS::UniString::Printf ("%d  %T", static_cast<int> (pen.index), description.ToPrintf ()));
                 row.Add ("number", static_cast<Int32> (pen.index));
                 row.Add ("index", static_cast<Int32> (pen.index));
-                row.Add ("color",
-                         GS::UniString::Printf ("#%02X%02X%02X", static_cast<int> (pen.rgb.f_red * 255.0 + 0.5),
-                                                static_cast<int> (pen.rgb.f_green * 255.0 + 0.5),
-                                                static_cast<int> (pen.rgb.f_blue * 255.0 + 0.5)));
+                row.Add ("color", HexColor (pen.rgb));
+                // Also as a preview, so a client has ONE swatch renderer rather
+                // than a pen-shaped exception beside it.
+                GS::ObjectState preview;
+                preview.Add ("kind", GS::UniString ("color"));
+                preview.Add ("color", HexColor (pen.rgb));
+                row.Add ("preview", preview);
                 rows.Push (std::move (row));
             }
             os.Add ("count", static_cast<Int32> (rows.GetSize ()));
@@ -280,6 +495,10 @@ class ListAttributesCommand : public MainThreadCommand {
             return NativeCommandResult::Failure (
                 EVP_ACAPI_FAIL ("ACAPI_Attribute_GetAttributesByType", err, GS::UniString ("listing ") + kind));
 
+        // One folder walk for the whole listing, not one per row.
+        GS::HashTable<GS::Guid, GS::UniString> folders;
+        CollectAttributeFolders (typeID, folders);
+
         for (const API_Attribute& attribute : attributes) {
             const GS::UniString name (attribute.header.name);
             if (name.IsEmpty ())
@@ -288,6 +507,18 @@ class ListAttributesCommand : public MainThreadCommand {
             row.Add ("label", name);
             row.Add ("name", name);
             row.Add ("index", attribute.header.index.ToInt32_Deprecated ());
+            const GS::Guid attributeGuid = APIGuid2GSGuid (attribute.header.guid);
+            if (folders.ContainsKey (attributeGuid)) {
+                const GS::UniString& path = folders[attributeGuid];
+                // The root folder is an empty path and is NOT sent as a folder:
+                // a client would then draw every ungrouped attribute inside a
+                // nameless group, which is worse than no grouping at all.
+                if (!path.IsEmpty ())
+                    row.Add ("folder", path);
+            }
+            GS::ObjectState preview;
+            if (AttributePreview (typeID, attribute, preview))
+                row.Add ("preview", preview);
             // Reported, not filtered: a hidden layer is still a legal choice,
             // and a picker that quietly dropped it would look like the layer
             // had been deleted. The caller decides how to draw it.
@@ -352,7 +583,34 @@ const NativeCommandRegistration kAttributeCommandRegistrations[] = {
                             "index":{"type":"integer"},
                             "color":{"type":"string"},
                             "hidden":{"type":"boolean"},
-                            "locked":{"type":"boolean"}
+                            "locked":{"type":"boolean"},
+                            "folder":{"type":"string"},
+                            "preview":{
+                                "type":"object",
+                                "properties":{
+                                    "kind":{"type":"string","enum":["color","pattern","line","composite"]},
+                                    "color":{"type":"string"},
+                                    "fillKind":{"type":"string","enum":["vector","symbol","solid","empty","linearGradient","radialGradient","image"]},
+                                    "pattern":{"type":"array","minItems":8,"maxItems":8,"items":{"type":"integer","minimum":0,"maximum":255}},
+                                    "lineKind":{"type":"string","enum":["solid","dashed","symbol"]},
+                                    "dashes":{"type":"array","items":{"type":"number"}},
+                                    "thickness":{"type":"number"},
+                                    "skins":{
+                                        "type":"array",
+                                        "items":{
+                                            "type":"object",
+                                            "properties":{
+                                                "thickness":{"type":"number"},
+                                                "color":{"type":"string"}
+                                            },
+                                            "additionalProperties":false,
+                                            "required":["thickness"]
+                                        }
+                                    }
+                                },
+                                "additionalProperties":false,
+                                "required":["kind"]
+                            }
                         },
                         "additionalProperties":false,
                         "required":["label","index"]

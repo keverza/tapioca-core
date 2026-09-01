@@ -84,6 +84,39 @@ export interface ParameterUi {
   optionSource: ParameterOptionSource
 }
 
+/**
+ * An attribute's swatch, as a DEFINITION rather than an image.
+ *
+ * Eight bytes of bit pattern, a dash sequence, a stack of skin thicknesses: the
+ * runtime sends what the attribute IS and the client draws it. See
+ * AttributeSwatch.svelte for why that split is the useful one.
+ */
+export interface AttributePreview {
+  kind: 'color' | 'pattern' | 'line' | 'composite'
+  color?: string
+  fillKind?: 'vector' | 'symbol' | 'solid' | 'empty' | 'linearGradient' | 'radialGradient' | 'image'
+  /** Eight rows of eight bits, one byte each, high bit leftmost. */
+  pattern?: number[]
+  lineKind?: 'solid' | 'dashed' | 'symbol'
+  dashes?: number[]
+  thickness?: number
+  skins?: { thickness: number; color?: string }[]
+}
+
+/** One row of the native attribute listing. */
+export interface AttributeRow {
+  label: string
+  name?: string
+  number?: number
+  index: number
+  color?: string
+  hidden?: boolean
+  locked?: boolean
+  /** Slash-joined folder path; absent means the attribute sits at the root. */
+  folder?: string
+  preview?: AttributePreview
+}
+
 export interface ParameterSchema {
   parameterId: string
   label: string
@@ -326,8 +359,13 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * Passed IN rather than fetched by the control, because a presentational
    * component must not call the bridge - and because one project-wide listing
    * serves every picker on the canvas instead of one call per node.
+   *
+   * The RAW rows, not finished options: turning a row into an option needs the
+   * parameter's value type (a pen is picked by number, everything else by name),
+   * and the row also carries the swatch, folder and layer flags the picker
+   * draws. Converting here would throw all of that away.
    */
-  attributeOptions?: Record<string, ParameterOption[]>
+  attributeRows?: Record<string, AttributeRow[]>
   /** A select with nothing to show asking for its domain to be listed. */
   onrequestoptions?: (source: ParameterOptionSource) => void
   portConnections?: PortConnectionState[]

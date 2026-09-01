@@ -17,7 +17,7 @@
    * already sends. A node that declares one section has no chevron and loses
    * nothing.
    */
-  import type { GraphParameter, NodeOutputRecord, ParameterOption, ParameterOptionSource } from '../types'
+  import type { AttributeRow, GraphParameter, NodeOutputRecord, ParameterOptionSource } from '../types'
   import type { NodeDefinition } from './types/node'
   import type { PortConnectionState, PortLayout } from './types/port'
   import type { ComponentMessage } from './types/diagnostics'
@@ -27,7 +27,7 @@
   import { portStructure } from './types/display'
   import { fieldsFor, sectionsFor, shouldShowSectionHeadings, withDefaults } from './controls/widgets'
 
-  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeOptions = {}, onparameter, onreference, onportmenu, onrequestoptions }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeOptions?: Record<string, ParameterOption[]>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource) => void } = $props()
+  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeRows = {}, onparameter, onreference, onportmenu, onrequestoptions }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeRows?: Record<string, AttributeRow[]>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource) => void } = $props()
 
   /**
    * The stored values PLUS the catalog defaults. A freshly placed node stores
@@ -88,7 +88,7 @@
     <ParameterControl
       {field}
       parameters={effective}
-      {attributeOptions}
+      {attributeRows}
       connected={field.isPort && isConnected(field.id)}
       upstream={upstreamText(field.id)}
       disabled={onparameter === undefined}
