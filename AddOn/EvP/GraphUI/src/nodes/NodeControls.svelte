@@ -1,114 +1,162 @@
 <script lang="ts">
-  import type { GraphParameter, NodeOutputRecord } from '../types'
+  /**
+   * The node body's rows: one per input port, then one per parameter.
+   *
+   * The row SKELETON is fixed by the master template and does not vary by node -
+   * a handle and a label on the left, the control in the middle, the unit or the
+   * value type on the right. What varies is only which control lands in the
+   * middle cell, and that comes from the runtime's widget descriptor through
+   * ParameterControl. Nothing in this file branches on `nodeType`, and nothing
+   * below it may either.
+   *
+   * THE FIRST SECTION IS THE NODE; THE REST IS ITS SETTINGS. A node's headline
+   * control - the slider, the toggle, the picker - is what the user came for,
+   * and the parameters that shape it (a range, a precision) are detail they set
+   * once. So sections after the first collapse behind one chevron at the foot of
+   * the node, expanded from the same descriptor `section` key the runtime
+   * already sends. A node that declares one section has no chevron and loses
+   * nothing.
+   */
+  import type { GraphParameter, NodeOutputRecord, ParameterOption, ParameterOptionSource } from '../types'
   import type { NodeDefinition } from './types/node'
   import type { PortConnectionState, PortLayout } from './types/port'
   import type { ComponentMessage } from './types/diagnostics'
-  import { parsePortReference, type PortReference } from './types/portReference'
+  import type { PortReference } from './types/portReference'
   import NodePort from './NodePort.svelte'
+  import ParameterControl from './controls/ParameterControl.svelte'
+  import { portStructure } from './types/display'
+  import { fieldsFor, sectionsFor, shouldShowSectionHeadings, withDefaults } from './controls/widgets'
 
-  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], onparameter, onreference, onportmenu }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void } = $props()
+  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeOptions = {}, onparameter, onreference, onportmenu, onrequestoptions }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeOptions?: Record<string, ParameterOption[]>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource) => void } = $props()
 
-  function parameterText(parameter?: GraphParameter): string {
-    if (parameter?.value?.text !== undefined) return parameter.value.text
-    if (parameter?.value?.numbers !== undefined) return parameter.value.numbers.join(', ')
-    if (parameter?.value?.number !== undefined) return String(parameter.value.number)
-    if (parameter?.numberValue !== undefined) return String(parameter.numberValue)
-    if (parameter?.value?.bool !== undefined) return parameter.value.bool ? 'True' : 'False'
-    return ''
+  /**
+   * The stored values PLUS the catalog defaults. A freshly placed node stores
+   * nothing, and a control reading only what is stored would show an empty box
+   * for a value the evaluator will happily use - and would leave a slider whose
+   * bounds live in sibling parameters with no bounds and therefore no track.
+   */
+  const effective = $derived(withDefaults(definition.parameters, parameters))
+  const fields = $derived(fieldsFor(definition.inputs, definition.parameters))
+  const sections = $derived(sectionsFor(fields))
+  const showHeadings = $derived(shouldShowSectionHeadings(sections))
+  const detail = $derived(sections.slice(1))
+  const hasDetail = $derived(detail.some((group) => group.fields.length > 0))
+  const detailCount = $derived(detail.reduce((total, group) => total + group.fields.length, 0))
+
+  // Collapsed by default and held here rather than in graph state: which
+  // sections a user has open is a per-viewer convenience, not something a
+  // workflow should carry to whoever opens it next.
+  let expanded = $state(false)
+
+  function portFor(portId: string) {
+    return definition.inputs.find((input) => input.portId === portId)
   }
-  function outputText(portId: string): string | undefined { return outputs?.find((output) => output.portId === portId)?.summary }
-  function stored(parameterId: string): GraphParameter | undefined {
-    return parameters.find((item) => item.parameterId === parameterId)
+  function outputText(portId: string): string | undefined {
+    return outputs?.find((output) => output.portId === portId)?.summary
+  }
+  /** What this port actually produced, so its nub can show item, list or tree. */
+  function outputValue(portId: string) {
+    return outputs?.find((output) => output.portId === portId)?.value
   }
   function isConnected(portId: string): boolean {
     return connections.some((item) => item.portId === portId && item.direction === 'input' && item.connected)
   }
   /** What a connected input is showing: the upstream value, which is not editable here. */
   function upstreamText(portId: string): string {
-    const peer = connections.find((item) => item.portId === portId && item.direction === 'input')?.peerLabels?.[0]
-    return peer ?? 'connected'
+    return connections.find((item) => item.portId === portId && item.direction === 'input')?.peerLabels?.[0] ?? 'connected'
   }
-
-  /**
-   * Blur commits - but only a CHANGE commits. Every setParam is a document edit
-   * that bumps the revision and dirties everything downstream of the node, so
-   * merely clicking away from a box the user only looked at must not cost a
-   * re-evaluation.
-   */
-  function commit(event: Event, parameterId: string, valueType: string): void {
-    const field = event.currentTarget as HTMLInputElement
-    if (field.value.trim() === parameterText(stored(parameterId)).trim()) return
-    onparameter?.(nodeId, parameterId, valueType, field.value)
-  }
-
-  /**
-   * A paste into the box is either a value or a WIRE. The clipboard carries the
-   * port menu's own reference format, so a pasted reference is answered with a
-   * connection request and the keystroke never reaches the field.
-   */
-  function handlePaste(event: ClipboardEvent, portId: string): void {
-    const text = event.clipboardData?.getData('text/plain') ?? ''
-    const reference = parsePortReference(text)
-    if (reference === undefined) return
-    event.preventDefault()
-    onreference?.(reference, portId)
+  /** The right-hand cell: the unit if the descriptor names one, else the type. */
+  function suffix(valueType: string, unit: string | undefined): string {
+    return unit !== undefined && unit !== '' ? unit : valueType
   }
 </script>
 
-<section class="controls nodrag">
-  {#each definition.inputs as input}
-    <div class="row">
-      <NodePort {nodeId} port={input} direction="input" {layout} connection={connections.find((item) => item.portId === input.portId && item.direction === 'input')} messages={messages.filter((message) => message.portId === input.portId)} oncontextmenu={onportmenu} />
-      {#if isConnected(input.portId)}
-        <output title={upstreamText(input.portId)}>{upstreamText(input.portId)}</output>
-      {:else}
-        <input
-          class="expression"
-          value={parameterText(stored(input.portId))}
-          placeholder={input.valueType}
-          aria-label={`${input.label} value`}
-          title="Type a value, or paste a copied port reference to wire it up"
-          disabled={onparameter === undefined}
-          onpaste={(event) => handlePaste(event, input.portId)}
-          onblur={(event) => commit(event, input.portId, input.valueType)}
-          onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-        />
+{#snippet row(field: (typeof fields)[number])}
+  <div
+    class="row"
+    class:internal={!field.isPort}
+    class:wide={field.ui?.widget === 'slider' || field.ui?.widget === 'vector' || field.ui?.widget === 'point'}
+  >
+    {#if field.isPort}
+      {@const port = portFor(field.id)}
+      {#if port !== undefined}
+        <NodePort {nodeId} {port} direction="input" {layout} structure={portStructure(port)} connection={connections.find((item) => item.portId === field.id && item.direction === 'input')} messages={messages.filter((message) => message.portId === field.id)} oncontextmenu={onportmenu} />
       {/if}
-      <small>{input.valueType}</small>
-    </div>
+    {:else}
+      <span title={field.ui?.help}>{field.label}</span>
+    {/if}
+    <ParameterControl
+      {field}
+      parameters={effective}
+      {attributeOptions}
+      connected={field.isPort && isConnected(field.id)}
+      upstream={upstreamText(field.id)}
+      disabled={onparameter === undefined}
+      oncommit={(id, valueType, text) => onparameter?.(nodeId, id, valueType, text)}
+      onreference={onreference}
+      {onrequestoptions}
+    />
+    <small>{suffix(field.valueType, field.ui?.unit)}</small>
+  </div>
+{/snippet}
+
+<section class="controls nodrag">
+  {#each sections[0]?.fields ?? [] as field (field.id)}
+    {@render row(field)}
   {/each}
-  {#each definition.parameters.filter((parameter) => !definition.inputs.some((input) => input.portId === parameter.parameterId)) as parameter}
-    <div class="row internal">
-      <span>{parameter.label}</span>
-      <input
-        class="expression"
-        value={parameterText(stored(parameter.parameterId))}
-        placeholder={parameter.valueType}
-        aria-label={`${parameter.label} value`}
-        disabled={onparameter === undefined}
-        onblur={(event) => commit(event, parameter.parameterId, parameter.valueType)}
-        onkeydown={(event) => { if (event.key === 'Enter') event.currentTarget.blur() }}
-      />
-      <small>{parameter.valueType}</small>
-    </div>
-  {/each}
+
+  {#if hasDetail && expanded}
+    {#each detail as group (group.section)}
+      {#if showHeadings && group.section !== ''}
+        <h3>{group.section}</h3>
+      {/if}
+      {#each group.fields as field (field.id)}
+        {@render row(field)}
+      {/each}
+    {/each}
+  {/if}
+
+  {#if hasDetail}
+    <button
+      type="button"
+      class="disclosure"
+      aria-expanded={expanded}
+      title={expanded ? 'Hide the detailed settings' : `Show ${detailCount} more setting${detailCount === 1 ? '' : 's'}`}
+      onclick={() => (expanded = !expanded)}
+    >
+      <!-- The count is on the collapsed state on purpose: a chevron alone does
+           not say whether anything is behind it. -->
+      <span class="chevron" class:open={expanded}>⌃</span>
+      {#if !expanded}<em>{detailCount}</em>{/if}
+    </button>
+  {/if}
 </section>
 <section class="outputs">
-  {#each definition.outputs as output}<NodePort {nodeId} port={output} direction="output" {layout} value={outputText(output.portId)} connection={connections.find((item) => item.portId === output.portId && item.direction === 'output')} messages={messages.filter((message) => message.portId === output.portId)} oncontextmenu={onportmenu} />{/each}
+  {#each definition.outputs as output}<NodePort {nodeId} port={output} direction="output" {layout} value={outputText(output.portId)} structure={portStructure(output, outputValue(output.portId))} connection={connections.find((item) => item.portId === output.portId && item.direction === 'output')} messages={messages.filter((message) => message.portId === output.portId)} oncontextmenu={onportmenu} />{/each}
 </section>
 
 <style>
   /* Zero horizontal padding: the port rows reach the node's edges so the
      handles can sit on them. See NodePort's --port-inset-inline. */
-  .controls { padding: 6px 0 5px; }
-  .row { display: grid; grid-template-columns: minmax(70px, 1fr) minmax(58px, .8fr) 38px; align-items: center; min-height: 25px; padding-right: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  .controls { padding: 6px 0 0; }
+  h3 { margin: 0; padding: 6px 8px 3px 14px; color: var(--text-faint); font: 700 7px/1 ui-monospace, monospace; letter-spacing: .12em; text-transform: uppercase; }
+  .row { display: grid; grid-template-columns: minmax(64px, 1fr) minmax(74px, 1.1fr) 30px; align-items: center; min-height: 25px; padding-right: 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+  /* A slider needs its track AND its field; a point needs three boxes. Both
+     take the label's width, because the control is the thing being operated. */
+  .row.wide { grid-template-columns: minmax(42px, .55fr) minmax(112px, 2fr) 26px; }
   .row.internal { padding-left: 14px; }
   .row > span { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-  output { overflow: hidden; min-height: 19px; padding: 4px 5px; background: var(--canvas); color: var(--text-faint); font: 9px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-  .expression { width: 100%; min-width: 0; height: 21px; padding: 0 5px; border: 1px solid transparent; border-radius: 2px; background: var(--canvas); color: var(--text); font: 9px/1.2 ui-monospace, monospace; }
-  .expression:hover:not(:disabled) { border-color: var(--border); }
-  .expression:focus { border-color: var(--node-color); outline: none; }
-  .expression::placeholder { color: var(--text-faint); }
   small { padding-left: 5px; overflow: hidden; color: var(--text-faint); font: 7px/1 ui-monospace, monospace; text-overflow: ellipsis; }
+
+  .disclosure { display: flex; width: 100%; height: 15px; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-faint); gap: 5px; cursor: pointer; }
+  .disclosure:hover { background: var(--surface-raised); color: var(--text); }
+  .disclosure:focus-visible { outline: 1px solid var(--node-color); outline-offset: -1px; }
+  .chevron { display: block; font-size: 11px; line-height: 1; transition: transform 120ms; }
+  .chevron.open { transform: rotate(180deg); }
+  .disclosure em { font: 7px/1 ui-monospace, monospace; font-style: normal; }
   .outputs { display: grid; padding: 3px 0 7px; border-top: 1px solid var(--border); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chevron { transition: none; }
+  }
 </style>

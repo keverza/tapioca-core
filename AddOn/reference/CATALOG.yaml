@@ -32,6 +32,18 @@ entries:
     download:
       url: https://github.com/yhirose/cpp-httplib/archive/refs/tags/v0.49.0.zip
 
+  - path: Clipper2-main
+    kind: directory
+    profiles: [build, test]
+    authority: "Clipper2"
+    version: "2.0.1"
+    source: "https://github.com/AngusJohnson/Clipper2"
+    provenance: >-
+      Pinned C++ source used behind Tapioca's planar polygon operations.
+    download:
+      url: https://github.com/AngusJohnson/Clipper2/archive/refs/tags/Clipper2_2.0.1.zip
+      archive_subpath: Clipper2-Clipper2_2.0.1
+
   - path: DiligentEngine-master
     kind: directory
     profiles: [build]
@@ -73,6 +85,18 @@ entries:
     download:
       url: https://github.com/google/googletest/archive/refs/tags/v1.18.0.zip
       archive_subpath: googletest-1.18.0/googletest
+
+  - path: glm-master
+    kind: directory
+    profiles: [build, test]
+    authority: "OpenGL Mathematics (GLM)"
+    version: "1.1.0"
+    source: "https://github.com/g-truc/glm"
+    provenance: >-
+      Pinned header-only source used behind Tapioca's vector and transform math.
+    download:
+      url: https://github.com/g-truc/glm/archive/refs/tags/1.1.0.zip
+      archive_subpath: glm-1.1.0
 
   - path: msgpack-c-cpp_master
     kind: directory

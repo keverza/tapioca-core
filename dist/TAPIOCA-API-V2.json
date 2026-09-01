@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 158,
+      "nativeRegistry": 160,
       "dispatcherLocal": 19,
-      "total": 177
+      "total": 179
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -10042,6 +10042,58 @@
               "nodeId",
               "parameterId"
             ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "editKind": {
+                "const": "setExecutionMode"
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "enabled",
+                  "disabled",
+                  "bypassed",
+                  "holding"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "nodeId",
+              "mode"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "editKind": {
+                "const": "releaseHolding"
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "nodeId"
+            ]
           }
         ],
         "$defs": {
@@ -10234,6 +10286,82 @@
         "required": [
           "graphId",
           "cancelledRunId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphEraseElements",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sourceNode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sourcePort": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetNode": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "targetPort": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "sourceNode",
+                "sourcePort",
+                "targetNode",
+                "targetPort"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeIds",
+          "edges"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dirtyNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "dirtyNodes"
         ]
       }
     },
@@ -10789,13 +10917,19 @@
                 "status": {
                   "type": "string",
                   "enum": [
-                    "dirty",
-                    "complete",
-                    "failed",
+                    "pending",
+                    "running",
+                    "success",
+                    "error",
                     "blocked",
-                    "cancelled",
-                    "skipped"
+                    "disabled",
+                    "bypassed",
+                    "holding",
+                    "cancelled"
                   ]
+                },
+                "code": {
+                  "type": "string"
                 },
                 "message": {
                   "type": "string"
@@ -10854,6 +10988,7 @@
               "required": [
                 "nodeId",
                 "status",
+                "code",
                 "message",
                 "durationMilliseconds",
                 "itemCount",
@@ -11074,6 +11209,28 @@
                     "selectionSet"
                   ]
                 },
+                "bypassMappings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "inputId": {
+                        "type": "string"
+                      },
+                      "outputId": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "inputId",
+                      "outputId"
+                    ]
+                  }
+                },
+                "holdCapable": {
+                  "type": "boolean"
+                },
                 "generations": {
                   "type": "array",
                   "items": {
@@ -11157,6 +11314,115 @@
                       },
                       "defaultValue": {
                         "$ref": "#/$defs/value"
+                      },
+                      "ui": {
+                        "type": "object",
+                        "properties": {
+                          "widget": {
+                            "type": "string",
+                            "enum": [
+                              "auto",
+                              "number",
+                              "slider",
+                              "boolean",
+                              "select",
+                              "text",
+                              "vector",
+                              "point",
+                              "color",
+                              "readOnly"
+                            ]
+                          },
+                          "section": {
+                            "type": "string"
+                          },
+                          "order": {
+                            "type": "integer"
+                          },
+                          "help": {
+                            "type": "string"
+                          },
+                          "unit": {
+                            "type": "string"
+                          },
+                          "minimum": {
+                            "type": "number"
+                          },
+                          "maximum": {
+                            "type": "number"
+                          },
+                          "step": {
+                            "type": "number",
+                            "exclusiveMinimum": 0
+                          },
+                          "decimals": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 15
+                          },
+                          "minimumParameter": {
+                            "type": "string"
+                          },
+                          "maximumParameter": {
+                            "type": "string"
+                          },
+                          "stepParameter": {
+                            "type": "string"
+                          },
+                          "decimalsParameter": {
+                            "type": "string"
+                          },
+                          "components": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "options": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "label": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "$ref": "#/$defs/value"
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "label",
+                                "value"
+                              ]
+                            }
+                          },
+                          "optionSource": {
+                            "type": "string",
+                            "enum": [
+                              "none",
+                              "layer",
+                              "pen",
+                              "fill",
+                              "lineType",
+                              "surface",
+                              "buildingMaterial",
+                              "composite",
+                              "profile"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "widget",
+                          "section",
+                          "order",
+                          "help",
+                          "unit",
+                          "components",
+                          "options",
+                          "optionSource"
+                        ]
                       }
                     },
                     "additionalProperties": false,
@@ -11178,6 +11444,8 @@
                 "executionDomain",
                 "effect",
                 "display",
+                "bypassMappings",
+                "holdCapable",
                 "generations",
                 "inputs",
                 "outputs",
@@ -11421,12 +11689,15 @@
                       "status": {
                         "type": "string",
                         "enum": [
-                          "dirty",
-                          "complete",
-                          "failed",
+                          "pending",
+                          "running",
+                          "success",
+                          "error",
                           "blocked",
-                          "cancelled",
-                          "skipped"
+                          "disabled",
+                          "bypassed",
+                          "holding",
+                          "cancelled"
                         ]
                       },
                       "message": {
@@ -11527,6 +11798,15 @@
                 "nodeType": {
                   "type": "string"
                 },
+                "executionMode": {
+                  "type": "string",
+                  "enum": [
+                    "enabled",
+                    "disabled",
+                    "bypassed",
+                    "holding"
+                  ]
+                },
                 "parameters": {
                   "type": "array",
                   "items": {
@@ -11551,6 +11831,7 @@
               "required": [
                 "nodeId",
                 "nodeType",
+                "executionMode",
                 "parameters"
               ]
             }
@@ -12251,6 +12532,94 @@
         "additionalProperties": false,
         "required": [
           "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ListAttributes",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "layer",
+              "pen",
+              "fill",
+              "lineType",
+              "surface",
+              "buildingMaterial",
+              "composite",
+              "profile"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "layer",
+              "pen",
+              "fill",
+              "lineType",
+              "surface",
+              "buildingMaterial",
+              "composite",
+              "profile"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "attributes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "index": {
+                  "type": "integer"
+                },
+                "color": {
+                  "type": "string"
+                },
+                "hidden": {
+                  "type": "boolean"
+                },
+                "locked": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "index"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "count",
+          "attributes"
         ]
       }
     },

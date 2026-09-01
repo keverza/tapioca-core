@@ -303,12 +303,22 @@ TEST (NodeGraphValue, HoldsRecursiveListsAndImmutableMeshes)
     EXPECT_EQ (4U, std::get<Value::List> (value.DataValue ()).size ());
 }
 
-TEST (NodeGraphBuiltins, CatalogHasEightSchemaDrivenPureNodes)
+TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
 {
     const NodeRegistry registry = MakeBuiltinNodeRegistry ();
-    // Eight since Stage F added the Data Dam, which the catalog needs for
-    // ExecutionMode::Holding to be reachable at all.
-    EXPECT_EQ (8U, registry.Types ().size ());
+    // Counted by CATEGORY rather than as one number, because the total is now a
+    // library that grows: a bare count told you a node had been added and
+    // nothing about whether it landed where a user would look for it.
+    std::map<std::string, size_t> byCategory;
+    for (const auto& [id, nodeType] : registry.Types ())
+        ++byCategory[nodeType.category];
+    EXPECT_EQ (6U, byCategory["Core"]);      // number, add, multiply, makeList, scaleList, watch
+    EXPECT_EQ (1U, byCategory["Inspect"]);   // panel
+    EXPECT_EQ (1U, byCategory["Flow"]);      // dataDam - Stage F, so Holding is reachable
+    EXPECT_EQ (2U, byCategory["Input"]);     // numberSlider, booleanToggle
+    EXPECT_EQ (8U, byCategory["Archicad"]);  // one attribute picker per domain
+    EXPECT_EQ (11U, byCategory["Geometry"]); // inputs, GLM vectors and Clipper2 polygons
+    EXPECT_EQ (29U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -335,11 +345,13 @@ TEST (NodeGraphBuiltins, InternalisedInputValueSuppliesAnUnconnectedPort)
     const EditResult mistyped =
         ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "left", Value (std::string ("six")) } });
     EXPECT_FALSE (mistyped.accepted);
-    EXPECT_FALSE (ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "nosuchport", Value (6.0) } })
-                      .accepted);
+    EXPECT_FALSE (
+        ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "nosuchport", Value (6.0) } }).accepted);
 
-    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "left", Value (6.0) } }).accepted);
-    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "right", Value (7.0) } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "left", Value (6.0) } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { SetParameterEdit { "product", "right", Value (7.0) } }).accepted);
 
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteBuiltinNode);
@@ -3089,4 +3101,300 @@ TEST (NodeGraphFlowControl, AGraphFileCannotSmuggleInAModeTheTypeDoesNotSupport)
     const EditResult rejected = ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { std::move (node) } });
     EXPECT_FALSE (rejected.accepted);
     EXPECT_EQ ("mode.holdUnsupported", rejected.code);
+}
+
+// ---------------------------------------------------------------------------
+// UI-1. The parameter edit descriptor, and the input/geometry node library it
+// exists to describe.
+//
+// The descriptor is metadata, so nothing here asserts on rendering. What IS
+// testable, and what these pin, is that malformed metadata cannot enter the
+// catalog, and that the nodes it describes answer with the value their own
+// contract promises rather than the one a client happened to send.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+ParameterSchema NumberParameterWith (ParameterUi ui, ValueType valueType = ValueType::Double)
+{
+    ParameterSchema parameter { "value", "Value", valueType, false, std::nullopt };
+    parameter.ui = std::move (ui);
+    return parameter;
+}
+
+bool RegisterOne (NodeType nodeType, std::string& error)
+{
+    NodeRegistry registry;
+    return registry.Register (std::move (nodeType), error);
+}
+
+} // namespace
+
+TEST (NodeGraphRegistry, RefusesAWidgetTheParameterTypeCannotWear)
+{
+    std::string error;
+
+    NodeType sliderOnText;
+    sliderOnText.id = "sliderOnText";
+    ParameterUi slider;
+    slider.widget = ParameterWidget::Slider;
+    slider.minimum = 0.0;
+    slider.maximum = 1.0;
+    sliderOnText.parameters.push_back (NumberParameterWith (slider, ValueType::String));
+    EXPECT_FALSE (RegisterOne (std::move (sliderOnText), error));
+    EXPECT_NE (std::string::npos, error.find ("integer or double")) << error;
+
+    NodeType vectorOnDouble;
+    vectorOnDouble.id = "vectorOnDouble";
+    ParameterUi vector;
+    vector.widget = ParameterWidget::Vector;
+    vectorOnDouble.parameters.push_back (NumberParameterWith (vector, ValueType::Double));
+    EXPECT_FALSE (RegisterOne (std::move (vectorOnDouble), error));
+    EXPECT_NE (std::string::npos, error.find ("point3")) << error;
+}
+
+TEST (NodeGraphRegistry, RefusesASliderWithNothingToDragAlong)
+{
+    std::string error;
+    NodeType unbounded;
+    unbounded.id = "unbounded";
+    ParameterUi slider;
+    slider.widget = ParameterWidget::Slider;
+    slider.minimum = 0.0; // upper bound missing
+    unbounded.parameters.push_back (NumberParameterWith (slider));
+    EXPECT_FALSE (RegisterOne (std::move (unbounded), error));
+    EXPECT_NE (std::string::npos, error.find ("minimum and a maximum")) << error;
+
+    NodeType inverted;
+    inverted.id = "inverted";
+    ParameterUi backwards;
+    backwards.widget = ParameterWidget::Number;
+    backwards.minimum = 10.0;
+    backwards.maximum = 1.0;
+    inverted.parameters.push_back (NumberParameterWith (backwards));
+    EXPECT_FALSE (RegisterOne (std::move (inverted), error));
+    EXPECT_NE (std::string::npos, error.find ("greater than maximum")) << error;
+}
+
+TEST (NodeGraphRegistry, ABoundThatNamesASiblingMustNameARealNumericOne)
+{
+    std::string error;
+
+    NodeType missing;
+    missing.id = "missing";
+    ParameterUi named;
+    named.widget = ParameterWidget::Slider;
+    named.minimumParameter = "nowhere";
+    named.maximum = 1.0;
+    missing.parameters.push_back (NumberParameterWith (named));
+    EXPECT_FALSE (RegisterOne (std::move (missing), error));
+    EXPECT_NE (std::string::npos, error.find ("numeric sibling")) << error;
+
+    // A self-reference is a cycle a client would have to resolve while
+    // rendering, which is exactly the work the descriptor exists to remove.
+    NodeType itself;
+    itself.id = "itself";
+    ParameterUi selfNamed;
+    selfNamed.widget = ParameterWidget::Slider;
+    selfNamed.minimumParameter = "value";
+    selfNamed.maximum = 1.0;
+    itself.parameters.push_back (NumberParameterWith (selfNamed));
+    EXPECT_FALSE (RegisterOne (std::move (itself), error));
+    EXPECT_NE (std::string::npos, error.find ("its own parameter")) << error;
+}
+
+TEST (NodeGraphRegistry, RefusesOptionsThatCannotIdentifyTheirChoice)
+{
+    std::string error;
+
+    NodeType duplicated;
+    duplicated.id = "duplicated";
+    ParameterUi options;
+    options.widget = ParameterWidget::Select;
+    options.options = { { "First", Value (std::string ("a")) }, { "Second", Value (std::string ("a")) } };
+    ParameterSchema text { "value", "Value", ValueType::String, false, std::nullopt };
+    text.ui = options;
+    duplicated.parameters.push_back (text);
+    EXPECT_FALSE (RegisterOne (std::move (duplicated), error));
+    EXPECT_NE (std::string::npos, error.find ("same value")) << error;
+
+    NodeType mistyped;
+    mistyped.id = "mistyped";
+    ParameterUi wrongType;
+    wrongType.widget = ParameterWidget::Select;
+    wrongType.options = { { "One", Value (static_cast<int64_t> (1)) } };
+    ParameterSchema stringParameter { "value", "Value", ValueType::String, false, std::nullopt };
+    stringParameter.ui = wrongType;
+    mistyped.parameters.push_back (stringParameter);
+    EXPECT_FALSE (RegisterOne (std::move (mistyped), error));
+    EXPECT_NE (std::string::npos, error.find ("value type")) << error;
+
+    NodeType both;
+    both.id = "both";
+    ParameterUi conflicting;
+    conflicting.widget = ParameterWidget::Select;
+    conflicting.options = { { "One", Value (std::string ("a")) } };
+    conflicting.optionSource = ParameterOptionSource::Layer;
+    ParameterSchema conflicted { "value", "Value", ValueType::String, false, std::nullopt };
+    conflicted.ui = conflicting;
+    both.parameters.push_back (conflicted);
+    EXPECT_FALSE (RegisterOne (std::move (both), error));
+    EXPECT_NE (std::string::npos, error.find ("not both")) << error;
+}
+
+TEST (NodeGraphRegistry, AParameterWithoutADescriptorStaysLegal)
+{
+    // Every parameter registered before UI-1 is in this state, and the catalog
+    // has to keep admitting them - the client falls back to the value type.
+    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    const NodeType* add = registry.Find ("add");
+    ASSERT_NE (nullptr, add);
+    for (const ParameterSchema& parameter : add->parameters)
+        EXPECT_FALSE (parameter.ui.has_value ());
+
+    const NodeType* slider = registry.Find ("numberSlider");
+    ASSERT_NE (nullptr, slider);
+    const ParameterSchema* value = FindParameter (*slider, "value");
+    ASSERT_NE (nullptr, value);
+    ASSERT_TRUE (value->ui.has_value ());
+    EXPECT_EQ (ParameterWidget::Slider, value->ui->widget);
+    EXPECT_EQ ("minimum", value->ui->minimumParameter);
+    EXPECT_EQ ("maximum", value->ui->maximumParameter);
+    EXPECT_EQ ("step", value->ui->stepParameter);
+    EXPECT_EQ ("decimals", value->ui->decimalsParameter);
+
+    // The constants matter as well as the parameter names: a client that has
+    // not merged the catalog defaults in yet must still find a bounded range,
+    // because a slider with no track is not a slider.
+    ASSERT_TRUE (value->ui->minimum.has_value ());
+    ASSERT_TRUE (value->ui->maximum.has_value ());
+    EXPECT_LT (*value->ui->minimum, *value->ui->maximum);
+
+    // Every one of the range parameters carries a default, which is what the
+    // editor merges in so a freshly placed node draws its track at once.
+    for (const char* id : { "value", "minimum", "maximum", "step", "decimals" }) {
+        const ParameterSchema* parameter = FindParameter (*slider, id);
+        ASSERT_NE (nullptr, parameter) << id;
+        EXPECT_TRUE (parameter->defaultValue.has_value ()) << id;
+    }
+}
+
+TEST (NodeGraphInputLibrary, TheSliderClampsAndRoundsInTheNodeRatherThanInTheControl)
+{
+    // A range a client honours is not a range: a graph loaded from a file, a
+    // pasted value or a second client must not be able to produce an
+    // out-of-range answer either.
+    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    Node node { "s", "numberSlider" };
+    node.parameters.emplace ("value", Value (999.0));
+    node.parameters.emplace ("minimum", Value (0.0));
+    node.parameters.emplace ("maximum", Value (10.0));
+    node.parameters.emplace ("decimals", Value (static_cast<int64_t> (2)));
+
+    ValueMap outputs;
+    std::string error;
+    NodeExecutionContext context;
+    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, outputs, error)) << error;
+    EXPECT_DOUBLE_EQ (10.0, std::get<double> (outputs.at ("value").DataValue ()));
+
+    Node rounded { "r", "numberSlider" };
+    rounded.parameters.emplace ("value", Value (1.23456));
+    rounded.parameters.emplace ("minimum", Value (0.0));
+    rounded.parameters.emplace ("maximum", Value (10.0));
+    rounded.parameters.emplace ("decimals", Value (static_cast<int64_t> (2)));
+    ValueMap roundedOutputs;
+    ASSERT_TRUE (ExecuteBuiltinNode (rounded, {}, context, roundedOutputs, error)) << error;
+    EXPECT_DOUBLE_EQ (1.23, std::get<double> (roundedOutputs.at ("value").DataValue ()));
+}
+
+TEST (NodeGraphInputLibrary, APointTakesItsWiredInputOverItsTypedOne)
+{
+    // The same port id carries both, which is what lets one row be an editable
+    // triple when nothing is wired and the upstream value when something is.
+    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    Node node { "p", "point" };
+    node.parameters.emplace ("point", Value (Point3 { 1.0, 2.0, 3.0 }));
+
+    ValueMap typedOutputs;
+    std::string error;
+    NodeExecutionContext context;
+    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, typedOutputs, error)) << error;
+    EXPECT_DOUBLE_EQ (2.0, std::get<Point3> (typedOutputs.at ("point").DataValue ()).y);
+
+    ValueMap inputs;
+    inputs.emplace ("point", Value (Point3 { 7.0, 8.0, 9.0 }));
+    ValueMap wiredOutputs;
+    ASSERT_TRUE (ExecuteBuiltinNode (node, inputs, context, wiredOutputs, error)) << error;
+    EXPECT_DOUBLE_EQ (8.0, std::get<Point3> (wiredOutputs.at ("point").DataValue ()).y);
+}
+
+TEST (NodeGraphInputLibrary, AVectorReportsItsLengthBesideItself)
+{
+    Node node { "v", "vector" };
+    node.parameters.emplace ("vector", Value (Point3 { 3.0, 4.0, 0.0 }));
+    ValueMap outputs;
+    std::string error;
+    NodeExecutionContext context;
+    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, outputs, error)) << error;
+    EXPECT_DOUBLE_EQ (5.0, std::get<double> (outputs.at ("length").DataValue ()));
+}
+
+TEST (NodeGraphGeometry, VectorAndPolygonNodesUseTheGeometryEngine)
+{
+    NodeExecutionContext context;
+    std::string error;
+
+    Node cross { "cross", "geom.vectorCross" };
+    ValueMap crossOutputs;
+    ASSERT_TRUE (ExecuteBuiltinNode (
+        cross, { { "left", Value (Point3 { 1.0, 0.0, 0.0 }) }, { "right", Value (Point3 { 0.0, 1.0, 0.0 }) } }, context,
+        crossOutputs, error))
+        << error;
+    EXPECT_DOUBLE_EQ (1.0, std::get<Point3> (crossOutputs.at ("vector").DataValue ()).z);
+
+    Polygon subject { { { 0.0, 0.0, 0.0 }, { 2.0, 0.0, 0.0 }, { 2.0, 2.0, 0.0 }, { 0.0, 2.0, 0.0 } } };
+    Polygon clip { { { 1.0, 0.0, 0.0 }, { 3.0, 0.0, 0.0 }, { 3.0, 2.0, 0.0 }, { 1.0, 2.0, 0.0 } } };
+    Node unite { "union", "geom.polygonUnion" };
+    ValueMap unionOutputs;
+    ASSERT_TRUE (ExecuteBuiltinNode (unite, { { "subject", Value (subject) }, { "clip", Value (clip) } }, context,
+                                     unionOutputs, error))
+        << error;
+    const Value::List& polygons = std::get<Value::List> (unionOutputs.at ("polygons").DataValue ());
+    ASSERT_EQ (1U, polygons.size ());
+    EXPECT_EQ (ValueType::Polygon, polygons.front ().Type ());
+}
+
+TEST (NodeGraphInputLibrary, EveryAttributePickerIsPureAndAnswersWithWhatWasPicked)
+{
+    // The pickers must not need Archicad to EVALUATE. What needs Archicad is
+    // listing the choices, and that is a separate native verb - so a graph
+    // carrying a layer name still runs with no project open.
+    const NodeRegistry registry = MakeBuiltinNodeRegistry ();
+    for (const char* id : { "attribute.layer", "attribute.fill", "attribute.lineType", "attribute.surface",
+                            "attribute.buildingMaterial", "attribute.composite", "attribute.profile" }) {
+        const NodeType* type = registry.Find (id);
+        ASSERT_NE (nullptr, type) << id;
+        EXPECT_EQ (EffectKind::Pure, type->effect) << id;
+        EXPECT_EQ (ExecutionDomain::Worker, type->executionDomain) << id;
+        EXPECT_TRUE (type->generations.Empty ()) << id;
+        const ParameterSchema* parameter = FindParameter (*type, "value");
+        ASSERT_NE (nullptr, parameter) << id;
+        ASSERT_TRUE (parameter->ui.has_value ()) << id;
+        EXPECT_EQ (ParameterWidget::Select, parameter->ui->widget) << id;
+        EXPECT_NE (ParameterOptionSource::None, parameter->ui->optionSource) << id;
+        EXPECT_TRUE (parameter->ui->options.empty ()) << id;
+    }
+
+    // A pen is the one picked by number, because a pen IS its number.
+    const NodeType* pen = registry.Find ("attribute.pen");
+    ASSERT_NE (nullptr, pen);
+    EXPECT_EQ (ValueType::Integer, FindParameter (*pen, "value")->valueType);
+
+    Node node { "layer", "attribute.layer" };
+    node.parameters.emplace ("value", Value (std::string ("Existing Structures")));
+    ValueMap outputs;
+    std::string error;
+    NodeExecutionContext context;
+    ASSERT_TRUE (ExecuteBuiltinNode (node, {}, context, outputs, error)) << error;
+    EXPECT_EQ ("Existing Structures", std::get<std::string> (outputs.at ("value").DataValue ()));
 }

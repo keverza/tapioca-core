@@ -39,6 +39,8 @@ set (REF_DIR "${CMAKE_SOURCE_DIR}/../reference")
 set (HTTPLIB_INC "${REF_DIR}/cpp-httplib-master"        CACHE PATH "cpp-httplib include dir")
 set (MSGPACK_INC "${REF_DIR}/msgpack-c-cpp_master/include" CACHE PATH "msgpack-c include dir")
 set (NANORT_INC  "${REF_DIR}/nanort-release"            CACHE PATH "nanort include dir")
+set (GLM_INC     "${REF_DIR}/glm-master"                CACHE PATH "GLM include dir")
+set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP"         CACHE PATH "Clipper2 C++ source dir")
 set (WEBVIEW2_DIR "${REF_DIR}/webview2-1.0.2478.35" CACHE PATH "Microsoft WebView2 SDK package")
 
 # Embedded CPython (P0+). Build-time only: headers + import lib are vendored, but
@@ -280,6 +282,16 @@ else ()
     add_library (${ADDON_LIB} MODULE ${AddOnFiles})
 endif ()
 
+add_library (TapiocaClipper2 STATIC
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp"
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.offset.cpp"
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.rectclip.cpp"
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.triangulation.cpp")
+target_compile_features (TapiocaClipper2 PUBLIC cxx_std_20)
+target_compile_definitions (TapiocaClipper2 PUBLIC CLIPPER2_MAX_DECIMAL_PRECISION=8)
+target_include_directories (TapiocaClipper2 SYSTEM PUBLIC "${CLIPPER2_DIR}/Clipper2Lib/include")
+set_target_properties (TapiocaClipper2 PROPERTIES FOLDER Libraries)
+
 set_target_properties (${ADDON_LIB} PROPERTIES OUTPUT_NAME ${ADDON_NAME})
 target_compile_features (${ADDON_LIB} PUBLIC cxx_std_20)   # AC29 -> C++20
 # ADDON_VERSION and the user-facing product name are NOT defined here any more:
@@ -320,12 +332,12 @@ target_include_directories (${ADDON_LIB} PRIVATE
     ${ResourceObjectsDir}                     # generated ResourceMDIDIds.hpp
     ${AC_API_DEVKIT_DIR}/Support/Inc)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE
-    ${HTTPLIB_INC} ${MSGPACK_INC} ${NANORT_INC} "${WEBVIEW2_DIR}/build/native/include")
+    ${HTTPLIB_INC} ${MSGPACK_INC} ${NANORT_INC} ${GLM_INC} "${WEBVIEW2_DIR}/build/native/include")
 
 file (GLOB ModuleFolders ${AC_API_DEVKIT_DIR}/Support/Modules/*)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE ${ModuleFolders})
 
-target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS})
+target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} TapiocaClipper2)
 # d3dcompiler/dxguid/gdi32 came in through ARCHVIZ_LIBS with bgfx. The Diligent
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.

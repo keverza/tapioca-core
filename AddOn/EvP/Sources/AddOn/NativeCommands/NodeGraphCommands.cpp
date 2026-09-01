@@ -42,7 +42,7 @@ constexpr const char kGraphInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kCatalogResponseSchema[] =
-    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"effect":{"type":"string","enum":["pure","readModel","hostUiWrite"]},"display":{"type":"string","enum":["ports","text","preview","selectionSet"]},"bypassMappings":{"type":"array","items":{"type":"object","properties":{"inputId":{"type":"string"},"outputId":{"type":"string"}},"additionalProperties":false,"required":["inputId","outputId"]}},"holdCapable":{"type":"boolean"},"generations":{"type":"array","items":{"type":"string","enum":["project","selection"]}},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","effect","display","bypassMappings","holdCapable","generations","inputs","outputs","parameters"]}}},"additionalProperties":false,"required":["nodeTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"effect":{"type":"string","enum":["pure","readModel","hostUiWrite"]},"display":{"type":"string","enum":["ports","text","preview","selectionSet"]},"bypassMappings":{"type":"array","items":{"type":"object","properties":{"inputId":{"type":"string"},"outputId":{"type":"string"}},"additionalProperties":false,"required":["inputId","outputId"]}},"holdCapable":{"type":"boolean"},"generations":{"type":"array","items":{"type":"string","enum":["project","selection"]}},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/value"},"ui":{"type":"object","properties":{"widget":{"type":"string","enum":["auto","number","slider","boolean","select","text","vector","point","color","readOnly"]},"section":{"type":"string"},"order":{"type":"integer"},"help":{"type":"string"},"unit":{"type":"string"},"minimum":{"type":"number"},"maximum":{"type":"number"},"step":{"type":"number","exclusiveMinimum":0},"decimals":{"type":"integer","minimum":0,"maximum":15},"minimumParameter":{"type":"string"},"maximumParameter":{"type":"string"},"stepParameter":{"type":"string"},"decimalsParameter":{"type":"string"},"components":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["label","value"]}},"optionSource":{"type":"string","enum":["none","layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]}},"additionalProperties":false,"required":["widget","section","order","help","unit","components","options","optionSource"]}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","effect","display","bypassMappings","holdCapable","generations","inputs","outputs","parameters"]}}},"additionalProperties":false,"required":["nodeTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 constexpr const char kStateResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"nodeType":{"type":"string"},"executionMode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["parameterId","value"]}}},"additionalProperties":false,"required":["nodeId","nodeType","executionMode","parameters"]}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string"},"sourcePort":{"type":"string"},"targetNode":{"type":"string"},"targetPort":{"type":"string"}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","nodes","edges"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
@@ -144,6 +144,57 @@ void AddPoints (GS::ObjectState& state, const std::vector<graph::Point3>& points
 
 // `expand` is false for list members, which is what keeps the encoding two
 // levels deep and the response schemas non-recursive.
+// EncodeValue is defined just below; the descriptor's option values go
+// through the same encoder every other outbound value does.
+GS::ObjectState EncodeValue (const graph::Value& value, bool expand);
+
+// UI-1. The parameter's edit descriptor, as the catalog projects it.
+//
+// The optional numeric bounds are OMITTED when absent rather than sent as a
+// sentinel: zero is a legal minimum, and a client cannot tell a real zero from a
+// stand-in. GS::ObjectState cannot represent JSON null, so absence is the only
+// honest encoding available - which is the same rule the rest of this bridge
+// follows for defaultValue.
+GS::ObjectState EncodeParameterUi (const graph::ParameterUi& ui)
+{
+    GS::ObjectState state;
+    state.Add ("widget", graph::ParameterWidgetName (ui.widget));
+    state.Add ("section", GraphText (ui.section));
+    state.Add ("order", static_cast<GS::Int64> (ui.order));
+    state.Add ("help", GraphText (ui.help));
+    state.Add ("unit", GraphText (ui.unit));
+    if (ui.minimum.has_value ())
+        state.Add ("minimum", *ui.minimum);
+    if (ui.maximum.has_value ())
+        state.Add ("maximum", *ui.maximum);
+    if (ui.step.has_value ())
+        state.Add ("step", *ui.step);
+    if (ui.decimals.has_value ())
+        state.Add ("decimals", static_cast<GS::Int64> (*ui.decimals));
+    if (!ui.minimumParameter.empty ())
+        state.Add ("minimumParameter", GraphText (ui.minimumParameter));
+    if (!ui.maximumParameter.empty ())
+        state.Add ("maximumParameter", GraphText (ui.maximumParameter));
+    if (!ui.stepParameter.empty ())
+        state.Add ("stepParameter", GraphText (ui.stepParameter));
+    if (!ui.decimalsParameter.empty ())
+        state.Add ("decimalsParameter", GraphText (ui.decimalsParameter));
+    GS::Array<GS::UniString> components;
+    for (const std::string& component : ui.components)
+        components.Push (GraphText (component));
+    state.Add ("components", components);
+    GS::Array<GS::ObjectState> options;
+    for (const graph::ParameterOption& option : ui.options) {
+        GS::ObjectState encoded;
+        encoded.Add ("label", GraphText (option.label));
+        encoded.Add ("value", EncodeValue (option.value, false));
+        options.Push (std::move (encoded));
+    }
+    state.Add ("options", options);
+    state.Add ("optionSource", graph::ParameterOptionSourceName (ui.optionSource));
+    return state;
+}
+
 GS::ObjectState EncodeValue (const graph::Value& value, bool expand)
 {
     GS::ObjectState state;
@@ -327,6 +378,13 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
                 state.Add ("required", parameter.required);
                 if (parameter.defaultValue.has_value ())
                     state.Add ("defaultValue", EncodeValue (*parameter.defaultValue, false));
+                // UI-1's descriptor, and it is ABSENT rather than defaulted when
+                // the type declares none - a client must be able to tell "this
+                // parameter says nothing about how it is edited" from "this
+                // parameter asked for the fallback", because the first is what
+                // every parameter registered before this change means.
+                if (parameter.ui.has_value ())
+                    state.Add ("ui", EncodeParameterUi (*parameter.ui));
                 parameters.Push (std::move (state));
             }
             record.Add ("inputs", inputs);

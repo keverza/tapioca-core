@@ -31,7 +31,8 @@
     type EffectiveTool,
   } from './annotations'
   import ApplicationMenu from './ApplicationMenu.svelte'
-  import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
+  import { optionsFromAttributes, type AttributeRow } from './nodes/controls/widgets'
+import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
   import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
   import { parsePortReference, serializePortReference } from './nodes/types/portReference'
@@ -70,6 +71,7 @@
     GraphState,
     NodeResultRecord,
     NodeTypeSchema,
+    ParameterOption,
     PortReference,
     PositionStore,
     SchemaNodeData,
@@ -105,6 +107,17 @@
   let nodes = $state.raw<Node<SchemaNodeData>[]>([])
   let edges = $state.raw<Edge[]>([])
   let catalog = $state.raw<NodeTypeSchema[]>([])
+  /**
+   * What the native attribute listing answered, keyed by option source.
+   *
+   * ONE LISTING PER DOMAIN FOR THE WHOLE CANVAS, not one per node. A layer list
+   * is a project-wide read; ten Layer nodes asking for their own would be ten
+   * main-thread round trips for one answer. `undefined` means "never asked",
+   * which is what the control shows as "listing"; an empty array means the
+   * project genuinely has none.
+   */
+  let attributeOptions = $state.raw<Record<string, ParameterOption[]>>({})
+  const optionRequests = new Set<string>()
   let results = $state.raw<NodeResultRecord[]>([])
   let revision = $state(0)
   let busy = $state(false)
@@ -192,6 +205,15 @@
         onexecutionchange: (nodeId, mode) => void setExecutionMode(nodeId, mode),
         onparameterchange: (nodeId, parameterId, valueType, text) =>
           void setParameter(nodeId, parameterId, valueType, text),
+        attributeOptions,
+        onrequestoptions: (source) => {
+          // The value type decides whether the listing's `name` or its `number`
+          // becomes the option value, and only the schema knows it.
+          const parameter = schemas
+            .get(node.nodeType)
+            ?.parameters.find((item) => item.ui?.optionSource === source)
+          void listAttributeOptions(source, parameter?.valueType ?? 'string')
+        },
         onportreference: (reference, target) => connectReference(reference, target),
         onportcontextmenu: (event, target) => openPortContext(event, target),
         portConnections: [
@@ -450,6 +472,48 @@
       await reloadState()
       busy = false
     }
+  }
+
+  /**
+   * List one Archicad attribute domain for the pickers that need it.
+   *
+   * ⚠️ THE BROWSER NEVER ENUMERATES A MODEL DOMAIN ITSELF. The catalog names the
+   * domain and Tapioca.ListAttributes answers with the members, which is the
+   * same names-not-indices path the command palette's pickers use. Requested at
+   * most once per domain per session; a failure leaves an empty list rather than
+   * an error banner, because a picker with no project open is an ordinary state
+   * and not a fault.
+   */
+  async function listAttributeOptions(source: string, valueType: string): Promise<void> {
+    if (source === 'none' || optionRequests.has(source)) return
+    optionRequests.add(source)
+    if (!nativeConnected) {
+      publishAttributeOptions(source, [])
+      return
+    }
+    try {
+      const listing = await callTapioca<{ attributes: AttributeRow[] }>('Tapioca.ListAttributes', { kind: source })
+      publishAttributeOptions(source, optionsFromAttributes(listing.attributes ?? [], valueType))
+    } catch {
+      // Deliberately quiet: no project open is the common case, and the control
+      // already says so. Re-asking is a matter of reopening the editor.
+      publishAttributeOptions(source, [])
+    }
+  }
+
+  /**
+   * Hand a finished listing to the nodes already on the canvas.
+   *
+   * ⚠️ NODE DATA IS A SNAPSHOT, NOT A LIVE REFERENCE. The bound node array is
+   * rebuilt only when graph state reloads, so a listing that arrives afterwards
+   * reached the store and NOTHING ELSE - the picker that asked for it kept
+   * showing "Listing…" forever. Republishing the map onto every node's data is
+   * what closes that loop; it is a shallow remap of presentation data and does
+   * not touch positions, selection or anything semantic.
+   */
+  function publishAttributeOptions(source: string, options: ParameterOption[]): void {
+    attributeOptions = { ...attributeOptions, [source]: options }
+    nodes = nodes.map((node) => ({ ...node, data: { ...node.data, attributeOptions } }))
   }
 
   /**

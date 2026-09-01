@@ -29,6 +29,8 @@ set (GEOM_DIR   "${EVP_ROOT}/Sources/AddOn/Geometry")
 set (REF_DIR    "${EVP_ROOT}/../reference")
 set (GTEST_DIR  "${REF_DIR}/googletest")
 set (NANORT_INC "${REF_DIR}/nanort-release")
+set (GLM_INC "${REF_DIR}/glm-master")
+set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP")
 # No msgpack include on purpose: the serializer hand-rolls its writer, and
 # test_serializer.cpp hand-rolls an INDEPENDENT reader from the msgpack spec.
 # Round-tripping through the same library the writer used would prove less.
@@ -46,7 +48,8 @@ set (EVP_GEOM_SOURCES
     "${GEOM_DIR}/MeshSerializer.cpp"
     "${GEOM_DIR}/RenderEngine.cpp"
     "${GEOM_DIR}/SpatialQueries.cpp"
-    "${GEOM_DIR}/VertexWeld.cpp")
+    "${GEOM_DIR}/VertexWeld.cpp"
+    "${GEOM_DIR}/GeometryEngine.cpp")
 list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
 # Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
@@ -367,6 +370,7 @@ set (EVP_TEST_SOURCES
     test_serializer.cpp
     test_render.cpp
     test_normals.cpp
+    test_geometryengine.cpp
     test_meshgroups.cpp
     test_wireframeedges.cpp
     test_scenecmdqueue.cpp
@@ -412,6 +416,12 @@ endif ()
 if (NOT EXISTS "${NANORT_INC}/nanort.h")
     message (FATAL_ERROR "nanort not found at ${NANORT_INC} — see AddOn/EvP/README.md.")
 endif ()
+if (NOT EXISTS "${GLM_INC}/glm/glm.hpp")
+    message (FATAL_ERROR "GLM not found at ${GLM_INC} — see AddOn/EvP/README.md.")
+endif ()
+if (NOT EXISTS "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp")
+    message (FATAL_ERROR "Clipper2 not found at ${CLIPPER2_DIR} — see AddOn/EvP/README.md.")
+endif ()
 
 add_library (gtest_vendored STATIC
     "${GTEST_DIR}/src/gtest-all.cc"
@@ -424,6 +434,15 @@ if (MSVC)
 endif ()
 find_package (Threads REQUIRED)
 target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
+
+add_library (TapiocaClipper2 STATIC
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp"
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.offset.cpp"
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.rectclip.cpp"
+    "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.triangulation.cpp")
+target_compile_features (TapiocaClipper2 PUBLIC cxx_std_20)
+target_compile_definitions (TapiocaClipper2 PUBLIC CLIPPER2_MAX_DECIMAL_PRECISION=8)
+target_include_directories (TapiocaClipper2 SYSTEM PUBLIC "${CLIPPER2_DIR}/Clipper2Lib/include")
 
 # ---- the test binary -------------------------------------------------------
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
@@ -438,8 +457,8 @@ target_include_directories (EvPGeomTests PRIVATE
     "${GEOM_DIR}"
     "${EVP_ROOT}/Sources/AddOn/Python"
     "${CMAKE_CURRENT_SOURCE_DIR}")
-target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}")
-target_link_libraries (EvPGeomTests PRIVATE gtest_vendored)
+target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}")
+target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2)
 
 if (MSVC)
     # /W4 on OUR code (docs/guides/testing.md §5). The add-on ships at /W3; the host-free core
@@ -457,11 +476,13 @@ if (EVP_SANITIZE)
         # "mismatch detected for 'annotate_string'".
         target_compile_options (EvPGeomTests    PRIVATE /fsanitize=address)
         target_compile_options (gtest_vendored  PRIVATE /fsanitize=address)
+        target_compile_options (TapiocaClipper2 PRIVATE /fsanitize=address)
     else ()
         target_compile_options (EvPGeomTests   PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
         target_link_options    (EvPGeomTests   PRIVATE -fsanitize=address,undefined)
         target_compile_options (gtest_vendored PRIVATE -fsanitize=address,undefined)
         target_link_options    (gtest_vendored PRIVATE -fsanitize=address,undefined)
+        target_compile_options (TapiocaClipper2 PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
     endif ()
 endif ()
 

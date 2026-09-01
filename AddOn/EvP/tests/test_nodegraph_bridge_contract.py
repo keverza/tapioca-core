@@ -185,3 +185,104 @@ def test_palette_items_exist_before_dg_event_processing_starts():
     assert "surface == nullptr" in resized, (
         "PanelResized must null-check surface before dereferencing it"
     )
+
+
+# ---------------------------------------------------------------------------
+# UI-1/UI-2. The parameter edit descriptor.
+#
+# Same drift as the display enum above, one layer down: a widget the runtime can
+# emit but the catalog schema does not admit makes GraphGetNodeTypes fail its own
+# schema, and that is still the first call the editor makes.
+# ---------------------------------------------------------------------------
+
+
+def _ui_schema() -> str:
+    """The `ui` object inside the catalog schema's parameter item."""
+    schema = _catalog_schema()
+    start = schema.index('"ui":{"type":"object"')
+    return schema[start:]
+
+
+@pytest.mark.parametrize(
+    ("function", "schema_property"),
+    [
+        ("ParameterWidgetName", "widget"),
+        ("ParameterOptionSourceName", "optionSource"),
+    ],
+)
+def test_catalog_schema_admits_every_ui_value_the_runtime_can_emit(function, schema_property):
+    emitted = _names_returned_by(function, _REGISTRY)
+    allowed = _enum_in_schema(_ui_schema(), schema_property)
+    missing = emitted - allowed
+    assert not missing, (
+        f"{function} can return {sorted(missing)}, which the catalog response "
+        f"schema's ui.'{schema_property}' enum does not allow."
+    )
+
+
+@pytest.mark.parametrize(
+    ("enum_name", "names_function"),
+    [
+        ("ParameterWidget", "ParameterWidgetName"),
+        ("ParameterOptionSource", "ParameterOptionSourceName"),
+    ],
+)
+def test_every_ui_enum_member_has_a_name(enum_name, names_function):
+    body = (
+        _NODETYPE.read_text(encoding="utf-8")
+        .split(f"enum class {enum_name} {{")[1]
+        .split("};")[0]
+    )
+    members = re.findall(r"^\s{4}(\w+),", body, re.MULTILINE)
+    assert len(members) >= 2, f"{enum_name} members could not be read"
+    names = _names_returned_by(names_function, _REGISTRY)
+    assert len(names) == len(members), (
+        f"{enum_name} has {len(members)} members but {names_function} returns "
+        f"{len(names)} names - a member added without a name falls through to "
+        f"the default and is silently mislabelled."
+    )
+
+
+def test_the_ui_descriptor_is_optional_and_its_bounds_are_omitted_when_absent():
+    """Absence has to stay expressible.
+
+    A parameter registered before UI-1 declares no descriptor at all, and a
+    client must be able to tell that from one that asked for the fallback - so
+    `ui` is not required. The numeric bounds inside it are not required either:
+    zero is a legal minimum, GS::ObjectState cannot encode null, and a sentinel
+    would be indistinguishable from a real value.
+    """
+    schema = _catalog_schema()
+    parameter_required = re.search(
+        r'"required":\["parameterId","label","valueType","required"\]', schema
+    )
+    assert parameter_required is not None, "the parameter item's required list changed shape"
+
+    ui = _ui_schema()
+    # The descriptor's own required list, not the nested option item's - the
+    # option object is declared inside it and its list comes first.
+    listed = next(
+        (
+            set(re.findall(r'"([^"]+)"', group))
+            for group in re.findall(r'"required":\[([^\]]*)\]', ui)
+            if '"widget"' in group
+        ),
+        None,
+    )
+    assert listed is not None, "the ui descriptor has no required list of its own"
+    assert listed == {
+        "widget", "section", "order", "help", "unit", "components", "options", "optionSource",
+    }
+    for optional in ("minimum", "maximum", "step", "decimals",
+                     "minimumParameter", "maximumParameter", "stepParameter",
+                     "decimalsParameter"):
+        assert f'"{optional}"' in ui, f"ui.{optional} is no longer projected"
+        assert optional not in listed, (
+            f"ui.{optional} must stay optional; a required bound cannot express "
+            f"'this parameter has no bound'"
+        )
+
+
+def test_an_option_value_uses_the_response_encoding():
+    """Options are OUTBOUND, like defaultValue - see the test above."""
+    assert '"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"value":{"$ref":"#/$defs/value"}}' in _catalog_schema()

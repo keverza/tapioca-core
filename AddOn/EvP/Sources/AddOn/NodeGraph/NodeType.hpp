@@ -70,6 +70,119 @@ enum class NodeDisplay {
 
 const char* NodeDisplayName (NodeDisplay display);
 
+// ---------------------------------------------------------------------------
+// UI-1. How a parameter is EDITED, as a projection of the node type.
+//
+// A closed native-validated enum, never a component name: the widget vocabulary
+// is a contract between the runtime and every client, and a client that could
+// name its own component would make the catalog a frontend config file. See
+// docs/architecture/api/HANDOFF-NodeGraphUIBuilder.md section 4.
+//
+// Metadata is a DISPLAY AND INPUT hint only. It never changes a parameter's
+// ValueType, never makes a required parameter optional, and the evaluator never
+// reads it - a node clamped by its own body stays clamped whether or not a
+// client honoured the range.
+enum class ParameterWidget {
+    // No opinion. The client picks from the ValueType, which is what every
+    // parameter registered before this existed still does.
+    Auto,
+
+    // A number typed into a field. `minimum`, `maximum`, `step` and `decimals`
+    // apply.
+    Number,
+
+    // The same number, dragged. Requires a bounded range, because a slider
+    // without one has nothing to drag along.
+    Slider,
+
+    // A bool, as a switch.
+    Boolean,
+
+    // One value chosen from `options`, or from what `optionSource` enumerates.
+    Select,
+
+    // A single line of text.
+    Text,
+
+    // Point3, as one row of component fields - the shape the reference image
+    // shows. `components` names the axes.
+    Vector,
+
+    // Point3, likewise, but positional: a client may offer a pick-in-model
+    // affordance for a point where it would not for a direction.
+    Point,
+
+    // A canonical hex colour string. No new ValueType: the value stays String.
+    Color,
+
+    // Shown, not edited. The fallback for a value a client cannot author.
+    ReadOnly,
+};
+
+const char* ParameterWidgetName (ParameterWidget widget);
+
+// Where a Select's options come from when they are not literal.
+//
+// ⚠️ THE BROWSER NEVER ENUMERATES A MODEL DOMAIN. A layer list is Archicad's to
+// answer, and it changes with the open project, so it cannot live in a static
+// catalog either. The parameter names the DOMAIN; a client asks the native
+// attribute listing for the members. Same names-not-indices policy the palette's
+// pickers already follow - the value carried is the attribute NAME (a Pen is the
+// exception and carries its number).
+enum class ParameterOptionSource {
+    None,
+    Layer,
+    Pen,
+    Fill,
+    LineType,
+    Surface,
+    BuildingMaterial,
+    Composite,
+    Profile,
+};
+
+const char* ParameterOptionSourceName (ParameterOptionSource source);
+
+struct ParameterOption {
+    std::string label;
+    Value value;
+};
+
+struct ParameterUi {
+    ParameterWidget widget = ParameterWidget::Auto;
+
+    // A flat grouping key. Deliberately not a path and not a tree: recursive
+    // layout is a separate decision and an unusable one to guess at now.
+    std::string section;
+    int order = 0;
+    std::string help;
+
+    // Drawn after the field - "mm", "deg". Presentation only: the value is
+    // always in the runtime's own units.
+    std::string unit;
+
+    std::optional<double> minimum;
+    std::optional<double> maximum;
+    std::optional<double> step;
+    std::optional<int> decimals;
+
+    // A sibling parameter supplying the live bound instead of the constant
+    // above. This is what makes a slider whose range and precision the USER
+    // controls expressible without the client branching on nodeType: the range
+    // is three more ordinary parameters, and the slider says which.
+    std::string minimumParameter;
+    std::string maximumParameter;
+    std::string stepParameter;
+    std::string decimalsParameter;
+
+    // Axis labels for Vector and Point. Two or three entries.
+    std::vector<std::string> components;
+
+    // Literal options. Mutually exclusive with optionSource.
+    std::vector<ParameterOption> options;
+    ParameterOptionSource optionSource = ParameterOptionSource::None;
+};
+
 struct PortSchema {
     std::string id;
     std::string label;
@@ -84,6 +197,10 @@ struct ParameterSchema {
     ValueType valueType = ValueType::Absent;
     bool required = false;
     std::optional<Value> defaultValue;
+
+    // Absent is valid and is the state every parameter registered before UI-1
+    // is still in: a client falls back to a control derived from the ValueType.
+    std::optional<ParameterUi> ui;
 };
 
 // Stage F3: one input forwarded to one output while the node is bypassed.

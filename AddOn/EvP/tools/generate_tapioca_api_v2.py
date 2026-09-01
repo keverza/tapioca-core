@@ -43,9 +43,9 @@ from typing import Any
 # 2026-08-31, PLAT-NODEGRAPH-RUNTIME: +1 for GraphSelectionAction, the selection
 # set node's five buttons. It reads and sets Archicad's SELECTION, which is host
 # UI state rather than model state, so it is not a model write.
-EXPECTED_REGISTRY_COMMANDS = 158
+EXPECTED_REGISTRY_COMMANDS = 160
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 177
+EXPECTED_TOTAL_COMMANDS = 179
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

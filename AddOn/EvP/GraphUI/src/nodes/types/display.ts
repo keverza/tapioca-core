@@ -1,4 +1,4 @@
-import type { NodeTypeSchema } from '../../types'
+import type { GraphValue, NodeTypeSchema } from '../../types'
 import type { NodeBodyMode } from './node'
 
 export type DisplayRepresentation = 'default' | 'shaded' | 'wireframe' | 'ghosted' | 'points' | 'bounds'
@@ -50,6 +50,97 @@ export function categoryColor(category: string): string {
   let hash = 0
   for (const character of category) hash = (hash * 31 + character.charCodeAt(0)) >>> 0
   return CATEGORY_COLORS[hash % CATEGORY_COLORS.length]
+}
+
+/**
+ * A port's colour, by the KIND OF VALUE it carries.
+ *
+ * ⚠️ THE NUB'S COLOUR IS THE TYPE, NOT THE NODE. It used to inherit the node's
+ * category colour, which meant two ports on the same node looked identical and
+ * a number and a mesh looked the same wherever they came from - so the one
+ * thing a user needs to see before dragging a wire (will these two connect?) was
+ * the one thing the colour did not say. Families share a colour on purpose:
+ * every geometric value is one hue, because "is this geometry" is the question
+ * being asked at a glance, not "is this a polyline or a mesh".
+ *
+ * Chosen to stay apart at 11px on both the dark and the light canvas, and each
+ * pair differs in lightness as well as hue so the distinction survives the
+ * common colour-vision deficiencies. The nub is never the ONLY channel: the
+ * port's label and its hover card both name the type in words.
+ */
+const PORT_COLORS: Record<string, string> = {
+  double: '#4f9bd9',
+  integer: '#4f9bd9',
+  bool: '#d1584f',
+  string: '#d9a441',
+  point3: '#e0709f',
+  polyline: '#e0709f',
+  polygon: '#e0709f',
+  mesh: '#e0709f',
+  archicadElementRef: '#4fb3a5',
+  list: '#9b87c9',
+}
+
+/** The grey a port of no declared type gets - `absent` means "any type" here. */
+export const ANY_PORT_COLOR = '#8a97a6'
+
+export function portColor(valueType: string): string {
+  return PORT_COLORS[valueType] ?? ANY_PORT_COLOR
+}
+
+/**
+ * How much data a port carries: one thing, a list of things, or a tree of them.
+ *
+ * ⚠️ THIS IS THE OTHER HALF OF THE NUB, AND IT IS NOT DECORATION. A structure
+ * mismatch is the failure that bites hardest during quick edits - a list dropped
+ * onto an item input silently iterates, a tree flattens, and the graph produces
+ * a confidently wrong answer rather than an error. Grasshopper's answer is to
+ * draw it on the port itself, and it is drawn WHETHER OR NOT anything is wired,
+ * so the check happens before the drag rather than after the result looks odd.
+ *
+ * Drawn on both sides on purpose, even though the reference image marks only
+ * outputs: the mismatch is between what one port PRODUCES and what the other
+ * EXPECTS, and showing one side of a comparison is showing none of it.
+ *
+ * The shapes follow Grasshopper's, because they are the ones a user of that
+ * tool already reads: one outline, a doubled outline, a dashed doubled outline.
+ */
+export type PortStructure = 'item' | 'list' | 'tree'
+
+/**
+ * The structure of a value the runtime actually produced.
+ *
+ * The catalog's encoding expands ONE level - a list's items arrive as leaves
+ * that still carry their own valueType - which is exactly enough to tell a list
+ * from a tree without shipping the whole value. A list whose first items are
+ * themselves lists is a tree; a list of anything else is a list.
+ */
+export function structureOfValue(value: GraphValue | undefined): PortStructure | undefined {
+  if (value === undefined || value.valueType !== 'list') return value === undefined ? undefined : 'item'
+  const items = value.items ?? []
+  return items.some((item) => item.valueType === 'list') ? 'tree' : 'list'
+}
+
+/**
+ * What a port shows.
+ *
+ * A produced value wins, because it is what the port really carries. With no
+ * run yet, the DECLARED type answers instead - a `list` output, or an input that
+ * accepts multiple connections - so a freshly placed node already shows its
+ * shape rather than waiting for an evaluation to admit it.
+ */
+export function portStructure(
+  port: { valueType: string; acceptsMultiple?: boolean },
+  value?: GraphValue,
+): PortStructure {
+  return structureOfValue(value) ?? (port.valueType === 'list' || port.acceptsMultiple === true ? 'list' : 'item')
+}
+
+/** The structure, in words, for the hover card - colour and shape are never the only channel. */
+export function describeStructure(structure: PortStructure): string {
+  if (structure === 'tree') return 'tree of lists'
+  if (structure === 'list') return 'list'
+  return 'single item'
 }
 
 export function nodeDisplayName(schema: NodeTypeSchema, nickname?: string): string {

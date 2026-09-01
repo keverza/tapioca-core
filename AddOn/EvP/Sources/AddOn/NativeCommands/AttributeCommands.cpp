@@ -3,7 +3,7 @@
 
 #include "NativeCommands/AttributeCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
-#include "NativeCommands/CommandUtils.hpp"      // AttributeNameToIndex
+#include "NativeCommands/CommandUtils.hpp" // AttributeNameToIndex
 
 // ACAPI does not expose a profile attribute's vector image directly
 // (ACAPI_Attribute_GetDefExt is documented for lines/fills/composites/layers/zones
@@ -15,11 +15,11 @@
 #include "ProfileVectorImageOperations.hpp"
 
 #include <memory>
+#include <utility>
 
 namespace geomsrv {
 
 namespace {
-
 
 // ---------------------------------------------------------------------------
 // EvP.GetAttributeInfo { name, kind } -> composite thickness / profile bbox.
@@ -46,8 +46,11 @@ namespace {
 // nest — APIERR_REFUSEDCMD).
 // ---------------------------------------------------------------------------
 class GetAttributeInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetAttributeInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetAttributeInfo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -59,16 +62,19 @@ public:
             return NativeCommandResult::Failure ("need kind = composite|profile|buildingMaterial");
 
         API_AttrTypeID typeID;
-        if      (kind == "composite")        typeID = API_CompWallID;
-        else if (kind == "profile")          typeID = API_ProfileID;
-        else if (kind == "buildingMaterial") typeID = API_BuildingMaterialID;
+        if (kind == "composite")
+            typeID = API_CompWallID;
+        else if (kind == "profile")
+            typeID = API_ProfileID;
+        else if (kind == "buildingMaterial")
+            typeID = API_BuildingMaterialID;
         else
             return NativeCommandResult::Failure ("kind must be composite|profile|buildingMaterial");
 
         API_AttributeIndex idx;
         if (!AttributeNameToIndex (typeID, name, idx))
-            return NativeCommandResult::Failure (GS::UniString::Printf ("%s not found: %T",
-                                                        kind.ToCStr ().Get (), name.ToPrintf ()));
+            return NativeCommandResult::Failure (
+                GS::UniString::Printf ("%s not found: %T", kind.ToCStr ().Get (), name.ToPrintf ()));
 
         GS::ObjectState os;
         os.Add ("name", name);
@@ -83,8 +89,9 @@ public:
             attribute.header.index = idx;
             const GSErrCode err = ACAPI_Attribute_Get (&attribute);
             if (err != NoError)
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Attribute_Get", err, "API_CompWallID (composite thickness)"));
-            os.Add ("thickness", attribute.compWall.totalThick);   // meters
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_Attribute_Get", err, "API_CompWallID (composite thickness)"));
+            os.Add ("thickness", attribute.compWall.totalThick); // meters
             return os;
         }
 
@@ -93,26 +100,33 @@ public:
         // the project is byte-for-byte unchanged once the scope closes.
         if (kind == "profile") {
             double outHeight = 0.0, outWidth = 0.0;
-            bool   gotIt     = false;
+            bool gotIt = false;
             GS::UniString diagError;
 
-            const GSErrCode scopeErr = ACAPI_CallUndoableCommand (
-                GS::UniString ("EvP.GetAttributeInfo: profile probe"),
-                [&] () -> GSErrCode {
+            const GSErrCode scopeErr =
+                ACAPI_CallUndoableCommand (GS::UniString ("EvP.GetAttributeInfo: profile probe"), [&] () -> GSErrCode {
                     API_Element element = {};
                     element.header.type = API_WallID;
                     GSErrCode err = ACAPI_Element_GetDefaults (&element, nullptr);
-                    if (err != NoError) { diagError = EVP_ACAPI_FAIL ("ACAPI_Element_GetDefaults", err, "temp wall"); return err; }
+                    if (err != NoError) {
+                        diagError = EVP_ACAPI_FAIL ("ACAPI_Element_GetDefaults", err, "temp wall");
+                        return err;
+                    }
 
                     element.wall.modelElemStructureType = API_ProfileStructure;
-                    element.wall.profileType            = APISect_Poly;
-                    element.wall.profileAttr            = idx;
-                    element.wall.begC.x = 0.0;  element.wall.begC.y = 0.0;
-                    element.wall.endC.x = 0.001; element.wall.endC.y = 0.0;
+                    element.wall.profileType = APISect_Poly;
+                    element.wall.profileAttr = idx;
+                    element.wall.begC.x = 0.0;
+                    element.wall.begC.y = 0.0;
+                    element.wall.endC.x = 0.001;
+                    element.wall.endC.y = 0.0;
                     // GetDefaults gives a real height; don't zero it — a 0-height
                     // wall could be rejected or change the memo's customOrigProfile.
                     err = ACAPI_Element_Create (&element, nullptr);
-                    if (err != NoError) { diagError = EVP_ACAPI_FAIL ("ACAPI_Element_Create", err, "temp profiled wall"); return err; }
+                    if (err != NoError) {
+                        diagError = EVP_ACAPI_FAIL ("ACAPI_Element_Create", err, "temp profiled wall");
+                        return err;
+                    }
                     const API_Guid tempGuid = element.header.guid;
 
                     API_ElementMemo memo = {};
@@ -129,14 +143,17 @@ public:
                             const ProfileVectorImageOperations::Dimensions dims =
                                 ProfileVectorImageOperations::CalculateBuildingDimensions (*memo.customOrigProfile);
                             outHeight = dims.height;
-                            outWidth  = dims.width;
+                            outWidth = dims.width;
                             gotIt = true;
-                        } catch (const GS::Exception& ex) {
+                        }
+                        catch (const GS::Exception& ex) {
                             diagError = GS::UniString ("CalculateBuildingDimensions threw: ") + ex.GetMessage ();
-                        } catch (...) {
+                        }
+                        catch (...) {
                             diagError = "CalculateBuildingDimensions threw an unknown exception";
                         }
-                    } else {
+                    }
+                    else {
                         diagError = "memo.customOrigProfile was null";
                     }
 
@@ -154,18 +171,134 @@ public:
                 });
 
             if (scopeErr != NoError)
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_CallUndoableCommand", scopeErr,
-                                                      GS::UniString ("profile probe; inner failure: ") + diagError));
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_CallUndoableCommand", scopeErr,
+                                    GS::UniString ("profile probe; inner failure: ") + diagError));
             if (!gotIt)
-                return NativeCommandResult::Failure (GS::UniString::Printf ("profile geometry unreadable: %T",
-                                                            diagError.ToPrintf ()));
-            os.Add ("height", outHeight);   // meters
-            os.Add ("width",  outWidth);    // meters
+                return NativeCommandResult::Failure (
+                    GS::UniString::Printf ("profile geometry unreadable: %T", diagError.ToPrintf ()));
+            os.Add ("height", outHeight); // meters
+            os.Add ("width", outWidth);   // meters
             return os;
         }
 
         // BUILDING MATERIAL — nothing to read past the index; the caller mainly
         // wants the name resolution verified.
+        return os;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// EvP.ListAttributes { kind } -> every attribute of that kind in the open
+// project, as a picker's rows.
+//
+// WHY THIS EXISTS. Inside Archicad's own dialogs an attribute picker is a
+// native control (APIUserControlType_Layer and friends), and a command palette
+// parameter declared `evp.Layer` gets one for free. A picker drawn in a WEBVIEW
+// - the node graph editor - has no such control, and the browser must not
+// enumerate a model domain itself: the list depends on the open project, so it
+// cannot live in a static catalog either. So the domain is named by the node
+// catalog and the MEMBERS are asked for here, which keeps the names-not-indices
+// policy intact and gives both surfaces one answer rather than two.
+//
+// `label` is what a person picks; exactly one of `name` or `number` is what
+// gets stored. Pens are the only kind keyed by number - a pen IS its number -
+// and the only kind that carries a colour, because a pen picker without the
+// colours is not a pen picker.
+//
+// A read, and cheap: one ACAPI_Attribute_GetAttributesByType per call.
+// MAIN THREAD ONLY, which the base class is what guarantees.
+// ---------------------------------------------------------------------------
+class ListAttributesCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "ListAttributes";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::UniString kind;
+        if (!params.Get ("kind", kind) || kind.IsEmpty ())
+            return NativeCommandResult::Failure ("need kind");
+
+        GS::ObjectState os;
+        os.Add ("kind", kind);
+        GS::Array<GS::ObjectState> rows;
+
+        // PENS are not in the attribute table; they live in the active pen
+        // table and are read one at a time by index.
+        if (kind == "pen") {
+            UInt32 count = 0;
+            if (const GSErrCode err = ACAPI_Attribute_GetPenNum (count); err != NoError)
+                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Attribute_GetPenNum", err, "listing pens"));
+            for (UInt32 i = 1; i <= count; ++i) {
+                API_Pen pen = {};
+                pen.index = static_cast<short> (i);
+                if (ACAPI_Attribute_GetPen (pen) != NoError)
+                    continue; // a gap in the table is not a failure of the listing
+                const GS::UniString description (pen.description);
+                GS::ObjectState row;
+                row.Add ("label",
+                         description.IsEmpty ()
+                             ? GS::UniString::Printf ("Pen %d", static_cast<int> (pen.index))
+                             : GS::UniString::Printf ("%d  %T", static_cast<int> (pen.index), description.ToPrintf ()));
+                row.Add ("number", static_cast<Int32> (pen.index));
+                row.Add ("index", static_cast<Int32> (pen.index));
+                row.Add ("color",
+                         GS::UniString::Printf ("#%02X%02X%02X", static_cast<int> (pen.rgb.f_red * 255.0 + 0.5),
+                                                static_cast<int> (pen.rgb.f_green * 255.0 + 0.5),
+                                                static_cast<int> (pen.rgb.f_blue * 255.0 + 0.5)));
+                rows.Push (std::move (row));
+            }
+            os.Add ("count", static_cast<Int32> (rows.GetSize ()));
+            os.Add ("attributes", rows);
+            return os;
+        }
+
+        API_AttrTypeID typeID;
+        if (kind == "layer")
+            typeID = API_LayerID;
+        else if (kind == "fill")
+            typeID = API_FilltypeID;
+        else if (kind == "lineType")
+            typeID = API_LinetypeID;
+        else if (kind == "surface")
+            typeID = API_MaterialID;
+        else if (kind == "buildingMaterial")
+            typeID = API_BuildingMaterialID;
+        else if (kind == "composite")
+            typeID = API_CompWallID;
+        else if (kind == "profile")
+            typeID = API_ProfileID;
+        else
+            return NativeCommandResult::Failure (
+                "kind must be layer|pen|fill|lineType|surface|buildingMaterial|composite|profile");
+
+        GS::Array<API_Attribute> attributes;
+        if (const GSErrCode err = ACAPI_Attribute_GetAttributesByType (typeID, attributes); err != NoError)
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_Attribute_GetAttributesByType", err, GS::UniString ("listing ") + kind));
+
+        for (const API_Attribute& attribute : attributes) {
+            const GS::UniString name (attribute.header.name);
+            if (name.IsEmpty ())
+                continue; // an unnamed attribute cannot be picked by name
+            GS::ObjectState row;
+            row.Add ("label", name);
+            row.Add ("name", name);
+            row.Add ("index", attribute.header.index.ToInt32_Deprecated ());
+            // Reported, not filtered: a hidden layer is still a legal choice,
+            // and a picker that quietly dropped it would look like the layer
+            // had been deleted. The caller decides how to draw it.
+            if (typeID == API_LayerID) {
+                row.Add ("hidden", (attribute.header.flags & APILay_Hidden) != 0);
+                row.Add ("locked", (attribute.header.flags & APILay_Locked) != 0);
+            }
+            rows.Push (std::move (row));
+        }
+        os.Add ("count", static_cast<Int32> (rows.GetSize ()));
+        os.Add ("attributes", rows);
         return os;
     }
 };
@@ -193,10 +326,45 @@ const NativeCommandRegistration kAttributeCommandRegistrations[] = {
             },
             "additionalProperties":false,
             "required":["name","kind","index"]
+        })json" },
+    { "ListAttributes", &MakeRegisteredNativeCommand<ListAttributesCommand>, false,
+      R"json({
+            "type":"object",
+            "properties":{
+                "kind":{"type":"string","enum":["layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]}
+            },
+            "additionalProperties":false,
+            "required":["kind"]
+        })json",
+      R"json({
+            "type":"object",
+            "properties":{
+                "kind":{"type":"string","enum":["layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]},
+                "count":{"type":"integer","minimum":0},
+                "attributes":{
+                    "type":"array",
+                    "items":{
+                        "type":"object",
+                        "properties":{
+                            "label":{"type":"string"},
+                            "name":{"type":"string"},
+                            "number":{"type":"integer"},
+                            "index":{"type":"integer"},
+                            "color":{"type":"string"},
+                            "hidden":{"type":"boolean"},
+                            "locked":{"type":"boolean"}
+                        },
+                        "additionalProperties":false,
+                        "required":["label","index"]
+                    }
+                }
+            },
+            "additionalProperties":false,
+            "required":["kind","count","attributes"]
         })json" }
 };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetAttributeCommandRegistrations ()
 {

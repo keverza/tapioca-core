@@ -7,6 +7,7 @@
   import NodeControls from './NodeControls.svelte'
   import NodePort from './NodePort.svelte'
   import NodeViewer from './NodeViewer.svelte'
+  import { portStructure } from './types/display'
 
   let { id, data, definition, bodyMode, viewMode, portLayout, viewerVisible, onbrowse }: { id: string; data: SchemaNodeData; definition: NodeDefinition; bodyMode: NodeBodyMode; viewMode: NodeViewMode; portLayout: PortLayout; viewerVisible: boolean; onbrowse: () => void } = $props()
   function connectReference(reference: PortReference, portId: string): void {
@@ -22,6 +23,7 @@
   })
   const panelLines = $derived(data.result?.outputs?.find((output) => output.portId === 'text')?.text?.split('\n') ?? [])
   function outputText(portId: string): string | undefined { return data.result?.outputs?.find((output) => output.portId === portId)?.summary }
+  function outputValue(portId: string) { return data.result?.outputs?.find((output) => output.portId === portId)?.value }
   const actions: { action: SelectionAction; label: string }[] = [
     { action: 'update', label: 'Update' }, { action: 'add', label: 'Add' }, { action: 'remove', label: 'Remove' }, { action: 'reselect', label: 'Reselect' }, { action: 'clear', label: 'Clear' },
   ]
@@ -30,11 +32,11 @@
 
 <div class="body" class:compact={viewMode === 'compact'} class:expanded={viewMode === 'expanded'} class:vertical={portLayout === 'vertical'}>
 {#if viewMode !== 'compact' && (bodyMode === 'parameters' || bodyMode === 'parameters+viewer')}
-  <NodeControls nodeId={id} {definition} parameters={data.parameters} outputs={data.result?.outputs} layout={portLayout} connections={data.portConnections ?? []} messages={data.messages} onparameter={data.onparameterchange} onreference={data.onportreference === undefined ? undefined : connectReference} onportmenu={data.onportcontextmenu === undefined ? undefined : portMenu} />
+  <NodeControls nodeId={id} {definition} parameters={data.parameters} outputs={data.result?.outputs} layout={portLayout} connections={data.portConnections ?? []} messages={data.messages} attributeOptions={data.attributeOptions} onparameter={data.onparameterchange} onreference={data.onportreference === undefined ? undefined : connectReference} onportmenu={data.onportcontextmenu === undefined ? undefined : portMenu} onrequestoptions={data.onrequestoptions} />
 {:else}
   <section class="ports">
-    <div>{#each definition.inputs as input}<NodePort nodeId={id} port={input} direction="input" layout={portLayout} connection={data.portConnections?.find((item) => item.portId === input.portId && item.direction === 'input')} messages={data.messages?.filter((message) => message.portId === input.portId)} oncontextmenu={data.onportcontextmenu === undefined ? undefined : portMenu} />{/each}</div>
-    <div>{#each definition.outputs as output}<NodePort nodeId={id} port={output} direction="output" layout={portLayout} value={outputText(output.portId)} connection={data.portConnections?.find((item) => item.portId === output.portId && item.direction === 'output')} messages={data.messages?.filter((message) => message.portId === output.portId)} oncontextmenu={data.onportcontextmenu === undefined ? undefined : portMenu} />{/each}</div>
+    <div>{#each definition.inputs as input}<NodePort nodeId={id} port={input} direction="input" layout={portLayout} structure={portStructure(input)} connection={data.portConnections?.find((item) => item.portId === input.portId && item.direction === 'input')} messages={data.messages?.filter((message) => message.portId === input.portId)} oncontextmenu={data.onportcontextmenu === undefined ? undefined : portMenu} />{/each}</div>
+    <div>{#each definition.outputs as output}<NodePort nodeId={id} port={output} direction="output" layout={portLayout} value={outputText(output.portId)} structure={portStructure(output, outputValue(output.portId))} connection={data.portConnections?.find((item) => item.portId === output.portId && item.direction === 'output')} messages={data.messages?.filter((message) => message.portId === output.portId)} oncontextmenu={data.onportcontextmenu === undefined ? undefined : portMenu} />{/each}</div>
   </section>
 {/if}
 

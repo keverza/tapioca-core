@@ -11,11 +11,87 @@ export type { PortDirection, PortSchema, PortTransform } from './nodes/types/por
 export type { ExecutionMode, RuntimeStatus } from './nodes/types/runtime'
 export type { PortReference } from './nodes/types/portReference'
 
+/**
+ * UI-1. How the runtime says a parameter is EDITED.
+ *
+ * A projection of the native `ParameterUi`, never a definition authored here:
+ * `widget` is a closed enum the runtime validates at registration, not a Svelte
+ * component name, so adding a node type or a parameter needs no change in this
+ * package. See docs/architecture/api/HANDOFF-NodeGraphUIBuilder.md section 4.
+ *
+ * Every field is a DISPLAY or INPUT hint. None of it changes what the parameter
+ * means: the node clamps and rounds its own value, so a control that ignored a
+ * range would produce a wrong-looking box, never a wrong answer.
+ */
+export type ParameterWidget =
+  | 'auto'
+  | 'number'
+  | 'slider'
+  | 'boolean'
+  | 'select'
+  | 'text'
+  | 'vector'
+  | 'point'
+  | 'color'
+  | 'readOnly'
+
+/**
+ * Where a select's choices come from when they are not literal.
+ *
+ * ⚠️ NOTHING HERE ENUMERATES A MODEL DOMAIN. The layer list belongs to the open
+ * project, so it is neither static catalog data nor the browser's to compute -
+ * the parameter names the domain and the native attribute listing answers with
+ * the members.
+ */
+export type ParameterOptionSource =
+  | 'none'
+  | 'layer'
+  | 'pen'
+  | 'fill'
+  | 'lineType'
+  | 'surface'
+  | 'buildingMaterial'
+  | 'composite'
+  | 'profile'
+
+export interface ParameterOption {
+  label: string
+  value: GraphValue
+}
+
+export interface ParameterUi {
+  widget: ParameterWidget
+  section: string
+  order: number
+  help: string
+  /** Drawn after the field - "mm". Presentation only; the value is in runtime units. */
+  unit: string
+  minimum?: number
+  maximum?: number
+  step?: number
+  decimals?: number
+  /**
+   * A SIBLING PARAMETER supplying the live bound instead of the constant above.
+   * This is what makes a slider whose range and precision the user controls
+   * expressible without this package knowing which node it is looking at.
+   */
+  minimumParameter?: string
+  maximumParameter?: string
+  stepParameter?: string
+  decimalsParameter?: string
+  components: string[]
+  options: ParameterOption[]
+  optionSource: ParameterOptionSource
+}
+
 export interface ParameterSchema {
   parameterId: string
   label: string
   valueType: string
   required: boolean
+  defaultValue?: GraphValue
+  /** Absent is valid: every parameter registered before UI-1 has none. */
+  ui?: ParameterUi
 }
 
 /**
@@ -244,6 +320,16 @@ export interface SchemaNodeData extends Record<string, unknown> {
     event: MouseEvent,
     target: { nodeId: string; portId: string; direction: 'input' | 'output' },
   ) => void
+  /**
+   * What the native attribute listing answered, keyed by option source.
+   *
+   * Passed IN rather than fetched by the control, because a presentational
+   * component must not call the bridge - and because one project-wide listing
+   * serves every picker on the canvas instead of one call per node.
+   */
+  attributeOptions?: Record<string, ParameterOption[]>
+  /** A select with nothing to show asking for its domain to be listed. */
+  onrequestoptions?: (source: ParameterOptionSource) => void
   portConnections?: PortConnectionState[]
   messages?: ComponentMessage[]
 }
