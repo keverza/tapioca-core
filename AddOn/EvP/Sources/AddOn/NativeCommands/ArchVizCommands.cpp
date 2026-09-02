@@ -14,6 +14,9 @@
 #include "ArchViz/ViewportOverlayWindow.hpp"
 #include "Python/MainThreadGate.hpp"
 
+#include <utility>
+#include <vector>
+
 namespace geomsrv {
 
 namespace {
@@ -455,9 +458,9 @@ class DiligentViewportStateCommand : public MainThreadCommand {
         // was handed nothing (planAnchorVertices 0), or it is simply switched
         // off (planAnchors false).
         os.Add ("planAnchors", stats.planAnchors);
-        os.Add ("planAnchorLayerReady", stats.planAnchorLayerReady);
-        os.Add ("planAnchorVertices", (GS::Int64) stats.planAnchorVertices);
-        os.Add ("planAnchorWidthPixels", (double) stats.planAnchorWidthPixels);
+        os.Add ("planAnchorLayerReady", stats.planAnchorLayerReady); os.Add ("planAnchorVertices", (GS::Int64) stats.planAnchorVertices);
+        os.Add ("planAnchorWidthPixels", (double) stats.planAnchorWidthPixels); os.Add ("textLayerReady", stats.textLayerReady); os.Add ("textLabels", (GS::Int64) stats.textLabels);
+        os.Add ("textGlyphs", (GS::Int64) stats.textGlyphs); os.Add ("textAtlasBytes", (GS::Int64) stats.textAtlasBytes); os.Add ("textAtlasWidth", (GS::Int64) stats.textAtlasWidth); os.Add ("textAtlasHeight", (GS::Int64) stats.textAtlasHeight);
         os.Add ("selectionBridgeMode", (GS::Int32) av::selectionbridge::Mode ());
         os.Add ("debugView", (GS::Int32) av::DiligentViewport::Get ().DebugView ());
         os.Add ("renderMode", (GS::Int32) av::DiligentViewport::Get ().RenderMode ());
@@ -858,6 +861,62 @@ class SetDiligentSunCommand : public MainThreadCommand {
     }
 };
 
+class SetDiligentTextLabelsCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override { return "SetDiligentTextLabels"; }
+    bool NeedsMainThread () const override { return false; }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Array<GS::ObjectState> requested;
+        params.Get ("labels", requested);
+        std::vector<av::SceneTextLabel> labels;
+        labels.reserve (requested.GetSize ());
+        for (const GS::ObjectState& item : requested) {
+            av::SceneTextLabel label;
+            GS::UniString text;
+            GS::UniString alignment = "center";
+            double sizePixels = 18.0;
+            GS::Int64 rgba = 0xFFFFFFFFll;
+            item.Get ("x", label.anchor[0]);
+            item.Get ("y", label.anchor[1]);
+            item.Get ("z", label.anchor[2]);
+            item.Get ("text", text);
+            item.Get ("sizePixels", sizePixels);
+            item.Get ("rgba", rgba);
+            item.Get ("alignment", alignment);
+            const auto utf8 = text.ToCStr (0, GS::MaxUSize, CC_UTF8);
+            label.text = utf8.Get ();
+            label.sizePixels = static_cast<float> (sizePixels);
+            label.rgba = static_cast<uint32_t> (rgba);
+            if (alignment == "left")
+                label.alignment = av::SceneTextAlignment::Left;
+            else if (alignment == "right")
+                label.alignment = av::SceneTextAlignment::Right;
+            labels.push_back (std::move (label));
+        }
+        const GS::Int32 count = static_cast<GS::Int32> (labels.size ());
+        av::DiligentViewport::Get ().SetTextLabels (std::move (labels));
+        GS::ObjectState result;
+        result.Add ("count", count);
+        return result;
+    }
+};
+
+class ClearDiligentTextLabelsCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override { return "ClearDiligentTextLabels"; }
+    bool NeedsMainThread () const override { return false; }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        av::DiligentViewport::Get ().ClearTextLabels ();
+        GS::ObjectState result;
+        result.Add ("cleared", true);
+        return result;
+    }
+};
+
 const NativeCommandRegistration kArchVizCommandRegistrations[] = {
     { "SetOverlayFrameLatency", &MakeRegisteredNativeCommand<SetOverlayFrameLatencyCommand>, false,
       R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":3}},"additionalProperties":false,"required":["frames"]})json",
@@ -891,7 +950,7 @@ const NativeCommandRegistration kArchVizCommandRegistrations[] = {
       R"json({"type":"object","properties":{"posted":{"type":"boolean"}},"additionalProperties":false,"required":["posted"]})json" },
     { "DiligentViewportState", &MakeRegisteredNativeCommand<DiligentViewportStateCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"running":{"type":"boolean"},"initialized":{"type":"boolean"},"failed":{"type":"boolean"},"failureMessage":{"type":"string"},"frames":{"type":"integer","minimum":0},"fps":{"type":"number","minimum":0},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"resizes":{"type":"integer","minimum":0},"clearChecked":{"type":"boolean"},"diligentClearMatched":{"type":"boolean"},"nativeClearMatched":{"type":"boolean"},"diligentClearReport":{"type":"string"},"nativeClearReport":{"type":"string"},"adapter":{"type":"string"},"featureLevel":{"type":"integer","minimum":0},"presentCount":{"type":"integer","minimum":0},"stalePresents":{"type":"integer","minimum":0},"presentFailures":{"type":"integer","minimum":0},"lastPresentResult":{"type":"integer"},"frameLatency":{"type":"integer","minimum":0},"deviceRemovedReason":{"type":"integer","minimum":0},"sceneReady":{"type":"boolean"},"sceneElements":{"type":"integer","minimum":0},"sceneTriangles":{"type":"integer","minimum":0},"sceneVertices":{"type":"integer","minimum":0},"sceneGpuBytes":{"type":"integer","minimum":0},"scenePending":{"type":"integer","minimum":0},"sceneMaterials":{"type":"integer","minimum":0},"materialMisses":{"type":"integer","minimum":0},"transparentRanges":{"type":"integer","minimum":0},"sunApplied":{"type":"boolean"},"sunBelowHorizon":{"type":"boolean"},"sunX":{"type":"number"},"sunY":{"type":"number"},"sunZ":{"type":"number"},"ambient":{"type":"number","minimum":0,"maximum":1},"sunOverridden":{"type":"boolean"},"sunAzimuthDegrees":{"type":"number"},"sunBearingDegrees":{"type":"number"},"northDegrees":{"type":"number"},"sunAltitudeDegrees":{"type":"number"},"shadowReady":{"type":"boolean"},"shadowFitted":{"type":"boolean"},"shadowResolution":{"type":"integer","minimum":0},"shadowTexelMetres":{"type":"number","minimum":0},"cameraEyeX":{"type":"number"},"cameraEyeY":{"type":"number"},"cameraEyeZ":{"type":"number"},"cameraTargetX":{"type":"number"},"cameraTargetY":{"type":"number"},"cameraTargetZ":{"type":"number"},"cameraFovDegreesVertical":{"type":"number","minimum":0},"cameraSyncs":{"type":"integer","minimum":0},"cameraSource":{"type":"string"},"pickAvailable":{"type":"boolean"},"pickSeq":{"type":"integer","minimum":0},"pickedGuid":{"type":"string"},"selectedCount":{"type":"integer","minimum":0},"planAnchors":{"type":"boolean"},"planAnchorLayerReady":{"type":"boolean"},"planAnchorVertices":{"type":"integer","minimum":0},"planAnchorWidthPixels":{"type":"number","minimum":0},"selectionBridgeMode":{"type":"integer","minimum":0,"maximum":3},"overlay":{"type":"boolean"},"latitudeDegrees":{"type":"number"},"longitudeDegrees":{"type":"number"},"siteAltitudeMetres":{"type":"number"},"sunYear":{"type":"integer","minimum":0},"sunMonth":{"type":"integer","minimum":0},"sunDay":{"type":"integer","minimum":0},"sunHour":{"type":"integer","minimum":0},"sunMinute":{"type":"integer","minimum":0},"summerTime":{"type":"boolean"},"haveComputedSun":{"type":"boolean"},"computedAzimuthDegrees":{"type":"number"},"computedAltitudeDegrees":{"type":"number"},"renderMode":{"type":"integer","minimum":0,"maximum":2},"callout":{"type":"boolean"},"debugView":{"type":"integer","minimum":0,"maximum":13},"environmentLoaded":{"type":"boolean"},"environmentActive":{"type":"boolean"},"environmentMipLevels":{"type":"integer","minimum":0},"environmentAverageR":{"type":"number"},"environmentAverageG":{"type":"number"},"environmentAverageB":{"type":"number"},"environmentPath":{"type":"string"},"environmentError":{"type":"string"},"environmentPrefiltered":{"type":"boolean"},"environmentPrefilteredMips":{"type":"integer","minimum":0},"environmentPrefilterMs":{"type":"number","minimum":0},"environmentPrefilterError":{"type":"string"},"autoExposureEnabled":{"type":"boolean"},"autoExposure":{"type":"number","minimum":0},"appliedExposure":{"type":"number","minimum":0},"fixedExposure":{"type":"number","minimum":0},"sceneLuminance":{"type":"number","minimum":0},"meanAlbedo":{"type":"number","minimum":0},"aoRadiusMetres":{"type":"number","minimum":0},"whiteBalanceR":{"type":"number","minimum":0},"whiteBalanceG":{"type":"number","minimum":0},"whiteBalanceB":{"type":"number","minimum":0},"substanceNamed":{"type":"integer","minimum":0},"substanceCounts":{"type":"object","properties":{"unknown":{"type":"integer","minimum":0},"earth":{"type":"integer","minimum":0},"concrete":{"type":"integer","minimum":0},"metal":{"type":"integer","minimum":0},"plastic":{"type":"integer","minimum":0},"glass":{"type":"integer","minimum":0},"wood":{"type":"integer","minimum":0}},"additionalProperties":false}},"additionalProperties":false,"required":["overlay","latitudeDegrees","longitudeDegrees","siteAltitudeMetres","sunYear","sunMonth","sunDay","sunHour","sunMinute","summerTime","haveComputedSun","computedAzimuthDegrees","computedAltitudeDegrees","renderMode","callout","running","initialized","failed","failureMessage","frames","fps","width","height","resizes","clearChecked","diligentClearMatched","nativeClearMatched","diligentClearReport","nativeClearReport","adapter","featureLevel","presentCount","deviceRemovedReason","sceneReady","sceneElements","sceneTriangles","sceneVertices","sceneGpuBytes","scenePending","sceneMaterials","materialMisses","transparentRanges","sunApplied","sunBelowHorizon","sunX","sunY","sunZ","ambient","sunOverridden","sunAzimuthDegrees","sunBearingDegrees","northDegrees","sunAltitudeDegrees","shadowReady","shadowFitted","shadowResolution","shadowTexelMetres","cameraEyeX","cameraEyeY","cameraEyeZ","cameraTargetX","cameraTargetY","cameraTargetZ","cameraFovDegreesVertical","cameraSyncs","cameraSource","pickAvailable","pickSeq","pickedGuid","selectedCount","planAnchors","planAnchorLayerReady","planAnchorVertices","planAnchorWidthPixels","selectionBridgeMode","debugView"]})json" },
+      R"json({"type":"object","properties":{"running":{"type":"boolean"},"initialized":{"type":"boolean"},"failed":{"type":"boolean"},"failureMessage":{"type":"string"},"frames":{"type":"integer","minimum":0},"fps":{"type":"number","minimum":0},"width":{"type":"integer","minimum":0},"height":{"type":"integer","minimum":0},"resizes":{"type":"integer","minimum":0},"clearChecked":{"type":"boolean"},"diligentClearMatched":{"type":"boolean"},"nativeClearMatched":{"type":"boolean"},"diligentClearReport":{"type":"string"},"nativeClearReport":{"type":"string"},"adapter":{"type":"string"},"featureLevel":{"type":"integer","minimum":0},"presentCount":{"type":"integer","minimum":0},"stalePresents":{"type":"integer","minimum":0},"presentFailures":{"type":"integer","minimum":0},"lastPresentResult":{"type":"integer"},"frameLatency":{"type":"integer","minimum":0},"deviceRemovedReason":{"type":"integer","minimum":0},"sceneReady":{"type":"boolean"},"sceneElements":{"type":"integer","minimum":0},"sceneTriangles":{"type":"integer","minimum":0},"sceneVertices":{"type":"integer","minimum":0},"sceneGpuBytes":{"type":"integer","minimum":0},"scenePending":{"type":"integer","minimum":0},"sceneMaterials":{"type":"integer","minimum":0},"materialMisses":{"type":"integer","minimum":0},"transparentRanges":{"type":"integer","minimum":0},"sunApplied":{"type":"boolean"},"sunBelowHorizon":{"type":"boolean"},"sunX":{"type":"number"},"sunY":{"type":"number"},"sunZ":{"type":"number"},"ambient":{"type":"number","minimum":0,"maximum":1},"sunOverridden":{"type":"boolean"},"sunAzimuthDegrees":{"type":"number"},"sunBearingDegrees":{"type":"number"},"northDegrees":{"type":"number"},"sunAltitudeDegrees":{"type":"number"},"shadowReady":{"type":"boolean"},"shadowFitted":{"type":"boolean"},"shadowResolution":{"type":"integer","minimum":0},"shadowTexelMetres":{"type":"number","minimum":0},"cameraEyeX":{"type":"number"},"cameraEyeY":{"type":"number"},"cameraEyeZ":{"type":"number"},"cameraTargetX":{"type":"number"},"cameraTargetY":{"type":"number"},"cameraTargetZ":{"type":"number"},"cameraFovDegreesVertical":{"type":"number","minimum":0},"cameraSyncs":{"type":"integer","minimum":0},"cameraSource":{"type":"string"},"pickAvailable":{"type":"boolean"},"pickSeq":{"type":"integer","minimum":0},"pickedGuid":{"type":"string"},"selectedCount":{"type":"integer","minimum":0},"planAnchors":{"type":"boolean"},"planAnchorLayerReady":{"type":"boolean"},"planAnchorVertices":{"type":"integer","minimum":0},"planAnchorWidthPixels":{"type":"number","minimum":0},"textLayerReady":{"type":"boolean"},"textLabels":{"type":"integer","minimum":0},"textGlyphs":{"type":"integer","minimum":0},"textAtlasBytes":{"type":"integer","minimum":0},"textAtlasWidth":{"type":"integer","minimum":0},"textAtlasHeight":{"type":"integer","minimum":0},"selectionBridgeMode":{"type":"integer","minimum":0,"maximum":3},"overlay":{"type":"boolean"},"latitudeDegrees":{"type":"number"},"longitudeDegrees":{"type":"number"},"siteAltitudeMetres":{"type":"number"},"sunYear":{"type":"integer","minimum":0},"sunMonth":{"type":"integer","minimum":0},"sunDay":{"type":"integer","minimum":0},"sunHour":{"type":"integer","minimum":0},"sunMinute":{"type":"integer","minimum":0},"summerTime":{"type":"boolean"},"haveComputedSun":{"type":"boolean"},"computedAzimuthDegrees":{"type":"number"},"computedAltitudeDegrees":{"type":"number"},"renderMode":{"type":"integer","minimum":0,"maximum":2},"callout":{"type":"boolean"},"debugView":{"type":"integer","minimum":0,"maximum":13},"environmentLoaded":{"type":"boolean"},"environmentActive":{"type":"boolean"},"environmentMipLevels":{"type":"integer","minimum":0},"environmentAverageR":{"type":"number"},"environmentAverageG":{"type":"number"},"environmentAverageB":{"type":"number"},"environmentPath":{"type":"string"},"environmentError":{"type":"string"},"environmentPrefiltered":{"type":"boolean"},"environmentPrefilteredMips":{"type":"integer","minimum":0},"environmentPrefilterMs":{"type":"number","minimum":0},"environmentPrefilterError":{"type":"string"},"autoExposureEnabled":{"type":"boolean"},"autoExposure":{"type":"number","minimum":0},"appliedExposure":{"type":"number","minimum":0},"fixedExposure":{"type":"number","minimum":0},"sceneLuminance":{"type":"number","minimum":0},"meanAlbedo":{"type":"number","minimum":0},"aoRadiusMetres":{"type":"number","minimum":0},"whiteBalanceR":{"type":"number","minimum":0},"whiteBalanceG":{"type":"number","minimum":0},"whiteBalanceB":{"type":"number","minimum":0},"substanceNamed":{"type":"integer","minimum":0},"substanceCounts":{"type":"object","properties":{"unknown":{"type":"integer","minimum":0},"earth":{"type":"integer","minimum":0},"concrete":{"type":"integer","minimum":0},"metal":{"type":"integer","minimum":0},"plastic":{"type":"integer","minimum":0},"glass":{"type":"integer","minimum":0},"wood":{"type":"integer","minimum":0}},"additionalProperties":false}},"additionalProperties":false,"required":["overlay","latitudeDegrees","longitudeDegrees","siteAltitudeMetres","sunYear","sunMonth","sunDay","sunHour","sunMinute","summerTime","haveComputedSun","computedAzimuthDegrees","computedAltitudeDegrees","renderMode","callout","running","initialized","failed","failureMessage","frames","fps","width","height","resizes","clearChecked","diligentClearMatched","nativeClearMatched","diligentClearReport","nativeClearReport","adapter","featureLevel","presentCount","deviceRemovedReason","sceneReady","sceneElements","sceneTriangles","sceneVertices","sceneGpuBytes","scenePending","sceneMaterials","materialMisses","transparentRanges","sunApplied","sunBelowHorizon","sunX","sunY","sunZ","ambient","sunOverridden","sunAzimuthDegrees","sunBearingDegrees","northDegrees","sunAltitudeDegrees","shadowReady","shadowFitted","shadowResolution","shadowTexelMetres","cameraEyeX","cameraEyeY","cameraEyeZ","cameraTargetX","cameraTargetY","cameraTargetZ","cameraFovDegreesVertical","cameraSyncs","cameraSource","pickAvailable","pickSeq","pickedGuid","selectedCount","planAnchors","planAnchorLayerReady","planAnchorVertices","planAnchorWidthPixels","textLayerReady","textLabels","textGlyphs","textAtlasBytes","textAtlasWidth","textAtlasHeight","selectionBridgeMode","debugView"]})json" },
     { "StartDiligentCapture", &MakeRegisteredNativeCommand<StartDiligentCaptureCommand>, false,
       R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"renderQuality":{"type":"string","enum":["fast","realistic"]},"storySlices":{"type":"boolean"},"storySliceFill":{"type":"boolean"},"storySliceOccluded":{"type":"string","enum":["hidden","dashed","solid"]},"storySliceWidthPixels":{"type":"number","exclusiveMinimum":0,"maximum":32},"storySliceRgba":{"type":"integer"},"storySliceFillRgba":{"type":"integer"},"camera":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}},"additionalProperties":false,"required":["width","height","renderQuality","camera"]})json", R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","const":"running"}},"additionalProperties":false,"required":["id","status"]})json" },
     { "DiligentCaptureState", &MakeRegisteredNativeCommand<DiligentCaptureStateCommand>, false,
@@ -913,7 +972,13 @@ const NativeCommandRegistration kArchVizCommandRegistrations[] = {
       R"json({"type":"object","properties":{"mode":{"type":"integer","minimum":0,"maximum":2}},"additionalProperties":false,"required":["mode"]})json" },
     { "SetDiligentCallout", &MakeRegisteredNativeCommand<SetDiligentCalloutCommand>, false,
       R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json",
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json" },
+       R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json" },
+    { "SetDiligentTextLabels", &MakeRegisteredNativeCommand<SetDiligentTextLabelsCommand>, false,
+      R"json({"type":"object","properties":{"labels":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"x":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"y":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"z":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"text":{"type":"string","minLength":1,"maxLength":512},"sizePixels":{"type":"number","minimum":6,"maximum":192},"rgba":{"type":"integer","minimum":0,"maximum":4294967295},"alignment":{"type":"string","enum":["left","center","right"]}},"additionalProperties":false,"required":["x","y","z","text"]}}},"additionalProperties":false,"required":["labels"]})json",
+      R"json({"type":"object","properties":{"count":{"type":"integer","minimum":0,"maximum":256}},"additionalProperties":false,"required":["count"]})json" },
+    { "ClearDiligentTextLabels", &MakeRegisteredNativeCommand<ClearDiligentTextLabelsCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"cleared":{"type":"boolean","const":true}},"additionalProperties":false,"required":["cleared"]})json" },
     { "SetDiligentSun", &MakeRegisteredNativeCommand<SetDiligentSunCommand>, false,
       R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]})json",
       R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number"},"altitudeDegrees":{"type":"number"}},"additionalProperties":false,"required":["enabled","azimuthDegrees","altitudeDegrees"]})json" },

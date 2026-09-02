@@ -1,6 +1,7 @@
 #ifndef EVP_NODEGRAPH_GRAPH_HPP
 #define EVP_NODEGRAPH_GRAPH_HPP
 
+#include "NodeGraph/NodeType.hpp"
 #include "NodeGraph/Value.hpp"
 
 #include <cstdint>
@@ -60,6 +61,23 @@ struct Node {
 
     // Persisted with the graph. See ExecutionMode.
     ExecutionMode executionMode = ExecutionMode::Enabled;
+
+    // Ports declared by this INSTANCE rather than by its type, and read only
+    // when the type sets NodeType::instancePorts.
+    //
+    // â ï¸ EVERY OTHER TYPE IN THE CATALOG STILL OWNS ITS PORTS, AND MUST.
+    // A type's port list is a contract a graph file, a library component and a
+    // client all rely on; making it per-node everywhere would mean no client
+    // could draw a node it had not first fetched an instance of. These exist for
+    // the one family whose interface is genuinely authored elsewhere - a script
+    // file the user edits in VSCode - where the type cannot know the ports
+    // because the type is not where they are written down.
+    //
+    // Resolution goes through ResolvedInputs/ResolvedOutputs in NodeRegistry.hpp,
+    // never by reading either list directly, so a type that does not opt in can
+    // never be given ports by a hand-edited document.
+    std::vector<PortSchema> dynamicInputs;
+    std::vector<PortSchema> dynamicOutputs;
 };
 
 struct Edge {

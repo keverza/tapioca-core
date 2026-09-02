@@ -60,7 +60,7 @@ export function previewTargetOf(schema: NodeTypeSchema, parameters: GraphParamet
 
 export function bodyModeFor(schema: NodeTypeSchema): NodeBodyMode {
   if (schema.display === 'preview') return schema.parameters.length > 0 ? 'parameters+viewer' : 'viewer'
-  if (schema.display === 'text' || schema.display === 'selectionSet') return 'custom'
+  if (schema.display === 'text' || schema.display === 'selectionSet' || schema.display === 'script') return 'custom'
   // INPUTS count as well as parameters. An input with nothing wired to it takes
   // a typed-in value - the runtime stores it as a parameter under the port's own
   // id - so a node like Multiply, which declares no parameters at all, still

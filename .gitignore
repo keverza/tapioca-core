@@ -84,3 +84,4 @@ AddOn/EvP/Sources/TapiocaDynamo/obj/
 # Headless Dynamo runner build intermediates; CMake stages its published output.
 /AddOn/EvP/Sources/DynamoRunner/obj/
 /AddOn/EvP/Sources/DynamoRunner/bin/
+/AddOn/EvP/Sources/TapiocaDynamoNodesUI/obj/Release

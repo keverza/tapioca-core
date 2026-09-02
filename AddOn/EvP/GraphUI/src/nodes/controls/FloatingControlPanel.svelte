@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { ExecutionMode, NodeTypeSchema } from '../../types'
+  import type { ElementDescriptionResponse, ElementGroup, ExecutionMode, NodeTypeSchema } from '../../types'
+  import ElementContainer from '../archicad/ElementContainer.svelte'
   import type { PortConnectionState } from '../types/port'
-  import type { DisplayState } from '../types/display'
+  import { portColor, type DisplayState } from '../types/display'
   import type { NodeViewMode } from '../types/node'
   import type { PortLayout } from '../types/port'
 
@@ -16,6 +17,8 @@
     display,
     nodeId,
     connections = [],
+    elementGroups = [],
+    ondescribeelements,
     onname,
     oncolor,
     onmode,
@@ -37,6 +40,9 @@
     display: DisplayState
     nodeId: string
     connections?: PortConnectionState[]
+    /** Present on a node that holds Archicad elements; empty on every other. */
+    elementGroups?: ElementGroup[]
+    ondescribeelements?: (guids: string[]) => Promise<ElementDescriptionResponse>
     onname: (name: string) => void
     oncolor: (color: string) => void
     onmode: (mode: ExecutionMode) => void
@@ -110,6 +116,31 @@
     </div>
   </fieldset>
 
+  <!--
+    ⚠️ CLASSIFICATION-SENSITIVE, AND THE CLASSIFICATION IS THE RUNTIME'S. This
+    section shows a wall's reference line and a slab's reference plane because
+    the runtime said those are what a wall and a slab have - it holds no table of
+    its own, and it renders no label that did not arrive with the value. See
+    nodes/archicad/elements.ts.
+
+    ⚠️ AND IT IS READ-ONLY. ADR-007 excludes model writes from this track, so
+    these are settings the graph SHOWS you, not fields you type into. Offering an
+    editor for a value that cannot be written back would be a worse lie than
+    offering none.
+
+    Absent when the node holds no elements, rather than present and empty: a
+    Number node with an "Elements" section that never fills is a section the user
+    keeps opening to check.
+  -->
+  {#if elementGroups.length > 0}
+    <fieldset>
+      <legend>Elements</legend>
+      {#each elementGroups as group (group.elementType)}
+        <ElementContainer {group} ondescribe={ondescribeelements} />
+      {/each}
+    </fieldset>
+  {/if}
+
   <fieldset>
     <legend>State</legend>
     <div class="state-grid">
@@ -129,7 +160,7 @@
       {@const connection = inputConnection(input.portId)}
       <div class="reference-row">
         <span>{input.label}</span>
-        <code title={connection?.peerLabels?.[0]}>{connection?.peerLabels?.[0] ?? 'local'}</code>
+        <code class:bound={connection?.connected} title={connection?.peerLabels?.[0]} style={`--value-color: ${portColor(connection?.peerValueTypes?.[0] ?? input.valueType)}`}><span class="value">{connection?.peerTexts?.[0] ?? 'local'}</span><span class="reference">{connection?.peerLabels?.[0] ?? 'local'}</span></code>
         <button type="button" disabled={!connection?.connected || oncopyreference === undefined} title={connection?.connected ? 'Copy the upstream output reference' : 'This input has no upstream reference'} onclick={() => oncopyreference?.(nodeId, input.portId, 'input')}>Copy</button>
         <button type="button" disabled={onpastereference === undefined} onclick={() => onpastereference?.(nodeId, input.portId)}>Paste</button>
       </div>
@@ -187,6 +218,10 @@
   .reference-row { display: grid; grid-template-columns: minmax(48px, .8fr) minmax(60px, 1fr) 42px 42px; align-items: center; gap: 3px; }
   .reference-row > span { overflow: hidden; color: var(--text-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
   .reference-row code { overflow: hidden; color: var(--text-faint); font: 8px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+  .reference-row code .reference { display: none; color: #b4a7ca; }
+  .reference-row code .value { color: var(--value-color); }
+  .reference-row code.bound:hover .value { display: none; }
+  .reference-row code.bound:hover .reference { display: inline; }
   .reference-row button { height: 22px; padding: 0 4px; }
   .action-grid.flow { grid-template-columns: repeat(3, 1fr); }
   .action-grid.thirds { grid-template-columns: repeat(3, 1fr); }

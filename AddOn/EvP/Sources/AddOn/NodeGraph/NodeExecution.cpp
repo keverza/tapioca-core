@@ -3,6 +3,8 @@
 #include "NodeGraph/ArchicadNodes.hpp"
 #include "NodeGraph/BuiltinNodes.hpp"
 #include "NodeGraph/GeometryNodes.hpp"
+#include "NodeGraph/ScriptNodes.hpp"
+#include "NodeGraph/ScriptRuntime.hpp"
 
 namespace evp::nodegraph {
 
@@ -11,6 +13,12 @@ NodeRegistry MakeRuntimeNodeRegistry ()
     NodeRegistry registry = MakeBuiltinNodeRegistry ();
     RegisterGeometryNodes (registry);
     RegisterArchicadNodes (registry);
+    RegisterScriptNodes (registry);
+    // Installed here rather than by a static initialiser, so the engine exists
+    // exactly when a registry that has script nodes in it does - including in the
+    // offline suite, which is the whole reason the JS engine is embedded rather
+    // than borrowed from the WebView. Idempotent: it stores one pointer.
+    InstallJavaScriptRuntime ();
     return registry;
 }
 
@@ -21,6 +29,8 @@ bool ExecuteRuntimeNode (const Node& node, const ValueMap& inputs, const NodeExe
         return ExecuteArchicadNode (node, inputs, context, outputs, error);
     if (IsGeometryNodeType (node.nodeType))
         return ExecuteGeometryNode (node, inputs, context, outputs, error);
+    if (IsScriptNodeType (node.nodeType))
+        return ExecuteScriptNode (node, inputs, context, outputs, error);
     return ExecuteBuiltinNode (node, inputs, context, outputs, error);
 }
 

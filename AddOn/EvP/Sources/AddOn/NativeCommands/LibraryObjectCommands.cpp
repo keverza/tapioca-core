@@ -19,6 +19,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace geomsrv {
 
@@ -333,135 +335,6 @@ class PlaceLibraryObjectCommand : public WriteCommand {
     }
 };
 
-// What FORMAT a library part's preview picture is stored in, and how big it is.
-// Reads the header only — the bytes are not returned, because the question this
-// answers is whether a thumbnail is DECODABLE AT ALL, and that is settled by the
-// mime string alone.
-//
-// ⚠️ THE OPEN QUESTION THIS EXISTS FOR. The preview lives in the section the
-// DevKit calls API_SectInfoGIF, whose payload is a NUL-terminated MIME string
-// followed by the raw image bytes (LibPart_Test's SetPreviewPictureToLibPart
-// writes exactly that shape). But NewDisplay::NativeImage decodes JPEG and PNG
-// ONLY — its Encoding enum has no GIF — so if the stock library really stores
-// GIF, a thumbnail needs a decoder the DevKit does not ship, and that changes
-// what the picker can offer. The section's NAME says GIF; the example's own
-// comment says "prefer gif, but you can change gif to jpeg or png", so the name
-// is legacy and the MIME STRING is the authority. Only a real library answers
-// it, which is why this is reported rather than assumed.
-void ReadPreviewFormat (Int32 libIndex, GS::UniString& mime, GS::Int32& byteCount)
-{
-    mime.Clear ();
-    byteCount = 0;
-
-    API_LibPartSection section = {};
-    section.sectType = API_SectInfoGIF;
-
-    GSHandle sectionHdl = nullptr;
-    if (ACAPI_LibraryPart_GetSection (libIndex, &section, &sectionHdl, nullptr) != NoError || sectionHdl == nullptr)
-        return;
-
-    const GSSize size = BMGetHandleSize (sectionHdl);
-    if (size > 0) {
-        // The MIME string comes first, NUL-terminated; the image follows it.
-        // Bounded by the handle size rather than trusting the terminator — a
-        // truncated section would otherwise walk off the end.
-        const char* data = *sectionHdl;
-        GSSize length = 0;
-        while (length < size && data[length] != '\0')
-            ++length;
-        if (length < size) {
-            // A LOCAL COPY, NUL-terminated by construction: the MIME text is a
-            // slice of a larger handle, and GS::UniString has no "first N bytes
-            // of this buffer" constructor — handing it the raw pointer would run
-            // past the slice into the image bytes.
-            GS::String text;
-            for (GSSize i = 0; i < length; ++i)
-                text += data[i];
-            mime = GS::UniString (text);
-            byteCount = (GS::Int32) (size - length - 1);
-        }
-    }
-    BMKillHandle (&sectionHdl);
-}
-
-// ---------------------------------------------------------------------------
-// Tapioca.ListLibraryParts { subtype?, nameFilter?, limit? }
-//
-// What the loaded libraries actually contain THAT CAN BE PLACED. It exists
-// because until now every command that wanted a library part had to HARD-CODE a
-// candidate name list (PlaceLibraryObject's `libraryPartNames`), guessing at the
-// spelling the installed library happens to use — "Slope Symbol" / "Slope Symbol
-// 29" / "27". A command can now look instead of guess, and the palette's
-// evp.LibraryPart picker is built on the same read.
-//
-// ⚠️ `subtype` OMITTED MEANS OBJECTS, NOT EVERYTHING. The first cut listed every
-// registered library part, which put surfaces, images, lamps, section markers and
-// templates in front of a user who had asked "which object do I place" — the
-// report was *"data is all over the place"*. This now answers the question
-// Archicad's own Object Settings browser answers, and each row carries the
-// Library Manager `treePath` so a caller can show the folders the user knows.
-//
-// A pure READ: no undo step, MainThreadCommand.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Tapioca.GetLibraryPartPreviewInfo { name }
-//
-// ONE part's preview picture header — the format and the byte count, never the
-// bytes. It exists to settle a single question before any thumbnail work is
-// built on a guess: CAN a library part's preview be decoded with what the DevKit
-// ships? See ReadPreviewFormat for why the answer is not knowable from the
-// headers (the section is NAMED for GIF, its payload declares its own MIME, and
-// NativeImage decodes only JPEG and PNG).
-//
-// Deliberately per-part rather than a column on ListLibraryParts: reading a
-// section is a file touch, and doing it for every row of a multi-thousand-part
-// catalogue would make the picker slow to answer a question that needs one part.
-//
-// A pure READ: no undo step, MainThreadCommand.
-// ---------------------------------------------------------------------------
-class GetLibraryPartPreviewInfoCommand : public MainThreadCommand {
-  public:
-    GS::String GetName () const override
-    {
-        return "GetLibraryPartPreviewInfo";
-    }
-
-    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
-    {
-        GS::UniString name;
-        if (!params.Get ("name", name) || name.IsEmpty ())
-            return NativeCommandResult::Failure ("need name (the library part's name, as the Object tool shows it)");
-
-        API_LibPart part = {};
-        GS::ucscpy (part.docu_UName, name.ToUStr ());
-        const GSErrCode searchErr = ACAPI_LibraryPart_Search (&part, false, true);
-        delete part.location;
-        if (searchErr != NoError) {
-            return NativeCommandResult::Failure (
-                EVP_ACAPI_FAIL ("ACAPI_LibraryPart_Search", searchErr,
-                                GS::UniString::Printf ("no placeable library part named \"%T\"", name.ToPrintf ())));
-        }
-
-        GS::UniString mime;
-        GS::Int32 byteCount = 0;
-        ReadPreviewFormat (part.index, mime, byteCount);
-
-        GS::ObjectState os;
-        os.Add ("name", name);
-        // Empty mime with zero bytes means the part simply has no preview — a
-        // normal state, not a failure, and one a thumbnail grid has to handle.
-        os.Add ("previewMime", mime);
-        os.Add ("previewBytes", byteCount);
-        // ⚠️ THE ANSWER THE THUMBNAIL WORK IS WAITING ON. NewDisplay::NativeImage
-        // decodes JPEG and PNG only, so this says whether the picker could render
-        // this preview at all without a decoder the DevKit does not ship.
-        const GS::UniString lowered = mime.ToLowerCase ();
-        os.Add ("decodable", lowered == "image/png" || lowered == "image/jpeg" || lowered == "image/jpg");
-        return os;
-    }
-};
-
 class ListLibraryPartsCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -536,16 +409,12 @@ class ListLibraryPartsCommand : public MainThreadCommand {
 };
 
 const NativeCommandRegistration LibraryObjectCommandRegistrations[] = {
-    { "GetLibraryPartPreviewInfo", &MakeRegisteredNativeCommand<GetLibraryPartPreviewInfoCommand>, false,
-      R"json({"type":"object","properties":{"name":{"type":"string","minLength":1}},"additionalProperties":false,"required":["name"]})json",
-      R"json({"type":"object","properties":{"name":{"type":"string"},"previewMime":{"type":"string"},"previewBytes":{"type":"integer"},"decodable":{"type":"boolean"}},"additionalProperties":false,"required":["name","previewMime","previewBytes","decodable"]})json" },
-
     { "ListLibraryParts", &MakeRegisteredNativeCommand<ListLibraryPartsCommand>, false,
       R"json({"type":"object","properties":{"subtype":{"type":"string"},"nameFilter":{"type":"string"},"limit":{"type":"integer","minimum":1}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"parts":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"file":{"type":"string"},"unID":{"type":"string"},"type":{"type":"string"},"location":{"type":"string"},"placeable":{"type":"boolean"},"missing":{"type":"boolean"},"treePath":{"type":"array","items":{"type":"string"}},"library":{"type":"string"},"embedded":{"type":"boolean"}},"additionalProperties":false,"required":["name","file","unID","type","location","placeable","missing","treePath","library","embedded"]}},"total":{"type":"integer"},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["parts","total","truncated"]})json" },
 
-    { "PlaceLibraryObject", &MakeRegisteredNativeCommand<PlaceLibraryObjectCommand>, false,
-      R"json({"type":"object","properties":{"libraryPartNames":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"x":{"type":"number"},"y":{"type":"number"},"angle":{"type":"number"},"floorInd":{"type":"integer"},"level":{"type":"number"},"layer":{"type":"string"},"inheritFrom":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]},"parameters":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","minLength":1},"value":{"type":"string"}},"additionalProperties":false,"required":["name","value"]}}},"additionalProperties":false,"required":["libraryPartNames","x","y"]})json", R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"libraryPartName":{"type":"string"},"libInd":{"type":"integer"}},"additionalProperties":false,"required":["elementId","libraryPartName","libInd"]})json" },
+    { "PlaceLibraryObject",
+      &MakeRegisteredNativeCommand<PlaceLibraryObjectCommand>, false, R"json({"type":"object","properties":{"libraryPartNames":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},"x":{"type":"number"},"y":{"type":"number"},"angle":{"type":"number"},"floorInd":{"type":"integer"},"level":{"type":"number"},"layer":{"type":"string"},"inheritFrom":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]},"parameters":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string","minLength":1},"value":{"type":"string"}},"additionalProperties":false,"required":["name","value"]}}},"additionalProperties":false,"required":["libraryPartNames","x","y"]})json", R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"libraryPartName":{"type":"string"},"libInd":{"type":"integer"}},"additionalProperties":false,"required":["elementId","libraryPartName","libInd"]})json" },
 };
 
 } // namespace

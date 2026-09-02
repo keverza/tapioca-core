@@ -133,8 +133,43 @@ typedef int (*EvpPy_InitializeFn) (const uint16_t* runtimeHome, EvpPy_ReportFn r
 typedef int (*EvpPy_RunScriptFileFn) (const uint16_t* scriptPath, const char* moduleName, char* errorUtf8,
                                       int errorSize);
 
+// Runs a NODE GRAPH script node's body. Distinct from RunScriptFile and
+// RunCommand, and it has to be:
+//
+//   * the source is passed IN rather than read from disk, because the graph
+//     runtime has already read it, hashed it and parsed its header - and reading
+//     it again here would let the file change between the two reads, so the node
+//     would report ports it did not run;
+//   * it takes INPUTS and returns OUTPUTS. RunScriptFile only executes a module;
+//     a graph node is a function of its inputs and is useless without both ends.
+//
+// Values cross as JSON in the ONE encoding the whole runtime uses -
+// NodeGraph/ValueJson.hpp - so a value that round-trips through a graph file and
+// one that round-trips through a Python node cannot come to disagree.
+//
+//   `inputsJson`   {"<portId>": <encoded value>, ...}
+//   `outputsJson`  [{"portId": "...", "valueType": "..."}, ...] - what the script
+//                  is expected to leave behind, passed in rather than discovered,
+//                  so a script that forgot one can be told WHICH one.
+//   `resultJsonOut` {"ok":bool,"error":"...","log":[...],"outputs":{...}}
+//                  allocated by EvPPy.dll, freed with EvpPy_FreeString.
+//
+// ⚠️ `timeBudgetMs` IS ENFORCED, NOT ADVISORY. A script node runs code written by
+// whoever is sitting at the machine, so it is the one body in the catalog that
+// will actually contain `while True:`. Implemented with a trace function inside
+// the interpreter, because a runaway script is not blocked on anything a watchdog
+// thread could interrupt.
+//
+// ⚠️ AND THE NAMESPACE IS FRESH EVERY CALL. A shared one would let one node's
+// globals leak into the next node's script - which reads as a node that works
+// until somebody reorders the graph.
+typedef int (*EvpPy_RunGraphScriptFn) (const char* sourceUtf8, const uint16_t* displayPath, const char* inputsJson,
+                                       const char* outputsJson, int timeBudgetMs, char** resultJsonOut, char* errorUtf8,
+                                       int errorSize);
+
 #define EVPPY_INITIALIZE_SYMBOL "EvpPy_Initialize"
 #define EVPPY_RUNSCRIPTFILE_SYMBOL "EvpPy_RunScriptFile"
+#define EVPPY_RUNGRAPHSCRIPT_SYMBOL "EvpPy_RunGraphScript"
 
 #ifdef __cplusplus
 }

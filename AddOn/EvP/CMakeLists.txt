@@ -41,7 +41,12 @@ set (MSGPACK_INC "${REF_DIR}/msgpack-c-cpp_master/include" CACHE PATH "msgpack-c
 set (NANORT_INC  "${REF_DIR}/nanort-release"            CACHE PATH "nanort include dir")
 set (GLM_INC     "${REF_DIR}/glm-master"                CACHE PATH "GLM include dir")
 set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP"         CACHE PATH "Clipper2 C++ source dir")
+set (QUICKJS_DIR "${REF_DIR}/quickjs-ng"                CACHE PATH "quickjs-ng C source dir")
 set (WEBVIEW2_DIR "${REF_DIR}/webview2-1.0.2478.35" CACHE PATH "Microsoft WebView2 SDK package")
+
+# Needed by both the add-on target and the embedded font resource below.
+set (TAPIOCA_TEXT_FORCE_HOST_RUNTIME ON)
+include ("${CMAKE_CURRENT_LIST_DIR}/cmake/TextRendering.cmake")
 
 # Embedded CPython (P0+). Build-time only: headers + import lib are vendored, but
 # python312.dll itself is DELAY-LOADED at runtime from wherever PythonHost
@@ -196,6 +201,28 @@ if (WIN32)
         VERBATIM)
 endif ()
 
+# Noto Sans is embedded as a binary DATA resource. The text renderer loads the
+# immutable bytes directly, so screenshots never depend on machine fonts and a
+# staged .apx has no loose font file to lose.
+set (SCENE_TEXT_FONT_RESOURCE_ID 32581)
+configure_file (
+    "${AddOnResourcesFolder}/RFIX.win/SceneTextFont.grc.in"
+    "${ResourceObjectsDir}/SceneTextFont.grc"
+    @ONLY)
+set (SceneTextFontResourceRc2 "${ResourceObjectsDir}/SceneTextFont.grc.rc2")
+if (WIN32)
+    add_custom_command (
+        OUTPUT "${SceneTextFontResourceRc2}"
+        DEPENDS "${TAPIOCA_TEXT_FONT}" "${ResourceObjectsDir}/SceneTextFont.grc"
+        COMMENT "EvP: embedding the pinned Noto Sans scene-text font"
+        COMMAND "${AC_API_DEVKIT_DIR}/Support/Tools/Win/ResConv.exe"
+            -m r -T W -q utf8 1252
+            -p "${TAPIOCA_TEXT_FONT_DIR}"
+            -i "${ResourceObjectsDir}/SceneTextFont.grc"
+            -o "${SceneTextFontResourceRc2}"
+        VERBATIM)
+endif ()
+
 # Generate this DATA resource through Graphisoft's ResConv, not directly through
 # rc.exe. RSLoadResource expects ResConv's numeric type and length-prefixed data.
 configure_file (
@@ -270,7 +297,7 @@ get_filename_component (AddOnResourcesFolderAbsolute "${CMAKE_CURRENT_LIST_DIR}/
 add_custom_command (
     OUTPUT "${ResourceObjectsDir}/AddOnResources.stamp"
     DEPENDS ${AddOnResourceFiles} ${AddOnImageFiles} "${NotebookUIOutput}" "${NotebookUIResourceRc2}"
-            "${GraphUIOutput}" "${GraphUIResourceRc2}" "${WebUIResourceRc2}"
+            "${GraphUIOutput}" "${GraphUIResourceRc2}" "${WebUIResourceRc2}" "${SceneTextFontResourceRc2}"
     COMMENT "GeometryServer: compiling resources..."
     COMMAND ${CMAKE_COMMAND} -E make_directory "${ResourceObjectsDir}"
     COMMAND python "${AddOnResourcesFolderAbsolute}/Tools/CompileResources.py"
@@ -309,7 +336,6 @@ file (GLOB_RECURSE AddOnSourceFiles CONFIGURE_DEPENDS ${AddOnSourcesFolder}/*.c 
 # handedness, cull-winding and sticky-init lessons this renderer inherited
 # without re-deriving them.
 include ("${CMAKE_CURRENT_LIST_DIR}/cmake/Diligent.cmake")
-include ("${CMAKE_CURRENT_LIST_DIR}/cmake/TextRendering.cmake")
 
 set (AddOnFiles ${AddOnHeaderFiles} ${AddOnSourceFiles})
 source_group (TREE "${AddOnSourcesFolderAbsolute}" PREFIX "Sources" FILES ${AddOnFiles})
@@ -318,6 +344,53 @@ if (WIN32)
     add_library (${ADDON_LIB} SHARED ${AddOnFiles})
 else ()
     add_library (${ADDON_LIB} MODULE ${AddOnFiles})
+endif ()
+
+# ---------------------------------------------------------------------------
+# quickjs-ng: the script node family's JavaScript engine.
+#
+# ⚠️ NOT BELLARD'S quickjs. The original does not build under MSVC without
+# patching; quickjs-ng is the maintained fork that does, and the two have
+# diverged in small API details (JS_IsArray takes a JSValue here and a
+# (ctx, value) pair there). The catalog entry pins a tag rather than a branch for
+# exactly that reason - see AddOn/reference/CATALOG.yaml.
+#
+# ⚠️ AND IT IS BUILT FROM SOURCE, NOT LINKED AS A BINARY, so the offline C++
+# suite can compile it too. That is what makes a script node's evaluation
+# testable with no Archicad and no APX rebuild - which was the whole argument for
+# embedding an engine rather than borrowing the WebView's.
+add_library (TapiocaQuickJs STATIC
+    "${QUICKJS_DIR}/quickjs.c"
+    "${QUICKJS_DIR}/libregexp.c"
+    "${QUICKJS_DIR}/libunicode.c"
+    "${QUICKJS_DIR}/cutils.c"
+    "${QUICKJS_DIR}/xsum.c")
+target_include_directories (TapiocaQuickJs SYSTEM PUBLIC "${QUICKJS_DIR}")
+# ⚠️ quickjs-libc.c IS DELIBERATELY ABSENT, and it is the security boundary rather
+# than an oversight. Upstream gates it behind QJS_BUILD_LIBC; it is what provides
+# `std` and `os` - file reads, writes, process spawning - to scripts. A script
+# node sees its inputs and nothing else, so the library that would give it a
+# filesystem must never be compiled in. test_nodegraph_script.cpp asserts `std`
+# and `os` are undefined, so adding it here fails a test rather than quietly
+# widening what a graph can do.
+target_compile_definitions (TapiocaQuickJs PRIVATE _GNU_SOURCE)
+if (WIN32)
+    target_compile_definitions (TapiocaQuickJs PRIVATE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
+endif ()
+# C11 for the atomics and _Generic quickjs-ng uses; it is a C library and must
+# not be dragged into the C++ compiler by a stray target_compile_features.
+set_target_properties (TapiocaQuickJs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+if (MSVC)
+    # ⚠️ /std:c11 AND /experimental:c11atomics ARE BOTH REQUIRED, and C_STANDARD 11
+    # above does not supply them. quickjs.c includes <stdatomic.h>, which MSVC's
+    # own vcruntime_c11_stdatomic.h refuses with `#error "C atomics require C11 or
+    # later"` unless the language flag is on - and MSVC still gates the atomics
+    # themselves behind the experimental switch, which is what upstream's
+    # CMakeLists does too. Without them the very first file fails to compile.
+    target_compile_options (TapiocaQuickJs PRIVATE /std:c11 /experimental:c11atomics)
+    # Third-party C compiled at our warning level otherwise; its warnings are not
+    # ours to fix and would bury our own.
+    target_compile_options (TapiocaQuickJs PRIVATE /W0 -D_CRT_SECURE_NO_WARNINGS)
 endif ()
 
 add_library (TapiocaClipper2 STATIC
@@ -375,7 +448,7 @@ target_include_directories (${ADDON_LIB} SYSTEM PRIVATE
 file (GLOB ModuleFolders ${AC_API_DEVKIT_DIR}/Support/Modules/*)
 target_include_directories (${ADDON_LIB} SYSTEM PRIVATE ${ModuleFolders})
 
-target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} ${TAPIOCA_TEXT_LIBS} TapiocaClipper2)
+target_link_libraries (${ADDON_LIB} ${DILIGENT_PROBE_LIBS} ${TAPIOCA_TEXT_LIBS} TapiocaClipper2 TapiocaQuickJs)
 # d3dcompiler/dxguid/gdi32 came in through ARCHVIZ_LIBS with bgfx. The Diligent
 # D3D11 backend compiles its HLSL at runtime, so d3dcompiler is still needed and
 # is now named here rather than inherited from a renderer that is gone.

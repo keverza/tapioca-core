@@ -3,6 +3,8 @@
 
 #include "NodeGraph/ArchicadHostImpl.hpp"
 
+#include "NodeGraph/ElementReader.hpp"
+
 #include "Geometry/GeometryExtractor.hpp" // ResolveSelectableOwner
 #include "Notify/ChangeTracker.hpp"
 #include "Python/MainThreadGate.hpp"
@@ -13,11 +15,13 @@
 #include <string>
 #include <vector>
 
-// The ONLY translation unit in the graph runtime that includes ACAPI.
+// One of TWO translation units in the graph runtime that include ACAPI; the
+// other is ElementReaderImpl.cpp, which is the transcription of the element
+// settings table and was split out precisely so this file could stay small.
 //
 // Everything above IArchicadHost is DevKit-free and covered by the offline
-// suite; this file is the part that cannot be, so it is kept small and it does
-// nothing clever. Two hazards it exists to contain, both learned the hard way
+// suite; these two are the part that cannot be, so they are kept small and they
+// do nothing clever. Two hazards it exists to contain, both learned the hard way
 // elsewhere in this repository:
 //
 //  * ACAPI_Selection_Get ALLOCATES THE MARQUEE HANDLE even when nothing is
@@ -238,6 +242,16 @@ bool ArchicadHostImpl::GetSelection (std::vector<ArchicadElementRef>& elements, 
     for (const std::string& guid : *guids)
         elements.push_back (ArchicadElementRef { guid });
     return true;
+}
+
+bool ArchicadHostImpl::DescribeElements (const std::vector<ArchicadElementRef>& elements,
+                                         std::vector<ElementDescription>& descriptions, std::string& error) const
+{
+    if (!ProjectIsOpen ()) {
+        error = "no project is open";
+        return false;
+    }
+    return ReadElementDescriptions (elements, descriptions, error);
 }
 
 bool ArchicadHostImpl::SetSelection (const std::vector<ArchicadElementRef>& elements, std::string& error)

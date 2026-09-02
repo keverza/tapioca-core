@@ -4,5 +4,6 @@
 #include "NotebookUI.grc.rc2"
 #include "GraphUI.grc.rc2"
 #include "WebUIPanel.grc.rc2"
+#include "SceneTextFont.grc.rc2"
 
 1	ICON    LOADONCALL MOVEABLE IMPURE  ACAP.ICO

@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 160,
+      "nativeRegistry": 169,
       "dispatcherLocal": 19,
-      "total": 179
+      "total": 188
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -472,6 +472,28 @@
           "bytes",
           "url",
           "retainedBytes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ClearDiligentTextLabels",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cleared"
         ]
       }
     },
@@ -2145,6 +2167,29 @@
             "type": "number",
             "minimum": 0
           },
+          "textLayerReady": {
+            "type": "boolean"
+          },
+          "textLabels": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "textGlyphs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "textAtlasBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "textAtlasWidth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "textAtlasHeight": {
+            "type": "integer",
+            "minimum": 0
+          },
           "selectionBridgeMode": {
             "type": "integer",
             "minimum": 0,
@@ -2400,6 +2445,12 @@
           "planAnchorLayerReady",
           "planAnchorVertices",
           "planAnchorWidthPixels",
+          "textLayerReady",
+          "textLabels",
+          "textGlyphs",
+          "textAtlasBytes",
+          "textAtlasWidth",
+          "textAtlasHeight",
           "selectionBridgeMode",
           "debugView"
         ]
@@ -6229,6 +6280,51 @@
           "sizeA",
           "sizeB",
           "paramCount"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetLibraryPartPreview",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "previewMime": {
+            "type": "string"
+          },
+          "previewBytes": {
+            "type": "integer"
+          },
+          "dataUri": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "previewMime",
+          "previewBytes",
+          "dataUri",
+          "reason"
         ]
       }
     },
@@ -10178,6 +10274,13 @@
                   "type": "number"
                 }
               },
+              "indices": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "itemCount": {
                 "type": "integer",
                 "minimum": 0
@@ -10286,6 +10389,162 @@
         "required": [
           "graphId",
           "cancelledRunId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphDescribeElements",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "guids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "guids"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "plural": {
+                  "type": "string"
+                },
+                "settings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "group": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      },
+                      "unit": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "label",
+                      "group",
+                      "valueType",
+                      "unit"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "label",
+                "plural",
+                "settings"
+              ]
+            }
+          },
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "guid": {
+                  "type": "string"
+                },
+                "elementType": {
+                  "type": "string"
+                },
+                "typeLabel": {
+                  "type": "string"
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "settings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "hasNumber": {
+                        "type": "boolean"
+                      },
+                      "number": {
+                        "type": "number"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "text",
+                      "hasNumber",
+                      "number"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "guid",
+                "elementType",
+                "typeLabel",
+                "available",
+                "detail",
+                "settings"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "truncated",
+          "types",
+          "elements"
         ]
       }
     },
@@ -11091,6 +11350,13 @@
                   "type": "number"
                 }
               },
+              "indices": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
               "itemCount": {
                 "type": "integer",
                 "minimum": 0
@@ -11206,7 +11472,8 @@
                     "ports",
                     "text",
                     "preview",
-                    "selectionSet"
+                    "selectionSet",
+                    "script"
                   ]
                 },
                 "bypassMappings": {
@@ -11229,6 +11496,9 @@
                   }
                 },
                 "holdCapable": {
+                  "type": "boolean"
+                },
+                "instancePorts": {
                   "type": "boolean"
                 },
                 "generations": {
@@ -11330,7 +11600,9 @@
                               "vector",
                               "point",
                               "color",
-                              "readOnly"
+                              "readOnly",
+                              "previewTarget",
+                              "libraryPart"
                             ]
                           },
                           "section": {
@@ -11446,17 +11718,46 @@
                 "display",
                 "bypassMappings",
                 "holdCapable",
+                "instancePorts",
                 "generations",
                 "inputs",
                 "outputs",
                 "parameters"
               ]
             }
+          },
+          "elementTypes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "plural": {
+                  "type": "string"
+                },
+                "container": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "label",
+                "plural",
+                "container"
+              ]
+            }
           }
         },
         "additionalProperties": false,
         "required": [
-          "nodeTypes"
+          "nodeTypes",
+          "elementTypes"
         ],
         "$defs": {
           "leafValue": {
@@ -11538,6 +11839,13 @@
                 "type": "array",
                 "items": {
                   "type": "number"
+                }
+              },
+              "indices": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
                 }
               },
               "itemCount": {
@@ -11825,6 +12133,60 @@
                       "value"
                     ]
                   }
+                },
+                "inputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "portId": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "acceptsMultiple": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "portId",
+                      "label",
+                      "valueType",
+                      "required",
+                      "acceptsMultiple"
+                    ]
+                  }
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "portId": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "valueType": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "portId",
+                      "label",
+                      "valueType"
+                    ]
+                  }
                 }
               },
               "additionalProperties": false,
@@ -11953,6 +12315,13 @@
                 "type": "array",
                 "items": {
                   "type": "number"
+                }
+              },
+              "indices": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
                 }
               },
               "itemCount": {
@@ -12330,6 +12699,459 @@
           "error",
           "name",
           "graphId"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptCreate",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "path"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "watching": {
+            "type": "boolean"
+          },
+          "loadedAtMs": {
+            "type": "integer"
+          },
+          "modifiedAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "loadError": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array"
+          },
+          "outputs": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "array"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "droppedEdges": {
+            "type": "array"
+          },
+          "interfaceChanged": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "graphId",
+          "nodeId",
+          "path",
+          "language",
+          "exists",
+          "stale",
+          "watching",
+          "loadedAtMs",
+          "modifiedAtMs",
+          "sizeBytes",
+          "loadError",
+          "name",
+          "description",
+          "inputs",
+          "outputs",
+          "diagnostics",
+          "log",
+          "droppedEdges",
+          "interfaceChanged",
+          "revision"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptOpen",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptReload",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "watching": {
+            "type": "boolean"
+          },
+          "loadedAtMs": {
+            "type": "integer"
+          },
+          "modifiedAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "loadError": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array"
+          },
+          "outputs": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "array"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "droppedEdges": {
+            "type": "array"
+          },
+          "interfaceChanged": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "graphId",
+          "nodeId",
+          "path",
+          "language",
+          "exists",
+          "stale",
+          "watching",
+          "loadedAtMs",
+          "modifiedAtMs",
+          "sizeBytes",
+          "loadError",
+          "name",
+          "description",
+          "inputs",
+          "outputs",
+          "diagnostics",
+          "log",
+          "droppedEdges",
+          "interfaceChanged",
+          "revision"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptReveal",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptStatus",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "watching": {
+            "type": "boolean"
+          },
+          "loadedAtMs": {
+            "type": "integer"
+          },
+          "modifiedAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "loadError": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array"
+          },
+          "outputs": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "array"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "droppedEdges": {
+            "type": "array"
+          },
+          "interfaceChanged": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "graphId",
+          "nodeId",
+          "path",
+          "language",
+          "exists",
+          "stale",
+          "watching",
+          "loadedAtMs",
+          "modifiedAtMs",
+          "sizeBytes",
+          "loadError",
+          "name",
+          "description",
+          "inputs",
+          "outputs",
+          "diagnostics",
+          "log",
+          "droppedEdges",
+          "interfaceChanged",
+          "revision"
         ]
       }
     },
@@ -16945,6 +17767,87 @@
           "enabled",
           "azimuthDegrees",
           "altitudeDegrees"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SetDiligentTextLabels",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "labels": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number",
+                  "minimum": -1000000000000000,
+                  "maximum": 1000000000000000
+                },
+                "y": {
+                  "type": "number",
+                  "minimum": -1000000000000000,
+                  "maximum": 1000000000000000
+                },
+                "z": {
+                  "type": "number",
+                  "minimum": -1000000000000000,
+                  "maximum": 1000000000000000
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "sizePixels": {
+                  "type": "number",
+                  "minimum": 6,
+                  "maximum": 192
+                },
+                "rgba": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "alignment": {
+                  "type": "string",
+                  "enum": [
+                    "left",
+                    "center",
+                    "right"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "x",
+                "y",
+                "z",
+                "text"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "labels"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "count"
         ]
       }
     },

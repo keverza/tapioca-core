@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Tapioca.DynamoNodesUI")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+8f0178e9e64be63511f7a3d091194006af51a18c")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+d8b32ce1fe6e99830cbc0a44228221652e820774")]
 [assembly: System.Reflection.AssemblyProductAttribute("Tapioca.DynamoNodesUI")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Tapioca.DynamoNodesUI")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -619,6 +619,115 @@ extern "C" __declspec (dllexport) int EvpPy_ScanCommands (const uint16_t* root, 
     return result_code;
 }
 
+// One node-graph script node's body. Drives evp._graphscript, for the same
+// reason EvpPy_ScanCommands drives evp._scanner: the interesting logic - a fresh
+// namespace, captured output, an enforced time budget, reading the declared
+// outputs back - is a dozen lines of Python and several hundred of error-prone C
+// API calls, and it is far easier to see that the Python is right.
+//
+// ⚠️ THE SOURCE IS PASSED IN, NOT READ HERE. The graph runtime has already read
+// the file, hashed it and parsed its header. Reading it again would let the file
+// change between the two reads, so the node would report ports it did not run.
+extern "C" __declspec (dllexport) int EvpPy_RunGraphScript (const char* sourceUtf8, const uint16_t* displayPath,
+                                                            const char* inputsJson, const char* outputsJson,
+                                                            int timeBudgetMs, char** resultJsonOut, char* errorUtf8,
+                                                            int errorSize)
+{
+    if (!initialized) {
+        SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: the interpreter is not initialized.");
+        return EVPPY_ERROR;
+    }
+    if (resultJsonOut == nullptr || sourceUtf8 == nullptr)
+        return EVPPY_ERROR;
+    *resultJsonOut = nullptr;
+
+    const PyGILState_STATE gil = PyGILState_Ensure ();
+    int result_code = EVPPY_ERROR;
+
+    PyObject* module = PyImport_ImportModule ("evp._graphscript");
+    PyObject* jsonMod = PyImport_ImportModule ("json");
+    PyObject* source = nullptr;
+    PyObject* path = nullptr;
+    PyObject* inputs = nullptr;
+    PyObject* outputs = nullptr;
+    PyObject* produced = nullptr;
+    PyObject* dumped = nullptr;
+
+    if (module == nullptr || jsonMod == nullptr) {
+        PyErr_Print ();
+        SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: could not import evp._graphscript / json.");
+    }
+    else {
+        source = PyUnicode_FromString (sourceUtf8);
+        path = displayPath == nullptr ? PyUnicode_FromString ("")
+                                      : PyUnicode_FromWideChar ((const wchar_t*) displayPath, -1);
+        inputs = PyObject_CallMethod (jsonMod, "loads", "s", inputsJson == nullptr ? "{}" : inputsJson);
+        outputs = PyObject_CallMethod (jsonMod, "loads", "s", outputsJson == nullptr ? "[]" : outputsJson);
+
+        if (source == nullptr || path == nullptr || inputs == nullptr || outputs == nullptr) {
+            PyErr_Clear ();
+            SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: could not decode the request.");
+        }
+        else {
+            produced =
+                PyObject_CallMethod (module, "run", "OOOOd", source, path, inputs, outputs, (double) timeBudgetMs);
+            if (produced == nullptr) {
+                // run() is written never to raise, so reaching here means the
+                // helper itself is broken rather than the user's script. Reported
+                // as such, so nobody spends an afternoon debugging their script.
+                PyErr_Print ();
+                FlushStreams ();
+                SetError (errorUtf8, errorSize,
+                          "EvpPy_RunGraphScript: the script runner raised (traceback in the log).");
+            }
+            else {
+                dumped = PyObject_CallMethod (jsonMod, "dumps", "O", produced);
+                if (dumped == nullptr) {
+                    // A script that assigned something exotic to an output port -
+                    // a numpy array, a class instance. Cleared rather than
+                    // printed, and reported as the node's own failure, because it
+                    // IS the user's mistake and it names what to fix.
+                    PyErr_Clear ();
+                    SetError (errorUtf8, errorSize,
+                              "the script produced a value that cannot leave Python; return numbers, text, "
+                              "points or lists of them");
+                }
+                else {
+                    const char* const utf8 = PyUnicode_AsUTF8 (dumped);
+                    if (utf8 == nullptr) {
+                        PyErr_Clear ();
+                        SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: could not encode the result.");
+                    }
+                    else {
+                        const size_t length = strlen (utf8);
+                        char* const buffer = (char*) malloc (length + 1);
+                        if (buffer == nullptr) {
+                            SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: out of memory.");
+                        }
+                        else {
+                            memcpy (buffer, utf8, length + 1);
+                            *resultJsonOut = buffer; // freed via EvpPy_FreeString
+                            result_code = EVPPY_OK;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Py_XDECREF (dumped);
+    Py_XDECREF (produced);
+    Py_XDECREF (outputs);
+    Py_XDECREF (inputs);
+    Py_XDECREF (path);
+    Py_XDECREF (source);
+    Py_XDECREF (jsonMod);
+    Py_XDECREF (module);
+    FlushStreams ();
+    PyGILState_Release (gil);
+    return result_code;
+}
+
 extern "C" __declspec (dllexport) int EvpPy_RunScriptFile (const uint16_t* scriptPath, const char* moduleName,
                                                            char* errorUtf8, int errorSize)
 {

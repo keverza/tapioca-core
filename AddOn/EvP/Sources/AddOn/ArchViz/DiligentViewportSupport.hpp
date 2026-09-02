@@ -40,6 +40,7 @@ class Camera;
 class DiligentScene;
 class PlanAnchorLayer;
 struct HudState;
+struct ProjectedDrawList;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
 bool ShouldIsolateGraphInteraction (const HudState& hud, const InputSnapshot& input);
@@ -162,6 +163,21 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene, 
 // Copy the scene's per-frame numbers into the viewport's published stats. See
 // the definition for why this lives here rather than in the frame body.
 void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats& sceneStats);
+
+void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                             std::mutex& mutex, const std::vector<SceneTextLabel>& pendingLabels,
+                             uint64_t publishedSequence, uint64_t& adoptedSequence, std::vector<SceneTextLabel>& labels,
+                             bool blanked, bool offscreen, void* nativeWindow, const float viewProj[16], uint32_t width,
+                             uint32_t height);
+
+ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
+                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
+                                                 bool annotationsOnly, void* nativeWindow, const float viewProj[16],
+                                                 uint32_t width, uint32_t height);
+
+void CopyOverlayStatsInto (DiligentViewportStats& stats, bool planAnchorsOn, const PlanAnchorLayer& planAnchors,
+                           float planAnchorWidthPixels, const SceneTextLayer& textLayer, const Camera& camera,
+                           const float eye[3]);
 
 void LogPresentedPlanFrame (const Camera& camera, uint32_t widthPx, uint32_t heightPx, uint64_t frameIndex);
 

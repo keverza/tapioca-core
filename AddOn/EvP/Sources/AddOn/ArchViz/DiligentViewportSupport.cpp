@@ -4,6 +4,7 @@
 
 #include "ArchViz/DiligentViewportSupport.hpp"
 
+#include "Annotation/RetainedTraceSelection.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/SharedOverlaySurface.hpp"
@@ -23,6 +24,7 @@
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
+#include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -347,6 +349,55 @@ void DiligentViewport::ApplyCaptureSettings (HudState& hudState) const
     hudState.storySliceWidthPixels = captureStorySliceWidthPixels_.load ();
     hudState.storySliceRgba = captureStorySliceRgba_.load ();
     hudState.storySliceFillRgba = captureStorySliceFillRgba_.load ();
+}
+
+void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                             std::mutex& mutex, const std::vector<SceneTextLabel>& pendingLabels,
+                             uint64_t publishedSequence, uint64_t& adoptedSequence, std::vector<SceneTextLabel>& labels,
+                             bool blanked, bool offscreen, void* nativeWindow, const float viewProj[16], uint32_t width,
+                             uint32_t height)
+{
+    if (publishedSequence != adoptedSequence) {
+        std::lock_guard<std::mutex> lock (mutex);
+        labels = pendingLabels;
+        adoptedSequence = publishedSequence;
+    }
+
+    float dpiScale = 1.0f;
+    if (!offscreen && nativeWindow != nullptr) {
+        const UINT dpi = GetDpiForWindow (static_cast<HWND> (nativeWindow));
+        if (dpi != 0)
+            dpiScale = float (dpi) / 96.0f;
+    }
+    if (!blanked)
+        layer.Draw (device, context, labels, viewProj, width, height, dpiScale);
+}
+
+ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
+                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
+                                                 bool annotationsOnly, void* nativeWindow, const float viewProj[16],
+                                                 uint32_t width, uint32_t height)
+{
+    ProjectedDrawList annotations;
+    if (blanked || offscreen)
+        return annotations;
+    const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
+    if (!selected.has_value ())
+        return annotations;
+
+    float dpiScale = 1.0f;
+    if (nativeWindow != nullptr) {
+        const UINT dpi = GetDpiForWindow (static_cast<HWND> (nativeWindow));
+        if (dpi != 0)
+            dpiScale = float (dpi) / 96.0f;
+    }
+    annotations =
+        BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly);
+    if (!annotations.labels.empty () && layer.IsReady ()) {
+        layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale);
+        annotations.labels.clear ();
+    }
+    return annotations;
 }
 
 void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,
@@ -864,6 +915,30 @@ void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats&
     stats.environmentPath = sceneStats.environmentPath;
     stats.environmentError = sceneStats.environmentError;
     stats.selectedCount = sceneStats.selected;
+}
+
+void CopyOverlayStatsInto (DiligentViewportStats& stats, bool planAnchorsOn, const PlanAnchorLayer& planAnchors,
+                           float planAnchorWidthPixels, const SceneTextLayer& textLayer, const Camera& camera,
+                           const float eye[3])
+{
+    stats.planAnchors = planAnchorsOn;
+    stats.planAnchorLayerReady = planAnchors.IsReady ();
+    stats.planAnchorVertices = uint64_t (planAnchors.VertexCount ());
+    stats.planAnchorWidthPixels = planAnchorWidthPixels;
+    const SceneTextLayerStats textStats = textLayer.Stats ();
+    stats.textLayerReady = textStats.ready;
+    stats.textLabels = textStats.labels;
+    stats.textGlyphs = textStats.glyphs;
+    stats.textAtlasBytes = textStats.atlasBytes;
+    stats.textAtlasWidth = textStats.atlasWidth;
+    stats.textAtlasHeight = textStats.atlasHeight;
+    float target[3];
+    camera.GetTarget (target);
+    for (int k = 0; k < 3; ++k) {
+        stats.cameraEye[k] = eye[k];
+        stats.cameraTarget[k] = target[k];
+    }
+    stats.cameraFovDegreesVertical = camera.FovDegreesVertical ();
 }
 
 } // namespace archviz

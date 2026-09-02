@@ -9,7 +9,8 @@ package. It does not contain an Archicad, Rhino, Grasshopper, Dynamo or .NET
 runtime. Those products remain separately installed and licensed.
 
 The native add-on incorporates code from Diligent Engine, cpp-httplib,
-MessagePack for C/C++, nanort, GLM and Clipper2. Their source authorities and pinned build inputs
+MessagePack for C/C++, nanort, GLM, Clipper2 and quickjs-ng. Their source
+authorities and pinned build inputs
 are recorded in AddOn/reference/CATALOG.yaml. The Iconoir notice required for the
 compiled palette icons is reproduced in full below.
 
@@ -49,6 +50,7 @@ Notable upstream components used by the build, each under its own license:
 - nanort
 - OpenGL Mathematics (GLM)
 - Clipper2
+- quickjs-ng
 - GoogleTest
 - CPython
 - Rhino.Inside, RhinoCommon and Grasshopper (McNeel)

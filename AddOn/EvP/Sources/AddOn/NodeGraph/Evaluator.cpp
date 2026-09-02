@@ -297,7 +297,7 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
     }
 
     ValueMap inputs;
-    for (const PortSchema& input : nodeType.inputs) {
+    for (const PortSchema& input : ResolvedInputs (node, nodeType)) {
         Value::List values;
         for (const Edge& edge : document.Edges ()) {
             if (edge.targetNode != nodeId || edge.targetPort != input.id)
@@ -494,7 +494,7 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
     size_t itemCount = 0;
     if (failure.empty ()) {
         for (const auto& [portId, value] : prepared.outputs) {
-            const PortSchema* output = FindOutput (nodeType, portId);
+            const PortSchema* output = FindOutput (prepared.effectiveNode, nodeType, portId);
             if (output == nullptr || output->valueType != value.Type ()) {
                 failure = "invalid output: " + portId;
                 failureCode = statuscode::kErrorOutput;
@@ -514,7 +514,7 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
         }
     }
     if (failure.empty ()) {
-        for (const PortSchema& output : nodeType.outputs) {
+        for (const PortSchema& output : ResolvedOutputs (prepared.effectiveNode, nodeType)) {
             if (output.required && !prepared.outputs.contains (output.id)) {
                 failure = "omitted output: " + output.id;
                 failureCode = statuscode::kErrorOutput;

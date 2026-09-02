@@ -30,6 +30,8 @@ const char* NodeDisplayName (NodeDisplay display)
             return "preview";
         case NodeDisplay::SelectionSet:
             return "selectionSet";
+        case NodeDisplay::Script:
+            return "script";
     }
     return "ports";
 }
@@ -70,6 +72,8 @@ const char* ParameterWidgetName (ParameterWidget widget)
             return "color";
         case ParameterWidget::PreviewTarget:
             return "previewTarget";
+        case ParameterWidget::LibraryPart:
+            return "libraryPart";
         case ParameterWidget::ReadOnly:
             return "readOnly";
     }
@@ -156,6 +160,20 @@ bool ValidateParameterUi (const NodeType& nodeType, const ParameterSchema& param
                 return false;
             }
             break;
+        case ParameterWidget::LibraryPart:
+            if (parameter.valueType != ValueType::String) {
+                error = "widget 'libraryPart' needs a string parameter" + where;
+                return false;
+            }
+            // ⚠️ NO OPTIONS, EVER. The rows are Archicad's and arrive at the
+            // client from Tapioca.ListLibraryParts; a node type that shipped a
+            // literal list of part names would be asserting what is loaded in a
+            // project it has never seen.
+            if (!ui.options.empty () || ui.optionSource != ParameterOptionSource::None) {
+                error = "widget 'libraryPart' carries no options - the loaded libraries are Archicad's answer" + where;
+                return false;
+            }
+            return true;
         case ParameterWidget::PreviewTarget:
             if (parameter.valueType != ValueType::String) {
                 error = "widget 'previewTarget' needs a string parameter" + where;
@@ -307,6 +325,22 @@ bool NodeRegistry::Register (NodeType nodeType, std::string& error)
         !ValidateIds (nodeType.parameters, "parameter", error))
         return false;
 
+    // A type either owns its ports or its instances do. Carrying both would give
+    // every reader two plausible answers, and ResolvedInputs would have to pick
+    // one silently on a type whose author believed the other.
+    if (nodeType.instancePorts && (!nodeType.inputs.empty () || !nodeType.outputs.empty ())) {
+        error = "type declares instance ports and static ports: " + nodeType.id;
+        return false;
+    }
+    // Bypass forwards along a mapping between named ports of the TYPE. An
+    // instance-port type has no such names to check against, so the mapping
+    // could only ever be validated at run time - on a node whose ports may have
+    // changed since. Refused up front instead.
+    if (nodeType.instancePorts && !nodeType.bypassMappings.empty ()) {
+        error = "an instance-port type cannot declare bypass mappings: " + nodeType.id;
+        return false;
+    }
+
     for (const ParameterSchema& parameter : nodeType.parameters) {
         if (parameter.defaultValue && parameter.defaultValue->Type () != parameter.valueType) {
             error = "default value type mismatch for parameter: " + parameter.id;
@@ -405,6 +439,32 @@ const PortSchema* FindInput (const NodeType& nodeType, const std::string& portId
 const PortSchema* FindOutput (const NodeType& nodeType, const std::string& portId)
 {
     for (const PortSchema& port : nodeType.outputs)
+        if (port.id == portId)
+            return &port;
+    return nullptr;
+}
+
+const std::vector<PortSchema>& ResolvedInputs (const Node& node, const NodeType& nodeType)
+{
+    return nodeType.instancePorts ? node.dynamicInputs : nodeType.inputs;
+}
+
+const std::vector<PortSchema>& ResolvedOutputs (const Node& node, const NodeType& nodeType)
+{
+    return nodeType.instancePorts ? node.dynamicOutputs : nodeType.outputs;
+}
+
+const PortSchema* FindInput (const Node& node, const NodeType& nodeType, const std::string& portId)
+{
+    for (const PortSchema& port : ResolvedInputs (node, nodeType))
+        if (port.id == portId)
+            return &port;
+    return nullptr;
+}
+
+const PortSchema* FindOutput (const Node& node, const NodeType& nodeType, const std::string& portId)
+{
+    for (const PortSchema& port : ResolvedOutputs (node, nodeType))
         if (port.id == portId)
             return &port;
     return nullptr;

@@ -25,7 +25,7 @@ export function capabilitiesFor(schema: NodeTypeSchema): NodeCapabilities {
     bypass: (schema.bypassMappings?.length ?? 0) > 0,
     disable: true,
     freeze: schema.holdCapable === true,
-    resizable: viewer || schema.parameters.length > 2 || schema.display === 'text',
+    resizable: viewer || schema.parameters.length > 2 || schema.display === 'text' || schema.display === 'script',
     /**
      * ⚠️ ONLY EFFECTFUL NODES GET THE BUTTON, AND EVERY EFFECTFUL NODE GETS IT.
      * Automatic evaluation runs the graph continuously and NEVER commits a host

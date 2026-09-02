@@ -3,6 +3,7 @@
 
 #include "ArchViz/InstructionBanner.hpp"
 #include "ArchViz/PlanAnchorRibbon.hpp"
+#include "ArchViz/SceneTextLayer.hpp"
 #include "ArchViz/ViewerHost.hpp"
 #include "ArchViz/ViewerSettings.hpp" // SliceOccludedStyle
 
@@ -200,6 +201,12 @@ struct DiligentViewportStats {
     bool planAnchorLayerReady = false;
     uint64_t planAnchorVertices = 0;
     float planAnchorWidthPixels = 0.0f;
+    bool textLayerReady = false;
+    uint64_t textLabels = 0;
+    uint64_t textGlyphs = 0;
+    uint64_t textAtlasBytes = 0;
+    uint32_t textAtlasWidth = 0;
+    uint32_t textAtlasHeight = 0;
 };
 
 // Where the camera starts, read from ARCHICAD'S OWN 3D WINDOW by the palette
@@ -349,6 +356,8 @@ class DiligentViewport final {
     // between two presents.
     void SetPlanAnchors (const std::vector<std::vector<float>>& outlines, const std::vector<std::vector<float>>& arcs,
                          bool enabled, float widthPixels, uint32_t rgba, float arcSign, float planZ);
+    void SetTextLabels (std::vector<SceneTextLabel> labels);
+    void ClearTextLabels ();
 
     // The mouse-following element callout.
     // ⚠️ BLANK IS NOT HIDE, AND THE DIFFERENCE IS THE POINT (PLAT-RE83). The
@@ -585,6 +594,7 @@ class DiligentViewport final {
     std::atomic<float> planAnchorWidthPixels_ { 2.0f };
     std::atomic<uint32_t> planAnchorRgba_ { 0xFF3B30C0u };
     std::atomic<uint64_t> planAnchorSeq_ { 0 };
+    std::atomic<uint64_t> textLabelSeq_ { 0 };
 
     mutable std::mutex lifecycleMutex_;
     mutable std::mutex mutex_;
@@ -596,6 +606,7 @@ class DiligentViewport final {
     // Guarded by `mutex_`, not atomic: this is a whole storey's triangles and a
     // torn read would draw half of one anchor set over half of another.
     std::vector<PlanAnchorVertex> pendingPlanAnchors_;
+    std::vector<SceneTextLabel> pendingTextLabels_;
     DiligentViewportStats stats_;
 };
 

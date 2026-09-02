@@ -5,6 +5,7 @@ from pathlib import Path
 _ADDON = Path(__file__).parents[1] / "Sources" / "AddOn"
 _PANEL = _ADDON / "Palette" / "PreviewPanel.cpp"
 _VIEWPORT_CONTROL = _ADDON / "ArchViz" / "DiligentViewportControl.cpp"
+_VIEWPORT_SUPPORT = _ADDON / "ArchViz" / "DiligentViewportSupport.cpp"
 _PLAN_HOST = _ADDON / "PlanOverlay" / "PlanCanvasHost.cpp"
 _PLAN_OVERLAY = _ADDON / "PlanOverlay" / "OverlayWindow.cpp"
 _PLAN_COMMANDS = _ADDON / "NativeCommands" / "PlanOverlayCommands.cpp"
@@ -90,11 +91,28 @@ def test_renderer_consumes_only_retained_watch_selection_for_preview_annotations
     renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
         encoding="utf-8"
     )
+    support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
 
-    assert "SelectedRetainedFrameSnapshotCopy" in renderer
-    assert "BuildTraceAnnotations" in renderer
+    assert "SelectedRetainedFrameSnapshotCopy" in support
+    assert "BuildTraceAnnotations" in support
+    assert "UpdateAndDrawTraceAnnotations" in renderer
     assert "annotationsOnly ? 0 : scene.Consume" in renderer
     assert "!annotationsOnly && !blanked" in renderer
+
+
+def test_renderer_routes_annotation_labels_through_scene_text_with_imgui_fallback():
+    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
+        encoding="utf-8"
+    )
+    support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
+    projected = support.index("layer.DrawProjected")
+    fallback_clear = support.index("annotations.labels.clear", projected)
+
+    assert "layer.IsReady ()" in support
+    assert projected < fallback_clear
+    assert renderer.index("UpdateAndDrawTraceAnnotations") < renderer.index("hud.Draw")
+    assert "pendingTextLabels_" in renderer
+    assert support.count("SelectedRetainedFrameSnapshotCopy") == 1
 
 
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():

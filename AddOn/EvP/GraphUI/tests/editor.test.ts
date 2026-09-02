@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { Edge, Node } from '@xyflow/svelte'
 import {
   detailLevelForZoom,
+  displayedOutputText,
   filterCatalog,
   groupCatalog,
   initialTheme,
@@ -78,4 +79,11 @@ test('theme preference defaults safely to system', () => {
 test('a pasted reference uses a dotted neutral connection treatment', () => {
   assert.match(REFERENCE_EDGE_STYLE, /stroke-dasharray/)
   assert.match(REFERENCE_EDGE_STYLE, new RegExp(REFERENCE_EDGE_COLOR))
+})
+
+test('connected inputs display typed upstream values rather than source names', () => {
+  assert.equal(displayedOutputText({ portId: 'value', value: { valueType: 'double', number: 12.5 }, text: '12.5', summary: 'Number' }), '12.5')
+  assert.equal(displayedOutputText({ portId: 'value', value: { valueType: 'bool', bool: false }, text: 'False', summary: 'Boolean' }), 'False')
+  assert.equal(displayedOutputText({ portId: 'value', value: { valueType: 'string', text: '' }, text: '', summary: 'String' }), '""')
+  assert.equal(displayedOutputText(undefined), 'Not evaluated')
 })

@@ -4,6 +4,8 @@
 #include "NodeGraph/Json.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 
+#include <utility>
+
 namespace evp::nodegraph {
 namespace {
 
@@ -41,6 +43,22 @@ const char* ValueTypeName (ValueType type)
             return "list";
     }
     return "absent";
+}
+
+// The parse companion. Derived from the switch above rather than written as a
+// second table, so a name added to one cannot be forgotten in the other - which
+// would be a port that serialises and then refuses to load.
+bool ParseValueTypeName (const std::string& name, ValueType& type)
+{
+    for (const ValueType candidate : { ValueType::Absent, ValueType::Bool, ValueType::Integer, ValueType::Double,
+                                       ValueType::String, ValueType::Point3, ValueType::Polyline, ValueType::Polygon,
+                                       ValueType::Mesh, ValueType::ArchicadElementRef, ValueType::List }) {
+        if (name == ValueTypeName (candidate)) {
+            type = candidate;
+            return true;
+        }
+    }
+    return false;
 }
 
 JsonValue PointToJson (const Point3& point)
@@ -329,6 +347,33 @@ SerializeResult SerializeGraph (const GraphDocument& document, const GraphMetada
             parameters.emplace (parameterId, std::move (encodedValue));
         }
         encoded.emplace ("parameters", JsonValue::Object (std::move (parameters)));
+
+        // Instance ports, for the one family that has them - see
+        // Node::dynamicInputs.
+        //
+        // â ï¸ THEY MUST PERSIST, AND NOT BECAUSE THEY ARE EXPENSIVE TO
+        // RECOVER. The EDGES in this file are validated against them on load. A
+        // graph that re-derived a script node's ports by reading the script would
+        // silently drop every wire whenever the file was missing, unreadable or
+        // had been edited since the save - which is to say, exactly when the user
+        // most needs the graph to open intact and tell them what is wrong. The
+        // ports are the document's, and the file is the thing that may have moved.
+        for (const auto& [key, ports] :
+             { std::pair { "inputs", &node.dynamicInputs }, std::pair { "outputs", &node.dynamicOutputs } }) {
+            if (ports->empty ())
+                continue;
+            JsonArray encodedPorts;
+            for (const PortSchema& port : *ports) {
+                JsonObject encodedPort;
+                encodedPort.emplace ("portId", JsonValue::String (port.id));
+                encodedPort.emplace ("label", JsonValue::String (port.label));
+                encodedPort.emplace ("valueType", JsonValue::String (ValueTypeName (port.valueType)));
+                encodedPort.emplace ("required", JsonValue::Bool (port.required));
+                encodedPort.emplace ("acceptsMultiple", JsonValue::Bool (port.acceptsMultiple));
+                encodedPorts.push_back (JsonValue::Object (std::move (encodedPort)));
+            }
+            encoded.emplace (key, JsonValue::Array (std::move (encodedPorts)));
+        }
         nodes.push_back (JsonValue::Object (std::move (encoded)));
     }
 
@@ -450,6 +495,46 @@ DeserializeResult DeserializeGraph (const std::string& text, const NodeRegistry&
                     return result;
                 }
                 node.parameters.emplace (parameterId, std::move (decoded));
+            }
+        }
+
+        for (const auto& [key, ports] :
+             { std::pair { "inputs", &node.dynamicInputs }, std::pair { "outputs", &node.dynamicOutputs } }) {
+            const JsonValue* member = encoded.Find (key);
+            if (member == nullptr)
+                continue;
+            const JsonArray* array = member->AsArray ();
+            if (array == nullptr) {
+                result.error = "node " + node.id + " has a malformed " + key + " port list";
+                return result;
+            }
+            for (const JsonValue& encodedPort : *array) {
+                PortSchema port;
+                std::string valueTypeName;
+                const JsonValue* portId = encodedPort.Find ("portId");
+                const JsonValue* valueType = encodedPort.Find ("valueType");
+                if (portId == nullptr || !portId->AsString (port.id) || port.id.empty ()) {
+                    result.error = "node " + node.id + " has a port with no portId";
+                    return result;
+                }
+                // Refused, never defaulted, for the reason executionMode is: a
+                // type this build does not know must not load as Absent, which
+                // means "any" and would let every edge in the file revalidate
+                // against a port that accepts anything.
+                if (valueType == nullptr || !valueType->AsString (valueTypeName) ||
+                    !ParseValueTypeName (valueTypeName, port.valueType)) {
+                    result.error = "node " + node.id + ", port " + port.id + " has an unknown valueType";
+                    return result;
+                }
+                if (const JsonValue* label = encodedPort.Find ("label"); label != nullptr)
+                    label->AsString (port.label);
+                if (port.label.empty ())
+                    port.label = port.id;
+                if (const JsonValue* required = encodedPort.Find ("required"); required != nullptr)
+                    required->AsBool (port.required);
+                if (const JsonValue* multiple = encodedPort.Find ("acceptsMultiple"); multiple != nullptr)
+                    multiple->AsBool (port.acceptsMultiple);
+                ports->push_back (std::move (port));
             }
         }
 

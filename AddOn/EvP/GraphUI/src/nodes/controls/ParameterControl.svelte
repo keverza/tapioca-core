@@ -14,9 +14,16 @@
    * wire is the value, and a box that still took typing would be offering an
    * edit the runtime discards.
    */
-  import type { AttributeListing, GraphParameter, GraphValue, ParameterOptionSource } from '../../types'
+  import type {
+    AttributeListing,
+    GraphParameter,
+    GraphValue,
+    ParameterOptionSource,
+  } from '../../types'
+  import { portColor } from '../types/display'
   import { parsePortReference, type PortReference } from '../types/portReference'
   import AttributePicker from './AttributePicker.svelte'
+  import LibraryPartControl from './LibraryPartControl.svelte'
   import BooleanControl from './BooleanControl.svelte'
   import NumberControl from './NumberControl.svelte'
   import PreviewTargetControl from './PreviewTargetControl.svelte'
@@ -39,21 +46,28 @@
     parameters,
     connected = false,
     upstream = '',
+    upstreamValue = 'Not evaluated',
+    upstreamValueType,
     attributeListings = {},
     disabled = false,
     oncommit,
     onreference,
     onrequestoptions,
+    onbrowselibrary,
   }: {
     field: ControlField
     parameters: GraphParameter[]
     connected?: boolean
     upstream?: string
+    upstreamValue?: string
+    upstreamValueType?: string
     attributeListings?: Record<string, AttributeListing>
     disabled?: boolean
     oncommit: (id: string, valueType: string, text: string) => void
     onreference?: (reference: PortReference, portId: string) => void
     onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void
+    /** The node opens the browser; see LibraryPartControl. */
+    onbrowselibrary?: (parameterId: string) => void
   } = $props()
 
   const widget = $derived(resolveWidget(field.valueType, field.ui))
@@ -85,13 +99,11 @@
 
 <div class="control" onpaste={handlePaste}>
 {#if connected}
-  <!-- Focusable because it is a PASTE TARGET - a port reference dropped on a
-       connected input is a rewire request, and a paste needs somewhere to land.
-       A readonly <input> rather than an <output> carrying a tabindex: <output>
-       is non-interactive by definition, so making it tabbable is a claim no role
-       can honestly back, while a readonly input IS the element for "text you can
-       focus and paste over but not type into". -->
-  <input class="upstream" title={upstream} value={upstream} readonly aria-label={`${field.label}, from ${upstream}`} />
+  <!-- The value is primary. Source identity appears only while the paste target
+       is hovered or focused. -->
+  <div class="upstream" title={`${upstreamValue}\n${upstream}`} tabindex="0" role="textbox" aria-readonly="true" aria-label={`${field.label}, ${upstreamValue}, from ${upstream}`} style={`--value-color: ${portColor(upstreamValueType ?? field.valueType)}`}>
+    <span class="value">{upstreamValue}</span><span class="reference">{upstream}</span>
+  </div>
 {:else if widget === 'number' || widget === 'slider'}
   <NumberControl
     value={numberOf(value)}
@@ -105,6 +117,16 @@
   <BooleanControl value={boolOf(value)} label={field.label} {disabled} oncommit={commit} />
 {:else if widget === 'previewTarget'}
   <PreviewTargetControl {value} options={field.ui?.options ?? []} label={field.label} {disabled} oncommit={commit} />
+{:else if widget === 'libraryPart'}
+  <!-- The loaded libraries are Archicad's answer and change with the project, so
+       the rows arrive from the native listing exactly as an attribute domain's
+       do; this dispatch knows nothing about what a library part is. -->
+  <LibraryPartControl
+    value={textOf(value)}
+    label={field.label}
+    {disabled}
+    onbrowse={onbrowselibrary === undefined ? undefined : () => onbrowselibrary(field.id)}
+  />
 {:else if widget === 'select' && source !== 'none'}
   <!-- An Archicad domain. A native <option> can carry text and nothing else, so
        a fill list would read as "25 %, 50 %, 75 %" and a composite list as a
@@ -154,7 +176,11 @@
   .control { min-width: 0; }
   output, .upstream { display: block; box-sizing: border-box; width: 100%; overflow: hidden; min-height: 19px; padding: 4px 5px; border: 0; background: var(--canvas); color: var(--text-faint); font: 9px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
   /* Dashed, because a connected input is showing a value it does not own. */
-  .upstream { border: 1px dashed #858b94; color: #b5bac2; }
+  .upstream { border: 1px dashed #858b94; }
+  .upstream .value { color: var(--value-color); }
+  .upstream .reference { display: none; color: #b4a7ca; }
+  .upstream:hover .value { display: none; }
+  .upstream:hover .reference { display: inline; }
   .upstream:focus { border-color: var(--node-color); outline: none; }
   .read-only { font-style: italic; }
 </style>

@@ -10,7 +10,6 @@
 
 #include "ArchViz/DiligentViewport.hpp"
 
-#include "Annotation/RetainedTraceSelection.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/Camera.hpp"
 #include "ArchViz/DebugCubeMesh.hpp"
@@ -22,7 +21,7 @@
 #include "ArchViz/DiligentGpuTimings.hpp"
 #include "ArchViz/PlanAnchorLayer.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
-#include "ArchViz/TraceAnnotationLayer.hpp"
+#include "ArchViz/SceneTextLayer.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/DiligentViewportSupport.hpp"
@@ -81,6 +80,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
     DiligentHud hud;
     DiligentPickBuffer pick;
     DiligentGpuTimings gpuTimings;
+    SceneTextLayer textLayer;
 
     // Give back the HWND. See the long note at the call site in the success
     // path; this is that same teardown, reachable from both.
@@ -88,6 +88,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         gpuTimings.Collect ();
         gpuTimings.Shutdown ();
         scene.Shutdown ();
+        textLayer.Shutdown ();
         hud.Shutdown ();
         pick.Shutdown ();
         dxgiSwapChain = nullptr;
@@ -270,6 +271,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (!offscreen && !hud.Init (device, target.ColorFormat (), target.DepthFormat (), hudError))
                 ArchVizLog ("Diligent viewport: the ImGui HUD did not start (" + hudError +
                             "); the viewport runs without it");
+            std::string textError;
+            if (!textLayer.Init (device, target.ColorFormat (), target.DepthFormat (), textError))
+                ArchVizLog ("Diligent viewport: the scene-text layer did not start (" + textError +
+                            "); the viewport runs without retained labels");
             hudState.debugView = debugView_.load ();
             hudState.renderMode = renderMode_.load ();
             hudState.showCallout = showCallout_.load ();
@@ -313,6 +318,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         bool lastOrthographic = hudState.orthographic;
         uint64_t lastCommandedSunSeq = sunOverrideSeq_.load ();
         uint64_t lastPlanAnchorSeq = 0; // 0 so the FIRST set is always adopted
+        uint64_t lastTextLabelSeq = (std::numeric_limits<uint64_t>::max) ();
+        std::vector<SceneTextLabel> textLabels;
         // Everything a click and a hover remember between frames, in one place --
         // see PickState. ServicePick owns all of it; the loop only reads
         // `hoverId` back out for the callout.
@@ -858,6 +865,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                         target.DepthFormat (), modelIsDrawn);
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
+            UpdateAndDrawSceneText (textLayer, device, context, mutex_, pendingTextLabels_, textLabelSeq_.load (),
+                                    lastTextLabelSeq, textLabels, blanked, offscreen, surface.nwh, viewProj, width,
+                                    height);
             if (!offscreen && !annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
@@ -866,6 +876,9 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
 
             if (!offscreen && !annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
+
+            ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
+                textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, viewProj, width, height);
 
             // Last, over everything, into the full-surface viewport the gnomon
             // restored.
@@ -887,21 +900,6 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 hudState.width = width;
                 hudState.height = height;
                 hudState.frameLatency = target.FrameLatency ();
-                // ⚠️ THE ANNOTATIONS STILL BLANK: `viewProj` projects them, so
-                // they go stale the way the model does. The split is not "HUD vs
-                // scene", it is "has a pose to be wrong about vs not".
-                ProjectedDrawList annotations;
-                const auto selected = blanked ? std::nullopt : annotation::SelectedRetainedFrameSnapshotCopy ();
-                if (selected.has_value ()) {
-                    float annotationDpiScale = 1.0f;
-                    if (!offscreen && surface.nwh != nullptr) {
-                        const UINT dpi = GetDpiForWindow (static_cast<HWND> (surface.nwh));
-                        if (dpi != 0)
-                            annotationDpiScale = float (dpi) / 96.0f;
-                    }
-                    annotations = BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height,
-                                                         annotationDpiScale, annotationsOnly);
-                }
                 hud.Draw (context, width, height, input, hudScene, annotations, hudState, !annotationsOnly);
             }
             gpuTimings.End (context, GpuTimingStage::Post);
@@ -992,19 +990,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 // rather than grow it". A flat run of field copies is the most
                 // extractable thing in the frame body and carries no ordering.
                 CopySceneStatsInto (stats_, sceneStats);
-                stats_.planAnchors = planAnchorsOn_.load ();
-                stats_.planAnchorLayerReady = planAnchors.IsReady ();
-                stats_.planAnchorVertices = uint64_t (planAnchors.VertexCount ());
-                stats_.planAnchorWidthPixels = planAnchorWidthPixels_.load ();
-                // The live camera, for the overlay sync test to compare against
-                // Archicad's own numbers.
-                float target[3];
-                camera.GetTarget (target);
-                for (int k = 0; k < 3; ++k) {
-                    stats_.cameraEye[k] = eye[k];
-                    stats_.cameraTarget[k] = target[k];
-                }
-                stats_.cameraFovDegreesVertical = camera.FovDegreesVertical ();
+                CopyOverlayStatsInto (stats_, planAnchorsOn_.load (), planAnchors, planAnchorWidthPixels_.load (),
+                                      textLayer, camera, eye);
                 fpsStarted = now;
                 fpsStartedFrames = frames;
             }

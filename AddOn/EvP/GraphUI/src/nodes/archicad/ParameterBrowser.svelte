@@ -1,7 +1,7 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
   import type { GraphParameter, NodeOutputRecord, NodeTypeSchema, SelectionAction } from '../../types'
-  import { filterValueTree, nodeValueTree } from '../types/valueTree'
+  import { filterValueTree, flattenValueTree, nodeValueTree } from '../types/valueTree'
   import ValueTreeRow from './ValueTreeRow.svelte'
 
   let {
@@ -42,6 +42,21 @@
   function copy(text: string): void {
     if (text !== '') void navigator.clipboard?.writeText(text)
   }
+  /**
+   * The tree as text, exactly as it is on screen - filtered, and indented the
+   * way the rows are.
+   *
+   * ⚠️ WHAT IS VISIBLE, NOT WHAT IS THERE. Copying the unfiltered tree from a
+   * panel showing four rows would hand over four hundred, which is not what the
+   * button appeared to offer. Tab-separated, so it lands in a spreadsheet or an
+   * issue as a table rather than as a paragraph.
+   */
+  function copyAll(): void {
+    copy(flattenValueTree(tree).join('\n'))
+  }
+  function copyReference(portId: string): void {
+    oncopyreference?.(nodeId, portId, 'output')
+  }
   function expandAll(): void {
     const ids: string[] = []
     const walk = (nodes: typeof tree) => {
@@ -68,7 +83,13 @@
     <div class="reference-actions">
       <button type="button" disabled={busy || onselectionaction === undefined} onclick={() => onselectionaction?.(nodeId, 'update')}>Replace selection</button>
       <button type="button" disabled={busy || onselectionaction === undefined} onclick={() => onselectionaction?.(nodeId, 'reselect')}>Show in Archicad</button>
-      <button type="button" disabled={outputPorts.length === 0 || oncopyreference === undefined} title={outputPorts.length === 0 ? 'This node has no output reference.' : 'Copy this Archicad reference output'} onclick={() => { const output = outputPorts[0]; if (output !== undefined) oncopyreference?.(nodeId, output.portId, 'output') }}>Copy reference</button>
+      <!--
+        ⚠️ NO "COPY REFERENCE" HERE ANY MORE. It copied `outputPorts[0]`, which
+        on a node with several outputs is whichever one the catalog happened to
+        list first - a button whose meaning depended on registration order and
+        said nothing about which port it had taken. Every output row in the tree
+        below now carries its own, naming the port it copies.
+      -->
     </div>
   {/if}
 
@@ -80,11 +101,12 @@
   <nav aria-label="Tree controls">
     <button type="button" onclick={expandAll}>Expand all</button>
     <button type="button" onclick={() => (expanded = new SvelteSet())}>Collapse all</button>
+    <button type="button" disabled={tree.length === 0} title="Copy the rows shown, tab separated" onclick={copyAll}>Copy all</button>
   </nav>
 
   <section>
     {#each tree as root (root.id)}
-      <ValueTreeRow node={root} {expanded} ontoggle={toggle} oncopy={copy} />
+      <ValueTreeRow node={root} {expanded} ontoggle={toggle} oncopy={copy} oncopyreference={copyReference} />
     {:else}
       <p>
         {query.trim() === ''

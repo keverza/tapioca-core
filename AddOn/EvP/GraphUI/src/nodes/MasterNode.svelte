@@ -3,6 +3,9 @@
   import type { SchemaNodeData } from '../types'
   import ParameterBrowser from './archicad/ParameterBrowser.svelte'
   import FloatingControlPanel from './controls/FloatingControlPanel.svelte'
+  import LibraryBrowser from './controls/LibraryBrowser.svelte'
+  import { decodeSelection, encodeSelection } from './controls/libraryParts'
+  import type { LibraryPartRow } from '../types'
   import NodeBody from './NodeBody.svelte'
   import NodeHeader from './NodeHeader.svelte'
   import NodeMenu from './menus/NodeMenu.svelte'
@@ -20,6 +23,23 @@
   let nodeHeight = $state(0)
   let inspectorOpen = $state(false)
   let browserOpen = $state(false)
+  /**
+   * Which library-part parameter has the object browser open, or '' for none.
+   *
+   * Held HERE rather than in the control for the reason .panel-anchor exists:
+   * a panel positioned against a control cell lands on top of the node.
+   */
+  let libraryParameterId = $state('')
+  /**
+   * Whether there is anything to browse.
+   *
+   * Derived ONCE and shared by the header arrow and the ring menu, because two
+   * copies of this predicate is how a node ends up with an arrow that opens an
+   * empty panel while its menu correctly greys the same action out.
+   */
+  const hasBrowser = $derived(
+    data.schema.display === 'selectionSet' || (data.result?.outputs?.length ?? 0) > 0 || data.parameters.length > 0,
+  )
 
   const definition = $derived(definitionFromSchema(data.schema))
   const mode = $derived(data.executionMode ?? 'enabled')
@@ -104,8 +124,21 @@
     <NodeResizer minWidth={definition.presentation.minSize?.width} minHeight={definition.presentation.minSize?.height} maxWidth={definition.presentation.maxSize?.width} maxHeight={definition.presentation.maxSize?.height} />
   {/if}
   <div class="type-rail"></div>
-  <NodeHeader bind:this={header} schema={data.schema} name={displayName} result={data.result} messages={data.messages} onrename={updateName} />
-  <NodeBody {id} {data} {definition} {bodyMode} {viewMode} {portLayout} {viewerVisible} onbrowse={() => (browserOpen = true)} />
+  <NodeHeader bind:this={header} schema={data.schema} name={displayName} result={data.result} messages={data.messages} canBrowse={hasBrowser} onbrowse={() => (browserOpen = true)} onrename={updateName} />
+  <NodeBody
+    {id}
+    {data}
+    {definition}
+    {bodyMode}
+    {viewMode}
+    {portLayout}
+    {viewerVisible}
+    onbrowse={() => (browserOpen = true)}
+    onbrowselibrary={(parameterId) => {
+      libraryParameterId = libraryParameterId === parameterId ? '' : parameterId
+      if (libraryParameterId !== '') data.onrequestlibrary?.()
+    }}
+  />
 
   {#if menuOpen}
     <NodeMenu
@@ -120,7 +153,7 @@
       oninspect={() => (inspectorOpen = true)}
       onrename={() => header?.begin()}
       onbrowse={() => (browserOpen = true)}
-      hasBrowser={data.schema.display === 'selectionSet' || (data.result?.outputs?.length ?? 0) > 0 || data.parameters.length > 0}
+      {hasBrowser}
       onview={() => data.schema.display === 'selectionSet' ? (browserOpen = true) : updateVisual({ display: { ...display, nodeViewer: !viewerVisible } })}
       oncontrols={() => (inspectorOpen = true)}
       ontoggleenabled={() => data.onexecutionchange?.(id, mode === 'disabled' ? 'enabled' : 'disabled')}
@@ -128,6 +161,23 @@
       onhold={() => data.onexecutionchange?.(id, mode === 'holding' ? 'enabled' : 'holding')}
       onclose={() => (menuOpen = false)}
     />
+  {/if}
+  {#if libraryParameterId !== ''}
+    <div class="panel-anchor">
+      <LibraryBrowser
+        catalog={data.libraryCatalog}
+        selectedName={decodeSelection(
+          data.parameters.find((parameter) => parameter.parameterId === libraryParameterId)?.value?.text,
+        )?.name ?? ''}
+        onchoose={(part: LibraryPartRow) => {
+          data.onparameterchange?.(id, libraryParameterId, 'string', encodeSelection(part))
+          libraryParameterId = ''
+        }}
+        onclose={() => (libraryParameterId = '')}
+        onrequest={data.onrequestlibrary}
+        onpreview={data.onlibrarypreview}
+      />
+    </div>
   {/if}
   {#if browserOpen}
     <div class="panel-anchor">
@@ -140,6 +190,8 @@
       schema={data.schema}
       nodeId={id}
       connections={data.portConnections}
+      elementGroups={data.elementGroups}
+      ondescribeelements={data.ondescribeelements}
       name={displayName}
       color={nodeColor}
       {mode}

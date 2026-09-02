@@ -80,6 +80,7 @@ const KNOWN_WIDGETS = new Set<string>([
   'point',
   'color',
   'previewTarget',
+  'libraryPart',
   'readOnly',
 ])
 

@@ -33,5 +33,7 @@ export interface PortConnectionState {
   connected: boolean
   connectionCount: number
   peerLabels?: string[]
+  peerTexts?: string[]
+  peerValueTypes?: string[]
   transforms?: PortTransform[]
 }

@@ -7,6 +7,7 @@
 #include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+#include "NodeGraph/ScriptNodes.hpp"
 #include "Geometry/Transforms.hpp"
 #include "NodeGraph/PreviewProjection.hpp"
 #include "Preview/GraphPreviewStore.hpp"
@@ -315,15 +316,25 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     std::map<std::string, size_t> byCategory;
     for (const auto& [id, nodeType] : registry.Types ())
         ++byCategory[nodeType.category];
-    EXPECT_EQ (8U, byCategory["Core"]);      // number, the four arithmetic nodes, makeList, scaleList, watch
-    EXPECT_EQ (2U, byCategory["Inspect"]);   // panel, preview
-    EXPECT_EQ (2U, byCategory["Flow"]);      // dataDam - Stage F, so Holding is reachable
-    EXPECT_EQ (2U, byCategory["Input"]);     // numberSlider, booleanToggle
-    EXPECT_EQ (10U, byCategory["Archicad"]); // one attribute picker per domain, plus the two selection nodes
+    EXPECT_EQ (8U, byCategory["Core"]);    // number, the four arithmetic nodes, makeList, scaleList, watch
+    EXPECT_EQ (2U, byCategory["Inspect"]); // panel, preview
+    EXPECT_EQ (2U, byCategory["Flow"]);    // dataDam - Stage F, so Holding is reachable
+    EXPECT_EQ (2U, byCategory["Input"]);   // numberSlider, booleanToggle
+    EXPECT_EQ (11U,
+               byCategory["Archicad"]); // an attribute picker per domain, the two selection nodes, the library part
     EXPECT_EQ (21U, byCategory["Geometry"]); // inputs, vectors, polygons, solids, curves and the surface makers
     EXPECT_EQ (6U, byCategory["Transform"]); // move, rotate, scale, mirror and the two arrays
     EXPECT_EQ (2U, byCategory["Math"]);      // remap, random
-    EXPECT_EQ (53U, registry.Types ().size ());
+    // One container per element type the classification table marks as one. The
+    // number is the table's, not a taste: a type that quietly lost its container
+    // moves it, and test_elementclassification.cpp says which.
+    EXPECT_EQ (18U, byCategory["Archicad Elements"]);
+    // The script node family: one type per language, so a user looking for
+    // "Python" finds a node called Python rather than one they must place and
+    // then reconfigure. Their ports are NOT here - they are declared in the file
+    // each node runs, which is what NodeType::instancePorts marks.
+    EXPECT_EQ (2U, byCategory["Script"]); // script.javascript, script.python
+    EXPECT_EQ (74U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -1094,6 +1105,39 @@ class StubHost final : public IArchicadHost {
         elements = selection;
         return true;
     }
+    // What the stub says each guid is. A guid with no entry reads back as
+    // unclassified, which is the same answer the real host gives for a type this
+    // build does not name.
+    std::map<std::string, std::string> typeOf;
+    bool describeFails = false;
+    mutable int describeCalls = 0;
+
+    bool DescribeElements (const std::vector<ArchicadElementRef>& elements,
+                           std::vector<ElementDescription>& descriptions, std::string& error) const override
+    {
+        ++describeCalls;
+        if (describeFails) {
+            error = "Archicad did not respond";
+            return false;
+        }
+        for (const ArchicadElementRef& element : elements) {
+            ElementDescription description;
+            description.guid = element.guid;
+            description.available = resolver.present.contains (element.guid);
+            if (!description.available) {
+                description.detail = "element " + element.guid + " is not in this project";
+                descriptions.push_back (std::move (description));
+                continue;
+            }
+            const auto found = typeOf.find (element.guid);
+            if (found != typeOf.end ()) {
+                description.elementType = found->second;
+                description.typeLabel = found->second;
+            }
+            descriptions.push_back (std::move (description));
+        }
+        return true;
+    }
     bool SetSelection (const std::vector<ArchicadElementRef>& elements, std::string& error) override
     {
         ++setSelectionCalls;
@@ -1112,6 +1156,17 @@ class StubHost final : public IArchicadHost {
         for (const std::string& guid : guids) {
             selection.push_back (ArchicadElementRef { guid });
             resolver.present.insert (guid);
+        }
+    }
+
+    // The same, with a type each.
+    void HoldsTyped (std::initializer_list<std::pair<std::string, std::string>> typed)
+    {
+        selection.clear ();
+        for (const auto& [guid, type] : typed) {
+            selection.push_back (ArchicadElementRef { guid });
+            resolver.present.insert (guid);
+            typeOf[guid] = type;
         }
     }
 };
@@ -1164,6 +1219,170 @@ TEST (NodeGraphArchicad, ASelectionSetEvaluatesToWhatItHoldsWithNoHostAtAll)
     const Value::List& elements = std::get<Value::List> (result->outputs.at ("elements").DataValue ());
     ASSERT_EQ (2U, elements.size ());
     EXPECT_EQ ("guid-a", std::get<ArchicadElementRef> (elements[0].DataValue ()).guid);
+}
+
+TEST (NodeGraphArchicad, ALibraryPartNodeSplitsItsStoredChoiceAndNeedsNoHost)
+{
+    // ⚠️ Pure AND HOSTLESS, like the selection set and for the same reason: the
+    // choice is a thing the USER made and stored, not a question about the model.
+    // That is what lets a saved workflow name its objects with no project open.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    Node node { "part", "archicad.libraryPart" };
+    node.parameters.emplace ("part",
+                             Value (std::string (R"({"name":"Armchair 01","unID":"1234-ABCD","type":"Object",)"
+                                                 R"("file":"Armchair 01.gsm","location":"C:/lib/Armchair 01.gsm"})")));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("part");
+    ASSERT_NE (nullptr, result);
+    EXPECT_EQ ("Armchair 01", std::get<std::string> (result->outputs.at ("name").DataValue ()));
+    // ⚠️ THE unID IS AN OUTPUT IN ITS OWN RIGHT. A document name is unique only
+    // in that Archicad registers the newest part carrying it, so a downstream
+    // node that recorded only the name would pick a different object the day a
+    // second library loads one with the same name.
+    EXPECT_EQ ("1234-ABCD", std::get<std::string> (result->outputs.at ("unID").DataValue ()));
+    EXPECT_EQ ("Object", std::get<std::string> (result->outputs.at ("type").DataValue ()));
+}
+
+TEST (NodeGraphArchicad, AnUnchosenOrUnreadableLibraryPartIsEmptyRatherThanAFailedGraph)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    Evaluator evaluator;
+
+    // Nothing chosen yet: the node is something you drop and then browse from,
+    // and a red node for the seconds in between is noise.
+    GraphDocument bare;
+    ASSERT_TRUE (
+        ApplyEdit (bare, registry, GraphEdit { AddNodeEdit { Node { "part", "archicad.libraryPart" } } }).accepted);
+    EvaluationOutcome outcome = RunWithHost (evaluator, bare, registry, ExecuteRuntimeNode, nullptr);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ ("", std::get<std::string> (evaluator.Result ("part")->outputs.at ("name").DataValue ()));
+
+    // A blob that will not parse can only come from a hand-edited file. Losing
+    // the choice is better than refusing to open the document.
+    GraphDocument broken;
+    Node node { "part", "archicad.libraryPart" };
+    node.parameters.emplace ("part", Value (std::string ("{not json")));
+    ASSERT_TRUE (ApplyEdit (broken, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+    Evaluator second;
+    outcome = RunWithHost (second, broken, registry, ExecuteRuntimeNode, nullptr);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ ("", std::get<std::string> (second.Result ("part")->outputs.at ("unID").DataValue ()));
+}
+
+TEST (NodeGraphArchicad, TheLibraryPartWidgetCarriesNoOptionsBecauseTheLibrariesAreArchicadsAnswer)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find ("archicad.libraryPart");
+    ASSERT_NE (nullptr, type);
+    ASSERT_EQ (1U, type->parameters.size ());
+    ASSERT_TRUE (type->parameters[0].ui.has_value ());
+    EXPECT_EQ (ParameterWidget::LibraryPart, type->parameters[0].ui->widget);
+    EXPECT_EQ (ValueType::String, type->parameters[0].valueType);
+    // ⚠️ A NODE TYPE MUST NOT SHIP A LIST OF PART NAMES. What is loaded changes
+    // with the open project, so a literal option list would be the catalog
+    // asserting something about a project it has never seen. The registry refuses
+    // one rather than leaving it to be noticed.
+    EXPECT_TRUE (type->parameters[0].ui->options.empty ());
+    EXPECT_EQ (ParameterOptionSource::None, type->parameters[0].ui->optionSource);
+
+    NodeRegistry fresh;
+    NodeType offender;
+    offender.id = "offender";
+    offender.label = "Offender";
+    offender.category = "Test";
+    ParameterSchema parameter { "part", "Object", ValueType::String, false, Value (std::string {}) };
+    ParameterUi ui;
+    ui.widget = ParameterWidget::LibraryPart;
+    ui.options.push_back ({ "Armchair 01", Value (std::string ("Armchair 01")) });
+    parameter.ui = ui;
+    offender.parameters.push_back (parameter);
+    std::string error;
+    EXPECT_FALSE (fresh.Register (std::move (offender), error));
+    EXPECT_NE (std::string::npos, error.find ("libraryPart"));
+}
+
+TEST (NodeGraphArchicad, AContainerKeepsOnlyItsOwnTypeAndReadsTheWholeListAtOnce)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "w", "s", "w2", "gone" }) } })
+            .accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "walls", ElementContainerNodeType ("wall") } } })
+            .accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Edge { "sel", "elements", "walls", "elements" } } })
+            .accepted);
+
+    StubHost host;
+    host.HoldsTyped ({ { "w", "wall" }, { "s", "slab" }, { "w2", "wall" } });
+    // "gone" is deliberately NOT resolvable: it is in the captured set but no
+    // longer in the project.
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("walls");
+    ASSERT_NE (nullptr, result);
+    EXPECT_EQ (2, std::get<int64_t> (result->outputs.at ("count").DataValue ()));
+    const Value::List& kept = std::get<Value::List> (result->outputs.at ("elements").DataValue ());
+    ASSERT_EQ (2U, kept.size ());
+    EXPECT_EQ ("w", std::get<ArchicadElementRef> (kept[0].DataValue ()).guid);
+    EXPECT_EQ ("w2", std::get<ArchicadElementRef> (kept[1].DataValue ()).guid);
+
+    // ⚠️ ONE READ FOR THE WHOLE LIST. A per-element describe of a 500-element
+    // selection is 500 crossings of the main-thread gate, which MainThreadGate
+    // measured at roughly 0.6-8ms each.
+    EXPECT_EQ (1, host.describeCalls);
+}
+
+TEST (NodeGraphArchicad, AContainerDropsAnElementItCouldNotReadRatherThanGuessingItsType)
+{
+    // "I could not tell what this is" must not answer "it is a wall". A
+    // container that quietly admitted unreadable elements would hand them
+    // downstream to nodes that assume the type.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", { "gone" }) } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "walls", ElementContainerNodeType ("wall") } } })
+            .accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Edge { "sel", "elements", "walls", "elements" } } })
+            .accepted);
+
+    StubHost host;
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (0, std::get<int64_t> (evaluator.Result ("walls")->outputs.at ("count").DataValue ()));
+}
+
+TEST (NodeGraphArchicad, AnUnwiredContainerIsEmptyRatherThanBroken)
+{
+    // It is a thing you drop on the canvas and wire up afterwards. A node
+    // reporting a failure for the ten seconds between those two acts is noise.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "slabs", ElementContainerNodeType ("slab") } } })
+            .accepted);
+
+    StubHost host;
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    EXPECT_EQ (0, std::get<int64_t> (evaluator.Result ("slabs")->outputs.at ("count").DataValue ()));
+    EXPECT_EQ (0, host.describeCalls);
 }
 
 TEST (NodeGraphArchicad, TheSelectionSetStaysCleanWhileTheUserClicksAroundInTheModel)
@@ -2658,6 +2877,79 @@ TEST (NodeGraphSelectionSet, UpdateReplacesAddUnionsAndRemoveSubtracts)
     EXPECT_EQ (0U, result.count);
 }
 
+namespace {
+
+std::vector<std::string> CapturedTypesOf (const GraphDocument& document, const NodeId& nodeId)
+{
+    const Node* node = document.FindNode (nodeId);
+    if (node == nullptr)
+        return {};
+    const auto parameter = node->parameters.find (kSelectionTypesParameter);
+    if (parameter == node->parameters.end ())
+        return {};
+    return TypesFromValue (parameter->second);
+}
+
+} // namespace
+
+TEST (NodeGraphSelectionSet, TheTypeOfEachElementIsCapturedWithItAndStaysParallel)
+{
+    // ⚠️ WHY THE CAPTURE EXISTS AT ALL. The per-type containers need every
+    // element's type; asking Archicad for it at evaluation time would make the
+    // selection node depend on the model and go dirty whenever the user clicked
+    // in it - which is the exact behaviour the captured set was built to avoid.
+    // So the type is read on the button press that had to cross to the host
+    // anyway, and stored beside the guid.
+    const GraphId graphId = FreshGraphId ("captured-types");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.HoldsTyped ({ { "a", "wall" }, { "b", "slab" }, { "c", "wall" } });
+
+    ASSERT_TRUE (runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update).ok);
+    EXPECT_EQ ((std::vector<std::string> { "wall", "slab", "wall" }),
+               CapturedTypesOf (runtime.Document (graphId), "sel"));
+    EXPECT_EQ ((std::vector<std::string> { "a", "b", "c" }), GuidsOf (runtime.Document (graphId), "sel"));
+
+    // The two lists move TOGETHER. Leaving the old types beside a new guid list
+    // would file every element under its predecessor's container - a stack that
+    // looks plausible and is entirely wrong.
+    host.HoldsTyped ({ { "d", "column" } });
+    ASSERT_TRUE (runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update).ok);
+    EXPECT_EQ ((std::vector<std::string> { "column" }), CapturedTypesOf (runtime.Document (graphId), "sel"));
+    EXPECT_EQ (1U, GuidsOf (runtime.Document (graphId), "sel").size ());
+
+    // And Clear empties both rather than leaving a stale type list behind.
+    ASSERT_TRUE (runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Clear).ok);
+    EXPECT_TRUE (CapturedTypesOf (runtime.Document (graphId), "sel").empty ());
+}
+
+TEST (NodeGraphSelectionSet, AFailedTypeReadStillCapturesTheSelection)
+{
+    // The set changed correctly; only the GROUPING is unknown. Refusing the
+    // capture over a grouping would lose the user's actual selection to fix a
+    // panel, which is the wrong trade - so every element falls into the
+    // unclassified container and the next Update repairs it.
+    const GraphId graphId = FreshGraphId ("describe-fails");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "sel", "archicad.getSelection" } } }).accepted);
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.HoldsTyped ({ { "a", "wall" } });
+    host.describeFails = true;
+
+    const auto result = runtime.ApplySelectionAction (graphId, "sel", SelectionAction::Update);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ ((std::vector<std::string> { "a" }), GuidsOf (runtime.Document (graphId), "sel"));
+    EXPECT_EQ ((std::vector<std::string> { kUnclassifiedElementTypeId }),
+               CapturedTypesOf (runtime.Document (graphId), "sel"));
+}
+
 TEST (NodeGraphSelectionSet, AnActionEvaluatesWhatItAffectsSoNobodyPressesEvaluate)
 {
     const GraphId graphId = FreshGraphId ("evaluates");
@@ -3981,6 +4273,16 @@ TEST (NodeGraphBuiltins, EveryNodeWithTypedInDefaultsEvaluatesWithNothingWired)
             nodeType.effect != EffectKind::Pure) {
             continue;
         }
+        // ⚠️ A SCRIPT NODE IS THE ONE TYPE THIS TEST'S PREMISE DOES NOT COVER, and
+        // excluding it is the honest answer rather than a weakening. Every other
+        // node in the catalog carries its own behaviour, so "placed and left
+        // alone, it works" is a property worth enforcing. A script node's
+        // behaviour is authored in a FILE that does not exist until the user
+        // makes one, so a freshly placed one correctly reports that it has no
+        // file yet. Making it pass here would mean inventing a default body,
+        // which is a worse thing to own than this exception.
+        if (IsScriptNodeType (id))
+            continue;
 
         Node node;
         node.id = "n";

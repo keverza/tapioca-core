@@ -30,6 +30,10 @@
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
 #include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
 #include "NodeGraph/ArchicadHostImpl.hpp"         // the graph runtime's one ACAPI seam
+#include "NodeGraph/GraphRuntimeState.hpp"        // the graphs whose script nodes are reloaded
+#include "Python/GraphScriptRuntime.hpp"          // the Python half of the script node family
+#include "NodeGraph/ScriptReload.hpp"             // reloads a script node when its file is saved
+#include "NodeGraph/ScriptSource.hpp"             // the file watcher behind that
 #include "NodeGraph/WorkerPool.hpp"                // joined on quit, never at static destruction
 #include "Notify/ChangeTracker.hpp"               // E25 — the model change token
 #include "Notify/BackgroundArm.hpp"               // E25 — its background arming thread
@@ -37,6 +41,9 @@
 #include "Python/ApiCommandCatalog.hpp"
 #include "Python/PathUtils.hpp"     // EvpDataDir / AppendTextLine — ACAPI-free, safe this early
 #include "Diagnostics/ApiError.hpp" // DescribeErr — never print a bare GSErrCode
+
+#include <memory>
+#include <string>
 
 // ---- Startup trail ---------------------------------------------------------
 // RegisterInterface and Initialize are the two places where a failure is COMPLETELY
@@ -54,6 +61,12 @@
 // AppendTextLine, which rotates at the shared 5 MiB cap — no new uncapped log.
 // AppendTextLine does not create parents, and on a fresh install logs\ does not
 // exist — so the very first startup would silently log nothing at all.
+// The script node family's file watcher. A file-scope owner rather than a
+// singleton because its lifetime is exactly this module's: constructed in
+// Initialize, stopped and destroyed in FreeData, and detached from the runtime
+// before either. See ScriptSource.hpp.
+static std::unique_ptr<evp::nodegraph::IScriptWatcher> gScriptWatcher;
+
 static bool StartupLogPath (GS::UniString& path)
 {
     const GS::UniString dataDir = evp::EvpDataDir ();
@@ -348,6 +361,36 @@ GSErrCode Initialize (void)
     // expressible rather than a dangling call into freed code.
     evp::nodegraph::SetActiveArchicadHost (&evp::nodegraph::ArchicadHostImpl::Get ());
 
+    // The script node family's file watcher, installed on the same terms and for
+    // the same reason: it is a platform object the portable runtime only knows by
+    // interface, and it must be detached before this module unloads.
+    //
+    // ⚠️ THE CALLBACK RUNS ON THE WATCHER'S THREAD AND MUST NOT TOUCH THE
+    // DOCUMENT. It marshals to the main thread, where reloading - which applies a
+    // graph edit and can reshape a node's ports - is safe. Doing the reload
+    // inline here would mutate the document from a thread the runtime has never
+    // agreed can mutate it, while a worker may be reading it.
+    gScriptWatcher = evp::nodegraph::MakeWin32ScriptWatcher ([] (const std::string&) {
+        // The gate's post failure is deliberately dropped: it means the gate is
+        // shutting down, and a reload that does not happen during teardown costs
+        // nothing. The node reloads on its next evaluation regardless.
+        GS::UniString postError;
+        evp::MainThreadGate::Get ().Post (
+            [] () {
+                for (const evp::nodegraph::GraphId& graphId : evp::nodegraph::GraphRuntimeState::Get ().GraphIds ())
+                    evp::nodegraph::ReloadStaleScriptNodes (graphId);
+            },
+            postError);
+    });
+    evp::nodegraph::SetActiveScriptWatcher (gScriptWatcher.get ());
+
+    // The Python script runtime. Installing it does NOT start CPython: that
+    // happens lazily on the first Python node that actually runs, so a graph with
+    // no Python nodes never pays a multi-second interpreter start and an add-on on
+    // a machine with no runtime still loads. The JavaScript engine needs no
+    // equivalent line - it is compiled in, and MakeRuntimeNodeRegistry installs it.
+    evp::InstallPythonScriptRuntime ();
+
     // One install per registered menu resource — the same handler, which routes on
     // menuResID. A resource registered but not installed here is a dead menu item.
     // Recorded, not aborted on, for the same reason as the registrations above.
@@ -484,6 +527,14 @@ GSErrCode FreeData (void)
     // flight sees no host and fails its Archicad nodes cleanly, instead of
     // marshalling ACAPI work into a module that is being unloaded.
     evp::nodegraph::SetActiveArchicadHost (nullptr);
+    // Detached and joined before the gate closes, for the reason the host is: the
+    // watcher's thread posts to the gate, and a thread that outlived this module
+    // would be Windows running freed code.
+    evp::nodegraph::SetActiveScriptWatcher (nullptr);
+    if (gScriptWatcher) {
+        gScriptWatcher->Stop ();
+        gScriptWatcher.reset ();
+    }
     // After the host is detached and before the gate closes: a pool thread that
     // outlived this module would be Windows running freed code, and joining at
     // static destruction would do it under the loader lock. Idempotent, so the

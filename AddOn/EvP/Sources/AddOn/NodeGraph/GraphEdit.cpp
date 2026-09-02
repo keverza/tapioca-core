@@ -2,6 +2,7 @@
 
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
+#include "NodeGraph/ScriptNodes.hpp"
 
 #include <algorithm>
 #include <set>
@@ -42,7 +43,7 @@ bool ValidateNode (const Node& node, const NodeRegistry& registry, std::string& 
         // so it travels with the document, hashes into the evaluation cache and
         // round-trips through the library with no new plumbing. An edge always
         // wins over it; see Evaluator's input gathering.
-        const PortSchema* input = FindInput (*nodeType, parameterId);
+        const PortSchema* input = FindInput (node, *nodeType, parameterId);
         if (input == nullptr) {
             error = "unknown parameter: " + parameterId;
             return false;
@@ -59,6 +60,30 @@ bool ValidateNode (const Node& node, const NodeRegistry& registry, std::string& 
         if (parameter.required && !node.parameters.contains (parameter.id) && !parameter.defaultValue) {
             error = "required parameter is absent: " + parameter.id;
             return false;
+        }
+    }
+    // Instance ports are INPUT, from a parsed script header or a graph file, and
+    // are validated on the same terms the registry validates a type's ports.
+    // Skipping this would let a duplicate or empty port id reach the evaluator,
+    // where an edge would match two ports and the second silently never run.
+    if (!nodeType->instancePorts) {
+        if (!node.dynamicInputs.empty () || !node.dynamicOutputs.empty ()) {
+            error = "node carries instance ports but '" + node.nodeType + "' does not declare them";
+            return false;
+        }
+        return true;
+    }
+    for (const auto* ports : { &node.dynamicInputs, &node.dynamicOutputs }) {
+        std::set<std::string> seen;
+        for (const PortSchema& port : *ports) {
+            if (port.id.empty ()) {
+                error = "instance port id is empty";
+                return false;
+            }
+            if (!seen.insert (port.id).second) {
+                error = "duplicate instance port: " + port.id;
+                return false;
+            }
         }
     }
     return true;
@@ -79,8 +104,8 @@ bool ValidateDocument (const GraphDocument& document, const NodeRegistry& regist
             error = "edge names an unknown node";
             return false;
         }
-        const PortSchema* output = FindOutput (*registry.Find (source->nodeType), edge.sourcePort);
-        const PortSchema* input = FindInput (*registry.Find (target->nodeType), edge.targetPort);
+        const PortSchema* output = FindOutput (*source, *registry.Find (source->nodeType), edge.sourcePort);
+        const PortSchema* input = FindInput (*target, *registry.Find (target->nodeType), edge.targetPort);
         if (output == nullptr || input == nullptr) {
             error = "edge names an unknown port";
             return false;
@@ -158,6 +183,7 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
 {
     GraphDocument candidate = document;
     std::set<NodeId> dirtyRoots;
+    std::vector<Edge> dropped;
     std::string error;
     // The generic code every pre-Stage-F rejection still carries. Phase 0 gives
     // each of those its own; the flow-control operations below set theirs now,
@@ -284,6 +310,81 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
                 iterator->second.executionMode = operation.mode;
                 dirtyRoots.insert (operation.nodeId);
             }
+            else if constexpr (std::is_same_v<T, SetScriptInterfaceEdit>) {
+                auto iterator = candidate.nodes_.find (operation.nodeId);
+                if (iterator == candidate.nodes_.end ()) {
+                    error = "unknown node: " + operation.nodeId;
+                    code = "script.unknownNode";
+                    return false;
+                }
+                Node& node = iterator->second;
+                const NodeType* nodeType = registry.Find (node.nodeType);
+                if (nodeType == nullptr || !nodeType->instancePorts) {
+                    error = "'" + node.nodeType + "' does not author its own ports";
+                    code = "script.notAScriptNode";
+                    return false;
+                }
+
+                node.dynamicInputs = operation.inputs;
+                node.dynamicOutputs = operation.outputs;
+
+                // A default fills a port the node has no value for. It does NOT
+                // overwrite one: the number the user typed into the node is
+                // theirs, and a reload that reset it on every save would make the
+                // node unusable while its script was being worked on.
+                for (const auto& [portId, value] : operation.defaults) {
+                    if (!node.parameters.contains (portId))
+                        node.parameters.emplace (portId, value);
+                }
+                node.parameters.insert_or_assign (kScriptSourceHashParameter, Value (operation.sourceHash));
+
+                // Internalised values for ports that no longer exist go too.
+                // Left behind they would fail ValidateNode as unknown parameters
+                // the next time anything touched this node - long after the edit
+                // that orphaned them.
+                std::erase_if (node.parameters, [&] (const auto& entry) {
+                    const std::string& parameterId = entry.first;
+                    if (parameterId == kScriptPathParameter || parameterId == kScriptLanguageParameter ||
+                        parameterId == kScriptSourceHashParameter)
+                        return false;
+                    return FindInput (node, *nodeType, parameterId) == nullptr;
+                });
+
+                // The wires. An edge survives only if its port still exists AND
+                // still accepts what flows down it; a port that changed type is
+                // as broken as one that was deleted, and quietly keeping it would
+                // hand the evaluator a value its own rules reject.
+                std::erase_if (candidate.edges_, [&] (const Edge& edge) {
+                    const bool touchesSource = edge.sourceNode == operation.nodeId;
+                    const bool touchesTarget = edge.targetNode == operation.nodeId;
+                    if (!touchesSource && !touchesTarget)
+                        return false;
+
+                    const Node* source = candidate.FindNode (edge.sourceNode);
+                    const Node* target = candidate.FindNode (edge.targetNode);
+                    const NodeType* sourceType = source == nullptr ? nullptr : registry.Find (source->nodeType);
+                    const NodeType* targetType = target == nullptr ? nullptr : registry.Find (target->nodeType);
+                    if (sourceType == nullptr || targetType == nullptr)
+                        return true;
+                    const PortSchema* output = FindOutput (*source, *sourceType, edge.sourcePort);
+                    const PortSchema* input = FindInput (*target, *targetType, edge.targetPort);
+                    const bool survives =
+                        output != nullptr && input != nullptr &&
+                        (input->valueType == ValueType::Absent || output->valueType == input->valueType);
+                    if (survives)
+                        return false;
+                    dropped.push_back (edge);
+                    return true;
+                });
+
+                for (const Edge& edge : candidate.edges_)
+                    if (edge.sourceNode == operation.nodeId)
+                        dirtyRoots.insert (edge.targetNode);
+                for (const Edge& edge : dropped)
+                    if (edge.targetNode != operation.nodeId)
+                        dirtyRoots.insert (edge.targetNode);
+                dirtyRoots.insert (operation.nodeId);
+            }
             else if constexpr (std::is_same_v<T, ReleaseHoldingEdit>) {
                 const auto iterator = candidate.nodes_.find (operation.nodeId);
                 if (iterator == candidate.nodes_.end ()) {
@@ -309,12 +410,12 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
         edit.data);
 
     if (!changed || !ValidateDocument (candidate, registry, error))
-        return { false, code, error, {}, document.Revision () };
+        return { false, code, error, {}, document.Revision (), {} };
 
     candidate.revision_ = document.revision_ + 1;
     const std::vector<NodeId> dirtyNodes = Descendants (candidate, std::move (dirtyRoots));
     document = std::move (candidate);
-    return { true, {}, {}, dirtyNodes, document.Revision () };
+    return { true, {}, {}, dirtyNodes, document.Revision (), std::move (dropped) };
 }
 
 } // namespace evp::nodegraph

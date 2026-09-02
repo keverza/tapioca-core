@@ -18,6 +18,7 @@
   import '@xyflow/svelte/dist/style.css'
   import { onMount } from 'svelte'
   import AnnotationLayer from './AnnotationLayer.svelte'
+  import { schemaForNode } from './nodes/types/schema'
   import {
     annotationAtPoint,
     annotationFromSelection,
@@ -32,6 +33,12 @@
     type EffectiveTool,
   } from './annotations'
   import ApplicationMenu from './ApplicationMenu.svelte'
+  import {
+    containerElementType,
+    containerGroupOf,
+    elementGroupsOf,
+    type ElementTypeInfo,
+  } from './nodes/archicad/elements'
   import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
   import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
@@ -40,6 +47,7 @@
     applyLayoutToPositions,
     describeValueRule,
     detailLevelForZoom,
+    displayedOutputText,
     graphValueFromText,
     initialTheme,
     isCatalogConnectionValid,
@@ -67,6 +75,10 @@
   import { parseNodePresentations, serializeNodePresentations } from './nodes/serialization'
   import ToolStrip from './ToolStrip.svelte'
   import type {
+    ElementDescriptionResponse,
+    ElementGroup,
+    LibraryCatalog,
+    LibraryPartPreview,
     EvaluationSummary,
     ExecutionMode,
     GraphEdgeRecord,
@@ -112,6 +124,29 @@
   let edges = $state.raw<Edge[]>([])
   let referenceEdgeIds = $state.raw<Set<string>>(new Set())
   let catalog = $state.raw<NodeTypeSchema[]>([])
+  /**
+   * The runtime's element type table: the ORDER the containers stack in, and
+   * what to call each one.
+   *
+   * ⚠️ FETCHED, NEVER DECLARED HERE. Grouping by first appearance would make the
+   * same model, clicked in a different order, draw a different panel; a list
+   * written into this file would be a second copy of the native table that goes
+   * stale after a build with nothing to say it had. It ships with the node
+   * catalog, so it costs no extra call.
+   */
+  let elementTypes = $state.raw<ElementTypeInfo[]>([])
+  /**
+   * The loaded object library, listed ONCE for the whole canvas.
+   *
+   * ⚠️ NOT PER NODE. Enumerating the libraries is a main-thread walk of every
+   * registered part; three Library Part nodes on a canvas asking independently
+   * would be three of them, for an answer that is the same every time. Held here
+   * for the same reason the attribute listings are - and `undefined` means
+   * "never asked", which is what lets a picker say "reading..." rather than
+   * "this project has none".
+   */
+  let libraryCatalog = $state.raw<LibraryCatalog | undefined>(undefined)
+  let libraryRequested = false
   /**
    * What the native attribute listing answered, keyed by option source.
    *
@@ -296,6 +331,14 @@
     revision = state.revision
     graphId = state.graphId ?? 'default'
     const schemas = new Map(catalog.map((item) => [item.nodeType, item]))
+    /*
+     * ⚠️ EVERY PORT LOOKUP BELOW GOES THROUGH THIS, NOT THROUGH `schemas`
+     * DIRECTLY. A script node's ports are declared in the file it runs, so its
+     * catalog entry has none and its own state carries them - and a lookup that
+     * skipped the merge would draw it with no handles at all, which reads as a
+     * broken node rather than as a missed call. See nodes/types/schema.ts.
+     */
+    const schemaOf = (node: GraphNodeRecord) => schemaForNode(node, schemas.get(node.nodeType))
     const resultMap = new Map(results.map((item) => [item.nodeId, item]))
     nodes = state.nodes.map((node, index) => ({
       id: node.nodeId,
@@ -311,29 +354,61 @@
         onrequestoptions: (source, penSet) => {
           void listAttributeOptions(source, penSet)
         },
+        libraryCatalog,
+        onrequestlibrary: () => {
+          void listLibraryParts()
+        },
+        onlibrarypreview: libraryPartPreview,
         onportreference: (reference, target) => connectReference(reference, target),
         oncopyportreference: (nodeId, portId, direction) => void copyPortReference(nodeId, portId, direction),
         onpasteportreference: (nodeId, portId) => void pastePortReference(nodeId, portId),
         onportcontextmenu: (event, target) => openPortContext(event, target),
         portConnections: [
-          ...(schemas.get(node.nodeType)?.inputs ?? []).map((port) => {
+          ...(schemaOf(node)?.inputs ?? []).map((port) => {
             const matching = state.edges.filter((edge) => edge.targetNode === node.nodeId && edge.targetPort === port.portId)
-            return { portId: port.portId, direction: 'input' as const, connected: matching.length > 0, connectionCount: matching.length, peerLabels: matching.map((edge) => referenceLabel(edge, state)) }
+            const upstream = matching.map((edge) => resultMap.get(edge.sourceNode)?.outputs?.find((output) => output.portId === edge.sourcePort))
+            return {
+              portId: port.portId,
+              direction: 'input' as const,
+              connected: matching.length > 0,
+              connectionCount: matching.length,
+              peerLabels: matching.map((edge) => referenceLabel(edge, state)),
+              peerTexts: upstream.map(displayedOutputText),
+              peerValueTypes: upstream.map((output, index) => {
+                if (output !== undefined) return output.value.valueType
+                const edge = matching[index]
+                const source = state.nodes.find((candidate) => candidate.nodeId === edge?.sourceNode)
+                // The UPSTREAM node's ports, so this one goes through the merge
+                // too: a wire out of a script node has its type declared in that
+                // script's header, not in the catalog.
+                const sourceSchema = source === undefined ? undefined : schemaOf(source)
+                return sourceSchema?.outputs.find((candidate) => candidate.portId === edge?.sourcePort)?.valueType ?? port.valueType
+              }),
+            }
           }),
-          ...(schemas.get(node.nodeType)?.outputs ?? []).map((port) => {
+          ...(schemaOf(node)?.outputs ?? []).map((port) => {
             const matching = state.edges.filter((edge) => edge.sourceNode === node.nodeId && edge.sourcePort === port.portId)
             return { portId: port.portId, direction: 'output' as const, connected: matching.length > 0, connectionCount: matching.length, peerLabels: matching.map((edge) => `${edge.targetNode}.${edge.targetPort}`) }
           }),
         ],
+        graphId: state.graphId ?? graphId,
+        // A reload can reshape a script node's ports, and those live in the graph
+        // state rather than in the panel - so the panel says "I reloaded" and the
+        // editor refetches, exactly as it does after any other edit.
+        onscriptreloaded: () => { void reloadState() },
         onselectionaction: handleSelectionAction,
         selectionBusy: selectionBusyNode === node.nodeId,
+        // Only a selection set stacks containers, and it does so from what it
+        // already holds - no host call to draw a node's own body.
+        elementGroups: elementGroupsFor(node, schemaOf(node), resultMap.get(node.nodeId)),
+        ondescribeelements: describeElements,
         viewerValues:
-          schemas.get(node.nodeType)?.display === 'preview'
-            ? viewerValuesFor(node, schemas.get(node.nodeType), state.edges, resultMap)
+          schemaOf(node)?.display === 'preview'
+            ? viewerValuesFor(node, schemaOf(node), state.edges, resultMap)
             : undefined,
         onexecute: handleExecute,
         executeBusy: executeBusyNode === node.nodeId,
-        schema: schemas.get(node.nodeType) ?? {
+        schema: schemaOf(node) ?? {
           nodeType: node.nodeType,
           label: node.nodeType,
           category: 'Unknown',
@@ -353,7 +428,7 @@
           return [{ severity: result.status === 'error' ? 'error' as const : result.status === 'blocked' ? 'warning' as const : 'info' as const, code: result.code ?? result.status, title: result.message, nodeId: node.nodeId }]
         })(),
       },
-      style: `width: ${schemas.get(node.nodeType)?.display === 'preview' ? 292 : 248}px`,
+      style: `width: ${schemaOf(node)?.display === 'preview' ? 292 : 248}px`,
     }))
     edges = state.edges.map((edge) => {
       const id = edgeId(edge)
@@ -438,8 +513,11 @@
         message = 'Standalone diagnostic fixture / no native bridge'
         return
       }
-      const response = await callTapioca<{ nodeTypes: NodeTypeSchema[] }>('Tapioca.GraphGetNodeTypes')
+      const response = await callTapioca<{ nodeTypes: NodeTypeSchema[]; elementTypes?: ElementTypeInfo[] }>(
+        'Tapioca.GraphGetNodeTypes',
+      )
       catalog = response.nodeTypes
+      elementTypes = response.elementTypes ?? []
       // The runtime keeps results across an editor reload, so pick them up on
       // open rather than showing an empty graph until the next evaluation.
       await refreshResults()
@@ -1102,6 +1180,110 @@
     } finally {
       busy = false
     }
+  }
+
+  /**
+   * The containers a node stacks, from what it already has.
+   *
+   * ⚠️ TWO SOURCES, BECAUSE THE TWO NODES HOLD ELEMENTS DIFFERENTLY. A selection
+   * set's contents are a stored CAPTURE, so they draw with no project open and
+   * survive a reload; a container's contents are the RESULT of the last run, so
+   * they are empty until it has run - which is honest, because until then the
+   * node has not asked the model what it holds. Neither path calls Archicad:
+   * a node that queried the model to paint its own body would put a main-thread
+   * gate crossing behind every repaint.
+   */
+  function elementGroupsFor(
+    node: GraphNodeRecord,
+    schema: NodeTypeSchema | undefined,
+    result: NodeResultRecord | undefined,
+  ): ElementGroup[] | undefined {
+    if (schema?.display === 'selectionSet') return elementGroupsOf(node.parameters, elementTypes)
+    const held = containerElementType(node.nodeType, elementTypes)
+    if (held === '') return undefined
+    const output = result?.outputs?.find((item) => item.portId === 'elements')?.value
+    return containerGroupOf(held, output, elementTypes)
+  }
+
+  /**
+   * The placeable object catalogue.
+   *
+   * ⚠️ THE NARROWING IS THE RUNTIME'S, NOT THIS CALL'S. `subtype` is deliberately
+   * omitted, which the native verb reads as "GDL objects" - the same list
+   * Archicad's own Object Settings browser shows. Passing "all" here would put
+   * surfaces, images, section markers and templates in a picker whose whole job
+   * is "choose a thing to place", which is the failure the native default exists
+   * to prevent.
+   */
+  async function listLibraryParts(): Promise<void> {
+    if (libraryRequested) return
+    libraryRequested = true
+    if (!nativeConnected) {
+      libraryCatalog = { parts: [], total: 0, truncated: false, error: 'There is no native bridge in this window.' }
+      return
+    }
+    try {
+      publishLibraryCatalog(await callTapioca<LibraryCatalog>('Tapioca.ListLibraryParts'))
+    } catch (error) {
+      // Reported INTO the picker rather than onto the whole editor: no project
+      // open is the common case here, and it is the picker that has to say so.
+      publishLibraryCatalog({
+        parts: [],
+        total: 0,
+        truncated: false,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  /**
+   * ⚠️ PUSHED INTO EVERY NODE, NOT JUST ASSIGNED HERE. `nodes` is a plain
+   * state array of data objects that Svelte Flow owns; assigning a field this
+   * module happens to read does NOT rebuild them, so the answer sat in this
+   * variable while every picker on the canvas went on showing "reading the
+   * loaded libraries" for ever. publishAttributeListing solved the identical
+   * problem the identical way, and not following it is exactly how this bug got
+   * in - so the two now read the same.
+   */
+  function publishLibraryCatalog(catalog: LibraryCatalog): void {
+    libraryCatalog = catalog
+    nodes = nodes.map((node) => ({ ...node, data: { ...node.data, libraryCatalog } }))
+  }
+
+  /**
+   * One part's thumbnail.
+   *
+   * ⚠️ NO PICTURE IS A NORMAL ANSWER. A part with no preview section, one whose
+   * preview is a TIFF, and one over the transfer cap all come back as an empty
+   * `dataUri` with a `reason` - never as a failure - because a large fraction of
+   * a healthy stock library is one of those three and a grid reporting errors for
+   * them would look broken.
+   */
+  async function libraryPartPreview(name: string): Promise<LibraryPartPreview> {
+    if (!nativeConnected) {
+      return { name, previewMime: '', previewBytes: 0, dataUri: '', reason: 'no native bridge' }
+    }
+    return callTapioca<LibraryPartPreview>('Tapioca.GetLibraryPartPreview', { name })
+  }
+
+  /**
+   * What these elements ARE, live from the model.
+   *
+   * ⚠️ ON DEMAND, NOT ON EVERY REDRAW. A container's bar draws from the node's
+   * stored capture and costs nothing; only OPENING one asks Archicad, because a
+   * settings tree that refreshed with the canvas would put a main-thread gate
+   * crossing behind every repaint.
+   *
+   * ⚠️ AND `ok` FALSE IS AN ANSWER, NOT AN EXCEPTION. "No project is open" is an
+   * ordinary state for an editor sitting beside a graph, so it comes back as a
+   * message the container renders rather than as a failed command that would
+   * paint the whole editor red.
+   */
+  async function describeElements(guids: string[]): Promise<ElementDescriptionResponse> {
+    if (!nativeConnected) {
+      return { ok: false, error: 'There is no native bridge in this window.', truncated: false, types: [], elements: [] }
+    }
+    return callTapioca<ElementDescriptionResponse>('Tapioca.GraphDescribeElements', { guids })
   }
 
   /**

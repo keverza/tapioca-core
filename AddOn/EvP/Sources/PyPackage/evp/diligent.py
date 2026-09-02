@@ -108,6 +108,27 @@ def capture(name, preset, width, height, render_quality="realistic", **kwargs):
                                     render_quality=render_quality, **kwargs)
 
 
+def set_text_labels(labels):
+    """Replace the retained model-anchored labels drawn by the Diligent viewer."""
+    from .api import call
+
+    result = call("Tapioca.SetDiligentTextLabels", {"labels": list(labels)},
+                  raise_on_error=False)
+    if not result.ok:
+        raise RuntimeError("SetDiligentTextLabels failed: %s" % _error(result))
+    return result.data or {}
+
+
+def clear_text_labels():
+    """Remove all retained model-anchored Diligent labels."""
+    from .api import call
+
+    result = call("Tapioca.ClearDiligentTextLabels", {}, raise_on_error=False)
+    if not result.ok:
+        raise RuntimeError("ClearDiligentTextLabels failed: %s" % _error(result))
+    return result.data or {}
+
+
 def _validate_name(name):
     if not isinstance(name, str) or not _NAME.fullmatch(name):
         raise ValueError("preset name must match [A-Za-z0-9][A-Za-z0-9_-]{0,63}")

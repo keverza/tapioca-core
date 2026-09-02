@@ -43,9 +43,27 @@ from typing import Any
 # 2026-08-31, PLAT-NODEGRAPH-RUNTIME: +1 for GraphSelectionAction, the selection
 # set node's five buttons. It reads and sets Archicad's SELECTION, which is host
 # UI state rather than model state, so it is not a model write.
-EXPECTED_REGISTRY_COMMANDS = 160
+# 2026-09-02, PLAT-NODEGRAPH-RUNTIME: +1 for GraphDescribeElements, the
+# classification-sensitive element settings read. Strictly a READ - ADR-007
+# excludes model writes from this track and there is no companion setter - so it
+# is host-independent in the same sense every other element read here is.
+# 2026-09-02, Diligent text rendering: +2 for SetDiligentTextLabels and
+# ClearDiligentTextLabels. Both write the overlay's own label list - viewer
+# state, not model state - so they stay host-independent.
+# 2026-09-02, the library browser port: +1 for GetLibraryPartPreview, one part's
+# preview picture as a data URI. A pure READ of a library file, and the only
+# reason it exists is that a browser-hosted picker has a bus between it and the
+# library where the palette has none.
+# 2026-09-02, the node-graph script node: +5 for GraphScriptStatus,
+# GraphScriptReload, GraphScriptCreate, GraphScriptOpen and GraphScriptReveal.
+# Three READ the script file a node runs; two hand it to the shell - the editor
+# associated with its extension, or Explorer with the file selected. Create writes
+# one and REFUSES an existing file, which is what admits it here at all. There is
+# deliberately no GraphScriptWrite - the file belongs to the user's own editor, and
+# a palette that could write it would hold a stale copy able to discard their work.
+EXPECTED_REGISTRY_COMMANDS = 169
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 179
+EXPECTED_TOTAL_COMMANDS = 188
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

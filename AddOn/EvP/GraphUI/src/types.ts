@@ -35,6 +35,7 @@ export type ParameterWidget =
   | 'color'
   | 'readOnly'
   | 'previewTarget'
+  | 'libraryPart'
 
 /**
  * Where a select's choices come from when they are not literal.
@@ -161,7 +162,7 @@ export interface NodeTypeSchema {
    * 'preview'. Driven by the catalog rather than by branching on nodeType here,
    * so a new inspectable node needs no change in this file.
    */
-  display?: 'ports' | 'text' | 'preview' | 'selectionSet'
+  display?: 'ports' | 'text' | 'preview' | 'selectionSet' | 'script'
   generations?: string[]
   /**
    * Empty means this type cannot be bypassed. The picker and context menu grey
@@ -172,9 +173,80 @@ export interface NodeTypeSchema {
   bypassMappings?: BypassMapping[]
   /** Whether ExecutionMode 'holding' is legal for this type. */
   holdCapable?: boolean
+  /**
+   * This type's nodes carry their OWN ports, and its `inputs` and `outputs`
+   * below are empty as a result. That is not a catalog bug: a script node's
+   * interface is declared in the file it runs, so the catalog has nothing to say
+   * about it and the per-node state carries it instead.
+   *
+   * ⚠️ NEVER READ `inputs`/`outputs` OFF THE CATALOG FOR A NODE YOU HAVE IN
+   * HAND. Go through schemaForNode, which merges the two. A reader that skips it
+   * draws every script node with no ports at all - and it looks like the node is
+   * broken rather than like the code is.
+   */
+  instancePorts?: boolean
   inputs: PortSchema[]
   outputs: PortSchema[]
   parameters: ParameterSchema[]
+}
+
+/**
+ * One row of the loaded-library catalogue, as Tapioca.ListLibraryParts reports
+ * it.
+ *
+ * ⚠️ THIS IS THE PLACEABLE CATALOGUE, NOT EVERY REGISTERED PART. The native side
+ * narrows it: an unset subtype means GDL OBJECTS, the same list Archicad's own
+ * Object Settings browser shows. The first cut listed everything and put
+ * surfaces, images, section markers and templates in front of somebody asking
+ * "which object do I place" - reported as *"data is all over the place"*.
+ */
+export interface LibraryPartRow {
+  /** What the Object tool's dialog shows. NOT an identity - see `unID`. */
+  name: string
+  /** The .gsm on disk. */
+  file: string
+  /**
+   * The stable cross-session key. A document name is unique only in that
+   * Archicad registers the newest part carrying it, so two loaded libraries
+   * shipping the same name leave one invisible; this is what survives.
+   */
+  unID: string
+  type: string
+  location: string
+  placeable: boolean
+  /** Registered, but its .gsm is gone. */
+  missing: boolean
+  /** The Library Manager's own folders, root first. */
+  treePath: string[]
+  library: string
+  embedded: boolean
+}
+
+export interface LibraryCatalog {
+  parts: LibraryPartRow[]
+  /** Matches BEFORE the cap, so a truncated list still says how many there are. */
+  total: number
+  truncated: boolean
+  /** Set when the listing failed; the picker shows it instead of an empty tree. */
+  error?: string
+}
+
+/**
+ * One part's preview picture.
+ *
+ * ⚠️ NO PICTURE IS A NORMAL ANSWER, NOT A FAILURE, and `reason` says which of
+ * the three it was: the part has no preview section, its preview is a format no
+ * browser draws (a real Archicad library ships TIFF), or it is over the transfer
+ * cap. A grid that treated any of those as an error would report errors for a
+ * large fraction of a perfectly healthy library.
+ */
+export interface LibraryPartPreview {
+  name: string
+  previewMime: string
+  previewBytes: number
+  /** Empty exactly when `reason` is not. */
+  dataUri: string
+  reason: string
 }
 
 /** The runtime's self-describing value encoding. */
@@ -212,6 +284,14 @@ export interface GraphNodeRecord {
    */
   executionMode?: ExecutionMode
   parameters: GraphParameter[]
+  /**
+   * Present only on nodes whose TYPE sets `instancePorts` - see there. Absent on
+   * every other node, which is how a client tells "this node authors its own
+   * ports and currently has none" (a script whose header would not parse) from
+   * "ask the catalog".
+   */
+  inputs?: PortSchema[]
+  outputs?: PortSchema[]
 }
 
 export interface GraphEdgeRecord {
@@ -398,6 +478,19 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * editor's job, because only the editor knows what the runtime accepts.
    */
   onparameterchange?: (nodeId: string, parameterId: string, valueType: string, text: string) => void
+  /**
+   * Which graph this node is in. Present on script nodes, whose panel calls
+   * native verbs directly rather than going through the editor - and a verb that
+   * defaulted to "the default graph" would act on the wrong document the moment
+   * a second one existed.
+   */
+  graphId?: string
+  /**
+   * A script node reloaded and may have reshaped itself. The editor refetches the
+   * graph state, because a script node's PORTS live in that state - the panel
+   * cannot apply them itself.
+   */
+  onscriptreloaded?: () => void
   /** A port reference pasted onto one of this node's inputs: a connection request. */
   onportreference?: (reference: PortReference, target: { nodeId: string; portId: string }) => void
   oncopyportreference?: (nodeId: string, portId: string, direction: 'input' | 'output') => void
@@ -425,8 +518,97 @@ export interface SchemaNodeData extends Record<string, unknown> {
   attributeListings?: Record<string, AttributeListing>
   /** A select with nothing to show asking for its domain to be listed. */
   onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void
+  /**
+   * The loaded-library catalogue, and one part's thumbnail on request.
+   *
+   * Passed IN for the same reason the attribute listings are: a presentational
+   * control must not call the bridge, and ONE listing serves every picker on the
+   * canvas instead of one enumeration per node. `undefined` is "never asked".
+   */
+  libraryCatalog?: LibraryCatalog
+  onrequestlibrary?: () => void
+  /**
+   * ⚠️ ONE PART PER CALL, AND ONLY FOR CELLS ON SCREEN. Reading a preview
+   * touches the library file; a grid that fetched a four-thousand-part catalogue
+   * through this would be unusable and would deserve to be.
+   */
+  onlibrarypreview?: (name: string) => Promise<LibraryPartPreview>
+  /**
+   * The per-type containers a selection-set node stacks under its buttons.
+   *
+   * ⚠️ RESOLVED FROM THE NODE'S OWN STORED CAPTURE, not from a host call. The
+   * runtime records each element's type at the moment the user pressed a button,
+   * so the stack draws offline, from the document, with no round trip - and it
+   * is as old as that press, which is the same staleness the set itself has.
+   */
+  elementGroups?: ElementGroup[]
+  /** A container asking for the live settings of what it holds. */
+  ondescribeelements?: (guids: string[]) => Promise<ElementDescriptionResponse>
   portConnections?: PortConnectionState[]
   messages?: ComponentMessage[]
+}
+
+/**
+ * One row of the classification-sensitive settings tree, as the runtime
+ * describes it.
+ *
+ * ⚠️ THE SCHEMA COMES WITH THE ANSWER, IT IS NOT CACHED HERE. GraphDescribeElements
+ * returns the descriptors for exactly the types present in the same response, so
+ * this file never carries a copy of what a wall is - which is the copy that goes
+ * stale after a build and starts showing a thickness under the label "Height".
+ */
+export interface ElementSettingSchema {
+  id: string
+  label: string
+  /** 'Identity' | 'Placement' | 'Geometry' | 'Structure' | 'Display'. */
+  group: string
+  valueType: string
+  /** The unit of the VALUE, not a decoration: an angle marked deg IS in degrees. */
+  unit: string
+}
+
+export interface ElementTypeSchema {
+  id: string
+  label: string
+  plural: string
+  settings: ElementSettingSchema[]
+}
+
+export interface ElementSettingValue {
+  id: string
+  text: string
+  hasNumber: boolean
+  number: number
+}
+
+export interface ElementDescription {
+  guid: string
+  elementType: string
+  /** Archicad's own localised name for the type. */
+  typeLabel: string
+  /** False when the element could not be read; `detail` says why. */
+  available: boolean
+  detail: string
+  /**
+   * In the runtime table's order, and only the settings it could actually read.
+   * A setting missing here is UNREAD, which is a different fact from zero.
+   */
+  settings: ElementSettingValue[]
+}
+
+export interface ElementDescriptionResponse {
+  ok: boolean
+  error: string
+  truncated: boolean
+  types: ElementTypeSchema[]
+  elements: ElementDescription[]
+}
+
+/** One container in a selection node's stack: a type, and what it holds. */
+export interface ElementGroup {
+  elementType: string
+  label: string
+  guids: string[]
 }
 
 export type PositionStore = Map<string, XYPosition>

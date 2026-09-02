@@ -66,6 +66,14 @@ enum class NodeDisplay {
     // size. The actions are native verbs, not evaluations - see
     // NodeGraphSelectionCommands.cpp.
     SelectionSet,
+
+    // The node's behaviour is AUTHORED IN A FILE OUTSIDE THE GRAPH. A client
+    // should draw the script's path, which runtime it runs under, whether the
+    // file on disk is newer than what the node loaded, and the node's log; and
+    // it should offer Reload and Open-in-editor. It must NOT offer an inline
+    // editor: the file belongs to VSCode or Sublime, and a second editable copy
+    // in the palette is a second source of truth that silently loses saves.
+    Script,
 };
 
 const char* NodeDisplayName (NodeDisplay display);
@@ -128,6 +136,28 @@ enum class ParameterWidget {
     // The value stays String, and the three spellings are fixed below; a client
     // that meets a fourth shows it as a plain select rather than guessing.
     PreviewTarget,
+
+    // One GDL library part, chosen from the loaded libraries.
+    //
+    // ⚠️ THE CLIENT DOES NOT ENUMERATE THE LIBRARIES, for exactly the reason
+    // ParameterOptionSource exists: what is loaded is Archicad's answer and it
+    // changes with the open project, so it can be neither a static catalog entry
+    // nor something a browser knows. The parameter says "this is a library
+    // part"; the client asks Tapioca.ListLibraryParts for the rows.
+    //
+    // ⚠️ AND IT IS NOT A Select. A stock library is thousands of parts arranged
+    // in the folder tree the user knows from Object Settings; a flat <option>
+    // list of four thousand names is a control that technically works and cannot
+    // be used. The palette learned this the hard way - see
+    // Palette/CatalogBrowser.hpp - and settled on search, folders, and a
+    // thumbnail grid. This widget is that same browser, in the graph.
+    //
+    // The value stays String and carries the SAME JSON object the palette's
+    // evp.LibraryPart parameter stores - name, unID, type, file, location - so
+    // one part means the same thing in both, and the identity travels with the
+    // label. `name` alone is not an identity: two loaded libraries routinely
+    // ship a part with the same name and only the newest is visible.
+    LibraryPart,
 
     // Shown, not edited. The fallback for a value a client cannot author.
     ReadOnly,
@@ -248,6 +278,16 @@ struct NodeType {
     // Stage F4: whether ExecutionMode::Holding is legal for this type. A Data
     // Dam is a contract about staging a value, not a badge every node can wear.
     bool holdCapable = false;
+
+    // Whether this type's nodes carry their own ports - see Node::dynamicInputs.
+    // Opt-in, and deliberately a property of the TYPE: it is the type that knows
+    // its interface is authored elsewhere, and a document cannot grant itself
+    // instance ports on a type that never agreed to them.
+    //
+    // A type that sets this declares `inputs` and `outputs` EMPTY. The registry
+    // enforces that, because a type carrying both would leave every reader with
+    // two plausible answers and no rule for choosing.
+    bool instancePorts = false;
 
     // Host state this node reads that its ports do not express. Folded into the
     // node's cache key, so declaring a domain is what makes the node re-run when

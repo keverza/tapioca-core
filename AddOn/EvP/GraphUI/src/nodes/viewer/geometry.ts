@@ -290,3 +290,60 @@ export function flatTriangles(mesh: ViewerMesh): { positions: number[]; normals:
 
   return { positions, normals }
 }
+
+/**
+ * A curve's length along itself, closing span included when it is closed.
+ *
+ * ⚠️ MEASURED FROM THE POINTS THAT ARRIVED, which for an arc or a circle means
+ * the length of its TESSELLATION, not of the ideal curve. The runtime sends a
+ * polyline because that is what it built; reporting an analytic length here
+ * would be reporting a number the graph never produced.
+ */
+export function curveLength(line: ViewerLine): number {
+  const count = Math.floor(line.positions.length / 3)
+  if (count < 2) return 0
+  let total = 0
+  const span = (from: number, to: number): number => {
+    const dx = line.positions[to * 3] - line.positions[from * 3]
+    const dy = line.positions[to * 3 + 1] - line.positions[from * 3 + 1]
+    const dz = line.positions[to * 3 + 2] - line.positions[from * 3 + 2]
+    return Math.sqrt(dx * dx + dy * dy + dz * dz)
+  }
+  for (let i = 1; i < count; i += 1) total += span(i - 1, i)
+  if (line.closed) total += span(count - 1, 0)
+  return total
+}
+
+/** What a value is MADE OF, once it has been read as geometry. */
+export interface GeometryTotals {
+  points: number
+  curves: number
+  meshes: number
+  /** Every vertex of every part, curve points included. */
+  vertices: number
+  triangles: number
+  /** Summed curve length. Zero when there are no curves. */
+  length: number
+}
+
+export function geometryTotals(geometry: ViewerGeometry): GeometryTotals {
+  let vertices = geometry.points.length
+  let triangles = 0
+  let length = 0
+  for (const line of geometry.lines) {
+    vertices += Math.floor(line.positions.length / 3)
+    length += curveLength(line)
+  }
+  for (const mesh of geometry.meshes) {
+    vertices += Math.floor(mesh.positions.length / 3)
+    triangles += Math.floor(mesh.indices.length / 3)
+  }
+  return {
+    points: geometry.points.length,
+    curves: geometry.lines.length,
+    meshes: geometry.meshes.length,
+    vertices,
+    triangles,
+    length,
+  }
+}

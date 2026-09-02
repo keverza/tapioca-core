@@ -17,7 +17,12 @@
    * already sends. A node that declares one section has no chevron and loses
    * nothing.
    */
-  import type { AttributeListing, GraphParameter, NodeOutputRecord, ParameterOptionSource } from '../types'
+  import type {
+    AttributeListing,
+    GraphParameter,
+    NodeOutputRecord,
+    ParameterOptionSource,
+  } from '../types'
   import type { NodeDefinition } from './types/node'
   import type { PortConnectionState, PortLayout } from './types/port'
   import type { ComponentMessage } from './types/diagnostics'
@@ -27,7 +32,7 @@
   import { portStructure } from './types/display'
   import { fieldsFor, sectionsFor, shouldShowSectionHeadings, withDefaults } from './controls/widgets'
 
-  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeListings = {}, onparameter, onreference, onportmenu, onrequestoptions }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeListings?: Record<string, AttributeListing>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void } = $props()
+  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeListings = {}, onparameter, onreference, onportmenu, onrequestoptions, onbrowselibrary }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeListings?: Record<string, AttributeListing>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void; onbrowselibrary?: (parameterId: string) => void } = $props()
 
   /**
    * The stored values PLUS the catalog defaults. A freshly placed node stores
@@ -64,6 +69,12 @@
   /** What a connected input is showing: the upstream value, which is not editable here. */
   function upstreamText(portId: string): string {
     return connections.find((item) => item.portId === portId && item.direction === 'input')?.peerLabels?.[0] ?? 'connected'
+  }
+  function upstreamValue(portId: string): string {
+    return connections.find((item) => item.portId === portId && item.direction === 'input')?.peerTexts?.[0] ?? 'Not evaluated'
+  }
+  function upstreamValueType(portId: string): string | undefined {
+    return connections.find((item) => item.portId === portId && item.direction === 'input')?.peerValueTypes?.[0]
   }
   /**
    * A row whose label just repeats the node's own name.
@@ -108,10 +119,13 @@
       {attributeListings}
       connected={field.isPort && isConnected(field.id)}
       upstream={upstreamText(field.id)}
+      upstreamValue={upstreamValue(field.id)}
+      upstreamValueType={upstreamValueType(field.id)}
       disabled={onparameter === undefined}
       oncommit={(id, valueType, text) => onparameter?.(nodeId, id, valueType, text)}
       onreference={onreference}
       {onrequestoptions}
+      {onbrowselibrary}
     />
     <small>{suffix(field.valueType, field.ui?.unit)}</small>
   </div>

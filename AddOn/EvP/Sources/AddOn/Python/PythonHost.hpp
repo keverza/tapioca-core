@@ -76,6 +76,24 @@ class PythonHost {
                      const GS::UniString& action, const GS::UniString& menuRegion, bool watchArmed, bool& cancelled,
                      GS::UniString& error);
 
+    // Runs one node-graph script node's body. Safe from any thread once
+    // initialized (takes the GIL), which is what lets it be called from the
+    // evaluator's worker pool.
+    //
+    // ⚠️ THE SOURCE IS PASSED IN RATHER THAN READ FROM `displayPath`. The graph
+    // runtime has already read the file, hashed it and parsed its header; reading
+    // it a second time here would let the file change between the two reads, so
+    // the node would report ports it did not run. The path is for tracebacks.
+    //
+    // `inputsJson` and `resultJson` use the script-facing value shapes fixed in
+    // NodeGraph/ScriptValueJson.hpp. Returns false only when the run could not be
+    // ATTEMPTED - no runtime, a broken bridge; a script that threw is a
+    // successful call whose `resultJson` carries ok=false, because that is an
+    // ordinary thing for a script being written to do.
+    bool RunGraphScript (const GS::UniString& source, const GS::UniString& displayPath, const GS::UniString& inputsJson,
+                         const GS::UniString& outputsJson, int timeBudgetMs, GS::UniString& resultJson,
+                         GS::UniString& error);
+
   private:
     PythonHost () = default;
 
@@ -92,6 +110,7 @@ class PythonHost {
     void* scanCommandsFn = nullptr;
     void* freeStringFn = nullptr;
     void* runCommandFn = nullptr;
+    void* runGraphScriptFn = nullptr;
 };
 
 // Writes one line to the Session Report window. Main thread only (P0 constraint).

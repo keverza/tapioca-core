@@ -27,6 +27,8 @@ class ArchicadHostImpl final : public IArchicadHost {
     const IProjectGenerationSource& Generations () const override;
     const IReferenceResolver& References () const override;
     bool GetSelection (std::vector<ArchicadElementRef>& elements, std::string& error) const override;
+    bool DescribeElements (const std::vector<ArchicadElementRef>& elements,
+                           std::vector<ElementDescription>& descriptions, std::string& error) const override;
     bool SetSelection (const std::vector<ArchicadElementRef>& elements, std::string& error) override;
 
   private:

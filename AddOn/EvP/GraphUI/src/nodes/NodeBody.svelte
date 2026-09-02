@@ -3,13 +3,15 @@
   import type { PortLayout } from './types/port'
   import type { SchemaNodeData, SelectionAction } from '../types'
   import type { PortReference } from './types/portReference'
+  import ElementContainer from './archicad/ElementContainer.svelte'
   import ElementReference from './archicad/ElementReference.svelte'
   import NodeControls from './NodeControls.svelte'
   import NodePort from './NodePort.svelte'
   import NodeViewer from './NodeViewer.svelte'
+  import ScriptPanel from './script/ScriptPanel.svelte'
   import { portStructure } from './types/display'
 
-  let { id, data, definition, bodyMode, viewMode, portLayout, viewerVisible, onbrowse }: { id: string; data: SchemaNodeData; definition: NodeDefinition; bodyMode: NodeBodyMode; viewMode: NodeViewMode; portLayout: PortLayout; viewerVisible: boolean; onbrowse: () => void } = $props()
+  let { id, data, definition, bodyMode, viewMode, portLayout, viewerVisible, onbrowse, onbrowselibrary }: { id: string; data: SchemaNodeData; definition: NodeDefinition; bodyMode: NodeBodyMode; viewMode: NodeViewMode; portLayout: PortLayout; viewerVisible: boolean; onbrowse: () => void; onbrowselibrary?: (parameterId: string) => void } = $props()
   function connectReference(reference: PortReference, portId: string): void {
     data.onportreference?.(reference, { nodeId: id, portId })
   }
@@ -32,7 +34,7 @@
 
 <div class="body" class:compact={viewMode === 'compact'} class:expanded={viewMode === 'expanded'} class:vertical={portLayout === 'vertical'}>
 {#if viewMode !== 'compact' && (bodyMode === 'parameters' || bodyMode === 'parameters+viewer')}
-  <NodeControls nodeId={id} {definition} parameters={data.parameters} outputs={data.result?.outputs} layout={portLayout} connections={data.portConnections ?? []} messages={data.messages} attributeListings={data.attributeListings} onparameter={data.onparameterchange} onreference={data.onportreference === undefined ? undefined : connectReference} onportmenu={data.onportcontextmenu === undefined ? undefined : portMenu} onrequestoptions={data.onrequestoptions} />
+  <NodeControls nodeId={id} {definition} parameters={data.parameters} outputs={data.result?.outputs} layout={portLayout} connections={data.portConnections ?? []} messages={data.messages} attributeListings={data.attributeListings} onparameter={data.onparameterchange} onreference={data.onportreference === undefined ? undefined : connectReference} onportmenu={data.onportcontextmenu === undefined ? undefined : portMenu} onrequestoptions={data.onrequestoptions} onbrowselibrary={onbrowselibrary} />
 {:else}
   <section class="ports">
     <div>{#each definition.inputs as input}<NodePort nodeId={id} port={input} direction="input" layout={portLayout} structure={portStructure(input)} connection={data.portConnections?.find((item) => item.portId === input.portId && item.direction === 'input')} messages={data.messages?.filter((message) => message.portId === input.portId)} oncontextmenu={data.onportcontextmenu === undefined ? undefined : portMenu} />{/each}</div>
@@ -40,11 +42,41 @@
   </section>
 {/if}
 
+<!--
+  ⚠️ THE SET ON TOP, ITS CONTENTS UNDERNEATH. The five buttons are what the node
+  IS - a set the user captures - and the containers are what it turned out to
+  hold. A selection of a hundred elements used to be a single number, which told
+  you the capture worked and nothing about what you had captured; the stack says
+  "forty walls, twelve slabs, one morph" without a single round trip, because the
+  runtime recorded each element's type on the press that read it.
+-->
 {#if viewMode !== 'compact' && data.schema.display === 'selectionSet'}
   <section class="selection nodrag">
     <ElementReference count={selectionCount} onclick={onbrowse} />
     <div>{#each actions as item}<button type="button" disabled={data.selectionBusy || !data.onselectionaction} onclick={() => data.onselectionaction?.(id, item.action)}>{item.label}</button>{/each}</div>
   </section>
+  {#if (data.elementGroups?.length ?? 0) > 0}
+    <section class="containers nodrag">
+      {#each data.elementGroups ?? [] as group (group.elementType)}
+        <ElementContainer {group} ondescribe={data.ondescribeelements} />
+      {/each}
+    </section>
+  {/if}
+{:else if viewMode !== 'compact' && data.schema.display === 'script'}
+  <!--
+    ⚠️ THE PORTS ARE DRAWN ABOVE THIS, BY THE ORDINARY PORT SECTION, and the panel
+    draws only the FILE. A script node's ports are ordinary ports that happen to
+    have been declared in a file; giving the panel its own port rendering would
+    mean this one node family stopped picking up every improvement to how a port
+    is drawn, wired, internalised or inspected.
+  -->
+  <ScriptPanel
+    nodeId={id}
+    graphId={data.graphId}
+    path={data.parameters.find((parameter) => parameter.parameterId === 'scriptPath')?.value?.text ?? ''}
+    onpathchange={(next) => data.onparameterchange?.(id, 'scriptPath', 'string', next)}
+    onreloaded={() => data.onscriptreloaded?.()}
+  />
 {:else if viewMode !== 'compact' && data.schema.display === 'text'}
   <section class="text nodrag nowheel">{#if panelLines.length === 0}<p>{data.result ? '(nothing)' : 'Not evaluated'}</p>{:else}<ol>{#each panelLines as line, index}<li><span>{index + 1}</span><code>{line}</code></li>{/each}</ol>{/if}</section>
 {/if}
@@ -91,6 +123,7 @@
   .vertical .ports { display: grid; padding: 0; gap: 8px; }
   .vertical .ports > div { display: flex; justify-content: space-around; gap: 10px; }
   .selection { padding: 0 9px 9px 11px; }
+  .containers { padding: 0 9px 9px 11px; }
   .selection > div { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 4px; gap: 2px; }
   .selection > div button { height: 22px; padding: 0 2px; font-size: 7px; }
   .text { max-height: 170px; margin: 0 9px 9px 11px; overflow: auto; border: 1px solid var(--border); background: var(--canvas); }

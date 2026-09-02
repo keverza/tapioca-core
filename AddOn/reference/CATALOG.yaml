@@ -61,7 +61,7 @@ entries:
 
   - path: freetype-master
     kind: directory
-    profiles: [build]
+    profiles: [build, test]
     authority: "FreeType"
     version: "2.14.3"
     source: "https://github.com/freetype/freetype"
@@ -101,6 +101,22 @@ entries:
       url: https://github.com/google/googletest/archive/refs/tags/v1.18.0.zip
       archive_subpath: googletest-1.18.0/googletest
 
+  - path: harfbuzz-main
+    kind: directory
+    profiles: [build, test]
+    authority: "HarfBuzz"
+    version: "14.4.0"
+    source: "https://github.com/harfbuzz/harfbuzz"
+    provenance: >-
+      Pinned OpenType shaping core and FreeType bridge for deterministic scene-text
+      glyph runs. Utilities, subset, raster, vector, GPU, GLib, ICU and platform
+      backends are disabled.
+    download:
+      provider: git_clone
+      url: https://github.com/harfbuzz/harfbuzz.git
+      ref: 14.4.0
+      recursive: false
+
   - path: glm-master
     kind: directory
     profiles: [build, test]
@@ -128,7 +144,7 @@ entries:
 
   - path: msdf-atlas-gen-master
     kind: directory
-    profiles: [build]
+    profiles: [build, test]
     authority: "msdf-atlas-gen"
     version: "1.4.0"
     source: "https://github.com/Chlumsky/msdf-atlas-gen"
@@ -143,7 +159,7 @@ entries:
 
   - path: msdfgen-master
     kind: directory
-    profiles: [build]
+    profiles: [build, test]
     authority: "msdfgen"
     version: "1.13"
     source: "https://github.com/Chlumsky/msdfgen"
@@ -166,6 +182,21 @@ entries:
       Local source drop consumed by the add-on geometry and offline C++ test graphs.
     download:
       url: https://github.com/lighttransport/nanort/archive/cdf474ae9176b87a9334c858bb06c9e028ed0e0d.zip
+
+  - path: noto-sans-font-v2.015
+    kind: directory
+    profiles: [build, test]
+    authority: "Noto Sans"
+    version: "2.015"
+    source: "https://github.com/notofonts/latin-greek-cyrillic"
+    provenance: >-
+      Pinned release fonts and SIL Open Font License used for deterministic Diligent
+      scene-text atlases, including Lithuanian, Greek, Cyrillic and symbols.
+    download:
+      provider: github_release
+      repository: notofonts/latin-greek-cyrillic
+      tag: NotoSans-v2.015
+      asset_pattern: '^NotoSans-v2\.015\.zip$'
 
   - path: python312
     kind: directory
@@ -191,3 +222,19 @@ entries:
     download:
       url: https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2478.35
       sha256: b1df2d7fe955a3378603735f910b126647e43033213b5cc071b8d6f0168a3b96
+
+  - path: quickjs-ng
+    kind: directory
+    profiles: [build, test]
+    authority: "quickjs-ng"
+    version: "v0.10.1"
+    source: "https://github.com/quickjs-ng/quickjs"
+    provenance: >-
+      The JavaScript engine behind the node graph's script node family. The
+      maintained fork rather than Bellard's original: it builds under MSVC without
+      patching, and the two have diverged in small API details, so the pin is a tag.
+      Built from source in BOTH the add-on and the offline C++ test graphs, which is
+      what makes a script node's evaluation testable with no Archicad.
+    download:
+      url: https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.10.1.zip
+      archive_subpath: quickjs-0.10.1

@@ -31,6 +31,8 @@ set (GTEST_DIR  "${REF_DIR}/googletest")
 set (NANORT_INC "${REF_DIR}/nanort-release")
 set (GLM_INC "${REF_DIR}/glm-master")
 set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP")
+set (QUICKJS_DIR "${REF_DIR}/quickjs-ng")
+include ("${EVP_ROOT}/cmake/TextRendering.cmake")
 # No msgpack include on purpose: the serializer hand-rolls its writer, and
 # test_serializer.cpp hand-rolls an INDEPENDENT reader from the msgpack spec.
 # Round-tripping through the same library the writer used would prove less.
@@ -133,6 +135,12 @@ set (EVP_DYNAMO_SOURCES
 set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadNodes.cpp"
+    # The element type table. ElementReaderImpl.cpp - the ACAPI half that
+    # fills it in - is deliberately ABSENT for the same reason
+    # ArchicadHostImpl.cpp is: it includes the DevKit. The table itself is
+    # pure, so what an element type IS and how a selection groups by it are
+    # covered offline.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ElementClassification.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/BuiltinNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/EvaluationPlan.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Evaluator.cpp"
@@ -170,6 +178,26 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ReferenceResolver.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunEvents.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/RunHistory.cpp"
+    # The script node family. All of it is admitted EXCEPT ScriptWatcherWin32.cpp,
+    # which includes <windows.h> - the same line ArchicadHostImpl.cpp sits on the
+    # far side of. What that costs is the watcher's debounce; what it preserves is
+    # that everything the watcher TRIGGERS - reading the file, parsing the header,
+    # reshaping the node, dropping the edges that no longer fit - is covered here
+    # with no Archicad and no APX rebuild.
+    #
+    # ⚠️ ScriptRuntimeJs.cpp IS IN THIS LIST, and that is the point of embedding a
+    # JS engine rather than borrowing the WebView's: a script node's evaluation,
+    # its value marshalling and its time budget are all exercised offline. The
+    # moment this file needs anything but quickjs and the standard library, it
+    # must leave - and the offline gate for the riskiest code in the catalog,
+    # which is code the USER wrote, goes with it.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptManifest.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptNodes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptReload.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptRuntime.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptRuntimeJs.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptSource.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptValueJson.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/WorkerPool.cpp")
@@ -236,6 +264,8 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudHierarchy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayout.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
     # the Diligent port. It belongs here more than almost anything else in
@@ -406,6 +436,8 @@ set (EVP_TEST_SOURCES
     test_meshgroups.cpp
     test_wireframeedges.cpp
     test_scenecmdqueue.cpp
+    test_scenetextatlas.cpp
+    test_scenetextlayout.cpp
     test_materialtable.cpp
     test_surfaceclassifier.cpp
     test_buildingmaterialsignal.cpp
@@ -433,7 +465,9 @@ set (EVP_TEST_SOURCES
     test_ghpreviewgeometry.cpp
     test_ghundobudget.cpp
     test_grasshopperhoststate.cpp
-    test_nodegraph.cpp)
+    test_nodegraph.cpp
+    test_nodegraph_script.cpp
+    test_elementclassification.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
 # reference/ is gitignored, so a fresh clone has neither dependency. Say so here
@@ -451,6 +485,10 @@ endif ()
 if (NOT EXISTS "${GLM_INC}/glm/glm.hpp")
     message (FATAL_ERROR "GLM not found at ${GLM_INC} — see AddOn/EvP/README.md.")
 endif ()
+if (NOT EXISTS "${QUICKJS_DIR}/quickjs.c")
+    message (FATAL_ERROR "quickjs-ng not found at ${QUICKJS_DIR} — run tools/build/provision-reference.ps1 -FromUpstream.")
+endif ()
+
 if (NOT EXISTS "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp")
     message (FATAL_ERROR "Clipper2 not found at ${CLIPPER2_DIR} — see AddOn/EvP/README.md.")
 endif ()
@@ -466,6 +504,42 @@ if (MSVC)
 endif ()
 find_package (Threads REQUIRED)
 target_link_libraries (gtest_vendored PUBLIC Threads::Threads)
+
+# See the add-on's CMakeLists for why this is quickjs-ng and why it is built from
+# source in both graphs.
+add_library (TapiocaQuickJs STATIC
+    "${QUICKJS_DIR}/quickjs.c"
+    "${QUICKJS_DIR}/libregexp.c"
+    "${QUICKJS_DIR}/libunicode.c"
+    "${QUICKJS_DIR}/cutils.c"
+    "${QUICKJS_DIR}/xsum.c")
+target_include_directories (TapiocaQuickJs SYSTEM PUBLIC "${QUICKJS_DIR}")
+# ⚠️ quickjs-libc.c IS DELIBERATELY ABSENT, and it is the security boundary rather
+# than an oversight. Upstream gates it behind QJS_BUILD_LIBC; it is what provides
+# `std` and `os` - file reads, writes, process spawning - to scripts. A script
+# node sees its inputs and nothing else, so the library that would give it a
+# filesystem must never be compiled in. test_nodegraph_script.cpp asserts `std`
+# and `os` are undefined, so adding it here fails a test rather than quietly
+# widening what a graph can do.
+target_compile_definitions (TapiocaQuickJs PRIVATE _GNU_SOURCE)
+if (WIN32)
+    target_compile_definitions (TapiocaQuickJs PRIVATE WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0601)
+endif ()
+# C11 for the atomics and _Generic quickjs-ng uses; it is a C library and must
+# not be dragged into the C++ compiler by a stray target_compile_features.
+set_target_properties (TapiocaQuickJs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+if (MSVC)
+    # ⚠️ /std:c11 AND /experimental:c11atomics ARE BOTH REQUIRED, and C_STANDARD 11
+    # above does not supply them. quickjs.c includes <stdatomic.h>, which MSVC's
+    # own vcruntime_c11_stdatomic.h refuses with `#error "C atomics require C11 or
+    # later"` unless the language flag is on - and MSVC still gates the atomics
+    # themselves behind the experimental switch, which is what upstream's
+    # CMakeLists does too. Without them the very first file fails to compile.
+    target_compile_options (TapiocaQuickJs PRIVATE /std:c11 /experimental:c11atomics)
+    # Third-party C compiled at our warning level otherwise; its warnings are not
+    # ours to fix and would bury our own.
+    target_compile_options (TapiocaQuickJs PRIVATE /W0 -D_CRT_SECURE_NO_WARNINGS)
+endif ()
 
 add_library (TapiocaClipper2 STATIC
     "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp"
@@ -490,7 +564,7 @@ target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn/Python"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}")
-target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2)
+target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs ${TAPIOCA_TEXT_LIBS})
 
 if (MSVC)
     # /W4 on OUR code (docs/guides/testing.md §5). The add-on ships at /W3; the host-free core
@@ -528,7 +602,14 @@ endif ()
 # downsample of a real HDR probe is small enough to track.
 target_compile_definitions (EvPGeomTests PRIVATE
     EVP_DUMP_DIR="${EVP_ROOT}/../../dump"
-    EVP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+    EVP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    # ⚠️ THE SHIPPED EXAMPLES ARE THE FIXTURE, RATHER THAN A COPY OF THEM. They
+    # are what a user points a node at first, so their headers ARE the contract
+    # this feature makes; a private copy beside the tests would let the two drift
+    # and the examples are the half that would rot. An example whose header stops
+    # parsing should fail the suite, because it has stopped being an example.
+    EVP_TEST_SCRIPT_DIR="${EVP_ROOT}/GraphScripts"
+    EVP_SCENE_TEXT_FONT="${TAPIOCA_TEXT_FONT}")
 
 enable_testing ()
 include (GoogleTest)

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { filterValueTree, nodeValueTree, summarizeValue, valueNode } from '../src/nodes/types/valueTree.ts'
+import {
+  filterValueTree,
+  flattenValueTree,
+  geometryFacts,
+  nodeValueTree,
+  summarizeValue,
+  valueNode,
+} from '../src/nodes/types/valueTree.ts'
 import type { GraphParameter, NodeOutputRecord } from '../src/types.ts'
 
 const elements: GraphParameter = {
@@ -69,4 +76,122 @@ test('filtering keeps matching rows and the branches that lead to them', () => {
   // A branch that matches on its own keeps everything inside it.
   assert.equal(filterValueTree(roots, 'elements')[0].children[0].children.length, 2)
   assert.deepEqual(filterValueTree(roots, 'nothing-here'), [])
+})
+
+
+// ---------------------------------------------------------------------------
+// What a value is MADE OF and HOW BIG it is.
+//
+// ⚠️ READ THROUGH THE VIEWER'S OWN MODULE, so the browser and the viewport
+// cannot disagree about one value. These tests are mostly about the two ways a
+// browser lies: reporting a size for geometry that never crossed the bridge, and
+// offering a port reference from a row that is not a port.
+// ---------------------------------------------------------------------------
+
+// A unit box: eight corners, twelve triangles.
+const boxMesh = {
+  valueType: 'mesh',
+  numbers: [0, 0, 0, 2, 0, 0, 2, 3, 0, 0, 3, 0, 0, 0, 1, 2, 0, 1, 2, 3, 1, 0, 3, 1],
+  indices: [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7],
+}
+
+test('a mesh reports what builds it and how big it is', () => {
+  const facts = geometryFacts('out', boxMesh)
+
+  const construction = facts.find((node) => node.label === 'Construction')
+  assert.ok(construction)
+  assert.equal(construction.summary, '1 mesh')
+  const rows = new Map(construction.children.map((child) => [child.label, child.summary]))
+  assert.equal(rows.get('Meshes'), '1')
+  assert.equal(rows.get('Triangles'), '4')
+  assert.equal(rows.get('Vertices'), '8')
+
+  const size = facts.find((node) => node.label === 'Size')
+  assert.ok(size)
+  // 2 x 3 x 1, from the corners above - the MAIN SIZES a user opens this to read.
+  assert.equal(size.summary, '2 m x 3 m x 1 m')
+  const extent = new Map(size.children.map((child) => [child.label, child.summary]))
+  assert.equal(extent.get('Size X'), '2 m')
+  assert.equal(extent.get('Size Z'), '1 m')
+  assert.equal(extent.get('Min'), '0, 0, 0')
+  assert.equal(extent.get('Centre'), '1, 1.5, 0.5')
+})
+
+test('a curve reports its length along the points that arrived', () => {
+  // ⚠️ THE TESSELLATION'S LENGTH. An arc reaches the browser as a polyline, and
+  // quoting an analytic length would quote a number the runtime never computed.
+  const facts = geometryFacts('out', { valueType: 'polyline', numbers: [0, 0, 0, 3, 0, 0, 3, 4, 0] })
+  const construction = facts.find((node) => node.label === 'Construction')
+  assert.ok(construction)
+  const rows = new Map(construction.children.map((child) => [child.label, child.summary]))
+  assert.equal(rows.get('Curves'), '1')
+  assert.equal(rows.get('Curve length'), '7 m')
+
+  // A polygon closes, so its closing span counts.
+  const closed = geometryFacts('out', { valueType: 'polygon', numbers: [0, 0, 0, 3, 0, 0, 3, 4, 0] })
+  const closedRows = new Map(
+    closed.find((node) => node.label === 'Construction')!.children.map((child) => [child.label, child.summary]),
+  )
+  assert.equal(closedRows.get('Curve length'), '12 m')
+})
+
+test('geometry that did not cross the bridge is said, never sized', () => {
+  // ⚠️ THE LIE THIS PREVENTS. A mesh past the encoding cap arrives as counts
+  // with no vertices; reporting 0 m x 0 m x 0 m would be a confident wrong answer
+  // about a real shape, and it is the browser a user would believe.
+  const facts = geometryFacts('out', { valueType: 'mesh', itemCount: 900000, truncated: true })
+  assert.equal(facts.length, 1)
+  assert.equal(facts[0].typeLabel, 'not sent')
+  assert.equal(facts.find((node) => node.label === 'Size'), undefined)
+})
+
+test('a partially truncated value says its counts are a lower bound', () => {
+  const facts = geometryFacts('out', {
+    valueType: 'list',
+    itemCount: 400,
+    truncated: true,
+    items: [{ valueType: 'point3', numbers: [1, 2, 3] }],
+  })
+  assert.ok(facts.find((node) => node.label === 'Size'))
+  assert.ok(facts.find((node) => node.label === 'Capped'))
+})
+
+test('a value with no geometry gets no geometry rows at all', () => {
+  // A Geometry branch on a Number node is a row that exists only to say there is
+  // nothing here.
+  assert.deepEqual(geometryFacts('out', { valueType: 'double', number: 4 }), [])
+  assert.deepEqual(geometryFacts('out', { valueType: 'string', text: 'hello' }), [])
+  assert.deepEqual(geometryFacts('out', undefined), [])
+})
+
+test('only a whole output carries a port reference, and its facts come first', () => {
+  const output: NodeOutputRecord = { portId: 'shape', summary: 'Mesh', value: boxMesh }
+  const roots = nodeValueTree([], [output])
+  const port = roots[0].children[0]
+
+  // ⚠️ THE ROW THAT IS THE PORT, AND ONLY IT. A reference addresses
+  // `node.port` and nothing finer, so a Copy button on an item row would hand
+  // over the whole output while appearing to name one item.
+  assert.equal(port.portId, 'shape')
+  for (const child of port.children) assert.equal(child.portId, undefined)
+
+  // "What is this and how big" is what somebody opens a browser to answer, so it
+  // is not below four hundred list rows.
+  assert.equal(port.children[0].label, 'Construction')
+  assert.equal(port.children[1].label, 'Size')
+})
+
+test('a stored parameter is never offered as a port reference', () => {
+  // Parameters are not ports. A reference to one would not resolve to anything.
+  const roots = nodeValueTree([elements], [])
+  assert.equal(roots[0].children[0].portId, undefined)
+})
+
+test('copy-all flattens what is on screen, indented and tab separated', () => {
+  const lines = flattenValueTree([
+    { id: 'a', label: 'outputs', typeLabel: '1 output', summary: '', children: [
+      { id: 'a.b', label: 'shape', typeLabel: 'mesh', summary: 'Mesh', children: [] },
+    ] },
+  ])
+  assert.deepEqual(lines, ['outputs\t1 output\t', '  shape\tmesh\tMesh'])
 })

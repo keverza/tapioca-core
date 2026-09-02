@@ -334,6 +334,20 @@ void DiligentViewport::SetPlanAnchors (const std::vector<std::vector<float>>& ou
     planAnchorSeq_.fetch_add (1);
 }
 
+void DiligentViewport::SetTextLabels (std::vector<SceneTextLabel> labels)
+{
+    {
+        std::lock_guard<std::mutex> lock (mutex_);
+        pendingTextLabels_ = std::move (labels);
+    }
+    textLabelSeq_.fetch_add (1);
+}
+
+void DiligentViewport::ClearTextLabels ()
+{
+    SetTextLabels ({});
+}
+
 DiligentViewportStats DiligentViewport::Stats () const
 {
     std::lock_guard<std::mutex> lock (mutex_);

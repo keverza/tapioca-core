@@ -13,6 +13,7 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NodeGraph/FaultBarrier.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
+#include "NodeGraph/Value.hpp"
 
 #include <string>
 
@@ -28,6 +29,24 @@ inline std::string GraphUtf8 (const GS::UniString& value)
 inline GS::UniString GraphText (const std::string& value)
 {
     return GS::UniString (value.c_str (), CC_UTF8);
+}
+
+// The wire spelling of a ValueType, shared rather than repeated.
+//
+// ⚠️ IT LIVES HERE BECAUSE A SECOND COPY IS A SECOND CONTRACT. This was local to
+// NodeGraphCommands.cpp until a second command TU needed to name a value type;
+// spelling it again there is how "archicadElementRef" and "elementRef" end up
+// being the same type on two verbs, and a client cannot tell which is the truth.
+//
+// Indexed, not switched, so a new ValueType inserted in the middle of the enum
+// shifts every name after it - which the offline suite catches, unlike a switch
+// that silently falls through to its default.
+inline const char* GraphValueTypeName (graph::ValueType valueType)
+{
+    constexpr const char* names[] = { "absent", "bool",     "integer", "double", "string",
+                                      "point3", "polyline", "polygon", "mesh",   "archicadElementRef",
+                                      "list" };
+    return names[static_cast<size_t> (valueType)];
 }
 
 // Every verb takes an optional graphId. Omitting it means the default graph, so

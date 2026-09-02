@@ -521,9 +521,10 @@ bool PythonHost::EnsureInitialized (GS::UniString& error)
         scanCommandsFn = (void*) GetProcAddress ((HMODULE) bridgeDll, EVPPY_SCANCOMMANDS_SYMBOL);
         freeStringFn = (void*) GetProcAddress ((HMODULE) bridgeDll, EVPPY_FREESTRING_SYMBOL);
         runCommandFn = (void*) GetProcAddress ((HMODULE) bridgeDll, EVPPY_RUNCOMMAND_SYMBOL);
+        runGraphScriptFn = (void*) GetProcAddress ((HMODULE) bridgeDll, EVPPY_RUNGRAPHSCRIPT_SYMBOL);
         if (initializeFn == nullptr || runScriptFn == nullptr || setApiCallFn == nullptr || addSysPathFn == nullptr ||
             setBufferApiFn == nullptr || scanCommandsFn == nullptr || freeStringFn == nullptr ||
-            runCommandFn == nullptr) {
+            runCommandFn == nullptr || runGraphScriptFn == nullptr) {
             error = "EvPPy.dll does not export the expected entry points — stale build?";
             return false;
         }
@@ -589,6 +590,31 @@ bool PythonHost::ScanCommands (const GS::UniString& root, GS::UniString& json, G
 
     json = GS::UniString (scanJson, CC_UTF8);
     ((EvpPy_FreeStringFn) freeStringFn) (scanJson); // allocated by EvPPy, freed by EvPPy
+    return true;
+}
+
+bool PythonHost::RunGraphScript (const GS::UniString& source, const GS::UniString& displayPath,
+                                 const GS::UniString& inputsJson, const GS::UniString& outputsJson, int timeBudgetMs,
+                                 GS::UniString& resultJson, GS::UniString& error)
+{
+    if (!EnsureInitialized (error))
+        return false;
+
+    const auto sourceUtf8 = source.ToCStr (0, MaxUSize, CC_UTF8);
+    const auto inputsUtf8 = inputsJson.ToCStr (0, MaxUSize, CC_UTF8);
+    const auto outputsUtf8 = outputsJson.ToCStr (0, MaxUSize, CC_UTF8);
+
+    char* result = nullptr;
+    char errorBuffer[512] = { 0 };
+    if (((EvpPy_RunGraphScriptFn) runGraphScriptFn) (sourceUtf8.Get (), displayPath.ToUStr ().Get (), inputsUtf8.Get (),
+                                                     outputsUtf8.Get (), timeBudgetMs, &result, errorBuffer,
+                                                     (int) sizeof (errorBuffer)) != EVPPY_OK) {
+        error = GS::UniString (errorBuffer, CC_UTF8);
+        return false;
+    }
+
+    resultJson = GS::UniString (result, CC_UTF8);
+    ((EvpPy_FreeStringFn) freeStringFn) (result); // allocated by EvPPy, freed by EvPPy
     return true;
 }
 

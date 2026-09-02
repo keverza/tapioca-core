@@ -3,6 +3,7 @@
 
 #include "NodeGraph/Graph.hpp"
 
+#include <map>
 #include <string>
 #include <variant>
 #include <vector>
@@ -60,9 +61,44 @@ struct ReleaseHoldingEdit {
     NodeId nodeId;
 };
 
+// A script node's file was read and its header parsed; this is the node catching
+// up with what the file now says.
+//
+// â ï¸ IT IS AN EDIT FOR THE SAME REASON A WIRE IS. Reshaping a node's ports
+// changes what the graph computes and what connections are legal, so it has to be
+// validated against the registry, applied atomically, bump the revision and
+// return the dirty closure. A "just poke the ports" path next to ApplyEdit would
+// be a second way to mutate the document, with its own answer to every question
+// this one has already settled - and it is the path that would run on a file
+// watcher's thread, which is the worst possible place for a second answer.
+//
+// â ï¸ EDGES TO PORTS THAT NO LONGER FIT ARE DROPPED, AND THE USER IS TOLD.
+// This is the one edit that removes connections the user did not ask to remove,
+// because renaming an argument in VSCode is a thing people do without thinking
+// about the canvas. The alternative - refusing the reload while any edge would
+// break - leaves the node running yesterday's code with today's file on screen,
+// which is worse and much harder to notice. `droppedEdges` carries what went, so
+// the editor can say so rather than the wires just being gone.
+struct SetScriptInterfaceEdit {
+    NodeId nodeId;
+    std::vector<PortSchema> inputs;
+    std::vector<PortSchema> outputs;
+
+    // Literal defaults from the header, applied as internalised input values for
+    // ports the node does not already carry one for. Existing values are LEFT
+    // ALONE: a number the user typed into the node outranks the default in the
+    // file, exactly as it would for any other type in the catalog.
+    std::map<std::string, Value> defaults;
+
+    // Folded into the node's parameters so the evaluator's cache key changes when
+    // the file does. Without it a saved script would reload, reshape nothing (the
+    // ports being unchanged), and serve the previous run's cached result.
+    std::string sourceHash;
+};
+
 struct GraphEdit {
     using Data = std::variant<AddNodeEdit, RemoveNodeEdit, RemoveElementsEdit, ConnectEdit, DisconnectEdit,
-                              SetParameterEdit, SetExecutionModeEdit, ReleaseHoldingEdit>;
+                              SetParameterEdit, SetExecutionModeEdit, ReleaseHoldingEdit, SetScriptInterfaceEdit>;
     Data data;
 };
 
@@ -76,6 +112,11 @@ struct EditResult {
     std::string error;
     std::vector<NodeId> dirtyNodes;
     uint64_t revision = 0;
+
+    // Edges this edit removed that the user did not name. Empty for every edit
+    // but SetScriptInterfaceEdit, which is the only one that can do it - see
+    // there for why it is allowed to at all.
+    std::vector<Edge> droppedEdges;
 };
 
 class NodeRegistry;

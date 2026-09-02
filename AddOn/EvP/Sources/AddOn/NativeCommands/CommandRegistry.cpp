@@ -28,6 +28,9 @@
 #include "NativeCommands/NotifyCommands.hpp"
 #include "NativeCommands/NodeGraphCommands.hpp"
 #include "NativeCommands/NodeGraphLibraryCommands.hpp"
+#include "NativeCommands/LibraryPreviewCommands.hpp"
+#include "NativeCommands/NodeGraphElementCommands.hpp"
+#include "NativeCommands/NodeGraphScriptCommands.hpp"
 #include "NativeCommands/NodeGraphSelectionCommands.hpp"
 #include "NativeCommands/NurbsCommands.hpp"
 #include "NativeCommands/PlanGeometryCommands.hpp"
@@ -70,19 +73,44 @@ namespace {
 using DomainRegistrationProvider = NativeCommandRegistrations (*) ();
 
 constexpr DomainRegistrationProvider domainProviders[] = {
-    &GetSnapshotCommandRegistrations,    &GetCaptureCommandRegistrations,       &GetQueryCommandRegistrations,
-    &GetElementReadCommandRegistrations, &GetElementModifyCommandRegistrations, &GetIdentityCommandRegistrations,
-    &GetAttributeCommandRegistrations,   &GetProjectCommandRegistrations,       &GetCreateCommandRegistrations,
-    &GetRoofCreateCommandRegistrations,  &GetDraftingCommandRegistrations,      &GetDrawingCommandRegistrations,
-    &GetLayoutCommandRegistrations,      &GetLibraryObjectCommandRegistrations, &GetFavoriteCommandRegistrations,
-    &GetSelectionCommandRegistrations,   &GetTopologyCommandRegistrations,      &GetIssueCommandRegistrations,
-    &GetSurfaceCommandRegistrations,     &GetModelGeometryCommandRegistrations, &GetModelAppearanceCommandRegistrations,
-    &GetNurbsCommandRegistrations,       &GetComponent3DCommandRegistrations,   &GetCuttingPlaneCommandRegistrations,
-    &GetNotifyCommandRegistrations,      &GetPlanGeometryCommandRegistrations,  &GetPlanOverlayCommandRegistrations,
-    &GetPlanTrackCommandRegistrations,   &GetArchVizCommandRegistrations,       &GetPointCloudCommandRegistrations,
-    &GetViewerSyncCommandRegistrations,  &GetPreviewCommandRegistrations,       &GetNodeGraphCommandRegistrations,
+    &GetSnapshotCommandRegistrations,
+    &GetCaptureCommandRegistrations,
+    &GetQueryCommandRegistrations,
+    &GetElementReadCommandRegistrations,
+    &GetElementModifyCommandRegistrations,
+    &GetIdentityCommandRegistrations,
+    &GetAttributeCommandRegistrations,
+    &GetProjectCommandRegistrations,
+    &GetCreateCommandRegistrations,
+    &GetRoofCreateCommandRegistrations,
+    &GetDraftingCommandRegistrations,
+    &GetDrawingCommandRegistrations,
+    &GetLayoutCommandRegistrations,
+    &GetLibraryObjectCommandRegistrations,
+    &GetFavoriteCommandRegistrations,
+    &GetSelectionCommandRegistrations,
+    &GetTopologyCommandRegistrations,
+    &GetIssueCommandRegistrations,
+    &GetSurfaceCommandRegistrations,
+    &GetModelGeometryCommandRegistrations,
+    &GetModelAppearanceCommandRegistrations,
+    &GetNurbsCommandRegistrations,
+    &GetComponent3DCommandRegistrations,
+    &GetCuttingPlaneCommandRegistrations,
+    &GetNotifyCommandRegistrations,
+    &GetPlanGeometryCommandRegistrations,
+    &GetPlanOverlayCommandRegistrations,
+    &GetPlanTrackCommandRegistrations,
+    &GetArchVizCommandRegistrations,
+    &GetPointCloudCommandRegistrations,
+    &GetViewerSyncCommandRegistrations,
+    &GetPreviewCommandRegistrations,
+    &GetNodeGraphCommandRegistrations,
     &GetNodeGraphLibraryCommandRegistrations,
     &GetNodeGraphSelectionCommandRegistrations,
+    &GetNodeGraphScriptCommandRegistrations,
+    &GetNodeGraphElementCommandRegistrations,
+    &GetLibraryPreviewCommandRegistrations,
     &GetGdlPreviewCommandRegistrations,
 };
 

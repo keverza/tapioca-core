@@ -2,6 +2,7 @@
 
 #include "NodeGraph/ArchicadHost.hpp"
 #include "NodeGraph/ArchicadNodes.hpp"
+#include "NodeGraph/ElementClassification.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeExecution.hpp"
 #include "NodeGraph/PreviewProjection.hpp"
@@ -156,6 +157,30 @@ GraphRuntimeState::ApplySelectionAction (const GraphId& graphId, const NodeId& n
         }
     }
 
+    // WHAT each element is, captured HERE - on the press that has already
+    // crossed to the host - rather than looked up later.
+    //
+    // ⚠️ THIS IS WHAT KEEPS THE SELECTION NODE Pure. The per-type containers need
+    // every element's type; asking for it at evaluation time would make the node
+    // depend on the model and go dirty every time the user clicked in it, which
+    // is exactly the behaviour the captured set was designed to avoid. So the
+    // type is captured with the guid and stored beside it. See
+    // kSelectionTypesParameter for the cost: the types are as old as the capture.
+    //
+    // A failed read is NOT a failed action. The set changed correctly; only the
+    // grouping is unknown, so every element falls into the "Other" container and
+    // the next Update fixes it. Refusing the capture over a grouping would be a
+    // worse trade.
+    std::vector<std::string> capturedTypes (next.size (), kUnclassifiedElementTypeId);
+    if (!next.empty () && host != nullptr && host->IsAvailable ()) {
+        std::vector<ElementDescription> descriptions;
+        std::string ignored;
+        if (host->DescribeElements (next, descriptions, ignored) && descriptions.size () == next.size ()) {
+            for (size_t i = 0; i < descriptions.size (); ++i)
+                capturedTypes[i] = descriptions[i].elementType;
+        }
+    }
+
     // Through the ordinary validated edit, so the revision moves, the dirty set
     // is computed the usual way, and the change persists with the graph like any
     // other parameter.
@@ -165,7 +190,16 @@ GraphRuntimeState::ApplySelectionAction (const GraphId& graphId, const NodeId& n
         result.error = edit.error;
         return result;
     }
-    result.revision = edit.revision;
+    // Second, and unconditional once the first was accepted: the two parameters
+    // are PARALLEL, and leaving the old type list beside a new guid list would
+    // file every element under its predecessor's container.
+    const EditResult typesEdit = Apply (
+        graphId, GraphEdit { SetParameterEdit { nodeId, kSelectionTypesParameter, ValueFromTypes (capturedTypes) } });
+    if (!typesEdit.accepted) {
+        result.error = typesEdit.error;
+        return result;
+    }
+    result.revision = typesEdit.revision;
     result.count = next.size ();
 
     // The button IS the run. Evaluating what the change can reach - and nothing

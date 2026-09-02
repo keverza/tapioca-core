@@ -110,3 +110,20 @@ def test_diligent_capture_polls_then_fetches_and_writes_through_outputs(monkeypa
         "Tapioca.DiligentCaptureState",
         "Tapioca.DiligentCaptureState",
     ]
+
+
+def test_text_label_helpers_are_thin_retained_api_calls(monkeypatch):
+    calls = []
+
+    def fake_call(command, params, raise_on_error=False):
+        calls.append((command, params, raise_on_error))
+        return result({"count": len(params.get("labels", []))} if params else {"cleared": True})
+
+    monkeypatch.setattr(api, "call", fake_call)
+    label = {"x": 1.0, "y": 2.0, "z": 3.0, "text": "Plotas 42 m\u00b2"}
+    assert diligent.set_text_labels(label for label in [label]) == {"count": 1}
+    assert diligent.clear_text_labels() == {"cleared": True}
+    assert calls == [
+        ("Tapioca.SetDiligentTextLabels", {"labels": [label]}, False),
+        ("Tapioca.ClearDiligentTextLabels", {}, False),
+    ]
