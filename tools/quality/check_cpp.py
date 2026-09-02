@@ -135,6 +135,11 @@ TIER_ASSIGNMENTS = {
     "Grasshopper": "services",
     "Metadata": "services",
     "NodeGraph": "services",
+    # The node-graph data-tree layer: paths, lists, items and item metadata.
+    # Same tier as its parent - it is pure value storage with no DevKit, no DG
+    # and no document knowledge, and every other NodeGraph folder depends on
+    # it rather than the other way round.
+    "NodeGraph/Data": "services",
     "NativeCommands": "features",
     "Notebook": "UI",
     "Notify": "services",

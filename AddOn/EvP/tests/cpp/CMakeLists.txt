@@ -133,6 +133,9 @@ set (EVP_DYNAMO_SOURCES
 # Adding ArchicadHostImpl.cpp to this list will not link; adding anything that
 # includes ACAPinc.h has the same effect and means the boundary has been broken.
 set (EVP_NODEGRAPH_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/AtomicValue.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/DataPath.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/Metadata.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadNodes.cpp"
     # The element type table. ElementReaderImpl.cpp - the ACAPI half that
@@ -467,6 +470,7 @@ set (EVP_TEST_SOURCES
     test_grasshopperhoststate.cpp
     test_nodegraph.cpp
     test_nodegraph_script.cpp
+    test_datatree.cpp
     test_elementclassification.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
