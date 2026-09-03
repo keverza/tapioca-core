@@ -355,7 +355,10 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     // then reconfigure. Their ports are NOT here - they are declared in the file
     // each node runs, which is what NodeType::instancePorts marks.
     EXPECT_EQ (2U, byCategory["Script"]); // script.javascript, script.python
-    EXPECT_EQ (74U, registry.Types ().size ());
+    // tree.* - flatten, graft, simplify, itemCount, branchCount. See
+    // TreeNodes.hpp for why they carry no Execute* function of their own.
+    EXPECT_EQ (5U, byCategory["Tree"]);
+    EXPECT_EQ (79U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -4313,6 +4316,17 @@ TEST (NodeGraphBuiltins, EveryNodeWithTypedInDefaultsEvaluatesWithNothingWired)
         // file yet. Making it pass here would mean inventing a default body,
         // which is a worse thing to own than this exception.
         if (IsScriptNodeType (id))
+            continue;
+        // ⚠️ A TREE-NATIVE TYPE IS THE OTHER TYPE THIS TEST'S PREMISE DOES NOT
+        // COVER. Its behaviour lives on NodeType::treeBody, not on an
+        // ExecuteRuntimeNode case (see TreeNodes.hpp) - calling
+        // ExecuteRuntimeNode directly, as this test does, is exactly the value-
+        // level path these nodes exist to opt out of, and it correctly reports
+        // "unknown node type" for one. Evaluating them from their own defaults
+        // is what TreeNodes.GraftAndFlattenActuallyChangeBranchStructure... and
+        // its siblings in test_treenodes.cpp already do, through the real
+        // evaluator and RunLiftedNode's treeBody short-circuit.
+        if (nodeType.treeBody)
             continue;
 
         Node node;

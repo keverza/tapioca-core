@@ -310,13 +310,54 @@ export interface GraphState {
   edges: GraphEdgeRecord[]
 }
 
+/**
+ * One branch of a published tree.
+ *
+ * ⚠️ `value` IS ALWAYS A LIST, even for a branch holding one item - a branch is
+ * a list, and collapsing it to a scalar would erase the shape this record
+ * exists to report. The whole-output `value` does collapse that way; the two
+ * are deliberately different.
+ */
+export interface OutputBranch {
+  /** The path a person reads, e.g. `{0;1}`. */
+  path: string
+  /** The same path to sort and group by, without parsing `path` back. */
+  segments: number[]
+  /** Items really in this branch, counted BEFORE the cap. */
+  itemCount: number
+  truncated: boolean
+  value: GraphValue
+}
+
 export interface NodeOutputRecord {
   portId: string
+  /**
+   * The whole tree FLATTENED, in canonical order, and a one-item tree as that
+   * item. What every client got before branches existed, and still the right
+   * thing for anything that wants a value rather than a shape.
+   */
   value: GraphValue
   /** The value rendered by the runtime, ready to display. */
   text: string
   /** A short label: "List of 12", "Element", "Number". */
   summary: string
+  /**
+   * The port's declared item type, e.g. `mesh`.
+   *
+   * NOT derivable from `value`: an empty tree of meshes and an empty tree of
+   * numbers both project to an empty list.
+   */
+  itemType?: string
+  /**
+   * The tree's SHAPE. Twelve walls flat and four walls on each of three storeys
+   * are the same `value` and different trees, and only these tell them apart.
+   *
+   * Optional because a runtime older than the tree layer sends neither; a client
+   * reading only `value` is told nothing false, only less.
+   */
+  branchCount?: number
+  branchesTruncated?: boolean
+  branches?: OutputBranch[]
 }
 
 export interface NodeResultRecord {

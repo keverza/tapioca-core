@@ -314,4 +314,71 @@ bool SliceForAccess (const TreeValue& input, PortAccess access, const InputCurso
     return true;
 }
 
+// ---- Erased topology operations ---------------------------------------------
+
+namespace {
+
+// The one guard every wrapper below needs before it can dispatch on
+// `input.itemType`: an absent tree has no type to dispatch on, and the ports
+// this file serves never hand a body one anyway (§7.5 - a missing site arrives
+// as the empty tree, not as no tree), so reaching here means a caller outside
+// the lifted contract.
+bool RequirePresent (const TreeValue& input, const char* operation, std::string& error)
+{
+    if (input.IsPresent ())
+        return true;
+    error = std::string ("Cannot ") + operation + " an absent tree";
+    return false;
+}
+
+} // namespace
+
+bool FlattenTreeValue (const TreeValue& input, TreeValue& result, std::string& error)
+{
+    if (!RequirePresent (input, "flatten", error))
+        return false;
+    return DispatchItemType (input.itemType, [&]<class T> () {
+        result = MakeTreeValue<T> (FlattenTree (AsTyped<T> (*input.tree)));
+        return true;
+    });
+}
+
+bool GraftTreeValue (const TreeValue& input, TreeValue& result, std::string& error)
+{
+    if (!RequirePresent (input, "graft", error))
+        return false;
+    return DispatchItemType (input.itemType, [&]<class T> () {
+        result = MakeTreeValue<T> (GraftTree (AsTyped<T> (*input.tree)));
+        return true;
+    });
+}
+
+bool SimplifyTreeValue (const TreeValue& input, TreeValue& result, std::string& error)
+{
+    if (!RequirePresent (input, "simplify", error))
+        return false;
+    return DispatchItemType (input.itemType, [&]<class T> () {
+        // Takes the shared_ptr, not the tree, for the same reason SimplifyTree
+        // itself does: that is the only signature that lets "already simple"
+        // hand back the identical pointer instead of an equal copy of it.
+        std::shared_ptr<const DataTree<T>> original = std::static_pointer_cast<const DataTree<T>> (input.tree);
+        result = MakeTreeValue<T> (SimplifyTree (original));
+        return true;
+    });
+}
+
+bool ShiftTreeValuePaths (const TreeValue& input, int32_t shift, PathCollision policy, TreeValue& result,
+                          std::string& error)
+{
+    if (!RequirePresent (input, "shift", error))
+        return false;
+    return DispatchItemType (input.itemType, [&]<class T> () {
+        std::shared_ptr<const DataTree<T>> shifted;
+        if (!ShiftTreePaths (AsTyped<T> (*input.tree), shift, policy, shifted, error))
+            return false;
+        result = MakeTreeValue<T> (std::move (shifted));
+        return true;
+    });
+}
+
 } // namespace evp::nodegraph::data

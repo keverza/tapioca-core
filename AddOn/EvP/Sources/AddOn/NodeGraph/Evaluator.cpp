@@ -521,7 +521,15 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
     if (failure.empty ()) {
         for (const auto& [portId, tree] : prepared.outputs) {
             const PortSchema* output = FindOutput (prepared.effectiveNode, nodeType, portId);
-            if (output == nullptr || !tree.IsPresent () || tree.itemType != PortItemType (*output)) {
+            // A WILDCARD PORT CANNOT BE VIOLATED. `Any` is what a port declares
+            // when it has not said what one item is, so demanding a tree of Any
+            // there would be checking the declaration against itself - and it
+            // would reject the honest answer, a pass-through forwarding its
+            // input's real item type. Every port that named a type is checked.
+            const data::ItemType declared =
+                output == nullptr ? data::ItemType::Any : PortItemType (*output);
+            if (output == nullptr || !tree.IsPresent () ||
+                (declared != data::ItemType::Any && tree.itemType != declared)) {
                 failure = "invalid output: " + portId;
                 failureCode = statuscode::kErrorOutput;
                 break;

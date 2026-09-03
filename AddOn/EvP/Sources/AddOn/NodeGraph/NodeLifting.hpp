@@ -38,7 +38,10 @@ namespace evp::nodegraph {
 
 struct NodeExecutionContext;
 
-using TreeMap = std::map<std::string, data::TreeValue>;
+// One tree per port. The alias lives in the data layer so NodeType can name
+// it without depending on this adapter; it is re-exported here because this is
+// where the runtime meets it.
+using TreeMap = data::TreeMap;
 using ValueMap = std::map<std::string, Value>;
 
 // ---- the derived port contract ---------------------------------------------
@@ -74,18 +77,54 @@ Value ProjectTreeToValue (const data::TreeValue& tree);
 // Total items across every list, which is what a node's itemCount reports.
 size_t TreeItemCount (const data::TreeValue& tree);
 
-// What a client is sent for one published output (§7.1.2 decision 4): a bounded
-// projection and the two facts that make it honest - how many items there
-// really are, and whether it was cut. A node may publish a million items and
-// the palette must stay usable in exactly that case, so the bound is the
-// runtime's policy rather than each client's.
-struct ProjectedOutput {
-    Value value;
+// ---- what a client is sent for one published output --------------------------
+
+// One branch of a published tree (§7.1.2 decision 4, §7.3).
+//
+// ⚠️ THE PATH IS THE POINT. A flat projection can say a node produced twelve
+// walls; only the branch can say it produced four walls on each of three
+// storeys. Those are different answers, and a client that only ever saw the
+// flat one could not tell a grafted tree from a flattened one - which is
+// precisely the distinction every tree operation exists to make.
+struct ProjectedBranch {
+    data::DataPath path;
+
+    // Items really in this branch, counted BEFORE the cap, so a cut branch
+    // still says how long it is.
     size_t itemCount = 0;
+
+    // Always a `Value::List`, even for a branch of one: a branch IS a list, and
+    // collapsing a single-item branch to a scalar here would erase the shape
+    // this structure exists to report.
+    Value value;
+
     bool truncated = false;
 };
 
-ProjectedOutput ProjectOutput (const data::TreeValue& tree, size_t maxItems);
+// A bounded projection plus the facts that make it honest - how many items and
+// branches there really are, and whether either was cut. A node may publish a
+// million items and the palette must stay usable in exactly that case, so the
+// bound is the runtime's policy rather than each client's.
+struct ProjectedOutput {
+    // The whole tree flattened, in canonical order. Kept because most consumers
+    // want a value rather than a shape, and because a one-item tree reads as
+    // that item here (`branches` never collapses that way).
+    Value value;
+    size_t itemCount = 0;
+    bool truncated = false;
+
+    data::ItemType itemType = data::ItemType::Any;
+
+    // Branches really in the tree, counted before `maxBranches` bites.
+    size_t branchCount = 0;
+    bool branchesTruncated = false;
+    std::vector<ProjectedBranch> branches;
+};
+
+// `maxItems` is a budget spent ACROSS branches, not per branch: a tree of ten
+// thousand one-item branches costs the same as one branch of ten thousand, and
+// a per-branch bound would let the first slip the cap entirely.
+ProjectedOutput ProjectOutput (const data::TreeValue& tree, size_t maxItems, size_t maxBranches);
 
 // ---- the lift ---------------------------------------------------------------
 

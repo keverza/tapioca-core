@@ -195,3 +195,91 @@ test('copy-all flattens what is on screen, indented and tab separated', () => {
   ])
   assert.deepEqual(lines, ['outputs\t1 output\t', '  shape\tmesh\tMesh'])
 })
+
+// ---- Tree shape ------------------------------------------------------------
+//
+// Twelve walls flat and four walls on each of three storeys are the same
+// `value`. If the browser cannot tell them apart, the tree layer is invisible
+// to the only place a user could ever see it.
+
+const branchedOutput: NodeOutputRecord = {
+  portId: 'walls',
+  value: { valueType: 'list', itemCount: 3, items: [] },
+  text: '',
+  summary: '3 items',
+  itemType: 'archicadElementRef',
+  branchCount: 2,
+  branchesTruncated: false,
+  branches: [
+    {
+      path: '{0;0}',
+      segments: [0, 0],
+      itemCount: 2,
+      truncated: false,
+      value: {
+        valueType: 'list',
+        itemCount: 2,
+        items: [
+          { valueType: 'archicadElementRef', text: 'GUID-A' },
+          { valueType: 'archicadElementRef', text: 'GUID-B' },
+        ],
+      },
+    },
+    {
+      path: '{0;1}',
+      segments: [0, 1],
+      itemCount: 1,
+      truncated: false,
+      value: { valueType: 'list', itemCount: 1, items: [{ valueType: 'archicadElementRef', text: 'GUID-C' }] },
+    },
+  ],
+}
+
+test('a branched output is browsed by its paths, and the port keeps its item type', () => {
+  const port = nodeValueTree([], [branchedOutput])[0].children[0]
+  assert.equal(port.typeLabel, 'archicadElementRef')
+  assert.deepEqual(port.children.map((child) => child.label), ['{0;0}', '{0;1}'])
+  assert.deepEqual(port.children.map((child) => child.summary), ['2 items', '1 item'])
+  // The items are still reachable, one level further in.
+  assert.deepEqual(port.children[0].children.map((child) => child.summary), ['GUID-A', 'GUID-B'])
+})
+
+test('one branch is shown flat, because a {0} row would appear on every scalar', () => {
+  const single: NodeOutputRecord = {
+    ...branchedOutput,
+    branchCount: 1,
+    branches: [branchedOutput.branches![0]],
+  }
+  const port = nodeValueTree([], [single])[0].children[0]
+  // The flat `value` renders, not a lone branch row.
+  assert.equal(port.children.every((child) => child.typeLabel !== 'branch'), true)
+})
+
+test('an output from a runtime with no tree layer renders exactly as before', () => {
+  const legacy: NodeOutputRecord = {
+    portId: 'value',
+    value: { valueType: 'list', itemCount: 2, items: [{ valueType: 'double', number: 1 }, { valueType: 'double', number: 2 }] },
+    text: '',
+    summary: 'List of 2',
+  }
+  const port = nodeValueTree([], [legacy])[0].children[0]
+  assert.deepEqual(port.children.map((child) => child.summary), ['1', '2'])
+})
+
+test('branches the runtime capped are said to be missing, not silently absent', () => {
+  const capped: NodeOutputRecord = { ...branchedOutput, branchCount: 130, branchesTruncated: true }
+  const port = nodeValueTree([], [capped])[0].children[0]
+  const last = port.children[port.children.length - 1]
+  assert.equal(last.label, '128 more branches')
+  assert.equal(last.typeLabel, 'truncated')
+})
+
+test('a capped branch reports its true length rather than what arrived', () => {
+  const capped: NodeOutputRecord = {
+    ...branchedOutput,
+    branches: [{ ...branchedOutput.branches![0], itemCount: 400, truncated: true }, branchedOutput.branches![1]],
+  }
+  const branch = nodeValueTree([], [capped])[0].children[0].children[0]
+  assert.equal(branch.summary, '400 items')
+  assert.equal(branch.children[branch.children.length - 1].label, '398 more')
+})

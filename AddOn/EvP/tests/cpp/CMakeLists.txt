@@ -232,6 +232,10 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptRuntimeJs.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptSource.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptValueJson.cpp"
+    # tree.* - the node family whose job is the shape of the data rather than
+    # its content, so it opts out of NodeLifting via NodeType::treeBody. See
+    # TreeNodes.hpp.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/TreeNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/WorkerPool.cpp")
@@ -519,6 +523,8 @@ set (EVP_TEST_SOURCES
     test_treeserialization.cpp
     test_treeiteration.cpp
     test_anytree.cpp
+    test_nodelifting.cpp
+    test_treenodes.cpp
     test_elementclassification.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------

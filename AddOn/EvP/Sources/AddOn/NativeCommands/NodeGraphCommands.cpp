@@ -4,6 +4,7 @@
 #include "NativeCommands/NodeGraphCommands.hpp"
 
 #include "NativeCommands/NodeGraphCommandSupport.hpp"
+#include "NativeCommands/NodeGraphValueEncoding.hpp"
 #include "NodeGraph/ElementClassification.hpp"
 
 #include "NodeGraph/GraphReports.hpp"
@@ -17,43 +18,21 @@ namespace geomsrv {
 namespace {
 
 // ---------------------------------------------------------------------------
-// Value encoding
+// The bridge's two asymmetric halves
 //
-// One self-describing encoding for every graph value, so a client never has to
-// know which node produced a port to read it. This is what makes the bridge
-// frontend-agnostic: the previous shape carried a bare `numberValue` and could
-// not express a string, a point or a reference at all.
-//
-// Two deliberate asymmetries:
+// The OUTBOUND encoding moved to NodeGraphValueEncoding once a second verb
+// needed it; read the contract there. What stays here is the INBOUND half and
+// the schemas, and the asymmetry between them is deliberate:
 //
 //  * INBOUND (parameters) accepts scalars only. A graph is authored from small
 //    typed values; nothing needs to push a mesh in over JSON.
-//  * OUTBOUND summarizes. A mesh crosses as its counts, and a nested list
-//    crosses as its size with `truncated` set. Model geometry does not cross the
-//    browser bridge - it reaches the preview hosts through RetainedPreviewStore.
+//  * OUTBOUND summarizes, and is bounded by the runtime rather than by the
+//    client. Model geometry does not cross this bridge - it reaches the preview
+//    hosts through RetainedPreviewStore.
 //
-// The encoding is therefore two levels deep by construction, which also means
-// the schemas below need no recursive $ref.
+// The outbound encoding is two levels deep by construction, which is why the
+// schemas below need no recursive $ref.
 // ---------------------------------------------------------------------------
-
-// How many items of a list are spelled out before the encoding reports a count
-// instead. A client that needs more asks the node for its preview.
-constexpr size_t kMaxEncodedListItems = 256;
-
-// How much of a mesh crosses the bridge.
-//
-// ⚠️ MESH DATA USED NOT TO CROSS AT ALL, AND THE NODE VIEWER DREW SUBSTITUTE
-// BOXES - one per item - out of the count. That is the failure this cap exists
-// to end: a viewer showing three green cubes for a sphere is not an abstraction,
-// it is a picture of something the graph never produced, and a user comparing it
-// against their model has no way to tell.
-//
-// So the vertices and the triangles cross, up to here. The cap is on the mesh
-// rather than on the response because one node's result is what a viewer draws:
-// past it the mesh is reported as truncated and the viewer says so instead of
-// drawing half a solid. 20000 vertices is a couple of hundred kilobytes of JSON
-// and comfortably more than any primitive in this catalog produces.
-constexpr size_t kMaxEncodedMeshVertices = 20000;
 
 constexpr const char kGraphInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
@@ -88,7 +67,7 @@ constexpr const char kCancelResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"cancelledRunId":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["graphId","cancelledRunId"]})json";
 
 constexpr const char kResultsResponseSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"results":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["pending","running","success","error","blocked","disabled","bypassed","holding","cancelled"]},"code":{"type":"string"},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"},"evaluationCount":{"type":"integer","minimum":0},"runId":{"type":"integer","minimum":0},"previewAvailable":{"type":"boolean"},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"value":{"$ref":"#/$defs/value"},"text":{"type":"string"},"summary":{"type":"string"}},"additionalProperties":false,"required":["portId","value","text","summary"]}}},"additionalProperties":false,"required":["nodeId","status","code","message","durationMilliseconds","itemCount","cacheHit","evaluationCount","runId","previewAvailable","outputs"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","results"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"results":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"status":{"type":"string","enum":["pending","running","success","error","blocked","disabled","bypassed","holding","cancelled"]},"code":{"type":"string"},"message":{"type":"string"},"durationMilliseconds":{"type":"number","minimum":0},"itemCount":{"type":"integer","minimum":0},"cacheHit":{"type":"boolean"},"evaluationCount":{"type":"integer","minimum":0},"runId":{"type":"integer","minimum":0},"previewAvailable":{"type":"boolean"},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"value":{"$ref":"#/$defs/value"},"text":{"type":"string"},"summary":{"type":"string"},"itemType":{"type":"string"},"branchCount":{"type":"integer","minimum":0},"branchesTruncated":{"type":"boolean"},"branches":{"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"segments":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["path","segments","itemCount","truncated","value"]}}},"additionalProperties":false,"required":["portId","value","text","summary","itemType","branchCount","branchesTruncated","branches"]}}},"additionalProperties":false,"required":["nodeId","status","code","message","durationMilliseconds","itemCount","cacheHit","evaluationCount","runId","previewAvailable","outputs"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","results"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 // The delta half of the synchronization contract. Paired with the lastEventSeq a
 // snapshot carries, it needs no push channel - which is what lets a pytest
@@ -139,24 +118,6 @@ const char* StatusName (graph::NodeExecutionState state)
     return graph::NodeExecutionStateName (state);
 }
 
-void AddPoints (GS::ObjectState& state, const std::vector<graph::Point3>& points)
-{
-    GS::Array<double> numbers;
-    for (const graph::Point3& point : points) {
-        numbers.Push (point.x);
-        numbers.Push (point.y);
-        numbers.Push (point.z);
-    }
-    state.Add ("numbers", numbers);
-    state.Add ("itemCount", static_cast<GS::Int64> (points.size ()));
-}
-
-// `expand` is false for list members, which is what keeps the encoding two
-// levels deep and the response schemas non-recursive.
-// EncodeValue is defined just below; the descriptor's option values go
-// through the same encoder every other outbound value does.
-GS::ObjectState EncodeValue (const graph::Value& value, bool expand);
-
 // UI-1. The parameter's edit descriptor, as the catalog projects it.
 //
 // The optional numeric bounds are OMITTED when absent rather than sent as a
@@ -201,87 +162,6 @@ GS::ObjectState EncodeParameterUi (const graph::ParameterUi& ui)
     }
     state.Add ("options", options);
     state.Add ("optionSource", graph::ParameterOptionSourceName (ui.optionSource));
-    return state;
-}
-
-GS::ObjectState EncodeValue (const graph::Value& value, bool expand)
-{
-    GS::ObjectState state;
-    state.Add ("valueType", GraphValueTypeName (value.Type ()));
-    switch (value.Type ()) {
-        case graph::ValueType::Absent:
-            break;
-        case graph::ValueType::Bool:
-            state.Add ("bool", std::get<bool> (value.DataValue ()));
-            break;
-        case graph::ValueType::Integer:
-            state.Add ("number", static_cast<double> (std::get<int64_t> (value.DataValue ())));
-            break;
-        case graph::ValueType::Double:
-            state.Add ("number", std::get<double> (value.DataValue ()));
-            break;
-        case graph::ValueType::String:
-            state.Add ("text", GraphText (std::get<std::string> (value.DataValue ())));
-            break;
-        case graph::ValueType::Point3: {
-            const graph::Point3& point = std::get<graph::Point3> (value.DataValue ());
-            GS::Array<double> numbers;
-            numbers.Push (point.x);
-            numbers.Push (point.y);
-            numbers.Push (point.z);
-            state.Add ("numbers", numbers);
-            break;
-        }
-        case graph::ValueType::Polyline:
-            AddPoints (state, std::get<graph::Polyline> (value.DataValue ()).points);
-            break;
-        case graph::ValueType::Polygon:
-            AddPoints (state, std::get<graph::Polygon> (value.DataValue ()).points);
-            break;
-        case graph::ValueType::Mesh: {
-            const auto& mesh = std::get<graph::Value::ImmutableMesh> (value.DataValue ());
-            const size_t vertexCount = mesh ? mesh->VertexCount () : 0;
-            state.Add ("itemCount", static_cast<GS::Int64> (vertexCount));
-            // A list MEMBER stays a count, as every other type does there: a list
-            // of two hundred meshes is a summary, not a scene.
-            if (!expand || mesh == nullptr || vertexCount == 0 || vertexCount > kMaxEncodedMeshVertices) {
-                state.Add ("truncated", true);
-                break;
-            }
-            GS::Array<double> numbers;
-            numbers.SetCapacity (static_cast<USize> (mesh->vertices.size ()));
-            for (const double coordinate : mesh->vertices)
-                numbers.Push (coordinate);
-            state.Add ("numbers", numbers);
-            // ⚠️ NORMALS ARE NOT SENT. The viewer computes flat face normals from
-            // the triangles it is given, which is what it draws anyway; sending
-            // them would double the payload to reproduce something derivable, and
-            // a normal array that disagreed with the positions after a truncation
-            // would shade the mesh wrongly with nothing to say why.
-            GS::Array<GS::Int32> indices;
-            indices.SetCapacity (static_cast<USize> (mesh->triangles.size ()));
-            for (const uint32_t index : mesh->triangles)
-                indices.Push (static_cast<GS::Int32> (index));
-            state.Add ("indices", indices);
-            break;
-        }
-        case graph::ValueType::ArchicadElementRef:
-            state.Add ("text", GraphText (std::get<graph::ArchicadElementRef> (value.DataValue ()).guid));
-            break;
-        case graph::ValueType::List: {
-            const graph::Value::List& list = std::get<graph::Value::List> (value.DataValue ());
-            state.Add ("itemCount", static_cast<GS::Int64> (list.size ()));
-            if (!expand || list.size () > kMaxEncodedListItems) {
-                state.Add ("truncated", true);
-                break;
-            }
-            GS::Array<GS::ObjectState> items;
-            for (const graph::Value& item : list)
-                items.Push (EncodeValue (item, false));
-            state.Add ("items", items);
-            break;
-        }
-    }
     return state;
 }
 
@@ -773,19 +653,8 @@ class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
             record.Add ("previewAvailable", false);
             GS::Array<GS::ObjectState> outputs;
             if (result) {
-                for (const auto& [portId, tree] : result->outputs) {
-                    // Bounded by the runtime, not by this command: see ProjectOutput.
-                    const graph::ProjectedOutput projected = graph::ProjectOutput (tree, kMaxEncodedListItems);
-                    GS::ObjectState output;
-                    output.Add ("portId", GraphText (portId));
-                    output.Add ("value", EncodeValue (projected.value, true));
-                    // The same renderer the Panel node uses, on EVERY output, so
-                    // a client can show what a node produced without the user
-                    // having to wire an inspector to it first.
-                    output.Add ("text", GraphText (graph::FormatValue (projected.value)));
-                    output.Add ("summary", GraphText (graph::DescribeValue (projected.value)));
-                    outputs.Push (std::move (output));
-                }
+                for (const auto& [portId, tree] : result->outputs)
+                    outputs.Push (EncodeProjectedOutput (portId, tree));
             }
             record.Add ("outputs", outputs);
             results.Push (std::move (record));

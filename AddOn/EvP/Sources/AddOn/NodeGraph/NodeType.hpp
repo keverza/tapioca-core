@@ -1,14 +1,35 @@
 #ifndef EVP_NODEGRAPH_NODETYPE_HPP
 #define EVP_NODEGRAPH_NODETYPE_HPP
 
+#include "NodeGraph/Data/AnyTree.hpp"
 #include "NodeGraph/ProjectGenerations.hpp"
 #include "NodeGraph/Value.hpp"
 
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace evp::nodegraph {
+
+struct Node;
+struct NodeExecutionContext;
+
+// A body that speaks TREES rather than values, for the few node types whose
+// whole job IS the shape (HANDOFF §9.1).
+//
+// ⚠️ THE EXCEPTION, NOT THE RULE. Almost every node is lifted: it computes one
+// answer from one set of values and NodeLifting walks it over the tree, so the
+// loop is written once instead of a hundred times. A type opts out of that only
+// when the loop would destroy what it does - a Flatten that ran per item would
+// be the identity function, a Graft would have nothing to graft. If a body can
+// be written per value, it MUST be, and this stays empty.
+//
+// The same threading contract as NodeExecutor: safe to call from several
+// threads at once, on different nodes.
+using TreeNodeBody = std::function<bool (const Node& node, const data::TreeMap& inputs,
+                                         const NodeExecutionContext& context, data::TreeMap& outputs,
+                                         std::string& error)>;
 
 // WHERE a node runs.
 enum class ExecutionDomain {
@@ -298,6 +319,10 @@ struct NodeType {
     std::vector<PortSchema> inputs;
     std::vector<PortSchema> outputs;
     std::vector<ParameterSchema> parameters;
+
+    // Set to opt this type out of lifting - see TreeNodeBody, and do read why
+    // before setting it. Empty on every type that computes rather than reshapes.
+    TreeNodeBody treeBody;
 };
 
 } // namespace evp::nodegraph

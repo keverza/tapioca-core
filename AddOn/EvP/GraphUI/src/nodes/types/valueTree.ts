@@ -1,4 +1,4 @@
-import type { GraphParameter, GraphValue, NodeOutputRecord } from '../../types'
+import type { GraphParameter, GraphValue, NodeOutputRecord, OutputBranch } from '../../types'
 import {
   geometryTotals,
   isEmptyGeometry,
@@ -202,6 +202,61 @@ export function geometryFacts(id: string, value: GraphValue | undefined): ValueN
   return branches
 }
 
+/** `{0;1}` with 3 items, in the words a row label uses. */
+function branchSummary(branch: OutputBranch): string {
+  const count = branch.itemCount
+  return `${count} item${count === 1 ? '' : 's'}`
+}
+
+/**
+ * The output's contents AS ITS BRANCHES, or `undefined` to show the flat items.
+ *
+ * ⚠️ A SINGLE BRANCH IS SHOWN FLAT, DELIBERATELY. Every scalar and every plain
+ * list is one branch at `{0}`, so a "Branch {0}" row there would appear on
+ * almost every output in the graph and say nothing - the reader would learn to
+ * skip it, including on the trees where it matters. The row appears exactly when
+ * there is a shape to report.
+ *
+ * ⚠️ AND `undefined` IS NOT "NO BRANCHES". A runtime older than the tree layer
+ * sends no `branches` at all, which must keep rendering as it always did; an
+ * output that genuinely has none sends `branchCount: 0`.
+ */
+function branchNodes(id: string, output: NodeOutputRecord): ValueNode[] | undefined {
+  const branches = output.branches
+  if (branches === undefined) return undefined
+  const declared = output.branchCount ?? branches.length
+  if (declared <= 1) return undefined
+
+  const rows: ValueNode[] = branches.map((branch) => ({
+    id: `${id}.branch.${branch.segments.join('-')}`,
+    label: branch.path,
+    typeLabel: 'branch',
+    summary: branchSummary(branch),
+    // The branch's own items, through the same value renderer every other row
+    // uses - so a mesh inside a branch reads exactly as a mesh outside one.
+    children: valueNode(`${id}.branch.${branch.segments.join('-')}`, branch.path, {
+      ...branch.value,
+      itemCount: branch.itemCount,
+      truncated: branch.truncated,
+    }).children,
+  }))
+
+  // The branches that did not cross are said to be missing, for the same reason
+  // a capped list says so: a shape ending at branch 128 reads as a shape with
+  // 128 branches, and that is a wrong answer rather than a partial one.
+  if (output.branchesTruncated === true || declared > rows.length) {
+    const hidden = Math.max(0, declared - rows.length)
+    rows.push({
+      id: `${id}.branch.truncated`,
+      label: `${hidden} more branch${hidden === 1 ? '' : 'es'}`,
+      typeLabel: 'truncated',
+      summary: 'The runtime capped this tree; evaluate a narrower selection to see the rest.',
+      children: [],
+    })
+  }
+  return rows
+}
+
 /**
  * The node's own data, as two roots: what is STORED on it (its parameters, which
  * is where a selection set keeps its elements) and what it last PRODUCED.
@@ -233,19 +288,22 @@ export function nodeValueTree(
       typeLabel: `${outputs.length} output${outputs.length === 1 ? '' : 's'}`,
       summary: '',
       children: outputs.map((output) => {
-        const node = valueNode(`outputs.${output.portId}`, output.portId, output.value)
+        const id = `outputs.${output.portId}`
+        const node = valueNode(id, output.portId, output.value)
         // Facts FIRST, contents after. "What is this and how big is it" is the
         // question somebody opens a browser to answer, and it should not sit
         // below four hundred list rows.
-        const facts = geometryFacts(`outputs.${output.portId}`, output.value)
+        const facts = geometryFacts(id, output.value)
+        const contents = branchNodes(id, output) ?? node.children
         return {
           ...node,
           // The runtime already rendered this one; prefer its wording to ours.
           summary: output.summary || node.summary,
+          typeLabel: output.itemType ?? node.typeLabel,
           // ONLY HERE: this row IS the port, so a reference copied from it
           // addresses exactly what it names. See ValueNode.portId.
           portId: output.portId,
-          children: [...facts, ...node.children],
+          children: [...facts, ...contents],
         }
       }),
     })

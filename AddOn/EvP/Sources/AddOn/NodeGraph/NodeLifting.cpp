@@ -192,11 +192,42 @@ size_t TreeItemCount (const data::TreeValue& tree)
     return tree.IsPresent () ? tree.tree->ItemCount () : 0;
 }
 
-ProjectedOutput ProjectOutput (const data::TreeValue& tree, size_t maxItems)
+ProjectedOutput ProjectOutput (const data::TreeValue& tree, size_t maxItems, size_t maxBranches)
 {
     ProjectedOutput projected;
     projected.value = ProjectTreeToValue (tree, maxItems, projected.truncated);
     projected.itemCount = TreeItemCount (tree);
+    if (!tree.IsPresent ())
+        return projected;
+
+    projected.itemType = tree.itemType;
+    projected.branchCount = tree.tree->ListCount ();
+    projected.branchesTruncated = projected.branchCount > maxBranches;
+
+    // One budget, spent in canonical order. It is deliberately the same number
+    // the flat projection was given: the two views of one output cost the same,
+    // so enabling the branch view cannot double what a run sends.
+    size_t remaining = maxItems;
+    const size_t shown = std::min (projected.branchCount, maxBranches);
+    projected.branches.reserve (shown);
+    for (size_t listIndex = 0; listIndex < shown; ++listIndex) {
+        const data::IDataList& list = tree.tree->ListAt (listIndex);
+        ProjectedBranch branch;
+        branch.path = tree.tree->Paths ()[listIndex];
+        branch.itemCount = list.Size ();
+
+        Value::List items;
+        const size_t take = std::min (branch.itemCount, remaining);
+        items.reserve (take);
+        for (size_t index = 0; index < take; ++index) {
+            const std::optional<Value> value = list.ValueAt (index);
+            items.push_back (value.has_value () ? *value : Value {});
+        }
+        remaining -= take;
+        branch.truncated = take < branch.itemCount;
+        branch.value = Value (std::move (items));
+        projected.branches.push_back (std::move (branch));
+    }
     return projected;
 }
 
@@ -204,6 +235,22 @@ bool RunLiftedNode (const NodeType& nodeType, const Node& node, const TreeMap& i
                     const NodeExecutionContext& context, const NodeBodyExecutor& body, TreeMap& outputs,
                     LiftReport& report, std::string& error)
 {
+    // A tree-native type is not lifted at all: no plan, no per-item loop, no
+    // per-value body. It is handed the trees and returns trees, which is the
+    // only way a node whose job IS the shape can do that job (§9.1).
+    if (nodeType.treeBody) {
+        report.iterationCount = 1;
+        // Every declared input is PRESENT, as an empty tree of its type when
+        // nothing is wired. A tree body may therefore read its ports by name
+        // without each one re-deciding what a missing port means - the same
+        // guarantee the lifted path gives, and the reason "absent input" is a
+        // state of the tree rather than of the map (§7.5).
+        TreeMap complete = inputs;
+        for (const PortSchema& port : ResolvedInputs (node, nodeType))
+            complete.emplace (port.id, data::EmptyTreeValue (PortItemType (port)));
+        return nodeType.treeBody (node, complete, context, outputs, error);
+    }
+
     const std::vector<PortSchema>& inputPorts = ResolvedInputs (node, nodeType);
     const std::vector<PortSchema>& outputPorts = ResolvedOutputs (node, nodeType);
 

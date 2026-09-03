@@ -22,11 +22,18 @@
 #include "NodeGraph/Data/DataTreeOps.hpp"
 #include "NodeGraph/Data/TreeIteration.hpp"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace evp::nodegraph::data {
+
+// One tree per port, keyed by port id: what an edge actually carries, and the
+// shape both the evaluator and a tree-native node body speak. Declared here
+// rather than in NodeLifting so that NodeType can name it without depending on
+// the lifting adapter it is an alternative to.
+using TreeMap = std::map<std::string, TreeValue>;
 
 class AnyTreeBuilder {
   public:
@@ -95,6 +102,34 @@ bool SliceForAccess (const TreeValue& input, PortAccess access, const InputCurso
                      std::string& error);
 
 std::optional<Value> ItemForCursor (const TreeValue& input, const InputCursor& cursor);
+
+// ---- Erased topology operations ---------------------------------------------
+//
+// The `tree.*` node family's whole job is reshaping - flatten, graft, simplify,
+// shift - and every one of those is already written once, templated on the item
+// type, in DataTreeOps.hpp. A node body does not have that template argument:
+// it holds a `TreeValue` whose item type is the runtime enum. These wrappers are
+// the same DispatchItemType switch AnyTreeBuilder uses, applied to the
+// DataTreeOps functions instead of to construction, so a tree node body stays
+// one call into this file rather than a second switch over the item vocabulary.
+//
+// Each one preserves whatever structural sharing the wrapped operation already
+// does - SimplifyTree returns the SAME shared_ptr for a tree that is already
+// simple, and that pointer identity survives the wrap, because rebuilding an
+// unchanged tree here would silently defeat the sharing the templated layer was
+// written to keep.
+
+// False only when `input` is absent; the identity/no-op shape decisions are the
+// wrapped operation's, not this wrapper's.
+bool FlattenTreeValue (const TreeValue& input, TreeValue& result, std::string& error);
+bool GraftTreeValue (const TreeValue& input, TreeValue& result, std::string& error);
+bool SimplifyTreeValue (const TreeValue& input, TreeValue& result, std::string& error);
+
+// `shift` and `policy` mean what ShiftTreePaths says; this only adds the
+// runtime dispatch. Fails when the shift would empty a path or (under
+// PathCollision::Error) fold two paths together - `error` names the path.
+bool ShiftTreeValuePaths (const TreeValue& input, int32_t shift, PathCollision policy, TreeValue& result,
+                          std::string& error);
 
 } // namespace evp::nodegraph::data
 

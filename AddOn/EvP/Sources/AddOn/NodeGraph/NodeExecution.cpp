@@ -5,6 +5,7 @@
 #include "NodeGraph/GeometryNodes.hpp"
 #include "NodeGraph/ScriptNodes.hpp"
 #include "NodeGraph/ScriptRuntime.hpp"
+#include "NodeGraph/TreeNodes.hpp"
 
 namespace evp::nodegraph {
 
@@ -14,6 +15,7 @@ NodeRegistry MakeRuntimeNodeRegistry ()
     RegisterGeometryNodes (registry);
     RegisterArchicadNodes (registry);
     RegisterScriptNodes (registry);
+    RegisterTreeNodes (registry);
     // Installed here rather than by a static initialiser, so the engine exists
     // exactly when a registry that has script nodes in it does - including in the
     // offline suite, which is the whole reason the JS engine is embedded rather
