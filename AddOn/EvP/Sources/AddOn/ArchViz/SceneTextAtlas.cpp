@@ -101,7 +101,13 @@ std::vector<uint32_t> DecodeSceneTextUtf8 (const std::string& text)
     return codepoints;
 }
 
-bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, std::string& error)
+std::string SceneTextSeedText ()
+{
+    return EncodeUtf8 (SeedCodepoints ()) + " office affine fi fl ffi ffl a\xCC\x81";
+}
+
+bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun,
+                            std::string& error)
 {
     width_ = height_ = 0;
     pixels_.clear ();
@@ -126,12 +132,6 @@ bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, std:
         return false;
     }
 
-    SceneTextShaper shaper;
-    if (!shaper.Init (fontBytes, fontByteCount, error)) {
-        msdfgen::destroyFont (font);
-        msdfgen::deinitializeFreetype (freetype);
-        return false;
-    }
     std::vector<msdf_atlas::GlyphGeometry> sourceGlyphs;
     msdf_atlas::FontGeometry fontGeometry (&sourceGlyphs);
     msdf_atlas::Charset glyphset;
@@ -144,13 +144,6 @@ bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, std:
             if (codepoint == kReplacementCodepoint)
                 replacementGlyphIndex_ = glyphIndex.getIndex ();
         }
-    }
-    SceneTextGlyphRun seedRun;
-    if (!shaper.Shape (EncodeUtf8 (seedCodepoints) + " office affine fi fl ffi ffl a\xCC\x81", SceneTextDirection::Auto,
-                       seedRun, error)) {
-        msdfgen::destroyFont (font);
-        msdfgen::deinitializeFreetype (freetype);
-        return false;
     }
     for (const SceneTextPositionedGlyph& glyph : seedRun.glyphs)
         glyphset.add (glyph.glyphIndex);

@@ -47,7 +47,7 @@ class SceneTextLayer final {
     void Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                const std::vector<SceneTextLabel>& labels, const float viewProj[16], uint32_t surfaceWidth,
                uint32_t surfaceHeight, float dpiScale);
-    void DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+    bool DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                         const std::vector<ScreenLabel>& labels, uint32_t surfaceWidth, uint32_t surfaceHeight,
                         float dpiScale);
     bool IsReady () const;

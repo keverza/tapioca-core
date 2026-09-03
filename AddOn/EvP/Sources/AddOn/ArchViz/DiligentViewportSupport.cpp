@@ -393,8 +393,8 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
     }
     annotations =
         BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly);
-    if (!annotations.labels.empty () && layer.IsReady ()) {
-        layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale);
+    if (!annotations.labels.empty () && layer.IsReady () &&
+        layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale)) {
         annotations.labels.clear ();
     }
     return annotations;

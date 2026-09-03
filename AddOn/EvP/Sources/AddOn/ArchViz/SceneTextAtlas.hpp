@@ -9,6 +9,8 @@
 
 namespace geomsrv::archviz {
 
+struct SceneTextGlyphRun;
+
 struct SceneTextGlyph {
     uint32_t codepoint = 0;
     uint32_t glyphIndex = 0;
@@ -29,7 +31,7 @@ class SceneTextAtlas final {
     static constexpr float kEmPixels = 40.0f;
     static constexpr float kDistanceRangePixels = 4.0f;
 
-    bool Build (const uint8_t* fontBytes, size_t fontByteCount, std::string& error);
+    bool Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun, std::string& error);
     const SceneTextGlyph* Find (uint32_t codepoint) const;
     const SceneTextGlyph* FindGlyph (uint32_t glyphIndex) const;
 
@@ -63,6 +65,7 @@ class SceneTextAtlas final {
 // byte sequences consume one byte and become U+FFFD, so malformed input cannot
 // make the renderer loop forever or index outside the atlas.
 std::vector<uint32_t> DecodeSceneTextUtf8 (const std::string& text);
+std::string SceneTextSeedText ();
 
 } // namespace geomsrv::archviz
 
