@@ -1726,12 +1726,14 @@ TEST (NodeGraphPanel, AcceptsAnyValueTypeThroughOneWildcardInput)
     }
 }
 
-TEST (NodeGraphPanel, RendersAListOneItemPerLineAndAlsoAsOneString)
+TEST (NodeGraphPanel, PassesItsInputThroughWITHOUTReshapingTheTree)
 {
+    // The whole contract of the node in one assertion: what a panel publishes is
+    // the tree it was handed, branch for branch. A value-level check (same items,
+    // same order) would pass for a panel that silently flattened what crossed it,
+    // which is the one thing an inspector on a wire must never do.
     const NodeRegistry registry = MakeRuntimeNodeRegistry ();
     GraphDocument graph;
-    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
-
     Node two { "two", "number" };
     two.parameters.emplace ("value", Value (2.0));
     Node three { "three", "number" };
@@ -1739,12 +1741,59 @@ TEST (NodeGraphPanel, RendersAListOneItemPerLineAndAlsoAsOneString)
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { two } }).accepted);
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { three } }).accepted);
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "list", "makeList" } } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "graft", "tree.graft" } } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("two", "value", "list", "items") } }).accepted);
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("three", "value", "list", "items") } })
                      .accepted);
-    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("list", "value", "panel", "value") } })
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("list", "value", "graft", "tree") } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("graft", "tree", "panel", "value") } })
                      .accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteRuntimeNode, { "panel" });
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const std::shared_ptr<const NodeResult> panelResult = evaluator.Result ("panel");
+    const std::shared_ptr<const NodeResult> graftResult = evaluator.Result ("graft");
+    ASSERT_NE (nullptr, panelResult);
+    ASSERT_NE (nullptr, graftResult);
+    const data::TreeValue& shown = panelResult->outputs.at ("value");
+    const data::TreeValue& upstream = graftResult->outputs.at ("tree");
+    ASSERT_TRUE (shown.IsPresent ());
+    // Two branches, one item each - a graft, not a list - and the SAME pointer
+    // the graft published: the panel copies nothing and reshapes nothing.
+    EXPECT_EQ (2U, shown.tree->ListCount ());
+    EXPECT_EQ (upstream.tree.get (), shown.tree.get ());
+
+    // ONE output, and it is the data. The four derived readouts the node used to
+    // publish are gone: a client renders them from this output's `text`,
+    // `summary` and `branches` in GraphGetNodeResults.
+    ASSERT_EQ (1U, registry.Find ("panel")->outputs.size ());
+    EXPECT_EQ ("value", registry.Find ("panel")->outputs.front ().id);
+}
+
+TEST (NodeGraphPanel, TakesSeveralWiresIntoItsOneInputAndShowsTheMergedTree)
+{
+    // Grasshopper's panel is a parameter several sources can feed at once. The
+    // port declares acceptsMultiple, so the merge is the runtime's documented
+    // fan-in rather than a rule this node invents (InputGathering.cpp).
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    Node two { "two", "number" };
+    two.parameters.emplace ("value", Value (2.0));
+    Node three { "three", "number" };
+    three.parameters.emplace ("value", Value (3.0));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { two } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { three } }).accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("two", "value", "panel", "value") } }).accepted);
+    const EditResult second =
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("three", "value", "panel", "value") } });
+    EXPECT_TRUE (second.accepted) << second.error;
 
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteRuntimeNode, { "panel" });
@@ -1752,13 +1801,27 @@ TEST (NodeGraphPanel, RendersAListOneItemPerLineAndAlsoAsOneString)
 
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("panel");
     ASSERT_NE (nullptr, result);
-    EXPECT_EQ ("2\n3", std::get<std::string> (Out (result, "text").DataValue ()));
-    EXPECT_EQ ("List of 2", std::get<std::string> (Out (result, "summary").DataValue ()));
-    EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
-    const Argument linesValue = Out (result, "lines");
-    const std::vector<Value>& lines = linesValue.Items ();
-    ASSERT_EQ (2U, lines.size ());
-    EXPECT_EQ ("2", std::get<std::string> (lines[0].DataValue ()));
+    const Argument shown = Out (result, "value");
+    ASSERT_EQ (2U, shown.Items ().size ());
+    EXPECT_EQ (2.0, std::get<double> (shown.Items ()[0].DataValue ()));
+    EXPECT_EQ (3.0, std::get<double> (shown.Items ()[1].DataValue ()));
+}
+
+TEST (NodeGraphPanel, WithNothingWiredReportsTheEmptyTreeRatherThanFailing)
+{
+    // An unwired panel is a panel waiting to be used. Marking the input required
+    // would make the evaluator refuse it before the body ever ran, and a node
+    // that turns red for being new is a node people delete.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteRuntimeNode, { "panel" });
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("panel");
+    ASSERT_NE (nullptr, result);
+    EXPECT_TRUE (Out (result, "value").Items ().empty ());
 }
 
 TEST (NodeGraphPanel, RendersEveryValueTypeReadably)
@@ -3258,9 +3321,9 @@ TEST (NodeGraphFlowControl, BypassIsRefusedForATypeThatDeclaresNoMapping)
     FlowFixture fixture;
     ASSERT_TRUE (fixture.Add ("readout", "panel"));
 
-    // `panel` accepts any type and emits four unrelated ones, so no mapping is
-    // derivable. The refusal IS the feature: guessing would make bypass mean
-    // something different on every node it touched.
+    // `panel` declares no mapping, and a type that cannot say what bypass means
+    // simply cannot be bypassed. The refusal IS the feature: guessing would make
+    // bypass mean something different on every node it touched.
     const EditResult rejected = fixture.Mode ("readout", ExecutionMode::Bypassed);
     EXPECT_FALSE (rejected.accepted);
     EXPECT_EQ ("mode.bypassUnsupported", rejected.code);
@@ -3788,12 +3851,12 @@ struct PreviewFixture {
 
         GraphEdit connectEdit;
         ConnectEdit wire;
-        wire.edge = Edge { sourceId, "text", nodeId, kPreviewGeometryInput };
+        wire.edge = Edge { sourceId, "value", nodeId, kPreviewGeometryInput };
         connectEdit.data = wire;
         EXPECT_TRUE (ApplyEdit (document, registry, connectEdit).accepted);
 
         auto upstream = std::make_shared<NodeResult> ();
-        upstream->outputs.emplace ("text", AsTree (geometry));
+        upstream->outputs.emplace ("value", AsTree (geometry));
         results[sourceId] = upstream;
         // The Preview publishes nothing; its result exists only to say it ran.
         results[nodeId] = std::make_shared<NodeResult> ();

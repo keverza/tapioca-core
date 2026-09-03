@@ -8,7 +8,6 @@
 #include "Geometry/Primitives.hpp"
 #include "Geometry/Transforms.hpp"
 #include "NodeGraph/PreviewProjection.hpp"
-#include "NodeGraph/ValueText.hpp"
 
 #include <algorithm>
 #include <vector>
@@ -139,18 +138,40 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     if (!registry.Register (std::move (scale), error))
         throw std::logic_error (error);
 
-    // The Grasshopper-panel equivalent: wire anything into it and read what came
-    // out. Its input is declared Absent, which the edit rules read as "any type",
-    // so one node inspects every value the runtime has rather than there being a
-    // panel per type.
-    NodeType panel = PureNode ("panel", "Panel", "Shows whatever is wired into it as readable text.");
+    // The Grasshopper-panel equivalent: wire anything into it, read what came
+    // through, and pass it on unchanged.
+    //
+    // ⚠️ ONE INPUT THAT TAKES MANY WIRES, ONE OUTPUT THAT IS THE SAME TREE.
+    // Grasshopper's panel is a PARAMETER: several sources merge into it, it
+    // shows what arrived, and downstream nodes read the merged result off it -
+    // so a panel can be dropped onto a wire mid-graph to see what is on it
+    // without rewiring anything. The four derived outputs it had before (text,
+    // lines, count, summary) said the same thing four ways, none of them the
+    // data, and wiring one on downstream turned a value into a string. Every
+    // output now carries `text`, `summary`, `itemType` and its BRANCHES in
+    // GraphGetNodeResults, so a client renders the readout from the passthrough
+    // itself and the node does not have to compute prose to be readable.
+    //
+    // Absent on BOTH ends is the wildcard (GraphEdit.cpp): any value may be
+    // wired in, and the output forwards whatever the items actually were. Not
+    // required, because an unwired panel is a panel waiting to be used, not a
+    // wiring mistake - it reports the empty tree exactly as `tree.flatten` does.
+    //
+    // TREE-NATIVE rather than lifted, for the same reason the `tree.*` family
+    // is: a per-item walk would rebuild the tree item by item, and a panel that
+    // silently reshaped what passed through it would be worse than no panel.
+    // The body hands back the SAME tree pointer it was given.
+    NodeType panel =
+        PureNode ("panel", "Panel", "Shows whatever is wired into it, branch by branch, and passes it on unchanged.");
     panel.category = "Inspect";
     panel.display = NodeDisplay::Text;
-    panel.inputs.push_back ({ "value", "Value", ValueType::Absent, true, false });
-    panel.outputs.push_back ({ "text", "Text", ValueType::String });
-    panel.outputs.push_back ({ "lines", "Lines", ValueType::List });
-    panel.outputs.push_back ({ "count", "Count", ValueType::Integer });
-    panel.outputs.push_back ({ "summary", "Summary", ValueType::String });
+    panel.inputs.push_back ({ "value", "Value", ValueType::Absent, false, true });
+    panel.outputs.push_back ({ "value", "Value", ValueType::Absent });
+    panel.treeBody = [] (const Node&, const data::TreeMap& inputs, const NodeExecutionContext&, data::TreeMap& outputs,
+                         std::string&) {
+        outputs.emplace ("value", inputs.at ("value"));
+        return true;
+    };
     if (!registry.Register (std::move (panel), error))
         throw std::logic_error (error);
 
@@ -578,26 +599,6 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         // NodeGraph/PreviewProjection following the edge into this node after the
         // run. Executing it is still what marks it reached, which is how a
         // preview downstream of a disabled branch stops drawing.
-    }
-    else if (node.nodeType == "panel") {
-        const Argument& value = inputs.at ("value");
-        const std::vector<std::string> lines = FormatValueLines (value);
-        std::vector<Value> lineValues;
-        lineValues.reserve (lines.size ());
-        std::string joined;
-        for (size_t i = 0; i < lines.size (); ++i) {
-            lineValues.emplace_back (lines[i]);
-            if (i != 0)
-                joined += "\n";
-            joined += lines[i];
-        }
-        // Both shapes, because a client should not have to split a string to
-        // render a list, nor join a list to show one line.
-        outputs.emplace ("text", Value (joined));
-        outputs.emplace ("lines", Argument::FromItems (std::move (lineValues)));
-        outputs.emplace ("count",
-                         Value (static_cast<int64_t> (value.Type () == ValueType::List ? value.Items ().size () : 1)));
-        outputs.emplace ("summary", Value (DescribeValue (value)));
     }
     else if (node.nodeType == "watch" || node.nodeType == "dataDam")
         // A dam computes nothing; what makes it a dam is that Holding stages

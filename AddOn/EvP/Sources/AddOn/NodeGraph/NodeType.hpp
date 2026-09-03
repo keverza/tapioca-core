@@ -27,9 +27,9 @@ struct NodeExecutionContext;
 //
 // The same threading contract as NodeExecutor: safe to call from several
 // threads at once, on different nodes.
-using TreeNodeBody = std::function<bool (const Node& node, const data::TreeMap& inputs,
-                                         const NodeExecutionContext& context, data::TreeMap& outputs,
-                                         std::string& error)>;
+using TreeNodeBody =
+    std::function<bool (const Node& node, const data::TreeMap& inputs, const NodeExecutionContext& context,
+                        data::TreeMap& outputs, std::string& error)>;
 
 // WHERE a node runs.
 enum class ExecutionDomain {
@@ -74,8 +74,11 @@ enum class NodeDisplay {
     // Ports and status only. The default.
     Ports,
 
-    // The node has something to READ. A client should show the node's `text`
-    // output in the body, scrollable. This is the Grasshopper-panel shape.
+    // The node has something to READ. A client should show the node's OUTPUT in
+    // the body, scrollable, as rows: a header per branch and an index per item,
+    // rendered from the `text`, `summary` and `branches` that GraphGetNodeResults
+    // sends for every output. This is the Grasshopper-panel shape, and the node
+    // publishes DATA rather than prose - see `panel` in BuiltinNodes.cpp.
     Text,
 
     // The node has something to LOOK at; a client may host a viewport.

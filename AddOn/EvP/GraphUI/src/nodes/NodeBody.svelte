@@ -10,6 +10,7 @@
   import NodeViewer from './NodeViewer.svelte'
   import ScriptPanel from './script/ScriptPanel.svelte'
   import { portStructure } from './types/display'
+  import { panelRows, panelStructure } from './types/panelRows'
 
   let { id, data, definition, bodyMode, viewMode, portLayout, viewerVisible, onbrowse, onbrowselibrary }: { id: string; data: SchemaNodeData; definition: NodeDefinition; bodyMode: NodeBodyMode; viewMode: NodeViewMode; portLayout: PortLayout; viewerVisible: boolean; onbrowse: () => void; onbrowselibrary?: (parameterId: string) => void } = $props()
   function connectReference(reference: PortReference, portId: string): void {
@@ -23,7 +24,14 @@
     const stored = data.parameters.find((parameter) => parameter.parameterId === 'elements')
     return stored?.value?.itemCount ?? stored?.value?.items?.length ?? 0
   })
-  const panelLines = $derived(data.result?.outputs?.find((output) => output.portId === 'text')?.text?.split('\n') ?? [])
+  // The Panel's ONE output, which is the data it was handed - see BuiltinNodes.
+  // The fallback to the first output is for any other type that flags itself
+  // `text`: the display is a hint about how to draw a node, not a claim that
+  // every such node names its port `value`.
+  const panelOutput = $derived(
+    data.result?.outputs?.find((output) => output.portId === 'value') ?? data.result?.outputs?.[0],
+  )
+  const panelContents = $derived(panelRows(panelOutput))
   function outputText(portId: string): string | undefined { return data.result?.outputs?.find((output) => output.portId === portId)?.summary }
   function outputValue(portId: string) { return data.result?.outputs?.find((output) => output.portId === portId)?.value }
   const actions: { action: SelectionAction; label: string }[] = [
@@ -78,7 +86,7 @@
     onreloaded={() => data.onscriptreloaded?.()}
   />
 {:else if viewMode !== 'compact' && data.schema.display === 'text'}
-  <section class="text nodrag nowheel">{#if panelLines.length === 0}<p>{data.result ? '(nothing)' : 'Not evaluated'}</p>{:else}<ol>{#each panelLines as line, index}<li><span>{index + 1}</span><code>{line}</code></li>{/each}</ol>{/if}</section>
+  <section class="text nodrag nowheel">{#if panelContents.length === 0}<p>{data.result ? '(nothing)' : 'Not evaluated'}</p>{:else}<p class="structure">{panelStructure(panelOutput)}</p><ol>{#each panelContents as row (row.key)}{#if row.kind === 'path'}<li class="path"><span>{row.label}</span><em>{row.summary}</em></li>{:else if row.kind === 'item'}<li><span>{row.index}</span><code>{row.text}</code></li>{:else}<li class="note"><span></span><code>{row.text}</code></li>{/if}{/each}</ol>{/if}</section>
 {/if}
 
 {#if viewMode !== 'compact' && definition.capabilities.execute}
@@ -131,6 +139,18 @@
   .text ol { margin: 0; padding: 4px 0; list-style: none; }
   .text li { display: grid; grid-template-columns: 22px 1fr; padding: 2px 6px; }
   .text li span { color: var(--text-faint); font: 8px/1.4 ui-monospace, monospace; text-align: right; }
+  /*
+   * The branch header, drawn as one bar across the whole row exactly as
+   * Grasshopper draws a path row. It does NOT take an index: the index column
+   * counts position WITHIN a branch, and a number beside a path would be two
+   * different counts in one column.
+   */
+  .text li.path { grid-template-columns: 1fr auto; padding: 3px 6px 2px; border-top: 1px solid var(--border); background: rgb(127 127 127 / 14%); }
+  .text li.path:first-child { border-top: 0; }
+  .text li.path span { color: var(--text); font: 8px/1.4 ui-monospace, monospace; text-align: left; }
+  .text li.path em { color: var(--text-faint); font: 8px/1.4 ui-monospace, monospace; font-style: normal; }
+  .text li.note code { color: var(--text-faint); font-style: italic; }
+  .text p.structure { padding: 4px 7px 2px; color: var(--text-faint); font: 8px/1.4 ui-monospace, monospace; text-align: left; }
   .text code { padding-left: 7px; color: var(--text); font: 9px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
   /*
    * A DEFINITE height, and that is the whole point rather than a taste in
