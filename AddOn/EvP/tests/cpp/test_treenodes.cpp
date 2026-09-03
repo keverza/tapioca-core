@@ -21,6 +21,7 @@
 #include "NodeGraph/Data/AnyTree.hpp"
 #include "NodeGraph/Evaluator.hpp"
 #include "NodeGraph/GraphEdit.hpp"
+#include "NodeGraph/InputGathering.hpp"
 #include "NodeGraph/NodeExecution.hpp"
 #include "NodeGraph/NodeLifting.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
@@ -482,4 +483,218 @@ TEST (TreeNodes, ShiftPathMovesEveryBranchAndLeavesItemOrderAlone)
     const TreeValue& shifted = outputs.at ("tree");
     EXPECT_EQ (shifted.tree->Paths ()[0], P ({ 0, 4 }));
     EXPECT_EQ (BranchValues (shifted, 0), (std::vector<int64_t> { 7, 8 }));
+}
+
+// ---- tree.filter ------------------------------------------------------------
+
+namespace {
+
+TreeValue Booleans (std::initializer_list<DataPath::Segment> branch, std::initializer_list<bool> flags)
+{
+    DataTreeBuilder<bool> builder;
+    builder.EnsureList (DataPath (branch));
+    for (const bool flag : flags)
+        builder.Add (DataPath (branch), flag);
+    return MakeTreeValue<bool> (std::move (builder).Finish ());
+}
+
+TreeValue RunFilter (const TreeValue& tree, const TreeValue& mask)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find ("tree.filter");
+    EXPECT_NE (type, nullptr);
+    Node node { "n", "tree.filter" };
+    TreeMap inputs;
+    inputs.emplace ("tree", tree);
+    inputs.emplace ("mask", mask);
+    TreeMap outputs;
+    NodeExecutionContext context;
+    std::string error;
+    EXPECT_TRUE (type->treeBody (node, inputs, context, outputs, error)) << error;
+    return outputs.at ("tree");
+}
+
+} // namespace
+
+TEST (TreeNodes, FilterActuallyDropsItemsRatherThanNullingThem)
+{
+    // ⚠️ THE DISTINCTION THAT MADE THIS A NODE INSTEAD OF A SCRIPT. A lifted
+    // body returning nothing writes a NULL, so the branch still holds three
+    // items. Filtering has to change the LENGTH, and only a body that sees the
+    // branch can do that.
+    const TreeValue filtered = RunFilter (Integers ({ 0 }, { 1, 2, 3 }), Booleans ({ 0 }, { true, false, true }));
+    ASSERT_EQ (filtered.tree->ListCount (), 1u);
+    EXPECT_EQ (filtered.tree->ItemCount (), 2u);
+    EXPECT_EQ (BranchValues (filtered, 0), (std::vector<int64_t> { 1, 3 }));
+    EXPECT_FALSE (filtered.tree->ListAt (0).IsNullAt (0));
+}
+
+TEST (TreeNodes, TheMaskIsAPatternThatRepeatsRatherThanClampingToItsLastValue)
+{
+    // "every other one" is two flags for six items. Clamping to the last value -
+    // what every other matching rule in the runtime does - would keep item 0 and
+    // then drop the rest, which is not what anyone types this to mean. A mask is
+    // a PATTERN, not a parallel list, and this is the one place that cycles.
+    const TreeValue filtered = RunFilter (Integers ({ 0 }, { 1, 2, 3, 4, 5, 6 }), Booleans ({ 0 }, { true, false }));
+    EXPECT_EQ (BranchValues (filtered, 0), (std::vector<int64_t> { 1, 3, 5 }));
+}
+
+TEST (TreeNodes, FilteringToNothingKeepsTheBranchAndNoMaskKeepsEverything)
+{
+    // An empty branch and no branch are different states (§7.5); collapsing the
+    // first into the second would silently renumber everything downstream.
+    const TreeValue emptied = RunFilter (Integers ({ 4 }, { 1, 2 }), Booleans ({ 4 }, { false }));
+    ASSERT_EQ (emptied.tree->ListCount (), 1u);
+    EXPECT_EQ (emptied.tree->Paths ()[0], P ({ 4 }));
+    EXPECT_EQ (emptied.tree->ItemCount (), 0u);
+
+    // An unwired mask means the node was not told to do anything. Dropping
+    // everything would look exactly like data loss.
+    const TreeValue untouched = RunFilter (Integers ({ 0 }, { 1, 2, 3 }), EmptyTreeValue (ItemType::Bool));
+    EXPECT_EQ (BranchValues (untouched, 0), (std::vector<int64_t> { 1, 2, 3 }));
+}
+
+// ---- Port modifiers ---------------------------------------------------------
+//
+// A modifier is the same operation as the node that shares its name, applied at
+// the port instead of on the canvas. These assert that equivalence directly,
+// because the moment the two can disagree the feature stops being a shortcut and
+// becomes a second implementation with its own bugs.
+
+namespace {
+
+TreeValue ModifiedBy (PortModifier modifier, const TreeValue& input)
+{
+    TreeValue result;
+    std::string error;
+    EXPECT_TRUE (ApplyPortModifier (modifier, input, result, error)) << error;
+    return result;
+}
+
+} // namespace
+
+TEST (PortModifiers, EachOneIsExactlyTheNodeThatSharesItsName)
+{
+    DataTreeBuilder<int64_t> builder;
+    builder.Add (P ({ 5, 0 }), 1);
+    builder.Add (P ({ 5, 0 }), 2);
+    builder.Add (P ({ 5, 1 }), 3);
+    const TreeValue input = MakeTreeValue<int64_t> (std::move (builder).Finish ());
+
+    TreeValue viaNode;
+    std::string error;
+
+    ASSERT_TRUE (FlattenTreeValue (input, viaNode, error)) << error;
+    EXPECT_EQ (ModifiedBy (PortModifier::Flatten, input).tree->Paths (), viaNode.tree->Paths ());
+    EXPECT_EQ (ModifiedBy (PortModifier::Flatten, input).tree->ItemCount (), viaNode.tree->ItemCount ());
+
+    ASSERT_TRUE (GraftTreeValue (input, viaNode, error)) << error;
+    EXPECT_EQ (ModifiedBy (PortModifier::Graft, input).tree->Paths (), viaNode.tree->Paths ());
+
+    ASSERT_TRUE (SimplifyTreeValue (input, viaNode, error)) << error;
+    EXPECT_EQ (ModifiedBy (PortModifier::Simplify, input).tree->Paths (), viaNode.tree->Paths ());
+
+    // None is the identity, and shares the tree rather than copying it: this
+    // runs on every port of every node on every evaluation.
+    EXPECT_EQ (ModifiedBy (PortModifier::None, input).tree, input.tree);
+}
+
+TEST (PortModifiers, RoundIsTheOneThatChangesATypeAndItRoundsToNearest)
+{
+    DataTreeBuilder<double> builder;
+    builder.Add (P ({ 0 }), 2.5);
+    builder.Add (P ({ 0 }), -2.5);
+    builder.AddNull (P ({ 0 }));
+    const TreeValue doubles = MakeTreeValue<double> (std::move (builder).Finish ());
+
+    const TreeValue rounded = ModifiedBy (PortModifier::Round, doubles);
+    EXPECT_EQ (rounded.itemType, ItemType::Integer);
+    EXPECT_EQ (std::get<int64_t> (rounded.tree->ListAt (0).ValueAt (0)->DataValue ()), 3);
+    EXPECT_EQ (std::get<int64_t> (rounded.tree->ListAt (0).ValueAt (1)->DataValue ()), -3);
+    // A conversion changes what an item IS, never whether there is one.
+    EXPECT_TRUE (rounded.tree->ListAt (0).IsNullAt (2));
+
+    // ⚠️ ONLY NEAREST. The other three roundings stay on math.toInteger, where
+    // each has a name a reader can see; a modifier is a badge on a port and
+    // cannot carry four meanings.
+    EXPECT_EQ (ModifiedBy (PortModifier::Round, EmptyTreeValue (ItemType::String)).itemType, ItemType::String);
+}
+
+TEST (PortModifiers, ReverseTurnsEachBranchAroundWithoutTouchingTheShape)
+{
+    DataTreeBuilder<int64_t> builder;
+    builder.Add (P ({ 0 }), 1);
+    builder.Add (P ({ 0 }), 2);
+    builder.Add (P ({ 0 }), 3);
+    builder.Add (P ({ 1 }), 9);
+    const TreeValue input = MakeTreeValue<int64_t> (std::move (builder).Finish ());
+
+    const TreeValue reversed = ModifiedBy (PortModifier::Reverse, input);
+    // Each branch turned around on its own; the branches keep their order and
+    // their paths, because reversing items is not reshaping the tree.
+    EXPECT_EQ (BranchValues (reversed, 0), (std::vector<int64_t> { 3, 2, 1 }));
+    EXPECT_EQ (BranchValues (reversed, 1), (std::vector<int64_t> { 9 }));
+    EXPECT_EQ (reversed.tree->Paths (), input.tree->Paths ());
+
+    // A null keeps its place in the new order rather than being dropped: it is
+    // a site, and reversing moves sites.
+    DataTreeBuilder<double> withNull;
+    withNull.Add (P ({ 0 }), 1.0);
+    withNull.AddNull (P ({ 0 }));
+    const TreeValue nulled = ModifiedBy (PortModifier::Reverse, MakeTreeValue<double> (std::move (withNull).Finish ()));
+    EXPECT_TRUE (nulled.tree->ListAt (0).IsNullAt (0));
+    EXPECT_EQ (std::get<double> (nulled.tree->ListAt (0).ValueAt (1)->DataValue ()), 1.0);
+}
+
+TEST (PortModifiers, NormaliseRemapsEachBranchOntoItsOwnRange)
+{
+    DataTreeBuilder<double> builder;
+    builder.Add (P ({ 0 }), 10.0);
+    builder.Add (P ({ 0 }), 20.0);
+    builder.Add (P ({ 0 }), 30.0);
+    // ⚠️ A SECOND BRANCH WITH A COMPLETELY DIFFERENT RANGE, which is the whole
+    // assertion: per branch, so a grafted tree normalises each branch against
+    // itself rather than against a range computed somewhere invisible.
+    builder.Add (P ({ 1 }), 100.0);
+    builder.Add (P ({ 1 }), 200.0);
+    const TreeValue input = MakeTreeValue<double> (std::move (builder).Finish ());
+
+    const TreeValue normalised = ModifiedBy (PortModifier::Normalise, input);
+    const auto number = [&normalised] (size_t branch, size_t index) {
+        return std::get<double> (normalised.tree->ListAt (branch).ValueAt (index)->DataValue ());
+    };
+    EXPECT_DOUBLE_EQ (number (0, 0), 0.0);
+    EXPECT_DOUBLE_EQ (number (0, 1), 0.5);
+    EXPECT_DOUBLE_EQ (number (0, 2), 1.0);
+    EXPECT_DOUBLE_EQ (number (1, 0), 0.0);
+    EXPECT_DOUBLE_EQ (number (1, 1), 1.0);
+}
+
+TEST (PortModifiers, NormaliseHandlesNoSpreadAndLeavesNonNumbersAlone)
+{
+    // No spread to place them in. Zero rather than one, and rather than a
+    // division by zero: zero is the answer that stays continuous as the spread
+    // shrinks toward nothing.
+    DataTreeBuilder<double> flat;
+    flat.Add (P ({ 0 }), 7.0);
+    flat.Add (P ({ 0 }), 7.0);
+    const TreeValue same = ModifiedBy (PortModifier::Normalise, MakeTreeValue<double> (std::move (flat).Finish ()));
+    EXPECT_DOUBLE_EQ (std::get<double> (same.tree->ListAt (0).ValueAt (0)->DataValue ()), 0.0);
+    EXPECT_DOUBLE_EQ (std::get<double> (same.tree->ListAt (0).ValueAt (1)->DataValue ()), 0.0);
+
+    // A null is the absence of a measurement, so it must not drag the range: the
+    // two numbers below still span 0 to 1 between themselves.
+    DataTreeBuilder<double> withNull;
+    withNull.Add (P ({ 0 }), 4.0);
+    withNull.AddNull (P ({ 0 }));
+    withNull.Add (P ({ 0 }), 8.0);
+    const TreeValue nulled =
+        ModifiedBy (PortModifier::Normalise, MakeTreeValue<double> (std::move (withNull).Finish ()));
+    EXPECT_DOUBLE_EQ (std::get<double> (nulled.tree->ListAt (0).ValueAt (0)->DataValue ()), 0.0);
+    EXPECT_TRUE (nulled.tree->ListAt (0).IsNullAt (1));
+    EXPECT_DOUBLE_EQ (std::get<double> (nulled.tree->ListAt (0).ValueAt (2)->DataValue ()), 1.0);
+
+    // Not a number tree: unchanged, like Round.
+    const TreeValue text = EmptyTreeValue (ItemType::String);
+    EXPECT_EQ (ModifiedBy (PortModifier::Normalise, text).itemType, ItemType::String);
 }

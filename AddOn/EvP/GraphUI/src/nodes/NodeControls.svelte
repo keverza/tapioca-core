@@ -21,6 +21,7 @@
     AttributeListing,
     GraphParameter,
     NodeOutputRecord,
+    PortModifierRecord,
     ParameterOptionSource,
   } from '../types'
   import type { NodeDefinition } from './types/node'
@@ -32,7 +33,7 @@
   import { portStructure } from './types/display'
   import { fieldsFor, sectionsFor, shouldShowSectionHeadings, withDefaults } from './controls/widgets'
 
-  let { nodeId, definition, parameters, outputs, layout, connections, messages = [], attributeListings = {}, onparameter, onreference, onportmenu, onrequestoptions, onbrowselibrary }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; messages?: ComponentMessage[]; attributeListings?: Record<string, AttributeListing>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void; onbrowselibrary?: (parameterId: string) => void } = $props()
+  let { nodeId, definition, parameters, outputs, layout, connections, inputModifiers = [], messages = [], attributeListings = {}, onparameter, onreference, onportmenu, onrequestoptions, onbrowselibrary }: { nodeId: string; definition: NodeDefinition; parameters: GraphParameter[]; outputs?: NodeOutputRecord[]; layout: PortLayout; connections: PortConnectionState[]; inputModifiers?: PortModifierRecord[]; messages?: ComponentMessage[]; attributeListings?: Record<string, AttributeListing>; onparameter?: (nodeId: string, parameterId: string, valueType: string, text: string) => void; onreference?: (reference: PortReference, targetPortId: string) => void; onportmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void; onrequestoptions?: (source: ParameterOptionSource, penSet?: string) => void; onbrowselibrary?: (parameterId: string) => void } = $props()
 
   /**
    * The stored values PLUS the catalog defaults. A freshly placed node stores
@@ -108,7 +109,7 @@
     {:else if field.isPort}
       {@const port = portFor(field.id)}
       {#if port !== undefined}
-        <NodePort {nodeId} {port} direction="input" {layout} structure={portStructure(port)} connection={connections.find((item) => item.portId === field.id && item.direction === 'input')} messages={messages.filter((message) => message.portId === field.id)} oncontextmenu={onportmenu} />
+        <NodePort {nodeId} {port} direction="input" {layout} structure={portStructure(port)} modifier={inputModifiers.find((entry) => entry.portId === field.id)?.modifier} connection={connections.find((item) => item.portId === field.id && item.direction === 'input')} messages={messages.filter((message) => message.portId === field.id)} oncontextmenu={onportmenu} />
       {/if}
     {:else}
       <span title={field.ui?.help}>{field.label}</span>

@@ -21,17 +21,18 @@
 namespace evp::nodegraph {
 
 // One line, whatever the value. A list renders inline as [a, b, c]; nesting past
-// `maxDepth` renders as its shape rather than its contents.
-std::string FormatValue (const Value& value, size_t maxDepth = 3, size_t maxItems = 24);
+// `maxDepth` renders as its shape rather than its contents. A plain Value
+// converts implicitly, so a scalar caller passes one exactly as before.
+std::string FormatValue (const Argument& value, size_t maxDepth = 3, size_t maxItems = 24);
 
 // One line per top-level item, which is what a panel shows. A non-list value
 // yields a single line. Truncation appends one final line saying how many were
 // left out.
-std::vector<std::string> FormatValueLines (const Value& value, size_t maxLines = 500);
+std::vector<std::string> FormatValueLines (const Argument& value, size_t maxLines = 500);
 
 // A short type-and-size label - "List of 12", "Mesh", "Double" - for a header or
 // a collapsed row.
-std::string DescribeValue (const Value& value);
+std::string DescribeValue (const Argument& value);
 
 } // namespace evp::nodegraph
 

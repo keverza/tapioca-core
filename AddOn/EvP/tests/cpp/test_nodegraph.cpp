@@ -81,7 +81,7 @@ Edge Connect (const std::string& sourceNode, const std::string& sourcePort, cons
     return { sourceNode, sourcePort, targetNode, targetPort };
 }
 
-int64_t Integer (const Value& value)
+int64_t Integer (const Argument& value)
 {
     return std::get<int64_t> (value.DataValue ());
 }
@@ -92,14 +92,14 @@ int64_t Integer (const Value& value)
 // COMPUTED, not about how the result is shaped, so they read it back through
 // the same projection the browser and the panel use. A one-item tree projects
 // to that item, which is what every scalar assertion here expects.
-Value Out (const std::shared_ptr<const NodeResult>& result, const char* portId)
+Argument Out (const std::shared_ptr<const NodeResult>& result, const char* portId)
 {
     const auto found = result->outputs.find (portId);
-    return found == result->outputs.end () ? Value {} : ProjectTreeToValue (found->second);
+    return found == result->outputs.end () ? Argument {} : ProjectTreeToValue (found->second);
 }
 
 // The inverse, for a test that stages an upstream result by hand.
-data::TreeValue AsTree (const Value& value)
+data::TreeValue AsTree (const Argument& value)
 {
     data::TreeValue tree;
     std::string error;
@@ -316,16 +316,16 @@ TEST (NodeGraphEvaluator, CachesResultsAndPropagatesDirtDownstream)
     EXPECT_EQ (7, Integer (Out (evaluator.Result ("sum"), "sum")));
 }
 
-TEST (NodeGraphValue, HoldsRecursiveListsAndImmutableMeshes)
+TEST (NodeGraphValue, HoldsListsAndImmutableMeshes)
 {
     auto mesh = std::make_shared<geomsrv::Mesh> ();
     mesh->guid = "guid";
-    const Value value (Value::List { Value (true), Value (Point3 { 1.0, 2.0, 3.0 }),
-                                     Value (Value::ImmutableMesh (mesh)),
-                                     Value (ArchicadElementRef { "element-guid" }) });
+    const Argument value =
+        Argument::FromItems ({ Value (true), Value (Point3 { 1.0, 2.0, 3.0 }), Value (Value::ImmutableMesh (mesh)),
+                               Value (ArchicadElementRef { "element-guid" }) });
     EXPECT_EQ (ValueType::List, value.Type ());
     EXPECT_NE (0U, value.Hash ());
-    EXPECT_EQ (4U, std::get<Value::List> (value.DataValue ()).size ());
+    EXPECT_EQ (4U, value.Items ().size ());
 }
 
 TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
@@ -345,7 +345,7 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
                byCategory["Archicad"]); // an attribute picker per domain, the two selection nodes, the library part
     EXPECT_EQ (21U, byCategory["Geometry"]); // inputs, vectors, polygons, solids, curves and the surface makers
     EXPECT_EQ (6U, byCategory["Transform"]); // move, rotate, scale, mirror and the two arrays
-    EXPECT_EQ (2U, byCategory["Math"]);      // remap, random
+    EXPECT_EQ (3U, byCategory["Math"]);      // remap, random, toInteger
     // One container per element type the classification table marks as one. The
     // number is the table's, not a taste: a type that quietly lost its container
     // moves it, and test_elementclassification.cpp says which.
@@ -356,13 +356,13 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     // each node runs, which is what NodeType::instancePorts marks.
     EXPECT_EQ (2U, byCategory["Script"]); // script.javascript, script.python
     // tree.* - flatten, graft, simplify, itemCount, branchCount, shiftPath,
-    // zip, crossProduct. See TreeNodes.hpp for why they carry no Execute*
-    // function of their own.
-    EXPECT_EQ (8U, byCategory["Tree"]);
-    // list.* - length, item, reverse, slice. Ordinary lifted bodies, unlike
-    // tree.*: they answer about ONE branch and the runtime walks the rest.
-    EXPECT_EQ (4U, byCategory["List"]);
-    EXPECT_EQ (86U, registry.Types ().size ());
+    // zip, crossProduct, filter. See TreeNodes.hpp for why they carry no
+    // Execute* function of their own.
+    EXPECT_EQ (9U, byCategory["Tree"]);
+    // list.* - length, item, reverse, sort, slice. Ordinary lifted bodies,
+    // unlike tree.*: they answer about ONE branch and the runtime walks the rest.
+    EXPECT_EQ (5U, byCategory["List"]);
+    EXPECT_EQ (89U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -452,8 +452,8 @@ TEST (NodeGraphBuiltins, EvaluatesArithmeticListMapAndWatchWorkflow)
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteBuiltinNode);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    const Value valuesValue = Out (evaluator.Result ("watch"), "value");
-    const Value::List& values = std::get<Value::List> (valuesValue.DataValue ());
+    const Argument valuesValue = Out (evaluator.Result ("watch"), "value");
+    const std::vector<Value>& values = valuesValue.Items ();
     ASSERT_EQ (3U, values.size ());
     EXPECT_DOUBLE_EQ (4.0, std::get<double> (values[0].DataValue ()));
     EXPECT_DOUBLE_EQ (6.0, std::get<double> (values[1].DataValue ()));
@@ -671,7 +671,7 @@ TEST (NodeGraphContainment, RejectsAnEvaluationStartedFromInsideAnEvaluation)
     EXPECT_FALSE (evaluator.IsRunning ());
 }
 
-TEST (NodeGraphContainment, OversizedAndOverdeepOutputsFailTheirNode)
+TEST (NodeGraphContainment, OversizedOutputsFailTheirNode)
 {
     NodeRegistry registry;
     NodeType producer;
@@ -686,40 +686,27 @@ TEST (NodeGraphContainment, OversizedAndOverdeepOutputsFailTheirNode)
     Evaluator evaluator;
     const NodeExecutor wide = [] (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
                                   std::string&) {
-        Value::List list;
+        std::vector<Value> list;
         for (int i = 0; i < 64; ++i)
             list.emplace_back (static_cast<int64_t> (i));
-        outputs.emplace ("value", Value (std::move (list)));
+        outputs.emplace ("value", Argument::FromItems (std::move (list)));
         return true;
     };
 
     RunContext context;
     context.runId = 1;
     context.limits.maxOutputItems = 8;
-    EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, wide, EvaluationRequest {}, context);
+    const EvaluationOutcome outcome = evaluator.Evaluate (graph, registry, wide, EvaluationRequest {}, context);
     EXPECT_FALSE (outcome.succeeded);
     EXPECT_NE (std::string::npos, evaluator.Status ("big").message.find ("output ceiling"));
 
-    // A NESTED result is refused by SHAPE now, not measured against a depth
-    // ceiling. A published output is a tree, a tree holds atomic items, and a
-    // list is not an atomic item - so there is no depth at which nesting
-    // becomes legal and nothing to tune. The node fails at its output port,
-    // naming the port and the site, instead of after a recursive walk.
-    const NodeExecutor deep = [] (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
-                                  std::string&) {
-        Value nested (int64_t { 0 });
-        for (int i = 0; i < 40; ++i)
-            nested = Value (Value::List { nested });
-        outputs.emplace ("value", Value (Value::List { nested }));
-        return true;
-    };
-    context.runId = 2;
-    context.limits.maxOutputItems = 1000;
-    outcome = evaluator.Evaluate (graph, registry, deep, EvaluationRequest {}, context);
-    EXPECT_FALSE (outcome.succeeded);
-    const std::string message = evaluator.Status ("big").message;
-    EXPECT_NE (std::string::npos, message.find ("a list is not an item")) << message;
-    EXPECT_NE (std::string::npos, message.find ("value")) << message;
+    // A NESTED result - a list whose items are themselves lists - used to be
+    // refused at this same site by AnyTreeBuilder::Add ("a list is not an
+    // item"), reached by building 40 levels of Value::List by hand. It is no
+    // longer expressible at all: Argument::Items() is a flat std::vector<Value>,
+    // and Value itself has no List alternative any more, so the invariant that
+    // a tree cannot contain another tree (HANDOFF §7.3) is now enforced by the
+    // type system rather than by this test.
 }
 
 TEST (NodeGraphContainment, RejectsAPlanLargerThanItsCeiling)
@@ -1211,11 +1198,11 @@ class StubHost final : public IArchicadHost {
 // simplification the node's redesign bought.
 Node SelectionSetNode (const std::string& nodeId, std::initializer_list<std::string> guids)
 {
-    Value::List elements;
+    std::vector<Value> elements;
     for (const std::string& guid : guids)
         elements.emplace_back (ArchicadElementRef { guid });
     Node node { nodeId, "archicad.getSelection" };
-    node.parameters.emplace ("elements", Value (std::move (elements)));
+    node.parameters.emplace ("elements", Argument::FromItems (std::move (elements)));
     return node;
 }
 
@@ -1251,8 +1238,8 @@ TEST (NodeGraphArchicad, ASelectionSetEvaluatesToWhatItHoldsWithNoHostAtAll)
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("sel");
     ASSERT_NE (nullptr, result);
     EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
-    const Value elementsValue = Out (result, "elements");
-    const Value::List& elements = std::get<Value::List> (elementsValue.DataValue ());
+    const Argument elementsValue = Out (result, "elements");
+    const std::vector<Value>& elements = elementsValue.Items ();
     ASSERT_EQ (2U, elements.size ());
     EXPECT_EQ ("guid-a", std::get<ArchicadElementRef> (elements[0].DataValue ()).guid);
 }
@@ -1369,8 +1356,8 @@ TEST (NodeGraphArchicad, AContainerKeepsOnlyItsOwnTypeAndReadsTheWholeListAtOnce
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("walls");
     ASSERT_NE (nullptr, result);
     EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
-    const Value keptValue = Out (result, "elements");
-    const Value::List& kept = std::get<Value::List> (keptValue.DataValue ());
+    const Argument keptValue = Out (result, "elements");
+    const std::vector<Value>& kept = keptValue.Items ();
     ASSERT_EQ (2U, kept.size ());
     EXPECT_EQ ("w", std::get<ArchicadElementRef> (kept[0].DataValue ()).guid);
     EXPECT_EQ ("w2", std::get<ArchicadElementRef> (kept[1].DataValue ()).guid);
@@ -1768,8 +1755,8 @@ TEST (NodeGraphPanel, RendersAListOneItemPerLineAndAlsoAsOneString)
     EXPECT_EQ ("2\n3", std::get<std::string> (Out (result, "text").DataValue ()));
     EXPECT_EQ ("List of 2", std::get<std::string> (Out (result, "summary").DataValue ()));
     EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
-    const Value linesValue = Out (result, "lines");
-    const Value::List& lines = std::get<Value::List> (linesValue.DataValue ());
+    const Argument linesValue = Out (result, "lines");
+    const std::vector<Value>& lines = linesValue.Items ();
     ASSERT_EQ (2U, lines.size ());
     EXPECT_EQ ("2", std::get<std::string> (lines[0].DataValue ()));
 }
@@ -1785,7 +1772,7 @@ TEST (NodeGraphPanel, RendersEveryValueTypeReadably)
     EXPECT_EQ ("hello", FormatValue (Value (std::string ("hello"))));
     EXPECT_EQ ("(1, 2, 3)", FormatValue (Value (Point3 { 1.0, 2.0, 3.0 })));
     EXPECT_EQ ("guid-a", FormatValue (Value (ArchicadElementRef { "guid-a" })));
-    EXPECT_EQ ("[1, 2]", FormatValue (Value (Value::List { Value (1.0), Value (2.0) })));
+    EXPECT_EQ ("[1, 2]", FormatValue (Argument::FromItems ({ Value (1.0), Value (2.0) })));
 
     auto mesh = std::make_shared<geomsrv::Mesh> ();
     mesh->vertices = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
@@ -1793,29 +1780,29 @@ TEST (NodeGraphPanel, RendersEveryValueTypeReadably)
     EXPECT_EQ ("Mesh (3 vertices, 1 triangles)", FormatValue (Value (Value::ImmutableMesh (mesh))));
 
     // An empty list says so rather than rendering as nothing at all.
-    EXPECT_EQ ((std::vector<std::string> { "(empty list)" }), FormatValueLines (Value (Value::List {})));
+    EXPECT_EQ ((std::vector<std::string> { "(empty list)" }), FormatValueLines (Argument::FromItems ({})));
 }
 
 TEST (NodeGraphPanel, TruncatesLargeAndDeepValuesAndSaysThatItDid)
 {
-    Value::List big;
+    std::vector<Value> big;
     for (int i = 0; i < 40; ++i)
         big.emplace_back (static_cast<int64_t> (i));
 
-    const std::vector<std::string> lines = FormatValueLines (Value (big), 10);
+    const std::vector<std::string> lines = FormatValueLines (Argument::FromItems (big), 10);
     ASSERT_EQ (10U, lines.size ());
     // A quietly shortened list reads as a wrong answer, so the last line says
     // how many were left out.
     EXPECT_NE (std::string::npos, lines.back ().find ("more of 40"));
 
     // Inline rendering caps items too.
-    EXPECT_NE (std::string::npos, FormatValue (Value (big)).find ("more"));
+    EXPECT_NE (std::string::npos, FormatValue (Argument::FromItems (big)).find ("more"));
 
-    // And depth: past the limit a nested list renders as its shape.
-    Value nested (int64_t { 0 });
-    for (int i = 0; i < 8; ++i)
-        nested = Value (Value::List { nested });
-    EXPECT_NE (std::string::npos, FormatValue (nested).find ("items]"));
+    // Depth-based truncation ("past the limit a nested list renders as its
+    // shape") used to be reachable by building eight levels of Value::List by
+    // hand. It no longer is: a Value cannot hold a List at all, so a branch's
+    // items are always scalar and FormatArgument's depth can never exceed one
+    // level - the same §7.3 invariant this file adapts elsewhere.
 }
 
 TEST (NodeGraphPanel, ATypedInputStillRejectsTheWrongType)
@@ -2366,6 +2353,12 @@ TEST (NodeGraphPersistence, RoundTripsAGraphThroughTextUnchanged)
     ASSERT_TRUE (
         ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Connect ("b", "value", "sum", "right") } }).accepted);
 
+    // A modifier travels with the document, because it changes what the graph
+    // COMPUTES: a saved graph that lost one would open and quietly give a
+    // different answer from the one its author saw.
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { SetPortModifierEdit { "sum", "left", PortModifier::Graft } }).accepted);
+
     GraphMetadata metadata;
     metadata.label = "Sum two numbers";
     metadata.description = "the smallest graph that does anything";
@@ -2382,6 +2375,10 @@ TEST (NodeGraphPersistence, RoundTripsAGraphThroughTextUnchanged)
     EXPECT_EQ ("Sum two numbers", read.graph.metadata.label);
     EXPECT_EQ ("20", read.graph.metadata.nodeLayout.at ("a").at ("y"));
     EXPECT_EQ (7, Integer (read.graph.document.FindNode ("a")->parameters.at ("value")));
+    EXPECT_EQ (read.graph.document.FindNode ("sum")->inputModifiers.at ("left"), PortModifier::Graft);
+    // A port nobody modified carries no entry at all, so a graph that uses no
+    // modifiers reads exactly as it did before they existed.
+    EXPECT_FALSE (read.graph.document.FindNode ("sum")->inputModifiers.contains ("right"));
 
     // Writing what was read produces the same text: the format has no member
     // whose meaning depends on having been written by this process.
@@ -2410,7 +2407,7 @@ TEST (NodeGraphPersistence, RoundTripsEveryPersistableValueKind)
     node.parameters.emplace ("path", Value (Polyline { { Point3 { 0, 0, 0 }, Point3 { 1, 1, 1 } } }));
     node.parameters.emplace ("outline", Value (Polygon { { Point3 { 0, 0, 0 }, Point3 { 1, 0, 0 } } }));
     node.parameters.emplace ("element", Value (ArchicadElementRef { "guid-1" }));
-    node.parameters.emplace ("items", Value (Value::List { Value (int64_t { 1 }), Value (std::string ("two")) }));
+    node.parameters.emplace ("items", Argument::FromItems ({ Value (int64_t { 1 }), Value (std::string ("two")) }));
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
 
     const SerializeResult written = SerializeGraph (graph, GraphMetadata {});
@@ -2426,7 +2423,7 @@ TEST (NodeGraphPersistence, RoundTripsEveryPersistableValueKind)
     EXPECT_DOUBLE_EQ (3.0, std::get<Point3> (reloaded.parameters.at ("origin").DataValue ()).z);
     EXPECT_EQ (2U, std::get<Polyline> (reloaded.parameters.at ("path").DataValue ()).points.size ());
     EXPECT_EQ ("guid-1", std::get<ArchicadElementRef> (reloaded.parameters.at ("element").DataValue ()).guid);
-    EXPECT_EQ (2U, std::get<Value::List> (reloaded.parameters.at ("items").DataValue ()).size ());
+    EXPECT_EQ (2U, reloaded.parameters.at ("items").Items ().size ());
 
     // Integer and Double stay distinct across the file. A format that rounded
     // one into the other would change what the node computes.
@@ -3708,7 +3705,7 @@ TEST (NodeGraphGeometry, VectorAndPolygonNodesUseTheGeometryEngine)
     ASSERT_TRUE (ExecuteRuntimeNode (unite, { { "subject", Value (subject) }, { "clip", Value (clip) } }, context,
                                      unionOutputs, error))
         << error;
-    const Value::List& polygons = std::get<Value::List> (unionOutputs.at ("polygons").DataValue ());
+    const std::vector<Value>& polygons = unionOutputs.at ("polygons").Items ();
     ASSERT_EQ (1U, polygons.size ());
     EXPECT_EQ (ValueType::Polygon, polygons.front ().Type ());
 }
@@ -3766,13 +3763,14 @@ struct PreviewFixture {
     NodeRegistry registry = MakeRuntimeNodeRegistry ();
     std::map<NodeId, std::shared_ptr<const NodeResult>> results;
 
-    void AddPreview (const std::string& nodeId, const Value& geometry, std::map<std::string, Value> parameters = {})
+    void AddPreview (const std::string& nodeId, const Argument& geometry, std::map<std::string, Value> parameters = {})
     {
         GraphEdit edit;
         AddNodeEdit add;
         add.node.id = nodeId;
         add.node.nodeType = kPreviewNodeType;
-        add.node.parameters = std::move (parameters);
+        for (auto& [id, value] : parameters)
+            add.node.parameters.emplace (id, std::move (value));
         edit.data = add;
         const EditResult result = ApplyEdit (document, registry, edit);
         EXPECT_TRUE (result.accepted) << result.error;
@@ -3825,8 +3823,8 @@ TEST (NodeGraphPreview, ProjectsGeometryByValueType)
     PreviewFixture fixture;
     Polygon polygon;
     polygon.points = { Point3 { 0, 0, 0 }, Point3 { 1, 0, 0 }, Point3 { 1, 1, 0 } };
-    fixture.AddPreview (
-        "p", Value (Value::List { Value (Point3 { 1.0, 2.0, 3.0 }), PolylineValue (4), Value (std::move (polygon)) }));
+    fixture.AddPreview ("p", Argument::FromItems (
+                                 { Value (Point3 { 1.0, 2.0, 3.0 }), PolylineValue (4), Value (std::move (polygon)) }));
 
     const PreviewProjection projection =
         ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
@@ -3850,7 +3848,7 @@ TEST (NodeGraphPreview, CountsValuesThatHaveNoGeometry)
     // "I wired a number into Preview" and "my geometry never arrived" look the
     // same in an empty viewport. They must not be the same in the report.
     PreviewFixture fixture;
-    fixture.AddPreview ("p", Value (Value::List { Value (42.0), Value (std::string ("hello")) }));
+    fixture.AddPreview ("p", Argument::FromItems ({ Value (42.0), Value (std::string ("hello")) }));
 
     const PreviewProjection projection =
         ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
@@ -3889,7 +3887,7 @@ TEST (NodeGraphPreview, ShowSwitchAndExecutionModeBothSuppressIt)
 TEST (NodeGraphPreview, PrimitiveIdsAreStableAndCannotCollideWithGrasshopper)
 {
     PreviewFixture fixture;
-    fixture.AddPreview ("p", Value (Value::List { PolylineValue (2), PolylineValue (3) }));
+    fixture.AddPreview ("p", Argument::FromItems ({ PolylineValue (2), PolylineValue (3) }));
 
     const PreviewProjection first =
         ProjectGraphPreview ("graph", fixture.document, fixture.registry, fixture.Lookup ());
@@ -3939,10 +3937,10 @@ TEST (NodeGraphPreview, ColourIsTheNodesWhenItParsesAndTheStylesWhenItDoesNot)
 TEST (NodeGraphPreview, TruncatesRatherThanAllocatingWithoutBound)
 {
     PreviewFixture fixture;
-    Value::List many;
+    std::vector<Value> many;
     for (int index = 0; index < 50; ++index)
         many.push_back (PolylineValue (2));
-    fixture.AddPreview ("p", Value (std::move (many)));
+    fixture.AddPreview ("p", Argument::FromItems (std::move (many)));
 
     PreviewProjectionLimits limits;
     limits.maxPrimitives = 10;
@@ -4375,7 +4373,7 @@ TEST (NodeGraphTransform, AMirrorReversesMeshWindingAsWellAsPositions)
     box.id = "b";
     box.nodeType = "geom.box";
     ASSERT_TRUE (ExecuteRuntimeNode (box, {}, context, outputs, error)) << error;
-    const Value mesh = outputs.at ("mesh");
+    const Argument mesh = outputs.at ("mesh");
     const auto before = std::get<Value::ImmutableMesh> (mesh.DataValue ());
 
     Node mirror;
@@ -4388,7 +4386,7 @@ TEST (NodeGraphTransform, AMirrorReversesMeshWindingAsWellAsPositions)
     outputs.clear ();
     ASSERT_TRUE (ExecuteRuntimeNode (mirror, mirrorInputs, context, outputs, error)) << error;
 
-    const Value::List& moved = std::get<Value::List> (outputs.at ("geometry").DataValue ());
+    const std::vector<Value>& moved = outputs.at ("geometry").Items ();
     ASSERT_EQ (1U, moved.size ());
     const auto after = std::get<Value::ImmutableMesh> (moved[0].DataValue ());
     ASSERT_NE (nullptr, after);
@@ -4447,7 +4445,7 @@ TEST (NodeGraphTransform, RotationTurnsAboutItsOwnOriginRatherThanTheWorlds)
     inputs.emplace ("geometry", Value (Point3 { 11.0, 0.0, 0.0 }));
     ASSERT_TRUE (ExecuteRuntimeNode (rotate, inputs, context, outputs, error)) << error;
 
-    const Value::List& moved = std::get<Value::List> (outputs.at ("geometry").DataValue ());
+    const std::vector<Value>& moved = outputs.at ("geometry").Items ();
     ASSERT_EQ (1U, moved.size ());
     const Point3 point = std::get<Point3> (moved[0].DataValue ());
     // One metre out along +X from (10,0,0), turned a quarter turn, is one metre
@@ -4475,7 +4473,7 @@ TEST (NodeGraphTransform, AnArrayCountsTheOriginalAsOneOfTheCopies)
     ASSERT_TRUE (ExecuteRuntimeNode (array, inputs, context, outputs, error)) << error;
 
     EXPECT_EQ (5, std::get<int64_t> (outputs.at ("count").DataValue ()));
-    const Value::List& copies = std::get<Value::List> (outputs.at ("geometry").DataValue ());
+    const std::vector<Value>& copies = outputs.at ("geometry").Items ();
     ASSERT_EQ (5U, copies.size ());
     // The first copy is the original, in place. A transformed point stays a
     // point - the array does not wrap each copy in a list of its own, which
@@ -4657,8 +4655,8 @@ TEST (NodeGraphMath, RandomIsRepeatableFromItsSeed)
     ASSERT_TRUE (ExecuteRuntimeNode (random, {}, context, first, error)) << error;
     ASSERT_TRUE (ExecuteRuntimeNode (random, {}, context, again, error)) << error;
 
-    const Value::List& a = std::get<Value::List> (first.at ("values").DataValue ());
-    const Value::List& b = std::get<Value::List> (again.at ("values").DataValue ());
+    const std::vector<Value>& a = first.at ("values").Items ();
+    const std::vector<Value>& b = again.at ("values").Items ();
     ASSERT_EQ (5U, a.size ());
     for (std::size_t index = 0; index < a.size (); ++index) {
         const double value = std::get<double> (a[index].DataValue ());
@@ -4672,7 +4670,7 @@ TEST (NodeGraphMath, RandomIsRepeatableFromItsSeed)
     other.parameters["seed"] = Value (static_cast<int64_t> (8));
     ValueMap different;
     ASSERT_TRUE (ExecuteRuntimeNode (other, {}, context, different, error)) << error;
-    const Value::List& c = std::get<Value::List> (different.at ("values").DataValue ());
+    const std::vector<Value>& c = different.at ("values").Items ();
     EXPECT_NE (std::get<double> (a[0].DataValue ()), std::get<double> (c[0].DataValue ()));
 }
 
@@ -4733,7 +4731,7 @@ TEST (NodeGraphFlowControl, IfPassesTheBranchItsConditionNames)
         ValueMap outputs;
         ASSERT_TRUE (ExecuteRuntimeNode (conditional, inputs, context, outputs, error)) << error;
         EXPECT_EQ (condition, std::get<bool> (outputs.at ("taken").DataValue ()));
-        const Value::List& taken = std::get<Value::List> (outputs.at ("value").DataValue ());
+        const std::vector<Value>& taken = outputs.at ("value").Items ();
         ASSERT_EQ (1U, taken.size ());
         EXPECT_EQ (condition ? "yes" : "no", std::get<std::string> (taken[0].DataValue ()));
     }

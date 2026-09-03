@@ -1,5 +1,7 @@
 #include "NodeGraph/Data/AnyTree.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <variant>
 
 namespace evp::nodegraph::data {
@@ -379,6 +381,122 @@ bool ShiftTreeValuePaths (const TreeValue& input, int32_t shift, PathCollision p
         result = MakeTreeValue<T> (std::move (shifted));
         return true;
     });
+}
+
+TreeValue WidenTreeValue (const TreeValue& input, ItemType target)
+{
+    if (!input.IsPresent () || !CanWidenItemType (input.itemType, target))
+        return input;
+
+    // Integer to Double is the only member of the lattice, so this is written
+    // out rather than dispatched: a generic conversion would need a table of
+    // per-pair converters to serve exactly one pair.
+    DataTreeBuilder<double> widened;
+    for (size_t listIndex = 0; listIndex < input.tree->ListCount (); ++listIndex) {
+        const DataPath& path = input.tree->Paths ()[listIndex];
+        const IDataList& list = input.tree->ListAt (listIndex);
+        widened.EnsureList (path);
+        for (size_t index = 0; index < list.Size (); ++index) {
+            const std::optional<Value> value = list.ValueAt (index);
+            if (!value.has_value ()) {
+                // A null item is a site with no value, and it stays one: a
+                // widening changes what an item IS, never whether there is one.
+                widened.AddNull (path, list.MetadataAt (index));
+                continue;
+            }
+            widened.Add (path, static_cast<double> (std::get<int64_t> (value->DataValue ())), list.MetadataAt (index));
+        }
+    }
+    return MakeTreeValue<double> (std::move (widened).Finish ());
+}
+
+TreeValue RoundTreeValue (const TreeValue& input)
+{
+    if (!input.IsPresent () || input.itemType != ItemType::Double)
+        return input;
+
+    DataTreeBuilder<int64_t> rounded;
+    for (size_t listIndex = 0; listIndex < input.tree->ListCount (); ++listIndex) {
+        const DataPath& path = input.tree->Paths ()[listIndex];
+        const IDataList& list = input.tree->ListAt (listIndex);
+        rounded.EnsureList (path);
+        for (size_t index = 0; index < list.Size (); ++index) {
+            const std::optional<Value> value = list.ValueAt (index);
+            if (!value.has_value ()) {
+                rounded.AddNull (path, list.MetadataAt (index));
+                continue;
+            }
+            rounded.Add (path, static_cast<int64_t> (std::llround (std::get<double> (value->DataValue ()))),
+                         list.MetadataAt (index));
+        }
+    }
+    return MakeTreeValue<int64_t> (std::move (rounded).Finish ());
+}
+
+bool ReverseTreeValue (const TreeValue& input, TreeValue& result, std::string& error)
+{
+    if (!input.IsPresent ()) {
+        error = "Cannot reverse an absent tree";
+        return false;
+    }
+
+    AnyTreeBuilder reversed (input.itemType);
+    for (size_t listIndex = 0; listIndex < input.tree->ListCount (); ++listIndex) {
+        const DataPath& path = input.tree->Paths ()[listIndex];
+        const IDataList& list = input.tree->ListAt (listIndex);
+        reversed.EnsureList (path);
+        for (size_t step = list.Size (); step > 0; --step) {
+            const size_t index = step - 1;
+            const std::optional<Value> value = list.ValueAt (index);
+            if (!value.has_value ())
+                reversed.AddNull (path, list.MetadataAt (index));
+            else if (!reversed.Add (path, *value, list.MetadataAt (index), error))
+                return false;
+        }
+    }
+    result = std::move (reversed).Finish ();
+    return true;
+}
+
+TreeValue NormaliseTreeValue (const TreeValue& input)
+{
+    if (!input.IsPresent () || input.itemType != ItemType::Double)
+        return input;
+
+    DataTreeBuilder<double> normalised;
+    for (size_t listIndex = 0; listIndex < input.tree->ListCount (); ++listIndex) {
+        const DataPath& path = input.tree->Paths ()[listIndex];
+        const IDataList& list = input.tree->ListAt (listIndex);
+        normalised.EnsureList (path);
+
+        // The spread of THIS branch, ignoring the sites that hold nothing: a
+        // null is the absence of a measurement, and letting it count as zero
+        // would move every other number in the branch.
+        double lowest = 0.0;
+        double highest = 0.0;
+        bool any = false;
+        for (size_t index = 0; index < list.Size (); ++index) {
+            const std::optional<Value> value = list.ValueAt (index);
+            if (!value.has_value ())
+                continue;
+            const double number = std::get<double> (value->DataValue ());
+            lowest = any ? std::min (lowest, number) : number;
+            highest = any ? std::max (highest, number) : number;
+            any = true;
+        }
+        const double spread = highest - lowest;
+
+        for (size_t index = 0; index < list.Size (); ++index) {
+            const std::optional<Value> value = list.ValueAt (index);
+            if (!value.has_value ()) {
+                normalised.AddNull (path, list.MetadataAt (index));
+                continue;
+            }
+            const double number = std::get<double> (value->DataValue ());
+            normalised.Add (path, spread == 0.0 ? 0.0 : (number - lowest) / spread, list.MetadataAt (index));
+        }
+    }
+    return MakeTreeValue<double> (std::move (normalised).Finish ());
 }
 
 } // namespace evp::nodegraph::data

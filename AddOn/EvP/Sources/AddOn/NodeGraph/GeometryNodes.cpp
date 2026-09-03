@@ -50,9 +50,9 @@ geomsrv::engine::Polygon ToEnginePolygon (const Polygon& value)
     return result;
 }
 
-Value PolygonListValue (const std::vector<geomsrv::engine::Polygon>& polygons)
+Argument PolygonListValue (const std::vector<geomsrv::engine::Polygon>& polygons)
 {
-    Value::List values;
+    std::vector<Value> values;
     values.reserve (polygons.size ());
     for (const geomsrv::engine::Polygon& source : polygons) {
         Polygon polygon;
@@ -61,7 +61,7 @@ Value PolygonListValue (const std::vector<geomsrv::engine::Polygon>& polygons)
             polygon.points.push_back (FromEngineVector (point));
         values.emplace_back (std::move (polygon));
     }
-    return Value (std::move (values));
+    return Argument::FromItems (std::move (values));
 }
 
 // Every point in a value, as engine vectors, whatever shape the value is.
@@ -83,13 +83,21 @@ void CollectPoints (const Value& value, std::vector<geomsrv::engine::Vector3>& o
             for (const Point3& point : std::get<Polygon> (value.DataValue ()).points)
                 out.push_back (ToEngineVector (point));
             break;
-        case ValueType::List:
-            for (const Value& item : std::get<Value::List> (value.DataValue ()))
-                CollectPoints (item, out);
-            break;
         default:
             break;
     }
+}
+
+// The List-typed branch a port hands the body, or a scalar argument - unwraps
+// the branch and recurses per item, which is guaranteed a scalar Value.
+void CollectPoints (const Argument& value, std::vector<geomsrv::engine::Vector3>& out)
+{
+    if (value.Type () == ValueType::List) {
+        for (const Value& item : value.Items ())
+            CollectPoints (item, out);
+        return;
+    }
+    CollectPoints (value.AsValue (), out);
 }
 
 std::vector<geomsrv::engine::Vector3> PointsFrom (const ValueMap& inputs, const Node& node, const char* id)
@@ -119,18 +127,18 @@ Point3 ComponentsFrom (const ValueMap& inputs, const Node& node, double defaultZ
 // A Double, and only a Double. The polygon operations declare their operands as
 // Double ports, so anything else reaching here is a graph the edit rules already
 // refused.
-double Number (const Value& value)
+double Number (const Argument& value)
 {
     return std::get<double> (value.DataValue ());
 }
 
-Value PointListValue (const std::vector<geomsrv::engine::Vector3>& points)
+Argument PointListValue (const std::vector<geomsrv::engine::Vector3>& points)
 {
-    Value::List values;
+    std::vector<Value> values;
     values.reserve (points.size ());
     for (const geomsrv::engine::Vector3& point : points)
         values.emplace_back (FromEngineVector (point));
-    return Value (std::move (values));
+    return Argument::FromItems (std::move (values));
 }
 
 Value PolylineValueFrom (const std::vector<geomsrv::engine::Vector3>& points)
@@ -209,12 +217,11 @@ Value TransformValue (const Value& value, const geomsrv::engine::Transform& tran
             return Value (std::static_pointer_cast<const geomsrv::Mesh> (moved));
         }
 
-        case ValueType::List: {
-            Value::List moved;
-            for (const Value& item : std::get<Value::List> (value.DataValue ()))
-                moved.push_back (TransformValue (item, transform));
-            return Value (std::move (moved));
-        }
+        case ValueType::List:
+            // Unreachable: a Value can no longer carry a List branch itself -
+            // see TransformArgument, which handles the branch before an item
+            // ever reaches here.
+            return value;
 
         default:
             // A number, a string, an element reference: carried through
@@ -224,14 +231,27 @@ Value TransformValue (const Value& value, const geomsrv::engine::Transform& tran
     }
 }
 
+// The branch a List-typed or wildcard port hands the body, transformed item by
+// item; a scalar argument is transformed directly.
+Argument TransformArgument (const Argument& value, const geomsrv::engine::Transform& transform)
+{
+    if (value.Type () != ValueType::List)
+        return TransformValue (value.AsValue (), transform);
+    std::vector<Value> moved;
+    moved.reserve (value.Items ().size ());
+    for (const Value& item : value.Items ())
+        moved.push_back (TransformValue (item, transform));
+    return Argument::FromItems (std::move (moved));
+}
+
 // A transform node's answer: always a list, because an Absent output cannot be
 // wired on and the input may itself have been many things.
-Value TransformedList (const Value& value, const geomsrv::engine::Transform& transform)
+Argument TransformedList (const Argument& value, const geomsrv::engine::Transform& transform)
 {
-    const Value moved = TransformValue (value, transform);
+    Argument moved = TransformArgument (value, transform);
     if (moved.Type () == ValueType::List)
         return moved;
-    return Value (Value::List { moved });
+    return Argument::FromItems ({ moved.AsValue () });
 }
 
 } // namespace
@@ -698,7 +718,7 @@ bool ExecuteGeometryNode (const Node& node, const ValueMap& inputs, const NodeEx
     }
     else if (node.nodeType == "geom.polygon") {
         Polygon polygon;
-        for (const Value& item : std::get<Value::List> (inputs.at ("points").DataValue ()))
+        for (const Value& item : inputs.at ("points").Items ())
             polygon.points.push_back (std::get<Point3> (item.DataValue ()));
         if (polygon.points.size () < 3) {
             error = "polygon requires at least three points";
@@ -841,7 +861,7 @@ bool ExecuteGeometryNode (const Node& node, const ValueMap& inputs, const NodeEx
             return false;
         const auto geometry = inputs.find ("geometry");
         outputs.emplace ("geometry",
-                         TransformedList (geometry == inputs.end () ? Value {} : geometry->second, transform));
+                         TransformedList (geometry == inputs.end () ? Argument {} : geometry->second, transform));
     }
     else if (node.nodeType == "geom.arrayLinear" || node.nodeType == "geom.arrayGrid") {
         const bool grid = node.nodeType == "geom.arrayGrid";
@@ -856,9 +876,12 @@ bool ExecuteGeometryNode (const Node& node, const ValueMap& inputs, const NodeEx
         const geomsrv::engine::Vector3 stepY =
             grid ? ToEngineVector (Point3From (inputs, node, "stepY")) : geomsrv::engine::Vector3 { 0, 0, 0 };
         const auto geometry = inputs.find ("geometry");
-        const Value source = geometry == inputs.end () ? Value {} : geometry->second;
+        const Argument source = geometry == inputs.end () ? Argument {} : geometry->second;
 
-        Value::List copies;
+        // Flat, never nested: a source that is itself a branch contributes its
+        // whole (transformed) branch at each array position rather than a list
+        // of lists, which a tree cannot hold (§7.3).
+        std::vector<Value> copies;
         copies.reserve (static_cast<size_t> (countX * countY));
         for (int64_t y = 0; y < countY; ++y) {
             for (int64_t x = 0; x < countX; ++x) {
@@ -871,11 +894,18 @@ bool ExecuteGeometryNode (const Node& node, const ValueMap& inputs, const NodeEx
                     stepX.y * static_cast<double> (x) + stepY.y * static_cast<double> (y),
                     stepX.z * static_cast<double> (x) + stepY.z * static_cast<double> (y)
                 };
-                copies.push_back (TransformValue (source, geomsrv::engine::Translation (offset)));
+                const Argument moved = TransformArgument (source, geomsrv::engine::Translation (offset));
+                if (moved.Type () == ValueType::List) {
+                    for (const Value& item : moved.Items ())
+                        copies.push_back (item);
+                }
+                else {
+                    copies.push_back (moved.AsValue ());
+                }
             }
         }
         outputs.emplace ("count", Value (static_cast<int64_t> (copies.size ())));
-        outputs.emplace ("geometry", Value (std::move (copies)));
+        outputs.emplace ("geometry", Argument::FromItems (std::move (copies)));
     }
     else if (node.nodeType == "geom.box" || node.nodeType == "geom.sphere") {
         // ⚠️ THE BUILDER'S REFUSALS BECOME NODE FAILURES, NOT EMPTY MESHES. A

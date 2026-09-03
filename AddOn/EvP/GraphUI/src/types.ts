@@ -274,9 +274,25 @@ export interface GraphParameter {
   numberValue?: number
 }
 
+/**
+ * One input port's modifier - what the port does to what arrives, before the
+ * node sees it.
+ *
+ * The reshaping three are the same operations as the `tree.*` nodes that share
+ * their names, applied at the port instead of on the canvas. `round` is the odd
+ * one: it converts, so it is what lets a Double reach a port that declared
+ * Integer.
+ */
+export interface PortModifierRecord {
+  portId: string
+  modifier: 'flatten' | 'graft' | 'simplify' | 'reverse' | 'round' | 'normalise'
+}
+
 export interface GraphNodeRecord {
   nodeId: string
   nodeType: string
+  /** Only the ports that carry one; absent means the node modifies nothing. */
+  inputModifiers?: PortModifierRecord[]
   /**
    * Stage F, and it arrives with the STATE rather than with the results, because
    * it is document state: a client that read it from the per-run results would
@@ -481,6 +497,8 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * visibly disabled BETWEEN runs - when there is no result to read at all.
    */
   executionMode?: ExecutionMode
+  /** Only the ports that carry one; see PortModifierRecord. */
+  inputModifiers?: PortModifierRecord[]
   result?: NodeResultRecord
   /**
    * Present on selection-set nodes. The node draws its own five buttons, so the

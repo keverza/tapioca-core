@@ -3,8 +3,10 @@
   import type { PortConnectionState, PortDefinition, PortLayout } from './types/port'
   import type { ComponentMessage } from './types/diagnostics'
   import { describeStructure, portColor, type PortStructure } from './types/display'
+  import { modifierIcon } from './types/modifierIcons'
 
-  let { nodeId, port, direction, layout, value, structure = 'item', connection, messages = [], oncontextmenu }: { nodeId: string; port: PortDefinition; direction: 'input' | 'output'; layout: PortLayout; value?: string; structure?: PortStructure; connection?: PortConnectionState; messages?: ComponentMessage[]; oncontextmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void } = $props()
+  let { nodeId, port, direction, layout, value, structure = 'item', modifier, connection, messages = [], oncontextmenu }: { nodeId: string; port: PortDefinition; direction: 'input' | 'output'; layout: PortLayout; value?: string; structure?: PortStructure; modifier?: string; connection?: PortConnectionState; messages?: ComponentMessage[]; oncontextmenu?: (event: MouseEvent, portId: string, direction: 'input' | 'output') => void } = $props()
+  const badge = $derived(modifierIcon(modifier))
   const position = $derived(layout === 'vertical' ? (direction === 'input' ? Position.Top : Position.Bottom) : (direction === 'input' ? Position.Left : Position.Right))
   /**
    * The nub's colour is the VALUE TYPE's, set as a custom property on this row
@@ -33,10 +35,21 @@
   {#if direction === 'input'}<Handle type="target" {position} id={port.portId} />{/if}
   {#if direction === 'output'}<small>{value ?? port.valueType}</small>{/if}
   <span>{port.nickname ?? port.label}</span>
+  <!--
+    Drawn INSIDE the port row rather than beside the node, so it moves with the
+    port it describes and cannot end up pointing at the wrong one when a script
+    node reshapes its interface.
+  -->
+  {#if badge !== undefined}
+    <svg class="modifier" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label={badge.title}>
+      {#each badge.paths as d}<path {d} />{/each}
+    </svg>
+  {/if}
   {#if direction === 'output'}<Handle type="source" {position} id={port.portId} />{/if}
   <aside class="tooltip nodrag">
     <strong>{port.nickname ?? port.label}</strong><span><i style={`background: ${color}`}></i>{port.valueType}{port.required ? ' / required' : ''}</span>
     <span>{describeStructure(structure)}</span>
+    {#if badge !== undefined}<span>{badge.title}</span>{/if}
     <span>{connection?.connected ? `${connection.connectionCount} connection${connection.connectionCount === 1 ? '' : 's'}` : 'Not connected'}</span>
     {#each connection?.peerLabels ?? [] as peer}<code>{peer}</code>{/each}
     {#each messages as message}<em class={message.severity}>{message.code}: {message.title}</em>{/each}
@@ -44,6 +57,22 @@
 </div>
 
 <style>
+  /*
+   * The badge sits in the row's own flow rather than absolutely, so it can never
+   * overlap the label or the nub however long a port name gets. Stroke-width is
+   * raised from iconoir's 1.5 to 2 because these draw at about eleven pixels,
+   * where a 1.5 stroke on a 24-unit grid disappears into the background.
+   */
+  .modifier {
+    width: 11px;
+    height: 11px;
+    flex: 0 0 auto;
+    margin-inline-start: 4px;
+    opacity: 0.75;
+    /* The port's own type colour, so the badge reads as part of the port. */
+    color: var(--port-color);
+  }
+
   /*
    * The flow library centres a handle on the EDGE OF THIS BOX - left: 0 with a
    * -50% translate - so where the box ends is where the nub sits. That is the

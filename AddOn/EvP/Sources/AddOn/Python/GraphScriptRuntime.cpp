@@ -107,7 +107,7 @@ class PythonScriptRuntime final : public graph::IScriptRuntime {
                 result.error = "the script did not set '" + port.id + "'";
                 return result;
             }
-            graph::Value decoded;
+            graph::Argument decoded;
             std::string error;
             if (!graph::ScriptValueFromJson (entry->second, port.valueType, decoded, error)) {
                 result.error = "'" + port.id + "': " + error;

@@ -104,14 +104,23 @@ JsonValue ScriptValueToJson (const Value& value)
                             JsonValue::Integer (mesh ? static_cast<int64_t> (mesh->TriangleCount ()) : 0));
             return JsonValue::Object (std::move (object));
         }
-        case ValueType::List: {
-            JsonArray array;
-            for (const Value& item : std::get<Value::List> (value.DataValue ()))
-                array.push_back (ScriptValueToJson (item));
-            return JsonValue::Array (std::move (array));
-        }
+        case ValueType::List:
+            // Unreachable: a Value can no longer carry a List - see the
+            // Argument overload, which handles the branch before an item is
+            // ever passed here.
+            return JsonValue {};
     }
     return JsonValue {};
+}
+
+JsonValue ScriptValueToJson (const Argument& value)
+{
+    if (value.Type () != ValueType::List)
+        return ScriptValueToJson (value.AsValue ());
+    JsonArray array;
+    for (const Value& item : value.Items ())
+        array.push_back (ScriptValueToJson (item));
+    return JsonValue::Array (std::move (array));
 }
 
 bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Value& out, std::string& error)
@@ -188,26 +197,11 @@ bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Value& ou
             out = Value (std::move (polygon));
             return true;
         }
-        case ValueType::List: {
-            const JsonArray* array = source.AsArray ();
-            if (array == nullptr) {
-                error = "expected a list";
-                return false;
-            }
-            Value::List items;
-            items.reserve (array->size ());
-            for (const JsonValue& element : *array) {
-                // Numbers, as every list in the catalog carries today. A
-                // heterogeneous list would need a per-item type the header has no
-                // way to state, so it is refused rather than guessed.
-                Value item;
-                if (!ScriptValueFromJson (element, ValueType::Double, item, error))
-                    return false;
-                items.push_back (std::move (item));
-            }
-            out = Value (std::move (items));
-            return true;
-        }
+        case ValueType::List:
+            // Unreachable: a scalar Value can no longer carry a List - see the
+            // Argument overload.
+            error = "a scalar value cannot carry a list";
+            return false;
         case ValueType::ArchicadElementRef: {
             const JsonValue* guid = source.Find ("elementGuid");
             std::string text;
@@ -236,6 +230,36 @@ bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Value& ou
     }
     error = "unsupported type";
     return false;
+}
+
+bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Argument& out, std::string& error)
+{
+    if (expected != ValueType::List) {
+        Value scalar;
+        if (!ScriptValueFromJson (source, expected, scalar, error))
+            return false;
+        out = Argument (std::move (scalar));
+        return true;
+    }
+
+    const JsonArray* array = source.AsArray ();
+    if (array == nullptr) {
+        error = "expected a list";
+        return false;
+    }
+    std::vector<Value> items;
+    items.reserve (array->size ());
+    for (const JsonValue& element : *array) {
+        // Numbers, as every list in the catalog carries today. A
+        // heterogeneous list would need a per-item type the header has no way
+        // to state, so it is refused rather than guessed.
+        Value item;
+        if (!ScriptValueFromJson (element, ValueType::Double, item, error))
+            return false;
+        items.push_back (std::move (item));
+    }
+    out = Argument::FromItems (std::move (items));
+    return true;
 }
 
 } // namespace evp::nodegraph

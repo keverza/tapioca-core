@@ -83,6 +83,7 @@ std::string Utf8 (JSContext* context, JSValueConst value)
 // already lives.
 
 JSValue ToJs (JSContext* context, const Value& value);
+JSValue ToJs (JSContext* context, const Argument& value);
 
 JSValue Point3ToJs (JSContext* context, const Point3& point)
 {
@@ -141,18 +142,28 @@ JSValue ToJs (JSContext* context, const Value& value)
                                JS_NewInt64 (context, mesh ? static_cast<int64_t> (mesh->TriangleCount ()) : 0));
             return object;
         }
-        case ValueType::List: {
-            JSValue array = JS_NewArray (context);
-            uint32_t index = 0;
-            for (const Value& item : std::get<Value::List> (value.DataValue ()))
-                JS_SetPropertyUint32 (context, array, index++, ToJs (context, item));
-            return array;
-        }
+        case ValueType::List:
+            // Unreachable: a Value can no longer carry a List - see the
+            // Argument overload, which handles the branch before an item is
+            // ever passed here.
+            return JS_NULL;
     }
     return JS_NULL;
 }
 
+JSValue ToJs (JSContext* context, const Argument& value)
+{
+    if (value.Type () != ValueType::List)
+        return ToJs (context, value.AsValue ());
+    JSValue array = JS_NewArray (context);
+    uint32_t index = 0;
+    for (const Value& item : value.Items ())
+        JS_SetPropertyUint32 (context, array, index++, ToJs (context, item));
+    return array;
+}
+
 bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Value& out, std::string& error);
+bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Argument& out, std::string& error);
 
 bool PointFromJs (JSContext* context, JSValueConst value, Point3& point, std::string& error)
 {
@@ -245,32 +256,11 @@ bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Value& 
             out = Value (std::move (polygon));
             return true;
         }
-        case ValueType::List: {
-            if (!JS_IsArray (value)) {
-                error = "expected an array";
-                return false;
-            }
-            JSValue lengthValue = JS_GetPropertyStr (context, value, "length");
-            uint32_t length = 0;
-            JS_ToUint32 (context, &length, lengthValue);
-            JS_FreeValue (context, lengthValue);
-            Value::List items;
-            for (uint32_t index = 0; index < length; ++index) {
-                JSValue item = JS_GetPropertyUint32 (context, value, index);
-                Value decoded;
-                // A list's members are read as numbers, which is what every list
-                // in the catalog carries today. A heterogeneous list would need a
-                // per-item type the header has no way to state, so it is refused
-                // rather than guessed.
-                const bool ok = FromJs (context, item, ValueType::Double, decoded, error);
-                JS_FreeValue (context, item);
-                if (!ok)
-                    return false;
-                items.push_back (std::move (decoded));
-            }
-            out = Value (std::move (items));
-            return true;
-        }
+        case ValueType::List:
+            // Unreachable: a scalar Value can no longer carry a List - see the
+            // Argument overload.
+            error = "a scalar value cannot carry a list";
+            return false;
         case ValueType::ArchicadElementRef: {
             JSValue guid = JS_GetPropertyStr (context, value, "elementGuid");
             // ⚠️ THE TYPE IS CHECKED BEFORE THE CONVERSION, and skipping that let a
@@ -303,6 +293,42 @@ bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Value& 
     }
     error = "unsupported type";
     return false;
+}
+
+bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Argument& out, std::string& error)
+{
+    if (expected != ValueType::List) {
+        Value scalar;
+        if (!FromJs (context, value, expected, scalar, error))
+            return false;
+        out = Argument (std::move (scalar));
+        return true;
+    }
+
+    if (!JS_IsArray (value)) {
+        error = "expected an array";
+        return false;
+    }
+    JSValue lengthValue = JS_GetPropertyStr (context, value, "length");
+    uint32_t length = 0;
+    JS_ToUint32 (context, &length, lengthValue);
+    JS_FreeValue (context, lengthValue);
+    std::vector<Value> items;
+    for (uint32_t index = 0; index < length; ++index) {
+        JSValue item = JS_GetPropertyUint32 (context, value, index);
+        Value decoded;
+        // A list's members are read as numbers, which is what every list in
+        // the catalog carries today. A heterogeneous list would need a
+        // per-item type the header has no way to state, so it is refused
+        // rather than guessed.
+        const bool ok = FromJs (context, item, ValueType::Double, decoded, error);
+        JS_FreeValue (context, item);
+        if (!ok)
+            return false;
+        items.push_back (std::move (decoded));
+    }
+    out = Argument::FromItems (std::move (items));
+    return true;
 }
 
 // `console.log` and friends. Not a convenience: a script node runs on a worker
@@ -409,7 +435,7 @@ class QuickJsRuntime final : public IScriptRuntime {
                     JS_FreeValue (context, produced);
                     break;
                 }
-                Value decoded;
+                Argument decoded;
                 std::string error;
                 const bool converted = FromJs (context, produced, output.valueType, decoded, error);
                 JS_FreeValue (context, produced);

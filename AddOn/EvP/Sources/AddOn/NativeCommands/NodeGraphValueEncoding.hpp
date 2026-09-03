@@ -47,8 +47,9 @@ constexpr size_t kMaxEncodedBranches = 128;
 constexpr size_t kMaxEncodedMeshVertices = 20000;
 
 // `expand` is false for list members, which is what keeps the encoding two
-// levels deep and the response schemas non-recursive.
-GS::ObjectState EncodeValue (const graph::Value& value, bool expand);
+// levels deep and the response schemas non-recursive. A plain Value converts
+// implicitly, so a scalar caller passes one exactly as before.
+GS::ObjectState EncodeValue (const graph::Argument& value, bool expand);
 
 // One published output port, flat value AND branch structure.
 //

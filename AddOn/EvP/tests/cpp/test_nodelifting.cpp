@@ -39,9 +39,9 @@ TreeValue Grid (size_t branches, size_t perBranch)
     return MakeTreeValue<int64_t> (std::move (builder).Finish ());
 }
 
-const Value::List& Items (const Value& value)
+const std::vector<Value>& Items (const Argument& value)
 {
-    return std::get<Value::List> (value.DataValue ());
+    return value.Items ();
 }
 
 } // namespace
@@ -148,7 +148,7 @@ TEST (ProjectOutput, ANullItemCrossesAsAbsentAndNotAsAMissingRow)
     const ProjectedOutput projected = ProjectOutput (MakeTreeValue<double> (std::move (builder).Finish ()), 100, 100);
 
     ASSERT_EQ (projected.branches.size (), 1u);
-    const Value::List& items = Items (projected.branches[0].value);
+    const std::vector<Value>& items = Items (projected.branches[0].value);
     ASSERT_EQ (items.size (), 3u); // Three sites, one of which holds nothing.
     EXPECT_EQ (items[1].Type (), ValueType::Absent);
     EXPECT_EQ (projected.branches[0].itemCount, 3u);

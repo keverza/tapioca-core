@@ -42,7 +42,7 @@ struct NodeExecutionContext;
 // it without depending on this adapter; it is re-exported here because this is
 // where the runtime meets it.
 using TreeMap = data::TreeMap;
-using ValueMap = std::map<std::string, Value>;
+using ValueMap = std::map<std::string, Argument>;
 
 // ---- the derived port contract ---------------------------------------------
 
@@ -61,18 +61,18 @@ data::InputRequirement PortRequirement (const PortSchema& port);
 
 // ---- values in, values out --------------------------------------------------
 
-// One value as a tree, for an internalised parameter reaching a port with no
-// edge. A `Value::List` becomes one list at {0}; anything else becomes one item
-// at {0}. Fails when the value cannot be an item of `itemType`.
-bool TreeFromValue (const Value& value, data::ItemType itemType, data::TreeValue& result, std::string& error);
+// One argument as a tree, for an internalised parameter reaching a port with no
+// edge. A list-shaped argument becomes one list at {0}; anything else becomes
+// one item at {0}. Fails when the value cannot be an item of `itemType`.
+bool TreeFromValue (const Argument& value, data::ItemType itemType, data::TreeValue& result, std::string& error);
 
-// A tree as one value, for the places that still speak Value: the browser
+// A tree as one argument, for the places that still speak Value: the browser
 // projection, the panel renderer, a bypass mapping. A tree of exactly one item
-// projects to that item; anything else projects to a `Value::List` in canonical
-// traversal order. `maxItems` bounds it - an inspector that renders a million
-// items is a hang, not an inspector - and `truncated` says whether it bit.
-Value ProjectTreeToValue (const data::TreeValue& tree, size_t maxItems, bool& truncated);
-Value ProjectTreeToValue (const data::TreeValue& tree);
+// projects to that item; anything else projects to a list-shaped Argument in
+// canonical traversal order. `maxItems` bounds it - an inspector that renders a
+// million items is a hang, not an inspector - and `truncated` says whether it bit.
+Argument ProjectTreeToValue (const data::TreeValue& tree, size_t maxItems, bool& truncated);
+Argument ProjectTreeToValue (const data::TreeValue& tree);
 
 // Total items across every list, which is what a node's itemCount reports.
 size_t TreeItemCount (const data::TreeValue& tree);
@@ -93,10 +93,10 @@ struct ProjectedBranch {
     // still says how long it is.
     size_t itemCount = 0;
 
-    // Always a `Value::List`, even for a branch of one: a branch IS a list, and
-    // collapsing a single-item branch to a scalar here would erase the shape
-    // this structure exists to report.
-    Value value;
+    // Always a list-shaped Argument, even for a branch of one: a branch IS a
+    // list, and collapsing a single-item branch to a scalar here would erase
+    // the shape this structure exists to report.
+    Argument value;
 
     bool truncated = false;
 };
@@ -109,7 +109,7 @@ struct ProjectedOutput {
     // The whole tree flattened, in canonical order. Kept because most consumers
     // want a value rather than a shape, and because a one-item tree reads as
     // that item here (`branches` never collapses that way).
-    Value value;
+    Argument value;
     size_t itemCount = 0;
     bool truncated = false;
 

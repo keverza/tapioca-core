@@ -24,7 +24,7 @@ void AddPoints (GS::ObjectState& state, const std::vector<graph::Point3>& points
 
 } // namespace
 
-GS::ObjectState EncodeValue (const graph::Value& value, bool expand)
+GS::ObjectState EncodeValue (const graph::Argument& value, bool expand)
 {
     GS::ObjectState state;
     state.Add ("valueType", GraphValueTypeName (value.Type ()));
@@ -89,7 +89,7 @@ GS::ObjectState EncodeValue (const graph::Value& value, bool expand)
             state.Add ("text", GraphText (std::get<graph::ArchicadElementRef> (value.DataValue ()).guid));
             break;
         case graph::ValueType::List: {
-            const graph::Value::List& list = std::get<graph::Value::List> (value.DataValue ());
+            const std::vector<graph::Value>& list = value.Items ();
             state.Add ("itemCount", static_cast<GS::Int64> (list.size ()));
             if (!expand || list.size () > kMaxEncodedListItems) {
                 state.Add ("truncated", true);

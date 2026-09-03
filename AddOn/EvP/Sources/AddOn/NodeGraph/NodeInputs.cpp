@@ -4,7 +4,7 @@
 
 namespace evp::nodegraph {
 
-bool IsNumericValue (const Value& value)
+bool IsNumericValue (const Argument& value)
 {
     return value.Type () == ValueType::Double || value.Type () == ValueType::Integer;
 }
@@ -41,7 +41,7 @@ bool BoolFrom (const ValueMap& inputs, const Node& node, const char* id, bool fa
     return fallback;
 }
 // The stored parameter, verbatim, for the nodes whose whole job is to hold one.
-Value StoredOr (const Node& node, const char* id, Value fallback)
+Argument StoredOr (const Node& node, const char* id, Argument fallback)
 {
     const auto found = node.parameters.find (id);
     if (found == node.parameters.end () || found->second.Type () == ValueType::Absent)
@@ -58,7 +58,7 @@ double Radians (double degrees)
 // its decimals as an Integer, and both reach ExecuteBuiltinNode as parameters -
 // so the one place that reads them must accept either rather than throwing a
 // bad_variant_access at the user.
-double AnyNumber (const Value& value, double fallback)
+double AnyNumber (const Argument& value, double fallback)
 {
     if (value.Type () == ValueType::Double)
         return std::get<double> (value.DataValue ());

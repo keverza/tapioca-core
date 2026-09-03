@@ -1,9 +1,11 @@
 #include "NodeGraph/ListNodes.hpp"
 
 #include "NodeGraph/ParameterDescriptors.hpp"
+#include "NodeGraph/ValueText.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -26,15 +28,13 @@ NodeType ListNode (const char* id, const char* label, const char* description)
 // The items of a List-access port. A port that got nothing is an EMPTY list
 // rather than a missing one, which is what lets every node below answer without
 // a special case: the length of nothing is zero, the reverse of nothing is
-// nothing.
-const Value::List& Items (const ValueMap& inputs, const char* portId)
+// nothing. Argument::Items() is already empty for a non-list argument, so there
+// is no separate "not a list" case to handle here.
+const std::vector<Value>& Items (const ValueMap& inputs, const char* portId)
 {
-    static const Value::List empty;
+    static const std::vector<Value> empty;
     const auto found = inputs.find (portId);
-    if (found == inputs.end ())
-        return empty;
-    const auto* items = std::get_if<Value::List> (&found->second.DataValue ());
-    return items == nullptr ? empty : *items;
+    return found == inputs.end () ? empty : found->second.Items ();
 }
 
 // A whole number from a wired port first, then from the node's own parameter.
@@ -80,6 +80,72 @@ bool ResolveIndex (int64_t index, size_t size, size_t& resolved)
     return true;
 }
 
+// The sort key of one item as a number, or false when it is not one.
+//
+// ⚠️ NUMBERS ONLY. A key list is what ORDERS the sort, and ordering is a
+// numeric question here by decision: areas, distances, heights, indices. Text
+// has an order too, but mixing the two has none, and a node that accepted both
+// would have to answer "is 10 before or after \"apple\"" - so it accepts one.
+// An Integer key is a number, because Integer widens to Double everywhere else.
+bool SortKey (const Value& value, double& number)
+{
+    if (const auto* real = std::get_if<double> (&value.DataValue ())) {
+        number = *real;
+        return true;
+    }
+    if (const auto* whole = std::get_if<int64_t> (&value.DataValue ())) {
+        number = static_cast<double> (*whole);
+        return true;
+    }
+    return false;
+}
+
+// The order `keys` would be in once sorted, as indices into it.
+//
+// ⚠️ AN ORDER, NOT A SORTED LIST, because the caller has a second list to move
+// the same way. Sorting the keys and then "sorting" the values separately would
+// pair item 3 with key 3 only by luck.
+//
+// STABLE, so equal keys keep the order they arrived in. An unstable sort would
+// let two runs over identical input produce different graphs, which is the one
+// thing a solution that re-runs on every keystroke cannot afford.
+bool SortOrder (const std::vector<Value>& keys, std::vector<size_t>& order, std::string& error)
+{
+    std::vector<double> numbers;
+    numbers.reserve (keys.size ());
+    for (const Value& key : keys) {
+        double number = 0.0;
+        if (!SortKey (key, number)) {
+            error = "sort keys must be numbers; got '" + DescribeValue (key) + "'";
+            return false;
+        }
+        numbers.push_back (number);
+    }
+
+    order.resize (keys.size ());
+    for (size_t index = 0; index < keys.size (); ++index)
+        order[index] = index;
+    std::stable_sort (order.begin (), order.end (),
+                      [&numbers] (size_t left, size_t right) { return numbers[left] < numbers[right]; });
+    return true;
+}
+
+// `items` rearranged into `order`.
+//
+// ⚠️ A VALUES LIST SHORTER THAN THE KEYS LEAVES THE MISSING SITES ABSENT rather
+// than shifting later items into them. The node's contract is that the two lists
+// are the same length and position n means the same thing in both; quietly
+// closing a gap would break that pairing everywhere after it while producing a
+// list that still looks well formed.
+std::vector<Value> Reorder (const std::vector<Value>& items, const std::vector<size_t>& order)
+{
+    std::vector<Value> moved;
+    moved.reserve (order.size ());
+    for (const size_t from : order)
+        moved.push_back (from < items.size () ? items[from] : Value {});
+    return moved;
+}
+
 } // namespace
 
 void RegisterListNodes (NodeRegistry& registry)
@@ -114,6 +180,26 @@ void RegisterListNodes (NodeRegistry& registry)
     if (!registry.Register (std::move (reverse), error))
         throw std::logic_error (error);
 
+    // ⚠️ ONE NUMERIC KEY LIST ORDERS THE SORT; A CONNECTED LIST OF THE SAME
+    // LENGTH IS MOVED WITH IT. That is the shape because the useful question is
+    // almost never "put these numbers in order" - it is "put these WALLS in
+    // order of their area", and the areas are computed by nodes upstream. A node
+    // that could only sort what it compared would leave that unanswerable
+    // without a bespoke sort node per kind of key.
+    //
+    // `values` is optional: wire keys alone and it is an ordinary sort.
+    NodeType sort =
+        ListNode ("list.sort", "Sort", "Puts a numeric list in order, moving a connected list along with it.");
+    sort.inputs.push_back (Port ("keys", ValueType::List));
+    sort.inputs.push_back (Port ("values", ValueType::List));
+    sort.outputs.push_back (Port ("keys", ValueType::List));
+    sort.outputs.push_back (Port ("values", ValueType::List));
+    ParameterSchema descending { "descending", "Descending", ValueType::Bool, false, Value (false) };
+    descending.ui = BooleanUi ("Sort", 0, "Largest first instead of smallest first.");
+    sort.parameters.push_back (std::move (descending));
+    if (!registry.Register (std::move (sort), error))
+        throw std::logic_error (error);
+
     NodeType slice = ListNode ("list.slice", "Slice", "A run of items taken out of a list.");
     slice.inputs.push_back (Port ("list", ValueType::List));
     slice.outputs.push_back (Port ("list", ValueType::List));
@@ -135,7 +221,7 @@ void RegisterListNodes (NodeRegistry& registry)
 bool ExecuteListNode (const Node& node, const ValueMap& inputs, const NodeExecutionContext&, ValueMap& outputs,
                       std::string& error)
 {
-    const Value::List& items = Items (inputs, "list");
+    const std::vector<Value>& items = Items (inputs, "list");
 
     if (node.nodeType == "list.length") {
         outputs.emplace ("length", Value (static_cast<int64_t> (items.size ())));
@@ -148,12 +234,12 @@ bool ExecuteListNode (const Node& node, const ValueMap& inputs, const NodeExecut
         // site - the honest answer to "give me item 9 of three".
     }
     else if (node.nodeType == "list.reverse") {
-        Value::List reversed (items.rbegin (), items.rend ());
-        outputs.emplace ("list", Value (std::move (reversed)));
+        std::vector<Value> reversed (items.rbegin (), items.rend ());
+        outputs.emplace ("list", Argument::FromItems (std::move (reversed)));
     }
     else if (node.nodeType == "list.slice") {
         size_t first = 0;
-        Value::List taken;
+        std::vector<Value> taken;
         if (ResolveIndex (Whole (inputs, node, "start", 0), items.size (), first)) {
             const int64_t wanted = Whole (inputs, node, "count", 0);
             const size_t available = items.size () - first;
@@ -165,7 +251,28 @@ bool ExecuteListNode (const Node& node, const ValueMap& inputs, const NodeExecut
             taken.assign (items.begin () + static_cast<std::ptrdiff_t> (first),
                           items.begin () + static_cast<std::ptrdiff_t> (first + take));
         }
-        outputs.emplace ("list", Value (std::move (taken)));
+        outputs.emplace ("list", Argument::FromItems (std::move (taken)));
+    }
+    else if (node.nodeType == "list.sort") {
+        const std::vector<Value>& keys = Items (inputs, "keys");
+        const std::vector<Value>& values = Items (inputs, "values");
+        std::vector<size_t> order;
+        if (!SortOrder (keys, order, error))
+            return false;
+
+        const auto descending = node.parameters.find ("descending");
+        const bool reversed = descending != node.parameters.end () &&
+                              std::get_if<bool> (&descending->second.DataValue ()) != nullptr &&
+                              std::get<bool> (descending->second.DataValue ());
+        if (reversed) {
+            // Reversing the ORDER, not sorting with a flipped comparator, so
+            // that a descending sort is exactly the ascending one read
+            // backwards - including how it broke ties.
+            std::reverse (order.begin (), order.end ());
+        }
+
+        outputs.emplace ("keys", Argument::FromItems (Reorder (keys, order)));
+        outputs.emplace ("values", Argument::FromItems (Reorder (values, order)));
     }
     else {
         error = "unknown list node type: " + node.nodeType;

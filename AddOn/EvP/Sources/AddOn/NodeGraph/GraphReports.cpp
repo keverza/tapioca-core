@@ -25,12 +25,25 @@ void CollectReferences (const Node& node, const NodeType& nodeType, std::vector<
         if (!isReference)
             continue;
 
+        // The stored parameter is an Argument (a selection-set parameter may be
+        // list-shaped); the schema default is a plain Value. Both can hold an
+        // element reference, so each is checked on its own terms rather than
+        // forced through one pointer type.
         const auto found = node.parameters.find (parameter.id);
-        const Value* value = found != node.parameters.end ()       ? &found->second
-                             : parameter.defaultValue.has_value () ? &*parameter.defaultValue
-                                                                   : nullptr;
-        if (value == nullptr || value->Type () != ValueType::ArchicadElementRef)
+        const Value* value = nullptr;
+        if (found != node.parameters.end ()) {
+            if (found->second.Type () != ValueType::ArchicadElementRef)
+                continue;
+            value = &found->second.AsValue ();
+        }
+        else if (parameter.defaultValue.has_value ()) {
+            if (parameter.defaultValue->Type () != ValueType::ArchicadElementRef)
+                continue;
+            value = &*parameter.defaultValue;
+        }
+        else {
             continue;
+        }
 
         ReferenceSite site;
         site.nodeId = node.id;

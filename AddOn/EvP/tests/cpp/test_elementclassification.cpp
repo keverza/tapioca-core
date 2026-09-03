@@ -285,11 +285,11 @@ TEST (ElementContainers, TheCapturedTypeListRoundTripsThroughAValue)
     // A non-string entry reads back as unclassified rather than being dropped:
     // a SHORTER list would shift every following element into its neighbour's
     // container, which looks plausible and is entirely wrong.
-    Value::List mixed;
+    std::vector<Value> mixed;
     mixed.emplace_back (std::string ("wall"));
     mixed.emplace_back (int64_t { 7 });
     mixed.emplace_back (std::string ("slab"));
-    const std::vector<std::string> recovered = TypesFromValue (Value (std::move (mixed)));
+    const std::vector<std::string> recovered = TypesFromValue (Argument::FromItems (std::move (mixed)));
     ASSERT_EQ (3U, recovered.size ());
     EXPECT_EQ ("wall", recovered[0]);
     EXPECT_EQ (kUnclassifiedElementTypeId, recovered[1]);

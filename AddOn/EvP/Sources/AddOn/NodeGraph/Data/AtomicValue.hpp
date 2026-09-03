@@ -47,6 +47,26 @@ const char* ItemTypeName (ItemType type);
 std::optional<ItemType> ItemTypeFromName (std::string_view name);
 
 // Absent/List have no item type: a tree cannot express either (see above).
+// ---- Widening ---------------------------------------------------------------
+
+// Whether an item of `from` may become one of `to` with nothing lost.
+//
+// ⚠️ ONE DIRECTION ONLY, AND THE ASYMMETRY IS THE POINT. An integer is a double
+// exactly, so a wire may carry one into the other silently. A double is NOT an
+// integer, and the reason it needs an explicit node rather than a silent cast is
+// that there are FOUR defensible answers - nearest, floor, ceiling, truncate -
+// and picking one on the user's behalf means 2.5 quietly becoming a 2 or a 3
+// with nothing on the canvas saying which. This is the ordinary rule of every
+// statically typed language, and it is here for the ordinary reason.
+//
+// Any is not in the lattice: a wildcard accepts anything already, so it needs no
+// conversion and offers none.
+bool CanWidenItemType (ItemType from, ItemType to);
+
+// The same rule in the vocabulary the catalog and the edit rules speak, so the
+// editor and the runtime cannot come to different conclusions about one wire.
+bool CanWidenValueType (ValueType from, ValueType to);
+
 std::optional<ItemType> ItemTypeFromValueType (ValueType type);
 std::optional<ValueType> ValueTypeFromItemType (ItemType type);
 
@@ -84,10 +104,13 @@ EVP_DECLARE_ITEM_TRAITS (Value, Any);
 // place a `Value` is stored, and they still may not contain a collection, so
 // every insertion into such a tree is checked with this.
 //
-// ItemTraits<Value>::Equals reports false for a `List` on the same grounds:
-// equality is undefined for a value a tree cannot legally hold, and a
+// ⚠️ THIS NOW EXCLUDES ONLY `Absent`, AND THAT IS A NARROWING WORTH KNOWING.
+// It used to exclude `List` as well, because a Value could carry one and a
 // recursive walk over an untrusted nested list is a stack overflow inside
-// Archicad's process (see MeasureValue).
+// Archicad's process. A Value has no List alternative any more - collection
+// shape belongs to the tree and to `Argument`, and nothing else - so the case
+// is unreachable rather than unhandled. The runtime depth ceiling that guarded
+// it went with it.
 bool IsAtomicValue (const Value& value);
 
 // Type-erased read of one stored item, for the browser projection and the

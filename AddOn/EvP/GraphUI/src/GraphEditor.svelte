@@ -421,6 +421,9 @@
         },
         parameters: node.parameters,
         executionMode: node.executionMode ?? 'enabled',
+        // Carried onto the flow node so the port menu can tick the modifier in
+        // force without reaching back into the document snapshot.
+        inputModifiers: node.inputModifiers ?? [],
         result: resultMap.get(node.nodeId),
         messages: (() => {
           const result = resultMap.get(node.nodeId)
@@ -1365,6 +1368,22 @@
     await applyFlowControlEdit({ editKind: 'setExecutionMode', nodeId, mode }, `${nodeId} is now ${mode}`)
   }
 
+  /**
+   * Set or clear one input port's modifier.
+   *
+   * Goes through the same expected-revision edit path as a mode change, because
+   * it moves the document the same way: a modifier changes what the node
+   * computes from, so it earns a revision and dirties what is downstream.
+   *
+   * The runtime can refuse it - clearing `round` from a port fed by a Double
+   * would leave a connection the type rules reject - and `applyFlowControlEdit`
+   * already surfaces the reason rather than leaving the menu looking broken.
+   */
+  async function setPortModifier(nodeId: string, portId: string, modifier: string): Promise<void> {
+    const said = modifier === 'none' ? `Cleared the modifier on ${portId}` : `${portId} is now ${modifier}`
+    await applyFlowControlEdit({ editKind: 'setPortModifier', nodeId, portId, modifier }, said)
+  }
+
   async function releaseHolding(nodeId: string): Promise<void> {
     await applyFlowControlEdit({ editKind: 'releaseHolding', nodeId }, `Released ${nodeId}`)
   }
@@ -1753,6 +1772,13 @@
     return 'Canvas'
   }
 
+  /** The modifier in force on one input port, or 'none'. */
+  function portModifier(nodeId: string, portId: string): string {
+    const node = nodes.find((candidate) => candidate.id === nodeId)
+    const found = node?.data.inputModifiers?.find((entry) => entry.portId === portId)
+    return found?.modifier ?? 'none'
+  }
+
   function contextPort() {
     // Copied to a local first: narrowing does not survive into the callbacks
     // below, because `contextTarget` is reactive state and reads as a getter.
@@ -1775,10 +1801,35 @@
           : edge.source === nodeId && edge.sourceHandle === portId,
       )
       const native = 'Requires a native expected-revision graph edit'
-      const transforms =
+      // ⚠️ INPUT PORTS ONLY, AND THAT IS NOT AN OVERSIGHT. A modifier describes
+      // what a port RECEIVES, and it is applied where inputs are gathered. An
+      // output has already been computed; "flatten this output" would have to
+      // mean "flatten it for every consumer", which is a different and much
+      // more surprising thing than what the same word means on an input.
+      const modifiers =
         direction === 'input'
-          ? ['reverse', 'simplify', 'flatten', 'graft', 'reparameterize']
-          : ['simplify', 'flatten', 'graft']
+          ? [
+              { name: 'none', label: 'No modifier' },
+              { name: 'flatten', label: 'Flatten' },
+              { name: 'graft', label: 'Graft' },
+              { name: 'simplify', label: 'Simplify' },
+              { name: 'reverse', label: 'Reverse' },
+              { name: 'round', label: 'Round to whole number' },
+              { name: 'normalise', label: 'Normalise to 0-1' },
+            ]
+          : []
+      const currentModifier = portModifier(nodeId, portId)
+      // ⚠️ NO `reparameterize`, AND ITS ABSENCE IS A DECISION. Grasshopper's
+      // version maps a curve's parameter DOMAIN onto 0..1, and nothing in this
+      // catalog has one - a Polyline is a list of points with no
+      // parameterisation to remap. The useful half of the idea, remapping a
+      // range of numbers, is the `normalise` modifier above, named for what it
+      // actually does. Listing a disabled "reparameterize" would promise an
+      // operation the geometry cannot perform.
+      //
+      // Output ports still carry none: a modifier describes what a port
+      // RECEIVES, and an output has already been computed.
+      const transforms = direction === 'input' ? [] : ['simplify', 'flatten', 'graft']
       return [
         {
           label: direction === 'input' ? 'Copy upstream reference' : 'Copy reference',
@@ -1805,6 +1856,15 @@
               { label: 'Inspect data', disabled: true, title: 'Requires native runtime value inspection', run: () => {} },
               { label: 'Set as display output', disabled: true, title: native, run: () => {} },
             ]),
+        ...modifiers.map((modifier) => ({
+          // A tick beside the one in force, because a modifier is invisible in
+          // the wire and a menu that did not say which was set would make the
+          // user guess at what their graph is computing.
+          label: modifier.name === currentModifier ? `${modifier.label} ✓` : modifier.label,
+          disabled: busy || modifier.name === currentModifier,
+          group: 'Modifiers',
+          run: () => void setPortModifier(nodeId, portId, modifier.name),
+        })),
         ...transforms.map((transform) => ({
           label: transform,
           disabled: true,

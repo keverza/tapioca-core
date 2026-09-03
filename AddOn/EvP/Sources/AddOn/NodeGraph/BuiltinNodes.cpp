@@ -32,7 +32,7 @@ NodeType PureNode (const char* id, const char* label, const char* description)
     return { id, label, "Core", description };
 }
 
-double Number (const Value& value)
+double Number (const Argument& value)
 {
     return std::get<double> (value.DataValue ());
 }
@@ -400,6 +400,34 @@ NodeRegistry MakeBuiltinNodeRegistry ()
     if (!registry.Register (std::move (random), error))
         throw std::logic_error (error);
 
+    // ⚠️ THE INTERMEDIATE STEP THE TYPE RULE REQUIRES, AND THE REASON IT EXISTS.
+    //
+    // An Integer reaches a Double port on its own, because nothing is lost. A
+    // Double reaching an Integer port is refused, and this node is how a graph
+    // says what it wants instead. It is not busywork: 2.5 becomes 2 or 3
+    // depending on an answer only the author has, and a silent cast would put
+    // that answer in the runtime where nobody can see it. Here it is a node on
+    // the canvas with its choice written on it.
+    NodeType toInteger =
+        PureNode ("math.toInteger", "To Integer", "Turns a number into a whole number, the way you choose.");
+    toInteger.category = "Math";
+    toInteger.inputs.push_back (Port ("value", ValueType::Double));
+    toInteger.outputs.push_back (Port ("value", ValueType::Integer));
+    ParameterSchema rounding { "mode", "Mode", ValueType::String, false, Value (std::string ("nearest")) };
+    ParameterUi roundingUi;
+    roundingUi.widget = ParameterWidget::Select;
+    roundingUi.section = "To Integer";
+    roundingUi.order = 0;
+    roundingUi.help = "Which whole number to take.";
+    roundingUi.options = { { "Nearest", Value (std::string ("nearest")) },
+                           { "Down (floor)", Value (std::string ("floor")) },
+                           { "Up (ceiling)", Value (std::string ("ceiling")) },
+                           { "Toward zero (truncate)", Value (std::string ("truncate")) } };
+    rounding.ui = std::move (roundingUi);
+    toInteger.parameters.push_back (std::move (rounding));
+    if (!registry.Register (std::move (toInteger), error))
+        throw std::logic_error (error);
+
     NodeType conditional = PureNode ("flow.if", "If", "Passes one of two inputs through, by a condition.");
     conditional.category = "Flow";
     conditional.inputs.push_back ({ "condition", "Condition", ValueType::Bool, false, false });
@@ -452,11 +480,11 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
     else if (node.nodeType == "makeList")
         outputs.emplace ("value", inputs.at ("items"));
     else if (node.nodeType == "scaleList") {
-        Value::List scaled;
+        std::vector<Value> scaled;
         const double factor = Number (inputs.at ("factor"));
-        for (const Value& item : std::get<Value::List> (inputs.at ("list").DataValue ()))
+        for (const Value& item : inputs.at ("list").Items ())
             scaled.emplace_back (Number (item) * factor);
-        outputs.emplace ("value", Value (std::move (scaled)));
+        outputs.emplace ("value", Argument::FromItems (std::move (scaled)));
     }
     else if (node.nodeType == "subtract")
         outputs.emplace ("value",
@@ -505,7 +533,7 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         // arithmetic rather than by an implementation's engine, so the same seed
         // gives the same numbers on every machine and every build.
         uint64_t state = static_cast<uint64_t> (ScalarFrom (inputs, node, "seed", 1.0));
-        Value::List values;
+        std::vector<Value> values;
         values.reserve (static_cast<size_t> (count));
         for (int64_t index = 0; index < count; ++index) {
             state += 0x9E3779B97F4A7C15ull;
@@ -517,14 +545,32 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
             const double unit = static_cast<double> (z >> 11) / 9007199254740992.0;
             values.emplace_back (minimum + unit * (maximum - minimum));
         }
-        outputs.emplace ("values", Value (std::move (values)));
+        outputs.emplace ("values", Argument::FromItems (std::move (values)));
+    }
+    else if (node.nodeType == "math.toInteger") {
+        const double value = ScalarFrom (inputs, node, "value", 0.0);
+        const auto chosen = node.parameters.find ("mode");
+        const std::string* mode =
+            chosen == node.parameters.end () ? nullptr : std::get_if<std::string> (&chosen->second.DataValue ());
+        const std::string name = mode == nullptr ? "nearest" : *mode;
+        // std::llround rather than a cast for "nearest", because a cast toward
+        // zero is what "truncate" means and having two of the four modes do the
+        // same thing would make the choice a lie.
+        double whole = std::llround (value);
+        if (name == "floor")
+            whole = std::floor (value);
+        else if (name == "ceiling")
+            whole = std::ceil (value);
+        else if (name == "truncate")
+            whole = std::trunc (value);
+        outputs.emplace ("value", Value (static_cast<int64_t> (whole)));
     }
     else if (node.nodeType == "flow.if") {
         const bool condition = BoolFrom (inputs, node, "condition", true);
         const auto branch = inputs.find (condition ? "ifTrue" : "ifFalse");
-        Value taken = branch == inputs.end () ? Value {} : branch->second;
+        Argument taken = branch == inputs.end () ? Argument {} : branch->second;
         outputs.emplace ("value", taken.Type () == ValueType::List ? std::move (taken)
-                                                                   : Value (Value::List { std::move (taken) }));
+                                                                   : Argument::FromItems ({ taken.AsValue () }));
         outputs.emplace ("taken", Value (condition));
     }
     else if (node.nodeType == kPreviewNodeType) {
@@ -534,9 +580,9 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         // preview downstream of a disabled branch stops drawing.
     }
     else if (node.nodeType == "panel") {
-        const Value& value = inputs.at ("value");
+        const Argument& value = inputs.at ("value");
         const std::vector<std::string> lines = FormatValueLines (value);
-        Value::List lineValues;
+        std::vector<Value> lineValues;
         lineValues.reserve (lines.size ());
         std::string joined;
         for (size_t i = 0; i < lines.size (); ++i) {
@@ -548,10 +594,9 @@ bool ExecuteBuiltinNode (const Node& node, const ValueMap& inputs, const NodeExe
         // Both shapes, because a client should not have to split a string to
         // render a list, nor join a list to show one line.
         outputs.emplace ("text", Value (joined));
-        outputs.emplace ("lines", Value (std::move (lineValues)));
-        outputs.emplace ("count", Value (static_cast<int64_t> (value.Type () == ValueType::List
-                                                                   ? std::get<Value::List> (value.DataValue ()).size ()
-                                                                   : 1)));
+        outputs.emplace ("lines", Argument::FromItems (std::move (lineValues)));
+        outputs.emplace ("count",
+                         Value (static_cast<int64_t> (value.Type () == ValueType::List ? value.Items ().size () : 1)));
         outputs.emplace ("summary", Value (DescribeValue (value)));
     }
     else if (node.nodeType == "watch" || node.nodeType == "dataDam")

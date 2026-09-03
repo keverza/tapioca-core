@@ -1,5 +1,6 @@
 #include "NodeGraph/GraphEdit.hpp"
 
+#include "NodeGraph/Data/AtomicValue.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/ScriptNodes.hpp"
@@ -17,9 +18,35 @@ namespace {
 // made, once when a re-typed node decides which of its existing edges survive -
 // and two copies of it drift into a graph that accepts an edge it will later
 // silently drop.
+// What a port accepts once its modifier is taken into account.
+//
+// ⚠️ ONLY `Round` MOVES THIS. The reshaping modifiers change a tree's SHAPE and
+// leave its item type alone, so they cannot make an illegal edge legal or the
+// reverse. Round is the exception because it is a conversion: a port carrying it
+// is exactly the port that may be fed a Double where it declared Integer, which
+// is the entire point of putting it on the port.
+PortModifier ModifierFor (const Node& node, const std::string& portId)
+{
+    const auto found = node.inputModifiers.find (portId);
+    return found == node.inputModifiers.end () ? PortModifier::None : found->second;
+}
+
+ValueType AcceptedInputType (ValueType declared, PortModifier modifier)
+{
+    if (modifier == PortModifier::Round && declared == ValueType::Integer)
+        return ValueType::Double;
+    return declared;
+}
+
 bool PortTypesConnect (ValueType output, ValueType input)
 {
-    return input == ValueType::Absent || output == ValueType::Absent || output == input;
+    if (input == ValueType::Absent || output == ValueType::Absent || output == input)
+        return true;
+    // An Integer may travel a wire into a Double port, and the runtime converts
+    // the tree as it gathers the input. The reverse is refused here so that the
+    // user picks a rounding on the canvas rather than the runtime picking one
+    // for them - see CanWidenItemType.
+    return data::CanWidenValueType (output, input);
 }
 
 bool SameEdge (const Edge& first, const Edge& second)
@@ -138,7 +165,8 @@ bool ValidateDocument (const GraphDocument& document, const NodeRegistry& regist
         // The run-time check is the one that still bites: Evaluator's publish
         // step compares the produced tree's item type against the port's, and a
         // port that named a type is checked there exactly as before.
-        if (!PortTypesConnect (output->valueType, input->valueType)) {
+        const PortModifier targetModifier = ModifierFor (*target, input->id);
+        if (!PortTypesConnect (output->valueType, AcceptedInputType (input->valueType, targetModifier))) {
             error = "port type mismatch";
             return false;
         }
@@ -306,6 +334,62 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
                 iterator->second.parameters[operation.parameterId] = operation.value;
                 dirtyRoots.insert (operation.nodeId);
             }
+            else if constexpr (std::is_same_v<T, SetPortModifierEdit>) {
+                auto iterator = candidate.nodes_.find (operation.nodeId);
+                if (iterator == candidate.nodes_.end ()) {
+                    error = "unknown node: " + operation.nodeId;
+                    code = "modifier.unknownNode";
+                    return false;
+                }
+                Node& node = iterator->second;
+                const NodeType* nodeType = registry.Find (node.nodeType);
+                if (nodeType == nullptr) {
+                    error = "unknown node type: " + node.nodeType;
+                    code = "modifier.unknownNodeType";
+                    return false;
+                }
+                const PortSchema* port = FindInput (node, *nodeType, operation.portId);
+                if (port == nullptr) {
+                    error = "unknown input: " + operation.portId;
+                    code = "modifier.unknownPort";
+                    return false;
+                }
+                if (ModifierFor (node, operation.portId) == operation.modifier) {
+                    // Idempotent and reported as such, for the reason a mode is:
+                    // an accepted no-op would dirty the whole downstream closure
+                    // for nothing.
+                    error = "'" + operation.nodeId + "." + operation.portId + "' is already " +
+                            PortModifierName (operation.modifier);
+                    code = "modifier.unchanged";
+                    return false;
+                }
+                // Round is a conversion, so changing it changes what may be
+                // connected. An edge that the new modifier would refuse is
+                // reported rather than dropped: the user asked to change a port,
+                // not to delete a wire.
+                const ValueType accepted = AcceptedInputType (port->valueType, operation.modifier);
+                for (const Edge& edge : candidate.edges_) {
+                    if (edge.targetNode != operation.nodeId || edge.targetPort != operation.portId)
+                        continue;
+                    const auto source = candidate.nodes_.find (edge.sourceNode);
+                    const NodeType* sourceType =
+                        source == candidate.nodes_.end () ? nullptr : registry.Find (source->second.nodeType);
+                    if (sourceType == nullptr)
+                        continue;
+                    const PortSchema* output = FindOutput (source->second, *sourceType, edge.sourcePort);
+                    if (output != nullptr && !PortTypesConnect (output->valueType, accepted)) {
+                        error = "'" + edge.sourceNode + "." + edge.sourcePort + "' could no longer connect here";
+                        code = "modifier.breaksEdge";
+                        return false;
+                    }
+                }
+
+                if (operation.modifier == PortModifier::None)
+                    node.inputModifiers.erase (operation.portId);
+                else
+                    node.inputModifiers[operation.portId] = operation.modifier;
+                dirtyRoots.insert (operation.nodeId);
+            }
             else if constexpr (std::is_same_v<T, SetExecutionModeEdit>) {
                 auto iterator = candidate.nodes_.find (operation.nodeId);
                 if (iterator == candidate.nodes_.end ()) {
@@ -393,7 +477,9 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
                     const PortSchema* output = FindOutput (*source, *sourceType, edge.sourcePort);
                     const PortSchema* input = FindInput (*target, *targetType, edge.targetPort);
                     const bool survives =
-                        output != nullptr && input != nullptr && PortTypesConnect (output->valueType, input->valueType);
+                        output != nullptr && input != nullptr &&
+                        PortTypesConnect (output->valueType,
+                                          AcceptedInputType (input->valueType, ModifierFor (*target, input->id)));
                     if (survives)
                         return false;
                     dropped.push_back (edge);

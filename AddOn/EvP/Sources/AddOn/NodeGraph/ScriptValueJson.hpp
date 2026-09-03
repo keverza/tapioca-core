@@ -46,10 +46,12 @@
 namespace evp::nodegraph {
 
 json::JsonValue ScriptValueToJson (const Value& value);
+json::JsonValue ScriptValueToJson (const Argument& value);
 
 // `expected` comes from the port's declared type; the script's own value is
 // coerced to it or refused with a reason naming what was wanted.
 bool ScriptValueFromJson (const json::JsonValue& source, ValueType expected, Value& out, std::string& error);
+bool ScriptValueFromJson (const json::JsonValue& source, ValueType expected, Argument& out, std::string& error);
 
 } // namespace evp::nodegraph
 

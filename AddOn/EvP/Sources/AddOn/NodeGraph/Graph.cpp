@@ -47,4 +47,38 @@ bool ParseExecutionMode (const std::string& name, ExecutionMode& mode)
     return false;
 }
 
+const char* PortModifierName (PortModifier modifier)
+{
+    switch (modifier) {
+        case PortModifier::None:
+            return "none";
+        case PortModifier::Flatten:
+            return "flatten";
+        case PortModifier::Graft:
+            return "graft";
+        case PortModifier::Simplify:
+            return "simplify";
+        case PortModifier::Reverse:
+            return "reverse";
+        case PortModifier::Round:
+            return "round";
+        case PortModifier::Normalise:
+            return "normalise";
+    }
+    return "none";
+}
+
+bool ParsePortModifier (const std::string& name, PortModifier& modifier)
+{
+    for (const PortModifier candidate :
+         { PortModifier::None, PortModifier::Flatten, PortModifier::Graft, PortModifier::Simplify,
+           PortModifier::Reverse, PortModifier::Round, PortModifier::Normalise }) {
+        if (name == PortModifierName (candidate)) {
+            modifier = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace evp::nodegraph

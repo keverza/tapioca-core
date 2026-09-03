@@ -146,17 +146,12 @@ bool ValueToJson (const Value& value, JsonValue& out, std::string& error)
         case ValueType::ArchicadElementRef:
             object.emplace ("value", JsonValue::String (std::get<ArchicadElementRef> (value.DataValue ()).guid));
             break;
-        case ValueType::List: {
-            JsonArray items;
-            for (const Value& item : std::get<Value::List> (value.DataValue ())) {
-                JsonValue encoded;
-                if (!ValueToJson (item, encoded, error))
-                    return false;
-                items.push_back (std::move (encoded));
-            }
-            object.emplace ("value", JsonValue::Array (std::move (items)));
-            break;
-        }
+        case ValueType::List:
+            // Unreachable: a Value can no longer carry a List - see
+            // ArgumentToJson, which handles the branch before an item is ever
+            // passed here.
+            error = "a scalar value cannot carry a list";
+            return false;
         case ValueType::Mesh:
             // See the header: a mesh is a RESULT, and a result inside the
             // program that computes it is a cache masquerading as a parameter.
@@ -164,6 +159,29 @@ bool ValueToJson (const Value& value, JsonValue& out, std::string& error)
             return false;
     }
 
+    out = JsonValue::Object (std::move (object));
+    return true;
+}
+
+// The Argument wrapper around a stored parameter: a scalar delegates to
+// ValueToJson unchanged, a List-typed one (a selection set) writes its branch
+// as an array of scalar-encoded items - never nested, since an item is
+// guaranteed a plain Value.
+bool ArgumentToJson (const Argument& value, JsonValue& out, std::string& error)
+{
+    if (value.Type () != ValueType::List)
+        return ValueToJson (value.AsValue (), out, error);
+
+    JsonObject object;
+    object.emplace ("valueType", JsonValue::String (ValueTypeName (ValueType::List)));
+    JsonArray items;
+    for (const Value& item : value.Items ()) {
+        JsonValue encoded;
+        if (!ValueToJson (item, encoded, error))
+            return false;
+        items.push_back (std::move (encoded));
+    }
+    object.emplace ("value", JsonValue::Array (std::move (items)));
     out = JsonValue::Object (std::move (object));
     return true;
 }
@@ -253,21 +271,10 @@ bool ValueFromJson (const JsonValue& source, Value& out, std::string& error)
         return true;
     }
     if (typeName == "list") {
-        const JsonArray* array = member->AsArray ();
-        if (array == nullptr) {
-            error = "expected a list";
-            return false;
-        }
-        Value::List items;
-        items.reserve (array->size ());
-        for (const JsonValue& element : *array) {
-            Value item;
-            if (!ValueFromJson (element, item, error))
-                return false;
-            items.push_back (std::move (item));
-        }
-        out = Value (std::move (items));
-        return true;
+        // A scalar Value can no longer carry a list - see ArgumentFromJson,
+        // which is the entry point that handles it.
+        error = "a scalar value cannot carry a list";
+        return false;
     }
     if (typeName == "mesh") {
         error = "a mesh cannot be stored as a graph parameter";
@@ -275,6 +282,45 @@ bool ValueFromJson (const JsonValue& source, Value& out, std::string& error)
     }
     error = "unknown value type '" + typeName + "'";
     return false;
+}
+
+// The Argument wrapper a stored parameter round-trips through: a scalar
+// delegates to ValueFromJson unchanged, a List-typed one (a selection set)
+// reads its branch as an array of scalar-decoded items. An item is decoded
+// through ValueFromJson too, so a nested "list" inside it is refused rather
+// than silently building a tree a tree cannot hold (§7.3).
+bool ArgumentFromJson (const JsonValue& source, Argument& out, std::string& error)
+{
+    std::string typeName;
+    const JsonValue* typeMember = source.Find ("valueType");
+    if (typeMember == nullptr || !typeMember->AsString (typeName)) {
+        error = "a value is missing its valueType";
+        return false;
+    }
+    if (typeName != "list") {
+        Value scalar;
+        if (!ValueFromJson (source, scalar, error))
+            return false;
+        out = Argument (std::move (scalar));
+        return true;
+    }
+
+    const JsonValue* member = source.Find ("value");
+    const JsonArray* array = member == nullptr ? nullptr : member->AsArray ();
+    if (array == nullptr) {
+        error = "expected a list";
+        return false;
+    }
+    std::vector<Value> items;
+    items.reserve (array->size ());
+    for (const JsonValue& element : *array) {
+        Value item;
+        if (!ValueFromJson (element, item, error))
+            return false;
+        items.push_back (std::move (item));
+    }
+    out = Argument::FromItems (std::move (items));
+    return true;
 }
 
 JsonValue LayoutToJson (const GraphMetadata& metadata)
@@ -340,13 +386,23 @@ SerializeResult SerializeGraph (const GraphDocument& document, const GraphMetada
         JsonObject parameters;
         for (const auto& [parameterId, value] : node.parameters) {
             JsonValue encodedValue;
-            if (!ValueToJson (value, encodedValue, result.error)) {
+            if (!ArgumentToJson (value, encodedValue, result.error)) {
                 result.error = "node " + nodeId + ", parameter " + parameterId + ": " + result.error;
                 return result;
             }
             parameters.emplace (parameterId, std::move (encodedValue));
         }
         encoded.emplace ("parameters", JsonValue::Object (std::move (parameters)));
+
+        // Omitted entirely when nothing is modified, so a graph that uses no
+        // modifiers reads exactly as it did before they existed.
+        std::map<std::string, JsonValue> modifiers;
+        for (const auto& [portId, modifier] : node.inputModifiers) {
+            if (modifier != PortModifier::None)
+                modifiers.emplace (portId, JsonValue::String (PortModifierName (modifier)));
+        }
+        if (!modifiers.empty ())
+            encoded.emplace ("inputModifiers", JsonValue::Object (std::move (modifiers)));
 
         // Instance ports, for the one family that has them - see
         // Node::dynamicInputs.
@@ -481,6 +537,27 @@ DeserializeResult DeserializeGraph (const std::string& text, const NodeRegistry&
             }
         }
 
+        if (const JsonValue* modifiers = encoded.Find ("inputModifiers"); modifiers != nullptr) {
+            const std::map<std::string, JsonValue>* members = modifiers->AsObject ();
+            if (members == nullptr) {
+                result.error = "node " + node.id + " has a malformed inputModifiers";
+                return result;
+            }
+            for (const auto& [portId, encodedModifier] : *members) {
+                std::string modifierName;
+                PortModifier modifier = PortModifier::None;
+                // Refused, never defaulted, for the reason executionMode is: a
+                // modifier this build does not know changes what the graph
+                // COMPUTES, and opening it as "none" would silently produce a
+                // different answer from the one that was saved.
+                if (!encodedModifier.AsString (modifierName) || !ParsePortModifier (modifierName, modifier)) {
+                    result.error = "node " + node.id + " has an unknown modifier on input '" + portId + "'";
+                    return result;
+                }
+                if (modifier != PortModifier::None)
+                    node.inputModifiers.emplace (portId, modifier);
+            }
+        }
         if (const JsonValue* parameters = encoded.Find ("parameters"); parameters != nullptr) {
             const JsonObject* object = parameters->AsObject ();
             if (object == nullptr) {
@@ -488,9 +565,9 @@ DeserializeResult DeserializeGraph (const std::string& text, const NodeRegistry&
                 return result;
             }
             for (const auto& [parameterId, value] : *object) {
-                Value decoded;
+                Argument decoded;
                 std::string error;
-                if (!ValueFromJson (value, decoded, error)) {
+                if (!ArgumentFromJson (value, decoded, error)) {
                     result.error = "node " + node.id + ", parameter " + parameterId + ": " + error;
                     return result;
                 }

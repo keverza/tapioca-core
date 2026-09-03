@@ -20,13 +20,13 @@
 
 namespace evp::nodegraph {
 
-bool IsNumericValue (const Value& value);
-double AnyNumber (const Value& value, double fallback);
+bool IsNumericValue (const Argument& value);
+double AnyNumber (const Argument& value, double fallback);
 double ParameterNumber (const Node& node, const char* id, double fallback);
 double ScalarFrom (const ValueMap& inputs, const Node& node, const char* id, double fallback);
 bool BoolFrom (const ValueMap& inputs, const Node& node, const char* id, bool fallback);
 Point3 Point3From (const ValueMap& inputs, const Node& node, const char* id);
-Value StoredOr (const Node& node, const char* id, Value fallback);
+Argument StoredOr (const Node& node, const char* id, Argument fallback);
 double Radians (double degrees);
 
 } // namespace evp::nodegraph

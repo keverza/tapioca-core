@@ -140,13 +140,11 @@ bool AppendValue (const Value& value, std::size_t depth, Walk& walk)
             return true;
         }
 
-        case ValueType::List: {
-            for (const Value& item : std::get<Value::List> (value.DataValue ())) {
-                if (!AppendValue (item, depth + 1, walk))
-                    return false;
-            }
+        case ValueType::List:
+            // Unreachable: a Value can no longer carry a List branch itself -
+            // see AppendArgument, which unwraps the branch before this is ever
+            // called with one of its items.
             return true;
-        }
 
         case ValueType::Absent:
             // Nothing was wired in. Not a miswiring, so not counted as one.
@@ -158,6 +156,29 @@ bool AppendValue (const Value& value, std::size_t depth, Walk& walk)
             ++walk.out->nonGeometricValues;
             return true;
     }
+}
+
+// A List-typed port's whole branch, or a scalar argument from lifting. The
+// branch is the only place depth still grows past the geometry itself, since
+// an item inside it is guaranteed scalar.
+bool AppendArgument (const Argument& argument, std::size_t depth, Walk& walk)
+{
+    if (argument.Type () != ValueType::List)
+        return AppendValue (argument.AsValue (), depth, walk);
+
+    if (walk.out->primitives.size () >= walk.limits->maxPrimitives) {
+        walk.out->truncated = true;
+        return false;
+    }
+    if (depth > walk.limits->maxDepth) {
+        walk.out->truncated = true;
+        return false;
+    }
+    for (const Value& item : argument.Items ()) {
+        if (!AppendValue (item, depth + 1, walk))
+            return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -238,8 +259,8 @@ PreviewProjection ProjectGraphPreview (const std::string& graphId, const GraphDo
         // The upstream output is a TREE; preview walks values, so the tree is
         // projected here. Projection keeps every item in canonical order, so a
         // multi-branch result previews all of it rather than one branch.
-        std::optional<Value> projected;
-        const Value* geometry = nullptr;
+        std::optional<Argument> projected;
+        const Argument* geometry = nullptr;
         std::shared_ptr<const NodeResult> upstream;
         for (const Edge& edge : document.Edges ()) {
             if (edge.targetNode != node.id || edge.targetPort != kPreviewGeometryInput)
@@ -254,10 +275,13 @@ PreviewProjection ProjectGraphPreview (const std::string& graphId, const GraphDo
             }
             break;
         }
+        std::optional<Argument> fromParameter;
         if (geometry == nullptr) {
             const auto stored = node.parameters.find (kPreviewGeometryInput);
-            if (stored != node.parameters.end ())
-                geometry = &stored->second;
+            if (stored != node.parameters.end ()) {
+                fromParameter = Argument (stored->second);
+                geometry = &*fromParameter;
+            }
         }
         if (geometry == nullptr)
             continue; // nothing is wired in, and nothing was typed in
@@ -278,7 +302,7 @@ PreviewProjection ProjectGraphPreview (const std::string& graphId, const GraphDo
         if (BoolParameter (node, kPreviewXRayParameter, false))
             walk.flags |= evp::grasshopper::protocol::PreviewFlagXRay;
 
-        if (!AppendValue (*geometry, 0, walk))
+        if (!AppendArgument (*geometry, 0, walk))
             break; // a ceiling was hit; the rest would only repeat it
     }
 

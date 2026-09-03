@@ -54,10 +54,70 @@ const char* ExecutionModeName (ExecutionMode mode);
 // client is a rejection rather than a silent fall back to Enabled.
 bool ParseExecutionMode (const std::string& name, ExecutionMode& mode);
 
+// What one input port does to what arrives, before the node sees it.
+//
+// ⚠️ A MODIFIER IS NOT A HIDDEN NODE. It exists because the alternative - a
+// Flatten node on every one of six inputs - buries the graph's actual subject
+// under plumbing, and everyone who has used a node editor for an afternoon
+// reaches for it. What keeps it honest is that it is DECLARED on the port, saved
+// with the document, and drawn on the node: it changes what a port receives, and
+// a reader can see that it does.
+//
+// The reshaping three are exactly `tree.flatten`, `tree.graft` and
+// `tree.simplify` - the same operations, applied at the port instead of on the
+// canvas - so there is one implementation and a modifier can never drift from
+// the node that shares its name.
+enum class PortModifier {
+    None,
+    Flatten,
+    Graft,
+    Simplify,
+
+    // Every branch's items in the opposite order. Shape is untouched - the same
+    // branches hold the same number of items - so this is a reshaping modifier
+    // like the three above it, not a conversion.
+    Reverse,
+
+    // ⚠️ THE ONE THAT CHANGES A TYPE, AND THEREFORE THE ONE THAT CHANGES WHAT
+    // MAY BE CONNECTED. A Double cannot reach an Integer port, because 2.5 is
+    // two or three depending on an answer only the author has. This modifier IS
+    // that answer, given once on the port: nearest. The other three roundings
+    // stay on `math.toInteger`, where each has a name a reader can see - a
+    // modifier is a small badge on a port and cannot carry four meanings.
+    Round,
+
+    // ⚠️ THIS IS WHAT "REPARAMETERIZE" WOULD HAVE BEEN, UNDER A NAME THAT IS
+    // TRUE HERE. Grasshopper's Reparameterize maps a curve's parameter DOMAIN
+    // onto 0..1, and nothing in this catalog has one: a Polyline is a list of
+    // points with no parameterisation to remap. Borrowing the word would have
+    // promised an operation the geometry cannot perform.
+    //
+    // What IS well defined is the numeric version of the same idea: the numbers
+    // in a branch remapped onto 0..1, smallest to largest. That is the useful
+    // half - driving a colour or a radius from measurements in any range - and
+    // it is named for what it does.
+    //
+    // Like Round, it acts on Doubles and leaves any other item type alone; by
+    // the time a modifier runs, a port that declared Double has already had an
+    // Integer input widened for it.
+    Normalise,
+};
+
+const char* PortModifierName (PortModifier modifier);
+
+// Parses the wire spelling. False for anything else, so an unknown modifier from
+// a client is a rejection rather than a silent "none" that quietly changes what
+// a saved graph computes.
+bool ParsePortModifier (const std::string& name, PortModifier& modifier);
+
 struct Node {
     NodeId id;
     std::string nodeType;
-    std::map<std::string, Value> parameters;
+    std::map<std::string, Argument> parameters;
+
+    // Per-input-port modifiers, keyed by port id. Absent means None, so a graph
+    // that uses no modifiers carries no trace of them.
+    std::map<std::string, PortModifier> inputModifiers;
 
     // Persisted with the graph. See ExecutionMode.
     ExecutionMode executionMode = ExecutionMode::Enabled;

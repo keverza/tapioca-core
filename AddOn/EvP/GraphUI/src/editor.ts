@@ -62,13 +62,34 @@ export function isCatalogConnectionValid(
   const input = target?.data.schema.inputs.find((port) => port.portId === connection.targetHandle)
   if (output === undefined || input === undefined) return false
 
-  const compatible = input.valueType === 'absent' || output.valueType === input.valueType
-  if (!compatible) return false
+  if (!portTypesConnect(output.valueType, input.valueType)) return false
 
   if (input.acceptsMultiple === true) return true
   return !edges.some(
     (edge) => edge.target === connection.target && edge.targetHandle === connection.targetHandle,
   )
+}
+
+/**
+ * Whether an edge may join these two ports.
+ *
+ * ⚠️ THIS MIRRORS `PortTypesConnect` IN GraphEdit.cpp, AND THE RUNTIME IS THE
+ * AUTHORITY. The editor needs the answer before it has asked anyone - a wire is
+ * validated while it is being dragged - which is the only reason a second copy
+ * exists at all. When they disagree the visible symptom is nasty and silent: a
+ * connection the runtime would happily accept simply refuses to be drawn, and
+ * nothing anywhere says why. Change them together.
+ *
+ * - `absent` is the WILDCARD ON BOTH ENDS. On an input it means "any value". On
+ *   an output it means "whatever I was given" - a `tree.graft` does not change
+ *   what its items are and cannot know what they are.
+ * - `integer` WIDENS to `double`, and the runtime converts the values as it
+ *   gathers them. The reverse is refused on purpose: 2.5 is 2 or 3 depending on
+ *   an answer only the author has, so `math.toInteger` is where they give it.
+ */
+export function portTypesConnect(output: string, input: string): boolean {
+  if (input === 'absent' || output === 'absent' || output === input) return true
+  return output === 'integer' && input === 'double'
 }
 
 export function detailLevelForZoom(zoom: number, current: DetailLevel): DetailLevel {

@@ -50,10 +50,6 @@ size_t Value::Hash () const
             else if constexpr (std::is_same_v<T, ArchicadElementRef>) {
                 CombineHash (hash, std::hash<std::string> {}(value.guid));
             }
-            else if constexpr (std::is_same_v<T, List>) {
-                for (const Value& item : value)
-                    CombineHash (hash, item.Hash ());
-            }
             else {
                 CombineHash (hash, std::hash<T> {}(value));
             }
@@ -62,37 +58,14 @@ size_t Value::Hash () const
     return hash;
 }
 
-ValueMeasure MeasureValue (const Value& value, size_t maxItems, size_t maxDepth)
+size_t Argument::Hash () const
 {
-    ValueMeasure measure;
-
-    struct Frame {
-        const Value* value;
-        size_t depth;
-    };
-    std::vector<Frame> pending { { &value, 1 } };
-    while (!pending.empty ()) {
-        const Frame frame = pending.back ();
-        pending.pop_back ();
-
-        measure.depth = std::max (measure.depth, frame.depth);
-        if (frame.depth > maxDepth) {
-            measure.exceededDepth = true;
-            return measure;
-        }
-
-        ++measure.items;
-        if (measure.items > maxItems) {
-            measure.exceededItems = true;
-            return measure;
-        }
-
-        if (const auto* list = std::get_if<Value::List> (&frame.value->DataValue ())) {
-            for (const Value& item : *list)
-                pending.push_back ({ &item, frame.depth + 1 });
-        }
-    }
-    return measure;
+    if (!isList_)
+        return item_.Hash ();
+    size_t hash = std::hash<size_t> {}(items_.size ());
+    for (const Value& item : items_)
+        CombineHash (hash, item.Hash ());
+    return hash;
 }
 
 } // namespace evp::nodegraph

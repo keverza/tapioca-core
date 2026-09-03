@@ -18,9 +18,9 @@ using data::IterationPlan;
 using data::PortAccess;
 using data::TreeValue;
 
-// Every item of a tree, in canonical order, as one flat Value::List. What a
-// port that speaks lists receives, and what the browser projection renders.
-void CollectItems (const data::IDataTree& tree, size_t maxItems, Value::List& items, bool& truncated)
+// Every item of a tree, in canonical order, as one flat list. What a port that
+// speaks lists receives, and what the browser projection renders.
+void CollectItems (const data::IDataTree& tree, size_t maxItems, std::vector<Value>& items, bool& truncated)
 {
     for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
         const data::IDataList& list = tree.ListAt (listIndex);
@@ -38,7 +38,7 @@ void CollectItems (const data::IDataTree& tree, size_t maxItems, Value::List& it
 }
 
 // The argument one port hands the body for one iteration.
-bool BuildArgument (const PortSchema& port, const TreeValue& tree, const InputCursor& cursor, Value& argument,
+bool BuildArgument (const PortSchema& port, const TreeValue& tree, const InputCursor& cursor, Argument& argument,
                     std::string& error)
 {
     switch (PortAccessOf (port)) {
@@ -48,7 +48,7 @@ bool BuildArgument (const PortSchema& port, const TreeValue& tree, const InputCu
             return true;
         }
         case PortAccess::List: {
-            Value::List items;
+            std::vector<Value> items;
             if (cursor.present && cursor.listIndex < tree.tree->ListCount ()) {
                 const data::IDataList& list = tree.tree->ListAt (cursor.listIndex);
                 for (size_t index = 0; index < list.Size (); ++index) {
@@ -56,7 +56,7 @@ bool BuildArgument (const PortSchema& port, const TreeValue& tree, const InputCu
                     items.push_back (value.has_value () ? *value : Value {});
                 }
             }
-            argument = Value (std::move (items));
+            argument = Argument::FromItems (std::move (items));
             return true;
         }
         case PortAccess::Tree: {
@@ -83,15 +83,14 @@ bool AppendOutput (const PortSchema& port, const DataPath& path, const ValueMap&
         return true;
     }
 
-    const Value& value = found->second;
+    const Argument& value = found->second;
     if (PortAccessOf (port) == PortAccess::List || value.Type () == ValueType::List) {
-        const auto* items = std::get_if<Value::List> (&value.DataValue ());
-        if (items == nullptr) {
+        if (value.Type () != ValueType::List) {
             // A single value on a list port is a list of one, not an error: a
             // body with one answer should not have to wrap it.
-            return builder.Add (path, value, error);
+            return builder.Add (path, value.AsValue (), error);
         }
-        for (const Value& item : *items) {
+        for (const Value& item : value.Items ()) {
             if (item.Type () == ValueType::Absent)
                 builder.AddNull (path);
             else if (!builder.Add (path, item, error))
@@ -100,7 +99,7 @@ bool AppendOutput (const PortSchema& port, const DataPath& path, const ValueMap&
         return true;
     }
 
-    return builder.Add (path, value, error);
+    return builder.Add (path, value.AsValue (), error);
 }
 
 } // namespace
@@ -138,12 +137,12 @@ data::InputRequirement PortRequirement (const PortSchema& port)
     return port.required ? InputRequirement::MustExist : InputRequirement::MayBeMissing;
 }
 
-bool TreeFromValue (const Value& value, data::ItemType itemType, data::TreeValue& result, std::string& error)
+bool TreeFromValue (const Argument& value, data::ItemType itemType, data::TreeValue& result, std::string& error)
 {
     AnyTreeBuilder builder (itemType);
-    if (const auto* items = std::get_if<Value::List> (&value.DataValue ())) {
+    if (value.Type () == ValueType::List) {
         builder.EnsureList (DataPath::Zero ());
-        for (const Value& item : *items) {
+        for (const Value& item : value.Items ()) {
             if (item.Type () == ValueType::Absent)
                 builder.AddNull (DataPath::Zero ());
             else if (!builder.Add (DataPath::Zero (), item, error))
@@ -154,7 +153,7 @@ bool TreeFromValue (const Value& value, data::ItemType itemType, data::TreeValue
         // Absent is not an item. An absent internalised value produces the
         // EMPTY tree, which is what an unwired optional port means.
     }
-    else if (!builder.Add (DataPath::Zero (), value, error)) {
+    else if (!builder.Add (DataPath::Zero (), value.AsValue (), error)) {
         return false;
     }
 
@@ -162,26 +161,26 @@ bool TreeFromValue (const Value& value, data::ItemType itemType, data::TreeValue
     return true;
 }
 
-Value ProjectTreeToValue (const data::TreeValue& tree, size_t maxItems, bool& truncated)
+Argument ProjectTreeToValue (const data::TreeValue& tree, size_t maxItems, bool& truncated)
 {
     truncated = false;
     if (!tree.IsPresent ())
-        return Value {};
+        return Argument {};
 
     // One item at one path is a scalar, not a list of one. Anything else keeps
     // its collection shape, because a consumer that asked for a value cannot be
     // told the difference any other way.
     if (tree.tree->ListCount () == 1 && tree.tree->ListAt (0).Size () == 1) {
         const std::optional<Value> only = tree.tree->ListAt (0).ValueAt (0);
-        return only.has_value () ? *only : Value {};
+        return only.has_value () ? Argument (*only) : Argument {};
     }
 
-    Value::List items;
+    std::vector<Value> items;
     CollectItems (*tree.tree, maxItems, items, truncated);
-    return Value (std::move (items));
+    return Argument::FromItems (std::move (items));
 }
 
-Value ProjectTreeToValue (const data::TreeValue& tree)
+Argument ProjectTreeToValue (const data::TreeValue& tree)
 {
     bool truncated = false;
     return ProjectTreeToValue (tree, std::numeric_limits<size_t>::max (), truncated);
@@ -216,7 +215,7 @@ ProjectedOutput ProjectOutput (const data::TreeValue& tree, size_t maxItems, siz
         branch.path = tree.tree->Paths ()[listIndex];
         branch.itemCount = list.Size ();
 
-        Value::List items;
+        std::vector<Value> items;
         const size_t take = std::min (branch.itemCount, remaining);
         items.reserve (take);
         for (size_t index = 0; index < take; ++index) {
@@ -225,7 +224,7 @@ ProjectedOutput ProjectOutput (const data::TreeValue& tree, size_t maxItems, siz
         }
         remaining -= take;
         branch.truncated = take < branch.itemCount;
-        branch.value = Value (std::move (items));
+        branch.value = Argument::FromItems (std::move (items));
         projected.branches.push_back (std::move (branch));
     }
     return projected;
@@ -305,7 +304,7 @@ bool RunLiftedNode (const NodeType& nodeType, const Node& node, const TreeMap& i
 
         ValueMap arguments;
         for (size_t index = 0; index < inputPorts.size (); ++index) {
-            Value argument;
+            Argument argument;
             const InputCursor cursor = index < iteration.cursors.size () ? iteration.cursors[index] : InputCursor {};
             if (!BuildArgument (inputPorts[index], trees[index], cursor, argument, error))
                 return false;

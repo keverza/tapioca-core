@@ -131,6 +131,43 @@ bool SimplifyTreeValue (const TreeValue& input, TreeValue& result, std::string& 
 bool ShiftTreeValuePaths (const TreeValue& input, int32_t shift, PathCollision policy, TreeValue& result,
                           std::string& error);
 
+// One tree as a tree of `target`, when CanWidenItemType allows it.
+//
+// Returns the input UNCHANGED - same pointer - when it is already that type or
+// when no widening applies, so this is free on the overwhelmingly common path
+// and callers need no "do I have to?" test of their own. It never narrows and
+// never fails on a type it simply cannot convert: deciding whether that is an
+// error belongs to the caller who knows what the port asked for.
+TreeValue WidenTreeValue (const TreeValue& input, ItemType target);
+
+// One tree of Doubles as a tree of Integers, rounded to nearest.
+//
+// The counterpart of WidenTreeValue, and deliberately NOT its mirror image:
+// widening happens on any wire that needs it because nothing is lost, while this
+// runs only where something asked for it by name. Returns the input unchanged
+// when it is not a Double tree.
+TreeValue RoundTreeValue (const TreeValue& input);
+
+// Every branch's items in the opposite order, keeping paths, nullness and
+// metadata with the items they belong to.
+//
+// Written against the erased interface rather than dispatched on the item type,
+// because reversing does not read an item at all - it only moves it.
+bool ReverseTreeValue (const TreeValue& input, TreeValue& result, std::string& error);
+
+// Each branch's numbers remapped onto 0..1, smallest to largest.
+//
+// ⚠️ PER BRANCH, like every other per-branch operation in this layer, so a
+// grafted tree normalises each branch against itself rather than against a
+// range computed somewhere the user cannot see.
+//
+// ⚠️ AND A BRANCH WHOSE VALUES ARE ALL EQUAL BECOMES ALL ZEROS, not all ones and
+// not a division by zero. There is no spread to place them in, and zero is the
+// answer that stays continuous as the spread shrinks toward nothing.
+//
+// Returns the input unchanged when it is not a Double tree.
+TreeValue NormaliseTreeValue (const TreeValue& input);
+
 } // namespace evp::nodegraph::data
 
 #endif

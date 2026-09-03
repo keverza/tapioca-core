@@ -167,8 +167,7 @@ TEST (ScriptManifest, AQuotedDefaultIsNotMistakenForTheLabel)
     // still correctly typed; it was merely mislabelled and had lost its value,
     // which is exactly the kind of wrong that no error message ever reports. The
     // label is the last quoted group, so it is scanned from the end.
-    const ScriptManifest manifest =
-        ParsePython ("# @in label : text = \"wall\"   \"Some text\"\n# @out out : text\n");
+    const ScriptManifest manifest = ParsePython ("# @in label : text = \"wall\"   \"Some text\"\n# @out out : text\n");
     ASSERT_TRUE (manifest.Ok ()) << manifest.diagnostics.front ().message;
     ASSERT_EQ (manifest.inputs.size (), 1u);
     EXPECT_EQ (manifest.inputs[0].id, "label");
@@ -369,7 +368,7 @@ TEST (ScriptRuntimeJs, MarshalsPointsAndListsBothWays)
 {
     const ScriptRunResult result = RunJs (
         "out = { x: p.x + 1, y: p.y, z: p.z }; n = items.length;",
-        { { "p", Value (Point3 { 1.0, 2.0, 3.0 }) }, { "items", Value (Value::List { Value (1.0), Value (2.0) }) } },
+        { { "p", Value (Point3 { 1.0, 2.0, 3.0 }) }, { "items", Argument::FromItems ({ Value (1.0), Value (2.0) }) } },
         { Out ("out", ValueType::Point3), Out ("n", ValueType::Integer) });
     ASSERT_TRUE (result.ok) << result.error;
     EXPECT_EQ (std::get<Point3> (result.outputs.at ("out").DataValue ()).x, 2.0);
@@ -638,7 +637,7 @@ TEST (ScriptValueShape, TheJavaScriptEngineAndTheSharedProjectionAgree)
     // projection's own text.
     struct Sample {
         const char* name;
-        Value value;
+        Argument value;
     };
     const std::vector<Sample> samples = {
         { "bool", Value (true) },
@@ -648,7 +647,7 @@ TEST (ScriptValueShape, TheJavaScriptEngineAndTheSharedProjectionAgree)
         { "point", Value (Point3 { 1.0, 2.0, 3.0 }) },
         { "polyline", Value (Polyline { { Point3 { 0.0, 0.0, 0.0 }, Point3 { 1.0, 0.0, 0.0 } } }) },
         { "element", Value (ArchicadElementRef { "ABC-123" }) },
-        { "list", Value (Value::List { Value (1.0), Value (2.0) }) },
+        { "list", Argument::FromItems ({ Value (1.0), Value (2.0) }) },
     };
 
     for (const Sample& sample : samples) {

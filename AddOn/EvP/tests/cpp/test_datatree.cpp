@@ -376,7 +376,9 @@ TEST (DataTree, ItemTypeMappingRefusesListAndAbsent)
 
     EXPECT_TRUE (IsAtomicValue (Value (int64_t { 1 })));
     EXPECT_FALSE (IsAtomicValue (Value ()));
-    EXPECT_FALSE (IsAtomicValue (Value (Value::List { Value (int64_t { 1 }) })));
+    // A list can no longer be a Value at all - Value has no List alternative
+    // any more, so IsAtomicValue's exclusion of it is enforced by the type
+    // system rather than by this check.
 }
 
 // ---- Operations ------------------------------------------------------------

@@ -294,6 +294,70 @@ void RegisterTreeMatchingNodes (NodeRegistry& registry)
     if (!registry.Register (std::move (zip), error))
         throw std::logic_error (error);
 
+    // ---- tree.filter -------------------------------------------------------
+    //
+    // ⚠️ IT HAS TO BE TREE-NATIVE, AND THAT IS WHY A SCRIPT NODE CANNOT DO IT.
+    // A lifted body runs once per item and returns a value; it can TRANSFORM an
+    // item (that is map, and a script node does it today) but it has no way to
+    // say "there should be no item here at all" - returning nothing writes a
+    // NULL, which keeps the site. Filtering changes how many items a branch
+    // holds, and only a body that sees the branch can do that.
+
+    NodeType filter = PureNode ("tree.filter", "Filter", "Keeps the items a pattern of true/false marks as true.");
+    filter.inputs.push_back (WildcardTree ("tree"));
+    filter.inputs.push_back (Port ("mask", ValueType::Bool, false));
+    filter.outputs.push_back (WildcardTree ("tree"));
+    filter.treeBody = [] (const Node&, const data::TreeMap& inputs, const NodeExecutionContext&, data::TreeMap& outputs,
+                          std::string& error) {
+        const data::TreeValue& tree = inputs.at ("tree");
+        const data::TreeValue& mask = inputs.at ("mask");
+        data::AnyTreeBuilder kept (tree.itemType);
+
+        for (size_t branch = 0; branch < tree.tree->ListCount (); ++branch) {
+            const data::DataPath& path = tree.tree->Paths ()[branch];
+            const data::IDataList& list = tree.tree->ListAt (branch);
+            // A branch that survives filtering to nothing is still a branch: an
+            // empty list and no list are different states (§7.5), and collapsing
+            // them would silently renumber everything downstream of it.
+            kept.EnsureList (path);
+
+            const data::IDataList* pattern = nullptr;
+            if (mask.IsPresent () && mask.tree->ListCount () > 0) {
+                // The mask's own branches pair with the tree's, clamping when it
+                // has fewer - the same guide rule everything else follows.
+                const size_t maskBranch = std::min (branch, mask.tree->ListCount () - 1);
+                pattern = &mask.tree->ListAt (maskBranch);
+            }
+
+            for (size_t index = 0; index < list.Size (); ++index) {
+                if (pattern != nullptr && pattern->Size () > 0) {
+                    // ⚠️ THE PATTERN REPEATS, it does not clamp to its last
+                    // value. This is the one place in the runtime that cycles,
+                    // and it is deliberate: a mask is a PATTERN, not a parallel
+                    // list. "true, false" clamped would keep item 0 and then
+                    // drop everything after it, which is not what anybody types
+                    // "every other one" to mean.
+                    const std::optional<Value> flag = pattern->ValueAt (index % pattern->Size ());
+                    const bool keep = flag.has_value () && std::get<bool> (flag->DataValue ());
+                    if (!keep)
+                        continue;
+                }
+                // No mask at all is the identity, not "keep nothing": an
+                // unwired optional input means the node was not told to do
+                // anything, and dropping every item would look like data loss.
+                const std::optional<Value> value = list.ValueAt (index);
+                if (!value.has_value ())
+                    kept.AddNull (path, list.MetadataAt (index));
+                else if (!kept.Add (path, *value, list.MetadataAt (index), error))
+                    return false;
+            }
+        }
+        outputs.emplace ("tree", std::move (kept).Finish ());
+        return true;
+    };
+    if (!registry.Register (std::move (filter), error))
+        throw std::logic_error (error);
+
     // ---- tree.crossProduct -------------------------------------------------
 
     NodeType cross = PureNode ("tree.crossProduct", "Cross Product",

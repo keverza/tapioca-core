@@ -72,7 +72,9 @@ TEST (AnyTreeBuilder, AnAnyTreeTakesAnyAtomicItemButStillNotAList)
     std::string error;
     EXPECT_TRUE (builder.Add (P ({ 0 }), Value (1.5), error));
     EXPECT_TRUE (builder.Add (P ({ 0 }), Value (std::string ("text")), error));
-    EXPECT_FALSE (builder.Add (P ({ 0 }), Value (Value::List { Value (int64_t { 1 }) }), error));
+    // A list can no longer be an item at all: Value has no List alternative any
+    // more, so the invariant this used to check at runtime is now enforced by
+    // the type system instead.
 
     const TreeValue tree = std::move (builder).Finish ();
     EXPECT_EQ (tree.itemType, ItemType::Any);

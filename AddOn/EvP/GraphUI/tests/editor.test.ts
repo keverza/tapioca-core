@@ -8,6 +8,7 @@ import {
   groupCatalog,
   initialTheme,
   isCatalogConnectionValid,
+  portTypesConnect,
   REFERENCE_EDGE_COLOR,
   REFERENCE_EDGE_STYLE,
 } from '../src/editor.ts'
@@ -86,4 +87,19 @@ test('connected inputs display typed upstream values rather than source names', 
   assert.equal(displayedOutputText({ portId: 'value', value: { valueType: 'bool', bool: false }, text: 'False', summary: 'Boolean' }), 'False')
   assert.equal(displayedOutputText({ portId: 'value', value: { valueType: 'string', text: '' }, text: '', summary: 'String' }), '""')
   assert.equal(displayedOutputText(undefined), 'Not evaluated')
+})
+
+test('the connection rule mirrors the runtime: wildcards both ways, and integer widens', () => {
+  // The wildcard on the INPUT, which is what an inspector port has always been.
+  assert.equal(portTypesConnect('mesh', 'absent'), true)
+  // ...and on the OUTPUT, which tree.graft has since it cannot know its item type.
+  assert.equal(portTypesConnect('absent', 'list'), true)
+  assert.equal(portTypesConnect('double', 'double'), true)
+
+  // Widening travels a wire; narrowing needs math.toInteger, because 2.5 is 2
+  // or 3 depending on an answer only the author has.
+  assert.equal(portTypesConnect('integer', 'double'), true)
+  assert.equal(portTypesConnect('double', 'integer'), false)
+
+  assert.equal(portTypesConnect('mesh', 'double'), false)
 })

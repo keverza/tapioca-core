@@ -50,15 +50,15 @@ std::string ElementTypeOfContainerNode (const std::string& nodeTypeId);
 // same set on the way back in. Non-element entries are dropped rather than
 // failing: the parameter is validated on the way in, so anything else in there
 // came from a hand-edited file and losing it is better than refusing the graph.
-std::vector<ArchicadElementRef> ElementsFromValue (const Value& value);
-Value ValueFromElements (const std::vector<ArchicadElementRef>& elements);
+std::vector<ArchicadElementRef> ElementsFromValue (const Argument& value);
+Argument ValueFromElements (const std::vector<ArchicadElementRef>& elements);
 
 // The same round trip for the captured type ids. A non-string entry reads back
 // as the unclassified id rather than being dropped, so the list stays PARALLEL
 // to the guids - a shifted type list would file every element under its
 // neighbour's container, which looks plausible and is entirely wrong.
-std::vector<std::string> TypesFromValue (const Value& value);
-Value ValueFromTypes (const std::vector<std::string>& types);
+std::vector<std::string> TypesFromValue (const Argument& value);
+Argument ValueFromTypes (const std::vector<std::string>& types);
 
 void RegisterArchicadNodes (NodeRegistry& registry);
 

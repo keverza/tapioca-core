@@ -237,6 +237,7 @@ set (EVP_NODEGRAPH_SOURCES
     # TreeNodes.hpp.
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/TreeNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ListNodes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/InputGathering.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/WorkerPool.cpp")

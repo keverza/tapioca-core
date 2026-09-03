@@ -34,7 +34,7 @@ struct DisconnectEdit {
 struct SetParameterEdit {
     NodeId nodeId;
     std::string parameterId;
-    Value value;
+    Argument value;
 };
 
 // Stage F5: a mode change is an EDIT, not a side channel.
@@ -48,6 +48,22 @@ struct SetParameterEdit {
 struct SetExecutionModeEdit {
     NodeId nodeId;
     ExecutionMode mode = ExecutionMode::Enabled;
+};
+
+// A port modifier, set or cleared. An edit for the same reason a mode is: it
+// changes what the node computes from, so it must be validated against the
+// registry, rejected atomically, bump the revision and dirty the downstream
+// closure. Setting `modifier` to None clears it.
+//
+// ⚠️ IT CAN INVALIDATE AN EDGE THAT WAS LEGAL. Clearing a Round modifier from a
+// port fed by a Double leaves a connection the type rules refuse, so this edit
+// checks the edges already attached to the port and is rejected when one would
+// no longer be allowed. Dropping the edge silently would delete a wire the user
+// drew, from a menu that said nothing about wires.
+struct SetPortModifierEdit {
+    NodeId nodeId;
+    std::string portId;
+    PortModifier modifier = PortModifier::None;
 };
 
 // Stage F4's release. An edit for the same reason: it changes what consumers
@@ -97,8 +113,9 @@ struct SetScriptInterfaceEdit {
 };
 
 struct GraphEdit {
-    using Data = std::variant<AddNodeEdit, RemoveNodeEdit, RemoveElementsEdit, ConnectEdit, DisconnectEdit,
-                              SetParameterEdit, SetExecutionModeEdit, ReleaseHoldingEdit, SetScriptInterfaceEdit>;
+    using Data =
+        std::variant<AddNodeEdit, RemoveNodeEdit, RemoveElementsEdit, ConnectEdit, DisconnectEdit, SetParameterEdit,
+                     SetExecutionModeEdit, SetPortModifierEdit, ReleaseHoldingEdit, SetScriptInterfaceEdit>;
     Data data;
 };
 

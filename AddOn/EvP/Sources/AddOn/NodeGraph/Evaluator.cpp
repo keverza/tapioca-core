@@ -3,6 +3,7 @@
 #include "NodeGraph/ArchicadHost.hpp"
 #include "NodeGraph/FaultBarrier.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
+#include "NodeGraph/InputGathering.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/WorkerPool.hpp"
 
@@ -298,77 +299,16 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
     }
 
     TreeMap inputs;
-    for (const PortSchema& input : ResolvedInputs (node, nodeType)) {
-        const data::ItemType itemType = PortItemType (input);
-        std::vector<data::TreeValue> wired;
-        for (const Edge& edge : document.Edges ()) {
-            if (edge.targetNode != nodeId || edge.targetPort != input.id)
-                continue;
-            const auto source = cache_.find (edge.sourceNode);
-            const std::shared_ptr<const NodeResult> sourceResult =
-                source == cache_.end () ? nullptr : source->second.result;
-            if (!sourceResult || !sourceResult->outputs.contains (edge.sourcePort)) {
-                FailNode (nodeId, statuscode::kErrorInput,
-                          "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, 0.0, state);
-                return false;
-            }
-            // The tree crosses the wire UNCHANGED (§8.1): connecting an edge
-            // does not flatten, graft or retype what it carries, and the shared
-            // pointer means a large upstream result is not copied per consumer.
-            wired.push_back (sourceResult->outputs.at (edge.sourcePort));
-            CombineText (inputHash, edge.sourceNode);
-            CombineText (inputHash, edge.sourcePort);
-            CombineHash (inputHash, static_cast<size_t> (sourceResult->outputRevision));
-        }
-
-        if (wired.empty ()) {
-            // Nothing is wired to this port, so the node falls back to the
-            // input's INTERNALISED value - a parameter stored under the input's
-            // own id, which is how a typed-in number reaches a port that has no
-            // declared parameter. GraphEdit's ValidateNode is what keeps the
-            // type honest, and the value is already folded into inputHash above
-            // with every other parameter, so retyping it invalidates the cache.
-            //
-            // An edge always wins: this branch is only reached when there is none.
-            const auto internalised = node.parameters.find (input.id);
-            if (internalised != node.parameters.end () && internalised->second.Type () != ValueType::Absent) {
-                data::TreeValue tree;
-                std::string treeError;
-                if (!TreeFromValue (internalised->second, itemType, tree, treeError)) {
-                    FailNode (nodeId, statuscode::kErrorInput,
-                              "internalised value for '" + input.id + "': " + treeError, 0.0, state);
-                    return false;
-                }
-                inputs.emplace (input.id, std::move (tree));
-            }
-            else if (input.required) {
-                FailNode (nodeId, statuscode::kErrorInput, "required input is unconnected: " + input.id, 0.0, state);
-                return false;
-            }
-            else {
-                // The EMPTY tree of the port's type, never a null pointer: a
-                // node body is never handed "no tree", only a tree with nothing
-                // in it (§7.5 keeps absent a port state, not a tree state).
-                inputs.emplace (input.id, data::EmptyTreeValue (itemType));
-            }
-        }
-        else if (wired.size () == 1) {
-            inputs.emplace (input.id, std::move (wired.front ()));
-        }
-        else {
-            // Fan-in, and the port's DECLARED contract decides it (§7.1.2
-            // decision 3). The trees arrive in document edge order; what makes
-            // that a contract rather than an accident is that the port said it
-            // accepts several and the policy below is written down.
-            data::FanInContract contract;
-            data::TreeValue merged;
-            std::string mergeError;
-            if (!data::MergeTreeValues (wired, contract, merged, mergeError)) {
-                FailNode (nodeId, statuscode::kErrorInput, "input '" + input.id + "': " + mergeError, 0.0, state);
-                return false;
-            }
-            inputs.emplace (input.id, std::move (merged));
-        }
+    std::string gatherError;
+    if (!GatherNodeInputs (
+            document, nodeId, node, nodeType,
+            [this] (const NodeId& sourceId) -> std::shared_ptr<const NodeResult> {
+                const auto source = cache_.find (sourceId);
+                return source == cache_.end () ? nullptr : source->second.result;
+            },
+            inputs, inputHash, gatherError)) {
+        FailNode (nodeId, statuscode::kErrorInput, gatherError, 0.0, state);
+        return false;
     }
 
     CacheEntry& entry = cache_[nodeId];
@@ -526,8 +466,7 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
             // there would be checking the declaration against itself - and it
             // would reject the honest answer, a pass-through forwarding its
             // input's real item type. Every port that named a type is checked.
-            const data::ItemType declared =
-                output == nullptr ? data::ItemType::Any : PortItemType (*output);
+            const data::ItemType declared = output == nullptr ? data::ItemType::Any : PortItemType (*output);
             if (output == nullptr || !tree.IsPresent () ||
                 (declared != data::ItemType::Any && tree.itemType != declared)) {
                 failure = "invalid output: " + portId;

@@ -143,8 +143,8 @@ std::optional<ValueType> ValueTypeFromItemType (ItemType type)
 
 bool IsAtomicValue (const Value& value)
 {
-    const ValueType type = value.Type ();
-    return type != ValueType::Absent && type != ValueType::List;
+    // A Value can no longer carry a List, so only Absent remains to exclude.
+    return value.Type () != ValueType::Absent;
 }
 
 Value ToValue (bool item)
@@ -332,6 +332,20 @@ bool ItemTraits<Value>::Equals (const Value& left, const Value& right)
             return false;
     }
     return false;
+}
+
+bool CanWidenItemType (ItemType from, ItemType to)
+{
+    return from == ItemType::Integer && to == ItemType::Double;
+}
+
+bool CanWidenValueType (ValueType from, ValueType to)
+{
+    const std::optional<ItemType> fromItem = ItemTypeFromValueType (from);
+    const std::optional<ItemType> toItem = ItemTypeFromValueType (to);
+    if (!fromItem.has_value () || !toItem.has_value ())
+        return false;
+    return CanWidenItemType (*fromItem, *toItem);
 }
 
 } // namespace evp::nodegraph::data

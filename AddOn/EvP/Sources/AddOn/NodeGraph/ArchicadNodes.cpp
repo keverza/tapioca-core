@@ -15,18 +15,18 @@ constexpr const char kSetSelection[] = "archicad.setSelection";
 constexpr const char kContainerPrefix[] = "archicad.container.";
 constexpr const char kLibraryPart[] = "archicad.libraryPart";
 
-Value::List ToValueList (const std::vector<ArchicadElementRef>& elements)
+std::vector<Value> ToValueList (const std::vector<ArchicadElementRef>& elements)
 {
-    Value::List list;
+    std::vector<Value> list;
     list.reserve (elements.size ());
     for (const ArchicadElementRef& element : elements)
         list.emplace_back (element);
     return list;
 }
 
-Value::List ToStringList (const std::vector<std::string>& values)
+std::vector<Value> ToStringList (const std::vector<std::string>& values)
 {
-    Value::List list;
+    std::vector<Value> list;
     list.reserve (values.size ());
     for (const std::string& value : values)
         list.emplace_back (value);
@@ -58,38 +58,38 @@ std::string ElementTypeOfContainerNode (const std::string& nodeTypeId)
     return (type != nullptr && type->container) ? elementType : std::string {};
 }
 
-std::vector<std::string> TypesFromValue (const Value& value)
+std::vector<std::string> TypesFromValue (const Argument& value)
 {
     std::vector<std::string> types;
     if (value.Type () != ValueType::List)
         return types;
-    for (const Value& item : std::get<Value::List> (value.DataValue ())) {
+    for (const Value& item : value.Items ()) {
         types.push_back (item.Type () == ValueType::String ? std::get<std::string> (item.DataValue ())
                                                            : std::string (kUnclassifiedElementTypeId));
     }
     return types;
 }
 
-Value ValueFromTypes (const std::vector<std::string>& types)
+Argument ValueFromTypes (const std::vector<std::string>& types)
 {
-    return Value (ToStringList (types));
+    return Argument::FromItems (ToStringList (types));
 }
 
-std::vector<ArchicadElementRef> ElementsFromValue (const Value& value)
+std::vector<ArchicadElementRef> ElementsFromValue (const Argument& value)
 {
     std::vector<ArchicadElementRef> elements;
     if (value.Type () != ValueType::List)
         return elements;
-    for (const Value& item : std::get<Value::List> (value.DataValue ())) {
+    for (const Value& item : value.Items ()) {
         if (item.Type () == ValueType::ArchicadElementRef)
             elements.push_back (std::get<ArchicadElementRef> (item.DataValue ()));
     }
     return elements;
 }
 
-Value ValueFromElements (const std::vector<ArchicadElementRef>& elements)
+Argument ValueFromElements (const std::vector<ArchicadElementRef>& elements)
 {
-    return Value (ToValueList (elements));
+    return Argument::FromItems (ToValueList (elements));
 }
 
 void RegisterElementContainers (NodeRegistry& registry);
@@ -345,7 +345,7 @@ bool ExecuteArchicadNode (const Node& node, const ValueMap& inputs, const NodeEx
         }
 
         std::vector<ArchicadElementRef> elements;
-        for (const Value& item : std::get<Value::List> (found->second.DataValue ())) {
+        for (const Value& item : found->second.Items ()) {
             if (item.Type () != ValueType::ArchicadElementRef) {
                 error = "the elements input must contain only Archicad element references";
                 return false;

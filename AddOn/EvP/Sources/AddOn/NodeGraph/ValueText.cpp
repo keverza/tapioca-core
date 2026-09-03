@@ -54,24 +54,37 @@ std::string Format (const Value& value, size_t depth, size_t maxDepth, size_t ma
         }
         case ValueType::ArchicadElementRef:
             return std::get<ArchicadElementRef> (value.DataValue ()).guid;
-        case ValueType::List: {
-            const Value::List& list = std::get<Value::List> (value.DataValue ());
-            if (depth >= maxDepth)
-                return "[" + std::to_string (list.size ()) + " items]";
-            std::string text = "[";
-            for (size_t i = 0; i < list.size (); ++i) {
-                if (i >= maxItems) {
-                    text += ", +" + std::to_string (list.size () - i) + " more";
-                    break;
-                }
-                if (i != 0)
-                    text += ", ";
-                text += Format (list[i], depth + 1, maxDepth, maxItems);
-            }
-            return text + "]";
-        }
+        case ValueType::List:
+            // Unreachable: a Value can no longer carry a List - see
+            // FormatArgument, which renders the branch before an item is ever
+            // passed here.
+            return "(unknown)";
     }
     return "(unknown)";
+}
+
+// The branch a List-typed port hands the body, or a scalar argument - the only
+// place depth still means anything, since an item inside a branch is
+// guaranteed scalar.
+std::string FormatArgument (const Argument& value, size_t depth, size_t maxDepth, size_t maxItems)
+{
+    if (value.Type () != ValueType::List)
+        return Format (value.AsValue (), depth, maxDepth, maxItems);
+
+    const std::vector<Value>& list = value.Items ();
+    if (depth >= maxDepth)
+        return "[" + std::to_string (list.size ()) + " items]";
+    std::string text = "[";
+    for (size_t i = 0; i < list.size (); ++i) {
+        if (i >= maxItems) {
+            text += ", +" + std::to_string (list.size () - i) + " more";
+            break;
+        }
+        if (i != 0)
+            text += ", ";
+        text += Format (list[i], depth + 1, maxDepth, maxItems);
+    }
+    return text + "]";
 }
 
 const char* TypeName (ValueType valueType)
@@ -105,12 +118,12 @@ const char* TypeName (ValueType valueType)
 
 } // namespace
 
-std::string FormatValue (const Value& value, size_t maxDepth, size_t maxItems)
+std::string FormatValue (const Argument& value, size_t maxDepth, size_t maxItems)
 {
-    return Format (value, 0, maxDepth, maxItems);
+    return FormatArgument (value, 0, maxDepth, maxItems);
 }
 
-std::vector<std::string> FormatValueLines (const Value& value, size_t maxLines)
+std::vector<std::string> FormatValueLines (const Argument& value, size_t maxLines)
 {
     std::vector<std::string> lines;
 
@@ -119,7 +132,7 @@ std::vector<std::string> FormatValueLines (const Value& value, size_t maxLines)
         return lines;
     }
 
-    const Value::List& list = std::get<Value::List> (value.DataValue ());
+    const std::vector<Value>& list = value.Items ();
     if (list.empty ()) {
         lines.push_back ("(empty list)");
         return lines;
@@ -136,12 +149,11 @@ std::vector<std::string> FormatValueLines (const Value& value, size_t maxLines)
     return lines;
 }
 
-std::string DescribeValue (const Value& value)
+std::string DescribeValue (const Argument& value)
 {
     if (value.Type () != ValueType::List)
         return TypeName (value.Type ());
-    const Value::List& list = std::get<Value::List> (value.DataValue ());
-    return "List of " + std::to_string (list.size ());
+    return "List of " + std::to_string (value.Items ().size ());
 }
 
 } // namespace evp::nodegraph
