@@ -47,9 +47,24 @@ crash*, not a particular answer.
 `GeometryExtractor.cpp` is deliberately not built here — it is the only file in
 `Geometry/` that pulls the DevKit. It stays thin glue and is covered at L5.
 
-## Two things to know before trusting a green run
+## Three things to know before trusting a green run
 
-**1. These fixtures are synthetic.** `CLAUDE.md` says never validate a geometry
+**1. The scene-text tests do not run by default.** `EVP_TEXT_RENDERING` is `OFF`
+while that feature is half-finished, so FreeType, HarfBuzz, msdfgen and
+msdf-atlas-gen are not configured and `test_scenetextatlas`,
+`test_scenetextlayout` and `test_scenetextlayoutcache` are not built. The
+configure step says so. This keeps an in-progress feature from turning the gate
+red for everyone else — the node-graph tests have nothing to do with text — but
+it does mean a green run says nothing about scene text. Picking that work back
+up starts with:
+
+```powershell
+.\Invoke-CppTests.ps1   # after: cmake -S . -B build -DEVP_TEXT_RENDERING=ON
+```
+
+The `.apx` build is unaffected and still builds the text stack.
+
+**2. These fixtures are synthetic.** `CLAUDE.md` says never validate a geometry
 algorithm on synthetic data alone, and that still holds. What is here are *analytic*
 anchors (a unit box's slice perimeter is 4 because of arithmetic, not because a previous
 run said so) and *degenerate* crash cases. Replaying a **real captured dump** is L3 and
@@ -57,7 +72,7 @@ is not done yet: it needs a mesh-level snapshot fixture, and this clone has none
 `dump/` is empty and `%LOCALAPPDATA%\EvP\dumps\` holds only element-detail JSON. The
 decoder in `test_serializer.cpp` is the reader such a fixture would load with.
 
-**2. One test is DISABLED because it fails.**
+**3. One test is DISABLED because it fails.**
 `QueryEngine.DISABLED_OutOfRangeIndicesDoNotReadOutOfBounds` — a mesh whose triangle
 indices point past the end of its vertex array makes the nanort BVH build read out of
 bounds (ASan-confirmed heap-buffer-overflow at `QueryEngine.cpp:85`). It is unreachable

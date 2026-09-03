@@ -2,6 +2,7 @@
 #define EVP_NODEGRAPH_EVALUATOR_HPP
 
 #include "NodeGraph/EvaluationPlan.hpp"
+#include "NodeGraph/NodeLifting.hpp"
 #include "NodeGraph/Graph.hpp"
 #include "NodeGraph/ProjectGenerations.hpp"
 #include "NodeGraph/ReferenceResolver.hpp"
@@ -19,7 +20,9 @@
 
 namespace evp::nodegraph {
 
-using ValueMap = std::map<std::string, Value>;
+// ValueMap is the BODY-level vocabulary: one value per port, for one iteration.
+// TreeMap (NodeLifting.hpp) is the PORT-level one: one tree per port, which is
+// what an edge carries and what a node publishes. NodeLifting is the join.
 
 class IArchicadHost;
 
@@ -41,7 +44,7 @@ struct NodeExecutionContext {
 };
 
 struct NodeResult {
-    ValueMap outputs;
+    TreeMap outputs;
     double durationMilliseconds = 0.0;
 
     // Bumped on every successful publication. Downstream cache keys carry this
@@ -351,7 +354,7 @@ class Evaluator {
     // through the type's declared mappings, without running any body. Returns
     // false when a mapped input carried no value, having failed the node.
     // COORDINATOR THREAD ONLY.
-    bool PublishBypass (const NodeId& nodeId, const NodeType& nodeType, const ValueMap& inputs, size_t inputHash,
+    bool PublishBypass (const NodeId& nodeId, const NodeType& nodeType, const TreeMap& inputs, size_t inputHash,
                         PhaseState& state);
 
     // Marks `origin` and its downstream closure unusable for the rest of the run

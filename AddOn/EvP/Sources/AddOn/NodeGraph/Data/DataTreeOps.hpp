@@ -3,11 +3,12 @@
 
 // The topology operations of the data tree (HANDOFF 9.1-9.3).
 //
-// These are the four that every other tree node is written in terms of, so they
-// are defined once here rather than re-derived per node. All of them obey the
-// transform laws in 9.2: inputs are untouched, outputs are canonical, item
+// These are the operations every other tree node is written in terms of, so
+// they are defined once here rather than re-derived per node. All of them obey
+// the transform laws in 9.2: inputs are untouched, outputs are canonical, item
 // order is preserved, and nullness and metadata travel with their item -
-// flatten, graft, simplify and merge never drop metadata.
+// flatten, graft, simplify, merge, filter and path remapping never drop
+// metadata.
 //
 // What is deliberately NOT here: matching and replication. A tree does not lace
 // itself (8.3). A node that pairs two trees declares its own policy; the
@@ -16,8 +17,12 @@
 #include "NodeGraph/Data/DataTree.hpp"
 
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace evp::nodegraph::data {
+
+// ---- Topology --------------------------------------------------------------
 
 // Concatenate every item into {0} in canonical traversal order. Empty lists are
 // discarded (they have nothing to contribute to a flat list), so a tree of
@@ -131,6 +136,202 @@ bool MergeTrees (const DataTree<T>& left, const DataTree<T>& right, MergeCollisi
 
     result = std::move (builder).Finish ();
     return true;
+}
+
+// ---- Values ----------------------------------------------------------------
+
+// One output item per input item, at the same site. `convert` runs only for
+// items that have a value: a null item stays null and keeps its metadata,
+// because "no value" is not something a conversion applies to, and mapping it
+// to a default is how a hole silently becomes a zero.
+//
+// Metadata is PRESERVED, which 9.3 makes the default for a one-to-one map. A
+// node that means to produce or drop metadata rebuilds the item itself.
+template <class T, class F>
+auto MapTree (const DataTree<T>& tree, F convert)
+    -> std::shared_ptr<const DataTree<std::decay_t<decltype (convert (std::declval<const T&> ()))>>>
+{
+    using U = std::decay_t<decltype (convert (std::declval<const T&> ()))>;
+
+    DataTreeBuilder<U> builder;
+    for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
+        const DataPath& path = tree.PathAt (listIndex);
+        const DataList<T>& list = tree.TypedListAt (listIndex);
+        builder.EnsureList (path);
+        for (size_t index = 0; index < list.Size (); ++index) {
+            if (list.IsNullAt (index))
+                builder.AddNull (path, list.MetadataAt (index));
+            else
+                builder.Add (path, convert (list.At (index)), list.MetadataAt (index));
+        }
+    }
+    return std::move (builder).Finish ();
+}
+
+// Keep the items `keep` accepts. `keep` receives the whole item, not just a
+// value, so a filter can test nullness and metadata rather than only content.
+//
+// Paths survive by default, including ones left with nothing: an empty list is
+// a fact (7.5), and an operation downstream needs to see that this path
+// produced nothing rather than that it never existed. Pass removeEmptyLists
+// when the caller genuinely wants those paths gone.
+template <class T, class F>
+std::shared_ptr<const DataTree<T>> FilterTree (const DataTree<T>& tree, F keep, bool removeEmptyLists = false)
+{
+    DataTreeBuilder<T> builder;
+    for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
+        const DataPath& path = tree.PathAt (listIndex);
+        const DataList<T>& list = tree.TypedListAt (listIndex);
+
+        bool kept = false;
+        for (size_t index = 0; index < list.Size (); ++index) {
+            const DataItem<T> item = list.Item (index);
+            if (!keep (item))
+                continue;
+            builder.AddItem (path, item);
+            kept = true;
+        }
+        if (!kept && !removeEmptyLists)
+            builder.EnsureList (path);
+    }
+    return std::move (builder).Finish ();
+}
+
+// The item count of every list, as one integer per path. The shape answer to
+// "how much is on each branch" without materialising the items.
+template <class T> std::shared_ptr<const DataTree<int64_t>> CountTreeItems (const DataTree<T>& tree)
+{
+    DataTreeBuilder<int64_t> builder;
+    for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex)
+        builder.Add (tree.PathAt (listIndex), static_cast<int64_t> (tree.TypedListAt (listIndex).Size ()));
+    return std::move (builder).Finish ();
+}
+
+// ---- Paths -----------------------------------------------------------------
+
+// What a path remapping does when two source paths land on one target.
+enum class PathCollision {
+    // Refuse. A remapping that folds two paths together usually means the
+    // mapping is wrong, and the fold leaves no trace in the result.
+    Error,
+
+    // Items arrive in canonical source-path order, then item order.
+    Append,
+};
+
+// Rewrite every path through `remap`, keeping each list's items and their
+// order. `error` names the first colliding target path.
+template <class T, class F>
+bool MapTreePaths (const DataTree<T>& tree, F remap, PathCollision policy, std::shared_ptr<const DataTree<T>>& result,
+                   std::string& error)
+{
+    DataTreeBuilder<T> builder;
+    std::vector<DataPath> taken;
+    taken.reserve (tree.ListCount ());
+
+    for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
+        const DataPath target = remap (tree.PathAt (listIndex));
+        if (policy == PathCollision::Error) {
+            if (std::find (taken.begin (), taken.end (), target) != taken.end ()) {
+                error = "Two paths map onto " + target.ToString ();
+                return false;
+            }
+            taken.push_back (target);
+        }
+        builder.AddList (target, tree.TypedListAt (listIndex));
+    }
+
+    result = std::move (builder).Finish ();
+    return true;
+}
+
+// Move every path along by `shift` segments: a positive shift drops that many
+// leading segments, a negative one prepends that many zeroes.
+//
+// Unlike simplify, this is unconditional - it is what a user reaches for when
+// they already know the shape they want - so a shift that would leave a path
+// with no segments is an ERROR naming that path rather than a quietly clamped
+// path (7.3: a path always has at least one segment).
+template <class T>
+bool ShiftTreePaths (const DataTree<T>& tree, int32_t shift, PathCollision policy,
+                     std::shared_ptr<const DataTree<T>>& result, std::string& error)
+{
+    if (shift == 0) {
+        return MapTreePaths (tree, [] (const DataPath& path) { return path; }, policy, result, error);
+    }
+
+    if (shift > 0) {
+        const size_t drop = static_cast<size_t> (shift);
+        for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
+            const DataPath& path = tree.PathAt (listIndex);
+            if (drop >= path.Length ()) {
+                error = "Shifting by " + std::to_string (shift) + " would empty the path " + path.ToString ();
+                return false;
+            }
+        }
+        return MapTreePaths (
+            tree, [drop] (const DataPath& path) { return *path.DropFirst (drop); }, policy, result, error);
+    }
+
+    const size_t add = static_cast<size_t> (-static_cast<int64_t> (shift));
+    return MapTreePaths (
+        tree,
+        [add] (const DataPath& path) {
+            DataPath shifted = path;
+            for (size_t step = 0; step < add; ++step)
+                shifted = shifted.Prepend (0);
+            return shifted;
+        },
+        policy, result, error);
+}
+
+// ---- Metadata --------------------------------------------------------------
+
+// Add or replace one metadata entry on every item, null items included: a null
+// item is a cell that exists, and provenance applies to it as much as to a
+// valued one. Fails for the same reasons MetadataBuilder::Set does.
+template <class T>
+bool SetTreeMetadata (const DataTree<T>& tree, const MetadataEntry& entry, std::shared_ptr<const DataTree<T>>& result,
+                      std::string& error)
+{
+    DataTreeBuilder<T> builder;
+    for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
+        const DataPath& path = tree.PathAt (listIndex);
+        const DataList<T>& list = tree.TypedListAt (listIndex);
+        builder.EnsureList (path);
+        for (size_t index = 0; index < list.Size (); ++index) {
+            SharedMetadata metadata;
+            if (!WithMetadataEntry (list.MetadataAt (index), entry, metadata, error))
+                return false;
+            if (list.IsNullAt (index))
+                builder.AddNull (path, std::move (metadata));
+            else
+                builder.Add (path, list.At (index), std::move (metadata));
+        }
+    }
+
+    result = std::move (builder).Finish ();
+    return true;
+}
+
+// Remove one key from every item. Items that never carried it are untouched.
+template <class T>
+std::shared_ptr<const DataTree<T>> RemoveTreeMetadata (const DataTree<T>& tree, const MetadataKey& key)
+{
+    DataTreeBuilder<T> builder;
+    for (size_t listIndex = 0; listIndex < tree.ListCount (); ++listIndex) {
+        const DataPath& path = tree.PathAt (listIndex);
+        const DataList<T>& list = tree.TypedListAt (listIndex);
+        builder.EnsureList (path);
+        for (size_t index = 0; index < list.Size (); ++index) {
+            SharedMetadata metadata = WithoutMetadataKey (list.MetadataAt (index), key);
+            if (list.IsNullAt (index))
+                builder.AddNull (path, std::move (metadata));
+            else
+                builder.Add (path, list.At (index), std::move (metadata));
+        }
+    }
+    return std::move (builder).Finish ();
 }
 
 } // namespace evp::nodegraph::data

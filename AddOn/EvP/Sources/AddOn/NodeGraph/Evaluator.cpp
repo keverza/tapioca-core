@@ -160,7 +160,7 @@ struct Evaluator::PreparedNode {
     NodeId nodeId;
     const NodeType* nodeType = nullptr;
     Node effectiveNode;
-    ValueMap inputs;
+    TreeMap inputs;
     size_t inputHash = 0;
     ExecutionDomain domain = ExecutionDomain::Worker;
 
@@ -172,7 +172,8 @@ struct Evaluator::PreparedNode {
     NodeExecutionContext execution;
 
     // Filled by the execute phase and read by the publish phase.
-    ValueMap outputs;
+    TreeMap outputs;
+    LiftReport lift;
     std::string nodeError;
     GuardOutcome guarded;
     double elapsedMs = 0.0;
@@ -296,9 +297,10 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
         CombineHash (inputHash, static_cast<size_t> (plan.generations.Value (domain)));
     }
 
-    ValueMap inputs;
+    TreeMap inputs;
     for (const PortSchema& input : ResolvedInputs (node, nodeType)) {
-        Value::List values;
+        const data::ItemType itemType = PortItemType (input);
+        std::vector<data::TreeValue> wired;
         for (const Edge& edge : document.Edges ()) {
             if (edge.targetNode != nodeId || edge.targetPort != input.id)
                 continue;
@@ -310,13 +312,16 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
                           "upstream output is absent: " + edge.sourceNode + "." + edge.sourcePort, 0.0, state);
                 return false;
             }
-            values.push_back (sourceResult->outputs.at (edge.sourcePort));
+            // The tree crosses the wire UNCHANGED (§8.1): connecting an edge
+            // does not flatten, graft or retype what it carries, and the shared
+            // pointer means a large upstream result is not copied per consumer.
+            wired.push_back (sourceResult->outputs.at (edge.sourcePort));
             CombineText (inputHash, edge.sourceNode);
             CombineText (inputHash, edge.sourcePort);
             CombineHash (inputHash, static_cast<size_t> (sourceResult->outputRevision));
         }
 
-        if (values.empty ()) {
+        if (wired.empty ()) {
             // Nothing is wired to this port, so the node falls back to the
             // input's INTERNALISED value - a parameter stored under the input's
             // own id, which is how a typed-in number reaches a port that has no
@@ -327,21 +332,42 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
             // An edge always wins: this branch is only reached when there is none.
             const auto internalised = node.parameters.find (input.id);
             if (internalised != node.parameters.end () && internalised->second.Type () != ValueType::Absent) {
-                inputs.emplace (input.id, internalised->second);
+                data::TreeValue tree;
+                std::string treeError;
+                if (!TreeFromValue (internalised->second, itemType, tree, treeError)) {
+                    FailNode (nodeId, statuscode::kErrorInput,
+                              "internalised value for '" + input.id + "': " + treeError, 0.0, state);
+                    return false;
+                }
+                inputs.emplace (input.id, std::move (tree));
             }
             else if (input.required) {
                 FailNode (nodeId, statuscode::kErrorInput, "required input is unconnected: " + input.id, 0.0, state);
                 return false;
             }
             else {
-                inputs.emplace (input.id, Value {});
+                // The EMPTY tree of the port's type, never a null pointer: a
+                // node body is never handed "no tree", only a tree with nothing
+                // in it (§7.5 keeps absent a port state, not a tree state).
+                inputs.emplace (input.id, data::EmptyTreeValue (itemType));
             }
         }
-        else if (input.acceptsMultiple) {
-            inputs.emplace (input.id, Value (std::move (values)));
+        else if (wired.size () == 1) {
+            inputs.emplace (input.id, std::move (wired.front ()));
         }
         else {
-            inputs.emplace (input.id, std::move (values.front ()));
+            // Fan-in, and the port's DECLARED contract decides it (§7.1.2
+            // decision 3). The trees arrive in document edge order; what makes
+            // that a contract rather than an accident is that the port said it
+            // accepts several and the policy below is written down.
+            data::FanInContract contract;
+            data::TreeValue merged;
+            std::string mergeError;
+            if (!data::MergeTreeValues (wired, contract, merged, mergeError)) {
+                FailNode (nodeId, statuscode::kErrorInput, "input '" + input.id + "': " + mergeError, 0.0, state);
+                return false;
+            }
+            inputs.emplace (input.id, std::move (merged));
         }
     }
 
@@ -407,7 +433,7 @@ bool Evaluator::PrepareNode (const NodeId& nodeId, PhaseState& state, PreparedNo
     return true;
 }
 
-bool Evaluator::PublishBypass (const NodeId& nodeId, const NodeType& nodeType, const ValueMap& inputs, size_t inputHash,
+bool Evaluator::PublishBypass (const NodeId& nodeId, const NodeType& nodeType, const TreeMap& inputs, size_t inputHash,
                                PhaseState& state)
 {
     const RunContext& context = *state.context;
@@ -417,23 +443,23 @@ bool Evaluator::PublishBypass (const NodeId& nodeId, const NodeType& nodeType, c
     // (NodeRegistry::Register), so nothing here re-derives which input feeds
     // which output. What it cannot prove is that an OPTIONAL mapped input was
     // actually wired on this graph, which is the one check left to make.
-    ValueMap outputs;
+    TreeMap outputs;
     size_t itemCount = 0;
     for (const BypassMapping& mapping : nodeType.bypassMappings) {
         const auto value = inputs.find (mapping.inputId);
-        if (value == inputs.end () || value->second.Type () == ValueType::Absent) {
+        if (value == inputs.end () || !value->second.IsPresent () || value->second.tree->IsEmpty ()) {
             FailNode (nodeId, statuscode::kErrorInput,
                       "bypass needs input '" + mapping.inputId + "', which carried no value", 0.0, state);
             return false;
         }
-        const ValueMeasure measure =
-            MeasureValue (value->second, context.limits.maxOutputItems - itemCount, context.limits.maxValueDepth);
-        if (!measure.WithinLimits ()) {
+        itemCount += value->second.tree->ItemCount ();
+        if (itemCount > context.limits.maxOutputItems) {
             FailNode (nodeId, statuscode::kErrorOutput,
                       "bypassed output '" + mapping.outputId + "' exceeds the output ceiling", 0.0, state);
             return false;
         }
-        itemCount += measure.items;
+        // Forwarded by SHARED POINTER: a bypassed node hands its consumers the
+        // very tree it was given, so bypassing a heavy branch costs nothing.
         outputs.emplace (mapping.outputId, value->second);
     }
 
@@ -493,24 +519,22 @@ void Evaluator::PublishNode (PreparedNode& prepared, PhaseState& state)
 
     size_t itemCount = 0;
     if (failure.empty ()) {
-        for (const auto& [portId, value] : prepared.outputs) {
+        for (const auto& [portId, tree] : prepared.outputs) {
             const PortSchema* output = FindOutput (prepared.effectiveNode, nodeType, portId);
-            if (output == nullptr || output->valueType != value.Type ()) {
+            if (output == nullptr || !tree.IsPresent () || tree.itemType != PortItemType (*output)) {
                 failure = "invalid output: " + portId;
                 failureCode = statuscode::kErrorOutput;
                 break;
             }
-            // Rule 5: an oversized or pathologically nested result fails its node
-            // rather than entering the cache.
-            const ValueMeasure measure =
-                MeasureValue (value, context.limits.maxOutputItems - itemCount, context.limits.maxValueDepth);
-            if (!measure.WithinLimits ()) {
-                failure = measure.exceededDepth ? "output '" + portId + "' nests too deeply"
-                                                : "output '" + portId + "' exceeds the output ceiling";
+            // Rule 5: an oversized result fails its node rather than entering
+            // the cache. Depth is no longer a question - a tree cannot nest, so
+            // the only ceiling left is how many items it holds.
+            itemCount += tree.tree->ItemCount ();
+            if (itemCount > context.limits.maxOutputItems) {
+                failure = "output '" + portId + "' exceeds the output ceiling";
                 failureCode = statuscode::kErrorOutput;
                 break;
             }
-            itemCount += measure.items;
         }
     }
     if (failure.empty ()) {
@@ -652,7 +676,12 @@ bool Evaluator::RunLevel (size_t levelIndex, const std::vector<NodeId>& level, P
         // instead of the POOL thread, where an escaped fault would take the
         // process down just as surely.
         node.guarded = RunGuarded ([&node, &executor] () {
-            return executor (node.effectiveNode, node.inputs, node.execution, node.outputs, node.nodeError);
+            // The body is per-value; the ports are per-tree. RunLiftedNode
+            // walks one against the other (§7.1.2 decision 1), so the fault
+            // barrier still wraps exactly one node's work - every iteration of
+            // it - and nothing below this line knows there was a loop.
+            return RunLiftedNode (*node.nodeType, node.effectiveNode, node.inputs, node.execution, executor,
+                                  node.outputs, node.lift, node.nodeError);
         });
         node.elapsedMs =
             std::chrono::duration<double, std::milli> (std::chrono::steady_clock::now () - started).count ();

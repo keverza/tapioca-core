@@ -34,8 +34,14 @@ TEST (SceneTextAtlas, BuildsBoundedRepeatableLinearMtsdfSeed)
     geomsrv::archviz::SceneTextAtlas first;
     geomsrv::archviz::SceneTextAtlas second;
     std::string firstError, secondError;
-    ASSERT_TRUE (first.Build (font.data (), font.size (), firstError)) << firstError;
-    ASSERT_TRUE (second.Build (font.data (), font.size (), secondError)) << secondError;
+    geomsrv::archviz::SceneTextShaper shaper;
+    ASSERT_TRUE (shaper.Init (font.data (), font.size (), firstError)) << firstError;
+    geomsrv::archviz::SceneTextGlyphRun seedRun;
+    ASSERT_TRUE (shaper.Shape (geomsrv::archviz::SceneTextSeedText (), geomsrv::archviz::SceneTextDirection::Auto,
+                               seedRun, firstError))
+        << firstError;
+    ASSERT_TRUE (first.Build (font.data (), font.size (), seedRun, firstError)) << firstError;
+    ASSERT_TRUE (second.Build (font.data (), font.size (), seedRun, secondError)) << secondError;
     EXPECT_GT (first.GlyphCount (), 100u);
     EXPECT_LE (first.Width (), geomsrv::archviz::SceneTextAtlas::kMaximumDimension);
     EXPECT_LE (first.Height (), geomsrv::archviz::SceneTextAtlas::kMaximumDimension);
@@ -47,8 +53,6 @@ TEST (SceneTextAtlas, BuildsBoundedRepeatableLinearMtsdfSeed)
     EXPECT_NE (first.Find (0x2192), nullptr);   // right arrow
     EXPECT_NE (first.Find (0x10FFFF), nullptr); // replacement fallback
 
-    geomsrv::archviz::SceneTextShaper shaper;
-    ASSERT_TRUE (shaper.Init (font.data (), font.size (), firstError)) << firstError;
     geomsrv::archviz::SceneTextGlyphRun shaped;
     ASSERT_TRUE (shaper.Shape ("office a\xCC\x81", geomsrv::archviz::SceneTextDirection::Auto, shaped, firstError))
         << firstError;
@@ -60,7 +64,8 @@ TEST (SceneTextAtlas, RejectsInvalidFontData)
 {
     const uint8_t invalid[] = { 0, 1, 2, 3 };
     geomsrv::archviz::SceneTextAtlas atlas;
+    geomsrv::archviz::SceneTextGlyphRun seedRun;
     std::string error;
-    EXPECT_FALSE (atlas.Build (invalid, sizeof (invalid), error));
+    EXPECT_FALSE (atlas.Build (invalid, sizeof (invalid), seedRun, error));
     EXPECT_FALSE (error.empty ());
 }

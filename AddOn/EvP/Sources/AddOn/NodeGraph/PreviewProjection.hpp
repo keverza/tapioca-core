@@ -77,9 +77,10 @@ struct PreviewProjectionLimits {
     // pay a shared_ptr allocation each.
     std::size_t maxPrimitives = 50000;
 
-    // How deep into nested lists the walk goes. Same reason as
-    // EvaluationLimits::maxValueDepth: a value from a node body is untrusted, and
-    // this walk is recursive.
+    // How deep into nested lists the walk goes. A published tree cannot nest,
+    // so this is now defence for the projection walk rather than a limit the
+    // evaluator also enforces: the value reaching here is derived, and a
+    // recursive walk over an untrusted one is still a stack to overflow.
     std::size_t maxDepth = 64;
 };
 

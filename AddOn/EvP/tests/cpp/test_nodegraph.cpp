@@ -86,6 +86,27 @@ int64_t Integer (const Value& value)
     return std::get<int64_t> (value.DataValue ());
 }
 
+// A published output, as one value.
+//
+// A node publishes a TREE per port now; these assertions are about what a node
+// COMPUTED, not about how the result is shaped, so they read it back through
+// the same projection the browser and the panel use. A one-item tree projects
+// to that item, which is what every scalar assertion here expects.
+Value Out (const std::shared_ptr<const NodeResult>& result, const char* portId)
+{
+    const auto found = result->outputs.find (portId);
+    return found == result->outputs.end () ? Value {} : ProjectTreeToValue (found->second);
+}
+
+// The inverse, for a test that stages an upstream result by hand.
+data::TreeValue AsTree (const Value& value)
+{
+    data::TreeValue tree;
+    std::string error;
+    EXPECT_TRUE (TreeFromValue (value, data::ItemType::Any, tree, error)) << error;
+    return tree;
+}
+
 // How many times each node's body ran, counted safely.
 //
 // ⚠️ A BARE std::map HERE IS A DATA RACE, NOT A SHORTCUT. Independent nodes of
@@ -272,7 +293,7 @@ TEST (NodeGraphEvaluator, CachesResultsAndPropagatesDirtDownstream)
     EXPECT_EQ (1, executions["one"]);
     EXPECT_EQ (1, executions["two"]);
     EXPECT_EQ (1, executions["sum"]);
-    EXPECT_EQ (3, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+    EXPECT_EQ (3, Integer (Out (evaluator.Result ("sum"), "sum")));
 
     evaluator.Invalidate (graph, { "one" });
     ASSERT_TRUE (RunGraph (evaluator, graph, registry, executor).succeeded);
@@ -292,7 +313,7 @@ TEST (NodeGraphEvaluator, CachesResultsAndPropagatesDirtDownstream)
     EXPECT_EQ (3, executions["one"]);
     EXPECT_EQ (1, executions["two"]);
     EXPECT_EQ (3, executions["sum"]);
-    EXPECT_EQ (7, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+    EXPECT_EQ (7, Integer (Out (evaluator.Result ("sum"), "sum")));
 }
 
 TEST (NodeGraphValue, HoldsRecursiveListsAndImmutableMeshes)
@@ -372,7 +393,7 @@ TEST (NodeGraphBuiltins, InternalisedInputValueSuppliesAnUnconnectedPort)
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteBuiltinNode);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_DOUBLE_EQ (42.0, std::get<double> (evaluator.Result ("product")->outputs.at ("value").DataValue ()));
+    EXPECT_DOUBLE_EQ (42.0, std::get<double> (Out (evaluator.Result ("product"), "value").DataValue ()));
 
     // A wire beats the typed-in value rather than merging with it.
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { [] {
@@ -385,7 +406,7 @@ TEST (NodeGraphBuiltins, InternalisedInputValueSuppliesAnUnconnectedPort)
                      .accepted);
     Evaluator wired;
     ASSERT_TRUE (RunGraph (wired, graph, registry, ExecuteBuiltinNode).succeeded);
-    EXPECT_DOUBLE_EQ (70.0, std::get<double> (wired.Result ("product")->outputs.at ("value").DataValue ()));
+    EXPECT_DOUBLE_EQ (70.0, std::get<double> (Out (wired.Result ("product"), "value").DataValue ()));
 }
 
 TEST (NodeGraphBuiltins, EvaluatesArithmeticListMapAndWatchWorkflow)
@@ -424,7 +445,8 @@ TEST (NodeGraphBuiltins, EvaluatesArithmeticListMapAndWatchWorkflow)
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, graph, registry, ExecuteBuiltinNode);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    const Value::List& values = std::get<Value::List> (evaluator.Result ("watch")->outputs.at ("value").DataValue ());
+    const Value valuesValue = Out (evaluator.Result ("watch"), "value");
+    const Value::List& values = std::get<Value::List> (valuesValue.DataValue ());
     ASSERT_EQ (3U, values.size ());
     EXPECT_DOUBLE_EQ (4.0, std::get<double> (values[0].DataValue ()));
     EXPECT_DOUBLE_EQ (6.0, std::get<double> (values[1].DataValue ()));
@@ -574,7 +596,7 @@ TEST (NodeGraphRun, CancellationKeepsFinishedResultsAndMarksTheRestCancelled)
     // Rule 7: what finished is kept, exactly as it was.
     EXPECT_EQ (NodeExecutionState::Success, evaluator.Status ("a").state);
     ASSERT_NE (nullptr, evaluator.Result ("a"));
-    EXPECT_EQ (1, Integer (evaluator.Result ("a")->outputs.at ("value")));
+    EXPECT_EQ (1, Integer (Out (evaluator.Result ("a"), "value")));
     EXPECT_EQ (NodeExecutionState::Cancelled, evaluator.Status ("sum").state);
     EXPECT_EQ (nullptr, evaluator.Result ("sum"));
 }
@@ -671,6 +693,11 @@ TEST (NodeGraphContainment, OversizedAndOverdeepOutputsFailTheirNode)
     EXPECT_FALSE (outcome.succeeded);
     EXPECT_NE (std::string::npos, evaluator.Status ("big").message.find ("output ceiling"));
 
+    // A NESTED result is refused by SHAPE now, not measured against a depth
+    // ceiling. A published output is a tree, a tree holds atomic items, and a
+    // list is not an atomic item - so there is no depth at which nesting
+    // becomes legal and nothing to tune. The node fails at its output port,
+    // naming the port and the site, instead of after a recursive walk.
     const NodeExecutor deep = [] (const Node&, const ValueMap&, const NodeExecutionContext&, ValueMap& outputs,
                                   std::string&) {
         Value nested (int64_t { 0 });
@@ -681,10 +708,11 @@ TEST (NodeGraphContainment, OversizedAndOverdeepOutputsFailTheirNode)
     };
     context.runId = 2;
     context.limits.maxOutputItems = 1000;
-    context.limits.maxValueDepth = 8;
     outcome = evaluator.Evaluate (graph, registry, deep, EvaluationRequest {}, context);
     EXPECT_FALSE (outcome.succeeded);
-    EXPECT_NE (std::string::npos, evaluator.Status ("big").message.find ("nests too deeply"));
+    const std::string message = evaluator.Status ("big").message;
+    EXPECT_NE (std::string::npos, message.find ("a list is not an item")) << message;
+    EXPECT_NE (std::string::npos, message.find ("value")) << message;
 }
 
 TEST (NodeGraphContainment, RejectsAPlanLargerThanItsCeiling)
@@ -1215,8 +1243,9 @@ TEST (NodeGraphArchicad, ASelectionSetEvaluatesToWhatItHoldsWithNoHostAtAll)
 
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("sel");
     ASSERT_NE (nullptr, result);
-    EXPECT_EQ (2, std::get<int64_t> (result->outputs.at ("count").DataValue ()));
-    const Value::List& elements = std::get<Value::List> (result->outputs.at ("elements").DataValue ());
+    EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
+    const Value elementsValue = Out (result, "elements");
+    const Value::List& elements = std::get<Value::List> (elementsValue.DataValue ());
     ASSERT_EQ (2U, elements.size ());
     EXPECT_EQ ("guid-a", std::get<ArchicadElementRef> (elements[0].DataValue ()).guid);
 }
@@ -1240,13 +1269,13 @@ TEST (NodeGraphArchicad, ALibraryPartNodeSplitsItsStoredChoiceAndNeedsNoHost)
 
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("part");
     ASSERT_NE (nullptr, result);
-    EXPECT_EQ ("Armchair 01", std::get<std::string> (result->outputs.at ("name").DataValue ()));
+    EXPECT_EQ ("Armchair 01", std::get<std::string> (Out (result, "name").DataValue ()));
     // ⚠️ THE unID IS AN OUTPUT IN ITS OWN RIGHT. A document name is unique only
     // in that Archicad registers the newest part carrying it, so a downstream
     // node that recorded only the name would pick a different object the day a
     // second library loads one with the same name.
-    EXPECT_EQ ("1234-ABCD", std::get<std::string> (result->outputs.at ("unID").DataValue ()));
-    EXPECT_EQ ("Object", std::get<std::string> (result->outputs.at ("type").DataValue ()));
+    EXPECT_EQ ("1234-ABCD", std::get<std::string> (Out (result, "unID").DataValue ()));
+    EXPECT_EQ ("Object", std::get<std::string> (Out (result, "type").DataValue ()));
 }
 
 TEST (NodeGraphArchicad, AnUnchosenOrUnreadableLibraryPartIsEmptyRatherThanAFailedGraph)
@@ -1261,7 +1290,7 @@ TEST (NodeGraphArchicad, AnUnchosenOrUnreadableLibraryPartIsEmptyRatherThanAFail
         ApplyEdit (bare, registry, GraphEdit { AddNodeEdit { Node { "part", "archicad.libraryPart" } } }).accepted);
     EvaluationOutcome outcome = RunWithHost (evaluator, bare, registry, ExecuteRuntimeNode, nullptr);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_EQ ("", std::get<std::string> (evaluator.Result ("part")->outputs.at ("name").DataValue ()));
+    EXPECT_EQ ("", std::get<std::string> (Out (evaluator.Result ("part"), "name").DataValue ()));
 
     // A blob that will not parse can only come from a hand-edited file. Losing
     // the choice is better than refusing to open the document.
@@ -1272,7 +1301,7 @@ TEST (NodeGraphArchicad, AnUnchosenOrUnreadableLibraryPartIsEmptyRatherThanAFail
     Evaluator second;
     outcome = RunWithHost (second, broken, registry, ExecuteRuntimeNode, nullptr);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_EQ ("", std::get<std::string> (second.Result ("part")->outputs.at ("unID").DataValue ()));
+    EXPECT_EQ ("", std::get<std::string> (Out (second.Result ("part"), "unID").DataValue ()));
 }
 
 TEST (NodeGraphArchicad, TheLibraryPartWidgetCarriesNoOptionsBecauseTheLibrariesAreArchicadsAnswer)
@@ -1332,8 +1361,9 @@ TEST (NodeGraphArchicad, AContainerKeepsOnlyItsOwnTypeAndReadsTheWholeListAtOnce
 
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("walls");
     ASSERT_NE (nullptr, result);
-    EXPECT_EQ (2, std::get<int64_t> (result->outputs.at ("count").DataValue ()));
-    const Value::List& kept = std::get<Value::List> (result->outputs.at ("elements").DataValue ());
+    EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
+    const Value keptValue = Out (result, "elements");
+    const Value::List& kept = std::get<Value::List> (keptValue.DataValue ());
     ASSERT_EQ (2U, kept.size ());
     EXPECT_EQ ("w", std::get<ArchicadElementRef> (kept[0].DataValue ()).guid);
     EXPECT_EQ ("w2", std::get<ArchicadElementRef> (kept[1].DataValue ()).guid);
@@ -1364,7 +1394,7 @@ TEST (NodeGraphArchicad, AContainerDropsAnElementItCouldNotReadRatherThanGuessin
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_EQ (0, std::get<int64_t> (evaluator.Result ("walls")->outputs.at ("count").DataValue ()));
+    EXPECT_EQ (0, std::get<int64_t> (Out (evaluator.Result ("walls"), "count").DataValue ()));
 }
 
 TEST (NodeGraphArchicad, AnUnwiredContainerIsEmptyRatherThanBroken)
@@ -1381,7 +1411,7 @@ TEST (NodeGraphArchicad, AnUnwiredContainerIsEmptyRatherThanBroken)
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_EQ (0, std::get<int64_t> (evaluator.Result ("slabs")->outputs.at ("count").DataValue ()));
+    EXPECT_EQ (0, std::get<int64_t> (Out (evaluator.Result ("slabs"), "count").DataValue ()));
     EXPECT_EQ (0, host.describeCalls);
 }
 
@@ -1410,7 +1440,7 @@ TEST (NodeGraphArchicad, TheSelectionSetStaysCleanWhileTheUserClicksAroundInTheM
     outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, false, 2);
     EXPECT_EQ (0U, outcome.executedCount);
     EXPECT_EQ (1U, outcome.cacheHitCount);
-    EXPECT_EQ (1, std::get<int64_t> (evaluator.Result ("sel")->outputs.at ("count").DataValue ()));
+    EXPECT_EQ (1, std::get<int64_t> (Out (evaluator.Result ("sel"), "count").DataValue ()));
 }
 
 TEST (NodeGraphArchicad, AGraphNeedingArchicadIsRefusedAtTheDoorWithoutAHost)
@@ -1728,10 +1758,11 @@ TEST (NodeGraphPanel, RendersAListOneItemPerLineAndAlsoAsOneString)
 
     const std::shared_ptr<const NodeResult> result = evaluator.Result ("panel");
     ASSERT_NE (nullptr, result);
-    EXPECT_EQ ("2\n3", std::get<std::string> (result->outputs.at ("text").DataValue ()));
-    EXPECT_EQ ("List of 2", std::get<std::string> (result->outputs.at ("summary").DataValue ()));
-    EXPECT_EQ (2, std::get<int64_t> (result->outputs.at ("count").DataValue ()));
-    const Value::List& lines = std::get<Value::List> (result->outputs.at ("lines").DataValue ());
+    EXPECT_EQ ("2\n3", std::get<std::string> (Out (result, "text").DataValue ()));
+    EXPECT_EQ ("List of 2", std::get<std::string> (Out (result, "summary").DataValue ()));
+    EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
+    const Value linesValue = Out (result, "lines");
+    const Value::List& lines = std::get<Value::List> (linesValue.DataValue ());
     ASSERT_EQ (2U, lines.size ());
     EXPECT_EQ ("2", std::get<std::string> (lines[0].DataValue ()));
 }
@@ -2041,7 +2072,7 @@ TEST (NodeGraphParallelism, ADependencyChainHasNoLevelToParallelise)
     EXPECT_EQ (2U, outcome.parallelism.levels[0].executedCount);
     EXPECT_EQ (1U, outcome.parallelism.levels[1].executedCount);
     EXPECT_EQ (3U, outcome.executedCount);
-    EXPECT_EQ (3, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+    EXPECT_EQ (3, Integer (Out (evaluator.Result ("sum"), "sum")));
 }
 
 TEST (NodeGraphParallelism, PublicationOrderFollowsTheLevelNotTheScheduler)
@@ -2356,7 +2387,7 @@ TEST (NodeGraphPersistence, RoundTripsAGraphThroughTextUnchanged)
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, read.graph.document, registry, ExecuteNumberAddNode);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_EQ (12, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+    EXPECT_EQ (12, Integer (Out (evaluator.Result ("sum"), "sum")));
 }
 
 TEST (NodeGraphPersistence, RoundTripsEveryPersistableValueKind)
@@ -2624,7 +2655,7 @@ TEST (NodeGraphFileStore, SurvivesTheProcessThatWroteIt)
     Evaluator evaluator;
     const EvaluationOutcome outcome = RunGraph (evaluator, loaded.document, registry, ExecuteNumberAddNode);
     ASSERT_TRUE (outcome.succeeded) << outcome.error;
-    EXPECT_EQ (10, Integer (evaluator.Result ("sum")->outputs.at ("sum")));
+    EXPECT_EQ (10, Integer (Out (evaluator.Result ("sum"), "sum")));
 }
 
 TEST (NodeGraphFileStore, ListsSortedAndWithoutLoading)
@@ -3120,7 +3151,7 @@ double OutputNumber (const Evaluator& evaluator, const NodeId& nodeId, const Por
     if (result == nullptr)
         return 0.0;
     EXPECT_TRUE (result->outputs.contains (portId));
-    return std::get<double> (result->outputs.at (portId).DataValue ());
+    return std::get<double> (Out (result, portId.c_str ()).DataValue ());
 }
 
 void BuildDammedChain (FlowFixture& fixture)
@@ -3757,7 +3788,7 @@ struct PreviewFixture {
         EXPECT_TRUE (ApplyEdit (document, registry, connectEdit).accepted);
 
         auto upstream = std::make_shared<NodeResult> ();
-        upstream->outputs.emplace ("text", geometry);
+        upstream->outputs.emplace ("text", AsTree (geometry));
         results[sourceId] = upstream;
         // The Preview publishes nothing; its result exists only to say it ran.
         results[nodeId] = std::make_shared<NodeResult> ();

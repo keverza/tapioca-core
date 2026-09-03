@@ -50,9 +50,11 @@ struct EvaluationLimits {
     // A single node result may not exceed this many aggregate list items.
     size_t maxOutputItems = 5000000;
 
-    // Nesting depth permitted inside one Value. Guards the recursive walks that
-    // hash and measure list values.
-    size_t maxValueDepth = 64;
+    // NO DEPTH LIMIT. There used to be one, because a node result was a Value
+    // that could nest lists inside lists without bound. A published result is
+    // now a TREE, which holds atomic items and cannot contain another
+    // collection at all, so depth is structurally one rather than checked - a
+    // body that returns a nested list is refused by name at its output port.
 
     // Wall-clock budget for one node. Exceeding it fails that node and ends the
     // run. Enforced on return, so it detects a slow node; interrupting a node

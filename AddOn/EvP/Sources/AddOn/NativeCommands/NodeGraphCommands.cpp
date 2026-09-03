@@ -8,6 +8,7 @@
 
 #include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
+#include "NodeGraph/NodeLifting.hpp"
 #include "NodeGraph/ValueText.hpp"
 
 #include <string>
@@ -772,15 +773,17 @@ class GraphGetNodeResultsCommand : public GateFreeGraphCommand {
             record.Add ("previewAvailable", false);
             GS::Array<GS::ObjectState> outputs;
             if (result) {
-                for (const auto& [portId, value] : result->outputs) {
+                for (const auto& [portId, tree] : result->outputs) {
+                    // Bounded by the runtime, not by this command: see ProjectOutput.
+                    const graph::ProjectedOutput projected = graph::ProjectOutput (tree, kMaxEncodedListItems);
                     GS::ObjectState output;
                     output.Add ("portId", GraphText (portId));
-                    output.Add ("value", EncodeValue (value, true));
+                    output.Add ("value", EncodeValue (projected.value, true));
                     // The same renderer the Panel node uses, on EVERY output, so
                     // a client can show what a node produced without the user
                     // having to wire an inspector to it first.
-                    output.Add ("text", GraphText (graph::FormatValue (value)));
-                    output.Add ("summary", GraphText (graph::DescribeValue (value)));
+                    output.Add ("text", GraphText (graph::FormatValue (projected.value)));
+                    output.Add ("summary", GraphText (graph::DescribeValue (projected.value)));
                     outputs.Push (std::move (output));
                 }
             }

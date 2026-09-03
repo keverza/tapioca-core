@@ -115,6 +115,32 @@ def test_renderer_routes_annotation_labels_through_scene_text_with_imgui_fallbac
     assert support.count("SelectedRetainedFrameSnapshotCopy") == 1
 
 
+def test_scene_text_shaping_is_owned_by_the_layout_worker_not_the_render_layer():
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+    atlas = (_ADDON / "ArchViz" / "SceneTextAtlas.cpp").read_text(encoding="utf-8")
+    cache = (_ADDON / "ArchViz" / "SceneTextLayoutCache.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "SceneTextShaper" not in layer
+    assert "SceneTextShaper" not in atlas
+    assert "SceneTextShaper shaper" in cache
+    assert "std::thread" in cache
+    assert "ACAPI_" not in cache
+    assert "MainThreadGate" not in cache
+
+
+def test_projected_annotation_text_keeps_its_translucent_background_panel():
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+
+    assert "input.uv.x < 0.0" in layer
+    assert "VerticalAnchor::Baseline" in layer
+    assert "LinearAbgr (0xFFFFFFE0u)" in layer
+    assert layer.index("AddQuad (vertices, boundsLeft") < layer.index(
+        "vertices.insert (vertices.end (), labelVertices.begin (), labelVertices.end ())"
+    )
+
+
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():
     panel = _PANEL.read_text(encoding="utf-8")
     publish = panel[panel.index("void PreviewPanel::PublishOverlay") :]

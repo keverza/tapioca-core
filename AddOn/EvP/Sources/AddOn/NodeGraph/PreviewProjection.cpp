@@ -1,5 +1,7 @@
 #include "NodeGraph/PreviewProjection.hpp"
 
+#include "NodeGraph/NodeLifting.hpp"
+
 #include "Preview/GraphPreviewStore.hpp"
 
 #include <cctype>
@@ -233,6 +235,10 @@ PreviewProjection ProjectGraphPreview (const std::string& graphId, const GraphDo
         // Follow the wire. The geometry is the upstream node's output, and the
         // internalised parameter is the fallback for a port with nothing wired -
         // the same precedence the evaluator itself applies.
+        // The upstream output is a TREE; preview walks values, so the tree is
+        // projected here. Projection keeps every item in canonical order, so a
+        // multi-branch result previews all of it rather than one branch.
+        std::optional<Value> projected;
         const Value* geometry = nullptr;
         std::shared_ptr<const NodeResult> upstream;
         for (const Edge& edge : document.Edges ()) {
@@ -242,8 +248,10 @@ PreviewProjection ProjectGraphPreview (const std::string& graphId, const GraphDo
             if (upstream == nullptr)
                 break;
             const auto output = upstream->outputs.find (edge.sourcePort);
-            if (output != upstream->outputs.end ())
-                geometry = &output->second;
+            if (output != upstream->outputs.end ()) {
+                projected = ProjectTreeToValue (output->second);
+                geometry = &*projected;
+            }
             break;
         }
         if (geometry == nullptr) {

@@ -145,6 +145,10 @@ template <class T> class DataTree final : public IDataTree {
 // loop produces without having to think about canonical order.
 template <class T> class DataTreeBuilder {
   public:
+    // The C++ type this builder stores. The erased AnyTreeBuilder recovers T
+    // from the variant alternative it is visiting through this.
+    using Item = T;
+
     void Add (DataPath path, T value, SharedMetadata metadata = nullptr)
     {
         ListFor (std::move (path)).Add (std::move (value), std::move (metadata));

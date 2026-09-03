@@ -19,7 +19,12 @@ cmake_minimum_required (VERSION 3.16)
 # Sanitizers (docs/guides/testing.md §5): -DEVP_SANITIZE=ON.
 # ============================================================================
 
-project (EvPGeomTests CXX)
+# C as well as CXX: quickjs-ng is a C library. That was previously enabled as a
+# SIDE EFFECT of the vendored font libraries adding their own C subdirectories,
+# so making the text stack optional turned it off and quickjs lost its linker
+# language. The suite states its own languages instead of inheriting them from
+# a third-party subdirectory it may or may not include.
+project (EvPGeomTests C CXX)
 
 set (CMAKE_CXX_STANDARD 20)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,7 +37,28 @@ set (NANORT_INC "${REF_DIR}/nanort-release")
 set (GLM_INC "${REF_DIR}/glm-master")
 set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP")
 set (QUICKJS_DIR "${REF_DIR}/quickjs-ng")
-include ("${EVP_ROOT}/cmake/TextRendering.cmake")
+# The vendored text stack (FreeType + HarfBuzz + msdfgen + msdf-atlas-gen) is
+# BEHIND A SWITCH, DEFAULT OFF, while the scene-text feature it serves is
+# half-finished.
+#
+# It is off by default because of what it costs everyone who is NOT working on
+# text: four third-party libraries configure and compile on every fresh build
+# tree, and an in-progress change anywhere in that stack stops the whole offline
+# suite - including the node-graph tests, which have nothing to do with text.
+# A gate that a half-finished neighbouring feature can turn red is a gate people
+# start ignoring.
+#
+# ⚠️ TURNING IT OFF DROPS REAL COVERAGE, so it says so out loud rather than
+# quietly building fewer tests. Turn it back on with -DEVP_TEXT_RENDERING=ON,
+# which is what anyone picking the feature back up must do.
+option (EVP_TEXT_RENDERING "Build the vendored text-rendering stack and its tests" OFF)
+if (EVP_TEXT_RENDERING)
+    include ("${EVP_ROOT}/cmake/TextRendering.cmake")
+else ()
+    message (STATUS "EVP_TEXT_RENDERING=OFF: skipping FreeType/HarfBuzz/msdfgen and the SceneText* tests. Re-enable with -DEVP_TEXT_RENDERING=ON.")
+    set (TAPIOCA_TEXT_LIBS "")
+    set (TAPIOCA_TEXT_FONT "")
+endif ()
 # No msgpack include on purpose: the serializer hand-rolls its writer, and
 # test_serializer.cpp hand-rolls an INDEPENDENT reader from the msgpack spec.
 # Round-tripping through the same library the writer used would prove less.
@@ -133,9 +159,13 @@ set (EVP_DYNAMO_SOURCES
 # Adding ArchicadHostImpl.cpp to this list will not link; adding anything that
 # includes ACAPinc.h has the same effect and means the boundary has been broken.
 set (EVP_NODEGRAPH_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/AnyTree.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/AtomicValue.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/DataPath.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/Metadata.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/TreeIteration.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/TreeSerialization.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/ValueTypeAssistant.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadHost.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadNodes.cpp"
     # The element type table. ElementReaderImpl.cpp - the ACAPI half that
@@ -159,6 +189,7 @@ set (EVP_NODEGRAPH_SOURCES
     # NodeInputs is the one place that states "a wired input wins over the
     # typed-in one", so no family can implement that precedence backwards.
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeInputs.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeLifting.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphAlgorithms.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphEdit.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphReports.cpp"
@@ -224,6 +255,22 @@ set (EVP_NODEGRAPH_SOURCES
 # Getting it wrong reports a rendering fault that is not there (or hides one
 # that is), and it took three live Archicad runs to notice that the last time.
 # ⚠️ KEEP IT <d3d11.h>-FREE — the DXGI format numbers are spelled out on purpose.
+# The three scene-text engines and their tests, listed once and appended only
+# when the stack above is built. They are the only sources here that need
+# FreeType/HarfBuzz headers.
+set (EVP_SCENE_TEXT_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayout.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayoutCache.cpp")
+set (EVP_SCENE_TEXT_TESTS
+    test_scenetextatlas.cpp
+    test_scenetextlayout.cpp
+    test_scenetextlayoutcache.cpp)
+if (NOT EVP_TEXT_RENDERING)
+    set (EVP_SCENE_TEXT_SOURCES "")
+    set (EVP_SCENE_TEXT_TESTS "")
+endif ()
+
 set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
@@ -267,8 +314,6 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudHierarchy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlas.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayout.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
     # the Diligent port. It belongs here more than almost anything else in
@@ -439,8 +484,7 @@ set (EVP_TEST_SOURCES
     test_meshgroups.cpp
     test_wireframeedges.cpp
     test_scenecmdqueue.cpp
-    test_scenetextatlas.cpp
-    test_scenetextlayout.cpp
+    ${EVP_SCENE_TEXT_TESTS}
     test_materialtable.cpp
     test_surfaceclassifier.cpp
     test_buildingmaterialsignal.cpp
@@ -471,6 +515,10 @@ set (EVP_TEST_SOURCES
     test_nodegraph.cpp
     test_nodegraph_script.cpp
     test_datatree.cpp
+    test_datatreeops.cpp
+    test_treeserialization.cpp
+    test_treeiteration.cpp
+    test_anytree.cpp
     test_elementclassification.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
@@ -556,7 +604,7 @@ target_include_directories (TapiocaClipper2 SYSTEM PUBLIC "${CLIPPER2_DIR}/Clipp
 
 # ---- the test binary -------------------------------------------------------
 add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
-                               ${EVP_ARCHVIZ_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
+                               ${EVP_ARCHVIZ_SOURCES} ${EVP_SCENE_TEXT_SOURCES} ${EVP_CLOUDCOMPARE_SOURCES}
                                 ${EVP_ANNOTATION_SOURCES} ${EVP_PREVIEW_SOURCES} ${EVP_COMMAND_SOURCES}
                                 ${EVP_GRASSHOPPER_SOURCES}
                                  ${EVP_DYNAMO_SOURCES}
@@ -612,8 +660,10 @@ target_compile_definitions (EvPGeomTests PRIVATE
     # this feature makes; a private copy beside the tests would let the two drift
     # and the examples are the half that would rot. An example whose header stops
     # parsing should fail the suite, because it has stopped being an example.
-    EVP_TEST_SCRIPT_DIR="${EVP_ROOT}/GraphScripts"
-    EVP_SCENE_TEXT_FONT="${TAPIOCA_TEXT_FONT}")
+    EVP_TEST_SCRIPT_DIR="${EVP_ROOT}/GraphScripts")
+if (EVP_TEXT_RENDERING)
+    target_compile_definitions (EvPGeomTests PRIVATE EVP_SCENE_TEXT_FONT="${TAPIOCA_TEXT_FONT}")
+endif ()
 
 enable_testing ()
 include (GoogleTest)
