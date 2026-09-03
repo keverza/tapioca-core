@@ -115,8 +115,42 @@ struct IterationPlan {
     size_t guideInput = 0;
 };
 
+// §8.3's named item-match policies, and the ONLY two the engine implements.
+//
+// ⚠️ NAMED, BECAUSE §8.3 FORBIDS GUESSING BETWEEN THEM. "Shortest" and
+// "longest" are not two shades of one behaviour: pairing three points with two
+// numbers yields two results or three, and no runtime-global default can be
+// right for both. So the policy is a parameter of this one engine rather than a
+// second engine, which is what makes the explicit `tree.zip` node and the
+// implicit lift agree BY CONSTRUCTION instead of by imitation.
+//
+// A policy name is a cache and file-format contract: renaming one changes what
+// a saved graph means. Add a policy here rather than reimplementing matching
+// anywhere else.
+enum class ItemMatch {
+    // A short input keeps handing back its LAST item. The implicit rule every
+    // lifted node uses, so that a scalar node fed 3 points and 1 number applies
+    // that number three times rather than producing one result.
+    Longest,
+
+    // The walk stops at the shortest input. Pairing is then total - every
+    // result used a real item from every input - which is what a node asking to
+    // zip two collections means, and never repeats an item to fill.
+    Shortest,
+};
+
+const char* ItemMatchName (ItemMatch match);
+
+struct IterationPolicy {
+    ItemMatch itemMatch = ItemMatch::Longest;
+};
+
 // Fails only on a caller error: no inputs, or an input with no tree. A tree
 // being empty is not an error - it plans zero iterations.
+bool BuildIterationPlan (const std::vector<IterationInput>& inputs, const IterationPolicy& policy, IterationPlan& plan,
+                         std::string& error);
+
+// Longest, which is the implicit rule for every lifted node.
 bool BuildIterationPlan (const std::vector<IterationInput>& inputs, IterationPlan& plan, std::string& error);
 
 // The list a cursor addresses, or nullptr when the cursor is absent.

@@ -2,9 +2,12 @@
 
 #include "NodeGraph/Data/AnyTree.hpp"
 #include "NodeGraph/Evaluator.hpp"
+#include "NodeGraph/ParameterDescriptors.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace evp::nodegraph {
 namespace {
@@ -75,7 +78,63 @@ data::TreeValue ScalarCount (size_t count)
     return std::move (builder).Finish ();
 }
 
+// A whole-number parameter off the node, defaulted rather than demanded: a
+// tree operation with no shift typed into it is the identity, not an error.
+int64_t IntegerParameter (const Node& node, const char* id, int64_t fallback)
+{
+    const auto found = node.parameters.find (id);
+    if (found == node.parameters.end ())
+        return fallback;
+    const auto* held = std::get_if<int64_t> (&found->second.DataValue ());
+    return held == nullptr ? fallback : *held;
+}
+
+// One value chosen from a fixed set, as a Select parameter renders it.
+ParameterUi ChoiceUi (const char* section, int order, const char* help, std::vector<ParameterOption> options)
+{
+    ParameterUi ui;
+    ui.widget = ParameterWidget::Select;
+    ui.section = section;
+    ui.order = order;
+    ui.help = help;
+    ui.options = std::move (options);
+    return ui;
+}
+
+// The two matching inputs `tree.zip` and `tree.crossProduct` re-match, planned
+// as the engine would plan them for a lifted node - Item access on both, so
+// they walk branch by branch and item by item exactly as an ordinary two-input
+// node does.
+std::vector<data::IterationInput> MatchingInputs (const data::TreeMap& inputs)
+{
+    std::vector<data::IterationInput> planned;
+    for (const char* id : { "a", "b" }) {
+        const data::TreeValue& tree = inputs.at (id);
+        // MayBeMissing, because re-matching an empty collection against a full
+        // one is a question with an answer (nothing pairs) rather than a fault.
+        planned.push_back ({ tree.tree.get (), data::PortAccess::Item, data::InputRequirement::MayBeMissing });
+    }
+    return planned;
+}
+
+// Copies the item one cursor points at into `builder` at `path`, or a null when
+// the cursor points past the end. Never drops the site: a zip whose inputs
+// disagree in length must still produce two outputs of the SAME length, or the
+// pairing it just computed is unreadable downstream.
+bool EmitCursorItem (const data::TreeValue& tree, const data::InputCursor& cursor, const data::DataPath& path,
+                     data::AnyTreeBuilder& builder, std::string& error)
+{
+    const std::optional<Value> item = data::ItemForCursor (tree, cursor);
+    if (!item.has_value ()) {
+        builder.AddNull (path);
+        return true;
+    }
+    return builder.Add (path, *item, error);
+}
+
 } // namespace
+
+void RegisterTreeMatchingNodes (NodeRegistry& registry);
 
 void RegisterTreeNodes (NodeRegistry& registry)
 {
@@ -137,6 +196,158 @@ void RegisterTreeNodes (NodeRegistry& registry)
         return true;
     };
     if (!registry.Register (std::move (branchCount), error))
+        throw std::logic_error (error);
+
+    // Split out only because one function registering nine node types is a wall
+    // rather than a list; the matching nodes are the same family.
+    RegisterTreeMatchingNodes (registry);
+}
+
+void RegisterTreeMatchingNodes (NodeRegistry& registry)
+{
+    std::string error;
+
+    // ---- tree.shiftPath ----------------------------------------------------
+
+    NodeType shift =
+        PureNode ("tree.shiftPath", "Shift Path", "Adds or removes leading path levels, without touching item order.");
+    shift.inputs.push_back (WildcardTree ("tree"));
+    shift.outputs.push_back (WildcardTree ("tree"));
+    shift.bypassMappings.push_back ({ "tree", "tree" });
+    ParameterSchema shiftAmount { "shift", "Shift", ValueType::Integer, false, Value (static_cast<int64_t> (0)) };
+    // Negative deepens and positive shortens, matching ShiftTreePaths - and a
+    // path cannot be shortened to nothing, which is why that operation FAILS
+    // rather than clamping: an emptied path is not a path.
+    shiftAmount.ui = CountUi ("Shift Path", 0, "Positive drops leading levels; negative adds them.", -8, 8);
+    shift.parameters.push_back (std::move (shiftAmount));
+    shift.treeBody = [] (const Node& node, const data::TreeMap& inputs, const NodeExecutionContext&,
+                         data::TreeMap& outputs, std::string& error) {
+        const int32_t amount = static_cast<int32_t> (IntegerParameter (node, "shift", 0));
+        data::TreeValue result;
+        if (!data::ShiftTreeValuePaths (inputs.at ("tree"), amount, data::PathCollision::Error, result, error))
+            return false;
+        outputs.emplace ("tree", std::move (result));
+        return true;
+    };
+    if (!registry.Register (std::move (shift), error))
+        throw std::logic_error (error);
+
+    // ---- tree.zip ----------------------------------------------------------
+    //
+    // RE-MATCHING, NOT PAIRING. It takes two collections and returns two
+    // collections of equal length, rather than one collection of pairs - there
+    // is no pair item type, and inventing one to serve this node would put a
+    // compound inside a container whose whole contract is that an item is
+    // atomic (7.2).
+    //
+    // AND IT PLANS THE WALK WITH THE ENGINE THE LIFT USES. Writing the matching
+    // again here would give Tapioca two answers to "what pairs with what" that
+    // agree right up until the day one of them is fixed. 8.3's requirement is a
+    // NAMED policy, so the policy became a parameter of the one engine rather
+    // than a second engine with a name on it.
+
+    NodeType zip = PureNode ("tree.zip", "Zip",
+                             "Re-matches two collections against each other, item by item and branch by branch.");
+    zip.inputs.push_back (WildcardTree ("a"));
+    zip.inputs.push_back (WildcardTree ("b"));
+    zip.outputs.push_back (WildcardTree ("a"));
+    zip.outputs.push_back (WildcardTree ("b"));
+    ParameterSchema match { "match", "Match", ValueType::String, false, Value (std::string ("longest")) };
+    match.ui = ChoiceUi ("Zip", 0, "How to resolve inputs of different length.",
+                         { { "Longest (repeat the last item)", Value (std::string ("longest")) },
+                           { "Shortest (stop at the shorter)", Value (std::string ("shortest")) } });
+    zip.parameters.push_back (std::move (match));
+    zip.treeBody = [] (const Node& node, const data::TreeMap& inputs, const NodeExecutionContext&,
+                       data::TreeMap& outputs, std::string& error) {
+        data::IterationPolicy policy;
+        const auto chosen = node.parameters.find ("match");
+        const std::string* name =
+            chosen == node.parameters.end () ? nullptr : std::get_if<std::string> (&chosen->second.DataValue ());
+        // An unrecognised name falls back to the default rather than failing.
+        // A policy name is a file-format contract, so a graph saved by a later
+        // build that knows a third policy should still open here and do
+        // something defensible rather than refuse to run.
+        if (name != nullptr && *name == data::ItemMatchName (data::ItemMatch::Shortest))
+            policy.itemMatch = data::ItemMatch::Shortest;
+
+        data::IterationPlan plan;
+        if (!data::BuildIterationPlan (MatchingInputs (inputs), policy, plan, error))
+            return false;
+
+        data::AnyTreeBuilder outA (inputs.at ("a").itemType);
+        data::AnyTreeBuilder outB (inputs.at ("b").itemType);
+        for (const data::DataPath& path : plan.emptyPaths) {
+            outA.EnsureList (path);
+            outB.EnsureList (path);
+        }
+        for (const data::Iteration& iteration : plan.iterations) {
+            if (iteration.cursors.size () < 2)
+                continue;
+            if (!EmitCursorItem (inputs.at ("a"), iteration.cursors[0], iteration.outputPath, outA, error) ||
+                !EmitCursorItem (inputs.at ("b"), iteration.cursors[1], iteration.outputPath, outB, error))
+                return false;
+        }
+        outputs.emplace ("a", std::move (outA).Finish ());
+        outputs.emplace ("b", std::move (outB).Finish ());
+        return true;
+    };
+    if (!registry.Register (std::move (zip), error))
+        throw std::logic_error (error);
+
+    // ---- tree.crossProduct -------------------------------------------------
+
+    NodeType cross = PureNode ("tree.crossProduct", "Cross Product",
+                               "Re-matches two collections so every item of one meets every item of the other.");
+    cross.inputs.push_back (WildcardTree ("a"));
+    cross.inputs.push_back (WildcardTree ("b"));
+    cross.outputs.push_back (WildcardTree ("a"));
+    cross.outputs.push_back (WildcardTree ("b"));
+    cross.treeBody = [] (const Node&, const data::TreeMap& inputs, const NodeExecutionContext&, data::TreeMap& outputs,
+                         std::string& error) {
+        const data::TreeValue& a = inputs.at ("a");
+        const data::TreeValue& b = inputs.at ("b");
+        data::AnyTreeBuilder outA (a.itemType);
+        data::AnyTreeBuilder outB (b.itemType);
+
+        // THE COMBINATIONS STAY IN THE BRANCH THEY CAME FROM. Grafting them
+        // onto a deeper level would be a second decision - which of the two
+        // inputs owns the new level - and neither answer is derivable from what
+        // the user asked for. Somebody who wants that wires tree.graft, which
+        // says so on the canvas.
+        const size_t branches = std::max (a.tree->ListCount (), b.tree->ListCount ());
+        // The wider input names the branches, which is the guide rule the
+        // iteration engine already follows for every lifted node.
+        const data::IDataTree& guide = a.tree->ListCount () >= b.tree->ListCount () ? *a.tree : *b.tree;
+
+        for (size_t branch = 0; branch < branches; ++branch) {
+            const data::IDataList* listA = branch < a.tree->ListCount () ? &a.tree->ListAt (branch) : nullptr;
+            const data::IDataList* listB = branch < b.tree->ListCount () ? &b.tree->ListAt (branch) : nullptr;
+            const data::DataPath path = branch < guide.ListCount () ? guide.Paths ()[branch] : data::DataPath::Zero ();
+            outA.EnsureList (path);
+            outB.EnsureList (path);
+            if (listA == nullptr || listB == nullptr)
+                continue; // Nothing meets nothing; the branch survives as empty.
+
+            for (size_t indexA = 0; indexA < listA->Size (); ++indexA) {
+                for (size_t indexB = 0; indexB < listB->Size (); ++indexB) {
+                    const std::optional<Value> itemA = listA->ValueAt (indexA);
+                    const std::optional<Value> itemB = listB->ValueAt (indexB);
+                    if (!itemA.has_value ())
+                        outA.AddNull (path);
+                    else if (!outA.Add (path, *itemA, error))
+                        return false;
+                    if (!itemB.has_value ())
+                        outB.AddNull (path);
+                    else if (!outB.Add (path, *itemB, error))
+                        return false;
+                }
+            }
+        }
+        outputs.emplace ("a", std::move (outA).Finish ());
+        outputs.emplace ("b", std::move (outB).Finish ());
+        return true;
+    };
+    if (!registry.Register (std::move (cross), error))
         throw std::logic_error (error);
 }
 

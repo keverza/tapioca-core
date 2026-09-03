@@ -355,10 +355,14 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     // then reconfigure. Their ports are NOT here - they are declared in the file
     // each node runs, which is what NodeType::instancePorts marks.
     EXPECT_EQ (2U, byCategory["Script"]); // script.javascript, script.python
-    // tree.* - flatten, graft, simplify, itemCount, branchCount. See
-    // TreeNodes.hpp for why they carry no Execute* function of their own.
-    EXPECT_EQ (5U, byCategory["Tree"]);
-    EXPECT_EQ (79U, registry.Types ().size ());
+    // tree.* - flatten, graft, simplify, itemCount, branchCount, shiftPath,
+    // zip, crossProduct. See TreeNodes.hpp for why they carry no Execute*
+    // function of their own.
+    EXPECT_EQ (8U, byCategory["Tree"]);
+    // list.* - length, item, reverse, slice. Ordinary lifted bodies, unlike
+    // tree.*: they answer about ONE branch and the runtime walks the rest.
+    EXPECT_EQ (4U, byCategory["List"]);
+    EXPECT_EQ (86U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 

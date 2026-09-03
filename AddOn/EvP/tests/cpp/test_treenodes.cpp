@@ -22,10 +22,13 @@
 #include "NodeGraph/Evaluator.hpp"
 #include "NodeGraph/GraphEdit.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+#include "NodeGraph/NodeLifting.hpp"
+#include "NodeGraph/NodeRegistry.hpp"
 
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 using namespace evp::nodegraph;
 using namespace evp::nodegraph::data;
@@ -304,4 +307,179 @@ TEST (TreeNodes, UnwiredWildcardInputIsTheEmptyTreeNotAFailure)
     const TreeValue& tree = result->outputs.at ("tree");
     EXPECT_TRUE (tree.IsPresent ());
     EXPECT_TRUE (tree.tree->IsEmpty ());
+}
+
+// ---- §8.3's named matching policies -----------------------------------------
+//
+// §8.3 forbids a runtime-global default that guesses between shortest, longest
+// and cross product, and requires a NAMED policy with fixtures before one is
+// registered. These are those fixtures. They are written against the shapes the
+// policies actually differ on - inputs of unequal length - because two policies
+// agree on everything else, and a fixture built from equal-length inputs would
+// pass whichever one the engine had been wired to.
+
+namespace {
+
+TreeValue Integers (std::initializer_list<DataPath::Segment> branch, std::initializer_list<int64_t> values)
+{
+    DataTreeBuilder<int64_t> builder;
+    builder.EnsureList (DataPath (branch));
+    for (const int64_t value : values)
+        builder.Add (DataPath (branch), value);
+    return MakeTreeValue<int64_t> (std::move (builder).Finish ());
+}
+
+// The items of one branch, as plain integers, for comparing a matching result
+// against the sequence a person would write down.
+std::vector<int64_t> BranchValues (const TreeValue& tree, size_t branch)
+{
+    std::vector<int64_t> values;
+    const IDataList& list = tree.tree->ListAt (branch);
+    for (size_t index = 0; index < list.Size (); ++index)
+        values.push_back (std::get<int64_t> (list.ValueAt (index)->DataValue ()));
+    return values;
+}
+
+// Runs one two-input tree node over `a` and `b` and returns its two outputs.
+void RunMatchingNode (const char* nodeType, const TreeValue& a, const TreeValue& b, const char* matchPolicy,
+                      TreeValue& outA, TreeValue& outB)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find (nodeType);
+    ASSERT_NE (type, nullptr) << nodeType;
+    ASSERT_TRUE (static_cast<bool> (type->treeBody)) << nodeType << " is not tree-native";
+
+    Node node { "n", nodeType };
+    if (matchPolicy != nullptr)
+        node.parameters.emplace ("match", Value (std::string (matchPolicy)));
+
+    TreeMap inputs;
+    inputs.emplace ("a", a);
+    inputs.emplace ("b", b);
+    TreeMap outputs;
+    NodeExecutionContext context;
+    std::string error;
+    ASSERT_TRUE (type->treeBody (node, inputs, context, outputs, error)) << error;
+    outA = outputs.at ("a");
+    outB = outputs.at ("b");
+}
+
+} // namespace
+
+TEST (TreeMatching, LongestRepeatsTheLastItemOfTheShorterInput)
+{
+    TreeValue outA;
+    TreeValue outB;
+    RunMatchingNode ("tree.zip", Integers ({ 0 }, { 1, 2, 3 }), Integers ({ 0 }, { 10 }), "longest", outA, outB);
+
+    // Three results, and the single 10 answered all three of them. This is the
+    // rule every lifted node already follows, which is why it is the default:
+    // one number scaling three points must scale all three.
+    EXPECT_EQ (BranchValues (outA, 0), (std::vector<int64_t> { 1, 2, 3 }));
+    EXPECT_EQ (BranchValues (outB, 0), (std::vector<int64_t> { 10, 10, 10 }));
+}
+
+TEST (TreeMatching, ShortestStopsAtTheShorterInputAndRepeatsNothing)
+{
+    TreeValue outA;
+    TreeValue outB;
+    RunMatchingNode ("tree.zip", Integers ({ 0 }, { 1, 2, 3 }), Integers ({ 0 }, { 10 }), "shortest", outA, outB);
+
+    // ONE result, not three. The two policies disagree here by design, and this
+    // is the disagreement §8.3 refuses to resolve with a global default: pairing
+    // is total under Shortest, so no item was ever used twice.
+    EXPECT_EQ (BranchValues (outA, 0), (std::vector<int64_t> { 1 }));
+    EXPECT_EQ (BranchValues (outB, 0), (std::vector<int64_t> { 10 }));
+}
+
+TEST (TreeMatching, TheDefaultPolicyIsTheOneEveryLiftedNodeAlreadyUses)
+{
+    // No `match` parameter at all - an older document, or a node nobody has
+    // touched. It must behave as Longest, because that is what wiring the same
+    // two collections into an ordinary two-input node does, and a Zip that
+    // disagreed with the implicit matching would be a trap rather than a tool.
+    TreeValue outA;
+    TreeValue outB;
+    RunMatchingNode ("tree.zip", Integers ({ 0 }, { 1, 2 }), Integers ({ 0 }, { 10 }), nullptr, outA, outB);
+    EXPECT_EQ (BranchValues (outB, 0), (std::vector<int64_t> { 10, 10 }));
+
+    // An unrecognised name is the same fallback rather than a failure: a policy
+    // name is a file-format contract, so a graph saved by a build that knows a
+    // third policy still opens here.
+    RunMatchingNode ("tree.zip", Integers ({ 0 }, { 1, 2 }), Integers ({ 0 }, { 10 }), "someLaterPolicy", outA, outB);
+    EXPECT_EQ (BranchValues (outB, 0), (std::vector<int64_t> { 10, 10 }));
+}
+
+TEST (TreeMatching, CrossProductPairsEveryItemWithEveryOtherAndStaysInItsBranch)
+{
+    TreeValue outA;
+    TreeValue outB;
+    RunMatchingNode ("tree.crossProduct", Integers ({ 0 }, { 1, 2 }), Integers ({ 0 }, { 10, 20, 30 }), nullptr, outA,
+                     outB);
+
+    // Six results from 2 x 3, read down the columns as pairs: (1,10) (1,20)
+    // (1,30) (2,10) (2,20) (2,30).
+    EXPECT_EQ (BranchValues (outA, 0), (std::vector<int64_t> { 1, 1, 1, 2, 2, 2 }));
+    EXPECT_EQ (BranchValues (outB, 0), (std::vector<int64_t> { 10, 20, 30, 10, 20, 30 }));
+
+    // ⚠️ AND THE COMBINATIONS DID NOT GRAFT THEMSELVES ONTO A NEW LEVEL. Which
+    // input would own that level is not derivable from what was asked, so the
+    // node does not decide it; tree.graft is how somebody says they want it.
+    EXPECT_EQ (outA.tree->ListCount (), 1u);
+    EXPECT_EQ (outA.tree->Paths ()[0], P ({ 0 }));
+}
+
+TEST (TreeMatching, BothOutputsAlwaysHaveTheSameLength)
+{
+    // The one invariant that makes a re-matching node usable at all: the two
+    // outputs are read together, position by position, so a pairing that
+    // produced 3 and 2 would be unreadable however sensible each half looked.
+    const TreeValue three = Integers ({ 0 }, { 1, 2, 3 });
+    const TreeValue one = Integers ({ 0 }, { 10 });
+    const TreeValue none = EmptyTreeValue (ItemType::Integer);
+
+    for (const char* policy : { "longest", "shortest" }) {
+        for (const TreeValue* right : { &one, &none }) {
+            TreeValue outA;
+            TreeValue outB;
+            RunMatchingNode ("tree.zip", three, *right, policy, outA, outB);
+            EXPECT_EQ (outA.tree->ItemCount (), outB.tree->ItemCount ())
+                << "policy " << policy << " left the two outputs different lengths";
+        }
+    }
+}
+
+TEST (TreeMatching, AnEmptyInputUnderShortestPairsNothingRatherThanEverything)
+{
+    TreeValue outA;
+    TreeValue outB;
+    RunMatchingNode ("tree.zip", Integers ({ 0 }, { 1, 2, 3 }), EmptyTreeValue (ItemType::Integer), "shortest", outA,
+                     outB);
+    // Nothing pairs with nothing. Not a failure - an empty answer to a question
+    // that has one.
+    EXPECT_EQ (outA.tree->ItemCount (), 0u);
+    EXPECT_EQ (outB.tree->ItemCount (), 0u);
+}
+
+// ---- tree.shiftPath ---------------------------------------------------------
+
+TEST (TreeNodes, ShiftPathMovesEveryBranchAndLeavesItemOrderAlone)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find ("tree.shiftPath");
+    ASSERT_NE (type, nullptr);
+
+    Node node { "n", "tree.shiftPath" };
+    node.parameters.emplace ("shift", Value (static_cast<int64_t> (-1)));
+
+    TreeMap inputs;
+    inputs.emplace ("tree", Integers ({ 4 }, { 7, 8 }));
+    TreeMap outputs;
+    NodeExecutionContext context;
+    std::string error;
+    ASSERT_TRUE (type->treeBody (node, inputs, context, outputs, error)) << error;
+
+    const TreeValue& shifted = outputs.at ("tree");
+    EXPECT_EQ (shifted.tree->Paths ()[0], P ({ 0, 4 }));
+    EXPECT_EQ (BranchValues (shifted, 0), (std::vector<int64_t> { 7, 8 }));
 }

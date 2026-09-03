@@ -75,7 +75,8 @@ const IDataList* CursorList (const IterationInput& input, const InputCursor& cur
     return &input.tree->ListAt (cursor.listIndex);
 }
 
-bool BuildIterationPlan (const std::vector<IterationInput>& inputs, IterationPlan& plan, std::string& error)
+bool BuildIterationPlan (const std::vector<IterationInput>& inputs, const IterationPolicy& policy, IterationPlan& plan,
+                         std::string& error)
 {
     if (inputs.empty ()) {
         error = "An iteration plan needs at least one input";
@@ -138,14 +139,38 @@ bool BuildIterationPlan (const std::vector<IterationInput>& inputs, IterationPla
         // they contribute no item axis.
         size_t itemSteps = 0;
         bool anyItemAccess = false;
+        bool anyLength = false;
         for (const IterationInput& input : inputs) {
             if (input.access != PortAccess::Item)
                 continue;
             anyItemAccess = true;
-            const size_t listIndex = ClampIndex (listStep, input.tree->ListCount ());
-            if (input.tree->ListCount () == 0)
+            const size_t listCount = input.tree->ListCount ();
+            const size_t here = listCount == 0 ? 0 : input.tree->ListAt (ClampIndex (listStep, listCount)).Size ();
+
+            // ⚠️ THE TWO POLICIES DISAGREE ABOUT AN EMPTY INPUT, AND THAT IS
+            // THE DISAGREEMENT, NOT AN EDGE CASE.
+            //
+            // Under Longest an empty input is SKIPPED, so it lengthens nothing
+            // and the other inputs decide the count. That has to stay exactly
+            // as it was: this is the rule every lifted node runs under, and an
+            // unwired optional port is empty on almost every node in a graph -
+            // counting it as length zero would silence them all.
+            //
+            // Under Shortest an empty input IS length zero, and the walk stops.
+            // Zipping three items against nothing yields nothing; that is what
+            // the word means, and skipping the empty input would quietly make
+            // Shortest behave as Longest in the one case they most differ.
+            // Reachable only through an explicit `tree.zip`, never through a
+            // lift, so this cannot disturb an existing node.
+            if (policy.itemMatch == ItemMatch::Shortest) {
+                itemSteps = anyLength ? std::min (itemSteps, here) : here;
+                anyLength = true;
                 continue;
-            itemSteps = std::max (itemSteps, input.tree->ListAt (listIndex).Size ());
+            }
+            if (listCount == 0)
+                continue;
+            itemSteps = std::max (itemSteps, here);
+            anyLength = true;
         }
         if (!anyItemAccess)
             itemSteps = 1;
@@ -208,6 +233,22 @@ bool BuildIterationPlan (const std::vector<IterationInput>& inputs, IterationPla
     }
 
     return true;
+}
+
+const char* ItemMatchName (ItemMatch match)
+{
+    switch (match) {
+        case ItemMatch::Longest:
+            return "longest";
+        case ItemMatch::Shortest:
+            return "shortest";
+    }
+    return "longest";
+}
+
+bool BuildIterationPlan (const std::vector<IterationInput>& inputs, IterationPlan& plan, std::string& error)
+{
+    return BuildIterationPlan (inputs, IterationPolicy {}, plan, error);
 }
 
 } // namespace evp::nodegraph::data

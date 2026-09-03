@@ -11,6 +11,17 @@
 namespace evp::nodegraph {
 namespace {
 
+// Whether an edge may join these two ports.
+//
+// ONE PREDICATE, because this question is asked twice - once when an edge is
+// made, once when a re-typed node decides which of its existing edges survive -
+// and two copies of it drift into a graph that accepts an edge it will later
+// silently drop.
+bool PortTypesConnect (ValueType output, ValueType input)
+{
+    return input == ValueType::Absent || output == ValueType::Absent || output == input;
+}
+
 bool SameEdge (const Edge& first, const Edge& second)
 {
     return first.sourceNode == second.sourceNode && first.sourcePort == second.sourcePort &&
@@ -110,11 +121,24 @@ bool ValidateDocument (const GraphDocument& document, const NodeRegistry& regist
             error = "edge names an unknown port";
             return false;
         }
-        // An input declared Absent accepts ANY value. Nothing produces Absent as
-        // an output, so the type is free to mean "any" without becoming
-        // ambiguous - which is what lets an inspector node take whatever is
-        // wired into it instead of needing one variant per type.
-        if (input->valueType != ValueType::Absent && output->valueType != input->valueType) {
+        // ⚠️ ABSENT IS THE WILDCARD ON BOTH ENDS, AND IT HAS TO BE.
+        //
+        // On an INPUT it always meant "any value", which is what lets one
+        // inspector node take whatever is wired into it instead of needing a
+        // variant per type.
+        //
+        // On an OUTPUT it used to be impossible, and this rule was written
+        // saying so. The `tree.*` family made it real: a Graft does not change
+        // what the items ARE and cannot know what they are, so it declares its
+        // result Absent and forwards its input's actual type at run time. With
+        // the old rule a Graft could only ever feed another wildcard port -
+        // reshaping a collection and then asking its length was refused as a
+        // type mismatch, which is most of the reason to reshape one.
+        //
+        // The run-time check is the one that still bites: Evaluator's publish
+        // step compares the produced tree's item type against the port's, and a
+        // port that named a type is checked there exactly as before.
+        if (!PortTypesConnect (output->valueType, input->valueType)) {
             error = "port type mismatch";
             return false;
         }
@@ -369,8 +393,7 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
                     const PortSchema* output = FindOutput (*source, *sourceType, edge.sourcePort);
                     const PortSchema* input = FindInput (*target, *targetType, edge.targetPort);
                     const bool survives =
-                        output != nullptr && input != nullptr &&
-                        (input->valueType == ValueType::Absent || output->valueType == input->valueType);
+                        output != nullptr && input != nullptr && PortTypesConnect (output->valueType, input->valueType);
                     if (survives)
                         return false;
                     dropped.push_back (edge);

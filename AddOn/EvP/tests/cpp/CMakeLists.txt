@@ -1,22 +1,22 @@
-cmake_minimum_required (VERSION 3.16)
+﻿cmake_minimum_required (VERSION 3.16)
 
 # ============================================================================
-# EvPGeomTests — L2 offline unit tests for Sources/AddOn/Geometry/
-# (see docs/guides/testing.md §2)
+# EvPGeomTests â€” L2 offline unit tests for Sources/AddOn/Geometry/
+# (see docs/guides/testing.md Â§2)
 #
 # STANDALONE ON PURPOSE. This is its own CMake project, NOT a target inside the
 # add-on's CMakeLists, because:
 #   * the add-on's CMakeLists hard-fails without the Archicad DevKit, and the
 #     whole point of L2 is that it needs no DevKit, no Archicad, no Python;
 #   * that makes this buildable on Linux/WSL and in hosted CI, where the .apx
-#     cannot be built at all (docs/guides/testing.md §8.7).
+#     cannot be built at all (docs/guides/testing.md Â§8.7).
 #
-# It compiles the REAL engine sources — never a copy — so a test can only pass
+# It compiles the REAL engine sources â€” never a copy â€” so a test can only pass
 # against the code that ships.
 #
 #   cmake -S . -B build && cmake --build build && ctest --test-dir build
 #
-# Sanitizers (docs/guides/testing.md §5): -DEVP_SANITIZE=ON.
+# Sanitizers (docs/guides/testing.md Â§5): -DEVP_SANITIZE=ON.
 # ============================================================================
 
 # C as well as CXX: quickjs-ng is a C library. That was previously enabled as a
@@ -48,7 +48,7 @@ set (QUICKJS_DIR "${REF_DIR}/quickjs-ng")
 # A gate that a half-finished neighbouring feature can turn red is a gate people
 # start ignoring.
 #
-# ⚠️ TURNING IT OFF DROPS REAL COVERAGE, so it says so out loud rather than
+# âš ï¸ TURNING IT OFF DROPS REAL COVERAGE, so it says so out loud rather than
 # quietly building fewer tests. Turn it back on with -DEVP_TEXT_RENDERING=ON,
 # which is what anyone picking the feature back up must do.
 option (EVP_TEXT_RENDERING "Build the vendored text-rendering stack and its tests" OFF)
@@ -94,11 +94,11 @@ list (APPEND EVP_GEOM_SOURCES "${GEOM_DIR}/WireframeEdges.cpp")
 
 # Not an engine, but it makes the same promise: Palette/CommandFilter.cpp is pure
 # string work with no DevKit and no DG, and a search ranking is exactly what cannot
-# be judged by eye in Archicad — "did my change make the right command come first"
+# be judged by eye in Archicad â€” "did my change make the right command come first"
 # is a question only a test answers.
 # Palette/ParamVisibility.cpp joins it on the same terms (F3): show_when decides
 # which parameter rows exist, and a row that wrongly vanishes reports nothing at
-# all in Archicad — it just looks like a command with fewer settings.
+# all in Archicad â€” it just looks like a command with fewer settings.
 set (EVP_PALETTE_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Palette/AutomaticPreviewState.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/CommandFilter.cpp"
@@ -219,7 +219,7 @@ set (EVP_NODEGRAPH_SOURCES
     # reshaping the node, dropping the edges that no longer fit - is covered here
     # with no Archicad and no APX rebuild.
     #
-    # ⚠️ ScriptRuntimeJs.cpp IS IN THIS LIST, and that is the point of embedding a
+    # âš ï¸ ScriptRuntimeJs.cpp IS IN THIS LIST, and that is the point of embedding a
     # JS engine rather than borrowing the WebView's: a script node's evaluation,
     # its value marshalling and its time budget are all exercised offline. The
     # moment this file needs anything but quickjs and the standard library, it
@@ -236,6 +236,7 @@ set (EVP_NODEGRAPH_SOURCES
     # its content, so it opts out of NodeLifting via NodeType::treeBody. See
     # TreeNodes.hpp.
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/TreeNodes.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ListNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Value.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ValueText.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/WorkerPool.cpp")
@@ -243,10 +244,10 @@ set (EVP_NODEGRAPH_SOURCES
 # ArchViz/MeshGroups.cpp qualifies on the same terms: no DevKit, no bgfx, no bx,
 # nothing but <vector> and <algorithm>. It earns its place because getting it
 # wrong does not FAIL -- every surface of an element renders in the first
-# material's colour, which reads as a styling choice (plan §6.3, and the three.js
+# material's colour, which reads as a styling choice (plan Â§6.3, and the three.js
 # side hit it once). That is invisible from inside Archicad unless you already
 # know what the model should look like.
-# ⚠️ KEEP IT DevKit-FREE. The moment MeshGroups.cpp includes <bgfx/bgfx.h> it
+# âš ï¸ KEEP IT DevKit-FREE. The moment MeshGroups.cpp includes <bgfx/bgfx.h> it
 # must leave this list, and the offline gate for Phase 6's riskiest algorithm
 # goes with it.
 # ArchViz/MaterialTable.cpp joins them on the same terms and for the same
@@ -258,7 +259,7 @@ set (EVP_NODEGRAPH_SOURCES
 # Diligent so the sRGB/channel-order reasoning can be checked without a GPU.
 # Getting it wrong reports a rendering fault that is not there (or hides one
 # that is), and it took three live Archicad runs to notice that the last time.
-# ⚠️ KEEP IT <d3d11.h>-FREE — the DXGI format numbers are spelled out on purpose.
+# âš ï¸ KEEP IT <d3d11.h>-FREE â€” the DXGI format numbers are spelled out on purpose.
 # The three scene-text engines and their tests, listed once and appended only
 # when the stack above is built. They are the only sources here that need
 # FreeType/HarfBuzz headers.
@@ -295,7 +296,7 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/BuildingMaterialSignal.cpp"
     # ArchViz/SubstanceJoin.cpp is what finally gives that classifier a caller:
     # it folds the many-to-many body->surface join into one verdict per surface.
-    # ⚠️ IT IS HERE FOR THE SHARPEST VERSION OF THE ARCHVIZ REASON. Every way of
+    # âš ï¸ IT IS HERE FOR THE SHARPEST VERSION OF THE ARCHVIZ REASON. Every way of
     # getting the join wrong renders a complete, plausible building in the wrong
     # materials -- no crash, no warning, and nothing on screen that says the
     # timber studs are being drawn as concrete. Pure by construction: no ACAPI,
@@ -398,7 +399,7 @@ set (EVP_ARCHVIZ_SOURCES
     # vertex work for an identical frame; and refusing to occlude in wireframe is
     # the reported bug itself -- a sphere inside a room looking stuck to the
     # glass.
-    # ⚠️ THE GPU HALF IS ArchViz/DiligentSceneOcclusion.cpp AND IS DELIBERATELY
+    # âš ï¸ THE GPU HALF IS ArchViz/DiligentSceneOcclusion.cpp AND IS DELIBERATELY
     # ABSENT, exactly as GhPreviewLayer is absent beside GhPreviewGeometry: it
     # owns a pipeline state and a draw loop and decides nothing.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OcclusionPrepass.cpp")
@@ -424,7 +425,7 @@ set (EVP_PREVIEW_SOURCES
      # leaves the viewport permanently disagreeing with the canvas until someone
      # reopens the definition. None of the three produces an error, a log line,
      # or anything on screen a user could report as a fault.
-     # ⚠️ KEEP IT GPU-FREE, DevKit-FREE AND Win32-FREE. It is deliberately the
+     # âš ï¸ KEEP IT GPU-FREE, DevKit-FREE AND Win32-FREE. It is deliberately the
      # CPU half; the GPU half is ArchViz/GhPreviewLayer and the handover is
      # SceneCmdQueue. The moment this file needs any of the three it leaves this
      # list, and the offline gate on the delta protocol goes with it.
@@ -437,7 +438,7 @@ set (EVP_PREVIEW_SOURCES
      # slider drag is hundreds of solves; an ack that is not sent leaks the
      # WORKER's segment instead; an ack sent early releases memory the worker is
      # still writing into.
-     # ⚠️ THE Win32 HALF IS Preview/GhPreviewSegmentView.cpp AND IS DELIBERATELY
+     # âš ï¸ THE Win32 HALF IS Preview/GhPreviewSegmentView.cpp AND IS DELIBERATELY
      # ABSENT. It is the only file on this path that names a Win32 type, which is
      # exactly why the state machine reaches it through an interface: the tests
      # hand that interface a buffer.
@@ -448,7 +449,7 @@ set (EVP_PREVIEW_SOURCES
      # wrong surface draws plan linework in the model; an x-ray primitive left in
      # the depth-tested bucket is simply invisible inside the wall it exists to be
      # compared against; an unordered buffer flickers under any transparency.
-     # ⚠️ THE GPU HALF IS ArchViz/GhPreviewLayer.cpp AND IS DELIBERATELY ABSENT --
+     # âš ï¸ THE GPU HALF IS ArchViz/GhPreviewLayer.cpp AND IS DELIBERATELY ABSENT --
      # it owns nothing but buffers, PSOs and draws.
      "${EVP_ROOT}/Sources/AddOn/Preview/GraphPreviewStore.cpp"
      "${EVP_ROOT}/Sources/AddOn/ArchViz/GhPreviewGeometry.cpp"
@@ -525,6 +526,7 @@ set (EVP_TEST_SOURCES
     test_anytree.cpp
     test_nodelifting.cpp
     test_treenodes.cpp
+    test_listnodes.cpp
     test_elementclassification.cpp)
 
 # ---- googletest (vendored source drop) -------------------------------------
@@ -533,22 +535,22 @@ set (EVP_TEST_SOURCES
 if (NOT EXISTS "${GTEST_DIR}/src/gtest-all.cc")
     message (FATAL_ERROR
         "GoogleTest not found at ${GTEST_DIR}.\n"
-        "reference/ is gitignored — provision it once with "
+        "reference/ is gitignored â€” provision it once with "
         "tools/build/provision-reference.ps1 -FromUpstream -Profile test. "
         "See tests/cpp/README.md.")
 endif ()
 if (NOT EXISTS "${NANORT_INC}/nanort.h")
-    message (FATAL_ERROR "nanort not found at ${NANORT_INC} — see AddOn/EvP/README.md.")
+    message (FATAL_ERROR "nanort not found at ${NANORT_INC} â€” see AddOn/EvP/README.md.")
 endif ()
 if (NOT EXISTS "${GLM_INC}/glm/glm.hpp")
-    message (FATAL_ERROR "GLM not found at ${GLM_INC} — see AddOn/EvP/README.md.")
+    message (FATAL_ERROR "GLM not found at ${GLM_INC} â€” see AddOn/EvP/README.md.")
 endif ()
 if (NOT EXISTS "${QUICKJS_DIR}/quickjs.c")
-    message (FATAL_ERROR "quickjs-ng not found at ${QUICKJS_DIR} — run tools/build/provision-reference.ps1 -FromUpstream.")
+    message (FATAL_ERROR "quickjs-ng not found at ${QUICKJS_DIR} â€” run tools/build/provision-reference.ps1 -FromUpstream.")
 endif ()
 
 if (NOT EXISTS "${CLIPPER2_DIR}/Clipper2Lib/src/clipper.engine.cpp")
-    message (FATAL_ERROR "Clipper2 not found at ${CLIPPER2_DIR} — see AddOn/EvP/README.md.")
+    message (FATAL_ERROR "Clipper2 not found at ${CLIPPER2_DIR} â€” see AddOn/EvP/README.md.")
 endif ()
 
 add_library (gtest_vendored STATIC
@@ -572,7 +574,7 @@ add_library (TapiocaQuickJs STATIC
     "${QUICKJS_DIR}/cutils.c"
     "${QUICKJS_DIR}/xsum.c")
 target_include_directories (TapiocaQuickJs SYSTEM PUBLIC "${QUICKJS_DIR}")
-# ⚠️ quickjs-libc.c IS DELIBERATELY ABSENT, and it is the security boundary rather
+# âš ï¸ quickjs-libc.c IS DELIBERATELY ABSENT, and it is the security boundary rather
 # than an oversight. Upstream gates it behind QJS_BUILD_LIBC; it is what provides
 # `std` and `os` - file reads, writes, process spawning - to scripts. A script
 # node sees its inputs and nothing else, so the library that would give it a
@@ -587,7 +589,7 @@ endif ()
 # not be dragged into the C++ compiler by a stray target_compile_features.
 set_target_properties (TapiocaQuickJs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
 if (MSVC)
-    # ⚠️ /std:c11 AND /experimental:c11atomics ARE BOTH REQUIRED, and C_STANDARD 11
+    # âš ï¸ /std:c11 AND /experimental:c11atomics ARE BOTH REQUIRED, and C_STANDARD 11
     # above does not supply them. quickjs.c includes <stdatomic.h>, which MSVC's
     # own vcruntime_c11_stdatomic.h refuses with `#error "C atomics require C11 or
     # later"` unless the language flag is on - and MSVC still gates the atomics
@@ -625,7 +627,7 @@ target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_I
 target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs ${TAPIOCA_TEXT_LIBS})
 
 if (MSVC)
-    # /W4 on OUR code (docs/guides/testing.md §5). The add-on ships at /W3; the host-free core
+    # /W4 on OUR code (docs/guides/testing.md Â§5). The add-on ships at /W3; the host-free core
     # is where a stricter gate is affordable, so it starts here.
     target_compile_options (EvPGeomTests PRIVATE /W4 /EHsc /MP -D_CRT_SECURE_NO_WARNINGS)
 else ()
@@ -636,7 +638,7 @@ if (EVP_SANITIZE)
     if (MSVC)
         # MSVC's ASan turns on STL container annotations, which change the ABI of
         # std::string/vector/optional. EVERY object in the link must agree, so the
-        # flag goes on gtest as well — otherwise the link fails with LNK2038
+        # flag goes on gtest as well â€” otherwise the link fails with LNK2038
         # "mismatch detected for 'annotate_string'".
         target_compile_options (EvPGeomTests    PRIVATE /fsanitize=address)
         target_compile_options (gtest_vendored  PRIVATE /fsanitize=address)
@@ -661,7 +663,7 @@ endif ()
 target_compile_definitions (EvPGeomTests PRIVATE
     EVP_DUMP_DIR="${EVP_ROOT}/../../dump"
     EVP_TEST_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
-    # ⚠️ THE SHIPPED EXAMPLES ARE THE FIXTURE, RATHER THAN A COPY OF THEM. They
+    # âš ï¸ THE SHIPPED EXAMPLES ARE THE FIXTURE, RATHER THAN A COPY OF THEM. They
     # are what a user points a node at first, so their headers ARE the contract
     # this feature makes; a private copy beside the tests would let the two drift
     # and the examples are the half that would rot. An example whose header stops
