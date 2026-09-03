@@ -17,6 +17,7 @@
     path,
     onpathchange,
     onreloaded,
+    onedit,
   }: {
     nodeId: string
     graphId?: string
@@ -29,6 +30,17 @@
      * graph state, because the node's ports live there and not here.
      */
     onreloaded: (status: ScriptStatus) => void
+    /**
+     * Open this node's file in the Script Inspector.
+     *
+     * ⚠️ THE EDITOR IS NOT DRAWN ON THE NODE, AND IT SHOULD NOT BE. A node body
+     * is a few hundred pixels wide at a readable zoom, is re-rendered as the
+     * canvas moves, and disappears when the node is scrolled off - none of which
+     * a text buffer someone is typing into can survive. The panel asks for the
+     * inspector; the inspector lives at the canvas level, where it can be pinned,
+     * sized, and left open while the user clicks around the graph.
+     */
+    onedit?: () => void
   } = $props()
 
   let status = $state<ScriptStatus>(EMPTY_SCRIPT_STATUS)
@@ -208,6 +220,13 @@
     {#if condition === 'empty' || condition === 'missing'}
       <button type="button" disabled={busy} onclick={create}>Create</button>
     {:else}
+      <!--
+        Edit here, Open there, and both are worth a button. "Edit" is the
+        ten-second fix without leaving the canvas; "Open" is the rest of the work,
+        in the editor the user already has the file open in. Neither replaces the
+        other, and offering only one of them would be picking for them.
+      -->
+      <button type="button" disabled={busy || onedit === undefined} onclick={() => onedit?.()}>Edit</button>
       <button type="button" disabled={busy} onclick={() => shell(() => openScriptInEditor(nodeId, graphId))}>Open</button>
     {/if}
     <!--

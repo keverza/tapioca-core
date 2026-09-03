@@ -3,10 +3,18 @@
 
 // Getting a script node's file off disk, and knowing when it changed.
 //
-// ⚠️ THE FILE IS OWNED BY VSCODE OR SUBLIME, NOT BY THIS ADD-ON, AND THAT IS THE
-// WHOLE POINT OF THE FEATURE. Everything here reads; nothing writes over a file
-// a user has open in an editor. The one exception is scaffolding a NEW file,
-// which refuses to overwrite an existing one - see WriteScriptTemplate.
+// ⚠️ THE FILE ON DISK IS THE SINGLE SOURCE OF TRUTH, AND EVERY WRITER GOES
+// THROUGH IT. VSCode and Sublime remain the primary way a script is written;
+// the palette's embedded editor is the second, for the ten-second fix you do not
+// want to change windows for. What makes two writers safe is that neither holds
+// an authoritative copy: the editor reads the file, edits a buffer, and hands
+// the result back with the hash it started from. A write whose base hash no
+// longer matches what is on disk is REFUSED rather than applied - see
+// WriteScriptSource - so an edit made in VSCode meanwhile cannot be silently
+// discarded by a save from the palette, or the other way round.
+//
+// Scaffolding a NEW file is separate again and refuses an existing one outright:
+// "create" and "overwrite" are not the same request. See WriteScriptTemplate.
 //
 // It is also why the read is a SNAPSHOT with a stamp rather than a stream. The
 // editor saves whole files, often by writing a temporary and renaming over the
@@ -75,6 +83,49 @@ ScriptRead ReadScript (const std::string& path);
 // typed anything. REFUSES an existing file: scaffolding must never be able to
 // destroy work, and "create" and "overwrite" are not the same request.
 bool WriteScriptTemplate (const std::string& path, std::string& error);
+
+// The result of saving an editor buffer over a script.
+struct ScriptWrite {
+    bool ok = false;
+
+    // True when the write was refused because the file had moved on since the
+    // caller read it. Distinct from an ordinary failure, because it is the one
+    // outcome the user can resolve and the UI has to offer a choice for -
+    // keep the buffer, take the file, or look at both.
+    bool conflict = false;
+
+    // What is on disk NOW, filled only on a conflict. Sent back with the refusal
+    // so the editor can show the other version without a second round trip and
+    // without a window in which the file changes again between the two calls.
+    std::string diskSource;
+    std::string diskHash;
+
+    // The file as it stands after a successful write.
+    ScriptStamp stamp;
+
+    std::string error;
+};
+
+// Replaces the contents of `path` with `source`, but ONLY if what is on disk
+// still hashes to `baseHash` - the hash the caller was handed when it read the
+// file. An empty `baseHash` means "there should be no file here", which is how a
+// buffer for a path that has not been created yet saves for the first time.
+//
+// ⚠️ THE GUARD IS THE FEATURE, NOT A PRECAUTION. A script node's file is open in
+// an external editor as a matter of course; an unguarded write from the palette
+// would throw away whatever was typed there since the buffer loaded, silently
+// and with no way back. Hashes rather than stamps because this comparison
+// decides whether to destroy someone's work, and a filesystem timestamp is
+// coarse enough to miss a fast save - the stamp is good enough to ask "should I
+// re-read", never good enough to answer "may I overwrite".
+//
+// The replacement is atomic: the bytes are written to a temporary beside the
+// target and renamed over it, so a failure part way through leaves the previous
+// version intact rather than a half-written script. `hashSource` is the hashing
+// function - passed in rather than called directly because ScriptSource sits
+// below ScriptNodes, where HashScriptSource lives.
+ScriptWrite WriteScriptSource (const std::string& path, const std::string& source, const std::string& baseHash,
+                               const std::function<std::string (const std::string&)>& hashSource);
 
 // ---------------------------------------------------------------------------
 // Change notification.

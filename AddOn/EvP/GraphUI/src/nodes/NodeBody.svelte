@@ -84,6 +84,7 @@
     path={data.parameters.find((parameter) => parameter.parameterId === 'scriptPath')?.value?.text ?? ''}
     onpathchange={(next) => data.onparameterchange?.(id, 'scriptPath', 'string', next)}
     onreloaded={() => data.onscriptreloaded?.()}
+    onedit={data.onscriptedit === undefined ? undefined : () => data.onscriptedit?.(id)}
   />
 {:else if viewMode !== 'compact' && data.schema.display === 'text'}
   <section class="text nodrag nowheel">{#if panelContents.length === 0}<p>{data.result ? '(nothing)' : 'Not evaluated'}</p>{:else}<p class="structure">{panelStructure(panelOutput)}</p><ol>{#each panelContents as row (row.key)}{#if row.kind === 'path'}<li class="path"><span>{row.label}</span><em>{row.summary}</em></li>{:else if row.kind === 'item'}<li><span>{row.index}</span><code>{row.text}</code></li>{:else}<li class="note"><span></span><code>{row.text}</code></li>{/if}{/each}</ol>{/if}</section>

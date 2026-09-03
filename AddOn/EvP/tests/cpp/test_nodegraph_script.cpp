@@ -291,6 +291,115 @@ TEST (ScriptSource, TheTemplateItWritesParsesAndDeclaresPorts)
     std::filesystem::remove (path, code);
 }
 
+// ---------------------------------------------------------------------------
+// Saving an editor buffer back.
+//
+// ⚠️ THESE ARE THE TESTS THAT LET THE PALETTE HAVE AN EDITOR AT ALL. A script
+// node's file is normally open in VSCode at the same time; the only thing
+// standing between that and a silent loss of someone's work is the base-hash
+// guard, so what it refuses matters more here than what it accepts.
+
+TEST (ScriptWrite, ReplacesTheFileWhenTheBaseHashStillMatches)
+{
+    const TempScript file ("tapioca_script_write.py", "# @out b : number\nb = 1\n");
+    const std::string base = HashScriptSource (ReadScript (file.Path ()).source);
+
+    const ScriptWrite written = WriteScriptSource (file.Path (), "# @out b : number\nb = 2\n", base,
+                                                   &HashScriptSource);
+    ASSERT_TRUE (written.ok) << written.error;
+    EXPECT_FALSE (written.conflict);
+    EXPECT_EQ (ReadScript (file.Path ()).source, "# @out b : number\nb = 2\n");
+    EXPECT_TRUE (written.stamp.exists);
+    // The hash comes back so the buffer can go on guarding subsequent saves
+    // without a round trip through Read.
+    EXPECT_EQ (written.diskHash, HashScriptSource ("# @out b : number\nb = 2\n"));
+}
+
+TEST (ScriptWrite, RefusesAndHandsBackTheOtherVersionWhenTheFileChangedMeanwhile)
+{
+    // The whole point of the guard: the user opened the buffer, went to VSCode,
+    // edited and saved there, then pressed Save in the palette. The palette's
+    // buffer is older, and applying it would destroy the VSCode edit.
+    const TempScript file ("tapioca_script_conflict.py", "mine\n");
+    const std::string base = HashScriptSource ("mine\n");
+    file.Write ("theirs\n");
+
+    const ScriptWrite written = WriteScriptSource (file.Path (), "buffer\n", base, &HashScriptSource);
+    EXPECT_FALSE (written.ok);
+    EXPECT_TRUE (written.conflict);
+    EXPECT_EQ (written.diskSource, "theirs\n");
+    EXPECT_EQ (written.diskHash, HashScriptSource ("theirs\n"));
+    // And nothing was written: a refused save must leave disk exactly as it was.
+    EXPECT_EQ (ReadScript (file.Path ()).source, "theirs\n");
+}
+
+TEST (ScriptWrite, AnEmptyBaseHashWritesAFileThatIsNotThereYet)
+{
+    const std::filesystem::path path = std::filesystem::temp_directory_path () / "tapioca_script_fresh.py";
+    std::error_code code;
+    std::filesystem::remove (path, code);
+
+    const ScriptWrite written = WriteScriptSource (path.string (), "b = 1\n", std::string {}, &HashScriptSource);
+    ASSERT_TRUE (written.ok) << written.error;
+    EXPECT_EQ (ReadScript (path.string ()).source, "b = 1\n");
+    std::filesystem::remove (path, code);
+}
+
+TEST (ScriptWrite, AFileThatVanishedIsAConflictRatherThanASilentRecreate)
+{
+    // Deleting or renaming a script is a deliberate act. Re-creating it because
+    // a buffer happened to still be open would undo that without saying so.
+    const std::filesystem::path path = std::filesystem::temp_directory_path () / "tapioca_script_gone.py";
+    std::error_code code;
+    std::filesystem::remove (path, code);
+
+    const ScriptWrite written =
+        WriteScriptSource (path.string (), "b = 1\n", HashScriptSource ("b = 0\n"), &HashScriptSource);
+    EXPECT_FALSE (written.ok);
+    EXPECT_TRUE (written.conflict);
+    EXPECT_TRUE (written.diskSource.empty ());
+    EXPECT_FALSE (std::filesystem::exists (path, code));
+}
+
+TEST (ScriptWrite, RefusesAPathThatIsNotAScript)
+{
+    const ScriptWrite written =
+        WriteScriptSource ("C:\\somewhere\\notes.txt", "b = 1\n", std::string {}, &HashScriptSource);
+    EXPECT_FALSE (written.ok);
+    EXPECT_FALSE (written.conflict);
+    EXPECT_NE (written.error.find (".js"), std::string::npos);
+}
+
+TEST (ScriptWrite, LeavesNoTemporaryBesideTheFileItWrote)
+{
+    // The write goes through a sibling temporary and a rename, which is what
+    // keeps a failure from leaving a half-written script behind. A temporary that
+    // survived a SUCCESSFUL write would sit in the user's script folder forever,
+    // and on a folder an external editor watches it is also a phantom file.
+    const TempScript file ("tapioca_script_temp.py", "b = 1\n");
+    const ScriptWrite written =
+        WriteScriptSource (file.Path (), "b = 2\n", HashScriptSource ("b = 1\n"), &HashScriptSource);
+    ASSERT_TRUE (written.ok) << written.error;
+    std::error_code code;
+    EXPECT_FALSE (std::filesystem::exists (file.Path () + ".tapioca-save", code));
+}
+
+TEST (ScriptWrite, TheTextItWroteIsWhatTheNodeThenLoads)
+{
+    // The round trip that matters end to end: a save reshapes the node, so the
+    // header the editor wrote has to be the header the manifest parser sees.
+    const TempScript file ("tapioca_script_roundtrip.py", "# @out b : number\nb = 1\n");
+    const std::string base = HashScriptSource (ReadScript (file.Path ()).source);
+    const std::string edited = "# @in  a : number\n# @out b : number\nb = a * 2\n";
+    ASSERT_TRUE (WriteScriptSource (file.Path (), edited, base, &HashScriptSource).ok);
+
+    const ScriptState state = LoadScriptState (file.Path (), ScriptLanguage::Python);
+    EXPECT_TRUE (state.loadError.empty ()) << state.loadError;
+    ASSERT_EQ (state.manifest.inputs.size (), 1u);
+    EXPECT_EQ (state.manifest.inputs.front ().id, "a");
+    EXPECT_EQ (state.sourceHash, HashScriptSource (edited));
+}
+
 TEST (ScriptSource, ASizeStampCatchesASaveThatKeptTheSameTimestamp)
 {
     // Windows filesystem timestamps are coarse enough that a fast edit-save-edit

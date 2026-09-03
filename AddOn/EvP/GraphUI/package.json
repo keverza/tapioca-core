@@ -13,6 +13,16 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "6.20.3",
+    "@codemirror/commands": "6.11.0",
+    "@codemirror/lang-javascript": "6.2.5",
+    "@codemirror/lang-python": "6.2.1",
+    "@codemirror/language": "6.12.4",
+    "@codemirror/lint": "6.9.7",
+    "@codemirror/search": "6.7.2",
+    "@codemirror/state": "6.7.2",
+    "@codemirror/view": "6.43.10",
+    "@lezer/highlight": "1.2.3",
     "@threlte/core": "8.6.0",
     "@xyflow/svelte": "1.6.5",
     "svelte": "5.56.10",

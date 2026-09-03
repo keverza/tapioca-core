@@ -69,6 +69,7 @@
   } from './library'
   import NodeSearch from './NodeSearch.svelte'
   import PerformancePanel from './PerformancePanel.svelte'
+  import ScriptEditor from './nodes/script/ScriptEditor.svelte'
   import type { DiagnosticMode } from './performance'
   import MasterNode from './nodes/MasterNode.svelte'
   import { requestQuickMenu, requestRename } from './nodes/renameRequest.svelte'
@@ -164,6 +165,21 @@
   let message = $state('Connecting to the native graph runtime...')
   let failed = $state(false)
   let performanceOpen = $state(false)
+  /**
+   * The script node whose file the Script Inspector is showing, or null.
+   *
+   * ⚠️ IT LIVES HERE RATHER THAN ON THE NODE, AND THAT IS THE POINT. A node body
+   * unmounts when the node is panned off screen or the graph is refetched; a text
+   * buffer someone is halfway through typing into must survive both. Holding it
+   * at the canvas level also means it stays open while the user clicks other
+   * nodes, which is how anyone actually debugs a graph - look at the wire, look
+   * at the code, look at the wire again.
+   *
+   * The title is captured when the inspector opens rather than looked up on every
+   * render: it is a label on a panel, and following a rename mid-edit is worth
+   * less than not re-deriving it on every graph refetch.
+   */
+  let scriptEditorTarget = $state<{ nodeId: string; title: string } | null>(null)
   let diagnosticMode = $state<DiagnosticMode>('flow')
   let snapEnabled = $state(true)
   let pickerOpen = $state(true)
@@ -396,6 +412,9 @@
         // state rather than in the panel - so the panel says "I reloaded" and the
         // editor refetches, exactly as it does after any other edit.
         onscriptreloaded: () => { void reloadState() },
+        onscriptedit: (target: string) => {
+          scriptEditorTarget = { nodeId: target, title: schemaOf(node)?.label ?? node.nodeType }
+        },
         onselectionaction: handleSelectionAction,
         selectionBusy: selectionBusyNode === node.nodeId,
         // Only a selection set stacks containers, and it does so from what it
@@ -2247,6 +2266,16 @@
         <h1>The runtime is empty.</h1>
         <p>Add a Number node, then connect native ports. Every accepted edit is owned by C++.</p>
       </div>
+    {/if}
+
+    {#if scriptEditorTarget !== null}
+      <ScriptEditor
+        nodeId={scriptEditorTarget.nodeId}
+        graphId={graphId}
+        title={scriptEditorTarget.title}
+        onclose={() => (scriptEditorTarget = null)}
+        onreloaded={() => { void reloadState() }}
+      />
     {/if}
 
     {#if performanceOpen}

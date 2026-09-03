@@ -168,6 +168,105 @@ bool WriteScriptTemplate (const std::string& path, std::string& error)
     return true;
 }
 
+ScriptWrite WriteScriptSource (const std::string& path, const std::string& source, const std::string& baseHash,
+                               const std::function<std::string (const std::string&)>& hashSource)
+{
+    ScriptWrite write;
+    if (path.empty ()) {
+        write.error = "this script node has no file yet; choose or create one";
+        return write;
+    }
+
+    ScriptLanguage language = ScriptLanguage::JavaScript;
+    if (!ScriptLanguageFromPath (path, language)) {
+        write.error = "a script file must end in .js or .py";
+        return write;
+    }
+    if (source.size () > kMaxScriptBytes) {
+        write.error = "that is larger than a script node will read (4 MB)";
+        return write;
+    }
+
+    // ⚠️ THE GUARD, AND IT RUNS BEFORE A SINGLE BYTE IS WRITTEN. What is on disk
+    // is re-read here rather than compared by stamp: this decides whether to
+    // destroy someone's work, and a coarse timestamp that missed a save would
+    // decide it wrongly in the one direction that cannot be undone.
+    const ScriptStamp existing = StatScript (path);
+    if (existing.exists) {
+        const ScriptRead current = ReadScript (path);
+        if (!current.ok) {
+            write.error = current.error;
+            return write;
+        }
+        const std::string currentHash = hashSource (current.source);
+        if (currentHash != baseHash) {
+            write.conflict = true;
+            write.diskSource = current.source;
+            write.diskHash = currentHash;
+            write.stamp = current.stamp;
+            write.error = "the file changed on disk since it was opened here";
+            return write;
+        }
+    } else if (!baseHash.empty ()) {
+        // The buffer was read from a file that has since been deleted or moved.
+        // Recreating it silently would resurrect a file the user removed on
+        // purpose, so this is a conflict with an empty other side.
+        write.conflict = true;
+        write.diskSource.clear ();
+        write.diskHash.clear ();
+        write.error = "the file is no longer at " + path;
+        return write;
+    }
+
+    std::error_code code;
+    const fs::path target = PathFromUtf8 (path);
+    if (target.has_parent_path ()) {
+        fs::create_directories (target.parent_path (), code);
+        if (code) {
+            write.error = "could not create the folder for " + path;
+            return write;
+        }
+    }
+
+    // ⚠️ TEMPORARY-AND-RENAME, BESIDE THE TARGET RATHER THAN IN THE TEMP FOLDER.
+    // Truncating the real file and streaming into it leaves a script node's file
+    // empty or half-written if anything fails mid-way, and an external editor
+    // watching the folder sees that intermediate state and reloads it. The
+    // temporary is a sibling because a rename is only atomic within one volume,
+    // and %TEMP% is routinely on another.
+    fs::path temporary = target;
+    temporary += ".tapioca-save";
+    {
+        std::ofstream stream (temporary, std::ios::binary | std::ios::trunc);
+        if (!stream) {
+            write.error = "could not write beside " + path + "; the folder may be read-only";
+            return write;
+        }
+        stream << source;
+        stream.flush ();
+        if (!stream) {
+            stream.close ();
+            fs::remove (temporary, code);
+            write.error = "could not write " + path;
+            return write;
+        }
+    }
+
+    fs::rename (temporary, target, code);
+    if (code) {
+        fs::remove (temporary, code);
+        // The usual cause is the file being held open by the editor or by a
+        // virus scanner, so the message names the thing worth trying.
+        write.error = "could not replace " + path + "; it may be locked by another program";
+        return write;
+    }
+
+    write.ok = true;
+    write.stamp = StatScript (path);
+    write.diskHash = hashSource (source);
+    return write;
+}
+
 namespace {
 
 // Atomic for the reason ArchicadHost's is: read whenever the watched set is

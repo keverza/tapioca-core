@@ -4,12 +4,17 @@
 // The script node family: a node whose behaviour AND interface are authored in a
 // file on disk, edited in VSCode or Sublime, and picked up when it is saved.
 //
-// ⚠️ THERE IS NO EDITOR IN THE PALETTE, AND THERE MUST NOT BE ONE. The file
-// belongs to whatever the user already edits code in. A second editable copy
-// inside Archicad would be a second source of truth, and the way that fails is
-// specific and bad: the user edits in VSCode, the palette still holds what it
-// loaded, something writes the palette's copy back, and the VSCode edit is gone.
-// The palette reads, reports and reloads. It does not write over a script.
+// ⚠️ THE PALETTE HAS AN EDITOR, AND THE FILE IS STILL THE ONLY SOURCE OF TRUTH.
+// Those two are compatible for exactly one reason: the editor never holds an
+// authoritative copy. It reads the file, edits a buffer, and saves by handing
+// the text back WITH the hash it started from; a write whose base hash no longer
+// matches disk is refused, and the user is shown both versions. The failure this
+// design exists to prevent - edit in VSCode, save from the palette, VSCode's
+// work is gone - is a refused write here rather than a silent loss.
+//
+// The external editor remains the primary one. The embedded editor is for the
+// fix you can see from the canvas, and it is deliberately not trying to become
+// VSCode: no project tree, no package management, one file at a time.
 //
 // ⚠️ AND THE NODE IS NOT WHERE THE PORTS ARE DECIDED. The header in the file is -
 // see ScriptManifest. The node follows the file, which is what makes "rename the

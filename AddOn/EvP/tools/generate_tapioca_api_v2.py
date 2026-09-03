@@ -58,12 +58,17 @@ from typing import Any
 # GraphScriptReload, GraphScriptCreate, GraphScriptOpen and GraphScriptReveal.
 # Three READ the script file a node runs; two hand it to the shell - the editor
 # associated with its extension, or Explorer with the file selected. Create writes
-# one and REFUSES an existing file, which is what admits it here at all. There is
-# deliberately no GraphScriptWrite - the file belongs to the user's own editor, and
-# a palette that could write it would hold a stale copy able to discard their work.
-EXPECTED_REGISTRY_COMMANDS = 169
+# one and REFUSES an existing file, which is what admits it here at all.
+# 2026-09-03, the embedded script editor: +2 for GraphScriptRead and
+# GraphScriptWrite. Read hands the source text to the palette's editor together
+# with a hash of exactly those bytes; Write saves a buffer back and REFUSES when
+# disk no longer matches that hash, returning the other version instead. Both act
+# on a file the user chose, never on the model, so they stay host-independent -
+# and the guard is what makes a second editor safe alongside VSCode: neither side
+# can overwrite the other silently, in either direction.
+EXPECTED_REGISTRY_COMMANDS = 171
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 188
+EXPECTED_TOTAL_COMMANDS = 190
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

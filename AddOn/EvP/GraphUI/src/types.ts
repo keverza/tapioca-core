@@ -550,6 +550,12 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * cannot apply them itself.
    */
   onscriptreloaded?: () => void
+  /**
+   * Open this script node's file in the Script Inspector. The editor owns the
+   * inspector rather than the node: a buffer someone is typing into cannot live
+   * in a node body that unmounts the moment the node is panned off screen.
+   */
+  onscriptedit?: (nodeId: string) => void
   /** A port reference pasted onto one of this node's inputs: a connection request. */
   onportreference?: (reference: PortReference, target: { nodeId: string; portId: string }) => void
   oncopyportreference?: (nodeId: string, portId: string, direction: 'input' | 'output') => void

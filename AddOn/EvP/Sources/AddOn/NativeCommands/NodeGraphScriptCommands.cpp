@@ -24,25 +24,29 @@ namespace {
 // ---------------------------------------------------------------------------
 // The script node's verbs.
 //
-// Four, and the shape of the set is the design:
+// Seven, and the shape of the set is the design:
 //
 //   GraphScriptStatus   what does this node's file look like right now
 //   GraphScriptReload   read it again and reshape the node
 //   GraphScriptCreate   scaffold a NEW file and point the node at it
+//   GraphScriptRead     hand the source text to the embedded editor
+//   GraphScriptWrite    save an editor buffer back, guarded by its base hash
 //   GraphScriptOpen     hand the file to whatever the user edits code in
 //   GraphScriptReveal   show the file in Explorer, selected in its folder
 //
-// ⚠️ THERE IS NO GraphScriptWrite, AND ADDING ONE WOULD BREAK THE FEATURE. The
-// file belongs to VSCode or Sublime. The moment the palette can write it, the
-// palette holds a copy that can be stale, and a save from the browser silently
-// discards whatever the user did in their editor since it was loaded. Reading,
-// reloading and creating are the whole permitted set; `create` is admitted only
-// because it refuses to touch an existing file.
+// ⚠️ GraphScriptWrite IS GUARDED, AND THE GUARD IS THE WHOLE REASON IT MAY
+// EXIST. A script node's file is normally open in VSCode at the same time. The
+// verb takes the hash the buffer was READ at and refuses when disk no longer
+// matches it, returning the other version instead of applying the write - so the
+// two editors cannot silently overwrite one another, in either direction. There
+// is no unguarded overwrite verb, and adding one would undo this.
 //
-// ⚠️ AND STATUS IS NOT A SIDE CHANNEL FOR THE SOURCE TEXT. It reports the path,
-// the runtime, the stamps, the parsed ports, the diagnostics and the last run's
-// log - everything needed to draw the node - and not the file's contents. A
-// browser that held the source would be one refresh away from being an editor.
+// ⚠️ AND STATUS IS STILL NOT A SIDE CHANNEL FOR THE SOURCE TEXT. It reports the
+// path, the runtime, the stamps, the parsed ports, the diagnostics and the last
+// run's log - everything needed to DRAW the node - and never its contents. The
+// source crosses the bridge only through Read, which is asked for once when a
+// buffer is opened, so the polling that every script node does forever stays as
+// cheap as it was before there was an editor.
 // ---------------------------------------------------------------------------
 
 constexpr const char kNodeInputSchema[] =
@@ -53,6 +57,15 @@ constexpr const char kCreateInputSchema[] =
 
 constexpr const char kStatusResponseSchema[] =
     R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"graphId":{"type":"string"},"nodeId":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"},"exists":{"type":"boolean"},"stale":{"type":"boolean"},"watching":{"type":"boolean"},"loadedAtMs":{"type":"integer"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0},"loadError":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"inputs":{"type":"array"},"outputs":{"type":"array"},"diagnostics":{"type":"array"},"log":{"type":"array","items":{"type":"string"}},"droppedEdges":{"type":"array"},"interfaceChanged":{"type":"boolean"},"revision":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","graphId","nodeId","path","language","exists","stale","watching","loadedAtMs","modifiedAtMs","sizeBytes","loadError","name","description","inputs","outputs","diagnostics","log","droppedEdges","interfaceChanged","revision"]})json";
+
+constexpr const char kWriteInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"source":{"type":"string"},"baseHash":{"type":"string"}},"additionalProperties":false,"required":["nodeId","source","baseHash"]})json";
+
+constexpr const char kReadResponseSchema[] =
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"},"exists":{"type":"boolean"},"source":{"type":"string"},"sourceHash":{"type":"string"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","path","language","exists","source","sourceHash","modifiedAtMs","sizeBytes"]})json";
+
+constexpr const char kWriteResponseSchema[] =
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"conflict":{"type":"boolean"},"path":{"type":"string"},"sourceHash":{"type":"string"},"diskSource":{"type":"string"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","conflict","path","sourceHash","diskSource","modifiedAtMs","sizeBytes"]})json";
 
 constexpr const char kOpenResponseSchema[] =
     R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"path":{"type":"string"}},"additionalProperties":false,"required":["ok","error","path"]})json";
@@ -216,6 +229,90 @@ class GraphScriptCreateCommand : public GateFreeGraphCommand {
     }
 };
 
+// ---------------------------------------------------------------------------
+// The two verbs the embedded editor is made of.
+//
+// They are a pair and they only work as one: Read hands out the text TOGETHER
+// WITH the hash of exactly those bytes, and Write will not apply a buffer whose
+// base hash has stopped matching disk. Neither is safe without the other, and
+// dropping the hash from either of them is what would make a silent overwrite
+// possible.
+
+class GraphScriptReadCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::NodeId nodeId;
+        if (!ReadNodeId (params, nodeId))
+            return NativeCommandResult::Failure (GS::UniString ("nodeId is required", CC_UTF8));
+
+        const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
+        const graph::ScriptRead read = graph::ReadScript (state.path);
+
+        GS::ObjectState response;
+        // ⚠️ A FILE THAT WOULD NOT READ IS A REPORTED OUTCOME, NOT A FAILED
+        // COMMAND. It is the ordinary state of a node whose path is half typed,
+        // and the editor draws it as an empty buffer with a reason rather than as
+        // a bridge error thrown over the whole panel.
+        response.Add ("ok", read.ok);
+        response.Add ("error", GraphText (read.error));
+        response.Add ("path", GraphText (state.path));
+        response.Add ("language", GS::UniString (graph::ScriptLanguageName (state.language), CC_UTF8));
+        response.Add ("exists", read.stamp.exists);
+        response.Add ("source", GraphText (read.source));
+        // The hash of the bytes IN THIS RESPONSE, computed here rather than taken
+        // from the node's loaded state: the node may still be running an older
+        // load, and a buffer guarded by the hash of text it was never shown would
+        // refuse every save for a reason nobody could see.
+        response.Add ("sourceHash", GraphText (read.ok ? graph::HashScriptSource (read.source) : std::string {}));
+        response.Add ("modifiedAtMs", static_cast<GS::Int64> (read.stamp.modifiedUnixMs));
+        response.Add ("sizeBytes", static_cast<GS::Int64> (read.stamp.sizeBytes));
+        return response;
+    }
+};
+
+class GraphScriptWriteCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::NodeId nodeId;
+        GS::UniString sourceText;
+        GS::UniString baseHashText;
+        if (!ReadNodeId (params, nodeId))
+            return NativeCommandResult::Failure (GS::UniString ("nodeId is required", CC_UTF8));
+        // Both are required by the schema, and `source` may legitimately be
+        // empty - a user who selected everything and deleted it is saving an
+        // empty file, which is a save and not a mistake.
+        params.Get ("source", sourceText);
+        params.Get ("baseHash", baseHashText);
+
+        const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
+        const graph::ScriptWrite written = graph::WriteScriptSource (
+            state.path, GraphUtf8 (sourceText), GraphUtf8 (baseHashText), &graph::HashScriptSource);
+
+        // A conflict is an ANSWER, not a failure: the editor has a choice to
+        // offer and needs the other version to offer it with. Only a caller
+        // mistake or a filesystem that refused the write fails the verb.
+        if (!written.ok && !written.conflict)
+            return NativeCommandResult::Failure (GraphText (written.error));
+
+        GS::ObjectState response;
+        response.Add ("ok", written.ok);
+        response.Add ("error", GraphText (written.error));
+        response.Add ("conflict", written.conflict);
+        response.Add ("path", GraphText (state.path));
+        response.Add ("sourceHash", GraphText (written.diskHash));
+        response.Add ("diskSource", GraphText (written.diskSource));
+        response.Add ("modifiedAtMs", static_cast<GS::Int64> (written.stamp.modifiedUnixMs));
+        response.Add ("sizeBytes", static_cast<GS::Int64> (written.stamp.sizeBytes));
+        // ⚠️ NO RELOAD HERE, ON PURPOSE. The caller reloads through the existing
+        // verb, which is the one place that reshapes ports and reports dropped
+        // edges - a second path into that would be a second set of rules for what
+        // a save does to a node's interface.
+        return response;
+    }
+};
+
 class GraphScriptOpenCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
@@ -314,6 +411,10 @@ const NativeCommandRegistration registrations[] = {
       kStatusResponseSchema },
     { "GraphScriptCreate", &MakeRegisteredNativeCommand<GraphScriptCreateCommand>, false, kCreateInputSchema,
       kStatusResponseSchema },
+    { "GraphScriptRead", &MakeRegisteredNativeCommand<GraphScriptReadCommand>, false, kNodeInputSchema,
+      kReadResponseSchema },
+    { "GraphScriptWrite", &MakeRegisteredNativeCommand<GraphScriptWriteCommand>, false, kWriteInputSchema,
+      kWriteResponseSchema },
     { "GraphScriptOpen", &MakeRegisteredNativeCommand<GraphScriptOpenCommand>, false, kNodeInputSchema,
       kOpenResponseSchema },
     { "GraphScriptReveal", &MakeRegisteredNativeCommand<GraphScriptRevealCommand>, false, kNodeInputSchema,

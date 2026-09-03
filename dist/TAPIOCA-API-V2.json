@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 169,
+      "nativeRegistry": 171,
       "dispatcherLocal": 19,
-      "total": 188
+      "total": 190
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -10178,6 +10178,45 @@
                 "minLength": 1
               },
               "editKind": {
+                "const": "setPortModifier"
+              },
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "portId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "modifier": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "flatten",
+                  "graft",
+                  "simplify",
+                  "reverse",
+                  "round",
+                  "normalise"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "editKind",
+              "nodeId",
+              "portId",
+              "modifier"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "graphId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "editKind": {
                 "const": "releaseHolding"
               },
               "nodeId": {
@@ -11231,6 +11270,52 @@
                       },
                       "summary": {
                         "type": "string"
+                      },
+                      "itemType": {
+                        "type": "string"
+                      },
+                      "branchCount": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "branchesTruncated": {
+                        "type": "boolean"
+                      },
+                      "branches": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "path": {
+                              "type": "string"
+                            },
+                            "segments": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            },
+                            "itemCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "truncated": {
+                              "type": "boolean"
+                            },
+                            "value": {
+                              "$ref": "#/$defs/value"
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "path",
+                            "segments",
+                            "itemCount",
+                            "truncated",
+                            "value"
+                          ]
+                        }
                       }
                     },
                     "additionalProperties": false,
@@ -11238,7 +11323,11 @@
                       "portId",
                       "value",
                       "text",
-                      "summary"
+                      "summary",
+                      "itemType",
+                      "branchCount",
+                      "branchesTruncated",
+                      "branches"
                     ]
                   }
                 }
@@ -12115,6 +12204,34 @@
                     "holding"
                   ]
                 },
+                "inputModifiers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "portId": {
+                        "type": "string"
+                      },
+                      "modifier": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "flatten",
+                          "graft",
+                          "simplify",
+                          "reverse",
+                          "round",
+                          "normalise"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "portId",
+                      "modifier"
+                    ]
+                  }
+                },
                 "parameters": {
                   "type": "array",
                   "items": {
@@ -12871,6 +12988,72 @@
       }
     },
     {
+      "name": "Tapioca.GraphScriptRead",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "sourceHash": {
+            "type": "string"
+          },
+          "modifiedAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "path",
+          "language",
+          "exists",
+          "source",
+          "sourceHash",
+          "modifiedAtMs",
+          "sizeBytes"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GraphScriptReload",
       "implementation": "native-registry",
       "inputScheme": {
@@ -13152,6 +13335,76 @@
           "droppedEdges",
           "interfaceChanged",
           "revision"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptWrite",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "string"
+          },
+          "baseHash": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "source",
+          "baseHash"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "conflict": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sourceHash": {
+            "type": "string"
+          },
+          "diskSource": {
+            "type": "string"
+          },
+          "modifiedAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "conflict",
+          "path",
+          "sourceHash",
+          "diskSource",
+          "modifiedAtMs",
+          "sizeBytes"
         ]
       }
     },
