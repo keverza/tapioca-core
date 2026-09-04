@@ -28,6 +28,7 @@
 
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
+#include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudySession.hpp"
 
 #include <cstdint>
@@ -64,6 +65,13 @@ struct StudyRecord {
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the
     // whole backend decision rests on, kept where a live run can read it.
     double analysisMilliseconds = 0.0;
+
+    // The study's result as a texture, and the map from a point on the model
+    // into it. Built once beside the samples, because it is a pure function of
+    // them: rebuilding it per read would repack the atlas and invalidate every
+    // texture coordinate a consumer had already been handed.
+    SunStudyAtlas atlas;
+    SampleGrid sampleGrid;
 
     SampleSet Samples () const;
 };
@@ -105,6 +113,11 @@ class SunStudyStore final {
     // on the wire, so it is opt-in.
     bool Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
                   std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error) const;
+
+    // The hours as a texture image, `width * height` floats, with a negative
+    // sentinel in every texel no sample landed on.
+    bool AtlasImage (const std::string& id, uint32_t& width, uint32_t& height, std::vector<float>& image,
+                     std::string& error) const;
 
     bool Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const;
 

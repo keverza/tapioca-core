@@ -163,6 +163,7 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
@@ -537,6 +538,7 @@ set (EVP_TEST_SOURCES
     test_sunstudystore.cpp
     test_sunstudysampler.cpp
     test_sunstudywinding.cpp
+    test_sunstudyatlas.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghpreviewprotocol.cpp

@@ -2950,6 +2950,7 @@ def _one(command, params):
                     "sampleMode": str(params.get("samples", "surfaces")),
                     "undersizedFaces": 0, "degenerateFaces": 0,
                     "closedGroups": 1, "flippedGroups": 0,
+                    "atlasWidth": 256, "atlasHeight": 256, "atlasFaces": 2,
                     "latitude": 54.6872, "longitude": 25.2797, "northDeg": 0.0,
                     "year": int(params.get("year", 2026)),
                     "month": int(params.get("month", 3)),
@@ -3018,6 +3019,22 @@ def _one(command, params):
             # a fake that ships one without the other lets that mistake pass.
             out["normals"] = [0.0 if a < 2 else 1.0
                               for _ in range(count) for a in range(3)]
+        if params.get("includeAtlas"):
+            # ⚠️ THE FAKE ATLAS CARRIES THE SAME VALUES AS `hours`, one texel
+            # each, with a negative sentinel everywhere else. A fake that filled
+            # it with anything else would let a scatter bug through: the caller
+            # cross-checks the atlas mean against the hours mean.
+            side = 1
+            while side * side < count:
+                side *= 2
+            image = [-1.0] * (side * side)
+            for i in range(count):
+                image[i] = hours[i]
+            out["atlasWidth"] = side
+            out["atlasHeight"] = side
+            out["atlasPacked"] = base64.b64encode(
+                struct.pack("<%df" % len(image), *image)).decode("ascii")
+
         if params.get("includeSteps"):
             steps = _SUN_STUDY["total"]
             want_packed = bool(params.get("packed"))

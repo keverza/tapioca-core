@@ -8,6 +8,7 @@
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
+#include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
@@ -246,6 +247,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         size_t degenerateFaces = 0;
         size_t closedGroups = 0;
         size_t flippedGroups = 0;
+        uint32_t atlasWidth = 0;
+        uint32_t atlasHeight = 0;
+        size_t atlasFaces = 0;
 
         if (sampleExplicit) {
             // ⚠️ THE SEAM THAT MAKES THIS A CORE RATHER THAN A COMMAND. A
@@ -324,6 +328,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             options.spacing = spacing;
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
+            options.wantLayouts = true;
 
             const evp::sunstudy::SampleGrid samples =
                 evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
@@ -338,6 +343,16 @@ class StartSunStudyCommand : public MainThreadCommand {
             record->normals = samples.normals;
             undersizedFaces = samples.undersizedFaces;
             degenerateFaces = samples.degenerateFaces;
+
+            // ⚠️ BUILT ONCE, HERE, BESIDE THE SAMPLES IT DESCRIBES. The packing
+            // is a pure function of the sample grid, so rebuilding it per read
+            // would produce a different arrangement and silently invalidate
+            // every texture coordinate already handed to a consumer.
+            record->sampleGrid = samples;
+            record->atlas = evp::sunstudy::BuildSunStudyAtlas (samples);
+            atlasWidth = record->atlas.width;
+            atlasHeight = record->atlas.height;
+            atlasFaces = record->atlas.placedFaces;
             closedGroups = winding.closed;
             flippedGroups = winding.flipped;
             gridVersion = static_cast<uint64_t> (samples.Count ()) * 73856093ull ^
@@ -400,6 +415,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("degenerateFaces", (GS::Int32) degenerateFaces);
         os.Add ("closedGroups", (GS::Int32) closedGroups);
         os.Add ("flippedGroups", (GS::Int32) flippedGroups);
+        os.Add ("atlasWidth", (GS::Int32) atlasWidth);
+        os.Add ("atlasHeight", (GS::Int32) atlasHeight);
+        os.Add ("atlasFaces", (GS::Int32) atlasFaces);
         os.Add ("latitude", place.latitude);
         os.Add ("longitude", place.longitude);
         os.Add ("northDeg", place.north * 180.0 / 3.14159265358979323846);
@@ -614,6 +632,29 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
             }
         }
 
+        bool wantAtlas = false;
+        if (params.Get ("includeAtlas", wantAtlas) && wantAtlas) {
+            uint32_t atlasWidth = 0;
+            uint32_t atlasHeight = 0;
+            std::vector<float> image;
+            std::string atlasError;
+            if (SunStudyStore::Get ().AtlasImage (id, atlasWidth, atlasHeight, image, atlasError)) {
+                os.Add ("atlasWidth", (GS::Int32) atlasWidth);
+                os.Add ("atlasHeight", (GS::Int32) atlasHeight);
+                // float32, row-major, negative in every texel no sample reached.
+                std::vector<unsigned char> bytes (image.size () * sizeof (float));
+                if (!image.empty ())
+                    std::memcpy (bytes.data (), image.data (), bytes.size ());
+                os.Add ("atlasPacked", Base64Encode (bytes));
+            }
+            else {
+                // ⚠️ REPORTED, NOT SILENT. A ground-plane study legitimately has
+                // no atlas; a caller that got an empty field with no reason
+                // would read it as "no sun anywhere".
+                os.Add ("atlasReason", Text (atlasError));
+            }
+        }
+
         if (wantSteps) {
             os.Add ("stepStride", (GS::Int32) progress.totalSteps);
             if (packed) {
@@ -710,6 +751,9 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "degenerateFaces":{"type":"integer"},
                 "closedGroups":{"type":"integer"},
                 "flippedGroups":{"type":"integer"},
+                "atlasWidth":{"type":"integer"},
+                "atlasHeight":{"type":"integer"},
+                "atlasFaces":{"type":"integer"},
                 "latitude":{"type":"number"},
                 "longitude":{"type":"number"},
                 "northDeg":{"type":"number"},
@@ -790,6 +834,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "studyId":{"type":"string"},
                 "includePositions":{"type":"boolean"},
                 "includeSteps":{"type":"boolean"},
+                "includeAtlas":{"type":"boolean"},
                 "packed":{"type":"boolean"}
             },
             "additionalProperties":false
@@ -803,6 +848,10 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "normals":{"type":"array","items":{"type":"number"}},
                 "stepBits":{"type":"array","items":{"type":"integer"}},
                 "stepBitsPacked":{"type":"string"},
+                "atlasWidth":{"type":"integer"},
+                "atlasHeight":{"type":"integer"},
+                "atlasPacked":{"type":"string"},
+                "atlasReason":{"type":"string"},
                 "positionsPacked":{"type":"string"},
                 "normalsPacked":{"type":"string"},
                 "stepStride":{"type":"integer"},

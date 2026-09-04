@@ -134,6 +134,32 @@ bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, 
     return true;
 }
 
+bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t& height, std::vector<float>& image,
+                                std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+
+    const StudyRecord& record = *found->second;
+    if (!record.atlas.valid) {
+        error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+        return false;
+    }
+
+    width = record.atlas.width;
+    height = record.atlas.height;
+    // ⚠️ SCATTERED FROM THE HOURS AS THEY STAND, so a study still converging
+    // yields an atlas of the hours SO FAR -- which are too low. The caller is
+    // told `converged` alongside and must not paint a final picture from a
+    // partial one.
+    image = ScatterToAtlas (record.atlas, record.session.SunHours ());
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);

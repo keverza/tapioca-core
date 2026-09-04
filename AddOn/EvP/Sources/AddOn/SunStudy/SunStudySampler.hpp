@@ -34,6 +34,36 @@
 
 namespace evp::sunstudy {
 
+// Where one face's grid sits, and in what frame.
+//
+// ⚠️ THIS IS WHAT LETS A POINT-SAMPLED STUDY BE DRAWN ON CONTINUOUS GEOMETRY.
+// The samples are cell centres, not vertices, so a renderer cannot simply
+// interpolate them: given an arbitrary point on a face it has to work out WHICH
+// cell that point falls in. Recording the face's own frame and its cell origin
+// makes that an affine map instead of a search, and it is the same map the
+// atlas uses to hand every vertex a texture coordinate.
+struct FaceLayout {
+    double origin[3] = { 0.0, 0.0, 0.0 }; // the face's first corner
+    double uAxis[3] = { 0.0, 0.0, 0.0 };  // unit, along the first edge
+    double vAxis[3] = { 0.0, 0.0, 0.0 };  // unit, in-plane, perpendicular to uAxis
+
+    // The integer cell the face's grid starts at, in each axis. Cell (i, j)
+    // spans [i * spacing, (i + 1) * spacing) along uAxis, and likewise for j.
+    long uStart = 0;
+    long vStart = 0;
+
+    // Cells spanned. ⚠️ NOT THE SAMPLE COUNT: cells outside the triangle emit
+    // no sample, so a face's tile is always at least as large as its sample
+    // count and usually larger. The atlas allocates by CELLS, because that is
+    // what an arbitrary point maps into.
+    uint32_t columns = 0;
+    uint32_t rows = 0;
+
+    // False for a face that was skipped, or that fell below the grid and emitted
+    // only its centroid. Such a face has no cell lattice to map into.
+    bool gridded = false;
+};
+
 // The measured points, in the layout every consumer wants: flat, interleaved,
 // and parallel across all five arrays.
 struct SampleGrid {
@@ -47,6 +77,17 @@ struct SampleGrid {
     {
         return faces.size ();
     }
+
+    // One entry per SOURCE face, in source order, so `layouts[faces[i]]` is the
+    // layout the sample `i` came from. Present only when asked for: it costs a
+    // fixed amount per face and only a consumer that draws the result needs it.
+    std::vector<FaceLayout> layouts;
+
+    // Texel of each sample within its own face's tile, as (column, row) offsets
+    // from the layout's cell origin. Parallel to `faces`, and empty unless
+    // layouts were requested.
+    std::vector<uint32_t> cellColumns;
+    std::vector<uint32_t> cellRows;
 
     // Faces skipped as degenerate. ⚠️ NOT AN ERROR AND NOT A WARNING TO HIDE:
     // exported Archicad meshes routinely carry zero-area slivers, and tracing
@@ -81,6 +122,10 @@ struct SamplerOptions {
     double jitter = 0.0;
 
     size_t maxSamples = 4000000;
+
+    // Fill `layouts`, `cellColumns` and `cellRows`. Off by default: only a
+    // consumer that draws the study needs them.
+    bool wantLayouts = false;
 };
 
 // `vertices` is xyz-interleaved; `triangles` is 3 indices per face; `groups` is

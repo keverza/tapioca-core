@@ -81,6 +81,9 @@ SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const ui
     std::vector<double> flatPositions;
     std::vector<double> flatNormals;
 
+    if (options.wantLayouts)
+        grid.layouts.assign (faceCount, FaceLayout ());
+
     for (size_t face = 0; face < faceCount; ++face) {
         const uint32_t i0 = triangles[face * 3 + 0];
         const uint32_t i1 = triangles[face * 3 + 1];
@@ -156,8 +159,14 @@ SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const ui
                 flatNormals.push_back (normal[0]);
                 flatNormals.push_back (normal[1]);
                 flatNormals.push_back (normal[2]);
+                if (options.wantLayouts) {
+                    grid.cellColumns.push_back (static_cast<uint32_t> (ui - uStart));
+                    grid.cellRows.push_back (static_cast<uint32_t> (vi - vStart));
+                }
             }
         }
+
+        const bool wasGridded = flatPositions.size () > before;
 
         // See the header: a face below the grid still gets measured.
         if (flatPositions.size () == before) {
@@ -168,11 +177,36 @@ SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const ui
             flatNormals.push_back (normal[0]);
             flatNormals.push_back (normal[1]);
             flatNormals.push_back (normal[2]);
+            if (options.wantLayouts) {
+                // ⚠️ AN UNDERSIZED FACE HAS NO CELL LATTICE, so it gets cell
+                // (0, 0) on a layout marked NOT gridded. A consumer that mapped
+                // a point into it anyway would read a texel that means nothing;
+                // `gridded` is the flag that says to fall back to the face's
+                // single sample instead.
+                grid.cellColumns.push_back (0u);
+                grid.cellRows.push_back (0u);
+            }
         }
 
         const size_t emitted = (flatPositions.size () - before) / 3;
         if (grid.faces.size () + emitted > options.maxSamples)
             return grid;
+
+        if (options.wantLayouts) {
+            FaceLayout& layout = grid.layouts[face];
+            for (int axis = 0; axis < 3; ++axis) {
+                layout.origin[axis] = a[axis];
+                layout.uAxis[axis] = u[axis];
+                layout.vAxis[axis] = v[axis];
+            }
+            layout.uStart = uStart;
+            layout.vStart = vStart;
+            layout.columns = static_cast<uint32_t> (uEnd - uStart + 1);
+            layout.rows = static_cast<uint32_t> (vEnd - vStart + 1);
+            // A face that fell back to its centroid has cells on paper but no
+            // sample in any of them, so it is not gridded.
+            layout.gridded = (flatPositions.size () - before) > 3 || wasGridded;
+        }
 
         // The face area is split between its own samples rather than assigned
         // per cell. Cells clipped by an edge carry less than a full cell of
