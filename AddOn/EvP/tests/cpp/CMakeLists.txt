@@ -157,7 +157,10 @@ set (EVP_DYNAMO_SOURCES
 # together.
 set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRaster.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp")
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunSeries.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyOcclusion.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySession.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
@@ -525,6 +528,9 @@ set (EVP_TEST_SOURCES
     test_sunstudyraster.cpp
     test_queryoccluded.cpp
     test_cputraversal.cpp
+    test_sunseries.cpp
+    test_sunstudyocclusion.cpp
+    test_sunstudysession.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghpreviewprotocol.cpp
