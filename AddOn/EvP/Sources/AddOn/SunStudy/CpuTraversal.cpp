@@ -12,6 +12,10 @@ namespace {
 // queries, not in samples: a coarse progressive rung is a few thousand.
 constexpr size_t kInlineThreshold = 4096;
 
+// The least work that justifies a thread. Measured, not guessed: see the note in
+// ChooseThreadCount.
+constexpr size_t kMinRaysPerThread = 2048;
+
 // Shard [0, count) across `threads` workers and join. `threads <= 1` runs inline
 // on the caller.
 //
@@ -57,6 +61,22 @@ size_t ChooseThreadCount (size_t count, size_t maxParallel)
     if (threads == 0) {
         const unsigned hardware = std::thread::hardware_concurrency ();
         threads = (hardware == 0) ? 1u : hardware;
+
+        // ⚠️ A THREAD IS ONLY WORTH SPAWNING IF IT HAS REAL WORK TO DO, and the
+        // first live run is what taught this. A 9,403-sample study is roughly
+        // 4,700 front-facing rays a timestep -- just over the inline threshold,
+        // so it fanned out to every core and gave each about 290 rays. Creating
+        // the thread cost more than tracing them, and the study measured
+        // 1.24 M rays/s. The same engine on 176,106 samples, where each thread
+        // got thousands of rays, measured 7.14 M -- SIX TIMES FASTER PER RAY on
+        // identical code and identical geometry.
+        //
+        // So the fan-out is bounded by work, not just by cores. This is only
+        // applied to the "you decide" case: an explicit `maxParallel` is a
+        // measurement knob and must be obeyed exactly, or the serial-versus-
+        // parallel comparison it exists for silently stops being a comparison.
+        const size_t byWork = count / kMinRaysPerThread;
+        threads = std::min (threads, std::max<size_t> (1, byWork));
     }
 
     // Never more workers than there is work for, and never zero.

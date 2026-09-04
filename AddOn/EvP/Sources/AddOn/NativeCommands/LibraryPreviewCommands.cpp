@@ -8,6 +8,7 @@
 // translation unit reaches the macro the same way. Naming it here directly
 // would be a second sideways include for a dependency the tier already has.
 #include "NativeCommands/CommandBase.hpp"
+#include "NativeCommands/CommandUtils.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
 
 #include <cstdint>
@@ -208,23 +209,6 @@ bool BrowserRenderableMime (const GS::UniString& mime)
            lowered == "image/webp" || lowered == "image/bmp";
 }
 
-GS::UniString Base64 (const std::vector<unsigned char>& bytes)
-{
-    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    GS::String encoded;
-    encoded.EnsureCapacity ((USize) ((bytes.size () + 2) / 3 * 4 + 1));
-    for (size_t i = 0; i < bytes.size (); i += 3) {
-        const size_t remaining = bytes.size () - i;
-        const uint32_t triple = (uint32_t) bytes[i] << 16 | (uint32_t) (remaining > 1 ? bytes[i + 1] : 0) << 8 |
-                                (uint32_t) (remaining > 2 ? bytes[i + 2] : 0);
-        encoded += alphabet[(triple >> 18) & 0x3F];
-        encoded += alphabet[(triple >> 12) & 0x3F];
-        encoded += remaining > 1 ? alphabet[(triple >> 6) & 0x3F] : '=';
-        encoded += remaining > 2 ? alphabet[triple & 0x3F] : '=';
-    }
-    return GS::UniString (encoded);
-}
-
 class GetLibraryPartPreviewCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -267,7 +251,7 @@ class GetLibraryPartPreviewCommand : public MainThreadCommand {
         else if (byteCount > kMaxPreviewBytes)
             reason = GS::UniString::Printf ("its preview is %d bytes, over the transfer cap", (int) byteCount);
         else
-            dataUri = "data:" + mime + ";base64," + Base64 (bytes);
+            dataUri = "data:" + mime + ";base64," + Base64Encode (bytes);
 
         GS::ObjectState os;
         os.Add ("name", name);

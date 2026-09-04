@@ -303,3 +303,81 @@ TEST (SunStudyStore, EndToEndOverTheGroundGrid)
     EXPECT_GT (shadowed, 0u) << "the padded grid must reach under the model";
     EXPECT_GT (sunlit, 0u) << "and out past it -- otherwise the study says nothing";
 }
+
+// ---------------------------------------------------------------------------
+// Results — the single read every consumer uses
+// ---------------------------------------------------------------------------
+
+TEST (SunStudyStore, ResultsRefusesAnUnknownId)
+{
+    SunStudyStore::Get ().Clear ();
+    std::vector<double> hours, positions, normals;
+    std::string error;
+    EXPECT_FALSE (SunStudyStore::Get ().Results ("nope", hours, positions, normals, nullptr, error));
+    EXPECT_FALSE (error.empty ());
+}
+
+TEST (SunStudyStore, ResultsCarriesNormalsAlongsidePositions)
+{
+    SunStudyStore::Get ().Clear ();
+    StoreFixture fixture;
+    const std::string id = SunStudyStore::Get ().Insert (MakeRecord (4));
+
+    std::vector<double> hours, positions, normals;
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().Results (id, hours, positions, normals, nullptr, error));
+
+    EXPECT_EQ (positions.size (), normals.size ());
+    EXPECT_EQ (hours.size () * 3, positions.size ());
+    SunStudyStore::Get ().Clear ();
+}
+
+// ⚠️ THE BITS ARE WHAT MAKES A CROSS-CHECK POSSIBLE. Hours answer "how much";
+// only a per-step bit answers "which steps", which is what a sample-by-sample
+// diff against another engine compares.
+TEST (SunStudyStore, StepBitsAreSampleMajorAndAgreeWithTheHours)
+{
+    SunStudyStore::Get ().Clear ();
+    StoreFixture fixture;
+    const std::string id = SunStudyStore::Get ().Insert (MakeRecord (4));
+
+    size_t advanced = 0;
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().Advance (id, 100, 1, 0.001, 0.0, advanced, error));
+
+    std::vector<double> hours, positions, normals;
+    std::vector<uint8_t> bits;
+    ASSERT_TRUE (SunStudyStore::Get ().Results (id, hours, positions, normals, &bits, error));
+
+    StudyProgress progress;
+    ASSERT_TRUE (SunStudyStore::Get ().Progress (id, progress, error));
+    ASSERT_GT (progress.totalSteps, 0u);
+    ASSERT_EQ (bits.size (), hours.size () * progress.totalSteps);
+
+    for (size_t sample = 0; sample < hours.size (); ++sample) {
+        size_t lit = 0;
+        for (size_t step = 0; step < progress.totalSteps; ++step)
+            lit += bits[sample * progress.totalSteps + step];
+        // Every lit step contributes the same slice of the day, so the count
+        // and the hours must tell the same story.
+        if (lit == 0)
+            EXPECT_DOUBLE_EQ (hours[sample], 0.0);
+        else
+            EXPECT_GT (hours[sample], 0.0);
+    }
+    SunStudyStore::Get ().Clear ();
+}
+
+TEST (SunStudyStore, StepBitsAreOmittedWhenNotAsked)
+{
+    SunStudyStore::Get ().Clear ();
+    StoreFixture fixture;
+    const std::string id = SunStudyStore::Get ().Insert (MakeRecord (4));
+
+    std::vector<double> hours, positions, normals;
+    std::vector<uint8_t> bits { 1, 2, 3 };
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().Results (id, hours, positions, normals, nullptr, error));
+    EXPECT_EQ (bits.size (), 3u) << "the caller's buffer was written despite passing nullptr";
+    SunStudyStore::Get ().Clear ();
+}

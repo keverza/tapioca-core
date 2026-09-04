@@ -27,6 +27,26 @@ namespace geomsrv {
 // reported error, so a typo can never quietly place a wall in the wrong
 // material. MAIN THREAD ONLY (both call ACAPI_Attribute_GetAttributesByType).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Base64
+//
+// Moved here on its SECOND domain, per the rule above: library previews ship a
+// thumbnail as a data URI, and the sun study ships bulk numeric arrays.
+//
+// ⚠️ IT IS FOR BULK, AND BULK IS WHY IT EXISTS. A JSON array of numbers costs
+// roughly one character per digit plus a comma; the same values as base64 cost
+// four characters per three bytes and parse in one pass. On a real study that
+// was the difference between a 14 s response and a 1 s one -- the ENGINE was
+// never the bottleneck there, the wire was.
+// ---------------------------------------------------------------------------
+GS::UniString Base64Encode (const std::vector<unsigned char>& bytes);
+
+// Returns false on any character outside the alphabet, rather than skipping it:
+// a corrupted payload that decodes to something shorter is far worse than one
+// that is refused, because the caller cannot tell the difference from a valid
+// short answer.
+bool Base64Decode (const GS::UniString& text, std::vector<unsigned char>& bytes);
+
 bool AttributeNameToIndex (API_AttrTypeID type, const GS::UniString& name, API_AttributeIndex& index);
 
 // The reverse lookup. Returns an empty string if the index does not resolve.
@@ -93,11 +113,11 @@ bool ParseAnchor (const GS::UniString& name, API_AnchorID& anchor);
 // second domain: the view listing and the drawing placement. MAIN THREAD ONLY.
 // ---------------------------------------------------------------------------
 struct NavigatorEntry {
-    API_Guid                guid;
-    GS::UniString           name;
-    GS::UniString           path;       // "Folder/Sub" — ancestors, not including name
+    API_Guid guid;
+    GS::UniString name;
+    GS::UniString path; // "Folder/Sub" — ancestors, not including name
     API_NavigatorItemTypeID itemType;
-    API_NavigatorMapID      mapId;
+    API_NavigatorMapID mapId;
 };
 
 bool CollectNavigatorItems (API_NavigatorMapID mapId, GS::Array<NavigatorEntry>& items);
@@ -127,8 +147,8 @@ GS::UniString NavItemTypeName (API_NavigatorItemTypeID itemType);
 // Shared on its second domain — the structural creates and the roof creates,
 // after the roofs moved to their own file. MAIN THREAD ONLY.
 // ---------------------------------------------------------------------------
-bool ResolveStory (double z, bool haveFloor, GS::Int32 requestedFloor,
-                   short& floorInd, double& offset, GS::UniString& err);
+bool ResolveStory (double z, bool haveFloor, GS::Int32 requestedFloor, short& floorInd, double& offset,
+                   GS::UniString& err);
 
 // ---------------------------------------------------------------------------
 // Archicad's polygon handle triple, walked into flat rings
@@ -176,18 +196,16 @@ bool ResolveStory (double z, bool haveFloor, GS::Int32 requestedFloor,
 // out of API_WallRelation instead of a memo.
 // ---------------------------------------------------------------------------
 struct PolygonHandles {
-    API_Coord**   coords = nullptr;
-    Int32**       pends  = nullptr;
-    API_PolyArc** parcs  = nullptr;      // may be null: a polygon with no arcs
+    API_Coord** coords = nullptr;
+    Int32** pends = nullptr;
+    API_PolyArc** parcs = nullptr; // may be null: a polygon with no arcs
 };
 
-bool WalkPolygonRings (const PolygonHandles& polygon, const double* polyZ,
-                       GS::Array<double>& outerCoords, GS::Array<double>& outerArcs,
-                       GS::Int32& outerCount,
-                       GS::Array<double>& holeCoords, GS::Array<double>& holeArcs,
-                       GS::Array<GS::Int32>& holeCounts, GS::Int32& nHoles,
-                       bool polylineMode = false, bool* outerClosed = nullptr,
-                       GS::Array<double>* outerZ = nullptr, GS::Array<double>* holeZ = nullptr);
+bool WalkPolygonRings (const PolygonHandles& polygon, const double* polyZ, GS::Array<double>& outerCoords,
+                       GS::Array<double>& outerArcs, GS::Int32& outerCount, GS::Array<double>& holeCoords,
+                       GS::Array<double>& holeArcs, GS::Array<GS::Int32>& holeCounts, GS::Int32& nHoles,
+                       bool polylineMode = false, bool* outerClosed = nullptr, GS::Array<double>* outerZ = nullptr,
+                       GS::Array<double>* holeZ = nullptr);
 
 // ---------------------------------------------------------------------------
 // Retained memory

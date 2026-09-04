@@ -95,6 +95,17 @@ class SunStudyStore final {
     bool SunHours (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
                    std::string& error) const;
 
+    // Everything a consumer needs to draw or diff a study, read under one lock
+    // so the four arrays cannot come from different generations.
+    //
+    // ⚠️ `stepBits` IS THE REASON THE OTHER ENGINE CAN BE DIFFED AT ALL. Hours
+    // alone answer "how much"; a per-sample-per-step bit answers "which steps",
+    // which is what a sample-by-sample cross-check compares and what the
+    // viewer's single-instant and AM/PM modes read. One byte per (sample, step)
+    // on the wire, so it is opt-in.
+    bool Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
+                  std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error) const;
+
     bool Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const;
 
     bool Erase (const std::string& id);

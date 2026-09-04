@@ -32,6 +32,7 @@ silently, so a typo'd command name cannot pass as working.
 
 import importlib.util
 import binascii
+import base64
 import json
 import math
 import os
@@ -2895,19 +2896,52 @@ def _one(command, params):
     # pass, and a fake that never converged would hang one that works. So this
     # keeps a tiny amount of state and counts down exactly like the real thing.
     if command == "EvP.StartSunStudy":
-        steps = max(1, (int(params.get("hourTo", 24)) - int(params.get("hourFrom", 0)))
-                    * 60 // max(1, int(params.get("timestep", 60))))
-        # Half a day is below the horizon, which is what makes the difference
-        # between totalSteps and sourceStepCount visible to a caller.
-        above = max(1, steps // 2)
+        step_minutes = max(1, int(params.get("timestep", 60)))
+        hour_from = int(params.get("hourFrom", 0))
+        hour_to = int(params.get("hourTo", 24))
+        steps = max(1, (hour_to - hour_from) * 60 // step_minutes)
+
+        # ⚠️ THE HORIZON FILTER MUST MATCH THE ONE THE FAKE GetPlaceInfo IMPLIES,
+        # or a caller that enumerates the day itself and then asks the native
+        # core for the same day sees two different step counts. The sun study
+        # command compares exactly that and refuses to run natively when they
+        # disagree -- so a fake whose two sun sources contradict each other
+        # sends every offline run down the fallback path, and the native path
+        # is then never exercised offline at all. That is how this was found.
+        min_alt = float(params.get("minAltitudeDeg", 0.0))
+        above = 0
+        for index in range(steps):
+            minute_of_day = hour_from * 60 + index * step_minutes
+            hour = minute_of_day // 60
+            if math.degrees(math.radians(max(-10.0, 55.0 - abs(hour - 12) * 9.0))) > min_alt:
+                above += 1
+        above = max(1, above)
         grid = float(params.get("grid", 2.0))
         columns = max(1, int(40.0 / grid) + 1)
+
+        # ⚠️ samples='explicit' MEANS THE CALLER'S POINTS, so the fake must
+        # count THOSE and not the grid it would have built. A fake that keeps
+        # inventing its own sample count returns a result of the wrong length,
+        # and the caller can only report a size mismatch -- which looks exactly
+        # like a defect in the command under test.
+        explicit = params.get("positions") or []
+        packed_positions = params.get("positionsPacked") or ""
+        if str(params.get("samples", "surfaces")) == "explicit":
+            if packed_positions:
+                # base64 of float64 xyz triples: 24 bytes a sample.
+                sample_count = len(base64.b64decode(packed_positions)) // 24
+            elif explicit:
+                sample_count = len(explicit) // 3
+            else:
+                sample_count = columns * columns
+        else:
+            sample_count = columns * columns
         _SUN_STUDY.clear()
         _SUN_STUDY.update({"id": "sun-1", "total": above, "resolved": 0,
-                           "samples": columns * columns, "ms": 0.0})
+                           "samples": sample_count, "ms": 0.0})
         return _v2({"studyId": "sun-1",
                     "resolvedSteps": 0, "totalSteps": above,
-                    "sampleCount": columns * columns, "generation": 1,
+                    "sampleCount": sample_count, "generation": 1,
                     "converged": False, "empty": False,
                     "daylightHours": above * int(params.get("timestep", 60)) / 60.0,
                     "sourceStepCount": steps,
@@ -2967,9 +3001,46 @@ def _one(command, params):
                "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
                "empty": False}
         if params.get("includePositions"):
-            out["positions"] = [float((i % 20) - 10) if a == 0 else
-                                (float((i // 20) - 10) if a == 1 else 0.1)
-                                for i in range(count) for a in range(3)]
+            _pos = [float((i % 20) - 10) if a == 0 else
+                    (float((i // 20) - 10) if a == 1 else 0.1)
+                    for i in range(count) for a in range(3)]
+            if params.get("packed"):
+                out["positionsPacked"] = base64.b64encode(
+                    struct.pack("<%dd" % len(_pos), *_pos)).decode("ascii")
+                out["normalsPacked"] = base64.b64encode(struct.pack(
+                    "<%dd" % (count * 3),
+                    *[0.0 if a < 2 else 1.0 for _ in range(count)
+                      for a in range(3)])).decode("ascii")
+                return _v2(out)
+            out["positions"] = _pos
+            # Normals travel with positions in the real command, so they do
+            # here: a caller that reproduces the back-face cull needs both, and
+            # a fake that ships one without the other lets that mistake pass.
+            out["normals"] = [0.0 if a < 2 else 1.0
+                              for _ in range(count) for a in range(3)]
+        if params.get("includeSteps"):
+            steps = _SUN_STUDY["total"]
+            want_packed = bool(params.get("packed"))
+            # ⚠️ SAMPLE-MAJOR, AND THE BITS MUST AGREE WITH `hours` ABOVE. A
+            # caller cross-checks one against the other, so a fake whose two
+            # answers contradict each other would fail a command that is right.
+            bits = []
+            for i in range(count):
+                lit = int(round((hours[i] / span) * steps)) if span > 0 else 0
+                bits.extend([1] * lit + [0] * (steps - lit))
+            out["stepStride"] = steps
+            if want_packed:
+                # ⚠️ ONE BIT PER FLAG, LSB FIRST, exactly as the native command
+                # packs it. A fake that answered with a byte per flag would let
+                # a caller's unpacking bug through: it would read eight times
+                # too much data and still find plausible values.
+                blob = bytearray((len(bits) + 7) // 8)
+                for i, bit in enumerate(bits):
+                    if bit:
+                        blob[i // 8] |= 1 << (i % 8)
+                out["stepBitsPacked"] = base64.b64encode(bytes(blob)).decode("ascii")
+            else:
+                out["stepBits"] = bits
         return _v2(out)
 
     if command == "EvP.CancelSunStudy":

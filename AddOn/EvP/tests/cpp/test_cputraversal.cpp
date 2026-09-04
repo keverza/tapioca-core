@@ -283,3 +283,40 @@ TEST (CpuTraversal, DISABLED_Throughput)
 
     SUCCEED ();
 }
+
+// ---------------------------------------------------------------------------
+// Thread sizing
+// ---------------------------------------------------------------------------
+
+// ⚠️ MEASURED, NOT GUESSED. A 9,403-sample study fanned ~4,700 rays across every
+// core, gave each about 290, and ran at 1.24 M rays/s; the same code on 176,106
+// samples ran at 7.14 M. Spawning a thread for a sliver of work costs more than
+// doing the work.
+TEST (CpuTraversal, ASliverOfWorkDoesNotFanOutAcrossEveryCore)
+{
+    // Just over the inline threshold: the old rule took every core here.
+    const size_t threads = ChooseThreadCount (4700, 0);
+    EXPECT_LE (threads, 3u) << "a 4,700-ray batch was split into slivers again";
+    EXPECT_GE (threads, 1u);
+}
+
+TEST (CpuTraversal, RealWorkStillUsesTheMachine)
+{
+    const size_t threads = ChooseThreadCount (2000000, 0);
+    EXPECT_GT (threads, 1u) << "a two-million-ray batch must still fan out";
+}
+
+TEST (CpuTraversal, ThreadCountRisesWithWork)
+{
+    EXPECT_LE (ChooseThreadCount (8192, 0), ChooseThreadCount (1048576, 0));
+}
+
+// ⚠️ AN EXPLICIT maxParallel IS A MEASUREMENT KNOB AND MUST BE OBEYED EXACTLY.
+// The serial-versus-parallel comparison exists to demonstrate the speedup rather
+// than assert it; a work heuristic that quietly overrode the caller would make
+// both arms the same run and the "speedup" meaningless.
+TEST (CpuTraversal, AnExplicitThreadCountIsNotSecondGuessedByTheWorkHeuristic)
+{
+    EXPECT_EQ (ChooseThreadCount (4700, 8), 8u);
+    EXPECT_EQ (ChooseThreadCount (4700, 1), 1u);
+}

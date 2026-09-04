@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 
 #include "NativeCommands/CommandBase.hpp"
+#include "NativeCommands/CommandUtils.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
 
 #include "Geometry/MeshStore.hpp"
@@ -10,6 +11,8 @@
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 #include "SunStudy/SunStudyWinding.hpp"
+
+#include <cstring>
 
 #include <cmath>
 #include <memory>
@@ -67,6 +70,49 @@ std::string ReadString (const GS::ObjectState& params, const char* key, const ch
     if (params.Get (key, value) && !value.IsEmpty ())
         return Utf8 (value);
     return std::string (fallback);
+}
+
+// ⚠️ BULK ARRAYS TRAVEL PACKED, AND THIS IS NOT A MICRO-OPTIMISATION. A live
+// study of 176,106 samples over 49 timesteps measured 1,209 ms of ANALYSIS
+// inside 15,636 ms of call: fourteen of those seconds were the wire, carrying a
+// million doubles up as JSON text and 8.6 million step bits back the same way.
+// Packed, the same payloads are base64 over raw bytes -- one bit per step
+// instead of two characters, eight bytes per coordinate instead of twenty --
+// and they parse in one pass instead of eight million allocations.
+//
+// The plain arrays stay for small studies and for anything reading by eye; a
+// caller asks for packed when the size is worth it.
+GS::UniString PackDoubles (const std::vector<double>& values)
+{
+    std::vector<unsigned char> bytes (values.size () * sizeof (double));
+    if (!values.empty ())
+        std::memcpy (bytes.data (), values.data (), bytes.size ());
+    return Base64Encode (bytes);
+}
+
+bool UnpackDoubles (const GS::UniString& text, std::vector<double>& values)
+{
+    std::vector<unsigned char> bytes;
+    if (!Base64Decode (text, bytes))
+        return false;
+    if (bytes.size () % sizeof (double) != 0)
+        return false;
+    values.resize (bytes.size () / sizeof (double));
+    if (!values.empty ())
+        std::memcpy (values.data (), bytes.data (), bytes.size ());
+    return true;
+}
+
+// One BIT per (sample, step), sample-major, LSB first within each byte. A step
+// bit is one of two values, so a byte per step wastes seven eighths of the wire.
+GS::UniString PackBits (const std::vector<uint8_t>& flags)
+{
+    std::vector<unsigned char> bytes ((flags.size () + 7) / 8, 0);
+    for (size_t i = 0; i < flags.size (); ++i) {
+        if (flags[i] != 0)
+            bytes[i / 8] |= (unsigned char) (1u << (i % 8));
+    }
+    return Base64Encode (bytes);
 }
 
 // ⚠️ THE PROGRESS FIELDS ARE WRITTEN OUT IN EVERY COMMAND RATHER THAN THROUGH A
@@ -187,7 +233,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         const double spacing = ReadDouble (params, "grid", 2.0);
         const double pad = ReadDouble (params, "pad", -1.0);
         const double zOffset = ReadDouble (params, "zOffset", 0.10);
-        const bool sampleSurfaces = ReadString (params, "samples", "surfaces") != "ground";
+        const std::string sampleMode = ReadString (params, "samples", "surfaces");
+        const bool sampleSurfaces = (sampleMode == "surfaces");
+        const bool sampleExplicit = (sampleMode == "explicit");
 
         size_t columns = 0;
         size_t rows = 0;
@@ -199,7 +247,47 @@ class StartSunStudyCommand : public MainThreadCommand {
         size_t closedGroups = 0;
         size_t flippedGroups = 0;
 
-        if (sampleSurfaces) {
+        if (sampleExplicit) {
+            // ⚠️ THE SEAM THAT MAKES THIS A CORE RATHER THAN A COMMAND. A
+            // consumer that already has a sample set -- the browser page, a
+            // graph node, a regression fixture -- must be able to measure THOSE
+            // POINTS, because a cross-check between two engines is only
+            // meaningful on an identical sample set. Given different points,
+            // two correct engines still disagree and neither is at fault.
+            GS::UniString packedPositions;
+            GS::UniString packedNormals;
+            if (params.Get ("positionsPacked", packedPositions) && !packedPositions.IsEmpty ()) {
+                if (!UnpackDoubles (packedPositions, record->positions))
+                    return NativeCommandResult::Failure ("'positionsPacked' is not base64 of float64 triples");
+                if (!params.Get ("normalsPacked", packedNormals) || !UnpackDoubles (packedNormals, record->normals))
+                    return NativeCommandResult::Failure ("'positionsPacked' needs a matching 'normalsPacked'");
+            }
+            else {
+                GS::Array<double> inPositions;
+                GS::Array<double> inNormals;
+                params.Get ("positions", inPositions);
+                params.Get ("normals", inNormals);
+                record->positions.reserve (inPositions.GetSize ());
+                for (USize i = 0; i < inPositions.GetSize (); ++i)
+                    record->positions.push_back (inPositions[i]);
+                record->normals.reserve (inNormals.GetSize ());
+                for (USize i = 0; i < inNormals.GetSize (); ++i)
+                    record->normals.push_back (inNormals[i]);
+            }
+
+            if (record->positions.empty () || record->positions.size () % 3 != 0) {
+                return NativeCommandResult::Failure (
+                    "samples='explicit' needs 'positions' (or 'positionsPacked') as xyz triples");
+            }
+            if (record->normals.size () != record->positions.size ()) {
+                return NativeCommandResult::Failure (
+                    "samples='explicit' needs one normal per position - without them every sample is treated as "
+                    "facing the sun, so the back of a wall counts the sun striking its front");
+            }
+
+            gridVersion = static_cast<uint64_t> (record->positions.size ()) * 73856093ull;
+        }
+        else if (sampleSurfaces) {
             // ⚠️ SURFACES ARE THE DEFAULT BECAUSE A GROUND PLANE CANNOT BE
             // INFERRED. The ground grid guesses a height from the snapshot AABB,
             // and the first live run showed exactly how that fails: on a project
@@ -307,7 +395,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("gridRows", (GS::Int32) rows);
         os.Add ("groundZ", groundZ);
         os.Add ("groundPad", reportedPad);
-        os.Add ("sampleMode", Text (sampleSurfaces ? "surfaces" : "ground"));
+        os.Add ("sampleMode", Text (sampleMode));
         os.Add ("undersizedFaces", (GS::Int32) undersizedFaces);
         os.Add ("degenerateFaces", (GS::Int32) degenerateFaces);
         os.Add ("closedGroups", (GS::Int32) closedGroups);
@@ -468,10 +556,17 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
         if (id.empty ())
             return NativeCommandResult::Failure ("no sun study is live - call Tapioca.StartSunStudy first");
 
+        bool wantSteps = false;
+        params.Get ("includeSteps", wantSteps);
+        bool packed = false;
+        params.Get ("packed", packed);
+
         std::vector<double> hours;
         std::vector<double> positions;
+        std::vector<double> normals;
+        std::vector<uint8_t> stepBits;
         std::string error;
-        if (!SunStudyStore::Get ().SunHours (id, hours, positions, error))
+        if (!SunStudyStore::Get ().Results (id, hours, positions, normals, wantSteps ? &stepBits : nullptr, error))
             return NativeCommandResult::Failure (Text (error));
 
         StudyProgress progress;
@@ -497,10 +592,39 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
         // triples the wire cost of a value that never changes during a study.
         bool wantPositions = false;
         if (params.Get ("includePositions", wantPositions) && wantPositions) {
-            GS::Array<double> positionArray;
-            for (const double value : positions)
-                positionArray.Push (value);
-            os.Add ("positions", positionArray);
+            if (packed) {
+                os.Add ("positionsPacked", PackDoubles (positions));
+                os.Add ("normalsPacked", PackDoubles (normals));
+            }
+            else {
+                GS::Array<double> positionArray;
+                for (const double value : positions)
+                    positionArray.Push (value);
+                os.Add ("positions", positionArray);
+
+                // ⚠️ NORMALS TRAVEL WITH POSITIONS, NEVER SEPARATELY. A consumer
+                // that has the points but not their orientation cannot reproduce
+                // the back-face cull, so it counts the sun striking the far side of
+                // every wall -- and then disagrees with this engine on exactly the
+                // samples the cull would have settled, which reads as a tracer bug.
+                GS::Array<double> normalArray;
+                for (const double value : normals)
+                    normalArray.Push (value);
+                os.Add ("normals", normalArray);
+            }
+        }
+
+        if (wantSteps) {
+            os.Add ("stepStride", (GS::Int32) progress.totalSteps);
+            if (packed) {
+                os.Add ("stepBitsPacked", PackBits (stepBits));
+            }
+            else {
+                GS::Array<GS::Int32> stepArray;
+                for (const uint8_t value : stepBits)
+                    stepArray.Push ((GS::Int32) value);
+                os.Add ("stepBits", stepArray);
+            }
         }
         return os;
     }
@@ -556,7 +680,11 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "grid":{"type":"number"},
                 "pad":{"type":"number"},
                 "zOffset":{"type":"number"},
-                "samples":{"type":"string","enum":["surfaces","ground"]},
+                "samples":{"type":"string","enum":["surfaces","ground","explicit"]},
+                "positions":{"type":"array","items":{"type":"number"}},
+                "normals":{"type":"array","items":{"type":"number"}},
+                "positionsPacked":{"type":"string"},
+                "normalsPacked":{"type":"string"},
                 "jitter":{"type":"number"}
             },
             "additionalProperties":false
@@ -660,7 +788,9 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
             "type":"object",
             "properties":{
                 "studyId":{"type":"string"},
-                "includePositions":{"type":"boolean"}
+                "includePositions":{"type":"boolean"},
+                "includeSteps":{"type":"boolean"},
+                "packed":{"type":"boolean"}
             },
             "additionalProperties":false
         })json",
@@ -670,6 +800,12 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "studyId":{"type":"string"},
                 "hours":{"type":"array","items":{"type":"number"}},
                 "positions":{"type":"array","items":{"type":"number"}},
+                "normals":{"type":"array","items":{"type":"number"}},
+                "stepBits":{"type":"array","items":{"type":"integer"}},
+                "stepBitsPacked":{"type":"string"},
+                "positionsPacked":{"type":"string"},
+                "normalsPacked":{"type":"string"},
+                "stepStride":{"type":"integer"},
                 "count":{"type":"integer"},
                 "resolvedSteps":{"type":"integer"},
                 "totalSteps":{"type":"integer"},

@@ -104,6 +104,36 @@ bool SunStudyStore::SunHours (const std::string& id, std::vector<double>& hours,
     return true;
 }
 
+bool SunStudyStore::Results (const std::string& id, std::vector<double>& hours, std::vector<double>& positions,
+                             std::vector<double>& normals, std::vector<uint8_t>* stepBits, std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+
+    const StudyRecord& record = *found->second;
+    hours = record.session.SunHours ();
+    positions = record.positions;
+    normals = record.normals;
+
+    if (stepBits != nullptr) {
+        const OcclusionAccumulator& accumulator = record.session.Accumulator ();
+        const size_t samples = accumulator.SampleCount ();
+        const size_t steps = accumulator.StepCount ();
+        stepBits->assign (samples * steps, 0);
+        // Sample-major, so one sample's whole day is contiguous -- which is how
+        // every consumer reads it.
+        for (size_t sample = 0; sample < samples; ++sample) {
+            for (size_t step = 0; step < steps; ++step)
+                (*stepBits)[sample * steps + step] = accumulator.Lit (sample, step) ? 1u : 0u;
+        }
+    }
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);
