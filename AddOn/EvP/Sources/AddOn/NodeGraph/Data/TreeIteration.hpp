@@ -5,13 +5,12 @@
 // 8.3, evidence in 56.9).
 //
 // THIS IS A POLICY, NOT A DEFAULT. §8.3 is explicit that `DataTree` performs no
-// automatic lacing: a node that evaluates per item declares that it wants this
+// automatic matching: a node that evaluates per item declares that it wants this
 // walk, in its registry entry, and a node that is tree-aware never asks for it.
 // Nothing in DataTree/DataTreeOps calls into this file.
 //
-// The policy implemented here is GH2's ordinal one, because it is the only
-// matching family the reference actually ships (56.9) and it is what a
-// Grasshopper user's hands already expect:
+// The policy implemented here is the ordinal one, because it is the only
+// matching family the reference actually ships (56.9):
 //
 //   * PATHS ARE NEVER COMPARED. Inputs are walked by integer index - list
 //     index and item index - so two trees pair by position, not by name. Trying

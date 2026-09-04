@@ -79,7 +79,7 @@ class QueryEngine {
     // so this still descends to the nearest intersection within [tmin, tmax].
     // A tight `tmax` is therefore a real optimisation and not merely a filter.
     //
-    // `tmin` skips the surface the ray starts on (Jifto's selfHitThreshold,
+    // `tmin` skips the surface the ray starts on (the self-hit threshold,
     // typically 0.001 m); `tmax <= 0` means unbounded. `dir` need not be
     // normalised -- it is normalised here, so tmin/tmax are true distances in
     // metres either way.

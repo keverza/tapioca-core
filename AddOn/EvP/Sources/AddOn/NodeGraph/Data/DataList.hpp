@@ -1,16 +1,16 @@
 #ifndef EVP_NODEGRAPH_DATA_DATALIST_HPP
 #define EVP_NODEGRAPH_DATA_DATALIST_HPP
 
-// One path's ordered items - the container GH2 calls a twig, named here for
-// what it is (HANDOFF 7.3, evidence in 56.5).
+// One path's ordered items - a list, named here for what it is
+// (HANDOFF 7.3, evidence in 56.5).
 //
 // A list is immutable and holds three parallel arrays: values, null flags and
 // per-item metadata. Parallel rather than a vector of item structs because the
 // common list carries neither nulls nor metadata, and the two side arrays then
 // stay empty: a list of a million doubles costs a million doubles, not a
 // million optionals with a shared_ptr each. Nullness cannot live in the value
-// slot anyway - a null double is not any particular double (56.3 shows GH2
-// reaching the same conclusion and keeping a parallel bool[]).
+// slot anyway - a null double is not any particular double (56.3 shows the
+// reference reaching the same conclusion and keeping a parallel bool[]).
 //
 // Null, empty and absent stay distinct here (7.5): an empty list is a real list
 // with zero items, a null item is a present cell with a declared type and no
@@ -28,7 +28,7 @@
 
 namespace evp::nodegraph::data {
 
-// One item: its value (or nullness) plus its metadata. GH2's "pear".
+// One item: its value (or nullness) plus its metadata.
 template <class T> class DataItem {
   public:
     DataItem () : metadata_ (MetadataMap::Empty ())

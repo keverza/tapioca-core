@@ -156,7 +156,8 @@ set (EVP_DYNAMO_SOURCES
 # private/Commands/SunStudy/sunraster.py; test_sunstudyraster.cpp pins the two
 # together.
 set (EVP_SUNSTUDY_SOURCES
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRaster.cpp")
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRaster.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/CpuTraversal.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
@@ -523,6 +524,7 @@ set (EVP_TEST_SOURCES
     test_cloudcompare.cpp
     test_sunstudyraster.cpp
     test_queryoccluded.cpp
+    test_cputraversal.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghpreviewprotocol.cpp

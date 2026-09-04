@@ -98,7 +98,7 @@ TEST (QueryOccluded, TmaxBoundsTheQuery)
     EXPECT_FALSE (engine.Occluded (origin, kUp, 0.001, 4.0)) << "a hit beyond tmax must not count";
 }
 
-// tmin is Jifto's selfHitThreshold: it skips the surface the ray starts on.
+// tmin is the self-hit threshold: it skips the surface the ray starts on.
 TEST (QueryOccluded, TminSkipsTheSurfaceTheRayStartsOn)
 {
     QueryEngine engine (MakeCeilingSnapshot ());

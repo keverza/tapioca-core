@@ -11,10 +11,9 @@
 // printable and persistable in one place instead of in every operator that
 // happens to touch it.
 //
-// This is the C++ answer to GH2's ITypeAssistant/TypeAssistantServer, minus the
-// dynamic registration: Tapioca's item vocabulary is a closed enum (7.2), so
-// the table is static, complete and checkable at startup rather than a map a
-// plugin can leave a hole in.
+// This is a type-assistant service, minus the dynamic registration: Tapioca's
+// item vocabulary is a closed enum (7.2), so the table is static, complete and
+// checkable at startup rather than a map a plugin can leave a hole in.
 //
 // Assistants are pure and thread-safe: an immutable tree is read concurrently
 // by the evaluator, and these run on whatever thread reads it.
