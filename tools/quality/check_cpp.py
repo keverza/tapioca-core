@@ -149,6 +149,13 @@ TIER_ASSIGNMENTS = {
     "Python": "services",
     "Screenshot": "services",
     "Server": "services",
+    # The sun/shadow analysis core. Same tier and same reasoning as Geometry/,
+    # which it is built on: pure computation over a snapshot, no DevKit, no DG,
+    # no document knowledge. It is deliberately NOT under ArchViz/ - the Diligent
+    # viewport is one consumer, the WebGL study page is another, and a headless
+    # run is a third, so a features-tier home would put the engine behind one of
+    # its own clients.
+    "SunStudy": "services",
 }
 
 # The private workspace keeps registry history beside the ArchViz sources. The

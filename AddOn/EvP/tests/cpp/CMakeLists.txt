@@ -148,6 +148,16 @@ set (EVP_GRASSHOPPER_SOURCES
 set (EVP_DYNAMO_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Dynamo/ApiPipeProtocol.cpp")
 
+# SunStudy is the renderer-agnostic sun/shadow analysis core. It deliberately
+# includes no Diligent header and calls no ACAPI, which is what lets the Diligent
+# viewport, the WebGL study page and a headless run share one engine -- and what
+# puts the whole of it under this offline gate rather than behind a live Archicad
+# run. SunStudyRaster.cpp is the shadow camera's arithmetic, transcribed from
+# private/Commands/SunStudy/sunraster.py; test_sunstudyraster.cpp pins the two
+# together.
+set (EVP_SUNSTUDY_SOURCES
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRaster.cpp")
+
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
 # real production sources can no longer be covered by the offline gate.
@@ -511,6 +521,8 @@ set (EVP_TEST_SOURCES
     test_pointcloudhierarchy.cpp
     test_pointcloudlod.cpp
     test_cloudcompare.cpp
+    test_sunstudyraster.cpp
+    test_queryoccluded.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghpreviewprotocol.cpp
@@ -619,6 +631,7 @@ add_executable (EvPGeomTests ${EVP_GEOM_SOURCES} ${EVP_PALETTE_SOURCES}
                                 ${EVP_GRASSHOPPER_SOURCES}
                                  ${EVP_DYNAMO_SOURCES}
                                  ${EVP_NODEGRAPH_SOURCES}
+                                 ${EVP_SUNSTUDY_SOURCES}
                                  ${EVP_TEST_SOURCES})
 target_include_directories (EvPGeomTests PRIVATE
     "${EVP_ROOT}/Sources/AddOn"
