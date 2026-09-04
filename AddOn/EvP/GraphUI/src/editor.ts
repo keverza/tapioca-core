@@ -1,10 +1,9 @@
 import type { Connection, Edge, Node } from '@xyflow/svelte'
-import type { GraphValue, NodeOutputRecord, NodeTypeSchema, PositionStore, SchemaNodeData } from './types'
+import type { GraphValue, NodeOutputRecord, PositionStore, SchemaNodeData } from './types'
 
 export type DetailLevel = 'compact' | 'normal' | 'detailed'
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-export const NODE_DRAG_MIME = 'application/svelteflow'
 export const REFERENCE_EDGE_COLOR = '#8a8f98'
 export const REFERENCE_EDGE_STYLE = `stroke: ${REFERENCE_EDGE_COLOR}; stroke-width: 1.4; stroke-dasharray: 5 5;`
 
@@ -12,35 +11,6 @@ export function displayedOutputText(output: NodeOutputRecord | undefined): strin
   if (output === undefined) return 'Not evaluated'
   if (output.value.valueType === 'string' && output.text === '') return '""'
   return output.text || output.summary || '—'
-}
-
-export function filterCatalog(catalog: NodeTypeSchema[], query: string): NodeTypeSchema[] {
-  const tokens = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
-  if (tokens.length === 0) return catalog
-
-  return catalog.filter((schema) => {
-    const text = [
-      schema.label,
-      schema.nodeType,
-      schema.category,
-      schema.description,
-      ...schema.inputs.flatMap((port) => [port.label, port.valueType]),
-      ...schema.outputs.flatMap((port) => [port.label, port.valueType]),
-    ]
-      .join(' ')
-      .toLocaleLowerCase()
-    return tokens.every((token) => text.includes(token))
-  })
-}
-
-export function groupCatalog(catalog: NodeTypeSchema[]): Map<string, NodeTypeSchema[]> {
-  const groups = new Map<string, NodeTypeSchema[]>()
-  for (const schema of catalog) {
-    const items = groups.get(schema.category) ?? []
-    items.push(schema)
-    groups.set(schema.category, items)
-  }
-  return groups
 }
 
 export function isCatalogConnectionValid(

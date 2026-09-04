@@ -40,7 +40,11 @@ export async function createScript(nodeId: string, path: string, graphId?: strin
 export interface ScriptReadResult {
   ok: boolean
   error: string
+  /** The node's folder. */
   path: string
+  /** The file within it, echoed back - see readScriptSource. */
+  file: string
+  shared: boolean
   language: string
   exists: boolean
   source: string
@@ -56,6 +60,7 @@ export interface ScriptWriteResult {
   /** The save was refused because disk had moved on. `diskSource` is that version. */
   conflict: boolean
   path: string
+  file: string
   /** After a save, the hash of what was written; after a conflict, of what is on disk. */
   sourceHash: string
   diskSource: string
@@ -63,11 +68,34 @@ export interface ScriptWriteResult {
   sizeBytes: number
 }
 
-export async function readScriptSource(nodeId: string, graphId?: string): Promise<ScriptReadResult> {
+/**
+ * One file out of the node's folder.
+ *
+ * `file` is a plain name inside that folder (`calculations.py`) or `libs/<name>`
+ * in the shared library; an empty string means the entry file, which is how the
+ * editor opens a node without first learning whether it is `main.py` or
+ * `main.js`. Anything else - an absolute path, a `..`, a nested folder - is
+ * refused natively, so there is no spelling here that reaches the filesystem at
+ * large. The name is echoed back in the response, so a reply that lands after
+ * the user switched tabs can be discarded instead of painted into the wrong one.
+ */
+export async function readScriptSource(nodeId: string, file = '', graphId?: string): Promise<ScriptReadResult> {
   return callTapioca<ScriptReadResult>(
     'Tapioca.GraphScriptRead',
-    graphId === undefined ? { nodeId } : { nodeId, graphId },
+    graphId === undefined ? { nodeId, file } : { nodeId, file, graphId },
   )
+}
+
+/**
+ * Creates one EMPTY helper inside the node's own folder.
+ *
+ * Never in `libs/`: a helper made from inside one node's editor and silently
+ * landing on every other node's import path is a surprise nobody wants twice.
+ * Empty rather than templated, because a helper carrying `@in` / `@out`
+ * directives would declare ports from a file that is not the entry point.
+ */
+export async function addScriptFile(nodeId: string, file: string, graphId?: string): Promise<void> {
+  await callTapioca('Tapioca.GraphScriptAddFile', graphId === undefined ? { nodeId, file } : { nodeId, file, graphId })
 }
 
 /**
@@ -85,13 +113,14 @@ export async function readScriptSource(nodeId: string, graphId?: string): Promis
  */
 export async function writeScriptSource(
   nodeId: string,
+  file: string,
   source: string,
   baseHash: string,
   graphId?: string,
 ): Promise<ScriptWriteResult> {
   return callTapioca<ScriptWriteResult>(
     'Tapioca.GraphScriptWrite',
-    graphId === undefined ? { nodeId, source, baseHash } : { nodeId, source, baseHash, graphId },
+    graphId === undefined ? { nodeId, file, source, baseHash } : { nodeId, file, source, baseHash, graphId },
   )
 }
 

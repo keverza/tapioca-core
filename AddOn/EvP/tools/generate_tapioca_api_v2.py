@@ -66,9 +66,13 @@ from typing import Any
 # on a file the user chose, never on the model, so they stay host-independent -
 # and the guard is what makes a second editor safe alongside VSCode: neither side
 # can overwrite the other silently, in either direction.
-EXPECTED_REGISTRY_COMMANDS = 171
+# 2026-09-04, the node-as-folder model: +1 for GraphScriptAddFile, one empty
+# helper created INSIDE the node's own folder. It refuses an existing file, a
+# path, and the shared library root, so like GraphScriptCreate it can bring a
+# file into existence and can never destroy one.
+EXPECTED_REGISTRY_COMMANDS = 172
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 190
+EXPECTED_TOTAL_COMMANDS = 191
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

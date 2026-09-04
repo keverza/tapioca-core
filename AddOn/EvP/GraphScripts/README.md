@@ -1,20 +1,30 @@
 # Script node examples
 
-Files a **JavaScript** or **Python** script node can be pointed at directly, in
+Folders a **JavaScript** or **Python** script node can be pointed at directly, in
 the order worth reading them.
 
-A node's ports come from the header at the top of the file and from nowhere else,
-so opening one of these in VSCode or Sublime and saving it is the whole loop: the
-node reshapes itself to match.
+A node is a FOLDER: `main.py` (or `main.js`) is its entry point, and any other
+`.py` beside it is a helper the entry can import by name. None of the examples
+below needs a helper yet - they are one file each - but they are folders because
+that is what a node is, and pointing a node at a loose `.py` no longer works.
 
-| File | What it shows |
+A node's ports come from the header at the top of `main.py` and from nowhere
+else, so opening one of these in VSCode, Sublime or the palette's own editor and
+saving it is the whole loop: the node reshapes itself to match.
+
+| Folder | What it shows |
 |---|---|
-| `01-hello.py` | The smallest script that is still a node |
-| `02-hello.js` | The same node in JavaScript, to show the two agree |
-| `03-every-type.py` | One port of every type a script can carry |
-| `04-ports-change.py` | Watching a node reshape itself as you edit |
-| `05-output-and-errors.py` | `print`, and every way a script can fail |
-| `06-geometry.js` | Points and polylines, and what a script may not make |
+| `01-hello/` | The smallest script that is still a node |
+| `02-hello/` | The same node in JavaScript, to show the two agree |
+| `03-every-type/` | One port of every type a script can carry |
+| `04-ports-change/` | Watching a node reshape itself as you edit |
+| `05-output-and-errors/` | `print`, and every way a script can fail |
+| `06-geometry/` | Points and polylines, and what a script may not make |
+
+A node pointed at a loose file from before the folder model is CONVERTED on its
+next reload: `offset.py` becomes `offset/main.py` and the node is repointed at
+`offset/`. It happens once, it is reported, and the file is moved rather than
+copied - so there is never a second copy to diverge.
 
 ## The header
 

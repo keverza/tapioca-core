@@ -3,6 +3,7 @@
 #include "NodeGraph/GraphEdit.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 #include "NodeGraph/ScriptSource.hpp"
+#include "NodeGraph/ScriptWorkspace.hpp"
 
 #include <algorithm>
 
@@ -40,6 +41,8 @@ ScriptReloadResult ReloadScriptNode (const GraphId& graphId, const NodeId& nodeI
 
     const GraphDocument document = GraphRuntimeState::Get ().Document (graphId);
     const Node* node = document.FindNode (nodeId);
+    // Points into `document`, and the migration below can supersede that - so it
+    // is re-pointed at a fresh snapshot afterwards. See the note further down.
     if (node == nullptr) {
         result.error = "unknown node: " + nodeId;
         return result;
@@ -50,20 +53,81 @@ ScriptReloadResult ReloadScriptNode (const GraphId& graphId, const NodeId& nodeI
         return result;
     }
 
-    const std::string path = StoredText (*node, kScriptPathParameter);
+    std::string path = StoredText (*node, kScriptPathParameter);
+
+    /*
+     * ⚠️ THE MIGRATION OFF THE FILE MODEL, AND IT RUNS BEFORE THE LOAD. A saved
+     * graph from before the folder model points `scriptPath` at `offset.py`;
+     * this converts it to `offset\main.py` and repoints the node. It happens
+     * HERE rather than in a one-shot upgrade pass because a graph is not the
+     * only way a stale path arrives - the library, an import, someone typing an
+     * old path from memory - and every one of those routes ends at a reload.
+     *
+     * A path that is already a folder, or that names nothing, is left exactly
+     * alone: MigrateScriptFileToFolder reports that as ok-with-nothing-done, so
+     * the common case costs one stat and changes no state.
+     */
+    std::string migrationError;
+    if (!path.empty ()) {
+        const ScriptMigration migration = MigrateScriptFileToFolder (path);
+        if (!migration.ok) {
+            // A migration that could not happen is REPORTED AND SURVIVED, not
+            // fatal: the node still loads from the folder the path implies and
+            // says why it could not be converted. A locked file must not make a
+            // graph unopenable.
+            //
+            // It goes into the node's OWN load error rather than into
+            // result.error, which means "this verb could not run" and fails the
+            // command. This did run; the node simply has something to report,
+            // and the panel is where the user is looking.
+            migrationError = migration.error;
+        }
+        else if (migration.migrated) {
+            // Through the ordinary parameter edit, so the repoint is validated,
+            // revisioned and undoable exactly like the user typing it.
+            SetParameterEdit pointed;
+            pointed.nodeId = nodeId;
+            pointed.parameterId = kScriptPathParameter;
+            pointed.value = Value (migration.folder);
+            const EditResult repointed = GraphRuntimeState::Get ().Apply (graphId, GraphEdit { pointed });
+            if (repointed.accepted) {
+                result.migratedFrom = path;
+                result.migratedTo = migration.folder;
+                path = migration.folder;
+            }
+        }
+    }
 
     ScriptState state;
     if (path.empty ()) {
         // Not an error to reload: it is the state of a node that has just been
         // placed, and the node reports it perfectly well itself.
         state.language = language;
-        state.loadError = "this script node has no file yet; choose or create one";
+        state.loadError = "this script node has no folder yet; choose or create one";
     }
     else {
         state = LoadScriptState (path, language);
     }
+    // A migration that failed outranks whatever the load then found: the file is
+    // not where the node expects it BECAUSE the conversion did not happen, and
+    // "no main.py in offset\" would send the user looking for the wrong problem.
+    if (!migrationError.empty ())
+        state.loadError = migrationError;
     ScriptStore::Get ().SetState (nodeId, state);
     SyncScriptWatchList ();
+
+    // ⚠️ RE-READ AFTER THE MIGRATION. `node` came from a snapshot taken before
+    // the repoint edit above, and the port comparison below is against ITS
+    // dynamic ports. Those do not change under a repoint - but reading through a
+    // pointer into a superseded document is the kind of thing that stays correct
+    // only until somebody adds a second edit here.
+    const GraphDocument current = GraphRuntimeState::Get ().Document (graphId);
+    const Node* reloaded = current.FindNode (nodeId);
+    if (reloaded == nullptr) {
+        result.error = "unknown node: " + nodeId;
+        return result;
+    }
+    node = reloaded;
 
     SetScriptInterfaceEdit edit;
     edit.nodeId = nodeId;

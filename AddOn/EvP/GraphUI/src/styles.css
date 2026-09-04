@@ -336,7 +336,6 @@ select:disabled {
 .canvas {
   position: relative;
   min-height: 0;
-  --picker-width: clamp(240px, 25vw, 330px);
   background-image:
     linear-gradient(rgb(255 255 255 / 1.5%) 1px, transparent 1px),
     linear-gradient(90deg, rgb(255 255 255 / 1.5%) 1px, transparent 1px);
@@ -418,165 +417,6 @@ select:disabled {
   stroke: var(--danger) !important;
   stroke-width: 5 !important;
   stroke-dasharray: 8 5;
-}
-
-.canvas.picker-open .svelte-flow {
-  left: calc(var(--picker-width) + 20px);
-  width: calc(100% - var(--picker-width) - 20px);
-}
-
-.component-picker {
-  position: absolute;
-  z-index: 8;
-  inset: 10px auto 10px 10px;
-  display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  width: var(--picker-width);
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--surface) 96%, transparent);
-  box-shadow: 0 16px 42px rgb(0 0 0 / 35%);
-}
-
-.component-picker > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 10px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-raised);
-}
-
-.component-picker > header div {
-  display: grid;
-  gap: 2px;
-}
-
-.component-picker > header span {
-  color: var(--accent);
-  font: 700 8px/1 ui-monospace, monospace;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.component-picker > header strong {
-  font-size: 15px;
-}
-
-.icon-button {
-  width: 28px;
-  padding: 0;
-  font-size: 20px;
-}
-
-.catalog-search {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 5px;
-  padding: 10px;
-}
-
-.catalog-search input {
-  min-width: 0;
-  padding: 0 9px;
-}
-
-.catalog-search button {
-  padding: 0 8px;
-}
-
-.catalog-results {
-  padding: 0 11px 8px;
-  color: var(--text-faint);
-  font: 9px/1 ui-monospace, monospace;
-}
-
-.catalog-groups {
-  min-height: 0;
-  padding: 0 8px 10px;
-  overflow: auto;
-}
-
-.catalog-groups section + section {
-  margin-top: 12px;
-}
-
-.catalog-groups h2 {
-  margin: 0;
-  padding: 6px 5px;
-  color: var(--text-faint);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.catalog-groups section > button {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  width: 100%;
-  height: auto;
-  min-height: 56px;
-  margin-bottom: 5px;
-  padding: 8px 9px;
-  text-align: left;
-  cursor: grab;
-}
-
-.catalog-groups section > button.active {
-  border-color: var(--accent);
-  background: var(--surface-hover);
-}
-
-.catalog-groups section > button strong {
-  font-size: 11px;
-}
-
-.catalog-groups section > button span {
-  grid-column: 1 / -1;
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 9px;
-  line-height: 1.35;
-}
-
-.catalog-groups section > button small {
-  color: var(--text-faint);
-  font: 8px/1 ui-monospace, monospace;
-}
-
-.catalog-empty {
-  padding: 20px 10px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.component-rail {
-  position: absolute;
-  z-index: 8;
-  top: 10px;
-  bottom: 10px;
-  left: 10px;
-  display: grid;
-  width: 40px;
-  height: auto;
-  padding: 9px 0;
-  place-items: start center;
-  border-color: var(--border);
-  background: var(--surface);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 28%);
-}
-
-.component-rail span {
-  color: var(--accent);
-  font-size: 20px;
-}
-
-.component-rail strong {
-  margin-top: 34px;
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  writing-mode: vertical-rl;
 }
 
 .context-menu {
@@ -785,14 +625,6 @@ main > footer code.locked {
     justify-content: flex-start;
   }
 
-  .component-picker {
-    width: min(310px, calc(100% - 20px));
-  }
-
-  .canvas.picker-open .svelte-flow {
-    left: 0;
-    width: 100%;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

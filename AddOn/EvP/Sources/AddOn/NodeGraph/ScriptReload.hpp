@@ -43,6 +43,17 @@ struct ScriptReloadResult {
     // says nothing at all about a save that only changed the body, which is most
     // of them.
     bool interfaceChanged = false;
+
+    // Set when this reload converted a single-FILE node into a node FOLDER: the
+    // path the node used to hold, and the folder it holds now.
+    //
+    // ⚠️ REPORTED BECAUSE IT MOVED THE USER'S FILE. A migration is silent from
+    // the graph's point of view - same node, same ports, same wires - and loud
+    // from the filesystem's: offset.py is not where it was, and the editor the
+    // user has it open in still thinks it is. Saying so is the difference
+    // between a conversion and a file that appears to have vanished.
+    std::string migratedFrom;
+    std::string migratedTo;
 };
 
 ScriptReloadResult ReloadScriptNode (const GraphId& graphId, const NodeId& nodeId);

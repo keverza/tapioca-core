@@ -163,9 +163,16 @@ typedef int (*EvpPy_RunScriptFileFn) (const uint16_t* scriptPath, const char* mo
 // ⚠️ AND THE NAMESPACE IS FRESH EVERY CALL. A shared one would let one node's
 // globals leak into the next node's script - which reads as a node that works
 // until somebody reorders the graph.
+//
+// ⚠️ `importRootsJson` IS A JSON ARRAY OF FOLDERS, AND IT IS AN IMPORT PATH, NOT
+// FILESYSTEM ACCESS. A script node is a folder; these are that folder and the
+// shared library beside it, put on `sys.path` for the duration of one run and
+// taken off again. What they let a script do is `import calculations` - a module
+// the user themselves put next to their own script. They do not open files, list
+// directories, or reach anything the user did not author.
 typedef int (*EvpPy_RunGraphScriptFn) (const char* sourceUtf8, const uint16_t* displayPath, const char* inputsJson,
-                                       const char* outputsJson, int timeBudgetMs, char** resultJsonOut, char* errorUtf8,
-                                       int errorSize);
+                                       const char* outputsJson, const char* importRootsJson, int timeBudgetMs,
+                                       char** resultJsonOut, char* errorUtf8, int errorSize);
 
 #define EVPPY_INITIALIZE_SYMBOL "EvpPy_Initialize"
 #define EVPPY_RUNSCRIPTFILE_SYMBOL "EvpPy_RunScriptFile"

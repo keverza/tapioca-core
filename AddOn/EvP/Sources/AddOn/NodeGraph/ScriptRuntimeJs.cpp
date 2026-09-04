@@ -400,6 +400,17 @@ class QuickJsRuntime final : public IScriptRuntime {
         // not be read back - and a script node's contract is "assign to the names
         // your header declared".
         const JSValue evaluated =
+            /*
+             * ⚠️ request.importRoots IS IGNORED HERE, AND A JAVASCRIPT NODE'S
+             * HELPERS THEREFORE DO NOT IMPORT. The folder model, the tabs and the
+             * editor are language-agnostic and a .js node gets all three; module
+             * RESOLUTION is not, and QuickJS is configured with no module loader
+             * at all - deliberately, since a loader is also a way to reach the
+             * filesystem from inside a script. Wiring one up is its own piece of
+             * work with its own security review; until then a JS node's siblings
+             * are files you may edit and cannot require, and the node reports the
+             * ReferenceError like any other.
+             */
             JS_Eval (context, request.source.c_str (), request.source.size (),
                      request.path.empty () ? "<script>" : request.path.c_str (), JS_EVAL_TYPE_GLOBAL);
 

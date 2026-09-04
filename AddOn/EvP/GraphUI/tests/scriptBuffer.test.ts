@@ -25,6 +25,12 @@ import {
   reconcile,
   saveBlockedReason,
   takeDisk,
+  EMPTY_TABS,
+  anyConflict,
+  bufferFor,
+  dirtyFiles,
+  newFileNameError,
+  withBuffer,
   type ScriptBuffer,
 } from '../src/nodes/script/buffer.ts'
 import type { ScriptReadResult, ScriptWriteResult } from '../src/nodes/script/scriptBridge.ts'
@@ -33,7 +39,11 @@ function read(source: string, overrides: Partial<ScriptReadResult> = {}): Script
   return {
     ok: true,
     error: '',
-    path: 'C:\\scripts\\offset.py',
+    // The node's FOLDER, which is what a read reports now; the file within it is
+    // the separate `file` field.
+    path: 'C:\\scripts\\offset',
+    file: 'main.py',
+    shared: false,
     language: 'python',
     exists: true,
     source,
@@ -51,7 +61,8 @@ function written(overrides: Partial<ScriptWriteResult> = {}): ScriptWriteResult 
     ok: true,
     error: '',
     conflict: false,
-    path: 'C:\\scripts\\offset.py',
+    path: 'C:\\scripts\\offset',
+    file: 'main.py',
     sourceHash: 'hash:new',
     diskSource: '',
     modifiedAtMs: 2000,
@@ -195,11 +206,62 @@ test('there is no diff when there is no conflict', () => {
   assert.equal(diffAgainstIncoming(opened()), null)
 })
 
-test('the editor mode follows the node, and the path when the node has not said', () => {
+test('the editor mode follows the node, never the file extension', () => {
+  // A node folder holds one language and the node type decides which. A stray
+  // .js sitting beside main.py does not make that node a JavaScript node, so the
+  // highlighter must not take the file's word for it.
   assert.equal(editorLanguageOf(opened()), 'python')
   assert.equal(editorLanguageOf(openBuffer(read('a', { language: 'javascript' }))), 'javascript')
-  assert.equal(
-    editorLanguageOf(openBuffer(read('a', { language: '', path: 'C:\\scripts\\Offset.JS' }))),
-    'javascript',
-  )
+  assert.equal(editorLanguageOf(openBuffer(read('a', { language: '', file: 'helpers.js' }))), 'python')
+})
+
+// ---------------------------------------------------------------------------
+// Tabs. A node is a folder, so the inspector holds one buffer per open file.
+
+test('tabs keep one buffer per file, and an unopened file is not an empty one', () => {
+  const tabs = withBuffer(EMPTY_TABS, 'main.py', editBuffer(opened(), 'edited\n'))
+  assert.equal(bufferFor(tabs, 'main.py').text, 'edited\n')
+  // Absent means "not opened yet". Returning a blank buffer that looked editable
+  // would let the user type into a file nobody has read, and save that over it.
+  assert.equal(phaseOf(bufferFor(tabs, 'calculations.py')), 'none')
+})
+
+test('a conflict in one file does not block saving another', () => {
+  // Per-file rules, deliberately. A model that merged them would refuse a save
+  // to main.py because calculations.py is in conflict, which is nonsense to
+  // anyone looking at main.py.
+  const conflicted = reconcile(editBuffer(opened(), 'mine\n'), read('theirs\n'))
+  let tabs = withBuffer(EMPTY_TABS, 'calculations.py', conflicted)
+  tabs = withBuffer(tabs, 'main.py', editBuffer(opened(), 'fine\n'))
+  assert.equal(saveBlockedReason(bufferFor(tabs, 'main.py')), '')
+  assert.equal(anyConflict(tabs), true)
+})
+
+test('every unsaved file is named, because closing discards them all', () => {
+  // The inspector's buffers die with the component and there is no undo across a
+  // close. A user who edited three files and is looking at the fourth has to be
+  // told which ones, by name.
+  let tabs = withBuffer(EMPTY_TABS, 'main.py', editBuffer(opened(), 'a\n'))
+  tabs = withBuffer(tabs, 'zebra.py', editBuffer(opened(), 'b\n'))
+  tabs = withBuffer(tabs, 'clean.py', opened())
+  assert.deepEqual(dirtyFiles(tabs), ['main.py', 'zebra.py'])
+})
+
+test('a new helper name is refused before it can reach the bridge', () => {
+  const taken = ['main.py', 'calculations.py']
+  assert.equal(newFileNameError('helpers.py', 'python', taken), '')
+  assert.match(newFileNameError('', 'python', taken), /Name the file/u)
+  assert.match(newFileNameError('helpers', 'python', taken), /\.py/u)
+  assert.match(newFileNameError('.py', 'python', taken), /not just its extension/u)
+  assert.match(newFileNameError('CALCULATIONS.PY', 'python', taken), /already/u)
+  // The refusals that matter. This is a courtesy so the field can complain while
+  // the user types - the native side refuses these too, and it is the real guard.
+  for (const escape of ['../evil.py', '..\\evil.py', 'sub/nested.py', 'C:\\evil.py', '..', 'a\\b.py']) {
+    assert.notEqual(newFileNameError(escape, 'python', taken), '', escape)
+  }
+})
+
+test('a javascript node wants .js helpers', () => {
+  assert.equal(newFileNameError('helpers.js', 'javascript', []), '')
+  assert.match(newFileNameError('helpers.py', 'javascript', []), /\.js/u)
 })

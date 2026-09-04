@@ -130,8 +130,21 @@ ScriptState LoadScriptState (const std::string& path, ScriptLanguage language)
     state.path = path;
     state.language = language;
 
-    const ScriptRead read = ReadScript (path);
-    state.diskStamp = read.stamp;
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (path, language);
+    if (!workspace.ok) {
+        state.loadError = workspace.error;
+        return state;
+    }
+    state.entryFile = workspace.entryFile;
+    state.importRoots = workspace.importRoots;
+    state.files = ListWorkspaceFiles (workspace);
+
+    const ScriptRead read = ReadScript (workspace.entryFile);
+    // ⚠️ THE STAMP IS THE FOLDER'S, NOT THE READ'S. ReadScript hands back a stamp
+    // for main.py alone; a node whose calculations.py changed is just as stale,
+    // and storing the narrower stamp is what would make that change invisible
+    // until something happened to touch the entry file too.
+    state.diskStamp = StampWorkspace (workspace);
     if (!read.ok) {
         state.loadError = read.error;
         return state;
@@ -139,7 +152,7 @@ ScriptState LoadScriptState (const std::string& path, ScriptLanguage language)
 
     state.source = read.source;
     state.sourceHash = HashScriptSource (read.source);
-    state.loadedStamp = read.stamp;
+    state.loadedStamp = state.diskStamp;
     state.manifest = ParseScriptManifest (read.source, language);
     return state;
 }
@@ -187,10 +200,22 @@ std::vector<std::string> ScriptStore::WatchedPaths () const
 {
     const std::lock_guard<std::mutex> guard (mutex_);
     std::vector<std::string> paths;
+    bool anyNode = false;
     for (const auto& [nodeId, state] : states_) {
-        if (!state.path.empty ())
-            paths.push_back (state.path);
+        // The ENTRY FILE, so the watcher derives the node's own folder from it -
+        // which is what makes a save to any helper in that folder arrive too.
+        if (!state.entryFile.empty ()) {
+            paths.push_back (state.entryFile);
+            anyNode = true;
+        }
     }
+    // The shared library, once, as a path INSIDE it: the watcher takes directory
+    // names from the parent of what it is handed, and a change to libs\geometry.py
+    // has to reach every node that imports it. The name need not exist - the
+    // derivation is a string operation, not a stat.
+    const std::string shared = SharedLibraryRoot ();
+    if (anyNode && !shared.empty ())
+        paths.push_back (shared + "\\.watch");
     return paths;
 }
 
@@ -200,17 +225,22 @@ std::vector<NodeId> ScriptStore::RefreshDiskStamps ()
     // trip, and a network drive or a sleeping disk turns a handful of them into
     // a visible stall - held under the lock, that stall would be inflicted on
     // every worker thread trying to read a script at the same time.
-    std::vector<std::pair<NodeId, std::string>> paths;
+    struct Pending {
+        NodeId nodeId;
+        std::string path;
+        ScriptLanguage language;
+    };
+    std::vector<Pending> paths;
     {
         const std::lock_guard<std::mutex> guard (mutex_);
         for (const auto& [nodeId, state] : states_)
             if (!state.path.empty ())
-                paths.emplace_back (nodeId, state.path);
+                paths.push_back (Pending { nodeId, state.path, state.language });
     }
 
     std::vector<NodeId> stale;
-    for (const auto& [nodeId, path] : paths) {
-        const ScriptStamp stamp = StatScript (path);
+    for (const auto& [nodeId, path, language] : paths) {
+        const ScriptStamp stamp = StampWorkspace (ResolveScriptWorkspace (path, language));
         const std::lock_guard<std::mutex> guard (mutex_);
         const auto entry = states_.find (nodeId);
         // Gone or repointed while we were statting. Its stamp belongs to a path
@@ -268,8 +298,14 @@ bool ExecuteScriptNode (const Node& node, const ValueMap& inputs, const NodeExec
 
     ScriptRunRequest request;
     request.language = language;
-    request.path = state.path;
+    // The ENTRY FILE, not the folder: this is what a traceback names, and the
+    // author has that exact file open in another window.
+    request.path = state.entryFile;
     request.source = state.source;
+    // What the folder model is FOR. Without these the node's own helpers are not
+    // importable and every script that outgrew one file has to write into
+    // sys.path itself - which is the thing this model exists to remove.
+    request.importRoots = state.importRoots;
     request.inputs = inputs;
     request.outputs = state.manifest.outputs;
     request.cancellation = context.cancellation;

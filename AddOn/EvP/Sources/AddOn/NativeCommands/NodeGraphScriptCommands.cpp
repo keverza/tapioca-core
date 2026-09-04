@@ -8,6 +8,7 @@
 #include "NodeGraph/ScriptNodes.hpp"
 #include "NodeGraph/ScriptReload.hpp"
 #include "NodeGraph/ScriptSource.hpp"
+#include "NodeGraph/ScriptWorkspace.hpp"
 
 // ShellExecuteW. Not reached through the SDK prelude, and this is the only file
 // in the command tree that hands a path to the shell.
@@ -26,13 +27,21 @@ namespace {
 //
 // Seven, and the shape of the set is the design:
 //
-//   GraphScriptStatus   what does this node's file look like right now
+//   GraphScriptStatus   what does this node's folder look like right now
 //   GraphScriptReload   read it again and reshape the node
-//   GraphScriptCreate   scaffold a NEW file and point the node at it
-//   GraphScriptRead     hand the source text to the embedded editor
+//   GraphScriptCreate   scaffold a NEW node folder and point the node at it
+//   GraphScriptRead     hand one file's source to the embedded editor
 //   GraphScriptWrite    save an editor buffer back, guarded by its base hash
-//   GraphScriptOpen     hand the file to whatever the user edits code in
-//   GraphScriptReveal   show the file in Explorer, selected in its folder
+//   GraphScriptAddFile  create one empty helper inside the node's folder
+//   GraphScriptOpen     hand the folder to whatever the user edits code in
+//   GraphScriptReveal   show the folder in Explorer
+//
+// ⚠️ A NODE IS A FOLDER, AND EVERY VERB THAT NAMES A FILE NAMES IT RELATIVELY.
+// Read, Write and AddFile take a `file` that is a plain name inside the node's
+// own folder, or `libs/<name>` in the shared library, and nothing else -
+// ScriptWorkspace::ResolveWorkspaceFile does the refusing. These names arrive
+// from a browser, so the absence of an absolute path in this API is the point:
+// there is no spelling of "read C:\Windows\..." for the browser to send.
 //
 // ⚠️ GraphScriptWrite IS GUARDED, AND THE GUARD IS THE WHOLE REASON IT MAY
 // EXIST. A script node's file is normally open in VSCode at the same time. The
@@ -55,17 +64,26 @@ constexpr const char kNodeInputSchema[] =
 constexpr const char kCreateInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"path":{"type":"string","minLength":1}},"additionalProperties":false,"required":["nodeId","path"]})json";
 
+// The verbs that name one file inside the node's folder. `file` is optional and
+// defaults to the entry file, so the editor can open a node without first
+// learning whether its entry is main.py or main.js.
+constexpr const char kFileInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"file":{"type":"string"}},"additionalProperties":false,"required":["nodeId"]})json";
+
+constexpr const char kAddFileInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"file":{"type":"string","minLength":1}},"additionalProperties":false,"required":["nodeId","file"]})json";
+
 constexpr const char kStatusResponseSchema[] =
-    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"graphId":{"type":"string"},"nodeId":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"},"exists":{"type":"boolean"},"stale":{"type":"boolean"},"watching":{"type":"boolean"},"loadedAtMs":{"type":"integer"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0},"loadError":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"inputs":{"type":"array"},"outputs":{"type":"array"},"diagnostics":{"type":"array"},"log":{"type":"array","items":{"type":"string"}},"droppedEdges":{"type":"array"},"interfaceChanged":{"type":"boolean"},"revision":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","graphId","nodeId","path","language","exists","stale","watching","loadedAtMs","modifiedAtMs","sizeBytes","loadError","name","description","inputs","outputs","diagnostics","log","droppedEdges","interfaceChanged","revision"]})json";
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"graphId":{"type":"string"},"nodeId":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"},"exists":{"type":"boolean"},"stale":{"type":"boolean"},"watching":{"type":"boolean"},"loadedAtMs":{"type":"integer"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0},"loadError":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"},"inputs":{"type":"array"},"outputs":{"type":"array"},"diagnostics":{"type":"array"},"log":{"type":"array","items":{"type":"string"}},"droppedEdges":{"type":"array"},"interfaceChanged":{"type":"boolean"},"revision":{"type":"integer","minimum":0},"workspaceRoot":{"type":"string"},"entryFile":{"type":"string"},"files":{"type":"array"},"importRoots":{"type":"array","items":{"type":"string"}},"migratedFrom":{"type":"string"}},"additionalProperties":false,"required":["ok","error","graphId","nodeId","path","language","exists","stale","watching","loadedAtMs","modifiedAtMs","sizeBytes","loadError","name","description","inputs","outputs","diagnostics","log","droppedEdges","interfaceChanged","revision","workspaceRoot","entryFile","files","importRoots","migratedFrom"]})json";
 
 constexpr const char kWriteInputSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"source":{"type":"string"},"baseHash":{"type":"string"}},"additionalProperties":false,"required":["nodeId","source","baseHash"]})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"file":{"type":"string"},"source":{"type":"string"},"baseHash":{"type":"string"}},"additionalProperties":false,"required":["nodeId","source","baseHash"]})json";
 
 constexpr const char kReadResponseSchema[] =
-    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"path":{"type":"string"},"language":{"type":"string"},"exists":{"type":"boolean"},"source":{"type":"string"},"sourceHash":{"type":"string"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","path","language","exists","source","sourceHash","modifiedAtMs","sizeBytes"]})json";
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"path":{"type":"string"},"file":{"type":"string"},"shared":{"type":"boolean"},"language":{"type":"string"},"exists":{"type":"boolean"},"source":{"type":"string"},"sourceHash":{"type":"string"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","path","file","shared","language","exists","source","sourceHash","modifiedAtMs","sizeBytes"]})json";
 
 constexpr const char kWriteResponseSchema[] =
-    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"conflict":{"type":"boolean"},"path":{"type":"string"},"sourceHash":{"type":"string"},"diskSource":{"type":"string"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","conflict","path","sourceHash","diskSource","modifiedAtMs","sizeBytes"]})json";
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"conflict":{"type":"boolean"},"path":{"type":"string"},"file":{"type":"string"},"sourceHash":{"type":"string"},"diskSource":{"type":"string"},"modifiedAtMs":{"type":"integer"},"sizeBytes":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["ok","error","conflict","path","file","sourceHash","diskSource","modifiedAtMs","sizeBytes"]})json";
 
 constexpr const char kOpenResponseSchema[] =
     R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"path":{"type":"string"}},"additionalProperties":false,"required":["ok","error","path"]})json";
@@ -96,7 +114,8 @@ GS::Array<GS::ObjectState> EncodePorts (const std::vector<graph::PortSchema>& po
 // different shape than the next status would flicker.
 GS::ObjectState EncodeStatus (const graph::GraphId& graphId, const graph::NodeId& nodeId,
                               const graph::ScriptState& state, bool ok, const std::string& error,
-                              const std::vector<graph::Edge>& droppedEdges, bool interfaceChanged)
+                              const std::vector<graph::Edge>& droppedEdges, bool interfaceChanged,
+                              const std::string& migratedFrom = {})
 {
     GS::ObjectState response;
     response.Add ("ok", ok);
@@ -145,6 +164,34 @@ GS::ObjectState EncodeStatus (const graph::GraphId& graphId, const graph::NodeId
     }
     response.Add ("droppedEdges", dropped);
     response.Add ("interfaceChanged", interfaceChanged);
+
+    // The folder model's own fields. `files` is what the editor draws tabs from,
+    // and it is reported by the SAME verb as everything else so a node's tab
+    // strip cannot disagree with the node it belongs to.
+    response.Add ("workspaceRoot", GraphText (state.path));
+    response.Add ("entryFile", GraphText (state.entryFile));
+
+    GS::Array<GS::ObjectState> files;
+    for (const graph::WorkspaceFile& file : state.files) {
+        GS::ObjectState encoded;
+        encoded.Add ("name", GraphText (file.name));
+        encoded.Add ("entry", file.entry);
+        encoded.Add ("shared", file.shared);
+        encoded.Add ("sizeBytes", static_cast<GS::Int64> (file.sizeBytes));
+        files.Push (std::move (encoded));
+    }
+    response.Add ("files", files);
+
+    GS::Array<GS::UniString> importRoots;
+    for (const std::string& root : state.importRoots)
+        importRoots.Push (GraphText (root));
+    response.Add ("importRoots", importRoots);
+
+    // Non-empty only when THIS call converted a single-file node into a folder.
+    // Reported because it moved the user's file: the graph looks unchanged and
+    // the filesystem does not, and the editor they had it open in still points
+    // at where it used to be.
+    response.Add ("migratedFrom", GraphText (migratedFrom));
     response.Add ("revision", static_cast<GS::Int64> (graph::GraphRuntimeState::Get ().Document (graphId).Revision ()));
     return response;
 }
@@ -192,7 +239,8 @@ class GraphScriptReloadCommand : public GateFreeGraphCommand {
         // node, a node that is not a script node - fails the verb.
         if (!result.ok && !result.error.empty ())
             return NativeCommandResult::Failure (GraphText (result.error));
-        return EncodeStatus (graphId, nodeId, result.state, true, {}, result.droppedEdges, result.interfaceChanged);
+        return EncodeStatus (graphId, nodeId, result.state, true, {}, result.droppedEdges, result.interfaceChanged,
+                             result.migratedFrom);
     }
 };
 
@@ -207,8 +255,18 @@ class GraphScriptCreateCommand : public GateFreeGraphCommand {
         const graph::GraphId graphId = ReadGraphIdParam (params);
         const std::string path = GraphUtf8 (pathText);
 
+        // The folder, not a file. `path` may be relative - a bare
+        // `apartment_metrics` scaffolds inside the workflow library, which is
+        // what makes that location a preset rather than something the user has
+        // to spell out every time.
+        const graph::Node* placed = graph::GraphRuntimeState::Get ().Document (graphId).FindNode (nodeId);
+        graph::ScriptLanguage language = graph::ScriptLanguage::Python;
+        if (placed == nullptr || !graph::ScriptNodeLanguage (placed->nodeType, language))
+            return NativeCommandResult::Failure (GraphText ("'" + nodeId + "' is not a script node"));
+
+        const graph::ScriptWorkspace workspace = graph::ResolveScriptWorkspace (path, language);
         std::string error;
-        if (!graph::WriteScriptTemplate (path, error))
+        if (!graph::WriteWorkspaceTemplate (workspace, error))
             return NativeCommandResult::Failure (GraphText (error));
 
         // Point the node at what was just written, through the ordinary parameter
@@ -247,7 +305,32 @@ class GraphScriptReadCommand : public GateFreeGraphCommand {
             return NativeCommandResult::Failure (GS::UniString ("nodeId is required", CC_UTF8));
 
         const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
-        const graph::ScriptRead read = graph::ReadScript (state.path);
+        GS::UniString requested;
+        params.Get ("file", requested);
+        const std::string file = GraphUtf8 (requested);
+
+        // ⚠️ THE ONLY WAY A NAME BECOMES A PATH. An absolute path, a `..`, a
+        // nested folder or a file of the wrong language is refused here, and
+        // there is no other route from this verb to the filesystem.
+        const graph::ScriptWorkspace workspace = graph::ResolveScriptWorkspace (state.path, state.language);
+        std::string absolute;
+        std::string refusal;
+        if (!graph::ResolveWorkspaceFile (workspace, file, absolute, refusal)) {
+            GS::ObjectState refused;
+            refused.Add ("ok", false);
+            refused.Add ("error", GraphText (refusal));
+            refused.Add ("path", GraphText (state.path));
+            refused.Add ("file", GraphText (file));
+            refused.Add ("shared", false);
+            refused.Add ("language", GS::UniString (graph::ScriptLanguageName (state.language), CC_UTF8));
+            refused.Add ("exists", false);
+            refused.Add ("source", GS::UniString ());
+            refused.Add ("sourceHash", GS::UniString ());
+            refused.Add ("modifiedAtMs", static_cast<GS::Int64> (0));
+            refused.Add ("sizeBytes", static_cast<GS::Int64> (0));
+            return refused;
+        }
+        const graph::ScriptRead read = graph::ReadScript (absolute);
 
         GS::ObjectState response;
         // ⚠️ A FILE THAT WOULD NOT READ IS A REPORTED OUTCOME, NOT A FAILED
@@ -257,6 +340,10 @@ class GraphScriptReadCommand : public GateFreeGraphCommand {
         response.Add ("ok", read.ok);
         response.Add ("error", GraphText (read.error));
         response.Add ("path", GraphText (state.path));
+        // Echoed back so a response that arrives after the user switched tabs can
+        // be discarded rather than painted into the wrong buffer.
+        response.Add ("file", GraphText (file));
+        response.Add ("shared", file.rfind ("libs/", 0) == 0);
         response.Add ("language", GS::UniString (graph::ScriptLanguageName (state.language), CC_UTF8));
         response.Add ("exists", read.stamp.exists);
         response.Add ("source", GraphText (read.source));
@@ -285,10 +372,19 @@ class GraphScriptWriteCommand : public GateFreeGraphCommand {
         // empty file, which is a save and not a mistake.
         params.Get ("source", sourceText);
         params.Get ("baseHash", baseHashText);
+        GS::UniString requested;
+        params.Get ("file", requested);
+        const std::string file = GraphUtf8 (requested);
 
         const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
+        const graph::ScriptWorkspace workspace = graph::ResolveScriptWorkspace (state.path, state.language);
+        std::string absolute;
+        std::string refusal;
+        if (!graph::ResolveWorkspaceFile (workspace, file, absolute, refusal))
+            return NativeCommandResult::Failure (GraphText (refusal));
+
         const graph::ScriptWrite written = graph::WriteScriptSource (
-            state.path, GraphUtf8 (sourceText), GraphUtf8 (baseHashText), &graph::HashScriptSource);
+            absolute, GraphUtf8 (sourceText), GraphUtf8 (baseHashText), &graph::HashScriptSource);
 
         // A conflict is an ANSWER, not a failure: the editor has a choice to
         // offer and needs the other version to offer it with. Only a caller
@@ -301,6 +397,7 @@ class GraphScriptWriteCommand : public GateFreeGraphCommand {
         response.Add ("error", GraphText (written.error));
         response.Add ("conflict", written.conflict);
         response.Add ("path", GraphText (state.path));
+        response.Add ("file", GraphText (file));
         response.Add ("sourceHash", GraphText (written.diskHash));
         response.Add ("diskSource", GraphText (written.diskSource));
         response.Add ("modifiedAtMs", static_cast<GS::Int64> (written.stamp.modifiedUnixMs));
@@ -309,6 +406,36 @@ class GraphScriptWriteCommand : public GateFreeGraphCommand {
         // verb, which is the one place that reshapes ports and reports dropped
         // edges - a second path into that would be a second set of rules for what
         // a save does to a node's interface.
+        return response;
+    }
+};
+
+class GraphScriptAddFileCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::NodeId nodeId;
+        GS::UniString requested;
+        if (!ReadNodeId (params, nodeId) || !params.Get ("file", requested) || requested.IsEmpty ())
+            return NativeCommandResult::Failure (GS::UniString ("nodeId and file are required", CC_UTF8));
+
+        const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
+        const graph::ScriptWorkspace workspace = graph::ResolveScriptWorkspace (state.path, state.language);
+        const std::string file = GraphUtf8 (requested);
+
+        // ⚠️ AN EMPTY FILE, NOT A SECOND COPY OF THE TEMPLATE. A helper that
+        // arrived carrying `@in` / `@out` directives would declare ports from a
+        // file that is not the entry point - which parses as nothing and reads as
+        // the editor having done something inexplicable.
+        std::string absolute;
+        std::string error;
+        if (!graph::CreateWorkspaceFile (workspace, file, absolute, error))
+            return NativeCommandResult::Failure (GraphText (error));
+
+        GS::ObjectState response;
+        response.Add ("ok", true);
+        response.Add ("error", GS::UniString ());
+        response.Add ("path", GraphText (absolute));
         return response;
     }
 };
@@ -323,9 +450,14 @@ class GraphScriptOpenCommand : public GateFreeGraphCommand {
 
         const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
         if (state.path.empty ())
-            return NativeCommandResult::Failure (GS::UniString ("this script node has no file yet", CC_UTF8));
-        if (!graph::StatScript (state.path).exists)
-            return NativeCommandResult::Failure (GraphText ("no file at " + state.path));
+            return NativeCommandResult::Failure (GS::UniString ("this script node has no folder yet", CC_UTF8));
+        // The FOLDER, so the editor opens the node as a project and sees its
+        // helpers - which is the whole reason an external editor is still the
+        // primary one. ShellExecute on a directory opens it in Explorer or in
+        // whatever is registered for a folder.
+        if (graph::StatScript (state.entryFile).exists == false)
+            return NativeCommandResult::Failure (
+                GraphText ("no " + std::string (graph::EntryFileName (state.language)) + " in " + state.path));
 
         // ⚠️ THE SHELL'S DEFAULT HANDLER, NOT A CONFIGURED EDITOR PATH. Whichever
         // of VSCode, Sublime or something else the user has associated with .py
@@ -361,9 +493,9 @@ class GraphScriptRevealCommand : public GateFreeGraphCommand {
 
         const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
         if (state.path.empty ())
-            return NativeCommandResult::Failure (GS::UniString ("this script node has no file yet", CC_UTF8));
+            return NativeCommandResult::Failure (GS::UniString ("this script node has no folder yet", CC_UTF8));
 
-        const GS::UniString wide = GraphText (state.path);
+        const GS::UniString wide = GraphText (state.entryFile);
         const LPCWSTR native = reinterpret_cast<LPCWSTR> (wide.ToUStr ().Get ());
 
         // ⚠️ ITEM IDS, NOT A COMMAND LINE, AND THAT IS THE WHOLE REASON THIS IS
@@ -411,8 +543,10 @@ const NativeCommandRegistration registrations[] = {
       kStatusResponseSchema },
     { "GraphScriptCreate", &MakeRegisteredNativeCommand<GraphScriptCreateCommand>, false, kCreateInputSchema,
       kStatusResponseSchema },
-    { "GraphScriptRead", &MakeRegisteredNativeCommand<GraphScriptReadCommand>, false, kNodeInputSchema,
+    { "GraphScriptRead", &MakeRegisteredNativeCommand<GraphScriptReadCommand>, false, kFileInputSchema,
       kReadResponseSchema },
+    { "GraphScriptAddFile", &MakeRegisteredNativeCommand<GraphScriptAddFileCommand>, false, kAddFileInputSchema,
+      kOpenResponseSchema },
     { "GraphScriptWrite", &MakeRegisteredNativeCommand<GraphScriptWriteCommand>, false, kWriteInputSchema,
       kWriteResponseSchema },
     { "GraphScriptOpen", &MakeRegisteredNativeCommand<GraphScriptOpenCommand>, false, kNodeInputSchema,

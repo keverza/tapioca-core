@@ -9,8 +9,14 @@ an alternate canvas abstraction.
 - `App.svelte` owns only `SvelteFlowProvider` and mounts `GraphEditor`.
 - `GraphEditor.svelte` owns the controlled `$state.raw` node and edge arrays and the
   native graph reconciliation boundary.
-- Components such as `ComponentPicker`, `ApplicationMenu`, and `ContextMenu` own isolated
-  presentation and interaction state. They do not call the native bridge directly.
+- Components such as `ApplicationMenu`, `ContextMenu`, and the node browser under
+  `browser/` own isolated presentation and interaction state. They do not call the
+  native bridge directly.
+- `browser/` is the node-creation dialog: `nodeBrowser.ts` holds its search ranking and
+  keyboard geometry as pure functions, `NodeBrowserDialog.svelte` draws them, and
+  `CarriedNode.svelte` owns the press-and-place gesture. There is no docked catalog and
+  no HTML5 drag-and-drop; a node is created by double-clicking empty canvas or pressing
+  Space, then picking.
 - `editor.ts` contains pure catalog, validation, viewport, and preference logic. Every new
   pure rule gets a Node test in `tests/`.
 - `nodes/MasterNode.svelte` renders catalog schema through one body-mode resolver. Its header, body,

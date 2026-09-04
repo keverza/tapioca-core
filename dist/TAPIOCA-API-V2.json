@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 171,
+      "nativeRegistry": 172,
       "dispatcherLocal": 19,
-      "total": 190
+      "total": 191
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -12820,6 +12820,52 @@
       }
     },
     {
+      "name": "Tapioca.GraphScriptAddFile",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "file"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "path"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GraphScriptCreate",
       "implementation": "native-registry",
       "inputScheme": {
@@ -12917,6 +12963,24 @@
           "revision": {
             "type": "integer",
             "minimum": 0
+          },
+          "workspaceRoot": {
+            "type": "string"
+          },
+          "entryFile": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array"
+          },
+          "importRoots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "migratedFrom": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -12942,7 +13006,12 @@
           "log",
           "droppedEdges",
           "interfaceChanged",
-          "revision"
+          "revision",
+          "workspaceRoot",
+          "entryFile",
+          "files",
+          "importRoots",
+          "migratedFrom"
         ]
       }
     },
@@ -13000,6 +13069,9 @@
           "nodeId": {
             "type": "string",
             "minLength": 1
+          },
+          "file": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -13018,6 +13090,12 @@
           },
           "path": {
             "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "shared": {
+            "type": "boolean"
           },
           "language": {
             "type": "string"
@@ -13044,6 +13122,8 @@
           "ok",
           "error",
           "path",
+          "file",
+          "shared",
           "language",
           "exists",
           "source",
@@ -13146,6 +13226,24 @@
           "revision": {
             "type": "integer",
             "minimum": 0
+          },
+          "workspaceRoot": {
+            "type": "string"
+          },
+          "entryFile": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array"
+          },
+          "importRoots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "migratedFrom": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -13171,7 +13269,12 @@
           "log",
           "droppedEdges",
           "interfaceChanged",
-          "revision"
+          "revision",
+          "workspaceRoot",
+          "entryFile",
+          "files",
+          "importRoots",
+          "migratedFrom"
         ]
       }
     },
@@ -13309,6 +13412,24 @@
           "revision": {
             "type": "integer",
             "minimum": 0
+          },
+          "workspaceRoot": {
+            "type": "string"
+          },
+          "entryFile": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array"
+          },
+          "importRoots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "migratedFrom": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -13334,7 +13455,12 @@
           "log",
           "droppedEdges",
           "interfaceChanged",
-          "revision"
+          "revision",
+          "workspaceRoot",
+          "entryFile",
+          "files",
+          "importRoots",
+          "migratedFrom"
         ]
       }
     },
@@ -13351,6 +13477,9 @@
           "nodeId": {
             "type": "string",
             "minLength": 1
+          },
+          "file": {
+            "type": "string"
           },
           "source": {
             "type": "string"
@@ -13381,6 +13510,9 @@
           "path": {
             "type": "string"
           },
+          "file": {
+            "type": "string"
+          },
           "sourceHash": {
             "type": "string"
           },
@@ -13401,6 +13533,7 @@
           "error",
           "conflict",
           "path",
+          "file",
           "sourceHash",
           "diskSource",
           "modifiedAtMs",

@@ -40,7 +40,6 @@
     type ElementTypeInfo,
   } from './nodes/archicad/elements'
   import { callTapioca, isNativeBridgeAvailable, waitForNativeBridge } from './bridge'
-  import ComponentPicker from './ComponentPicker.svelte'
   import ContextMenu from './ContextMenu.svelte'
   import { parsePortReference, serializePortReference } from './nodes/types/portReference'
   import {
@@ -51,7 +50,6 @@
     graphValueFromText,
     initialTheme,
     isCatalogConnectionValid,
-    NODE_DRAG_MIME,
     REFERENCE_EDGE_COLOR,
     REFERENCE_EDGE_STYLE,
     type DetailLevel,
@@ -67,7 +65,9 @@
     saveGraph,
     type StoredGraphInfo,
   } from './library'
-  import NodeSearch from './NodeSearch.svelte'
+  import CarriedNode from './browser/CarriedNode.svelte'
+  import NodeBrowserDialog from './browser/NodeBrowserDialog.svelte'
+  import { clampDialogPosition, type NodeBrowserRequest } from './browser/nodeBrowser'
   import PerformancePanel from './PerformancePanel.svelte'
   import ScriptEditor from './nodes/script/ScriptEditor.svelte'
   import type { DiagnosticMode } from './performance'
@@ -182,7 +182,6 @@
   let scriptEditorTarget = $state<{ nodeId: string; title: string } | null>(null)
   let diagnosticMode = $state<DiagnosticMode>('flow')
   let snapEnabled = $state(true)
-  let pickerOpen = $state(true)
   let theme = $state<ThemeMode>('system')
   let detailLevel = $state<DetailLevel>('normal')
   let contextTarget = $state<ContextTarget | null>(null)
@@ -199,9 +198,26 @@
   // the nodes and take no pointer events, so the canvas hit-tests their stored
   // bounds instead. See annotationAtPoint.
   let selectedAnnotationId = $state<string | null>(null)
-  // Double-click-anywhere component search. Carries the flow-space position the
-  // node lands on as well as the screen point the palette is drawn at.
-  let searchTarget = $state<{ x: number; y: number; position: XYPosition } | null>(null)
+  /**
+   * The node browser. Null means closed; there is no docked catalog behind it
+   * any more, so this is the only way to reach the node list.
+   */
+  let browserRequest = $state<NodeBrowserRequest | null>(null)
+  /**
+   * A node that has been chosen but not yet placed - it is following the
+   * pointer. See CarriedNode for why this is a pointer gesture and not HTML5
+   * drag-and-drop.
+   */
+  let carried = $state<{ schema: NodeTypeSchema; origin: { x: number; y: number } } | null>(null)
+  /**
+   * The last pointer position over the canvas, in client coordinates, so the
+   * spacebar can open the browser where the hand already is. A key event says
+   * nothing about where the mouse is.
+   *
+   * Null until the pointer has actually been over the canvas: {0,0} would be a
+   * lie that puts the node in the corner of the viewport rather than in view.
+   */
+  let pointerAt: XYPosition | null = null
   /**
    * A locked solution refuses to evaluate. Editing stays open - the point is to
    * change several things without paying for a run after each one - and the
@@ -647,20 +663,51 @@
     )
   }
 
-  function handleDragOver(event: DragEvent): void {
-    event.preventDefault()
-    if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'move'
+  // -------------------------------------------------------------------------
+  // The node browser, and the node it hands over.
+  // -------------------------------------------------------------------------
+
+  /** The browser's own size, mirrored from its stylesheet so it can be clamped. */
+  const BROWSER_SIZE = { width: 720, height: 466 }
+
+  /**
+   * Open the browser at a client point, freezing where the node will land.
+   *
+   * The flow position is taken NOW and carried on the request: the dialog is
+   * open for as long as it takes to type, and the graph may be panned under it
+   * by a trackpad in that time. A node that appeared wherever the canvas
+   * happened to have drifted to would be indistinguishable from a bug.
+   */
+  function openNodeBrowser(client: { x: number; y: number }): void {
+    if (busy || effectiveTool !== 'select') return
+    contextTarget = null
+    const bounds = canvas?.getBoundingClientRect()
+    const point = clampDialogPosition(
+      { x: client.x - (bounds?.left ?? 0), y: client.y - (bounds?.top ?? 0) },
+      BROWSER_SIZE,
+      { width: bounds?.width ?? BROWSER_SIZE.width, height: bounds?.height ?? BROWSER_SIZE.height },
+    )
+    browserRequest = {
+      ...point,
+      position: screenToFlowPosition(client, { snapToGrid: snapEnabled }),
+      context: { mode: 'canvas' },
+    }
   }
 
-  function handleDrop(event: DragEvent): void {
-    event.preventDefault()
-    const nodeType = event.dataTransfer?.getData(NODE_DRAG_MIME)
-    if (nodeType === undefined || nodeType === '' || busy) return
-    const position = screenToFlowPosition(
-      { x: event.clientX, y: event.clientY },
-      { snapToGrid: snapEnabled },
-    )
-    void addNode(nodeType, position)
+  /** Where a keyboard-opened browser appears: at the pointer, or mid-canvas. */
+  function browserAnchor(): XYPosition {
+    if (pointerAt !== null) return pointerAt
+    const bounds = canvas?.getBoundingClientRect()
+    if (bounds === undefined) return { x: 0, y: 0 }
+    return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 }
+  }
+
+  /** Where the carried node is dropped: under the pointer, not where it was picked. */
+  function placeCarried(client: { x: number; y: number }): void {
+    const schema = carried?.schema
+    carried = null
+    if (schema === undefined) return
+    void addNode(schema.nodeType, screenToFlowPosition(client, { snapToGrid: snapEnabled }))
   }
 
   async function connect(connection: Connection, reference = false): Promise<void> {
@@ -992,9 +1039,25 @@
       event.preventDefault()
       return
     }
+    /*
+      Space opens the browser at the pointer - the keyboard half of the
+      double-click, for a hand already on the keys. Guarded on `editing`
+      because a space typed into a rename field is a space, and swallowed
+      with preventDefault because the pane would otherwise scroll.
+    */
+    if (event.key === ' ' && !editing && browserRequest === null && carried === null) {
+      openNodeBrowser(browserAnchor())
+      event.preventDefault()
+      return
+    }
     if (event.key !== 'Escape') return
-    if (searchTarget !== null) {
-      searchTarget = null
+    if (carried !== null) {
+      carried = null
+      event.preventDefault()
+      return
+    }
+    if (browserRequest !== null) {
+      browserRequest = null
       event.preventDefault()
       return
     }
@@ -1747,19 +1810,14 @@
   }
 
   /**
-   * Double-click anywhere: the component search, at the pointer, placing the
-   * node where it was double-clicked. The rail is still the way to BROWSE the
-   * catalog; this is the way to place something whose name you know.
+   * Double-click EMPTY canvas opens the browser. Double-clicking a node, a nub,
+   * an edge, an embedded viewer or any control must not - `.svelte-flow__pane`
+   * is the bare background element, and everything drawn on top of it is a
+   * descendant of something else, so this one test covers all of them.
    */
   function handlePaneDoubleClick(event: MouseEvent): void {
     if (!(event.target instanceof Element) || event.target.closest('.svelte-flow__pane') === null) return
-    if (busy || effectiveTool !== 'select') return
-    contextTarget = null
-    const point = contextPosition(event)
-    searchTarget = {
-      ...point,
-      position: screenToFlowPosition({ x: event.clientX, y: event.clientY }, { snapToGrid: snapEnabled }),
-    }
+    openNodeBrowser({ x: event.clientX, y: event.clientY })
   }
 
   function openNodeContext({ node, event }: { node: Node<SchemaNodeData>; event: MouseEvent }): void {
@@ -1953,8 +2011,9 @@
         run: toggleSolutionLock,
       },
       {
-        label: pickerOpen ? 'Close components catalog' : 'Open components catalog',
-        run: () => (pickerOpen = !pickerOpen),
+        label: 'Create node',
+        title: 'Double-click empty canvas or press Space to open the node browser',
+        run: () => openNodeBrowser(browserAnchor()),
       },
       { label: 'Fit graph', disabled: nodes.length === 0, run: () => void fitView({ duration: 180, padding: 0.2 }) },
       {
@@ -1969,7 +2028,7 @@
   function isToolUi(target: EventTarget | null): boolean {
     return (
       target instanceof Element &&
-      target.closest('.component-picker, .component-rail, .svelte-flow__controls, .svelte-flow__minimap') !== null
+      target.closest('.node-browser, .svelte-flow__controls, .svelte-flow__minimap') !== null
     )
   }
 
@@ -2171,7 +2230,6 @@
 
   <section
     class="canvas"
-    class:picker-open={pickerOpen}
     class:tool-eraser={effectiveTool === 'eraser'}
     class:tool-rectangle={effectiveTool === 'rectangle'}
     class:tool-knife={effectiveTool === 'knife'}
@@ -2179,6 +2237,7 @@
     data-detail-level={detailLevel}
     onpointerdown={handleToolPointerDown}
     onpointermove={(event) => {
+      pointerAt = { x: event.clientX, y: event.clientY }
       movePlainMarker(event)
       handleToolPointerMove(event)
     }}
@@ -2187,14 +2246,6 @@
     ondblclick={handlePaneDoubleClick}
     bind:this={canvas}
   >
-    <ComponentPicker
-      {catalog}
-      {busy}
-      open={pickerOpen}
-      onopen={() => (pickerOpen = true)}
-      onclose={() => (pickerOpen = false)}
-      onplace={(nodeType) => void addNode(nodeType)}
-    />
     {#if diagnosticMode !== 'plain-marker' && diagnosticMode !== 'raw-marker'}
       <SvelteFlow
       bind:nodes
@@ -2218,8 +2269,6 @@
       onbeforedelete={removeFromRuntime}
       onnodedragstop={rememberPosition}
       onmove={handleMove}
-      ondragover={handleDragOver}
-      ondrop={handleDrop}
       onpaneclick={({ event }) => handlePaneClick(event)}
       onpanecontextmenu={openPaneContext}
       onnodecontextmenu={openNodeContext}
@@ -2240,13 +2289,24 @@
       </div>
     {/if}
 
-    {#if searchTarget !== null}
-      <NodeSearch
+    {#if browserRequest !== null}
+      <NodeBrowserDialog
         {catalog}
-        x={searchTarget.x}
-        y={searchTarget.y}
-        onplace={(nodeType) => void addNode(nodeType, searchTarget?.position)}
-        onclose={() => (searchTarget = null)}
+        {busy}
+        x={browserRequest.x}
+        y={browserRequest.y}
+        oncarry={(schema, event) => (carried = { schema, origin: { x: event.clientX, y: event.clientY } })}
+        oncreate={(schema) => void addNode(schema.nodeType, browserRequest?.position)}
+        onclose={() => (browserRequest = null)}
+      />
+    {/if}
+
+    {#if carried !== null}
+      <CarriedNode
+        schema={carried.schema}
+        origin={carried.origin}
+        onplace={placeCarried}
+        oncancel={() => (carried = null)}
       />
     {/if}
 

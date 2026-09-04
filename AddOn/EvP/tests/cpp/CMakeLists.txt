@@ -232,6 +232,7 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptRuntimeJs.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptSource.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptValueJson.cpp"
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptWorkspace.cpp"
     # tree.* - the node family whose job is the shape of the data rather than
     # its content, so it opts out of NodeLifting via NodeType::treeBody. See
     # TreeNodes.hpp.

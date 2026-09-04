@@ -45,12 +45,20 @@ class PythonScriptRuntime final : public graph::IScriptRuntime {
             outputs.push_back (JsonValue::Object (std::move (encoded)));
         }
 
+        // The node's folder and the shared library, for sys.path. Sent as JSON
+        // rather than as a delimited string: a Windows path contains the one
+        // character every obvious separator would have been.
+        JsonArray importRoots;
+        for (const std::string& root : request.importRoots)
+            importRoots.push_back (JsonValue::String (root));
+
         GS::UniString resultJson;
         GS::UniString error;
         const bool called = PythonHost::Get ().RunGraphScript (
             GS::UniString (request.source.c_str (), CC_UTF8), GS::UniString (request.path.c_str (), CC_UTF8),
             GS::UniString (graph::json::Write (JsonValue::Object (std::move (inputs)), 0).c_str (), CC_UTF8),
             GS::UniString (graph::json::Write (JsonValue::Array (std::move (outputs)), 0).c_str (), CC_UTF8),
+            GS::UniString (graph::json::Write (JsonValue::Array (std::move (importRoots)), 0).c_str (), CC_UTF8),
             static_cast<int> (request.timeBudgetMs), resultJson, error);
 
         if (!called) {

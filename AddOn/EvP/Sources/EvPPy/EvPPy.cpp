@@ -630,8 +630,8 @@ extern "C" __declspec (dllexport) int EvpPy_ScanCommands (const uint16_t* root, 
 // change between the two reads, so the node would report ports it did not run.
 extern "C" __declspec (dllexport) int EvpPy_RunGraphScript (const char* sourceUtf8, const uint16_t* displayPath,
                                                             const char* inputsJson, const char* outputsJson,
-                                                            int timeBudgetMs, char** resultJsonOut, char* errorUtf8,
-                                                            int errorSize)
+                                                            const char* importRootsJson, int timeBudgetMs,
+                                                            char** resultJsonOut, char* errorUtf8, int errorSize)
 {
     if (!initialized) {
         SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: the interpreter is not initialized.");
@@ -650,6 +650,7 @@ extern "C" __declspec (dllexport) int EvpPy_RunGraphScript (const char* sourceUt
     PyObject* path = nullptr;
     PyObject* inputs = nullptr;
     PyObject* outputs = nullptr;
+    PyObject* importRoots = nullptr;
     PyObject* produced = nullptr;
     PyObject* dumped = nullptr;
 
@@ -663,14 +664,17 @@ extern "C" __declspec (dllexport) int EvpPy_RunGraphScript (const char* sourceUt
                                       : PyUnicode_FromWideChar ((const wchar_t*) displayPath, -1);
         inputs = PyObject_CallMethod (jsonMod, "loads", "s", inputsJson == nullptr ? "{}" : inputsJson);
         outputs = PyObject_CallMethod (jsonMod, "loads", "s", outputsJson == nullptr ? "[]" : outputsJson);
+        // An absent list is an empty one, not an error: a node whose workspace
+        // would not resolve still runs, it simply cannot import its neighbours.
+        importRoots = PyObject_CallMethod (jsonMod, "loads", "s", importRootsJson == nullptr ? "[]" : importRootsJson);
 
-        if (source == nullptr || path == nullptr || inputs == nullptr || outputs == nullptr) {
+        if (source == nullptr || path == nullptr || inputs == nullptr || outputs == nullptr || importRoots == nullptr) {
             PyErr_Clear ();
             SetError (errorUtf8, errorSize, "EvpPy_RunGraphScript: could not decode the request.");
         }
         else {
-            produced =
-                PyObject_CallMethod (module, "run", "OOOOd", source, path, inputs, outputs, (double) timeBudgetMs);
+            produced = PyObject_CallMethod (module, "run", "OOOOOd", source, path, inputs, outputs, importRoots,
+                                            (double) timeBudgetMs);
             if (produced == nullptr) {
                 // run() is written never to raise, so reaching here means the
                 // helper itself is broken rather than the user's script. Reported
@@ -717,6 +721,7 @@ extern "C" __declspec (dllexport) int EvpPy_RunGraphScript (const char* sourceUt
 
     Py_XDECREF (dumped);
     Py_XDECREF (produced);
+    Py_XDECREF (importRoots);
     Py_XDECREF (outputs);
     Py_XDECREF (inputs);
     Py_XDECREF (path);

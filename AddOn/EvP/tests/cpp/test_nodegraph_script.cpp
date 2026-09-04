@@ -18,6 +18,7 @@
 #include "NodeGraph/ScriptReload.hpp"
 #include "NodeGraph/ScriptSource.hpp"
 #include "NodeGraph/ScriptValueJson.hpp"
+#include "NodeGraph/ScriptWorkspace.hpp"
 
 #include <gtest/gtest.h>
 
@@ -91,7 +92,349 @@ class TempScript {
     std::filesystem::path path_;
 };
 
+// A temporary node FOLDER that removes itself. The folder model's equivalent of
+// TempScript, and the fixture most of the workspace tests are built on.
+class TempWorkspace {
+  public:
+    explicit TempWorkspace (const char* name)
+    {
+        root_ = std::filesystem::temp_directory_path () / name;
+        std::error_code code;
+        std::filesystem::remove_all (root_, code);
+        std::filesystem::create_directories (root_, code);
+    }
+    ~TempWorkspace ()
+    {
+        std::error_code code;
+        std::filesystem::remove_all (root_, code);
+    }
+
+    void Write (const char* name, const std::string& contents) const
+    {
+        std::ofstream stream (root_ / name, std::ios::binary | std::ios::trunc);
+        stream << contents;
+    }
+
+    std::string Path () const
+    {
+        return root_.string ();
+    }
+
+  private:
+    std::filesystem::path root_;
+};
+
 } // namespace
+
+// ---------------------------------------------------------------------------
+// The workspace: a node is a folder.
+//
+// ⚠️ THE REFUSALS MATTER MORE THAN THE RESOLUTIONS. ResolveWorkspaceFile is
+// handed names that came from a browser inside Archicad, and it is the only
+// thing between those names and the user's filesystem - there is no layer below
+// it that knows the request came from a browser at all.
+
+TEST (ScriptWorkspace, TheEntryFileIsMainInTheNodesOwnFolder)
+{
+    const TempWorkspace node ("tapioca_ws_entry");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    ASSERT_TRUE (workspace.ok) << workspace.error;
+    EXPECT_EQ (workspace.root, node.Path ());
+    EXPECT_EQ (workspace.entryFile, (std::filesystem::path (node.Path ()) / "main.py").string ());
+    // The node's own folder is FIRST, which is what lets a node deliberately
+    // shadow a shared helper of the same name.
+    ASSERT_FALSE (workspace.importRoots.empty ());
+    EXPECT_EQ (workspace.importRoots.front (), node.Path ());
+}
+
+TEST (ScriptWorkspace, TheLanguageDecidesTheEntryFilesExtension)
+{
+    const TempWorkspace node ("tapioca_ws_lang");
+    EXPECT_EQ (std::filesystem::path (ResolveScriptWorkspace (node.Path (), ScriptLanguage::JavaScript).entryFile)
+                   .filename ()
+                   .string (),
+               "main.js");
+    EXPECT_EQ (std::filesystem::path (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python).entryFile)
+                   .filename ()
+                   .string (),
+               "main.py");
+}
+
+TEST (ScriptWorkspace, AFolderThatDoesNotExistYetStillResolves)
+{
+    // The state a node is in between being named and being scaffolded. Failing
+    // here would make Create unable to use the path the user just typed.
+    const std::string path = (std::filesystem::temp_directory_path () / "tapioca_ws_absent").string ();
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (path, ScriptLanguage::Python);
+    EXPECT_TRUE (workspace.ok) << workspace.error;
+    EXPECT_FALSE (StampWorkspace (workspace).exists);
+}
+
+TEST (ScriptWorkspace, AnEmptyPathIsRefusedRatherThanResolvedToTheLibraryRoot)
+{
+    // A node with no folder must not silently become a node pointing at the
+    // whole workflow library, which is what an empty relative path would do.
+    const ScriptWorkspace workspace = ResolveScriptWorkspace ("", ScriptLanguage::Python);
+    EXPECT_FALSE (workspace.ok);
+    EXPECT_NE (workspace.error.find ("no folder"), std::string::npos);
+}
+
+TEST (ScriptWorkspace, TheStampCoversHelpersAndNotOnlyTheEntryFile)
+{
+    // ⚠️ THE POINT OF THE FOLDER STAMP. A node's behaviour can change entirely
+    // without main.py being touched - the edit was in calculations.py - and a
+    // node that only watched its entry file would go on running the previous
+    // helper while the editor showed the new one.
+    const TempWorkspace node ("tapioca_ws_stamp");
+    node.Write ("main.py", "# @out b : number\nb = 1\n");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    const ScriptStamp before = StampWorkspace (workspace);
+    ASSERT_TRUE (before.exists);
+    node.Write ("calculations.py", "VALUE = 1\n");
+    EXPECT_NE (StampWorkspace (workspace), before);
+}
+
+TEST (ScriptWorkspace, ADeletedHelperChangesTheStampToo)
+{
+    // A max-mtime-only stamp misses this: nothing that remains was touched.
+    // Summing the sizes is what catches it.
+    const TempWorkspace node ("tapioca_ws_deleted");
+    node.Write ("main.py", "# @out b : number\nb = 1\n");
+    node.Write ("helper.py", "VALUE = 1\n");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    const ScriptStamp before = StampWorkspace (workspace);
+    std::error_code code;
+    std::filesystem::remove (std::filesystem::path (node.Path ()) / "helper.py", code);
+    EXPECT_NE (StampWorkspace (workspace), before);
+}
+
+TEST (ScriptWorkspace, AFolderWithHelpersButNoEntryFileDoesNotExist)
+{
+    // Reporting it as present would send the user hunting for a syntax error in
+    // a file that is not there.
+    const TempWorkspace node ("tapioca_ws_noentry");
+    node.Write ("calculations.py", "VALUE = 1\n");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    EXPECT_FALSE (StampWorkspace (workspace).exists);
+}
+
+TEST (ScriptWorkspace, TheEntryFileIsTheFirstTabAndTheRestAreSorted)
+{
+    // Tab order that changed between two listings of the same folder would move
+    // under the user's cursor.
+    const TempWorkspace node ("tapioca_ws_tabs");
+    node.Write ("zebra.py", "");
+    node.Write ("main.py", "");
+    node.Write ("alpha.py", "");
+    const std::vector<WorkspaceFile> files = ListWorkspaceFiles (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python));
+    ASSERT_GE (files.size (), 3u);
+    EXPECT_EQ (files[0].name, "main.py");
+    EXPECT_TRUE (files[0].entry);
+    EXPECT_EQ (files[1].name, "alpha.py");
+    EXPECT_EQ (files[2].name, "zebra.py");
+}
+
+TEST (ScriptWorkspace, ListingIgnoresFilesOfTheOtherLanguageAndNonScripts)
+{
+    const TempWorkspace node ("tapioca_ws_mixed");
+    node.Write ("main.py", "");
+    node.Write ("notes.md", "");
+    node.Write ("data.json", "");
+    node.Write ("other.js", "");
+    const std::vector<WorkspaceFile> files = ListWorkspaceFiles (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python));
+    for (const WorkspaceFile& file : files)
+        EXPECT_NE (file.name.find (".py"), std::string::npos) << file.name;
+}
+
+TEST (ScriptWorkspace, AnEmptyNameMeansTheEntryFile)
+{
+    // The editor opens a node without knowing what its entry is called; making
+    // it guess main.py versus main.js would put the language rule in the browser.
+    const TempWorkspace node ("tapioca_ws_emptyname");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    std::string absolute;
+    std::string error;
+    ASSERT_TRUE (ResolveWorkspaceFile (workspace, "", absolute, error)) << error;
+    EXPECT_EQ (absolute, workspace.entryFile);
+}
+
+TEST (ScriptWorkspace, APlainHelperNameResolvesInsideTheFolder)
+{
+    const TempWorkspace node ("tapioca_ws_helper");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    std::string absolute;
+    std::string error;
+    ASSERT_TRUE (ResolveWorkspaceFile (workspace, "calculations.py", absolute, error)) << error;
+    EXPECT_EQ (absolute, (std::filesystem::path (node.Path ()) / "calculations.py").string ());
+}
+
+TEST (ScriptWorkspace, EveryWayOutOfTheFolderIsRefused)
+{
+    // ⚠️ THE SECURITY TEST. These names arrive from a browser. Each one below is
+    // a way somebody would try to leave the node's folder, and every one of them
+    // must be refused BY NAME rather than normalised into something plausible.
+    const TempWorkspace node ("tapioca_ws_escape");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    const char* const refused[] = {
+        "..",
+        "../secrets.py",
+        "..\\secrets.py",
+        "sub/nested.py",
+        "sub\\nested.py",
+        "C:\\Windows\\System32\\drivers\\etc\\hosts",
+        "C:/evil.py",
+        "\\\\server\\share\\evil.py",
+        "notes.md",
+        "main.js",
+        ".",
+        "....//evil.py",
+    };
+    for (const char* name : refused) {
+        std::string absolute;
+        std::string error;
+        EXPECT_FALSE (ResolveWorkspaceFile (workspace, name, absolute, error)) << "accepted: " << name;
+        EXPECT_TRUE (absolute.empty ()) << name;
+        EXPECT_FALSE (error.empty ()) << name;
+    }
+}
+
+TEST (ScriptWorkspace, ANewFileIsCreatedEmptyAndNeverOverwritesOne)
+{
+    const TempWorkspace node ("tapioca_ws_create");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    std::string absolute;
+    std::string error;
+    ASSERT_TRUE (CreateWorkspaceFile (workspace, "helper.py", absolute, error)) << error;
+    EXPECT_TRUE (std::filesystem::exists (absolute));
+
+    // A new file is EMPTY: it is a blank helper, not a second copy of the
+    // template, which would arrive carrying ports the user did not ask for.
+    EXPECT_EQ (ReadScript (absolute).source, "");
+
+    // Second time: refused, and what is already there is untouched.
+    node.Write ("helper.py", "mine\n");
+    std::string second;
+    EXPECT_FALSE (CreateWorkspaceFile (workspace, "helper.py", second, error));
+    EXPECT_NE (error.find ("already"), std::string::npos);
+    EXPECT_EQ (ReadScript (absolute).source, "mine\n");
+}
+
+TEST (ScriptWorkspace, ANewFileCannotBeCreatedInTheSharedLibrary)
+{
+    // A helper created from inside one node's editor and silently landing on
+    // every other node's import path is a surprise nobody wants twice.
+    const TempWorkspace node ("tapioca_ws_sharedcreate");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+    std::string absolute;
+    std::string error;
+    EXPECT_FALSE (CreateWorkspaceFile (workspace, "libs/geometry.py", absolute, error));
+    EXPECT_TRUE (absolute.empty ());
+}
+
+TEST (ScriptWorkspace, TheTemplateScaffoldsAFolderThatParsesAndDeclaresPorts)
+{
+    const std::filesystem::path root = std::filesystem::temp_directory_path () / "tapioca_ws_template";
+    std::error_code code;
+    std::filesystem::remove_all (root, code);
+
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (root.string (), ScriptLanguage::Python);
+    std::string error;
+    ASSERT_TRUE (WriteWorkspaceTemplate (workspace, error)) << error;
+
+    const ScriptRead read = ReadScript (workspace.entryFile);
+    ASSERT_TRUE (read.ok) << read.error;
+    EXPECT_TRUE (ParsePython (read.source).Ok ());
+    // And it refuses a second time rather than overwriting what is now there.
+    EXPECT_FALSE (WriteWorkspaceTemplate (workspace, error));
+    std::filesystem::remove_all (root, code);
+}
+
+// ---------------------------------------------------------------------------
+// Migration off the single-file model.
+//
+// ⚠️ THIS MOVES THE USER'S FILE, WHICH MAKES IT THE MOST DANGEROUS THING IN THE
+// SCRIPT FAMILY. The tests below are almost all about the cases where it must
+// REFUSE, because a refusal is recoverable and a wrong move is not.
+
+TEST (ScriptMigrationTest, AFileBecomesAFolderNamedAfterIt)
+{
+    const TempScript file ("tapioca_migrate_one.py", "# @out b : number\nb = 1\n");
+    const ScriptMigration migration = MigrateScriptFileToFolder (file.Path ());
+    ASSERT_TRUE (migration.ok) << migration.error;
+    EXPECT_TRUE (migration.migrated);
+
+    const std::filesystem::path folder = migration.folder;
+    EXPECT_EQ (folder.filename ().string (), "tapioca_migrate_one");
+    EXPECT_TRUE (std::filesystem::exists (folder / "main.py"));
+    // Moved, not copied: two files that can diverge is the failure this avoids.
+    EXPECT_FALSE (std::filesystem::exists (file.Path ()));
+    EXPECT_EQ (ReadScript ((folder / "main.py").string ()).source, "# @out b : number\nb = 1\n");
+
+    std::error_code code;
+    std::filesystem::remove_all (folder, code);
+}
+
+TEST (ScriptMigrationTest, AJavaScriptFileBecomesMainJs)
+{
+    const TempScript file ("tapioca_migrate_js.js", "// @out b : number\nb = 1;\n");
+    const ScriptMigration migration = MigrateScriptFileToFolder (file.Path ());
+    ASSERT_TRUE (migration.ok) << migration.error;
+    EXPECT_TRUE (std::filesystem::exists (std::filesystem::path (migration.folder) / "main.js"));
+    std::error_code code;
+    std::filesystem::remove_all (migration.folder, code);
+}
+
+TEST (ScriptMigrationTest, AFolderIsLeftCompletelyAlone)
+{
+    // The common case after the first run, and it must cost one stat and change
+    // nothing - a migration that ran every reload would be a rename loop.
+    const TempWorkspace node ("tapioca_migrate_folder");
+    node.Write ("main.py", "b = 1\n");
+    const ScriptMigration migration = MigrateScriptFileToFolder (node.Path ());
+    EXPECT_TRUE (migration.ok);
+    EXPECT_FALSE (migration.migrated);
+    EXPECT_EQ (migration.folder, node.Path ());
+    EXPECT_TRUE (std::filesystem::exists (std::filesystem::path (node.Path ()) / "main.py"));
+}
+
+TEST (ScriptMigrationTest, APathThatIsNotThereIsNotAFailure)
+{
+    const ScriptMigration migration = MigrateScriptFileToFolder ("Z:\\definitely\\not\\here");
+    EXPECT_TRUE (migration.ok);
+    EXPECT_FALSE (migration.migrated);
+}
+
+TEST (ScriptMigrationTest, ItRefusesWhenTheDestinationEntryFileAlreadyExists)
+{
+    // Somebody already made the folder by hand. Overwriting their main.py to
+    // complete an automatic conversion would destroy work nobody asked about.
+    const TempScript file ("tapioca_migrate_clash.py", "mine\n");
+    const std::filesystem::path folder = std::filesystem::temp_directory_path () / "tapioca_migrate_clash";
+    std::error_code code;
+    std::filesystem::create_directories (folder, code);
+    {
+        std::ofstream stream (folder / "main.py", std::ios::binary | std::ios::trunc);
+        stream << "theirs\n";
+    }
+
+    const ScriptMigration migration = MigrateScriptFileToFolder (file.Path ());
+    EXPECT_FALSE (migration.ok);
+    // Neither file was touched.
+    EXPECT_EQ (ReadScript (file.Path ()).source, "mine\n");
+    EXPECT_EQ (ReadScript ((folder / "main.py").string ()).source, "theirs\n");
+    std::filesystem::remove_all (folder, code);
+}
+
+TEST (ScriptMigrationTest, ItRefusesAFileThatIsNotAScript)
+{
+    const TempScript file ("tapioca_migrate_notes.txt", "notes\n");
+    const ScriptMigration migration = MigrateScriptFileToFolder (file.Path ());
+    EXPECT_FALSE (migration.ok);
+    EXPECT_EQ (ReadScript (file.Path ()).source, "notes\n");
+}
 
 // ---------------------------------------------------------------------------
 // The header. This is where a node's ports come from, so a parse that is subtly
@@ -388,12 +731,16 @@ TEST (ScriptWrite, TheTextItWroteIsWhatTheNodeThenLoads)
 {
     // The round trip that matters end to end: a save reshapes the node, so the
     // header the editor wrote has to be the header the manifest parser sees.
-    const TempScript file ("tapioca_script_roundtrip.py", "# @out b : number\nb = 1\n");
-    const std::string base = HashScriptSource (ReadScript (file.Path ()).source);
+    // Through the FOLDER, because that is what a node is - the editor saves
+    // main.py and the node loads the workspace that contains it.
+    const TempWorkspace node ("tapioca_script_roundtrip");
+    node.Write ("main.py", "# @out b : number\nb = 1\n");
+    const std::string entry = (std::filesystem::path (node.Path ()) / "main.py").string ();
+    const std::string base = HashScriptSource (ReadScript (entry).source);
     const std::string edited = "# @in  a : number\n# @out b : number\nb = a * 2\n";
-    ASSERT_TRUE (WriteScriptSource (file.Path (), edited, base, &HashScriptSource).ok);
+    ASSERT_TRUE (WriteScriptSource (entry, edited, base, &HashScriptSource).ok);
 
-    const ScriptState state = LoadScriptState (file.Path (), ScriptLanguage::Python);
+    const ScriptState state = LoadScriptState (node.Path (), ScriptLanguage::Python);
     EXPECT_TRUE (state.loadError.empty ()) << state.loadError;
     ASSERT_EQ (state.manifest.inputs.size (), 1u);
     EXPECT_EQ (state.manifest.inputs.front ().id, "a");
@@ -838,20 +1185,65 @@ std::string ExamplePath (const char* name)
 #endif
 }
 
-ScriptState LoadExample (const char* name)
+ScriptState LoadExample (const char* folder, ScriptLanguage language)
 {
-    ScriptLanguage language = ScriptLanguage::JavaScript;
-    ScriptLanguageFromPath (name, language);
-    return LoadScriptState (ExamplePath (name), language);
+    return LoadScriptState (ExamplePath (folder), language);
 }
+
+// A COPY of a shipped example, in the temp directory, that removes itself.
+//
+// ⚠️ NO TEST MAY POINT A NODE AT THE REPOSITORY'S OWN FILES, AND THIS EXISTS
+// BECAUSE ONE DID. ReloadScriptNode migrates a single-file node into a folder,
+// which MOVES the file - so a test that handed it a path into AddOn/EvP/GraphScripts
+// renamed two shipped examples out from under the working tree. A test that
+// writes anywhere but a temporary directory is a bug regardless of what it was
+// asserting; the copy costs a few hundred bytes and makes that impossible.
+class ExampleCopy {
+  public:
+    ExampleCopy (const char* folder, const char* entry)
+    {
+        const std::string source = ExamplePath (folder);
+        root_ = std::filesystem::temp_directory_path () / (std::string ("tapioca_example_") + folder);
+        std::error_code code;
+        std::filesystem::remove_all (root_, code);
+        if (source.empty () || !std::filesystem::exists (std::filesystem::path (source) / entry, code))
+            return;
+        std::filesystem::create_directories (root_, code);
+        std::filesystem::copy (source, root_, std::filesystem::copy_options::recursive, code);
+        ok_ = !code;
+    }
+    ~ExampleCopy ()
+    {
+        std::error_code code;
+        std::filesystem::remove_all (root_, code);
+    }
+
+    bool Ok () const
+    {
+        return ok_;
+    }
+    std::string Path () const
+    {
+        return root_.string ();
+    }
+
+  private:
+    std::filesystem::path root_;
+    bool ok_ = false;
+};
 
 } // namespace
 
 TEST (ScriptExamples, EveryShippedExampleParsesAndDeclaresPorts)
 {
-    for (const char* name : { "01-hello.py", "02-hello.js", "03-every-type.py", "04-ports-change.py",
-                              "05-output-and-errors.py", "06-geometry.js" }) {
-        const ScriptState state = LoadExample (name);
+    const struct {
+        const char* folder;
+        ScriptLanguage language;
+    } examples[] = { { "01-hello", ScriptLanguage::Python },       { "02-hello", ScriptLanguage::JavaScript },
+                     { "03-every-type", ScriptLanguage::Python },  { "04-ports-change", ScriptLanguage::Python },
+                     { "05-output-and-errors", ScriptLanguage::Python }, { "06-geometry", ScriptLanguage::JavaScript } };
+    for (const auto& [name, language] : examples) {
+        const ScriptState state = LoadExample (name, language);
         if (!state.loadError.empty ())
             GTEST_SKIP () << "the shipped examples are not present: " << state.loadError;
         EXPECT_TRUE (state.manifest.Ok ())
@@ -863,7 +1255,7 @@ TEST (ScriptExamples, EveryShippedExampleParsesAndDeclaresPorts)
 
 TEST (ScriptExamples, TheHelloExampleDeclaresTheInputAndOutputItAdvertises)
 {
-    const ScriptState state = LoadExample ("01-hello.py");
+    const ScriptState state = LoadExample ("01-hello", ScriptLanguage::Python);
     if (!state.loadError.empty ())
         GTEST_SKIP () << state.loadError;
 
@@ -887,8 +1279,8 @@ TEST (ScriptExamples, TheTwoHelloExamplesDeclareIdenticalInterfaces)
     // syntax of the file and in nothing else. The pair exists in the examples
     // folder precisely so someone can wire the same number into both and see the
     // same answer; this asserts they at least agree about their ports.
-    const ScriptState python = LoadExample ("01-hello.py");
-    const ScriptState javascript = LoadExample ("02-hello.js");
+    const ScriptState python = LoadExample ("01-hello", ScriptLanguage::Python);
+    const ScriptState javascript = LoadExample ("02-hello", ScriptLanguage::JavaScript);
     if (!python.loadError.empty () || !javascript.loadError.empty ())
         GTEST_SKIP () << "the shipped examples are not present";
 
@@ -907,7 +1299,7 @@ TEST (ScriptExamples, TheEveryTypeExampleCoversTheWholeVocabulary)
     // Its whole job is to show every type at once, so a type quietly dropped from
     // the header grammar should fail HERE, on the file people read to learn what
     // is available.
-    const ScriptState state = LoadExample ("03-every-type.py");
+    const ScriptState state = LoadExample ("03-every-type", ScriptLanguage::Python);
     if (!state.loadError.empty ())
         GTEST_SKIP () << state.loadError;
     ASSERT_TRUE (state.manifest.Ok ()) << state.manifest.diagnostics.front ().message;
@@ -931,7 +1323,7 @@ TEST (ScriptExamples, TheEveryTypeExampleCoversTheWholeVocabulary)
 
 TEST (ScriptExamples, TheJavaScriptHelloExampleRunsAndProducesItsOutput)
 {
-    const ScriptState state = LoadExample ("02-hello.js");
+    const ScriptState state = LoadExample ("02-hello", ScriptLanguage::JavaScript);
     if (!state.loadError.empty ())
         GTEST_SKIP () << state.loadError;
     ASSERT_TRUE (state.manifest.Ok ());
@@ -943,7 +1335,7 @@ TEST (ScriptExamples, TheJavaScriptHelloExampleRunsAndProducesItsOutput)
 
 TEST (ScriptExamples, TheGeometryExampleRoundTripsPointsAndAPolyline)
 {
-    const ScriptState state = LoadExample ("06-geometry.js");
+    const ScriptState state = LoadExample ("06-geometry", ScriptLanguage::JavaScript);
     if (!state.loadError.empty ())
         GTEST_SKIP () << state.loadError;
     ASSERT_TRUE (state.manifest.Ok ()) << state.manifest.diagnostics.front ().message;
@@ -975,9 +1367,12 @@ TEST (ScriptExamples, APlacedNodeTakesItsPortsAndDefaultsFromTheFile)
     // declares. It goes through ReloadScriptNode - the same call the button and
     // the file watcher make - so what is covered here is the whole chain rather
     // than the parser alone.
-    const std::string path = ExamplePath ("01-hello.py");
-    if (!StatScript (path).exists)
+    // A COPY, never the repository's own file: this calls ReloadScriptNode, which
+    // is allowed to move files on disk. See ExampleCopy.
+    const ExampleCopy example ("01-hello", "main.py");
+    if (!example.Ok ())
         GTEST_SKIP () << "the shipped examples are not present";
+    const std::string path = example.Path ();
 
     const GraphId graphId = "scriptExampleGraph";
     GraphRuntimeState& runtime = GraphRuntimeState::Get ();
@@ -1031,9 +1426,10 @@ TEST (ScriptExamples, AJavaScriptNodeEvaluatesThroughTheRuntimeExecutor)
     // the store, runs the engine, and hands back a value the evaluator would
     // publish. This is "does the node actually run a script", rather than "does
     // the engine work".
-    const std::string path = ExamplePath ("02-hello.js");
-    if (!StatScript (path).exists)
+    const ExampleCopy example ("02-hello", "main.js");
+    if (!example.Ok ())
         GTEST_SKIP () << "the shipped examples are not present";
+    const std::string path = example.Path ();
 
     const GraphId graphId = "scriptExampleGraph2";
     GraphRuntimeState& runtime = GraphRuntimeState::Get ();

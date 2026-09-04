@@ -20,7 +20,11 @@
 import type { ScriptReadResult, ScriptWriteResult } from './scriptBridge.ts'
 
 export interface ScriptBuffer {
-  /** The file this buffer belongs to. A different path is a different buffer. */
+  /**
+   * The node FOLDER this buffer's file lives in. Which file it is, is the key it
+   * is stored under - see ScriptTabs. Empty means "no buffer", which is what
+   * every UI question below is really asking when it tests this.
+   */
   path: string
   /** `python` or `javascript`, from the node - the editor picks its mode from it. */
   language: string
@@ -220,11 +224,86 @@ export function saveBlockedReason(buffer: ScriptBuffer): string {
   return ''
 }
 
-/** The CodeMirror language mode a buffer wants, from the node's own language. */
+/**
+ * The CodeMirror language mode a buffer wants.
+ *
+ * From the NODE, not from the file's extension: a node folder holds one
+ * language, the node type decides which, and `main.py` beside a stray `.js` does
+ * not make that node a JavaScript node. Python is the fallback for a buffer
+ * opened before the first status has arrived - it is the more common of the two
+ * and, since this only picks a highlighter, being briefly wrong costs nothing.
+ */
 export function editorLanguageOf(buffer: ScriptBuffer): 'python' | 'javascript' {
-  if (buffer.language === 'javascript') return 'javascript'
-  if (buffer.language === 'python') return 'python'
-  // The path has the last word when the node has not reported one yet - a buffer
-  // opened before the first status arrives should still highlight.
-  return buffer.path.toLowerCase().endsWith('.js') ? 'javascript' : 'python'
+  return buffer.language === 'javascript' ? 'javascript' : 'python'
+}
+
+// ---------------------------------------------------------------------------
+// Tabs: one buffer per open file in the node's folder.
+//
+// ⚠️ THE RULES ABOVE ARE PER FILE AND STAY THAT WAY. A workspace is a map of
+// them, not a bigger kind of buffer - a conflict in `calculations.py` has
+// nothing to do with `main.py`, and a model that merged them would either block
+// a save on an unrelated file or resolve two conflicts with one press.
+
+export interface ScriptTabs {
+  /**
+   * The file the editor is showing. `''` means the entry file, which is what the
+   * inspector opens with - it does not need to know whether that is `main.py` or
+   * `main.js` before asking for it.
+   */
+  active: string
+  /** Buffers by file name. Absent means "not opened yet", not "empty". */
+  open: Record<string, ScriptBuffer>
+}
+
+export const EMPTY_TABS: ScriptTabs = { active: '', open: {} }
+
+export function bufferFor(tabs: ScriptTabs, file: string): ScriptBuffer {
+  return tabs.open[file] ?? EMPTY_BUFFER
+}
+
+export function withBuffer(tabs: ScriptTabs, file: string, buffer: ScriptBuffer): ScriptTabs {
+  return { ...tabs, open: { ...tabs.open, [file]: buffer } }
+}
+
+/**
+ * Every open file with unsaved edits.
+ *
+ * ⚠️ WHAT THIS IS FOR IS CLOSING. The inspector's buffers die with the component
+ * and there is no undo across a close, so a user who edited three files and is
+ * looking at the fourth has to be told about the other two BY NAME - "unsaved
+ * changes" with no list is a prompt you dismiss and regret.
+ */
+export function dirtyFiles(tabs: ScriptTabs): string[] {
+  return Object.keys(tabs.open)
+    .filter((file) => isDirty(tabs.open[file] as ScriptBuffer))
+    .sort()
+}
+
+export function anyConflict(tabs: ScriptTabs): boolean {
+  return Object.values(tabs.open).some((buffer) => buffer.incoming !== null)
+}
+
+/**
+ * Whether a new helper's name is one the node will accept, and why not.
+ *
+ * ⚠️ CHECKED HERE AS WELL AS NATIVELY, AND THE NATIVE ONE IS THE REAL GUARD.
+ * This exists so the `+` field can refuse `../evil.py` while the user is typing
+ * instead of after a round trip; it is a courtesy, not a boundary. Never remove
+ * the native check on the strength of this one - a browser is not where a
+ * filesystem rule gets to live.
+ */
+export function newFileNameError(name: string, language: 'python' | 'javascript', taken: string[]): string {
+  const trimmed = name.trim()
+  if (trimmed === '') return 'Name the file.'
+  // Backslash FIRST in the class, and it is the one that matters most here: this
+  // is Windows, `..\evil.py` is the natural spelling of an escape attempt, and a
+  // character class that lost it would wave that through.
+  if (/[\\/:*?"<>|]/u.test(trimmed)) return 'A file name, not a path.'
+  if (trimmed === '.' || trimmed === '..') return 'A file name, not a path.'
+  const extension = language === 'javascript' ? '.js' : '.py'
+  if (!trimmed.toLowerCase().endsWith(extension)) return `Helpers end in ${extension}.`
+  if (trimmed.length === extension.length) return 'Name the file, not just its extension.'
+  if (taken.some((existing) => existing.toLowerCase() === trimmed.toLowerCase())) return 'There is already a file called that.'
+  return ''
 }

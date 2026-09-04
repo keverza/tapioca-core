@@ -594,8 +594,9 @@ bool PythonHost::ScanCommands (const GS::UniString& root, GS::UniString& json, G
 }
 
 bool PythonHost::RunGraphScript (const GS::UniString& source, const GS::UniString& displayPath,
-                                 const GS::UniString& inputsJson, const GS::UniString& outputsJson, int timeBudgetMs,
-                                 GS::UniString& resultJson, GS::UniString& error)
+                                 const GS::UniString& inputsJson, const GS::UniString& outputsJson,
+                                 const GS::UniString& importRootsJson, int timeBudgetMs, GS::UniString& resultJson,
+                                 GS::UniString& error)
 {
     if (!EnsureInitialized (error))
         return false;
@@ -603,12 +604,13 @@ bool PythonHost::RunGraphScript (const GS::UniString& source, const GS::UniStrin
     const auto sourceUtf8 = source.ToCStr (0, MaxUSize, CC_UTF8);
     const auto inputsUtf8 = inputsJson.ToCStr (0, MaxUSize, CC_UTF8);
     const auto outputsUtf8 = outputsJson.ToCStr (0, MaxUSize, CC_UTF8);
+    const auto rootsUtf8 = importRootsJson.ToCStr (0, MaxUSize, CC_UTF8);
 
     char* result = nullptr;
     char errorBuffer[512] = { 0 };
     if (((EvpPy_RunGraphScriptFn) runGraphScriptFn) (sourceUtf8.Get (), displayPath.ToUStr ().Get (), inputsUtf8.Get (),
-                                                     outputsUtf8.Get (), timeBudgetMs, &result, errorBuffer,
-                                                     (int) sizeof (errorBuffer)) != EVPPY_OK) {
+                                                     outputsUtf8.Get (), rootsUtf8.Get (), timeBudgetMs, &result,
+                                                     errorBuffer, (int) sizeof (errorBuffer)) != EVPPY_OK) {
         error = GS::UniString (errorBuffer, CC_UTF8);
         return false;
     }

@@ -4,8 +4,6 @@ import type { Edge, Node } from '@xyflow/svelte'
 import {
   detailLevelForZoom,
   displayedOutputText,
-  filterCatalog,
-  groupCatalog,
   initialTheme,
   isCatalogConnectionValid,
   portTypesConnect,
@@ -39,14 +37,6 @@ const targetSchema: NodeTypeSchema = {
 function graphNode(id: string, schema: NodeTypeSchema): Node<SchemaNodeData> {
   return { id, position: { x: 0, y: 0 }, data: { schema, parameters: [] } }
 }
-
-test('catalog search ANDs tokens across schema and ports', () => {
-  assert.deepEqual(filterCatalog([sourceSchema, targetSchema], ''), [sourceSchema, targetSchema])
-  assert.deepEqual(filterCatalog([sourceSchema, targetSchema], '   '), [sourceSchema, targetSchema])
-  assert.deepEqual(filterCatalog([sourceSchema, targetSchema], 'display input'), [targetSchema])
-  assert.deepEqual(filterCatalog([sourceSchema, targetSchema], 'numeric value'), [sourceSchema])
-  assert.equal(groupCatalog([sourceSchema, targetSchema]).size, 2)
-})
 
 test('connection validation projects native types and multiplicity', () => {
   const nodes = [graphNode('source', sourceSchema), graphNode('target', targetSchema)]

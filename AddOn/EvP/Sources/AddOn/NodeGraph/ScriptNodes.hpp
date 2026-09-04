@@ -2,7 +2,8 @@
 #define EVP_NODEGRAPH_SCRIPTNODES_HPP
 
 // The script node family: a node whose behaviour AND interface are authored in a
-// file on disk, edited in VSCode or Sublime, and picked up when it is saved.
+// FOLDER on disk, edited in VSCode or in the palette's own editor, and picked up
+// when it is saved.
 //
 // ⚠️ THE PALETTE HAS AN EDITOR, AND THE FILE IS STILL THE ONLY SOURCE OF TRUTH.
 // Those two are compatible for exactly one reason: the editor never holds an
@@ -16,7 +17,14 @@
 // fix you can see from the canvas, and it is deliberately not trying to become
 // VSCode: no project tree, no package management, one file at a time.
 //
-// ⚠️ AND THE NODE IS NOT WHERE THE PORTS ARE DECIDED. The header in the file is -
+// ⚠️ A NODE IS A FOLDER, AND `scriptPath` NAMES THE FOLDER. `main.py` inside it
+// is the entry point and the only file whose header declares ports; its siblings
+// are helpers the entry imports. ScriptWorkspace owns that layout, the import
+// roots that follow from it, and the migration from the single-file model this
+// replaced. `scriptPath` is still the parameter's name - renaming it would
+// invalidate every saved graph to gain a word.
+//
+// ⚠️ AND THE NODE IS NOT WHERE THE PORTS ARE DECIDED. The header in main.py is -
 // see ScriptManifest. The node follows the file, which is what makes "rename the
 // argument, save, watch the port rename itself" work, and what makes a script
 // that has been shared with someone else arrive complete.
@@ -37,6 +45,7 @@
 #include "NodeGraph/NodeRegistry.hpp"
 #include "NodeGraph/ScriptManifest.hpp"
 #include "NodeGraph/ScriptSource.hpp"
+#include "NodeGraph/ScriptWorkspace.hpp"
 
 #include <map>
 #include <mutex>
@@ -72,8 +81,26 @@ bool ExecuteScriptNode (const Node& node, const ValueMap& inputs, const NodeExec
 // ---------------------------------------------------------------------------
 // What one node currently knows about its file.
 struct ScriptState {
+    // The node's FOLDER, as the document holds it - absolute, or relative to the
+    // workflow library. Named `path` because that is what the parameter is
+    // called and what every existing caller reads.
     std::string path;
     ScriptLanguage language = ScriptLanguage::JavaScript;
+
+    // <path>\main.py, resolved. This is what is read, what is watched, and what
+    // the runtime is given as the script's own file name for tracebacks.
+    std::string entryFile;
+
+    // What the runtime puts on sys.path: the node's folder, then the shared
+    // library. Carried on the state rather than recomputed at run time so the
+    // evaluator, the editor and a future language server cannot disagree about
+    // where an import resolves. See ScriptWorkspace.
+    std::vector<std::string> importRoots;
+
+    // Every source file in the folder, for the editor's tab strip. Session-only
+    // like the rest of this struct: it is a listing of a directory that may have
+    // changed since, not a fact about the document.
+    std::vector<WorkspaceFile> files;
 
     // Empty until a successful load. A node with no source fails with the reason
     // it has none, which is nearly always a path that is wrong or a file that has
@@ -88,10 +115,14 @@ struct ScriptState {
     // is wrong" are different problems and lead to different actions.
     std::string loadError;
 
-    // The stamp on disk the last time anything looked, which is how "the file has
-    // changed since this node loaded it" is answered without re-reading. The
+    // The stamp on disk the last time anything looked, which is how "the folder
+    // has changed since this node loaded it" is answered without re-reading. The
     // editor draws a badge from it, so a user who saved while the watcher was
     // unavailable can still see that a reload is owed.
+    //
+    // ⚠️ IT COVERS EVERY FILE IN THE FOLDER, NOT JUST main.py - see
+    // StampWorkspace. A node whose helper changed is exactly as stale as one
+    // whose entry changed, and is the case a per-file stamp silently misses.
     ScriptStamp diskStamp;
 
     // Whatever the script printed on its last run - `print`, `console.log`.
@@ -150,9 +181,10 @@ class ScriptStore {
     std::map<NodeId, ScriptState> states_;
 };
 
-// Reads the file, parses its header and returns the state that follows. Pure
-// enough to test: it does I/O, but it decides nothing about the document. What to
-// DO with a reshaped interface is ApplyScriptReload's business.
+// Resolves the folder, reads its entry file, parses the header and returns the
+// state that follows. Pure enough to test: it does I/O, but it decides nothing
+// about the document. What to DO with a reshaped interface is ApplyScriptReload's
+// business.
 ScriptState LoadScriptState (const std::string& path, ScriptLanguage language);
 
 // A stable, cheap identity for a source text. Only ever compared, so what matters

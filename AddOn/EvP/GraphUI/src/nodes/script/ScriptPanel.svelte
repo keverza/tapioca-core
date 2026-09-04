@@ -4,8 +4,8 @@
     SCRIPT_POLL_INTERVAL_MS,
     canRevealScript,
     conditionOf,
-    fileNameOf,
     summaryOf,
+    workspaceNameOf,
     type ScriptStatus,
   } from './script'
   import { createScript, fetchScriptStatus, openScriptInEditor, reloadScript, revealScriptInExplorer } from './scriptBridge'
@@ -21,7 +21,14 @@
   }: {
     nodeId: string
     graphId?: string
-    /** The node's `scriptPath` parameter, as the document holds it. */
+    /**
+     * The node's `scriptPath` parameter, as the document holds it.
+     *
+     * A FOLDER now, not a file: `main.py` inside it is the entry point. A bare
+     * name resolves inside the workflow library, which is what lets a saved graph
+     * name a node without an absolute path that would be wrong on every other
+     * machine.
+     */
     path: string
     /** Writes the path back through the ordinary parameter edit. */
     onpathchange: (path: string) => void
@@ -72,7 +79,10 @@
 
   const condition = $derived(conditionOf(status))
   const summary = $derived(summaryOf(status, now))
-  const fileName = $derived(status.path === '' ? '' : fileNameOf(status.path))
+  // The FOLDER's name, not the entry file's: every node's entry is called
+  // main.py, so showing that would label every script node identically.
+  const fileName = $derived(workspaceNameOf(status))
+  const helperCount = $derived(status.files.filter((file) => !file.shared && !file.entry).length)
 
   async function refresh(): Promise<void> {
     try {
@@ -134,7 +144,7 @@
   async function create(): Promise<void> {
     const target = draftPath.trim()
     if (target === '') {
-      actionError = 'Type a path first, ending in .js or .py'
+      actionError = 'Name the folder first'
       return
     }
     await act(() => createScript(nodeId, target, graphId))
@@ -160,17 +170,19 @@
 
 <section class="script nodrag nowheel">
   <!--
-    The path is a plain text field, not a file picker. A browser inside Archicad
-    has no trustworthy way to open a native file dialog, and the people who will
-    use this node already have the path on their clipboard from the editor they
-    just saved in.
+    The path is a plain text field, not a folder picker. A browser inside Archicad
+    has no trustworthy way to open a native folder dialog, and a bare name is
+    usually all that is wanted anyway: it resolves inside the workflow library at
+    %LOCALAPPDATA%\Tapioca\Commands\Workflows, which is the folder
+    scripts\Sync-All.ps1 deploys to. An absolute path still works, for a node
+    that lives outside the library.
   -->
   <label class="path">
-    <span>File</span>
+    <span>Folder</span>
     <input
       type="text"
       spellcheck="false"
-      placeholder="C:\scripts\offset.py"
+      placeholder="apartment_metrics"
       bind:value={draftPath}
       onblur={commitPath}
       onkeydown={(event) => { if (event.key === 'Enter') commitPath() }}
@@ -178,9 +190,18 @@
   </label>
 
   <div class="status" class:missing={condition === 'missing'} class:invalid={condition === 'invalid'} class:stale={condition === 'stale'}>
-    <strong>{fileName === '' ? 'No file' : fileName}</strong>
+    <strong>{fileName === '' ? 'No folder' : fileName}</strong>
     <span>{summary}</span>
   </div>
+
+  <!--
+    Said on the node itself, because a helper is invisible from the canvas
+    otherwise: a node whose behaviour lives half in calculations.py looks exactly
+    like one that does not, right up until somebody edits the wrong file.
+  -->
+  {#if helperCount > 0}
+    <p class="hint">{helperCount} helper file{helperCount === 1 ? '' : 's'} beside the main file.</p>
+  {/if}
 
   <!--
     ⚠️ SAID OUT LOUD RATHER THAN IMPLIED. Without a watcher the node picks a save

@@ -43,6 +43,18 @@ struct ScriptRunRequest {
     std::string path;
     std::string source;
 
+    // Folders the engine must let the script import from: the node's own folder
+    // first, then the shared library. Empty for a node whose workspace would not
+    // resolve, and empty is a legal request - a script with no imports runs the
+    // same either way.
+    //
+    // ⚠️ THIS IS AN IMPORT PATH, NOT FILESYSTEM ACCESS, AND THE DISTINCTION IS THE
+    // WHOLE SECURITY STORY. The rule above still holds: a script sees its inputs
+    // and no host. What these roots add is that `import calculations` resolves to
+    // a file the user put beside their own script - not `open()`, not a directory
+    // listing, and not a way to reach anything the user did not author.
+    std::vector<std::string> importRoots;
+
     // Inputs, keyed by port id, exactly as the evaluator gathered them. They are
     // injected as top-level variables of the same names: the script reads `radius`
     // because its header said `@in radius`, with no envelope object to unwrap.

@@ -29,6 +29,20 @@ export interface ScriptDiagnostic {
   message: string
 }
 
+/** One file in a node's folder, as the editor draws it in the tab strip. */
+export interface ScriptWorkspaceFile {
+  /** `main.py`, or `libs/geometry.py` for a shared one. Never an absolute path. */
+  name: string
+  entry: boolean
+  /**
+   * From the shared library rather than this node's folder. Marked in the tab
+   * strip, because an edit to it reaches every node that imports it - which is
+   * exactly the change someone makes without meaning to.
+   */
+  shared: boolean
+  sizeBytes: number
+}
+
 export interface ScriptEdgeRef {
   sourceNode: string
   sourcePort: string
@@ -68,6 +82,22 @@ export interface ScriptStatus {
   droppedEdges: ScriptEdgeRef[]
   interfaceChanged: boolean
   revision: number
+
+  /** The node's FOLDER, as the document holds it. `path` is the same value. */
+  workspaceRoot: string
+  /** `<folder>/main.py`, resolved. Absolute; shown, never sent back. */
+  entryFile: string
+  /** Every source file in the folder, plus the shared library. The tab strip. */
+  files: ScriptWorkspaceFile[]
+  /** What the runtime puts on sys.path. Shown in the inspector's footer so an
+   *  import that will not resolve can be diagnosed without guessing. */
+  importRoots: string[]
+  /**
+   * Non-empty only when THIS reload converted a single-file node into a folder:
+   * the path it used to hold. Said out loud because it MOVED the user's file -
+   * the graph looks unchanged and the filesystem does not.
+   */
+  migratedFrom: string
 }
 
 export const EMPTY_SCRIPT_STATUS: ScriptStatus = {
@@ -93,6 +123,11 @@ export const EMPTY_SCRIPT_STATUS: ScriptStatus = {
   droppedEdges: [],
   interfaceChanged: false,
   revision: 0,
+  workspaceRoot: '',
+  entryFile: '',
+  files: [],
+  importRoots: [],
+  migratedFrom: '',
 }
 
 export function isScriptNodeType(nodeType: string): boolean {
@@ -154,12 +189,26 @@ export function conditionOf(status: ScriptStatus): ScriptCondition {
   return 'ready'
 }
 
+/**
+ * The node's own name for itself, for the header and the inspector's title.
+ *
+ * The header's `@name` wins, then the FOLDER's name - not the entry file's,
+ * which is `main.py` on every node in the library and therefore tells nobody
+ * anything.
+ */
+export function workspaceNameOf(status: ScriptStatus): string {
+  if (status.name !== '') return status.name
+  if (status.path === '') return ''
+  const trimmed = status.path.replace(/[\\/]+$/u, '')
+  return fileNameOf(trimmed)
+}
+
 export function summaryOf(status: ScriptStatus, nowMs: number): string {
   switch (conditionOf(status)) {
     case 'empty':
-      return 'No file yet'
+      return 'No folder yet'
     case 'missing':
-      return status.loadError === '' ? 'File not found' : status.loadError
+      return status.loadError === '' ? 'No main file in this folder' : status.loadError
     case 'invalid':
       return `${status.diagnostics.length} problem${status.diagnostics.length === 1 ? '' : 's'} in the header`
     case 'stale':

@@ -105,7 +105,13 @@ select = [
 # annotation into a computed expression; the AST palette scanner then silently
 # drops that command. Enable either family only with a before/after scanner
 # metadata diff, never as an unguarded bulk fix over Commands/.
-per-file-ignores = { "AddOn/EvP/Commands/_archive/**/*.py" = ["ALL"] }
+# GraphScripts are SCRIPT NODE BODIES, not modules. A script node's inputs are
+# injected as top-level variables of the names its header declares - `value`
+# exists because the file says `@in value : number` - so pyflakes is structurally
+# right that they are undefined and structurally wrong that it matters. F821 only;
+# everything else still applies, because these files are the first thing anybody
+# reads and they should be idiomatic.
+per-file-ignores = { "AddOn/EvP/Commands/_archive/**/*.py" = ["ALL"], "AddOn/EvP/GraphScripts/**/*.py" = ["F821"] }
 
 [tool.ruff.lint.isort]
 known-first-party = ["evp", "tapioca"]

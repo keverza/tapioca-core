@@ -207,7 +207,8 @@ ScriptWrite WriteScriptSource (const std::string& path, const std::string& sourc
             write.error = "the file changed on disk since it was opened here";
             return write;
         }
-    } else if (!baseHash.empty ()) {
+    }
+    else if (!baseHash.empty ()) {
         // The buffer was read from a file that has since been deleted or moved.
         // Recreating it silently would resurrect a file the user removed on
         // purpose, so this is a conflict with an empty other side.

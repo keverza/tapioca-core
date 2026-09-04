@@ -90,9 +90,14 @@ class PythonHost {
     // ATTEMPTED - no runtime, a broken bridge; a script that threw is a
     // successful call whose `resultJson` carries ok=false, because that is an
     // ordinary thing for a script being written to do.
+    //
+    // `importRootsJson` is a JSON array of folders the script may import from -
+    // its own folder and the shared library. Put on sys.path for the run and
+    // taken off again; see EvPPyApi.h for why that is an import path and not
+    // filesystem access.
     bool RunGraphScript (const GS::UniString& source, const GS::UniString& displayPath, const GS::UniString& inputsJson,
-                         const GS::UniString& outputsJson, int timeBudgetMs, GS::UniString& resultJson,
-                         GS::UniString& error);
+                         const GS::UniString& outputsJson, const GS::UniString& importRootsJson, int timeBudgetMs,
+                         GS::UniString& resultJson, GS::UniString& error);
 
   private:
     PythonHost () = default;

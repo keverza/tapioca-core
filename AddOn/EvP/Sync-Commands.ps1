@@ -36,6 +36,7 @@ if ($manifest.version -ne 1) {
 
 $overlayPath = Join-Path $PSScriptRoot 'command-sync.local.json'
 $extraSourceRoots = @()
+$extraSharedRoots = @()
 if (Test-Path -LiteralPath $overlayPath -PathType Leaf) {
     try {
         $overlay = Get-Content -LiteralPath $overlayPath -Raw | ConvertFrom-Json
@@ -49,6 +50,12 @@ if (Test-Path -LiteralPath $overlayPath -PathType Leaf) {
         throw "Local command sync overlay must define extra_source_roots"
     }
     $extraSourceRoots = @($overlay.extra_source_roots)
+    # Optional, and deliberately so: an overlay written before workflow node
+    # folders existed is still a valid overlay, and failing on one would make a
+    # workspace unusable until Setup-Workspace.ps1 was re-run.
+    if ($null -ne $overlay.PSObject.Properties['extra_shared_roots']) {
+        $extraSharedRoots = @($overlay.extra_shared_roots)
+    }
 }
 
 function Assert-SafeRelativePath {
@@ -186,19 +193,43 @@ foreach ($sourceRootEntry in $sourceRootEntries) {
     }
 }
 
-$sharedRoots = @($manifest.shared_roots)
+# A shared root copies one tree to one named folder under the target, rather than
+# treating it as a container of command folders. That is what deploys _lib, and
+# it is what deploys the WORKFLOW NODE LIBRARY: a script node is a folder of
+# .py files with no command.py in it, so it would be skipped entirely by the
+# command-folder walk above.
+$sharedRootEntries = @()
+foreach ($sharedRoot in @($manifest.shared_roots)) {
+    $sharedRootEntries += [pscustomobject]@{ Value = $sharedRoot; IsOverlay = $false }
+}
+foreach ($sharedRoot in $extraSharedRoots) {
+    $sharedRootEntries += [pscustomobject]@{ Value = $sharedRoot; IsOverlay = $true }
+}
+
 $sharedPlans = @()
 $sharedTargetOwners = @{}
-foreach ($sharedRoot in $sharedRoots) {
+foreach ($sharedRootEntry in $sharedRootEntries) {
+    $sharedRoot = $sharedRootEntry.Value
     if ($null -eq $sharedRoot.source -or $null -eq $sharedRoot.target) {
         throw 'Every shared command sync root needs source and target'
     }
 
-    Assert-SafeRelativePath -Value ([string] $sharedRoot.source) -Label 'Shared command sync source'
+    # The overlay is the deliberate bridge from core/ to private/, so its sources
+    # may climb out of the submodule with '..' - exactly as extra_source_roots
+    # already may. A manifest source may not.
+    if ($sharedRootEntry.IsOverlay) {
+        Assert-SafeOverlayPath -Value ([string] $sharedRoot.source) -Label 'Local shared command sync source'
+    } else {
+        Assert-SafeRelativePath -Value ([string] $sharedRoot.source) -Label 'Shared command sync source'
+    }
     Assert-SafeFolderName -Value ([string] $sharedRoot.target) -Label 'Shared command sync target'
 
     $relativeSource = ([string] $sharedRoot.source) -replace '/', '\'
-    $sharedPath = Join-Path $PSScriptRoot $relativeSource
+    # NORMALISED, not merely joined. An overlay source climbs out of the submodule
+    # with '..', and Get-FilePlans slices the file's own FullName - which Windows
+    # has already collapsed - by this path's length. An uncollapsed root is longer
+    # than the paths it contains, and the slice throws.
+    $sharedPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $relativeSource))
     if (-not (Test-Path -LiteralPath $sharedPath -PathType Container)) {
         throw "Shared command sync root does not exist: $sharedPath"
     }
@@ -206,6 +237,10 @@ foreach ($sharedRoot in $sharedRoots) {
     $targetName = [string] $sharedRoot.target
     $targetKey = $targetName.ToLowerInvariant()
     if ($sharedTargetOwners.ContainsKey($targetKey)) {
+        # Two roots deploying into one folder is a hard error rather than
+        # last-writer-wins: the per-file collision check below would catch a
+        # clashing FILE, but two roots that happen not to overlap today would
+        # start silently overwriting each other the day somebody adds a file.
         throw "Duplicate shared command sync target '$targetName'"
     }
     $sharedTargetOwners[$targetKey] = $relativeSource
