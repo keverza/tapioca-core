@@ -47,9 +47,17 @@ size_t SunStudySession::Advance (const ITraversal& traversal, size_t maxSteps, d
     if (samples_.count == 0 || series_.Empty ())
         return 0;
 
+    // The dispatch guard. See the header: a caller that loses the race is
+    // refused, not queued, and 0 already means "nothing to do".
+    bool expected = false;
+    if (!advancing_.compare_exchange_strong (expected, true, std::memory_order_acq_rel))
+        return 0;
+
     const size_t resolved =
         accumulator_.AccumulateRange (traversal, samples_, series_, nextStep_, maxSteps, tmin, tmax, maxParallel);
     nextStep_ += resolved;
+
+    advancing_.store (false, std::memory_order_release);
     return resolved;
 }
 

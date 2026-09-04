@@ -114,11 +114,11 @@ OrthoFrustum FitOrthoFrustum (const Vec3& aabbMin, const Vec3& aabbMax, const Ve
     frustum.right = rMax + margin;
     frustum.bottom = uMin - margin;
     frustum.top = uMax + margin;
-    frustum.near = lMin - margin; // may be negative; see the header
-    frustum.far = lMax + margin;
+    frustum.nearPlane = lMin - margin; // may be negative; see the header
+    frustum.farPlane = lMax + margin;
     frustum.worldWidth = (rMax - rMin) + 2.0 * margin;
     frustum.worldHeight = (uMax - uMin) + 2.0 * margin;
-    frustum.worldDepth = frustum.far - frustum.near;
+    frustum.worldDepth = frustum.farPlane - frustum.nearPlane;
     frustum.rightAxis = R;
     frustum.upAxis = U;
     frustum.lightAxis = L;
@@ -131,7 +131,7 @@ Mat4 OrthoProjection (const OrthoFrustum& frustum)
     Mat4 proj = Identity ();
     const double l = frustum.left, r = frustum.right;
     const double b = frustum.bottom, t = frustum.top;
-    const double n = frustum.near, f = frustum.far;
+    const double n = frustum.nearPlane, f = frustum.farPlane;
     if (r == l || t == b || f == n)
         return proj;
 
@@ -153,7 +153,7 @@ Vec3 RtcOrigin (const Vec3& aabbMin, const Vec3& aabbMax)
 Mat4 LightViewProjection (const OrthoFrustum& frustum, const Vec3* origin)
 {
     // A pure rotation: a directional light has no eye point, which is exactly
-    // why frustum.near is normally negative.
+    // why frustum.nearPlane is normally negative.
     Mat4 view = Identity ();
     view[0] = frustum.rightAxis[0];
     view[1] = frustum.rightAxis[1];
@@ -206,9 +206,9 @@ double DeriveBiasFromFrustum (const OrthoFrustum& frustum, uint32_t shadowMapRes
     return DeriveBias (TexelWorldSize (frustum, shadowMapResolution), minBias);
 }
 
-double DepthBiasNdc (double biasMetres, double near, double far)
+double DepthBiasNdc (double biasMetres, double nearPlane, double farPlane)
 {
-    const double span = far - near;
+    const double span = farPlane - nearPlane;
     if (span <= 0.0)
         return 0.0;
     return std::min (0.5, biasMetres / span);
@@ -260,6 +260,65 @@ void SampleIndexToTexel (size_t sampleIndex, uint32_t accumWidth, uint32_t& colu
     }
     column = static_cast<uint32_t> (sampleIndex % accumWidth);
     row = static_cast<uint32_t> (sampleIndex / accumWidth);
+}
+
+double AutoGroundPad (const Vec3& aabbMin, const Vec3& aabbMax, double minPad)
+{
+    const double height = aabbMax[2] - aabbMin[2];
+    const double footprint = std::max (aabbMax[0] - aabbMin[0], aabbMax[1] - aabbMin[1]);
+    return std::max (std::max (height, 0.25 * footprint), minPad);
+}
+
+GroundGrid MakeGroundSampleGrid (const Vec3& aabbMin, const Vec3& aabbMax, double spacing, double pad, double zOffset,
+                                 size_t maxSamples)
+{
+    GroundGrid grid;
+    if (!(spacing > 0.0))
+        return grid;
+    if (aabbMax[0] < aabbMin[0] || aabbMax[1] < aabbMin[1] || aabbMax[2] < aabbMin[2])
+        return grid;
+
+    grid.pad = (pad < 0.0) ? AutoGroundPad (aabbMin, aabbMax) : pad;
+    grid.groundZ = aabbMin[2] + zOffset;
+
+    const double xLo = aabbMin[0] - grid.pad;
+    const double xHi = aabbMax[0] + grid.pad;
+    const double yLo = aabbMin[1] - grid.pad;
+    const double yHi = aabbMax[1] + grid.pad;
+
+    // At least one sample per axis, so a degenerate footprint still produces a
+    // point rather than an empty study that reads as "no sun anywhere".
+    const size_t columns = static_cast<size_t> (std::floor ((xHi - xLo) / spacing)) + 1;
+    const size_t rows = static_cast<size_t> (std::floor ((yHi - yLo) / spacing)) + 1;
+
+    // Refuse rather than truncate; see the header.
+    if (columns == 0 || rows == 0 || columns > maxSamples || rows > maxSamples / columns)
+        return grid;
+
+    grid.columns = columns;
+    grid.rows = rows;
+    grid.positions.reserve (columns * rows * 3);
+    grid.normals.reserve (columns * rows * 3);
+
+    // Centred: the leftover after an exact number of steps is split between the
+    // two edges, so the grid is not biased toward the minimum corner.
+    const double xStart = xLo + ((xHi - xLo) - static_cast<double> (columns - 1) * spacing) * 0.5;
+    const double yStart = yLo + ((yHi - yLo) - static_cast<double> (rows - 1) * spacing) * 0.5;
+
+    for (size_t row = 0; row < rows; ++row) {
+        const double y = yStart + static_cast<double> (row) * spacing;
+        for (size_t column = 0; column < columns; ++column) {
+            grid.positions.push_back (xStart + static_cast<double> (column) * spacing);
+            grid.positions.push_back (y);
+            grid.positions.push_back (grid.groundZ);
+            grid.normals.push_back (0.0);
+            grid.normals.push_back (0.0);
+            grid.normals.push_back (1.0);
+        }
+    }
+
+    grid.valid = true;
+    return grid;
 }
 
 std::vector<double> GridLadder (double areaM2, double targetGrid, double coarseThreshold, double midThreshold)

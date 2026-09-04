@@ -35,6 +35,7 @@
 #include "SunStudy/SunStudyOcclusion.hpp"
 #include "SunStudy/SunSeries.hpp"
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -85,8 +86,26 @@ class SunStudySession final {
     // IT. A frame loop that can afford two steps passes two. A session that
     // decided for itself would be tuned against one caller's budget and wrong
     // for every other.
+    //
+    // ⚠️ ONE ADVANCE AT A TIME, ENFORCED HERE RATHER THAN TRUSTED. Two threads
+    // advancing the same session would both read `nextStep_`, claim the same
+    // timesteps and write them into one accumulator -- which does not crash and
+    // does not corrupt a bit, it just silently resolves fewer steps than it
+    // reports. A concurrent caller is REFUSED (returns 0) rather than blocked:
+    // the callers are a frame loop and a graph evaluation, and making either
+    // wait on the other is the stutter this whole class exists to avoid. Zero
+    // already means "nothing to do", which is exactly what a caller that lost
+    // the race should conclude.
     size_t Advance (const ITraversal& traversal, size_t maxSteps, double tmin = 0.001, double tmax = 0.0,
                     size_t maxParallel = 0);
+
+    // Whether an Advance is running right now. For diagnostics and tests; a
+    // caller must not branch on it, because it can change the instant it is
+    // read -- ask Advance and read its answer instead.
+    bool Advancing () const
+    {
+        return advancing_.load (std::memory_order_acquire);
+    }
 
     StudyProgress Progress () const;
 
@@ -128,6 +147,12 @@ class SunStudySession final {
     uint64_t generation_ = 0;
     size_t nextStep_ = 0;
     bool initialised_ = false;
+
+    // ⚠️ MUTABLE STATE THAT IS NOT PART OF THE RESULT, so it is atomic rather
+    // than guarded by the session's own lock: there is no lock, and adding one
+    // would make `Sync` -- called every frame on the cheap path -- pay for a
+    // contention case that must never happen.
+    std::atomic<bool> advancing_ { false };
 };
 
 } // namespace evp::sunstudy

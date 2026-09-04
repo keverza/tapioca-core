@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 172,
+      "nativeRegistry": 177,
       "dispatcherLocal": 19,
-      "total": 191
+      "total": 196
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -85,6 +85,72 @@
     }
   },
   "commands": [
+    {
+      "name": "Tapioca.AdvanceSunStudy",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "maxSteps": {
+            "type": "integer"
+          },
+          "maxParallel": {
+            "type": "integer"
+          },
+          "tmin": {
+            "type": "number"
+          },
+          "tmax": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "advanced": {
+            "type": "integer"
+          },
+          "resolvedSteps": {
+            "type": "integer"
+          },
+          "totalSteps": {
+            "type": "integer"
+          },
+          "sampleCount": {
+            "type": "integer"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "converged": {
+            "type": "boolean"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "analysisMilliseconds": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "studyId",
+          "advanced",
+          "resolvedSteps",
+          "totalSteps",
+          "converged",
+          "empty"
+        ]
+      }
+    },
     {
       "name": "Tapioca.AttachElementsToIssue",
       "implementation": "native-registry",
@@ -424,6 +490,37 @@
         "additionalProperties": false,
         "required": [
           "requested"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.CancelSunStudy",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "all": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "erased": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "erased"
         ]
       }
     },
@@ -9273,6 +9370,71 @@
           "names",
           "levels",
           "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetSunStudyResults",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "includePositions": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "hours": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "count": {
+            "type": "integer"
+          },
+          "resolvedSteps": {
+            "type": "integer"
+          },
+          "totalSteps": {
+            "type": "integer"
+          },
+          "sampleCount": {
+            "type": "integer"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "converged": {
+            "type": "boolean"
+          },
+          "empty": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "studyId",
+          "hours",
+          "count",
+          "converged",
+          "empty"
         ]
       }
     },
@@ -19754,6 +19916,120 @@
       }
     },
     {
+      "name": "Tapioca.StartSunStudy",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "year": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "day": {
+            "type": "integer"
+          },
+          "timestep": {
+            "type": "integer"
+          },
+          "hourFrom": {
+            "type": "integer"
+          },
+          "hourTo": {
+            "type": "integer"
+          },
+          "minAltitudeDeg": {
+            "type": "number"
+          },
+          "grid": {
+            "type": "number"
+          },
+          "pad": {
+            "type": "number"
+          },
+          "zOffset": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "resolvedSteps": {
+            "type": "integer"
+          },
+          "totalSteps": {
+            "type": "integer"
+          },
+          "sampleCount": {
+            "type": "integer"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "converged": {
+            "type": "boolean"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "daylightHours": {
+            "type": "number"
+          },
+          "sourceStepCount": {
+            "type": "integer"
+          },
+          "gridColumns": {
+            "type": "integer"
+          },
+          "gridRows": {
+            "type": "integer"
+          },
+          "groundZ": {
+            "type": "number"
+          },
+          "groundPad": {
+            "type": "number"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "northDeg": {
+            "type": "number"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "day": {
+            "type": "integer"
+          },
+          "timestep": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "studyId",
+          "resolvedSteps",
+          "totalSteps",
+          "sampleCount",
+          "converged",
+          "empty"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.StopD3D12FeasibilityProbe",
       "implementation": "native-registry",
       "inputScheme": {
@@ -19792,6 +20068,97 @@
         "additionalProperties": false,
         "required": [
           "stopped"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SunStudyState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "studyCount": {
+            "type": "integer"
+          },
+          "studyId": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean"
+          },
+          "resolvedSteps": {
+            "type": "integer"
+          },
+          "totalSteps": {
+            "type": "integer"
+          },
+          "sampleCount": {
+            "type": "integer"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "converged": {
+            "type": "boolean"
+          },
+          "empty": {
+            "type": "boolean"
+          },
+          "timestep": {
+            "type": "integer"
+          },
+          "year": {
+            "type": "integer"
+          },
+          "month": {
+            "type": "integer"
+          },
+          "day": {
+            "type": "integer"
+          },
+          "hourFrom": {
+            "type": "integer"
+          },
+          "hourTo": {
+            "type": "integer"
+          },
+          "minAltitudeDeg": {
+            "type": "number"
+          },
+          "grid": {
+            "type": "number"
+          },
+          "groundPad": {
+            "type": "number"
+          },
+          "sourceStepCount": {
+            "type": "integer"
+          },
+          "analysisMilliseconds": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "studyIds",
+          "studyCount",
+          "studyId",
+          "live"
         ]
       }
     },

@@ -48,8 +48,13 @@ struct OrthoFrustum {
     // pass, and the study then reports samples lit that the ray-cast engine
     // correctly calls shadowed. An orthographic projection accepts a negative
     // near without complaint; only the span matters.
-    double near = 0.0;
-    double far = 0.0;
+    // ⚠️ NOT `near` AND `far`: BOTH ARE MACROS IN windows.h, and renaming them
+    // back would break the add-on while every offline test kept passing. The
+    // test build never includes windows.h; APIEnvir.h does, so the collision
+    // appears only in the .apx compile and looks like a syntax error inside this
+    // header rather than a name clash from three includes away.
+    double nearPlane = 0.0;
+    double farPlane = 0.0;
 
     double worldWidth = 0.0;
     double worldHeight = 0.0;
@@ -138,7 +143,7 @@ double DeriveBiasFromFrustum (const OrthoFrustum& frustum, uint32_t shadowMapRes
 // linear in depth, so one metre along the light axis is 1 / (far - near) of the
 // range. Clamped to 0.5 so a degenerate frustum cannot make everything
 // unconditionally lit.
-double DepthBiasNdc (double biasMetres, double near, double far);
+double DepthBiasNdc (double biasMetres, double nearPlane, double farPlane);
 
 // The largest bias across a sequence of per-timestep frustums: ONE bias for the
 // whole study, so a sample cannot change classification with the hour for a
@@ -163,6 +168,56 @@ AccumLayout ComputeAccumLayout (size_t sampleCount, uint32_t maxWidth = kMaxText
 
 // Linear sample index to its texel.
 void SampleIndexToTexel (size_t sampleIndex, uint32_t accumWidth, uint32_t& column, uint32_t& row);
+
+// ---------------------------------------------------------------------------
+// the ground sample grid
+// ---------------------------------------------------------------------------
+
+// How far the analysis ground plane must reach beyond the model.
+//
+// ⚠️ THE STUDY IS MEANINGLESS WITHOUT THIS. Sampling the model's own footprint
+// puts every sample directly underneath a building, so the engine correctly
+// reports about zero sun hours everywhere and the run says nothing. A sun study
+// measures the ground AROUND the massing -- that is where the shadows land.
+//
+// The rule: reach out by the model's height (a shadow is as long as its caster
+// is tall at 45 degrees of altitude, and longer below that), but never less than
+// a quarter of the footprint and never less than `minPad`.
+double AutoGroundPad (const Vec3& aabbMin, const Vec3& aabbMax, double minPad = 2.0);
+
+struct GroundGrid {
+    // xyz interleaved, ready for SampleSet::positions.
+    std::vector<double> positions;
+
+    // All +Z: a horizontal plane. Supplied rather than left null so the
+    // back-face cull still retires a sun below the horizon.
+    std::vector<double> normals;
+
+    double pad = 0.0;
+    double groundZ = 0.0;
+    size_t columns = 0;
+    size_t rows = 0;
+    bool valid = false;
+};
+
+// A REGULAR grid over the padded footprint.
+//
+// ⚠️ REGULAR, WHERE THE PYTHON ORACLE IS RANDOM, AND THAT IS A DELIBERATE
+// DIVERGENCE rather than an incomplete port. The Python version scatters points
+// with a seeded generator so its two engines could be compared on an identical
+// set; reproducing one language's generator in another is fragile and buys
+// nothing here. A regular grid is deterministic without a seed, covers the
+// footprint evenly instead of clumping, and makes the sample count a function of
+// spacing rather than a parameter. The test file records the consequence: totals
+// from the two samplers agree in distribution, not sample for sample.
+//
+// `zOffset` lifts each sample off the ground so a ray does not start exactly on
+// the surface it stands on.
+//
+// `maxSamples` refuses rather than truncates: a silently shortened grid analyses
+// part of the site and looks like a complete answer.
+GroundGrid MakeGroundSampleGrid (const Vec3& aabbMin, const Vec3& aabbMax, double spacing, double pad = -1.0,
+                                 double zOffset = 0.10, size_t maxSamples = 4000000);
 
 // ---------------------------------------------------------------------------
 // progressive refinement

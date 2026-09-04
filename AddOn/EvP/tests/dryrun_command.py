@@ -426,6 +426,12 @@ def _validate_input(command, params):
             "meta": {"backend": "dryrun", "duration_ms": 0.1}}
 
 
+# The native sun study is a SESSION, so its fake has to hold state between calls.
+# See the canned responses below for why a stateless fake would pass a broken
+# caller and hang a working one.
+_SUN_STUDY = {}
+
+
 def _ok(data):
     """Envelope a native command's response.
 
@@ -2880,6 +2886,96 @@ def _one(command, params):
                     "failed": sum(1 for e in out if not e["ok"]),
                     "screen": out,
                     "coord": mid})
+
+    # ---- the native sun study -------------------------------------------
+    #
+    # A SESSION, so the fake has to be one too. The whole point of the command
+    # split is that a study is advanced across many calls; a fake that returned
+    # "converged" to the first Advance would let a caller with a broken loop
+    # pass, and a fake that never converged would hang one that works. So this
+    # keeps a tiny amount of state and counts down exactly like the real thing.
+    if command == "EvP.StartSunStudy":
+        steps = max(1, (int(params.get("hourTo", 24)) - int(params.get("hourFrom", 0)))
+                    * 60 // max(1, int(params.get("timestep", 60))))
+        # Half a day is below the horizon, which is what makes the difference
+        # between totalSteps and sourceStepCount visible to a caller.
+        above = max(1, steps // 2)
+        grid = float(params.get("grid", 2.0))
+        columns = max(1, int(40.0 / grid) + 1)
+        _SUN_STUDY.clear()
+        _SUN_STUDY.update({"id": "sun-1", "total": above, "resolved": 0,
+                           "samples": columns * columns, "ms": 0.0})
+        return _v2({"studyId": "sun-1",
+                    "resolvedSteps": 0, "totalSteps": above,
+                    "sampleCount": columns * columns, "generation": 1,
+                    "converged": False, "empty": False,
+                    "daylightHours": above * int(params.get("timestep", 60)) / 60.0,
+                    "sourceStepCount": steps,
+                    "gridColumns": columns, "gridRows": columns,
+                    "groundZ": 0.1, "groundPad": 30.0,
+                    "sampleMode": str(params.get("samples", "surfaces")),
+                    "undersizedFaces": 0, "degenerateFaces": 0,
+                    "closedGroups": 1, "flippedGroups": 0,
+                    "latitude": 54.6872, "longitude": 25.2797, "northDeg": 0.0,
+                    "year": int(params.get("year", 2026)),
+                    "month": int(params.get("month", 3)),
+                    "day": int(params.get("day", 21)),
+                    "timestep": int(params.get("timestep", 60))})
+
+    if command == "EvP.AdvanceSunStudy":
+        if not _SUN_STUDY:
+            return _v2({"studyId": "", "advanced": 0, "resolvedSteps": 0,
+                        "totalSteps": 0, "converged": False, "empty": True})
+        remaining = _SUN_STUDY["total"] - _SUN_STUDY["resolved"]
+        advanced = min(remaining, max(1, int(params.get("maxSteps", 4))))
+        _SUN_STUDY["resolved"] += advanced
+        _SUN_STUDY["ms"] += advanced * 1.5
+        return _v2({"studyId": _SUN_STUDY["id"], "advanced": advanced,
+                    "resolvedSteps": _SUN_STUDY["resolved"],
+                    "totalSteps": _SUN_STUDY["total"],
+                    "sampleCount": _SUN_STUDY["samples"], "generation": 1,
+                    "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
+                    "empty": False,
+                    "analysisMilliseconds": _SUN_STUDY["ms"]})
+
+    if command == "EvP.SunStudyState":
+        if not _SUN_STUDY:
+            return _v2({"studyIds": [], "studyCount": 0, "studyId": "", "live": False})
+        return _v2({"studyIds": [_SUN_STUDY["id"]], "studyCount": 1,
+                    "studyId": _SUN_STUDY["id"], "live": True,
+                    "resolvedSteps": _SUN_STUDY["resolved"],
+                    "totalSteps": _SUN_STUDY["total"],
+                    "sampleCount": _SUN_STUDY["samples"], "generation": 1,
+                    "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
+                    "empty": False,
+                    "analysisMilliseconds": _SUN_STUDY["ms"]})
+
+    if command == "EvP.GetSunStudyResults":
+        if not _SUN_STUDY:
+            return _v2({"studyId": "", "hours": [], "count": 0,
+                        "converged": False, "empty": True})
+        count = _SUN_STUDY["samples"]
+        span = _SUN_STUDY["total"] * 1.0
+        # A gradient with genuinely shaded and genuinely lit samples, so the
+        # command's own "every sample is identical" checks are exercised rather
+        # than trivially satisfied.
+        hours = [0.0 if i % 7 == 0 else span * ((i % 5) / 4.0) for i in range(count)]
+        out = {"studyId": _SUN_STUDY["id"], "hours": hours, "count": count,
+               "resolvedSteps": _SUN_STUDY["resolved"],
+               "totalSteps": _SUN_STUDY["total"],
+               "sampleCount": count, "generation": 1,
+               "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
+               "empty": False}
+        if params.get("includePositions"):
+            out["positions"] = [float((i % 20) - 10) if a == 0 else
+                                (float((i // 20) - 10) if a == 1 else 0.1)
+                                for i in range(count) for a in range(3)]
+        return _v2(out)
+
+    if command == "EvP.CancelSunStudy":
+        erased = 1 if _SUN_STUDY else 0
+        _SUN_STUDY.clear()
+        return _v2({"studyId": params.get("studyId", ""), "erased": erased})
 
     # Vilnius, midday-ish — real-looking numbers in the DevKit's MIXED units
     # (lat/long degrees, north/sun radians), because a command that converts is

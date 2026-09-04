@@ -90,10 +90,10 @@ TEST (SunStudyRaster, NearPlaneIsNegativeAndMustNotBeClamped)
     // shape the clamp destroyed.
     const OrthoFrustum f = FitOrthoFrustum (Vec3 { -10.0, -10.0, 0.0 }, Vec3 { 10.0, 10.0, 20.0 }, SunXZ45 ());
     ASSERT_TRUE (f.valid);
-    EXPECT_LT (f.near, 0.0);
-    EXPECT_GT (f.far, 0.0);
+    EXPECT_LT (f.nearPlane, 0.0);
+    EXPECT_GT (f.farPlane, 0.0);
     EXPECT_GT (f.worldDepth, 0.0);
-    EXPECT_NEAR (f.worldDepth, f.far - f.near, kEps);
+    EXPECT_NEAR (f.worldDepth, f.farPlane - f.nearPlane, kEps);
 }
 
 // ⚠️ BOTH PLANES MAY BE NEGATIVE, AND THAT IS NOT A DEGENERATE CASE. A model at
@@ -105,13 +105,13 @@ TEST (SunStudyRaster, BothDepthPlanesMayBeNegativeAtSurveyCoordinates)
 {
     const OrthoFrustum f = FitOrthoFrustum (kBoxMin, kBoxMax, SunXZ45 ());
     ASSERT_TRUE (f.valid);
-    EXPECT_LT (f.near, 0.0);
-    EXPECT_LT (f.far, 0.0);
-    EXPECT_LT (f.near, f.far);
+    EXPECT_LT (f.nearPlane, 0.0);
+    EXPECT_LT (f.farPlane, 0.0);
+    EXPECT_LT (f.nearPlane, f.farPlane);
     EXPECT_GT (f.worldDepth, 0.0);
 
     // And the projection still maps the range onto [-1, 1] regardless.
-    EXPECT_GT (DepthBiasNdc (0.01, f.near, f.far), 0.0);
+    EXPECT_GT (DepthBiasNdc (0.01, f.nearPlane, f.farPlane), 0.0);
 }
 
 TEST (SunStudyRaster, OverheadSunDoesNotCollapseTheBasis)
@@ -336,8 +336,8 @@ TEST (SunStudyRaster, ParityWithPythonSunRaster)
     EXPECT_NEAR (f.right, 1.0, kEps);
     EXPECT_NEAR (f.bottom, -1.0, kEps);
     EXPECT_NEAR (f.top, 11.0, kEps);
-    EXPECT_NEAR (f.near, -11.0, kEps);
-    EXPECT_NEAR (f.far, 1.0, kEps);
+    EXPECT_NEAR (f.nearPlane, -11.0, kEps);
+    EXPECT_NEAR (f.farPlane, 1.0, kEps);
     EXPECT_NEAR (f.worldWidth, 12.0, kEps);
     EXPECT_NEAR (f.worldHeight, 12.0, kEps);
     EXPECT_NEAR (f.worldDepth, 12.0, kEps);
@@ -346,7 +346,7 @@ TEST (SunStudyRaster, ParityWithPythonSunRaster)
     // 2 x 0.005859 = 0.01171875, which clears the 0.005 floor, so the texel term
     // wins rather than the floor.
     EXPECT_NEAR (DeriveBiasFromFrustum (f, 2048), 12.0 / 1024.0, kEps);
-    EXPECT_NEAR (DepthBiasNdc (0.005, f.near, f.far), 0.005 / 12.0, kEps);
+    EXPECT_NEAR (DepthBiasNdc (0.005, f.nearPlane, f.farPlane), 0.005 / 12.0, kEps);
 
     // The centre of the box maps to the centre of the frustum in x and y.
     const Mat4 vp = LightViewProjection (f);
@@ -355,4 +355,91 @@ TEST (SunStudyRaster, ParityWithPythonSunRaster)
     EXPECT_NEAR (centre[1], 0.0, 1e-12);
 
     EXPECT_NEAR (RtcOrigin (lo, hi)[0], 5.0, kEps);
+}
+
+// ---------------------------------------------------------------------------
+// the ground sample grid
+// ---------------------------------------------------------------------------
+
+// ⚠️ THE PADDING RULE IS WHAT MAKES THE STUDY MEAN ANYTHING. Sampling the
+// model's own footprint puts every sample under a building, so the engine
+// correctly reports about zero hours everywhere and the run says nothing.
+TEST (SunStudyRaster, GroundPadReachesOutByTheModelsHeight)
+{
+    // A 20 x 20 footprint, 30 m tall: height wins.
+    EXPECT_NEAR (AutoGroundPad (Vec3 { 0, 0, 0 }, Vec3 { 20, 20, 30 }), 30.0, kEps);
+
+    // A 200 x 200 footprint, 2 m tall: a quarter of the footprint wins.
+    EXPECT_NEAR (AutoGroundPad (Vec3 { 0, 0, 0 }, Vec3 { 200, 200, 2 }), 50.0, kEps);
+
+    // A tiny model: the floor wins, so the grid is never degenerate.
+    EXPECT_NEAR (AutoGroundPad (Vec3 { 0, 0, 0 }, Vec3 { 1, 1, 1 }), 2.0, kEps);
+}
+
+TEST (SunStudyRaster, GroundGridCoversThePaddedFootprint)
+{
+    const GroundGrid grid = MakeGroundSampleGrid (Vec3 { 0, 0, 0 }, Vec3 { 10, 10, 10 }, 1.0, 5.0 /* pad */, 0.1);
+    ASSERT_TRUE (grid.valid);
+
+    // 0 - 5 to 10 + 5 is 20 m across, at 1 m spacing: 21 positions per axis.
+    EXPECT_EQ (grid.columns, 21u);
+    EXPECT_EQ (grid.rows, 21u);
+    EXPECT_EQ (grid.positions.size (), 21u * 21u * 3u);
+    EXPECT_EQ (grid.normals.size (), grid.positions.size ());
+    EXPECT_NEAR (grid.groundZ, 0.1, kEps);
+    EXPECT_NEAR (grid.pad, 5.0, kEps);
+
+    // Every sample sits on the ground plane, faces up, and lies inside the
+    // padded footprint.
+    for (size_t i = 0; i < grid.positions.size () / 3; ++i) {
+        EXPECT_NEAR (grid.positions[i * 3 + 2], 0.1, kEps);
+        EXPECT_NEAR (grid.normals[i * 3 + 0], 0.0, kEps);
+        EXPECT_NEAR (grid.normals[i * 3 + 1], 0.0, kEps);
+        EXPECT_NEAR (grid.normals[i * 3 + 2], 1.0, kEps);
+        EXPECT_GE (grid.positions[i * 3 + 0], -5.0 - kEps);
+        EXPECT_LE (grid.positions[i * 3 + 0], 15.0 + kEps);
+        EXPECT_GE (grid.positions[i * 3 + 1], -5.0 - kEps);
+        EXPECT_LE (grid.positions[i * 3 + 1], 15.0 + kEps);
+    }
+}
+
+// The leftover after a whole number of steps is split between the two edges, so
+// the grid is not biased toward the minimum corner.
+TEST (SunStudyRaster, GroundGridIsCentredWhenTheSpacingDoesNotDivideEvenly)
+{
+    const GroundGrid grid = MakeGroundSampleGrid (Vec3 { 0, 0, 0 }, Vec3 { 10, 10, 1 }, 3.0, 0.0, 0.0);
+    ASSERT_TRUE (grid.valid);
+    ASSERT_EQ (grid.columns, 4u); // floor(10/3) + 1
+
+    const double first = grid.positions[0];
+    const double last = grid.positions[(grid.columns - 1) * 3];
+    EXPECT_NEAR (first - 0.0, 10.0 - last, 1e-9) << "the two margins must match";
+}
+
+TEST (SunStudyRaster, GroundGridAutoPadsWhenNoPadIsGiven)
+{
+    const GroundGrid grid = MakeGroundSampleGrid (Vec3 { 0, 0, 0 }, Vec3 { 20, 20, 30 }, 5.0);
+    ASSERT_TRUE (grid.valid);
+    EXPECT_NEAR (grid.pad, 30.0, kEps) << "the model's own height";
+}
+
+// ⚠️ REFUSED, NOT TRUNCATED. A silently shortened grid analyses part of the site
+// and looks like a complete answer.
+TEST (SunStudyRaster, GroundGridRefusesRatherThanTruncating)
+{
+    EXPECT_FALSE (MakeGroundSampleGrid (Vec3 { 0, 0, 0 }, Vec3 { 10, 10, 10 }, 0.0).valid);
+    EXPECT_FALSE (MakeGroundSampleGrid (Vec3 { 0, 0, 0 }, Vec3 { 10, 10, 10 }, -1.0).valid);
+    EXPECT_FALSE (MakeGroundSampleGrid (Vec3 { 10, 10, 10 }, Vec3 { 0, 0, 0 }, 1.0).valid) << "inverted box";
+
+    // A spacing fine enough to blow the ceiling is refused, not clipped.
+    EXPECT_FALSE (MakeGroundSampleGrid (Vec3 { 0, 0, 0 }, Vec3 { 1000, 1000, 1 }, 0.001, 0.0, 0.0, 1000).valid);
+}
+
+TEST (SunStudyRaster, ADegenerateFootprintStillProducesASample)
+{
+    const GroundGrid grid = MakeGroundSampleGrid (Vec3 { 5, 5, 0 }, Vec3 { 5, 5, 0 }, 1.0, 0.0, 0.0);
+    ASSERT_TRUE (grid.valid);
+    EXPECT_EQ (grid.columns, 1u);
+    EXPECT_EQ (grid.rows, 1u);
+    EXPECT_EQ (grid.positions.size (), 3u);
 }

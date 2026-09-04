@@ -40,6 +40,7 @@
 #include "NativeCommands/PreviewCommands.hpp"
 #include "NativeCommands/ProjectCommands.hpp"
 #include "NativeCommands/QueryCommands.hpp"
+#include "NativeCommands/SunStudyCommands.hpp"
 #include "NativeCommands/RoofCreateCommands.hpp"
 #include "NativeCommands/SelectionCommands.hpp"
 #include "NativeCommands/SnapshotCommands.hpp"
@@ -76,6 +77,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetSnapshotCommandRegistrations,
     &GetCaptureCommandRegistrations,
     &GetQueryCommandRegistrations,
+    &GetSunStudyCommandRegistrations,
     &GetElementReadCommandRegistrations,
     &GetElementModifyCommandRegistrations,
     &GetIdentityCommandRegistrations,

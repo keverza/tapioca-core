@@ -11,7 +11,9 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <memory>
+#include <thread>
 #include <vector>
 
 using namespace evp::sunstudy;
@@ -288,4 +290,68 @@ TEST (SunStudySession, SliceSizeDoesNotChangeTheAnswer)
     ASSERT_TRUE (gulp.Progress ().converged);
     EXPECT_EQ (drip.Accumulator ().Bits (), gulp.Accumulator ().Bits ());
     EXPECT_EQ (drip.SunHours (), gulp.SunHours ());
+}
+
+// ---------------------------------------------------------------------------
+// The dispatch guard
+// ---------------------------------------------------------------------------
+
+TEST (SunStudySession, AdvancingIsFalseWhenIdle)
+{
+    Fixture fixture;
+    SunStudySession session;
+    session.Sync (Inputs (1, 1, 1), MakeDay (4), fixture.Samples ());
+    EXPECT_FALSE (session.Advancing ());
+    session.Advance (fixture.traversal, 2, 0.001, 0.0, 1);
+    EXPECT_FALSE (session.Advancing ());
+}
+
+// ⚠️ THE FAILURE THIS PREVENTS DOES NOT CRASH AND DOES NOT CORRUPT A BIT. Two
+// threads advancing one session both read `nextStep_`, both claim the same
+// timesteps, and the study silently resolves fewer steps than it reports --
+// which converges early and publishes an hours figure that is too low.
+TEST (SunStudySession, ConcurrentAdvancesDoNotBothClaimTheSameSteps)
+{
+    Fixture fixture;
+    const SunSeries day = MakeDay (24);
+
+    for (int attempt = 0; attempt < 40; ++attempt) {
+        SunStudySession session;
+        session.Sync (Inputs (1, day.Version (), 1), day, fixture.Samples ());
+
+        std::atomic<size_t> total { 0 };
+        std::atomic<bool> go { false };
+        std::vector<std::thread> threads;
+        for (int t = 0; t < 4; ++t) {
+            threads.emplace_back ([&] () {
+                while (!go.load (std::memory_order_acquire)) {
+                }
+                total += session.Advance (fixture.traversal, 24, 0.001, 0.0, 1);
+            });
+        }
+        go.store (true, std::memory_order_release);
+        for (std::thread& thread : threads)
+            thread.join ();
+
+        // Whoever won resolved every step; the losers were refused with 0. No
+        // step is ever counted twice.
+        EXPECT_EQ (total.load (), 24u);
+        EXPECT_TRUE (session.Progress ().converged);
+        EXPECT_EQ (session.Progress ().resolvedSteps, 24u);
+    }
+}
+
+// A refusal is not a failure: the loser learns "nothing to do", which is what a
+// frame loop that lost the race to a graph evaluation should conclude.
+TEST (SunStudySession, TheGuardReleasesSoLaterCallsSucceed)
+{
+    Fixture fixture;
+    const SunSeries day = MakeDay (6);
+    SunStudySession session;
+    session.Sync (Inputs (1, day.Version (), 1), day, fixture.Samples ());
+
+    EXPECT_EQ (session.Advance (fixture.traversal, 2, 0.001, 0.0, 1), 2u);
+    EXPECT_EQ (session.Advance (fixture.traversal, 2, 0.001, 0.0, 1), 2u);
+    EXPECT_EQ (session.Advance (fixture.traversal, 2, 0.001, 0.0, 1), 2u);
+    EXPECT_TRUE (session.Progress ().converged);
 }

@@ -70,9 +70,16 @@ from typing import Any
 # helper created INSIDE the node's own folder. It refuses an existing file, a
 # path, and the shared library root, so like GraphScriptCreate it can bring a
 # file into existence and can never destroy one.
-EXPECTED_REGISTRY_COMMANDS = 172
+# 2026-09-04, the sun study's bus surface: +5 for StartSunStudy,
+# AdvanceSunStudy, SunStudyState, GetSunStudyResults and CancelSunStudy. All
+# host-independent: they read the immutable snapshot and the project's place
+# settings and write only the add-on's own study store, never the model. The
+# split is deliberate - StartSunStudy needs the main thread because Archicad
+# computes the sun, and the other four are gate-free so a long analysis never
+# occupies the thread the application draws on.
+EXPECTED_REGISTRY_COMMANDS = 177
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 191
+EXPECTED_TOTAL_COMMANDS = 196
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'
