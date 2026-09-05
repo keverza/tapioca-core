@@ -32,7 +32,20 @@ export const DEFAULT_DISPLAY_STATE: DisplayState = {
   style: { representation: 'default' },
 }
 
-const CATEGORY_COLORS = ['#d58b4b', '#65a9b8', '#7da76a', '#a580bd', '#c56f72', '#6e91c9']
+/**
+ * The one node colour ramp.
+ *
+ * ⚠️ ONE ARRAY, TWO READERS, AND THAT IS THE POINT. `categoryColor` hashes into it
+ * and the inspector's swatch row offers it. The inspector used to carry its own
+ * eight-colour copy, which had already drifted to different hues - so a node given
+ * a "green" by hand did not match the green the canvas assigned its category, and
+ * neither followed the theme.
+ *
+ * Desaturated on purpose: these sit on a light grey canvas as a 2px strip beside a
+ * dozen neighbours, so they have to read as one family. Separated in lightness as
+ * well as hue, so the distinction survives the common colour-vision deficiencies.
+ */
+export const NODE_SWATCHES = ['#7d94ae', '#7fa08d', '#a8906f', '#9d8aa8', '#6f9aa8', '#a88a8a'] as const
 
 /**
  * Where a node's preview is drawn: in its own viewport, in Archicad, or both.
@@ -73,7 +86,7 @@ export function bodyModeFor(schema: NodeTypeSchema): NodeBodyMode {
 export function categoryColor(category: string): string {
   let hash = 0
   for (const character of category) hash = (hash * 31 + character.charCodeAt(0)) >>> 0
-  return CATEGORY_COLORS[hash % CATEGORY_COLORS.length]
+  return NODE_SWATCHES[hash % NODE_SWATCHES.length]
 }
 
 /**
@@ -93,20 +106,20 @@ export function categoryColor(category: string): string {
  * port's label and its hover card both name the type in words.
  */
 const PORT_COLORS: Record<string, string> = {
-  double: '#4f9bd9',
-  integer: '#4f9bd9',
-  bool: '#d1584f',
-  string: '#d9a441',
-  point3: '#e0709f',
-  polyline: '#e0709f',
-  polygon: '#e0709f',
-  mesh: '#e0709f',
-  archicadElementRef: '#4fb3a5',
-  list: '#9b87c9',
+  double: '#3f83c4',
+  integer: '#3f83c4',
+  bool: '#c2352c',
+  string: '#c08a2a',
+  point3: '#c25f8c',
+  polyline: '#c25f8c',
+  polygon: '#c25f8c',
+  mesh: '#c25f8c',
+  archicadElementRef: '#3f9c8e',
+  list: '#8a76b8',
 }
 
 /** The grey a port of no declared type gets - `absent` means "any type" here. */
-export const ANY_PORT_COLOR = '#8a97a6'
+export const ANY_PORT_COLOR = '#8a8a8a'
 
 export function portColor(valueType: string): string {
   return PORT_COLORS[valueType] ?? ANY_PORT_COLOR

@@ -1,66 +1,146 @@
+/*
+  THE ONE PLACE A COLOUR IS CHOSEN.
+  Archicad-aligned: flat neutral greys, dark-grey text and rules, blue for
+  selection, green for accepted, red for error. See
+  private/docs/architecture/api/HANDOFF-TapiocaGraphUIStyleGuidelines.md.
+
+  ⚠️ A TOKEN MUST BE DECLARED IN ALL THREE BLOCKS. `:root` is the dark theme,
+  `main[data-theme='light']` the light one, and the media block is the light
+  half of `system`. A token added to one of them falls back silently in the
+  others rather than failing, so the omission is invisible until somebody
+  switches theme.
+
+  ⚠️ AND `--xy-*` IS RE-DECLARED IN EACH BLOCK, NOT INHERITED. A custom property
+  is substituted against the element it is DECLARED on, so an `--xy-background-color:
+  var(--canvas)` written once on `:root` would carry the DARK canvas into the light
+  theme - which is exactly the bug the system-light block used to have, having
+  overridden `--canvas` while leaving every `--xy-*` at its dark value.
+
+  ⚠️ `--surface-raised` IS THE CHROME, NOT THE BRIGHTEST SURFACE. The toolbar uses
+  it, and in the light theme it is DARKER than `--surface`. "Raised" is the
+  z-stack, not the luminance.
+*/
 :root {
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-synthesis: none;
-  --accent: #ffb000;
-  --accent-soft: #ffcb5b;
-  --canvas: #0e1216;
-  --surface: #151a20;
-  --surface-raised: #202731;
-  --surface-hover: #2b3541;
-  --border: #36414d;
-  --text: #e8edf2;
-  --text-muted: #98a6b5;
-  --text-faint: #718092;
-  --danger: #e36d5b;
+  --accent: #3d9be0;
+  --accent-soft: #1c364a;
+  --on-accent: #12212b;
+  --canvas: #1f1f1f;
+  --surface: #2a2a2a;
+  --surface-raised: #333333;
+  --surface-hover: #3d3d3d;
+  --border: #4a4a4a;
+  --border-faint: #383838;
+  --text: #e4e4e4;
+  --text-muted: #adadad;
+  --text-faint: #8a8a8a;
+  --success: #57a567;
+  --success-soft: #23331f;
+  --warning: #d9a441;
+  --danger: #e8776b;
+  --nub-ring: #2a2a2a;
+  --wire: #8a8a8a;
+  --code-keyword: #c678dd;
+  --code-function: #61afef;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-comment: #7d8799;
+  --code-type: #e5c07b;
+  --code-operator: #56b6c2;
+  --code-property: #d0d5db;
+  --code-invalid: #e06c75;
   color: var(--text);
   background: var(--canvas);
-  --xy-background-color: #0e1216;
-  --xy-edge-stroke: #6e7d8e;
-  --xy-edge-stroke-selected: #ffb000;
-  --xy-controls-button-background-color: #202731;
-  --xy-controls-button-background-color-hover: #2b3541;
-  --xy-controls-button-color: #dbe3eb;
-  --xy-controls-button-border-color: #36414d;
-  --xy-minimap-background-color: #151a20;
-  --xy-minimap-mask-background-color: rgb(5 8 11 / 66%);
+  --xy-background-color: var(--canvas);
+  --xy-edge-stroke: var(--wire);
+  --xy-edge-stroke-selected: var(--accent);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: var(--surface-hover);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--surface);
+  --xy-minimap-mask-background-color: rgb(12 12 12 / 66%);
 }
 
 main[data-theme='light'] {
-  --accent: #a96300;
-  --accent-soft: #7d4b00;
-  --canvas: #eef1f4;
-  --surface: #f8fafb;
-  --surface-raised: #e5e9ed;
-  --surface-hover: #d7dde3;
-  --border: #aeb8c2;
-  --text: #18212a;
-  --text-muted: #53616f;
-  --text-faint: #697887;
-  --danger: #b73b2f;
-  --xy-background-color: #eef1f4;
-  --xy-edge-stroke: #687887;
-  --xy-edge-stroke-selected: #a96300;
-  --xy-controls-button-background-color: #f8fafb;
-  --xy-controls-button-background-color-hover: #e5e9ed;
-  --xy-controls-button-color: #18212a;
-  --xy-controls-button-border-color: #aeb8c2;
-  --xy-minimap-background-color: #f8fafb;
-  --xy-minimap-mask-background-color: rgb(230 235 240 / 70%);
+  --accent: #1e6fb8;
+  --accent-soft: #d7e6f4;
+  --on-accent: #ffffff;
+  --canvas: #e8e8e8;
+  --surface: #f5f5f5;
+  --surface-raised: #e0e0e0;
+  --surface-hover: #d6d6d6;
+  --border: #a8a8a8;
+  --border-faint: #c9c9c9;
+  --text: #2b2b2b;
+  --text-muted: #5a5a5a;
+  --text-faint: #7e7e7e;
+  --success: #357c45;
+  --success-soft: #dcecdd;
+  --warning: #c07b1f;
+  --danger: #c2352c;
+  --nub-ring: #f5f5f5;
+  --wire: #6e6e6e;
+  --code-keyword: #a626a4;
+  --code-function: #4078f2;
+  --code-string: #50a14f;
+  --code-number: #986801;
+  --code-comment: #8a8a8a;
+  --code-type: #b07d20;
+  --code-operator: #0184bc;
+  --code-property: #383a42;
+  --code-invalid: #c2352c;
+  --xy-background-color: var(--canvas);
+  --xy-edge-stroke: var(--wire);
+  --xy-edge-stroke-selected: var(--accent);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-background-color-hover: var(--surface-hover);
+  --xy-controls-button-color: var(--text);
+  --xy-controls-button-border-color: var(--border);
+  --xy-minimap-background-color: var(--surface);
+  --xy-minimap-mask-background-color: rgb(232 232 232 / 70%);
 }
 
 @media (prefers-color-scheme: light) {
   main[data-theme='system'] {
-    --accent: #a96300;
-    --accent-soft: #7d4b00;
-    --canvas: #eef1f4;
-    --surface: #f8fafb;
-    --surface-raised: #e5e9ed;
-    --surface-hover: #d7dde3;
-    --border: #aeb8c2;
-    --text: #18212a;
-    --text-muted: #53616f;
-    --text-faint: #697887;
-    --danger: #b73b2f;
+    --accent: #1e6fb8;
+    --accent-soft: #d7e6f4;
+    --on-accent: #ffffff;
+  --on-accent: #ffffff;
+    --canvas: #e8e8e8;
+    --surface: #f5f5f5;
+    --surface-raised: #e0e0e0;
+    --surface-hover: #d6d6d6;
+    --border: #a8a8a8;
+    --border-faint: #c9c9c9;
+    --text: #2b2b2b;
+    --text-muted: #5a5a5a;
+    --text-faint: #7e7e7e;
+    --success: #357c45;
+    --success-soft: #dcecdd;
+    --warning: #c07b1f;
+    --danger: #c2352c;
+    --nub-ring: #f5f5f5;
+    --wire: #6e6e6e;
+    --code-keyword: #a626a4;
+    --code-function: #4078f2;
+    --code-string: #50a14f;
+    --code-number: #986801;
+    --code-comment: #8a8a8a;
+    --code-type: #b07d20;
+    --code-operator: #0184bc;
+    --code-property: #383a42;
+    --code-invalid: #c2352c;
+    --xy-background-color: var(--canvas);
+    --xy-edge-stroke: var(--wire);
+    --xy-edge-stroke-selected: var(--accent);
+    --xy-controls-button-background-color: var(--surface);
+    --xy-controls-button-background-color-hover: var(--surface-hover);
+    --xy-controls-button-color: var(--text);
+    --xy-controls-button-border-color: var(--border);
+    --xy-minimap-background-color: var(--surface);
+    --xy-minimap-mask-background-color: rgb(232 232 232 / 70%);
   }
 }
 
@@ -154,8 +234,8 @@ main {
 
 .tool-strip button.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
-  color: var(--accent-soft);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .tool-strip button > span:first-child,
@@ -483,14 +563,14 @@ select:disabled {
   width: min(420px, calc(100% - 48px));
   padding: 26px 30px;
   transform: translate(-50%, -50%);
-  border-left: 3px solid #ffb000;
+  border-left: 3px solid var(--accent);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
   box-shadow: 0 16px 50px rgb(0 0 0 / 35%);
   pointer-events: none;
 }
 
 .empty span {
-  color: #ffb000;
+  color: var(--accent);
   font: 700 9px/1 ui-monospace, monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -534,9 +614,9 @@ select:disabled {
   width: 24px;
   height: 24px;
   transform: translate3d(80px, 80px, 0);
-  border: 2px solid #ffcb5b;
+  border: 2px solid var(--accent-soft);
   border-radius: 3px;
-  background: #ffb000;
+  background: var(--accent);
   box-shadow: 0 5px 14px rgb(0 0 0 / 35%);
   pointer-events: none;
   will-change: transform;
@@ -558,16 +638,16 @@ main > footer span {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #75c695;
+  background: var(--success);
 }
 
 main > footer span.active {
-  background: #ffb000;
-  box-shadow: 0 0 8px #ffb000;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
 }
 
 main > footer.error span {
-  background: #e36d5b;
+  background: var(--danger);
 }
 
 main > footer p {

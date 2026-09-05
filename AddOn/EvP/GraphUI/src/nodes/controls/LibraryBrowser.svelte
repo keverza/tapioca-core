@@ -308,15 +308,15 @@
   .thumb em { color: var(--text-faint); font: 8px/1.2 'Segoe UI', sans-serif; font-style: normal; text-align: center; }
   .label { overflow: hidden; width: 100%; font: 9px/1.25 'Segoe UI', sans-serif; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
   .contents.list .label { text-align: left; }
-  .missing { color: var(--danger, #d8746c); font: 8px/1 'Segoe UI', sans-serif; }
+  .missing { color: var(--danger); font: 8px/1 'Segoe UI', sans-serif; }
   footer { display: flex; align-items: center; padding: 7px 8px; border-top: 1px solid var(--border); background: var(--surface-raised); gap: 8px; }
   .status { display: flex; min-width: 0; flex: 1 1 auto; align-items: baseline; gap: 6px; }
   .status strong { overflow: hidden; font-size: 10px; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
   .status span { color: var(--text-faint); font: 8px/1.3 'Segoe UI', sans-serif; }
-  .capped { color: var(--warning, #d8b06c); }
+  .capped { color: var(--warning); }
   .link { border: 0; background: transparent; color: var(--text-faint); font-size: 8px; text-decoration: underline; cursor: pointer; }
-  .choose { height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--accent, #4c8cd8); color: #fff; font: 600 9px/1 'Segoe UI', sans-serif; cursor: pointer; }
+  .choose { height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--accent); color: var(--on-accent); font: 600 9px/1 'Segoe UI', sans-serif; cursor: pointer; }
   .choose:disabled { background: var(--surface); color: var(--text-faint); cursor: default; }
   .note { margin: 0; padding: 18px 12px; color: var(--text-faint); font: 9px/1.45 'Segoe UI', sans-serif; text-align: center; }
-  .failure { color: var(--danger, #d8746c); }
+  .failure { color: var(--danger); }
 </style>

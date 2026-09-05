@@ -94,7 +94,7 @@
   .port:hover .tooltip { display: grid; gap: 3px; }
   .tooltip strong { color: var(--text); font-size: 9px; }
   .tooltip span, .tooltip code { color: var(--text-faint); font: 7px/1.3 ui-monospace, monospace; }
-  .tooltip em { color: #c9922f; font: 7px/1.3 ui-monospace, monospace; font-style: normal; }
+  .tooltip em { color: var(--warning); font: 7px/1.3 ui-monospace, monospace; font-style: normal; }
   .tooltip em.error { color: var(--danger); }
 
   .tooltip i { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 2px; vertical-align: middle; }
@@ -117,7 +117,7 @@
   /* The nub takes the PORT's colour and falls back to the node's, so a port
      whose type has no entry still draws rather than going transparent. */
   :global(.svelte-flow__handle) { z-index: 3; box-sizing: border-box; width: 11px; height: 11px; border: 1px solid var(--surface); border-radius: 2px; background: var(--port-color, var(--node-color)); }
-  .port.connected :global(.svelte-flow__handle) { border: 2px solid #d5d8dc; box-shadow: 0 0 0 2px color-mix(in srgb, var(--port-color, var(--node-color)) 55%, transparent); }
+  .port.connected :global(.svelte-flow__handle) { border: 2px solid var(--nub-ring); box-shadow: 0 0 0 2px color-mix(in srgb, var(--port-color, var(--node-color)) 55%, transparent); }
   /*
    * The drawn nub stays small; what the pointer has to hit does not. The
    * pseudo-element is part of the handle's own hit region, so a press anywhere

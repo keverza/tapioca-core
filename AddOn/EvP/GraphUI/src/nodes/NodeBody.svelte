@@ -124,7 +124,7 @@
      edge and its nub lands on the border rather than over the label. The row
      carries its own clearance instead; see NodePort. */
   .execute { padding: 0 9px 8px 11px; }
-  .execute button { width: 100%; height: 21px; border: 1px solid var(--border); border-radius: 3px; background: var(--accent, #4c8cd8); color: #fff; font: 600 10px/1 'Segoe UI', sans-serif; cursor: pointer; }
+  .execute button { width: 100%; height: 21px; border: 1px solid var(--border); border-radius: 3px; background: var(--accent); color: var(--on-accent); font: 600 10px/1 'Segoe UI', sans-serif; cursor: pointer; }
   .execute button:hover:not(:disabled) { filter: brightness(1.1); }
   .execute button:disabled { background: var(--surface); color: var(--text-faint); cursor: default; }
   .ports { display: flex; justify-content: space-between; min-height: 25px; padding: 7px 0 8px; gap: 10px; }

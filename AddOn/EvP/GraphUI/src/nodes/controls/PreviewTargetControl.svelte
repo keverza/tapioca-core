@@ -53,6 +53,6 @@
   button:hover:not(:disabled) { background: var(--surface); color: var(--text); }
   /* The selected segment is filled, not merely outlined: at 17px an outline and
      a hover state are the same picture, and this control is read at a glance. */
-  button.on { background: var(--accent, #4c8cd8); color: #fff; }
+  button.on { background: var(--accent); color: var(--on-accent); }
   button:disabled { cursor: default; opacity: .5; }
 </style>

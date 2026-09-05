@@ -9,6 +9,6 @@
 
 <style>
   button { overflow: hidden; max-width: 52px; height: 22px; padding: 0 3px; border-color: transparent; background: transparent; color: var(--text-faint); font: 7px/1 ui-monospace, monospace; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
-  button.noteworthy { color: #c9922f; }
+  button.noteworthy { color: var(--warning); }
   button.bad { color: var(--danger); }
 </style>

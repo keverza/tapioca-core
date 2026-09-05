@@ -70,16 +70,16 @@
    * can be mounted before styles.css has defined a variable.
    */
   const highlight = HighlightStyle.define([
-    { tag: tags.keyword, color: 'var(--code-keyword, #c678dd)' },
-    { tag: [tags.controlKeyword, tags.moduleKeyword], color: 'var(--code-keyword, #c678dd)' },
-    { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: 'var(--code-function, #61afef)' },
-    { tag: [tags.string, tags.special(tags.string)], color: 'var(--code-string, #98c379)' },
-    { tag: [tags.number, tags.bool, tags.null], color: 'var(--code-number, #d19a66)' },
-    { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--code-comment, #7d8799)', fontStyle: 'italic' },
-    { tag: [tags.typeName, tags.className], color: 'var(--code-type, #e5c07b)' },
-    { tag: tags.operator, color: 'var(--code-operator, #56b6c2)' },
-    { tag: tags.propertyName, color: 'var(--code-property, #d0d5db)' },
-    { tag: tags.invalid, color: 'var(--code-invalid, #e06c75)' },
+    { tag: tags.keyword, color: 'var(--code-keyword)' },
+    { tag: [tags.controlKeyword, tags.moduleKeyword], color: 'var(--code-keyword)' },
+    { tag: [tags.function(tags.variableName), tags.function(tags.propertyName)], color: 'var(--code-function)' },
+    { tag: [tags.string, tags.special(tags.string)], color: 'var(--code-string)' },
+    { tag: [tags.number, tags.bool, tags.null], color: 'var(--code-number)' },
+    { tag: [tags.comment, tags.lineComment, tags.blockComment], color: 'var(--code-comment)', fontStyle: 'italic' },
+    { tag: [tags.typeName, tags.className], color: 'var(--code-type)' },
+    { tag: tags.operator, color: 'var(--code-operator)' },
+    { tag: tags.propertyName, color: 'var(--code-property)' },
+    { tag: tags.invalid, color: 'var(--code-invalid)' },
   ])
 
   const theme = EditorView.theme({
@@ -91,9 +91,9 @@
     '.cm-content': { caretColor: 'var(--text)' },
     '&.cm-focused .cm-cursor': { borderLeftColor: 'var(--text)' },
     '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
-      backgroundColor: 'color-mix(in srgb, var(--accent, #4c8cd8) 30%, transparent)',
+      backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)',
     },
-    '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent, #4c8cd8) 18%, transparent)' },
+    '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 18%, transparent)' },
     '.cm-panels': { backgroundColor: 'var(--surface)', color: 'var(--text)' },
     '.cm-panels input, .cm-panels button': {
       border: '1px solid var(--border)', borderRadius: '3px', background: 'var(--canvas)', color: 'var(--text)',

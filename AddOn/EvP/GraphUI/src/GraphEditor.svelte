@@ -50,6 +50,7 @@
     graphValueFromText,
     initialTheme,
     isCatalogConnectionValid,
+    GRAPH_EDGE_TYPE,
     REFERENCE_EDGE_COLOR,
     REFERENCE_EDGE_STYLE,
     type DetailLevel,
@@ -477,7 +478,7 @@
         sourceHandle: edge.sourcePort,
         target: edge.targetNode,
         targetHandle: edge.targetPort,
-        type: 'smoothstep',
+        type: GRAPH_EDGE_TYPE,
         ...(reference
           ? {
               style: REFERENCE_EDGE_STYLE,
@@ -726,7 +727,7 @@
           sourceHandle: connection.sourceHandle,
           target: connection.target,
           targetHandle: connection.targetHandle,
-          type: 'smoothstep',
+          type: GRAPH_EDGE_TYPE,
           ...(reference
             ? {
                 style: REFERENCE_EDGE_STYLE,

@@ -221,7 +221,7 @@
   article.inert { filter: saturate(.55); }
   article.disabled { border-style: dashed; opacity: .58; }
   article.bypassed { border-style: dashed; }
-  article.holding { box-shadow: inset 0 0 0 1px #c9922f; }
+  article.holding { box-shadow: inset 0 0 0 1px var(--warning); }
   article.compact { min-height: 0; }
   article.primary-display::after { position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; border: 1px solid var(--surface); border-radius: 50%; background: var(--node-color); content: ''; }
   article.reference-display::after { position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; border: 1px solid var(--node-color); border-radius: 50%; background: var(--surface); content: ''; }

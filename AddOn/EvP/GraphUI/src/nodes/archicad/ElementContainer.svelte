@@ -181,5 +181,5 @@
   dd { overflow: hidden; margin: 0; font: 9px/1.5 ui-monospace, monospace; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
   dd em { color: var(--text-faint); font-style: normal; }
   .note { margin: 4px 6px; color: var(--text-faint); font: 9px/1.4 'Segoe UI', sans-serif; }
-  .failure { color: var(--danger, #d8746c); }
+  .failure { color: var(--danger); }
 </style>

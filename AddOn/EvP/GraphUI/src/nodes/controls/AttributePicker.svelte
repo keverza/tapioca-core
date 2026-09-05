@@ -378,7 +378,7 @@
   .sizes { display: flex; justify-content: flex-end; padding: 3px 5px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); gap: 2px; }
   .sizes button { width: 18px; height: 15px; padding: 0; border: 0; border-radius: 2px; background: transparent; color: var(--text-faint); font: 8px/1 ui-monospace, monospace; }
   .sizes button:hover { background: var(--surface-hover); color: var(--text); }
-  .sizes button.active { background: var(--surface-hover); color: var(--accent-soft); }
+  .sizes button.active { background: var(--accent-soft); color: var(--accent); }
 
   .rows { overflow-y: auto; padding: 3px; }
   h4 { position: sticky; top: 0; z-index: 1; margin: 4px 0 2px; padding: 3px 5px; background: var(--surface-raised); color: var(--text-faint); font: 700 7px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
@@ -389,7 +389,7 @@
   /* Hover and keyboard share one highlight: two different "where am I" marks on
      one list is one too many. */
   .row.active { background: var(--surface-hover); }
-  .row.selected { color: var(--accent-soft); }
+  .row.selected { color: var(--accent); }
   .row.dimmed .label { opacity: .55; }
   .label { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
   .row em { color: var(--text-faint); font: 7px/1 ui-monospace, monospace; font-style: normal; }

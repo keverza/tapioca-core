@@ -477,18 +477,18 @@
   .tab:hover { color: var(--text); }
   .tab.active { border-color: var(--border); background: var(--canvas); color: var(--text); }
   /* A dirty tab is marked, so a file edited three tabs ago is not invisible. */
-  .tab.dirty::after { content: ' •'; color: var(--accent, #4c8cd8); }
+  .tab.dirty::after { content: ' •'; color: var(--accent); }
   .tab.shared { font-style: italic; }
   .tab.add { color: var(--text-faint); font-size: 13px; }
   .adding { display: flex; flex: 0 0 auto; align-items: center; gap: 3px; }
   .adding input { width: 110px; height: 20px; padding: 0 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--canvas); color: var(--text); font: 10px ui-monospace, monospace; }
   .adding button { height: 20px; padding: 0 7px; }
-  .hint { margin: 0; padding: 5px 11px; color: #d98f3f; font-size: 10px; }
+  .hint { margin: 0; padding: 5px 11px; color: var(--warning); font-size: 10px; }
   .shared-note { border-bottom: 1px solid var(--border); }
   /* The editor is the only thing that grows, so a long script scrolls inside it
      rather than pushing the toolbar off the bottom of the panel. */
   .editor { min-height: 220px; flex: 1 1 auto; overflow: hidden; border-bottom: 1px solid var(--border); }
-  .conflict { padding: 9px 11px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, #d98f3f 14%, transparent); }
+  .conflict { padding: 9px 11px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--warning) 14%, transparent); }
   .conflict p { margin: 0 0 7px; }
   .choices { display: flex; gap: 6px; }
   .diff { display: grid; gap: 6px; margin-top: 9px; }
@@ -499,24 +499,24 @@
   .problems button { display: grid; width: 100%; padding: 2px 11px; border: 0; background: none; color: inherit; cursor: pointer; grid-template-columns: 96px 1fr; text-align: left; }
   .problems button:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 7%, transparent); }
   .problems span { overflow: hidden; color: var(--text-faint); font: 9px ui-monospace, monospace; text-overflow: ellipsis; }
-  .problems code { color: #d98f3f; font: 10px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
+  .problems code { color: var(--warning); font: 10px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
   .dropped, .migrated { margin: 0; padding: 7px 11px; border-bottom: 1px solid var(--border); font-size: 10px; }
-  .dropped { color: #d98f3f; }
+  .dropped { color: var(--warning); }
   .migrated { color: var(--text-faint); }
   .error, .notice { margin: 0; padding: 7px 11px; border-bottom: 1px solid var(--border); font-size: 10px; }
-  .error { color: #d05f5f; }
+  .error { color: var(--danger); }
   .notice { color: var(--text-faint); }
   footer { display: flex; align-items: center; padding: 8px 11px; gap: 6px; flex-wrap: wrap; }
   button { height: 23px; padding: 0 9px; border: 1px solid var(--border); border-radius: 3px; background: var(--canvas); color: var(--text); font: 600 10px/1 'Segoe UI', sans-serif; cursor: pointer; }
-  button:hover:not(:disabled) { border-color: var(--accent, #4c8cd8); }
+  button:hover:not(:disabled) { border-color: var(--accent); }
   button:disabled { color: var(--text-faint); cursor: default; }
-  button.primary { border-color: var(--accent, #4c8cd8); background: var(--accent, #4c8cd8); color: #fff; }
+  button.primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
   button.primary:disabled { border-color: var(--border); background: var(--canvas); color: var(--text-faint); }
   button.ghost { border-color: transparent; }
-  button.danger { color: #d05f5f; }
+  button.danger { color: var(--danger); }
   .phase { margin-left: auto; color: var(--text-faint); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
-  .phase.dirty { color: var(--accent, #4c8cd8); }
-  .phase.conflict { color: #d98f3f; }
+  .phase.dirty { color: var(--accent); }
+  .phase.conflict { color: var(--warning); }
   .roots, .log { max-height: 120px; margin: 0; padding: 5px 0; overflow: auto; border-top: 1px solid var(--border); background: var(--canvas); list-style: none; }
   .roots li, .log li { padding: 1px 11px; }
   .roots code, .log code { font: 10px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }

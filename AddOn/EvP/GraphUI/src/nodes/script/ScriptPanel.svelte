@@ -301,22 +301,22 @@
   .status span { flex: 0 0 auto; color: var(--text-faint); font-size: 8px; }
   /* The three conditions are coloured, and only they are: a node that is simply
      loaded should look like every other node on the canvas. */
-  .status.missing span, .error { color: #d05f5f; }
-  .status.invalid span { color: #d98f3f; }
-  .status.stale span { color: var(--accent, #4c8cd8); }
+  .status.missing span, .error { color: var(--danger); }
+  .status.invalid span { color: var(--warning); }
+  .status.stale span { color: var(--accent); }
   .hint { margin: 0; color: var(--text-faint); font-size: 8px; }
   .diagnostics { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
   .diagnostics li { display: grid; grid-template-columns: 44px 1fr; align-items: baseline; gap: 5px; }
   .diagnostics span { color: var(--text-faint); font: 8px/1.4 ui-monospace, monospace; }
-  .diagnostics code { color: #d98f3f; font: 9px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
-  .dropped { margin: 0; color: #d98f3f; font-size: 8px; }
+  .diagnostics code { color: var(--warning); font: 9px/1.4 ui-monospace, monospace; white-space: pre-wrap; }
+  .dropped { margin: 0; color: var(--warning); font-size: 8px; }
   .error { margin: 0; font-size: 8px; }
   .actions { display: flex; gap: 4px; }
   /* The icon button does not stretch: the text buttons share the row and this one
      is exactly as wide as its glyph needs. */
   .actions button.icon { flex: 0 0 24px; display: grid; place-items: center; padding: 0; }
   .actions button { flex: 1 1 0; height: 21px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text); font: 600 9px/1 'Segoe UI', sans-serif; cursor: pointer; }
-  .actions button:hover:not(:disabled) { border-color: var(--accent, #4c8cd8); }
+  .actions button:hover:not(:disabled) { border-color: var(--accent); }
   .actions button:disabled { color: var(--text-faint); cursor: default; }
   .log { max-height: 120px; margin: 0; padding: 4px 0; overflow: auto; border: 1px solid var(--border); background: var(--canvas); list-style: none; }
   .log li { padding: 1px 7px; }

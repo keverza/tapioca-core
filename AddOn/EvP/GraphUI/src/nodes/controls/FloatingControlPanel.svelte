@@ -2,7 +2,7 @@
   import type { ElementDescriptionResponse, ElementGroup, ExecutionMode, NodeTypeSchema } from '../../types'
   import ElementContainer from '../archicad/ElementContainer.svelte'
   import type { PortConnectionState } from '../types/port'
-  import { portColor, type DisplayState } from '../types/display'
+  import { NODE_SWATCHES, portColor, type DisplayState } from '../types/display'
   import type { NodeViewMode } from '../types/node'
   import type { PortLayout } from '../types/port'
 
@@ -55,7 +55,6 @@
     onclose: () => void
   } = $props()
 
-  const colors = ['#d58b4b', '#65a9b8', '#7da76a', '#a580bd', '#c56f72', '#d2c66c', '#8194aa', '#d9d9d9']
   const canBypass = $derived((schema.bypassMappings?.length ?? 0) > 0)
   function inputConnection(portId: string): PortConnectionState | undefined {
     return connections.find((connection) => connection.direction === 'input' && connection.portId === portId)
@@ -149,7 +148,7 @@
       <button class:active={viewerVisible} type="button" onclick={onviewer}>Visible</button>
     </div>
     <div class="swatches" aria-label="Node color">
-      {#each colors as swatch}<button class:active={color === swatch} type="button" style={`--swatch: ${swatch}`} aria-label={`Set color ${swatch}`} onclick={() => oncolor(swatch)}></button>{/each}
+      {#each NODE_SWATCHES as swatch}<button class:active={color === swatch} type="button" style={`--swatch: ${swatch}`} aria-label={`Set color ${swatch}`} onclick={() => oncolor(swatch)}></button>{/each}
       <input type="color" value={color} oninput={(event) => oncolor(event.currentTarget.value)} aria-label="Custom color" />
     </div>
   </fieldset>

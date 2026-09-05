@@ -77,5 +77,5 @@
   .name { overflow: hidden; flex: 1 1 auto; font: 9px/1 'Segoe UI', sans-serif; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
   .name.empty { color: var(--text-faint); font-style: italic; }
   .caret { color: var(--text-faint); font: 9px/1 ui-monospace, monospace; }
-  small { color: var(--warning, #d8b06c); font: 8px/1.3 'Segoe UI', sans-serif; }
+  small { color: var(--warning); font: 8px/1.3 'Segoe UI', sans-serif; }
 </style>

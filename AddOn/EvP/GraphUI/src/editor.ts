@@ -4,6 +4,21 @@ import type { GraphValue, NodeOutputRecord, PositionStore, SchemaNodeData } from
 export type DetailLevel = 'compact' | 'normal' | 'detailed'
 export type ThemeMode = 'light' | 'dark' | 'system'
 
+/**
+ * The wire shape, in ONE place.
+ *
+ * ⚠️ TWO CALL SITES BUILD EDGES - the reconciler that rebuilds every wire from
+ * native state, and the optimistic-preview path a fresh connection takes - and a
+ * literal in each is how they come to disagree. They were both 'smoothstep'; a
+ * third site added later would have had to guess.
+ *
+ * Bezier rather than smoothstep because the tangent leaves a port along the
+ * handle's own direction, which reads as "this comes out of THAT nub" at the
+ * density where wires bunch. Smoothstep's right angles look tidy on a sparse
+ * graph and become an unreadable ladder on a busy one.
+ */
+export const GRAPH_EDGE_TYPE = 'bezier'
+
 export const REFERENCE_EDGE_COLOR = '#8a8f98'
 export const REFERENCE_EDGE_STYLE = `stroke: ${REFERENCE_EDGE_COLOR}; stroke-width: 1.4; stroke-dasharray: 5 5;`
 

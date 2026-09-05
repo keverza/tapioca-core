@@ -181,6 +181,6 @@
   .segment.browse { --flag: #6e91c9; }
   .segment.state { --flag: #7da76a; }
   .segment.bypass { --flag: #a580bd; }
-  .segment.hold { --flag: #c9922f; }
+  .segment.hold { --flag: var(--warning); }
   .segment.neutral { --flag: var(--node-color); }
 </style>
