@@ -98,9 +98,12 @@ test('schemaForNodeId answers undefined for a node the graph does not have', () 
 // ---------------------------------------------------------------------------
 // Presentation.
 
-test('a script node draws a custom body and is resizable', () => {
+test('a script node draws a custom body and is NOT resizable', () => {
   assert.equal(bodyModeFor(scriptSchema), 'custom')
-  assert.equal(capabilitiesFor(scriptSchema).resizable, true)
+  // The body is a status line, a name and a row of icons - none of which has a
+  // size worth dragging. The editor lives in the Script Inspector, at the canvas
+  // level, where it takes the full height and is resized on its own edge.
+  assert.equal(capabilitiesFor(scriptSchema).resizable, false)
 })
 
 test('a script node is not offered bypass, hold or a send button', () => {

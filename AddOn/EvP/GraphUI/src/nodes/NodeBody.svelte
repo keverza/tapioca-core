@@ -74,21 +74,30 @@
       {/each}
     </section>
   {/if}
-{:else if viewMode !== 'compact' && data.schema.display === 'script'}
+{:else if data.schema.display === 'script'}
   <!--
     ⚠️ THE PORTS ARE DRAWN ABOVE THIS, BY THE ORDINARY PORT SECTION, and the panel
     draws only the FILE. A script node's ports are ordinary ports that happen to
     have been declared in a file; giving the panel its own port rendering would
     mean this one node family stopped picking up every improvement to how a port
     is drawn, wired, internalised or inspected.
+
+    ⚠️ AND IT IS THE ONE BODY THAT IS STILL DRAWN WHEN THE NODE IS MINIMAL. Every
+    other body is a control surface, which a minimal node has by definition
+    stopped offering; this one also carries the node's CONDITION, and a script
+    that has gone missing has to be visible on a graph somebody is reading rather
+    than operating. The panel draws one dot and a name in that mode - see its
+    `compact` prop - and none of the controls.
   -->
   <ScriptPanel
     nodeId={id}
     graphId={data.graphId}
+    compact={viewMode === 'compact'}
     path={data.parameters.find((parameter) => parameter.parameterId === 'scriptPath')?.value?.text ?? ''}
     onpathchange={(next) => data.onparameterchange?.(id, 'scriptPath', 'string', next)}
     onreloaded={() => data.onscriptreloaded?.()}
     onedit={data.onscriptedit === undefined ? undefined : () => data.onscriptedit?.(id)}
+    onbrowselibrary={onbrowse}
   />
 {:else if viewMode !== 'compact' && data.schema.display === 'text'}
   <section class="text nodrag nowheel">{#if panelContents.length === 0}<p>{data.result ? '(nothing)' : 'Not evaluated'}</p>{:else}<p class="structure">{panelStructure(panelOutput)}</p><ol>{#each panelContents as row (row.key)}{#if row.kind === 'path'}<li class="path"><span>{row.label}</span><em>{row.summary}</em></li>{:else if row.kind === 'item'}<li><span>{row.index}</span><code>{row.text}</code></li>{:else}<li class="note"><span></span><code>{row.text}</code></li>{/if}{/each}</ol>{/if}</section>

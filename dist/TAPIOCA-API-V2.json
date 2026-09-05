@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 177,
+      "nativeRegistry": 185,
       "dispatcherLocal": 19,
-      "total": 196
+      "total": 204
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -9384,6 +9384,15 @@
           },
           "includePositions": {
             "type": "boolean"
+          },
+          "includeSteps": {
+            "type": "boolean"
+          },
+          "includeAtlas": {
+            "type": "boolean"
+          },
+          "packed": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -9405,6 +9414,42 @@
             "items": {
               "type": "number"
             }
+          },
+          "normals": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "stepBits": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "stepBitsPacked": {
+            "type": "string"
+          },
+          "atlasWidth": {
+            "type": "integer"
+          },
+          "atlasHeight": {
+            "type": "integer"
+          },
+          "atlasPacked": {
+            "type": "string"
+          },
+          "atlasReason": {
+            "type": "string"
+          },
+          "positionsPacked": {
+            "type": "string"
+          },
+          "normalsPacked": {
+            "type": "string"
+          },
+          "stepStride": {
+            "type": "integer"
           },
           "count": {
             "type": "integer"
@@ -10174,6 +10219,11 @@
                 "type": "string",
                 "minLength": 1
               },
+              "alias": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
               "nodeType": {
                 "type": "string",
                 "minLength": 1
@@ -10200,12 +10250,19 @@
               },
               "numberValue": {
                 "type": "number"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
             "required": [
               "editKind",
-              "nodeId",
               "nodeType"
             ]
           },
@@ -10222,6 +10279,14 @@
               "nodeId": {
                 "type": "string",
                 "minLength": 1
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
@@ -10258,6 +10323,14 @@
               "targetPort": {
                 "type": "string",
                 "minLength": 1
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
@@ -10292,6 +10365,14 @@
               },
               "numberValue": {
                 "type": "number"
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
@@ -10323,6 +10404,14 @@
                   "bypassed",
                   "holding"
                 ]
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
@@ -10361,6 +10450,14 @@
                   "round",
                   "normalise"
                 ]
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
@@ -10384,6 +10481,14 @@
               "nodeId": {
                 "type": "string",
                 "minLength": 1
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 120
+              },
+              "coalesceKey": {
+                "type": "string",
+                "maxLength": 200
               }
             },
             "additionalProperties": false,
@@ -10552,12 +10657,466 @@
             "items": {
               "type": "string"
             }
+          },
+          "assignedNodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alias": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "alias",
+                "nodeId"
+              ]
+            }
           }
         },
         "additionalProperties": false,
         "required": [
           "revision",
-          "dirtyNodes"
+          "dirtyNodes",
+          "assignedNodes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphApplyEdits",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "coalesceKey": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "edits": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 512,
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "const": "addNode"
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "alias": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "nodeType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "parameters": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "parameterId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "value": {
+                            "$ref": "#/$defs/parameterValue"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "parameterId",
+                          "value"
+                        ]
+                      }
+                    },
+                    "numberValue": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "nodeType"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "const": "removeNode"
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "nodeId"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "enum": [
+                        "connect",
+                        "disconnect"
+                      ]
+                    },
+                    "sourceNode": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "sourcePort": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetNode": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetPort": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "sourceNode",
+                    "sourcePort",
+                    "targetNode",
+                    "targetPort"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "const": "setParam"
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "parameterId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "value": {
+                      "$ref": "#/$defs/parameterValue"
+                    },
+                    "numberValue": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "nodeId",
+                    "parameterId"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "const": "setExecutionMode"
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "enabled",
+                        "disabled",
+                        "bypassed",
+                        "holding"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "nodeId",
+                    "mode"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "const": "setPortModifier"
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "portId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "modifier": {
+                      "type": "string",
+                      "enum": [
+                        "none",
+                        "flatten",
+                        "graft",
+                        "simplify",
+                        "reverse",
+                        "round",
+                        "normalise"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "nodeId",
+                    "portId",
+                    "modifier"
+                  ]
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "editKind": {
+                      "const": "releaseHolding"
+                    },
+                    "nodeId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "editKind",
+                    "nodeId"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "edits"
+        ],
+        "$defs": {
+          "leafValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "value": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "absent",
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "polyline",
+                  "polygon",
+                  "mesh",
+                  "archicadElementRef",
+                  "list"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              },
+              "indices": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "itemCount": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "truncated": {
+                "type": "boolean"
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/leafValue"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          },
+          "parameterValue": {
+            "type": "object",
+            "properties": {
+              "valueType": {
+                "type": "string",
+                "enum": [
+                  "bool",
+                  "integer",
+                  "double",
+                  "string",
+                  "point3",
+                  "archicadElementRef"
+                ]
+              },
+              "bool": {
+                "type": "boolean"
+              },
+              "number": {
+                "type": "number"
+              },
+              "text": {
+                "type": "string"
+              },
+              "numbers": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valueType"
+            ]
+          }
+        }
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dirtyNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignedNodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alias": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "alias",
+                "nodeId"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "dirtyNodes",
+          "assignedNodes"
         ]
       }
     },
@@ -10657,6 +11216,19 @@
                       },
                       "unit": {
                         "type": "string"
+                      },
+                      "origin": {
+                        "type": "string",
+                        "enum": [
+                          "archicad",
+                          "derived"
+                        ]
+                      },
+                      "appliesWhenSetting": {
+                        "type": "string"
+                      },
+                      "appliesWhenEquals": {
+                        "type": "string"
                       }
                     },
                     "additionalProperties": false,
@@ -10665,7 +11237,10 @@
                       "label",
                       "group",
                       "valueType",
-                      "unit"
+                      "unit",
+                      "origin",
+                      "appliesWhenSetting",
+                      "appliesWhenEquals"
                     ]
                   }
                 }
@@ -10816,12 +11391,33 @@
             "items": {
               "type": "string"
             }
+          },
+          "assignedNodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alias": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "alias",
+                "nodeId"
+              ]
+            }
           }
         },
         "additionalProperties": false,
         "required": [
           "revision",
-          "dirtyNodes"
+          "dirtyNodes",
+          "assignedNodes"
         ]
       }
     },
@@ -11331,6 +11927,65 @@
           "lastSeq",
           "gap",
           "events"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphGetHistory",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "canUndo": {
+            "type": "boolean"
+          },
+          "canRedo": {
+            "type": "boolean"
+          },
+          "undoLabel": {
+            "type": "string"
+          },
+          "redoLabel": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "undoCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "redoCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stepsRecorded": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "canUndo",
+          "canRedo",
+          "undoLabel",
+          "redoLabel",
+          "depth",
+          "undoCount",
+          "redoCount",
+          "stepsRecorded"
         ]
       }
     },
@@ -12982,6 +13637,62 @@
       }
     },
     {
+      "name": "Tapioca.GraphRedo",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dirtyNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignedNodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alias": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "alias",
+                "nodeId"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "dirtyNodes",
+          "assignedNodes"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GraphScriptAddFile",
       "implementation": "native-registry",
       "inputScheme": {
@@ -13178,6 +13889,92 @@
       }
     },
     {
+      "name": "Tapioca.GraphScriptLibrary",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "hasEntry": {
+                  "type": "boolean"
+                },
+                "fileCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "modifiedAtMs": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "title",
+                "hasEntry",
+                "fileCount",
+                "modifiedAtMs"
+              ]
+            }
+          },
+          "suggestedName": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "root",
+          "language",
+          "entries",
+          "suggestedName",
+          "template"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GraphScriptOpen",
       "implementation": "native-registry",
       "inputScheme": {
@@ -13196,6 +13993,35 @@
         "required": [
           "nodeId"
         ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "path"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptOpenLibrary",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
       },
       "outputScheme": {
         "type": "object",
@@ -13478,6 +14304,155 @@
           "ok",
           "error",
           "path"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptSetName",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "name"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "watching": {
+            "type": "boolean"
+          },
+          "loadedAtMs": {
+            "type": "integer"
+          },
+          "modifiedAtMs": {
+            "type": "integer"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "loadError": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array"
+          },
+          "outputs": {
+            "type": "array"
+          },
+          "diagnostics": {
+            "type": "array"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "droppedEdges": {
+            "type": "array"
+          },
+          "interfaceChanged": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "workspaceRoot": {
+            "type": "string"
+          },
+          "entryFile": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array"
+          },
+          "importRoots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "migratedFrom": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "graphId",
+          "nodeId",
+          "path",
+          "language",
+          "exists",
+          "stale",
+          "watching",
+          "loadedAtMs",
+          "modifiedAtMs",
+          "sizeBytes",
+          "loadError",
+          "name",
+          "description",
+          "inputs",
+          "outputs",
+          "diagnostics",
+          "log",
+          "droppedEdges",
+          "interfaceChanged",
+          "revision",
+          "workspaceRoot",
+          "entryFile",
+          "files",
+          "importRoots",
+          "migratedFrom"
         ]
       }
     },
@@ -13795,6 +14770,128 @@
           "evaluated",
           "executedCount",
           "evaluationError"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphSetHistoryDepth",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "depth"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "canUndo": {
+            "type": "boolean"
+          },
+          "canRedo": {
+            "type": "boolean"
+          },
+          "undoLabel": {
+            "type": "string"
+          },
+          "redoLabel": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "undoCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "redoCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stepsRecorded": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "canUndo",
+          "canRedo",
+          "undoLabel",
+          "redoLabel",
+          "depth",
+          "undoCount",
+          "redoCount",
+          "stepsRecorded"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphUndo",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "dirtyNodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assignedNodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "alias": {
+                  "type": "string"
+                },
+                "nodeId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "alias",
+                "nodeId"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "dirtyNodes",
+          "assignedNodes"
         ]
       }
     },
@@ -19950,6 +21047,35 @@
           },
           "zOffset": {
             "type": "number"
+          },
+          "samples": {
+            "type": "string",
+            "enum": [
+              "surfaces",
+              "ground",
+              "explicit"
+            ]
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "normals": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "positionsPacked": {
+            "type": "string"
+          },
+          "normalsPacked": {
+            "type": "string"
+          },
+          "jitter": {
+            "type": "number"
           }
         },
         "additionalProperties": false
@@ -19995,6 +21121,30 @@
           },
           "groundPad": {
             "type": "number"
+          },
+          "sampleMode": {
+            "type": "string"
+          },
+          "undersizedFaces": {
+            "type": "integer"
+          },
+          "degenerateFaces": {
+            "type": "integer"
+          },
+          "closedGroups": {
+            "type": "integer"
+          },
+          "flippedGroups": {
+            "type": "integer"
+          },
+          "atlasWidth": {
+            "type": "integer"
+          },
+          "atlasHeight": {
+            "type": "integer"
+          },
+          "atlasFaces": {
+            "type": "integer"
           },
           "latitude": {
             "type": "number"

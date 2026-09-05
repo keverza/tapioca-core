@@ -26,6 +26,11 @@
 // cannot be portable - a directory change notification - is behind
 // IScriptWatcher, with its Win32 implementation in ScriptWatcherWin32.cpp.
 
+// ScriptLanguage and the comment prefix that goes with it. The two text
+// operations below - the starter script, and setting a header's @name - are
+// per-language, so this header cannot state them without it.
+#include "NodeGraph/ScriptManifest.hpp"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -77,6 +82,28 @@ struct ScriptRead {
 // be able to report it rather than take the run down.
 ScriptStamp StatScript (const std::string& path);
 ScriptRead ReadScript (const std::string& path);
+
+// The starter script itself, as text.
+//
+// Separated from the writer because the PALETTE needs it before anything has
+// been written: a script node is scaffolded on its first save rather than on
+// placement, so the editor opens a brand-new node on this text with no folder
+// behind it yet. One function means the buffer the user starts typing into and
+// the file that eventually lands cannot say different things.
+std::string ScriptTemplateSource (ScriptLanguage language);
+
+// Returns `source` with its `@name` directive set to `name`.
+//
+// ⚠️ ONE LINE CHANGES AND NOTHING ELSE DOES. This runs when the user renames the
+// NODE - the file it edits is one somebody may have spent a morning on, and a
+// rewrite that regenerated the comment block would take their description, their
+// port labels and their notes with it. An existing @name is replaced in place; a
+// header with none gets one at the top of its comment block; a file with no
+// header at all gets one before its first line.
+//
+// Pure text in, pure text out: the caller does the guarded read/write pair, so
+// this stays coverable by the offline suite.
+std::string WithScriptName (const std::string& source, const std::string& name, ScriptLanguage language);
 
 // Writes a starter file for `path`, with the header directives already in it, so
 // a new script node produces something that runs and has ports before anyone has

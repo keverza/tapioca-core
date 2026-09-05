@@ -117,6 +117,148 @@ ScriptRead ReadScript (const std::string& path)
     return read;
 }
 
+std::string ScriptTemplateSource (ScriptLanguage language)
+{
+    // ⚠️ ONE FUNCTION, TWO READERS, AND THAT IS WHY IT IS NOT INLINED INTO THE
+    // WRITER. The palette shows this text in an editor buffer BEFORE the folder
+    // exists - a script node is scaffolded on the first save, not on placement -
+    // so the starter script has to be describable without anything having been
+    // written yet. A second copy of it in the browser bundle would be a starter
+    // script that drifts from the one the disk actually gets.
+    //
+    // ⚠️ AND IT MUST RUN AS IT STANDS. The whole point of a template is that a
+    // node placed a moment ago already has ports, already computes something and
+    // can be wired up straight away - so `x` and `y` are inputs with defaults
+    // (an unwired input still evaluates) and `out` is a typed output. A template
+    // that needed editing before it did anything would just be a comment block.
+    const std::string prefix = ScriptCommentPrefix (language);
+    std::string body;
+    body += prefix + " @name        New script\n";
+    body += prefix + " @description Describe what this node does.\n";
+    body += prefix + "\n";
+    body += prefix + " Ports are declared here and nowhere else. Save the file and the\n";
+    body += prefix + " node reshapes itself to match.\n";
+    body += prefix + "\n";
+    body += prefix + " @in  x : number = 0   \"X\"\n";
+    body += prefix + " @in  y : number = 0   \"Y\"\n";
+    body += prefix + " @out out : number\n";
+    body += "\n";
+    if (language == ScriptLanguage::Python) {
+        // The node's own folder and the shared library are both on sys.path for
+        // the duration of a run, which is what makes these the useful lines to
+        // start from: `math` comes from Tapioca's own interpreter, and a helper
+        // beside this file imports by its bare name.
+        body += "import math\n";
+        body += "\n";
+        body += "# A helper beside this file imports by name: `import calculations`.\n";
+        body += "# So does a shared module in the library's libs folder: `import geometry`.\n";
+        body += "\n";
+        body += "out = math.hypot(x, y)\n";
+    }
+    else {
+        // No module loader is configured for the JavaScript runtime, deliberately
+        // - a loader is also a way to reach the filesystem - so there is nothing
+        // honest to import here and the template does not pretend otherwise.
+        body += "out = Math.hypot(x, y);\n";
+    }
+    return body;
+}
+
+std::string WithScriptName (const std::string& source, const std::string& name, ScriptLanguage language)
+{
+    // ⚠️ A REWRITE OF ONE LINE, NEVER A REGENERATION OF THE HEADER. This runs
+    // when the user renames the NODE, over a file they may have spent a morning
+    // on; anything that rebuilt the comment block would throw away their
+    // description, their port labels and whatever else they wrote up there.
+    //
+    // ⚠️ AND IT IS PURE. It takes text and returns text, so the offline suite
+    // covers the cases that are easy to get wrong - no header at all, a shebang
+    // first, an @name that is already right - without a filesystem or a running
+    // Archicad. The caller does the guarded read/write pair around it.
+    const std::string prefix = ScriptCommentPrefix (language);
+    const std::string directive = prefix + " @name        " + name;
+
+    std::string result;
+    size_t offset = 0;
+    size_t lineNumber = 0;
+    bool replaced = false;
+    size_t insertAt = std::string::npos;
+
+    while (offset < source.size ()) {
+        size_t lineEnd = source.find ('\n', offset);
+        const bool lastLine = lineEnd == std::string::npos;
+        if (lastLine)
+            lineEnd = source.size ();
+        const std::string raw = source.substr (offset, lineEnd - offset);
+        const size_t nextOffset = lastLine ? source.size () : lineEnd + 1;
+        ++lineNumber;
+
+        // Trimmed only for the DECISION; the line itself is copied through
+        // untouched, so a header indented or padded the way its author likes it
+        // stays that way.
+        std::string trimmed = raw;
+        while (!trimmed.empty () && (trimmed.back () == '\r' || trimmed.back () == ' ' || trimmed.back () == '\t'))
+            trimmed.pop_back ();
+        size_t start = 0;
+        while (start < trimmed.size () && (trimmed[start] == ' ' || trimmed[start] == '\t'))
+            ++start;
+        trimmed = trimmed.substr (start);
+
+        const bool shebang = lineNumber == 1 && trimmed.rfind ("#!", 0) == 0;
+        const bool comment = trimmed.rfind (prefix, 0) == 0;
+
+        // ⚠️ THE SHEBANG IS EXCLUDED BEFORE THE COMMENT TEST, NOT AFTER. In
+        // Python it starts with `#` and so LOOKS like the head of the comment
+        // block; inserting a name above it would leave a `#!` on line two, which
+        // is no longer a shebang at all.
+        if (!replaced && comment && !shebang) {
+            std::string body = trimmed.substr (prefix.size ());
+            size_t bodyStart = 0;
+            while (bodyStart < body.size () && (body[bodyStart] == ' ' || body[bodyStart] == '\t'))
+                ++bodyStart;
+            body = body.substr (bodyStart);
+            if (body.rfind ("@name", 0) == 0 && (body.size () == 5 || body[5] == ' ' || body[5] == '\t')) {
+                result += directive;
+                if (!lastLine)
+                    result += '\n';
+                offset = nextOffset;
+                replaced = true;
+                continue;
+            }
+            // The first comment line that is NOT the name is where a missing
+            // @name goes, so an inserted one leads the block it belongs to
+            // instead of being appended under the port declarations.
+            if (insertAt == std::string::npos)
+                insertAt = result.size ();
+        }
+        else if (!replaced && !comment && !shebang && trimmed.empty () == false) {
+            // The leading comment block is over. If there was no @name in it,
+            // this is the last moment at which one can still be part of it.
+            if (insertAt == std::string::npos)
+                insertAt = result.size ();
+            result += raw;
+            if (!lastLine)
+                result += '\n';
+            offset = nextOffset;
+            break;
+        }
+
+        result += raw;
+        if (!lastLine)
+            result += '\n';
+        offset = nextOffset;
+    }
+
+    result += source.substr (offset);
+
+    if (!replaced) {
+        if (insertAt == std::string::npos)
+            insertAt = result.size ();
+        result.insert (insertAt, directive + "\n");
+    }
+    return result;
+}
+
 bool WriteScriptTemplate (const std::string& path, std::string& error)
 {
     ScriptLanguage language = ScriptLanguage::JavaScript;
@@ -139,28 +281,12 @@ bool WriteScriptTemplate (const std::string& path, std::string& error)
         }
     }
 
-    const std::string prefix = ScriptCommentPrefix (language);
-    std::string body;
-    body += prefix + " @name        New script\n";
-    body += prefix + " @description Describe what this node does.\n";
-    body += prefix + "\n";
-    body += prefix + " Ports are declared here and nowhere else. Save the file and the\n";
-    body += prefix + " node reshapes itself to match.\n";
-    body += prefix + "\n";
-    body += prefix + " @in  value : number = 1   \"Value\"\n";
-    body += prefix + " @out result : number\n";
-    body += "\n";
-    if (language == ScriptLanguage::Python)
-        body += "result = value * 2\n";
-    else
-        body += "result = value * 2;\n";
-
     std::ofstream stream (target, std::ios::binary | std::ios::trunc);
     if (!stream) {
         error = "could not create " + path;
         return false;
     }
-    stream << body;
+    stream << ScriptTemplateSource (language);
     if (!stream) {
         error = "could not write " + path;
         return false;

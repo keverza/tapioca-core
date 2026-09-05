@@ -206,7 +206,14 @@ export function workspaceNameOf(status: ScriptStatus): string {
 export function summaryOf(status: ScriptStatus, nowMs: number): string {
   switch (conditionOf(status)) {
     case 'empty':
-      return 'No folder yet'
+      /*
+       * ⚠️ NOT AN ERROR, AND IT MUST NOT READ AS ONE. Since a script node is
+       * scaffolded on its first save rather than on placement, this is the state
+       * every script node is in for its first few seconds. "No folder yet" was
+       * accurate and sounded like something had gone wrong; what the user needs
+       * to know is which press ends it.
+       */
+      return 'Not created yet'
     case 'missing':
       return status.loadError === '' ? 'No main file in this folder' : status.loadError
     case 'invalid':

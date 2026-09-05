@@ -9,6 +9,8 @@
   import NodeBody from './NodeBody.svelte'
   import NodeHeader from './NodeHeader.svelte'
   import NodeMenu from './menus/NodeMenu.svelte'
+  import ScriptLibraryPanel from './script/ScriptLibraryPanel.svelte'
+  import { setScriptName } from './script/scriptBridge'
   import { bodyModeFor, categoryColor, nodeDisplayName, previewTargetOf } from './types/display'
   import { DEFAULT_DISPLAY_STATE } from './types/display'
   import { definitionFromSchema } from './contracts'
@@ -31,6 +33,21 @@
    */
   let libraryParameterId = $state('')
   /**
+   * A script node's pop-out is the SCRIPT PICKER, not the parameter browser.
+   *
+   * ⚠️ THE ONE NODE FAMILY WHOSE POP-OUT IS ABOUT THE NODE RATHER THAN ITS DATA.
+   * Browsing outputs is the interesting thing to do to a Number or a Selection;
+   * the question asked of a script node a dozen times an hour is "run the other
+   * one", and the library that answers it is right there on disk. Its outputs are
+   * still inspectable on the ports themselves, which is where they were being
+   * read from anyway.
+   */
+  const isScript = $derived(data.schema.display === 'script')
+  const scriptPath = $derived(
+    data.parameters.find((parameter) => parameter.parameterId === 'scriptPath')?.value?.text ?? '',
+  )
+
+  /**
    * Whether there is anything to browse.
    *
    * Derived ONCE and shared by the header arrow and the ring menu, because two
@@ -38,7 +55,12 @@
    * empty panel while its menu correctly greys the same action out.
    */
   const hasBrowser = $derived(
-    data.schema.display === 'selectionSet' || (data.result?.outputs?.length ?? 0) > 0 || data.parameters.length > 0,
+    data.schema.display === 'selectionSet' ||
+      // Always, for a script node: the library exists whether or not this node
+      // has evaluated, and "which script" is a question about the node.
+      isScript ||
+      (data.result?.outputs?.length ?? 0) > 0 ||
+      data.parameters.length > 0,
   )
 
   const definition = $derived(definitionFromSchema(data.schema))
@@ -64,8 +86,38 @@
     return stored?.value?.itemCount ?? stored?.value?.items?.length ?? 0
   })
 
+  /**
+   * Renaming the node.
+   *
+   * ⚠️ ON A SCRIPT NODE IT ALSO REWRITES THE SCRIPT'S ALIAS, AND THAT IS NOT A
+   * CONVENIENCE. A script node has two names - the nickname the canvas shows and
+   * the `@name` in its header - and the header's is what the Inspector's title,
+   * the picker's rows and every other node pointing at that folder read. Letting
+   * a rename change only the canvas one would leave the same script called two
+   * different things in two places, which is precisely the confusion a nickname
+   * is supposed to remove.
+   *
+   * ⚠️ THE FILE IS NOT RENAMED, ONLY THE ALIAS INSIDE IT. Moving the folder would
+   * break every other graph pointing at it and would move files under whatever
+   * editor has them open. The folder name is identity; the alias is a label.
+   *
+   * The nickname is set FIRST and unconditionally: it is the local, undoable,
+   * always-available half, and a script whose header could not be written (no
+   * folder yet, the file locked by another program) must still be renameable on
+   * the canvas. A failure there is reported by the node's own status line on the
+   * next poll rather than thrown over the rename.
+   */
   function updateName(name: string): void {
-    data.onvisualchange?.(id, { ...data.visual, nickname: name.trim() || undefined })
+    const trimmed = name.trim()
+    data.onvisualchange?.(id, { ...data.visual, nickname: trimmed || undefined })
+    if (!isScript || scriptPath === '') return
+    void setScriptName(id, trimmed, data.graphId)
+      .then(() => data.onscriptreloaded?.())
+      .catch(() => {
+        /* Swallowed: see above. The canvas rename stands, and the header did not
+           change - which the panel's next poll reports as the file it actually
+           found, so the two never silently disagree about what happened. */
+      })
   }
   function updateColor(color: string): void {
     data.onvisualchange?.(id, { ...data.visual, color })
@@ -179,7 +231,17 @@
       />
     </div>
   {/if}
-  {#if browserOpen}
+  {#if browserOpen && isScript}
+    <div class="panel-anchor">
+      <ScriptLibraryPanel
+        nodeId={id}
+        graphId={data.graphId}
+        current={scriptPath}
+        onchoose={(name) => data.onparameterchange?.(id, 'scriptPath', 'string', name)}
+        onclose={() => (browserOpen = false)}
+      />
+    </div>
+  {:else if browserOpen}
     <div class="panel-anchor">
       <ParameterBrowser
         nodeId={id}

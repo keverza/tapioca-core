@@ -33,10 +33,19 @@ export function capabilitiesFor(schema: NodeTypeSchema): NodeCapabilities {
      * Number node while its slider was being dragged, but the real cost is that
      * a resizable node invites a size it cannot use.
      *
-     * What is left is the three bodies that genuinely hold a variable amount of
-     * something: a preview's viewport, a panel's text, and a script's editor.
+     * What is left is the two bodies that genuinely hold a variable amount of
+     * something: a preview's viewport and a panel's text.
+     *
+     * ⚠️ AND A SCRIPT NODE IS NOT ONE OF THEM, THOUGH IT USED TO BE. Nothing in
+     * a script node's body has a size: it is a status line, a name and a row of
+     * icons, all of which are as tall as they are going to get. The editor - the
+     * one part that genuinely wants room - is not drawn on the node at all; it is
+     * the Script Inspector, which takes the canvas's full height and is resized
+     * on its own edge. Leaving the frame on the node offered a size that could
+     * only add empty space, on the node family that already carries the most
+     * controls in the smallest area.
      */
-    resizable: viewer || schema.display === 'text' || schema.display === 'script',
+    resizable: viewer || schema.display === 'text',
     /**
      * ⚠️ ONLY EFFECTFUL NODES GET THE BUTTON, AND EVERY EFFECTFUL NODE GETS IT.
      * Automatic evaluation runs the graph continuously and NEVER commits a host

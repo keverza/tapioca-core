@@ -228,7 +228,8 @@ TEST (ScriptWorkspace, TheEntryFileIsTheFirstTabAndTheRestAreSorted)
     node.Write ("zebra.py", "");
     node.Write ("main.py", "");
     node.Write ("alpha.py", "");
-    const std::vector<WorkspaceFile> files = ListWorkspaceFiles (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python));
+    const std::vector<WorkspaceFile> files =
+        ListWorkspaceFiles (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python));
     ASSERT_GE (files.size (), 3u);
     EXPECT_EQ (files[0].name, "main.py");
     EXPECT_TRUE (files[0].entry);
@@ -243,7 +244,8 @@ TEST (ScriptWorkspace, ListingIgnoresFilesOfTheOtherLanguageAndNonScripts)
     node.Write ("notes.md", "");
     node.Write ("data.json", "");
     node.Write ("other.js", "");
-    const std::vector<WorkspaceFile> files = ListWorkspaceFiles (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python));
+    const std::vector<WorkspaceFile> files =
+        ListWorkspaceFiles (ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python));
     for (const WorkspaceFile& file : files)
         EXPECT_NE (file.name.find (".py"), std::string::npos) << file.name;
 }
@@ -634,6 +636,127 @@ TEST (ScriptSource, TheTemplateItWritesParsesAndDeclaresPorts)
     std::filesystem::remove (path, code);
 }
 
+TEST (ScriptSource, TheStarterScriptComputesSomethingFromTwoInputsWithDefaults)
+{
+    // ⚠️ THE POINT OF THE TEMPLATE IS THAT A NODE PLACED A MOMENT AGO ALREADY
+    // WORKS. So this asserts the SHAPE the user is promised - two inputs they can
+    // wire, both with defaults so an unwired node still evaluates, and one typed
+    // output - and not merely that the file parses. A template that parsed and
+    // declared nothing would pass the older test and be useless.
+    const ScriptManifest manifest = ParsePython (ScriptTemplateSource (ScriptLanguage::Python));
+    ASSERT_TRUE (manifest.Ok ());
+    ASSERT_EQ (manifest.inputs.size (), 2u);
+    EXPECT_EQ (manifest.inputs[0].id, "x");
+    EXPECT_EQ (manifest.inputs[1].id, "y");
+    ASSERT_EQ (manifest.outputs.size (), 1u);
+    EXPECT_EQ (manifest.outputs[0].id, "out");
+    EXPECT_EQ (manifest.outputs[0].valueType, ValueType::Double);
+    EXPECT_EQ (manifest.defaults.count ("x"), 1u);
+    EXPECT_EQ (manifest.defaults.count ("y"), 1u);
+    // And the body is not a comment block: it imports and it assigns the output.
+    const std::string source = ScriptTemplateSource (ScriptLanguage::Python);
+    EXPECT_NE (source.find ("import math"), std::string::npos);
+    EXPECT_NE (source.find ("out = math.hypot(x, y)"), std::string::npos);
+}
+
+TEST (ScriptSource, TheJavaScriptStarterDeclaresTheSamePortsAndImportsNothing)
+{
+    const std::string source = ScriptTemplateSource (ScriptLanguage::JavaScript);
+    const ScriptManifest manifest = ParseJs (source);
+    ASSERT_TRUE (manifest.Ok ());
+    EXPECT_EQ (manifest.inputs.size (), 2u);
+    ASSERT_EQ (manifest.outputs.size (), 1u);
+    EXPECT_EQ (manifest.outputs[0].id, "out");
+    // QuickJS is configured with no module loader on purpose, so a template that
+    // suggested an import would be suggesting something that cannot work.
+    EXPECT_EQ (source.find ("import "), std::string::npos);
+    EXPECT_EQ (source.find ("require("), std::string::npos);
+}
+
+TEST (ScriptSource, TheWrittenTemplateIsExactlyTheTemplateFunctionsText)
+{
+    // One source of truth: the palette shows this text before the folder exists,
+    // and the file that eventually lands must not say something else.
+    const std::filesystem::path path = std::filesystem::temp_directory_path () / "tapioca_script_same.py";
+    std::error_code code;
+    std::filesystem::remove (path, code);
+    std::string error;
+    ASSERT_TRUE (WriteScriptTemplate (path.string (), error)) << error;
+    EXPECT_EQ (ReadScript (path.string ()).source, ScriptTemplateSource (ScriptLanguage::Python));
+    std::filesystem::remove (path, code);
+}
+
+// ---------------------------------------------------------------------------
+// The alias: renaming the node rewrites one line of its header.
+//
+// ⚠️ EVERY TEST HERE IS ABOUT WHAT SURVIVES. The file being edited is one
+// somebody may have spent a morning on, and a rename that took their description
+// or their port labels with it would be a far worse bug than a rename that did
+// nothing at all.
+
+TEST (ScriptAlias, ReplacesAnExistingNameAndLeavesEverythingElseWhereItWas)
+{
+    const std::string before = "# @name        Old name\n"
+                               "# @description Something the user wrote.\n"
+                               "#\n"
+                               "# @in  x : number = 0   \"X\"\n"
+                               "# @out out : number\n"
+                               "\n"
+                               "out = x\n";
+    const std::string after = WithScriptName (before, "New name", ScriptLanguage::Python);
+    const ScriptManifest manifest = ParsePython (after);
+    EXPECT_EQ (manifest.name, "New name");
+    EXPECT_EQ (manifest.description, "Something the user wrote.");
+    ASSERT_EQ (manifest.inputs.size (), 1u);
+    EXPECT_EQ (manifest.inputs[0].label, "X");
+    EXPECT_NE (after.find ("out = x\n"), std::string::npos);
+    EXPECT_EQ (after.find ("Old name"), std::string::npos);
+}
+
+TEST (ScriptAlias, AHeaderWithNoNameGetsOneAtTheTopOfItsBlock)
+{
+    const std::string before = "# @description Something.\n"
+                               "# @out out : number\n"
+                               "\n"
+                               "out = 1\n";
+    const std::string after = WithScriptName (before, "Named", ScriptLanguage::Python);
+    EXPECT_EQ (ParsePython (after).name, "Named");
+    // At the TOP of the comment block, not appended under the port declarations
+    // where it would read as an afterthought in the user's own file.
+    EXPECT_LT (after.find ("@name"), after.find ("@description"));
+    EXPECT_EQ (ParsePython (after).outputs.size (), 1u);
+}
+
+TEST (ScriptAlias, AFileWithNoHeaderAtAllGetsOneBeforeItsFirstLine)
+{
+    const std::string after = WithScriptName ("out = 1\n", "Named", ScriptLanguage::Python);
+    EXPECT_EQ (ParsePython (after).name, "Named");
+    EXPECT_NE (after.find ("out = 1\n"), std::string::npos);
+}
+
+TEST (ScriptAlias, AShebangKeepsItsFirstLine)
+{
+    // A shebang that stopped being the first line stops being a shebang.
+    const std::string after = WithScriptName ("#!/usr/bin/env python\nout = 1\n", "Named", ScriptLanguage::Python);
+    EXPECT_EQ (after.rfind ("#!/usr/bin/env python", 0), 0u);
+    EXPECT_EQ (ParsePython (after).name, "Named");
+}
+
+TEST (ScriptAlias, JavaScriptUsesItsOwnCommentPrefix)
+{
+    const std::string after = WithScriptName ("// @out out : number\nout = 1;\n", "Named", ScriptLanguage::JavaScript);
+    EXPECT_EQ (ParseJs (after).name, "Named");
+    EXPECT_EQ (after.find ("# @name"), std::string::npos);
+}
+
+TEST (ScriptAlias, RenamingToWhatItAlreadySaysChangesNothingAtAll)
+{
+    // Byte-identical, which is what lets the caller skip the write entirely - and
+    // a skipped write is a conflict that never happens with the external editor.
+    const std::string before = "# @name        Same\n# @out out : number\n\nout = 1\n";
+    EXPECT_EQ (WithScriptName (before, "Same", ScriptLanguage::Python), before);
+}
+
 // ---------------------------------------------------------------------------
 // Saving an editor buffer back.
 //
@@ -647,8 +770,7 @@ TEST (ScriptWrite, ReplacesTheFileWhenTheBaseHashStillMatches)
     const TempScript file ("tapioca_script_write.py", "# @out b : number\nb = 1\n");
     const std::string base = HashScriptSource (ReadScript (file.Path ()).source);
 
-    const ScriptWrite written = WriteScriptSource (file.Path (), "# @out b : number\nb = 2\n", base,
-                                                   &HashScriptSource);
+    const ScriptWrite written = WriteScriptSource (file.Path (), "# @out b : number\nb = 2\n", base, &HashScriptSource);
     ASSERT_TRUE (written.ok) << written.error;
     EXPECT_FALSE (written.conflict);
     EXPECT_EQ (ReadScript (file.Path ()).source, "# @out b : number\nb = 2\n");
@@ -1239,9 +1361,12 @@ TEST (ScriptExamples, EveryShippedExampleParsesAndDeclaresPorts)
     const struct {
         const char* folder;
         ScriptLanguage language;
-    } examples[] = { { "01-hello", ScriptLanguage::Python },       { "02-hello", ScriptLanguage::JavaScript },
-                     { "03-every-type", ScriptLanguage::Python },  { "04-ports-change", ScriptLanguage::Python },
-                     { "05-output-and-errors", ScriptLanguage::Python }, { "06-geometry", ScriptLanguage::JavaScript } };
+    } examples[] = { { "01-hello", ScriptLanguage::Python },
+                     { "02-hello", ScriptLanguage::JavaScript },
+                     { "03-every-type", ScriptLanguage::Python },
+                     { "04-ports-change", ScriptLanguage::Python },
+                     { "05-output-and-errors", ScriptLanguage::Python },
+                     { "06-geometry", ScriptLanguage::JavaScript } };
     for (const auto& [name, language] : examples) {
         const ScriptState state = LoadExample (name, language);
         if (!state.loadError.empty ())

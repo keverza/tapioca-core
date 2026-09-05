@@ -146,6 +146,65 @@ bool ResolveWorkspaceFile (const ScriptWorkspace& workspace, const std::string& 
 // already written keeps working unchanged.
 ScriptStamp StampWorkspace (const ScriptWorkspace& workspace);
 
+// ---------------------------------------------------------------------------
+// The library, as a list.
+
+// One node folder in the workflow library, as the palette's script picker draws
+// it. Deliberately NOT a ScriptWorkspace: a picker row needs a name, a title and
+// enough to tell a usable folder from an empty one, and resolving every entry
+// into a full workspace would stat each of them for information no row shows.
+struct WorkflowEntry {
+    // The folder name, which is exactly what a node's `scriptPath` holds. Bare,
+    // never absolute - see ResolveScriptWorkspace on why a saved graph names a
+    // node this way.
+    std::string name;
+
+    // The `@name` from the folder's entry file, when it has one. Shown beside the
+    // folder name rather than instead of it: the folder is what gets written into
+    // the graph, and a picker that showed only the friendly title would leave the
+    // user unable to tell two folders with the same @name apart.
+    std::string title;
+
+    // False for a folder with no entry file - a node that cannot run. Listed
+    // anyway, and marked, because it is usually a folder someone is halfway
+    // through making and hiding it would just make it unreachable.
+    bool hasEntry = false;
+
+    // Source files in the folder, entry included. The count a row shows as
+    // "3 files", which is the cheapest honest signal that a node has helpers.
+    size_t fileCount = 0;
+
+    long long modifiedUnixMs = 0;
+};
+
+// Every node folder in the workflow library, `libs` excluded, sorted by name.
+//
+// ⚠️ ONE LANGUAGE PER CALL, BECAUSE A PICKER BELONGS TO A NODE. A Python script
+// node offering a folder whose only entry is `main.js` would offer something it
+// cannot load; `hasEntry` is answered for the language that asked.
+//
+// An absent or unreadable library is an empty list, not an error: a machine that
+// has never had a workflow deployed is in a perfectly ordinary state, and the
+// picker says so on its own.
+std::vector<WorkflowEntry> ListWorkflowLibrary (ScriptLanguage language);
+
+// A folder name in the library that nothing occupies yet: `stem`, then
+// `stem_2`, `stem_3` and so on.
+//
+// ⚠️ IT ANSWERS FOR THE FILESYSTEM, NOT FOR THE GRAPH, and the caller has to know
+// which. Two nodes may legitimately point at one folder - that is how a script is
+// reused - so this is only ever used to scaffold something NEW. Empty when the
+// library has no location on this machine.
+std::string NextFreeWorkflowName (const std::string& stem);
+
+// Creates the workflow library folder if it is not there, and reports where it
+// is. False only when there is no location for it or the filesystem refused.
+//
+// A machine that has never had a workflow deployed has no such folder, and
+// "show me where my scripts go" cannot usefully answer "nowhere" - an empty
+// directory is exactly what someone needs in order to put the first one in it.
+bool EnsureWorkflowRoot (std::string& root);
+
 // Writes a starter node folder: the entry file with its header directives, so a
 // new node produces something that runs and has ports before anyone has typed.
 // REFUSES a folder that already holds an entry file - "create" and "overwrite"

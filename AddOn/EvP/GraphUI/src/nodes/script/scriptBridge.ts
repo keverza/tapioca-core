@@ -124,6 +124,78 @@ export async function writeScriptSource(
   )
 }
 
+/** One node folder in the workflow library, as the script picker draws it. */
+export interface ScriptLibraryEntry {
+  /** The folder name, which is exactly what `scriptPath` holds. Never absolute. */
+  name: string
+  /** The `@name` from its entry file, when it has one. May be empty. */
+  title: string
+  /** False for a folder with no entry file — listed anyway, and marked. */
+  hasEntry: boolean
+  fileCount: number
+  modifiedAtMs: number
+}
+
+export interface ScriptLibrary {
+  ok: boolean
+  error: string
+  /** %LOCALAPPDATA%\Tapioca\Commands\Workflows, for the panel to name. */
+  root: string
+  language: string
+  entries: ScriptLibraryEntry[]
+  /**
+   * A folder name nothing occupies yet. The name a brand-new node is scaffolded
+   * under when the user first saves — see ScriptEditor: a script node writes
+   * nothing to disk until then, so this is asked for at the same moment as the
+   * template and answered by the same call.
+   */
+  suggestedName: string
+  /**
+   * The starter script, as text, from the native side that also writes it.
+   *
+   * ⚠️ NOT A COPY KEPT HERE. The buffer a new node opens on and the file that
+   * eventually lands have to say the same thing, and a template duplicated in
+   * this bundle is a template that drifts from the one Create writes.
+   */
+  template: string
+}
+
+/** What is in the workflow library, plus what a new node would be called. */
+export async function fetchScriptLibrary(nodeId: string, graphId?: string): Promise<ScriptLibrary> {
+  return callTapioca<ScriptLibrary>(
+    'Tapioca.GraphScriptLibrary',
+    graphId === undefined ? { nodeId } : { nodeId, graphId },
+  )
+}
+
+/**
+ * Sets the entry file's `@name`, which is the node's alias.
+ *
+ * ⚠️ IT EDITS THE USER'S FILE, WHICH IS WHY IT IS A NATIVE VERB AND NOT A BUFFER
+ * EDIT HERE. The rename has to survive the file being open in VSCode at the same
+ * time, so the native side reads, rewrites one line and writes back under the
+ * hash it just read — refusing rather than overwriting if disk moved meanwhile.
+ * Doing it through the editor's buffers would mean renaming a node silently
+ * saved whatever the user had half-typed in the panel.
+ */
+export async function setScriptName(nodeId: string, name: string, graphId?: string): Promise<ScriptStatus> {
+  return callTapioca<ScriptStatus>(
+    'Tapioca.GraphScriptSetName',
+    graphId === undefined ? { nodeId, name } : { nodeId, name, graphId },
+  )
+}
+
+/**
+ * Shows the workflow LIBRARY in Explorer — the folder every node folder is in.
+ *
+ * Distinct from revealScriptInExplorer, which shows one node's own file. This
+ * one answers "where do my scripts live", needs no node to have a folder yet,
+ * and creates the library if this machine has never had one deployed.
+ */
+export async function openScriptLibraryFolder(): Promise<void> {
+  await callTapioca('Tapioca.GraphScriptOpenLibrary', {})
+}
+
 export async function openScriptInEditor(nodeId: string, graphId?: string): Promise<void> {
   await callTapioca('Tapioca.GraphScriptOpen', graphId === undefined ? { nodeId } : { nodeId, graphId })
 }

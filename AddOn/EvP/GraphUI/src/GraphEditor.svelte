@@ -647,7 +647,15 @@
   }
 
   function handleVisualChange(nodeId: string, visual: NodeVisualState): void {
-    if (visual.nickname === undefined && visual.color === undefined) visuals.delete(nodeId)
+    /*
+     * ⚠️ EVERY FIELD COUNTS, NOT JUST THE TWO NAMED ONES. This used to drop the
+     * whole record unless a nickname or a colour survived, which silently threw
+     * away a view mode, a port layout and a display state - so a node put into
+     * its minimal view came back standard on the next reload, and nothing about
+     * the code said why.
+     */
+    const empty = Object.values(visual).every((value) => value === undefined)
+    if (empty) visuals.delete(nodeId)
     else visuals.set(nodeId, visual)
     persistVisuals()
     nodes = nodes.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, visual } } : node)
@@ -2994,6 +3002,24 @@
       return [
         { label: 'Quick actions', title: 'Also: middle-click the node', run: () => requestQuickMenu(node.id) },
         { label: 'Rename', title: 'Also: right-click the node title', run: () => requestRename(node.id) },
+        /*
+         * ⚠️ THE MINIMAL VIEW IS A NODE PROPERTY, NOT A ZOOM LEVEL, and it is
+         * offered here because it is a decision about ONE node. A graph is built
+         * with the panels open and then read with them shut; a script node in
+         * particular carries a folder field, a status line and four buttons that
+         * are pure noise once it works. Minimal keeps the header, the ports and -
+         * on a script node - the one dot that says whether the script is still
+         * there, which is the only thing on the panel that a reader still needs.
+         */
+        {
+          label: (node.data.visual?.viewMode ?? 'standard') === 'compact' ? 'Minimal ✓' : 'Minimal',
+          title: 'Draw this node as its header and ports only',
+          run: () => {
+            const visual = node.data.visual ?? {}
+            const minimal = (visual.viewMode ?? 'standard') === 'compact'
+            handleVisualChange(node.id, { ...visual, viewMode: minimal ? 'standard' : 'compact' })
+          },
+        },
         { label: 'Fit node', run: () => void fitView({ nodes: [node], duration: 180, padding: 0.8 }) },
         // ⚠️ OFFERED ONLY ON A ROW, AND IT IS NOT AN EDIT. §21's "Convert to
         // explicit node" is a layout change here: the same node stops being

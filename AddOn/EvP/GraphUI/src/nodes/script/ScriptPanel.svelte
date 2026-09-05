@@ -1,23 +1,45 @@
 <script lang="ts">
+  /**
+   * A script node's body: what its folder is, and the four things you can do to it.
+   *
+   * ⚠️ THE ACTIONS ARE ICONS BECAUSE THE ROW IS 24 PIXELS OF A 220-PIXEL NODE.
+   * Four worded buttons at that width are four truncated words; the meaning has
+   * to come from the glyph, and each one still carries a title and an aria-label
+   * so it is not icon-only to a screen reader or to anyone hovering. See icons.ts
+   * for why each glyph is the one it is.
+   *
+   * ⚠️ AND NOTHING IS WRITTEN TO DISK UNTIL SOMEBODY ASKS FOR IT. A node placed a
+   * moment ago has no folder: it is not broken, it is new, and it says "New
+   * script" rather than an error. Create scaffolds one under a name the native
+   * side picks; the Inspector scaffolds one on its first save. Placing a node was
+   * never a request to put a folder in the user's library, and a canvas someone
+   * has been experimenting on for an hour must not leave twenty of them behind.
+   */
   import {
     EMPTY_SCRIPT_STATUS,
     SCRIPT_POLL_INTERVAL_MS,
-    canRevealScript,
     conditionOf,
     summaryOf,
     workspaceNameOf,
     type ScriptStatus,
   } from './script'
-  import { createScript, fetchScriptStatus, openScriptInEditor, reloadScript, revealScriptInExplorer } from './scriptBridge'
-  import { FOLDER } from './icons'
+  import {
+    createScript,
+    fetchScriptLibrary,
+    fetchScriptStatus,
+    reloadScript,
+  } from './scriptBridge'
+  import { CODE_BRACKETS, FOLDER, PAGE_PLUS, RELOAD_WINDOW, type IconGlyph } from './icons'
 
   let {
     nodeId,
     graphId,
     path,
+    compact = false,
     onpathchange,
     onreloaded,
     onedit,
+    onbrowselibrary,
   }: {
     nodeId: string
     graphId?: string
@@ -30,6 +52,16 @@
      * machine.
      */
     path: string
+    /**
+     * The minimal presentation, from the node's own view mode.
+     *
+     * ⚠️ IT STILL DRAWS THE CONDITION, AND THAT IS THE WHOLE ARGUMENT FOR THIS
+     * MODE EXISTING RATHER THAN THE BODY SIMPLY BEING HIDDEN. A minimal node is
+     * for a graph someone has finished building and wants to read; a script that
+     * has since gone missing or stopped parsing is exactly what they need to see
+     * on such a graph, and it is the one thing a bare header cannot tell them.
+     */
+    compact?: boolean
     /** Writes the path back through the ordinary parameter edit. */
     onpathchange: (path: string) => void
     /**
@@ -48,6 +80,13 @@
      * sized, and left open while the user clicks around the graph.
      */
     onedit?: () => void
+    /**
+     * Open the script picker - the pop-out listing what is in the workflow
+     * library. It is a PANEL rather than a dropdown here for the same reason the
+     * inspector is: it is positioned against the node by MasterNode's panel
+     * anchor, and a select element inside a node body is clipped by the node.
+     */
+    onbrowselibrary?: () => void
   } = $props()
 
   let status = $state<ScriptStatus>(EMPTY_SCRIPT_STATUS)
@@ -55,6 +94,15 @@
   let actionError = $state('')
   let now = $state(Date.now())
   let logOpen = $state(false)
+  /**
+   * The name Create would use, from the native side.
+   *
+   * Fetched once, lazily, and only for a node that has no folder - it is the
+   * placeholder in the name field, so the user can see what pressing Create is
+   * about to make before they press it. Empty until it arrives, which is why
+   * Create asks again rather than trusting this.
+   */
+  let suggestedName = $state('')
 
   /*
    * ⚠️ THE FIELD IS RESYNCED ONLY WHEN THE DOCUMENT'S PATH ACTUALLY CHANGES, not
@@ -83,6 +131,8 @@
   // main.py, so showing that would label every script node identically.
   const fileName = $derived(workspaceNameOf(status))
   const helperCount = $derived(status.files.filter((file) => !file.shared && !file.entry).length)
+  /** A node with no folder is NEW, not broken. See the header note. */
+  const unscaffolded = $derived(condition === 'empty')
 
   async function refresh(): Promise<void> {
     try {
@@ -141,48 +191,118 @@
     if (status.stale && status.watching && !busy) void act(() => reloadScript(nodeId, graphId))
   })
 
-  async function create(): Promise<void> {
-    const target = draftPath.trim()
-    if (target === '') {
-      actionError = 'Name the folder first'
-      return
-    }
-    await act(() => createScript(nodeId, target, graphId))
-  }
+  /* The suggested name, once, for a node that has none. Not polled: the answer
+     only goes stale if another node claims that name, and Create re-asks. */
+  $effect(() => {
+    if (compact || !unscaffolded || suggestedName !== '') return
+    void (async () => {
+      try {
+        suggestedName = (await fetchScriptLibrary(nodeId, graphId)).suggestedName
+      } catch {
+        /* The placeholder stays empty. Create still works - it asks again. */
+      }
+    })()
+  })
 
   /**
-   * The two shell actions. Neither returns a status, so unlike `act` they do not
-   * touch `status` - a failure here says so and changes nothing else, because
-   * failing to OPEN a file has no bearing on what the node loaded.
+   * Scaffold this node's folder.
+   *
+   * ⚠️ AN EMPTY NAME IS NOT AN ERROR ANY MORE, AND THAT IS THE FIX. Create used
+   * to refuse until the user had typed a folder name into a field they had no
+   * reason to know was required - a button that is offered and then refuses is
+   * the least intuitive thing a panel can do. With nothing typed it asks the
+   * native side for the next free name and uses that; a name that WAS typed is
+   * still honoured, because naming the thing you are about to make is a
+   * perfectly reasonable way to work.
    */
-  async function shell(work: () => Promise<void>): Promise<void> {
+  async function create(): Promise<void> {
     busy = true
     actionError = ''
     try {
-      await work()
+      let target = draftPath.trim()
+      if (target === '') {
+        // Asked again rather than reusing the placeholder: this is the moment a
+        // folder is actually claimed, and the listing behind that placeholder may
+        // be a minute old.
+        target = (await fetchScriptLibrary(nodeId, graphId)).suggestedName
+      }
+      if (target === '') {
+        actionError = 'No workflow library on this machine — type an absolute folder path'
+        return
+      }
+      status = await createScript(nodeId, target, graphId)
+      onreloaded(status)
     } catch (error) {
       actionError = error instanceof Error ? error.message : String(error)
     } finally {
       busy = false
     }
   }
+
+  /** The four icon actions, in the order they are used. */
+  const actions = $derived<
+    { glyph: IconGlyph; label: string; title: string; disabled: boolean; run: () => void }[]
+  >([
+    {
+      glyph: RELOAD_WINDOW,
+      label: 'Reload this script',
+      title: 'Read the folder again and reshape this node',
+      disabled: busy || unscaffolded,
+      run: () => void act(() => reloadScript(nodeId, graphId)),
+    },
+    {
+      glyph: PAGE_PLUS,
+      label: 'Create this script',
+      title: unscaffolded
+        ? `Write a starter script${suggestedName === '' ? '' : ` in ${suggestedName}`}`
+        : 'This node already has a folder',
+      disabled: busy || !unscaffolded,
+      run: () => void create(),
+    },
+    {
+      glyph: CODE_BRACKETS,
+      label: 'Edit this script',
+      title: 'Open the Script Inspector',
+      disabled: busy || onedit === undefined,
+      run: () => onedit?.(),
+    },
+    {
+      glyph: FOLDER,
+      label: 'Choose a script',
+      title: 'Load a script from the workflow library',
+      disabled: busy || onbrowselibrary === undefined,
+      run: () => onbrowselibrary?.(),
+    },
+  ])
 </script>
 
+{#if compact}
+  <!--
+    Minimal: the node's own name and one coloured dot. Everything else on this
+    panel is a control, and a minimal node is one nobody is currently operating -
+    but a script that has gone missing or stopped parsing still has to be visible
+    from across the canvas, because on a minimal node there is nothing else that
+    could show it.
+  -->
+  <section class="minimal">
+    <span class="dot" class:missing={condition === 'missing'} class:invalid={condition === 'invalid'} class:stale={condition === 'stale'} class:empty={unscaffolded} title={summary}></span>
+    <span class="name">{fileName === '' ? 'New script' : fileName}</span>
+  </section>
+{:else}
 <section class="script nodrag nowheel">
   <!--
     The path is a plain text field, not a folder picker. A browser inside Archicad
-    has no trustworthy way to open a native folder dialog, and a bare name is
-    usually all that is wanted anyway: it resolves inside the workflow library at
-    %LOCALAPPDATA%\Tapioca\Commands\Workflows, which is the folder
-    scripts\Sync-All.ps1 deploys to. An absolute path still works, for a node
-    that lives outside the library.
+    has no trustworthy way to open a native folder dialog, and it is no longer the
+    way anyone is expected to point a node at an existing script - the picker does
+    that. What is left for this field is naming a NEW folder before creating it,
+    and pointing at one outside the library by absolute path.
   -->
   <label class="path">
     <span>Folder</span>
     <input
       type="text"
       spellcheck="false"
-      placeholder="apartment_metrics"
+      placeholder={unscaffolded ? suggestedName || 'new_script' : 'apartment_metrics'}
       bind:value={draftPath}
       onblur={commitPath}
       onkeydown={(event) => { if (event.key === 'Enter') commitPath() }}
@@ -190,7 +310,7 @@
   </label>
 
   <div class="status" class:missing={condition === 'missing'} class:invalid={condition === 'invalid'} class:stale={condition === 'stale'}>
-    <strong>{fileName === '' ? 'No folder' : fileName}</strong>
+    <strong>{fileName === '' ? 'New script' : fileName}</strong>
     <span>{summary}</span>
   </div>
 
@@ -235,44 +355,19 @@
   {#if actionError !== ''}<p class="error">{actionError}</p>{/if}
 
   <div class="actions">
-    <button type="button" disabled={busy} onclick={() => act(() => reloadScript(nodeId, graphId))}>
-      {busy ? 'Working…' : 'Reload'}
-    </button>
-    {#if condition === 'empty' || condition === 'missing'}
-      <button type="button" disabled={busy} onclick={create}>Create</button>
-    {:else}
+    {#each actions as action (action.label)}
       <!--
-        Edit here, Open there, and both are worth a button. "Edit" is the
-        ten-second fix without leaving the canvas; "Open" is the rest of the work,
-        in the editor the user already has the file open in. Neither replaces the
-        other, and offering only one of them would be picking for them.
+        `data-menu-toggle` on the picker only: it is the one button here that
+        opens a panel which closes on an outside press, and without the marker
+        that press - this very one - would close the panel the click then
+        reopens. See closeOnOutsidePress.
       -->
-      <button type="button" disabled={busy || onedit === undefined} onclick={() => onedit?.()}>Edit</button>
-      <button type="button" disabled={busy} onclick={() => shell(() => openScriptInEditor(nodeId, graphId))}>Open</button>
-    {/if}
-    <!--
-      Show the file in Explorer. Icon-only because it is the one action here whose
-      meaning a folder draws better than any word this narrow button could hold -
-      "Folder", "Show", "Reveal" each read as something slightly different. It
-      still carries a title and an aria-label, so it is not an icon-only control
-      to a screen reader or to anyone hovering.
-
-      Enabled only once there is a file: revealing a path that does not exist can
-      only produce an error, and an action that is offered and then refused is
-      worse than one that was never offered.
-    -->
-    <button
-      type="button"
-      class="icon"
-      disabled={busy || !canRevealScript(status)}
-      title={canRevealScript(status) ? `Show ${fileName} in Explorer` : 'No file to show yet'}
-      aria-label="Show the script in Explorer"
-      onclick={() => shell(() => revealScriptInExplorer(nodeId, graphId))}
-    >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.6" aria-hidden="true">
-        {#each FOLDER.paths as path}<path d={path} stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />{/each}
-      </svg>
-    </button>
+      <button type="button" class="icon" data-menu-toggle={action.glyph === FOLDER ? '' : undefined} disabled={action.disabled} title={action.title} aria-label={action.label} onclick={action.run}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="1.6" aria-hidden="true">
+          {#each action.glyph.paths as shape}<path d={shape} stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" />{/each}
+        </svg>
+      </button>
+    {/each}
     {#if status.log.length > 0}
       <button type="button" class="toggle" onclick={() => (logOpen = !logOpen)}>
         Output ({status.log.length})
@@ -290,6 +385,7 @@
     <ol class="log">{#each status.log as line}<li><code>{line}</code></li>{/each}</ol>
   {/if}
 </section>
+{/if}
 
 <style>
   .script { display: grid; padding: 0 9px 9px 11px; gap: 6px; }
@@ -304,6 +400,17 @@
   .status.missing span, .error { color: var(--danger); }
   .status.invalid span { color: var(--warning); }
   .status.stale span { color: var(--accent); }
+  /* Minimal: one row, no controls, and the same colour vocabulary as the status
+     line above so the two modes cannot mean different things by the same hue. */
+  .minimal { display: flex; align-items: center; padding: 0 9px 7px 11px; gap: 6px; }
+  .minimal .dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 50%; background: var(--text-faint); }
+  .minimal .dot.missing { background: var(--danger); }
+  .minimal .dot.invalid { background: var(--warning); }
+  .minimal .dot.stale { background: var(--accent); }
+  /* An unscaffolded node is hollow rather than coloured: it is not a problem to
+     be fixed, it is a node nobody has written anything into yet. */
+  .minimal .dot.empty { border: 1px solid var(--text-faint); background: none; }
+  .minimal .name { overflow: hidden; color: var(--text-faint); font: 8px/1.3 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
   .hint { margin: 0; color: var(--text-faint); font-size: 8px; }
   .diagnostics { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
   .diagnostics li { display: grid; grid-template-columns: 44px 1fr; align-items: baseline; gap: 5px; }
@@ -312,10 +419,12 @@
   .dropped { margin: 0; color: var(--warning); font-size: 8px; }
   .error { margin: 0; font-size: 8px; }
   .actions { display: flex; gap: 4px; }
-  /* The icon button does not stretch: the text buttons share the row and this one
-     is exactly as wide as its glyph needs. */
+  /* The icon buttons are square and do not stretch; the Output toggle, when there
+     is one, takes whatever is left, because a count is the only thing in this row
+     whose width depends on what it says. */
   .actions button.icon { flex: 0 0 24px; display: grid; place-items: center; padding: 0; }
-  .actions button { flex: 1 1 0; height: 21px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text); font: 600 9px/1 'Segoe UI', sans-serif; cursor: pointer; }
+  .actions button.toggle { flex: 1 1 0; }
+  .actions button { height: 21px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text); font: 600 9px/1 'Segoe UI', sans-serif; cursor: pointer; }
   .actions button:hover:not(:disabled) { border-color: var(--accent); }
   .actions button:disabled { color: var(--text-faint); cursor: default; }
   .log { max-height: 120px; margin: 0; padding: 4px 0; overflow: auto; border: 1px solid var(--border); background: var(--canvas); list-style: none; }

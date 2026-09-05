@@ -93,9 +93,19 @@ from typing import Any
 # - each step is a whole document copy, so depth is paid for in memory and the
 # runtime clamps the request into [1, 200] and answers with what is actually in
 # force rather than what was asked for.
-EXPECTED_REGISTRY_COMMANDS = 182
+# 2026-09-05, the script node's first-run experience: +3 for GraphScriptLibrary,
+# GraphScriptSetName and GraphScriptOpenLibrary. Library is a pure READ of the
+# workflow folder - the rows the palette's script picker draws - carrying the
+# starter script and the next free folder name with it, because a script node is
+# now scaffolded on its FIRST SAVE rather than on placement and the editor opens
+# a node that has nothing on disk behind it yet. SetName rewrites one @name line
+# in the entry file when the user renames the node, under the hash of the bytes
+# it just read, so it can never overwrite an edit made in the external editor.
+# OpenLibrary hands the library folder to the shell, creating it when a machine
+# has never had a workflow deployed. None of the three touch the model.
+EXPECTED_REGISTRY_COMMANDS = 185
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 201
+EXPECTED_TOTAL_COMMANDS = 204
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

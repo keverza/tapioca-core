@@ -72,7 +72,16 @@ test('only bodies with a variable amount of content are resizable', () => {
 
   assert.equal(presentationFor(schema).resizable, true, 'a preview has a viewport with a size')
   assert.equal(presentationFor({ ...schema, display: 'text' } as NodeTypeSchema).resizable, true, 'a panel holds text')
-  assert.equal(presentationFor({ ...schema, display: 'script' } as NodeTypeSchema).resizable, true, 'a script holds an editor')
+  // ⚠️ AND THE SECOND REGRESSION: a script node used to be resizable because it
+  // was assumed to hold an editor. It does not - the editor is the Script
+  // Inspector, which takes the canvas full height and is resized on its own
+  // edge. Everything on a script node body is as tall as it is going to get, so
+  // the frame could only ever add empty space.
+  assert.equal(
+    presentationFor({ ...schema, display: 'script' } as NodeTypeSchema).resizable,
+    false,
+    'a script node body has no variable content; its editor is not drawn on it',
+  )
 })
 
 test('the minimum size is what the body needs, not one number for every node', () => {

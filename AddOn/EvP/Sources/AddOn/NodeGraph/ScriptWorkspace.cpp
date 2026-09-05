@@ -277,6 +277,102 @@ ScriptStamp StampWorkspace (const ScriptWorkspace& workspace)
     return stamp;
 }
 
+std::vector<WorkflowEntry> ListWorkflowLibrary (ScriptLanguage language)
+{
+    std::vector<WorkflowEntry> entries;
+    const std::string library = DefaultWorkflowRoot ();
+    if (library.empty ())
+        return entries;
+
+    std::error_code code;
+    const fs::path root = PathFromUtf8 (library);
+    if (!fs::is_directory (root, code))
+        return entries; // Nothing deployed yet. An ordinary state, not a failure.
+
+    const std::string entryName = EntryFileName (language);
+    for (const fs::directory_entry& item : fs::directory_iterator (root, code)) {
+        if (!item.is_directory (code))
+            continue;
+        const std::string name = Utf8FromPath (item.path ().filename ());
+        // `libs` is the SHARED root, not a node. Offering it as something a node
+        // could point at would put every other node's imports inside one node's
+        // folder, and `main.py` there would run on every import path at once.
+        if (name.empty () || name == "libs")
+            continue;
+
+        WorkflowEntry entry;
+        entry.name = name;
+
+        const fs::path entryFile = item.path () / entryName;
+        const ScriptStamp stamp = StatScript (Utf8FromPath (entryFile));
+        entry.hasEntry = stamp.exists;
+        entry.modifiedUnixMs = stamp.modifiedUnixMs;
+
+        std::error_code inner;
+        for (const fs::directory_entry& file : fs::directory_iterator (item.path (), inner)) {
+            if (!file.is_regular_file (inner))
+                continue;
+            if (!IsScriptFileName (Utf8FromPath (file.path ().filename ()), language))
+                continue;
+            ++entry.fileCount;
+            const ScriptStamp helper = StatScript (Utf8FromPath (file.path ()));
+            entry.modifiedUnixMs = std::max (entry.modifiedUnixMs, helper.modifiedUnixMs);
+        }
+
+        // The friendly title costs one read of one file, and only of the entry.
+        // ParseScriptManifest stops at the end of the leading comment block, so
+        // this does not depend on the rest of the script being valid - a folder
+        // whose code is mid-edit still shows the name its author gave it.
+        if (entry.hasEntry) {
+            const ScriptRead read = ReadScript (Utf8FromPath (entryFile));
+            if (read.ok)
+                entry.title = ParseScriptManifest (read.source, language).name;
+        }
+        entries.push_back (std::move (entry));
+    }
+
+    std::sort (entries.begin (), entries.end (),
+               [] (const WorkflowEntry& left, const WorkflowEntry& right) { return left.name < right.name; });
+    return entries;
+}
+
+bool EnsureWorkflowRoot (std::string& root)
+{
+    root = DefaultWorkflowRoot ();
+    if (root.empty ())
+        return false;
+
+    std::error_code code;
+    const fs::path path = PathFromUtf8 (root);
+    if (fs::is_directory (path, code))
+        return true;
+    fs::create_directories (path, code);
+    return fs::is_directory (path, code);
+}
+
+std::string NextFreeWorkflowName (const std::string& stem)
+{
+    const std::string library = DefaultWorkflowRoot ();
+    if (library.empty ())
+        return std::string ();
+
+    const std::string base = stem.empty () ? std::string ("script") : stem;
+    std::error_code code;
+    const fs::path root = PathFromUtf8 (library);
+
+    // The bare stem first, so the very first script node on a clean machine gets
+    // `script` rather than `script_1` - a suffix on something that is not one of
+    // several reads as an accident. The cap is a guard against a directory that
+    // cannot be stat'ed answering "exists" forever; a user with two thousand
+    // scripts in one library has a naming problem this cannot fix anyway.
+    for (int suffix = 1; suffix <= 2000; ++suffix) {
+        const std::string candidate = suffix == 1 ? base : base + "_" + std::to_string (suffix);
+        if (!fs::exists (root / PathFromUtf8 (candidate), code))
+            return candidate;
+    }
+    return std::string ();
+}
+
 bool WriteWorkspaceTemplate (const ScriptWorkspace& workspace, std::string& error)
 {
     if (!workspace.ok) {

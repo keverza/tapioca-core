@@ -25,16 +25,19 @@ namespace {
 // ---------------------------------------------------------------------------
 // The script node's verbs.
 //
-// Seven, and the shape of the set is the design:
+// Eleven, and the shape of the set is the design:
 //
-//   GraphScriptStatus   what does this node's folder look like right now
-//   GraphScriptReload   read it again and reshape the node
-//   GraphScriptCreate   scaffold a NEW node folder and point the node at it
-//   GraphScriptRead     hand one file's source to the embedded editor
-//   GraphScriptWrite    save an editor buffer back, guarded by its base hash
-//   GraphScriptAddFile  create one empty helper inside the node's folder
-//   GraphScriptOpen     hand the folder to whatever the user edits code in
-//   GraphScriptReveal   show the folder in Explorer
+//   GraphScriptStatus      what does this node's folder look like right now
+//   GraphScriptReload      read it again and reshape the node
+//   GraphScriptCreate      scaffold a NEW node folder and point the node at it
+//   GraphScriptRead        hand one file's source to the embedded editor
+//   GraphScriptWrite       save an editor buffer back, guarded by its base hash
+//   GraphScriptAddFile     create one empty helper inside the node's folder
+//   GraphScriptOpen        hand the folder to whatever the user edits code in
+//   GraphScriptReveal      show the folder in Explorer
+//   GraphScriptLibrary     what is in the workflow library, for the picker
+//   GraphScriptSetName     rewrite the entry file's @name when the node is renamed
+//   GraphScriptOpenLibrary show the workflow library itself in Explorer
 //
 // ⚠️ A NODE IS A FOLDER, AND EVERY VERB THAT NAMES A FILE NAMES IT RELATIVELY.
 // Read, Write and AddFile take a `file` that is a plain name inside the node's
@@ -87,6 +90,22 @@ constexpr const char kWriteResponseSchema[] =
 
 constexpr const char kOpenResponseSchema[] =
     R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"path":{"type":"string"}},"additionalProperties":false,"required":["ok","error","path"]})json";
+
+// The alias verb. `name` may legitimately be empty - clearing a nickname puts the
+// node back to being named by its folder - so it carries no minLength.
+constexpr const char kSetNameInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"name":{"type":"string"}},"additionalProperties":false,"required":["nodeId","name"]})json";
+
+// Opening the library takes nothing at all: there is one workflow library per
+// machine, and which node asked has no bearing on where it is.
+constexpr const char kEmptyInputSchema[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
+
+// What the script picker draws from. `template` and `suggestedName` are here
+// rather than in a verb of their own because they are asked for at exactly the
+// same moment - the palette opens a node that has no folder yet - and a second
+// round trip for two strings the same call already knows is a second round trip.
+constexpr const char kLibraryResponseSchema[] =
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"root":{"type":"string"},"language":{"type":"string"},"entries":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"title":{"type":"string"},"hasEntry":{"type":"boolean"},"fileCount":{"type":"integer","minimum":0},"modifiedAtMs":{"type":"integer"}},"additionalProperties":false,"required":["name","title","hasEntry","fileCount","modifiedAtMs"]}},"suggestedName":{"type":"string"},"template":{"type":"string"}},"additionalProperties":false,"required":["ok","error","root","language","entries","suggestedName","template"]})json";
 
 GS::Array<GS::ObjectState> EncodePorts (const std::vector<graph::PortSchema>& ports, bool asInput)
 {
@@ -536,6 +555,135 @@ class GraphScriptRevealCommand : public GateFreeGraphCommand {
     }
 };
 
+class GraphScriptLibraryCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::NodeId nodeId;
+        if (!ReadNodeId (params, nodeId))
+            return NativeCommandResult::Failure (GS::UniString ("nodeId is required", CC_UTF8));
+        const graph::GraphId graphId = ReadGraphIdParam (params);
+
+        // The LANGUAGE comes from the node type, so a Python node is never
+        // offered a folder whose only entry is main.js. Read from the DOCUMENT
+        // rather than from the script store, so a node placed a second ago -
+        // which has no stored script state at all yet - still gets a listing.
+        const graph::Node* placed = graph::GraphRuntimeState::Get ().Document (graphId).FindNode (nodeId);
+        graph::ScriptLanguage language = graph::ScriptLanguage::Python;
+        if (placed == nullptr || !graph::ScriptNodeLanguage (placed->nodeType, language))
+            return NativeCommandResult::Failure (GraphText ("'" + nodeId + "' is not a script node"));
+
+        GS::Array<GS::ObjectState> encoded;
+        for (const graph::WorkflowEntry& entry : graph::ListWorkflowLibrary (language)) {
+            GS::ObjectState row;
+            row.Add ("name", GraphText (entry.name));
+            row.Add ("title", GraphText (entry.title));
+            row.Add ("hasEntry", entry.hasEntry);
+            row.Add ("fileCount", static_cast<GS::Int64> (entry.fileCount));
+            row.Add ("modifiedAtMs", static_cast<GS::Int64> (entry.modifiedUnixMs));
+            encoded.Push (std::move (row));
+        }
+
+        GS::ObjectState response;
+        response.Add ("ok", true);
+        response.Add ("error", GS::UniString ());
+        response.Add ("root", GraphText (graph::DefaultWorkflowRoot ()));
+        response.Add ("language", GS::UniString (graph::ScriptLanguageName (language), CC_UTF8));
+        response.Add ("entries", encoded);
+        // ⚠️ THE NAME AND THE TEMPLATE TRAVEL WITH THE LISTING, BECAUSE A SCRIPT
+        // NODE IS SCAFFOLDED ON ITS FIRST SAVE AND NOT ON PLACEMENT. The palette
+        // opens a brand-new node on this text with nothing on disk behind it, and
+        // writes it under this name when the user saves. Both are answered
+        // natively so that neither the starter script nor the naming rule exists
+        // twice - a second copy in the browser bundle is a copy that drifts.
+        response.Add ("suggestedName", GraphText (graph::NextFreeWorkflowName ("script")));
+        response.Add ("template", GraphText (graph::ScriptTemplateSource (language)));
+        return response;
+    }
+};
+
+class GraphScriptSetNameCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::NodeId nodeId;
+        GS::UniString nameText;
+        if (!ReadNodeId (params, nodeId) || !params.Get ("name", nameText))
+            return NativeCommandResult::Failure (GS::UniString ("nodeId and name are required", CC_UTF8));
+        const graph::GraphId graphId = ReadGraphIdParam (params);
+
+        const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
+        if (state.path.empty ())
+            return NativeCommandResult::Failure (GS::UniString ("this script node has no folder yet", CC_UTF8));
+
+        const graph::ScriptWorkspace workspace = graph::ResolveScriptWorkspace (state.path, state.language);
+        if (!workspace.ok)
+            return NativeCommandResult::Failure (GraphText (workspace.error));
+
+        // ⚠️ READ, TRANSFORM, WRITE UNDER THE HASH JUST READ. The alias lives in
+        // the entry file's header, and that file is normally also open in VSCode.
+        // Guarding the write with the hash of the bytes this command itself read
+        // means a rename cannot silently overwrite an edit made a second earlier
+        // in the other editor: it fails instead, and the node keeps its old
+        // alias, which is the recoverable half of the two outcomes.
+        const graph::ScriptRead read = graph::ReadScript (workspace.entryFile);
+        if (!read.ok)
+            return NativeCommandResult::Failure (
+                GraphText (read.error.empty () ? "could not read " + workspace.entryFile : read.error));
+
+        const std::string renamed = graph::WithScriptName (read.source, GraphUtf8 (nameText), state.language);
+        if (renamed != read.source) {
+            const graph::ScriptWrite written = graph::WriteScriptSource (
+                workspace.entryFile, renamed, graph::HashScriptSource (read.source), &graph::HashScriptSource);
+            if (!written.ok)
+                return NativeCommandResult::Failure (GraphText (
+                    written.conflict ? "the file changed while the node was being renamed; reload and try again"
+                                     : written.error));
+        }
+
+        // Reload rather than patch: the header is what declares this node's name,
+        // and there is one path by which a file changes a node.
+        const graph::ScriptReloadResult result = graph::ReloadScriptNode (graphId, nodeId);
+        return EncodeStatus (graphId, nodeId, result.state, true, result.error, result.droppedEdges,
+                             result.interfaceChanged);
+    }
+};
+
+class GraphScriptOpenLibraryCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        const std::string root = graph::DefaultWorkflowRoot ();
+        if (root.empty ())
+            return NativeCommandResult::Failure (
+                GS::UniString ("%LOCALAPPDATA% is not set, so there is no workflow library on this machine", CC_UTF8));
+
+        // ⚠️ CREATED IF ABSENT, AND THAT IS NOT SCOPE CREEP. A machine that has
+        // never had a workflow deployed has no such folder, and "the button did
+        // nothing" is the worst possible answer to "show me where my scripts go".
+        // An empty directory is also exactly what someone needs in order to put
+        // the first script there by hand.
+        std::string created;
+        if (!graph::EnsureWorkflowRoot (created))
+            return NativeCommandResult::Failure (GraphText ("could not create " + root));
+
+        // ShellExecute on a DIRECTORY, with the path passed as data rather than
+        // composed into a command line - see GraphScriptRevealCommand for why no
+        // verb in this file ever builds an explorer.exe argument string.
+        const GS::UniString wide = GraphText (root);
+        const HINSTANCE launched = ShellExecuteW (nullptr, L"open", reinterpret_cast<LPCWSTR> (wide.ToUStr ().Get ()),
+                                                  nullptr, nullptr, SW_SHOWNORMAL);
+        if (reinterpret_cast<INT_PTR> (launched) <= 32)
+            return NativeCommandResult::Failure (GraphText ("Windows would not open " + root));
+
+        GS::ObjectState response;
+        response.Add ("ok", true);
+        response.Add ("error", GS::UniString ());
+        response.Add ("path", GraphText (root));
+        return response;
+    }
+};
+
 const NativeCommandRegistration registrations[] = {
     { "GraphScriptStatus", &MakeRegisteredNativeCommand<GraphScriptStatusCommand>, false, kNodeInputSchema,
       kStatusResponseSchema },
@@ -552,6 +700,12 @@ const NativeCommandRegistration registrations[] = {
     { "GraphScriptOpen", &MakeRegisteredNativeCommand<GraphScriptOpenCommand>, false, kNodeInputSchema,
       kOpenResponseSchema },
     { "GraphScriptReveal", &MakeRegisteredNativeCommand<GraphScriptRevealCommand>, false, kNodeInputSchema,
+      kOpenResponseSchema },
+    { "GraphScriptLibrary", &MakeRegisteredNativeCommand<GraphScriptLibraryCommand>, false, kNodeInputSchema,
+      kLibraryResponseSchema },
+    { "GraphScriptSetName", &MakeRegisteredNativeCommand<GraphScriptSetNameCommand>, false, kSetNameInputSchema,
+      kStatusResponseSchema },
+    { "GraphScriptOpenLibrary", &MakeRegisteredNativeCommand<GraphScriptOpenLibraryCommand>, false, kEmptyInputSchema,
       kOpenResponseSchema },
 };
 

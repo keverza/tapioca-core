@@ -47,8 +47,11 @@
   import { EMPTY_SCRIPT_STATUS, SCRIPT_POLL_INTERVAL_MS, fileNameOf, workspaceNameOf, type ScriptStatus } from './script'
   import {
     addScriptFile,
+    createScript,
+    fetchScriptLibrary,
     fetchScriptStatus,
     openScriptInEditor,
+    openScriptLibraryFolder,
     readScriptSource,
     reloadScript,
     revealScriptInExplorer,
@@ -92,6 +95,82 @@
    */
   let syncedStamp = $state('')
   let loadedNode = $state('')
+
+  /**
+   * The starter script for a node that has no folder yet, before it has one.
+   *
+   * ⚠️ A NEW SCRIPT NODE WRITES NOTHING TO DISK UNTIL THIS IS SAVED, AND THAT IS
+   * THE WHOLE POINT OF THE DRAFT. Scaffolding on placement would mean a canvas
+   * somebody spent an hour experimenting on left twenty abandoned folders in
+   * their library; refusing to open an editor until they had created one meant
+   * the first thing a new node asked for was a decision about a filename. So the
+   * editor opens on the template immediately, the user plays with it, and the
+   * folder comes into existence at the moment there is something worth keeping.
+   *
+   * The text comes from the NATIVE side, which is also what Create writes - see
+   * ScriptTemplateSource. A copy of the template in this bundle would be a
+   * starter script that quietly stopped matching the one on disk.
+   */
+  let draft = $state<{ name: string; text: string; language: 'python' | 'javascript' } | null>(null)
+
+  /** Whether the starter script has been asked for on THIS node. See the effect. */
+  let draftAsked = $state(false)
+
+  /**
+   * How wide the panel is, in pixels, remembered per browser.
+   *
+   * ⚠️ WIDTH ONLY. The panel takes the canvas's full HEIGHT and always has to:
+   * it is a code editor, the thing it is short of is lines, and a height someone
+   * has to drag out every time they open it is a height that is wrong on every
+   * node they open next. Width is the axis where the trade is real - a wide panel
+   * reads long lines, a narrow one leaves the graph visible beside it - so that
+   * is the one the user gets to make, and it is remembered because they will make
+   * the same choice every time otherwise.
+   */
+  const MIN_WIDTH = 320
+  const DEFAULT_WIDTH = 560
+  const WIDTH_KEY = 'tapioca.scriptEditor.width'
+  let width = $state(DEFAULT_WIDTH)
+  let dragging = $state(false)
+
+  $effect(() => {
+    // Read once, and tolerantly: a stored width from a much larger window must
+    // not open a panel wider than the canvas it is in.
+    const stored = Number(window.localStorage?.getItem(WIDTH_KEY) ?? '')
+    if (Number.isFinite(stored) && stored >= MIN_WIDTH) width = stored
+  })
+
+  function startResize(event: PointerEvent): void {
+    event.preventDefault()
+    dragging = true
+    const startX = event.clientX
+    const startWidth = width
+    const target = event.currentTarget as HTMLElement
+    target.setPointerCapture(event.pointerId)
+
+    const move = (moved: PointerEvent): void => {
+      // The handle is on the LEFT edge of a right-anchored panel, so dragging
+      // left (a negative delta) makes it wider.
+      const next = startWidth + (startX - moved.clientX)
+      width = Math.max(MIN_WIDTH, Math.min(next, window.innerWidth - 40))
+    }
+    const stop = (): void => {
+      dragging = false
+      target.releasePointerCapture?.(event.pointerId)
+      target.removeEventListener('pointermove', move)
+      target.removeEventListener('pointerup', stop)
+      target.removeEventListener('pointercancel', stop)
+      try {
+        window.localStorage?.setItem(WIDTH_KEY, String(Math.round(width)))
+      } catch {
+        /* A palette with storage denied resizes fine and forgets. Not worth a
+           message: the user is looking at the size they just chose. */
+      }
+    }
+    target.addEventListener('pointermove', move)
+    target.addEventListener('pointerup', stop)
+    target.addEventListener('pointercancel', stop)
+  }
 
   const active = $derived(tabs.active)
   const buffer = $derived(bufferFor(tabs, active))
@@ -248,8 +327,76 @@
     syncedStamp = ''
     notice = ''
     adding = false
+    draft = null
+    draftAsked = false
     void open('')
   })
+
+  /**
+   * A node with no folder gets the starter script to play with.
+   *
+   * ⚠️ GUARDED ON HAVING ASKED, NOT ON HAVING AN ANSWER. `guard` toggles `busy`,
+   * which this effect reads, so a fetch that FAILED would leave `draft` null,
+   * flip `busy` back, re-run this effect and ask again - forever, at whatever
+   * rate the bridge is failing at. The flag is cleared when the node changes,
+   * which is the only thing that makes the answer worth asking for again.
+   */
+  $effect(() => {
+    if (status.path !== '' || draftAsked || busy) return
+    draftAsked = true
+    void guard(async () => {
+      const library = await fetchScriptLibrary(nodeId, graphId)
+      if (status.path !== '') return // A create landed while this was in flight.
+      draft = {
+        name: library.suggestedName,
+        text: library.template,
+        // From the node TYPE, natively: a .js node's starter script is not Python
+        // and must not be highlighted as though it were.
+        language: library.language === 'javascript' ? 'javascript' : 'python',
+      }
+    })
+  })
+
+  /**
+   * Save the draft, which is the moment the folder comes into existence.
+   *
+   * Create writes the template, then the user's edits go over it through the
+   * ordinary guarded write - rather than a create-with-contents verb, which would
+   * be a second way for a file to be brought into being and a second place for
+   * "does this overwrite?" to be answered.
+   */
+  async function saveDraft(): Promise<void> {
+    const pending = draft
+    if (pending === null) return
+    const name = pending.name.trim()
+    if (name === '') {
+      error = 'Name this script first'
+      return
+    }
+    await guard(async () => {
+      const created = await createScript(nodeId, name, graphId)
+      const read = await readScriptSource(nodeId, '', graphId)
+      if (read.ok && read.source !== pending.text) {
+        const written = await writeScriptSource(nodeId, '', pending.text, read.sourceHash, graphId)
+        if (written.conflict) {
+          // Effectively impossible - the file was created a moment ago - but the
+          // guard is the guard, and silently discarding the user's text because
+          // the impossible happened is exactly the failure it exists to prevent.
+          error = 'The new file changed while it was being written. Nothing was lost; try saving again.'
+          return
+        }
+      }
+      draft = null
+      status = created
+      syncedStamp = stampOf(created)
+      onreloaded(created)
+      await open('')
+      const reloaded = await reloadScript(nodeId, graphId)
+      status = reloaded
+      onreloaded(reloaded)
+      notice = `Saved as ${name}.`
+    })
+  }
 
   $effect(() => {
     let cancelled = false
@@ -290,17 +437,67 @@
   }
 </script>
 
-<aside class="script-editor nodrag nowheel" aria-label="Script editor">
+<aside class="script-editor nodrag nowheel" aria-label="Script editor" style={`width: ${width}px`}>
+  <!--
+    The one axis the user gets to choose. Height is not offered: this is a code
+    editor and it always wants every line the canvas can give it.
+  -->
+  <div
+    class="grip"
+    class:dragging
+    role="separator"
+    aria-label="Resize the script editor"
+    aria-orientation="vertical"
+    onpointerdown={startResize}
+  ></div>
+
+  <div class="panel">
   <header>
     <div class="identity">
       <span>{title}</span>
-      <strong title={status.workspaceRoot}>{nodeName === '' ? 'No folder' : nodeName}{unsaved.length > 0 ? ' •' : ''}</strong>
+      <strong title={status.workspaceRoot}>{nodeName === '' ? (draft?.name ?? 'New script') : nodeName}{unsaved.length > 0 ? ' •' : ''}</strong>
     </div>
     <button class="close" onclick={requestClose} aria-label="Close the script editor">Close</button>
   </header>
 
   {#if status.path === ''}
-    <p class="empty">This node has no folder yet. Name one on the node and press Create.</p>
+    <!--
+      The draft. A brand-new node opens straight into a runnable starter script,
+      and nothing is on disk until it is saved - see the note on `draft`. The
+      folder name is a field here rather than a decision to make first, because
+      the interesting thing to do with a new script node is read the template and
+      change a line, not think of a filename.
+    -->
+    <label class="draft-name">
+      <span>Save as</span>
+      <input
+        type="text"
+        spellcheck="false"
+        placeholder="new_script"
+        value={draft?.name ?? ''}
+        oninput={(event) => { if (draft !== null) draft = { ...draft, name: event.currentTarget.value } }}
+      />
+    </label>
+    <div class="editor">
+      <CodeEditor
+        text={draft?.text ?? ''}
+        language={draft?.language ?? "python"}
+        readOnly={draft === null}
+        onchange={(text) => { if (draft !== null) draft = { ...draft, text }; error = '' }}
+        onsave={() => void saveDraft()}
+      />
+    </div>
+    {#if error !== ''}<p class="error">{error}</p>{/if}
+    {#if error === '' && notice !== ''}<p class="notice">{notice}</p>{/if}
+    <footer>
+      <button class="primary" disabled={busy || draft === null} onclick={() => void saveDraft()}>
+        {busy ? 'Working…' : 'Create and save'}
+      </button>
+      <button disabled={busy} onclick={() => void guard(() => openScriptLibraryFolder())} title="Where every script node folder lives">
+        Workflows folder
+      </button>
+      <span class="phase">Not saved yet</span>
+    </footer>
   {:else}
     <!--
       The tab strip. A shared file is marked and never mixed in with the node's
@@ -428,6 +625,17 @@
         Open folder
       </button>
       <button disabled={busy} onclick={() => void guard(() => revealScriptInExplorer(nodeId, graphId))}>Explorer</button>
+      <!--
+        The LIBRARY, not this node's folder, and both are worth a button.
+        "Explorer" shows you where this script is; this one shows you where every
+        script is - which is what you want when you are about to add one by hand,
+        copy one in, or find out why the picker is empty. It lives here rather
+        than on the node because the node's action row is four icons wide and this
+        is a thing you do once a session, not once a minute.
+      -->
+      <button disabled={busy} onclick={() => void guard(() => openScriptLibraryFolder())} title="Where every script node folder lives">
+        Workflows folder
+      </button>
       {#if status.log.length > 0}
         <button class="ghost" onclick={() => (logOpen = !logOpen)}>Output ({status.log.length})</button>
       {/if}
@@ -460,15 +668,38 @@
       <ol class="log">{#each status.log as line}<li><code>{line}</code></li>{/each}</ol>
     {/if}
   {/if}
+  </div>
 </aside>
 
 <style>
-  .script-editor { position: absolute; z-index: 9; top: 12px; right: 12px; display: flex; width: min(560px, calc(100% - 24px)); max-height: calc(100% - 24px); flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); box-shadow: 0 18px 60px rgb(0 0 0 / 45%); color: var(--text); font: 11px/1.45 'Segoe UI', sans-serif; }
+  /*
+   * ⚠️ FULL CANVAS HEIGHT, ALWAYS, AND FLUSH TO THE EDGE. It is a code editor;
+   * what it is short of is lines. The panel used to float with a margin and a
+   * max-height, which spent three rows of a screen on shadow in order to look
+   * like a card - and left the buffer with a viewport a third of the window on a
+   * laptop. `inset` pins it top to bottom and the radius comes off the edges that
+   * now touch the canvas.
+   *
+   * The width is inline, from the grip. `max-width` is the only clamp left here,
+   * so a stored width from a much larger window cannot fill the whole palette.
+   */
+  .script-editor { position: absolute; z-index: 9; inset: 0 0 0 auto; display: flex; max-width: calc(100% - 40px); border-left: 1px solid var(--border); background: var(--surface); box-shadow: -12px 0 44px rgb(0 0 0 / 38%); color: var(--text); font: 11px/1.45 'Segoe UI', sans-serif; }
+  /* The whole panel scrolls nothing; the editor inside it does. */
+  .panel { display: flex; min-width: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; }
+  /*
+   * The resize handle: a hit target wider than the line it draws, because a 1px
+   * grab area is a 1px grab area. It sits ON the border rather than beside it, so
+   * the panel's left edge IS the thing you drag.
+   */
+  .grip { position: absolute; z-index: 1; top: 0; bottom: 0; left: -3px; width: 7px; cursor: ew-resize; touch-action: none; }
+  .grip:hover::after, .grip.dragging::after { position: absolute; inset: 0 3px; background: var(--accent); content: ''; }
+  .draft-name { display: grid; align-items: center; padding: 8px 11px; border-bottom: 1px solid var(--border); gap: 7px; grid-template-columns: 48px 1fr; }
+  .draft-name span { color: var(--text-faint); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+  .draft-name input { min-width: 0; height: 22px; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--canvas); color: var(--text); font: 11px ui-monospace, monospace; }
   header { display: flex; align-items: center; justify-content: space-between; padding: 9px 11px; border-bottom: 1px solid var(--border); }
   .identity { display: grid; min-width: 0; }
   .identity span { color: var(--text-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
   .identity strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-  .empty { margin: 0; padding: 18px 14px; color: var(--text-faint); }
   /* The strip scrolls rather than wraps: a node with eight helpers must not push
      the editor down the panel, and tabs that reflowed as one was added would move
      under the pointer. */
@@ -521,5 +752,8 @@
   .roots li, .log li { padding: 1px 11px; }
   .roots code, .log code { font: 10px/1.45 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
   .roots .note code { color: var(--text-faint); font-style: italic; }
-  @media (max-width: 620px) { .script-editor { top: 6px; right: 6px; width: calc(100% - 12px); max-height: calc(100% - 12px); } }
+  /* On a narrow palette the trade the grip offers no longer exists: there is no
+     width at which both the graph and a line of code are readable, so the panel
+     takes the lot and the grip has nothing to give. */
+  @media (max-width: 620px) { .script-editor { width: 100% !important; max-width: 100%; } .grip { display: none; } }
 </style>
