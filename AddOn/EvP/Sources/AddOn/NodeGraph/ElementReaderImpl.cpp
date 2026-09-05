@@ -508,6 +508,25 @@ void ReadZone (const API_ZoneType& zone, Settings& settings)
     PutOutline (settings, zone.head.guid, zone.poly);
 }
 
+// MAIN THREAD. Archicad's own model extent for one element.
+//
+// ⚠️ ASKED OF THE API RATHER THAN COMPUTED FROM THE OUTLINE. CalcBounds accounts
+// for slant, thickness and the real solid; a box derived from `outline` would be
+// the plan footprint wearing the name of a bounding box, and it would be wrong
+// for every slanted wall and every object taller than its plan symbol.
+//
+// A failure is SILENT AND ABSENT rather than an error: a 2D element outside the
+// model, or one Archicad declines to measure, simply has no bounds - and an
+// element that could not be measured must not report a box at the origin.
+void PutBounds (Settings& settings, const API_Elem_Head& head)
+{
+    API_Box3D extent = {};
+    if (ACAPI_Element_CalcBounds (&head, &extent) != NoError)
+        return;
+    PutPoint (settings, "boundsMin", extent.xMin, extent.yMin, extent.zMin);
+    PutPoint (settings, "boundsMax", extent.xMax, extent.yMax, extent.zMax);
+}
+
 // MAIN THREAD. One element, start to finish.
 void ReadOne (const std::string& guid, const std::map<short, Story>& stories, ElementDescription& description)
 {
@@ -554,6 +573,10 @@ void ReadOne (const std::string& guid, const std::map<short, Story>& stories, El
         PutText (settings, "elementId", *memo.elemInfoString);
     }
     ACAPI_DisposeElemMemoHdls (&memo);
+
+    // Before the per-type switch, because it applies to every type - including
+    // the ones below that fall through to `default`.
+    PutBounds (settings, element.header);
 
     switch (element.header.type.typeID) {
         case API_WallID:

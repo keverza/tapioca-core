@@ -9,6 +9,8 @@ import {
   unreadSettingCount,
   UNCLASSIFIED_ELEMENT_TYPE,
   type ElementTypeInfo,
+  propertyListOf,
+  elementDisplayName,
 } from '../src/nodes/archicad/elements.ts'
 import type {
   ElementDescription,
@@ -300,4 +302,129 @@ test('a row carries the origin of its value so a derived number says so', () => 
   const rows = sections.flatMap((section) => section.rows)
   assert.equal(rows.find((row) => row.id === 'length')?.origin, 'derived')
   assert.equal(rows.find((row) => row.id === 'structure')?.origin, 'archicad')
+})
+
+// --- the promotable property list -------------------------------------------
+
+test('the property list is the type schema, not one row per element', () => {
+  // ⚠️ §12. Four hundred walls have ONE answer to "what does a wall have".
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'structure', text: 'Basic' }, { id: 'buildingMaterial', text: 'Concrete' }]),
+    described([{ id: 'structure', text: 'Basic' }, { id: 'buildingMaterial', text: 'Concrete' }]),
+  ])
+  const rows = list?.groups.flatMap((group) => group.rows) ?? []
+  assert.equal(rows.filter((row) => row.settingId === 'buildingMaterial').length, 1)
+  assert.equal(list?.elementCount, 2)
+})
+
+test('a shared value previews as itself and a differing one as a count', () => {
+  // A row that showed only the first element's value would be a quiet lie about
+  // the other three.
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'structure', text: 'Basic' }, { id: 'length', text: '4.2' }]),
+    described([{ id: 'structure', text: 'Basic' }, { id: 'length', text: '3.1' }]),
+  ])
+  const rows = new Map((list?.groups.flatMap((g) => g.rows) ?? []).map((row) => [row.settingId, row]))
+  assert.equal(rows.get('structure')?.preview, 'Basic')
+  assert.equal(rows.get('length')?.preview, '2 values')
+})
+
+test('a row that cannot apply to any element is not offered for promotion', () => {
+  // Promoting Composite on a set of Basic walls creates a node that answers
+  // Absent for every element for ever.
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'structure', text: 'Basic' }, { id: 'buildingMaterial', text: 'Concrete' }]),
+  ])
+  const ids = (list?.groups.flatMap((g) => g.rows) ?? []).map((row) => row.settingId)
+  assert.equal(ids.includes('buildingMaterial'), true)
+  assert.equal(ids.includes('composite'), false)
+})
+
+test('a mixed set offers the rows that are real for part of it', () => {
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'structure', text: 'Basic' }, { id: 'buildingMaterial', text: 'Concrete' }]),
+    described([{ id: 'structure', text: 'Composite' }, { id: 'composite', text: 'Cavity' }]),
+  ])
+  const ids = (list?.groups.flatMap((g) => g.rows) ?? []).map((row) => row.settingId)
+  assert.equal(ids.includes('buildingMaterial'), true)
+  assert.equal(ids.includes('composite'), true)
+})
+
+test('a setting that applies but was read for nobody is kept and marked', () => {
+  // Unread is what this build cannot do YET. Hiding it makes the panel look
+  // complete when it is short; §36's rule is that the shortfall is said.
+  const list = propertyListOf(structuredWallSchema, [described([{ id: 'structure', text: 'Basic' }])])
+  const row = (list?.groups.flatMap((g) => g.rows) ?? []).find((r) => r.settingId === 'length')
+  assert.equal(row?.unread, true)
+  assert.equal(row?.preview, '')
+})
+
+test('rows keep the runtime group order and carry unit and origin', () => {
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'elementId', text: 'W-01' }, { id: 'structure', text: 'Basic' }, { id: 'length', text: '4.2' }]),
+  ])
+  assert.deepEqual(list?.groups.map((group) => group.group), ['Identity', 'Structure', 'Geometry'])
+  const length = list?.groups.find((g) => g.group === 'Geometry')?.rows[0]
+  assert.equal(length?.unit, 'm')
+  assert.equal(length?.origin, 'derived')
+})
+
+test('an unreadable element contributes nothing rather than an empty row', () => {
+  const gone: ElementDescription = { ...described([]), available: false, detail: 'deleted' }
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'structure', text: 'Basic' }, { id: 'length', text: '4.2' }]),
+    gone,
+  ])
+  const row = (list?.groups.flatMap((g) => g.rows) ?? []).find((r) => r.settingId === 'length')
+  assert.equal(row?.preview, '4.2')
+  assert.equal(row?.readCount, 1)
+})
+
+test('an element is named by what a person would recognise, never by its guid', () => {
+  // ⚠️ THE POINT OF THE WHOLE ROW. "55614A45-AD1B-4CFD-..." tells nobody which
+  // wall they are looking at, and four of them tell nobody four times.
+  assert.equal(elementDisplayName(described([{ id: 'elementId', text: 'SW-001' }])), 'SW-001')
+  assert.equal(elementDisplayName(described([{ id: 'zoneName', text: 'Kitchen' }])), 'Kitchen')
+  assert.equal(elementDisplayName(described([{ id: 'libraryPart', text: 'Chair 01' }])), 'Chair 01')
+  // Falls back to the type before the guid, because "Wall" is still an answer.
+  assert.equal(elementDisplayName(described([])), 'Wall')
+})
+
+test('a count of differing values does not take the unit', () => {
+  // ⚠️ "4 values m" reads as a quantity in metres. It is a tally of how many
+  // distinct lengths there are, and a unit on it is a category error.
+  const list = propertyListOf(structuredWallSchema, [
+    described([{ id: 'structure', text: 'Basic' }, { id: 'length', text: '4.2' }]),
+    described([{ id: 'structure', text: 'Basic' }, { id: 'length', text: '3.1' }]),
+  ])
+  const rows = new Map((list?.groups.flatMap((g) => g.rows) ?? []).map((row) => [row.settingId, row]))
+  assert.equal(rows.get('length')?.sharedValue, false)
+  assert.equal(rows.get('structure')?.sharedValue, true)
+})
+
+test('a unit follows a measurement and nothing else', () => {
+  // ⚠️ "Polyline (2 points) m" reads as a length. The reference line's unit is
+  // real - its coordinates are metres - but its PREVIEW is a shape summary, and
+  // a unit after a summary is a category error rather than a formatting slip.
+  const schema: ElementTypeSchema = {
+    id: 'wall',
+    label: 'Wall',
+    plural: 'Walls',
+    settings: [
+      setting('height', 'Height', 'Geometry', 'double', 'm'),
+      setting('boundsMin', 'Bounds Min', 'Geometry', 'point3', 'm'),
+      setting('referenceLinePath', 'Reference Line', 'Geometry', 'polyline', 'm'),
+    ],
+  }
+  const list = propertyListOf(schema, [
+    described([
+      { id: 'height', text: '3.20' },
+      { id: 'boundsMin', text: '0.00, 0.00, 0.00' },
+      { id: 'referenceLinePath', text: 'Polyline (2 points)' },
+    ]),
+  ])
+  const rows = new Map((list?.groups.flatMap((g) => g.rows) ?? []).map((row) => [row.settingId, row]))
+  assert.equal(rows.get('height')?.showUnit, true)
+  assert.equal(rows.get('boundsMin')?.showUnit, true)
+  assert.equal(rows.get('referenceLinePath')?.showUnit, false)
 })

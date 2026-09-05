@@ -489,3 +489,27 @@ TEST (ReferenceLine, DegenerateInputsProduceAnAnswerRatherThanRefusing)
     // straight fallback is the answer that does not produce an infinity.
     EXPECT_NEAR (3.0, ReferenceLineLength (a, b, 2.0 * kPi), 1e-6);
 }
+
+TEST (ElementClassification, EveryTypeCarriesTheModelExtentIncludingTheUnreadOnes)
+{
+    // ⚠️ CalcBounds TAKES AN ELEMENT HEAD, so it answers for a Curtain Wall and a
+    // Stair as well as for a Wall. Those types are unread because nobody has
+    // written out their fields, not because Archicad cannot measure them - so
+    // withholding the bounds from them would withhold an answer the API gives
+    // for free, and it is the ONLY geometry they can report.
+    for (const ElementTypeDescriptor& type : ElementTypeCatalog ()) {
+        EXPECT_TRUE (HasSetting (type, "boundsMin")) << type.id;
+        EXPECT_TRUE (HasSetting (type, "boundsMax")) << type.id;
+        EXPECT_EQ (ValueType::Point3, Setting (type, "boundsMin").valueType) << type.id;
+        EXPECT_EQ ("m", Setting (type, "boundsMax").unit) << type.id;
+    }
+}
+
+TEST (ElementClassification, TheExtentIsArchicadsRatherThanSomethingThisBuildDerived)
+{
+    // It accounts for slant, thickness and the real solid. A box computed from
+    // `outline` would be the plan footprint under a bounding box's name, and
+    // wrong for every slanted wall - so it must not be marked Derived, which
+    // would tell a user the number was ours to explain.
+    EXPECT_EQ (SettingOrigin::Archicad, Setting (Type ("wall"), "boundsMin").origin);
+}

@@ -616,6 +616,21 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * know which node it is drawing.
    */
   onsettingmenu?: (nodeId: string, target: SettingMenuTarget) => void
+  /** The promote button on a property row. */
+  onpromotesetting?: (nodeId: string, target: SettingMenuTarget) => void
+  /**
+   * Setting ids already promoted off this node, so a row can say so rather than
+   * offering a second identical projection.
+   */
+  promotedSettings?: string[]
+  /**
+   * A promoted row asking to be removed.
+   *
+   * ⚠️ THE ROW NEEDS ITS OWN, because nothing else can reach it: a docked row is
+   * not draggable and a marquee does not select it, so the ordinary Delete path
+   * never sees one.
+   */
+  onunpromote?: (nodeId: string) => void
   portConnections?: PortConnectionState[]
   messages?: ComponentMessage[]
 }

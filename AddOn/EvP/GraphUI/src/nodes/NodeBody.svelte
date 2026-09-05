@@ -66,7 +66,11 @@
   {#if (data.elementGroups?.length ?? 0) > 0}
     <section class="containers nodrag">
       {#each data.elementGroups ?? [] as group (group.elementType)}
-        <ElementContainer {group} ondescribe={data.ondescribeelements} />
+        <ElementContainer
+          {group}
+          ondescribe={data.ondescribeelements}
+          onsettingmenu={(target) => data.onsettingmenu?.(id, target)}
+        />
       {/each}
     </section>
   {/if}

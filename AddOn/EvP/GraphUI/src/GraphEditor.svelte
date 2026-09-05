@@ -62,6 +62,7 @@
     centredPasteAnchor,
     duplicationPlan,
     promotionPlan,
+    ELEMENT_SETTING_NODE_TYPE,
     dockedRows,
     dockedNodePosition,
     nextDockOrder,
@@ -555,6 +556,9 @@
         elementGroups: elementGroupsFor(node, schemaOf(node), resultMap.get(node.nodeId)),
         ondescribeelements: describeElements,
         onsettingmenu: openSettingContext,
+        onpromotesetting: (nodeId, target) => void promoteSetting(nodeId, target),
+        onunpromote: (nodeId) => void unpromote(nodeId),
+        promotedSettings: promotedSettingsOf(node.nodeId, state.nodes, state.edges),
         viewerValues:
           schemaOf(node)?.display === 'preview'
             ? viewerValuesFor(node, schemaOf(node), state.edges, resultMap)
@@ -1538,6 +1542,34 @@
    * a node that queried the model to paint its own body would put a main-thread
    * gate crossing behind every repaint.
    */
+  /**
+   * Which settings are already promoted off a node.
+   *
+   * ⚠️ READ OFF THE DOCUMENT, NOT OFF THE DOCK MAP. A promotion that was
+   * converted to an explicit node is still a promotion of that setting - the
+   * node and the wire are there, only the drawing changed - so a row that
+   * consulted the docks would offer to promote it a second time and produce two
+   * identical projections of the same property.
+   */
+  function promotedSettingsOf(
+    nodeId: string,
+    allNodes: readonly GraphNodeRecord[],
+    allEdges: readonly GraphEdgeRecord[],
+  ): string[] {
+    const fed = new Set(
+      allEdges
+        .filter((edge) => edge.sourceNode === nodeId && edge.sourcePort === 'elements')
+        .map((edge) => edge.targetNode),
+    )
+    return allNodes
+      .filter((candidate) => candidate.nodeType === ELEMENT_SETTING_NODE_TYPE && fed.has(candidate.nodeId))
+      .map(
+        (candidate) =>
+          candidate.parameters.find((parameter) => parameter.parameterId === 'setting')?.value?.text ?? '',
+      )
+      .filter((settingId) => settingId !== '')
+  }
+
   function elementGroupsFor(
     node: GraphNodeRecord,
     schema: NodeTypeSchema | undefined,
@@ -2654,6 +2686,21 @@
     } finally {
       busy = false
     }
+  }
+
+  /**
+   * Remove a promotion: delete the node it is.
+   *
+   * ⚠️ AN ORDINARY NODE DELETE, WHICH IS WHY IT NEEDS NO NEW MACHINERY. The wire
+   * goes with the node exactly as it would for any other, undo restores both,
+   * and the row disappears because the node it was drawing is gone. A separate
+   * "unpromote" edit that unwired and kept the node would leave a projection
+   * nobody can see and nothing consumes.
+   */
+  async function unpromote(nodeId: string): Promise<void> {
+    const node = nodes.find((candidate) => candidate.id === nodeId)
+    if (node === undefined) return
+    await removeElements([node], [])
   }
 
   /**

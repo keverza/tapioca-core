@@ -213,3 +213,160 @@ export function containerGroupOf(
   if (guids.length === 0) return []
   return [{ elementType: type.id, label: type.plural, guids }]
 }
+
+// ---------------------------------------------------------------------------
+// THE PROMOTABLE PROPERTY LIST.
+//
+// ⚠️ THE SCHEMA, NOT THE INSTANCES (§12). What a user browses before promoting
+// is "what does a wall have", and that question has ONE answer for four hundred
+// walls. Listing every element's every setting would put sixteen hundred rows in
+// front of somebody looking for Height, and the ninety-nine per cent of them
+// that read the same would carry no information at all.
+//
+// ⚠️ AND IT IS DRIVEN BY THE RUNTIME'S TABLE. The rows, their order, their
+// groups, their units and their types all come from the same response that
+// carried the values - so this can never show a property the reader does not
+// fill, and never shows one under a label it invented.
+// ---------------------------------------------------------------------------
+
+/**
+ * The value types whose preview IS a quantity. Everything else previews as a
+ * summary of a shape or a name, and a unit after one of those is a category
+ * error rather than a formatting slip.
+ */
+const MEASURED_TYPES = new Set(['double', 'integer', 'point3'])
+
+export interface PropertyRow {
+  settingId: string
+  label: string
+  group: string
+  valueType: string
+  unit: string
+  /** 'archicad' or 'derived'. */
+  origin: string
+  /**
+   * What the elements say, as ONE line: the shared value when they agree, a
+   * count when they do not, and empty when none of them answered.
+   */
+  preview: string
+  /**
+   * Whether `preview` is one value the elements agree on, rather than a count of
+   * how many they disagree by.
+   *
+   * ⚠️ A COUNT IS NOT A MEASUREMENT, so it must not take the unit. "4 values m"
+   * reads as a quantity in metres and is a tally of how many distinct lengths
+   * there are.
+   */
+  sharedValue: boolean
+  /**
+   * Whether the unit belongs beside this preview.
+   *
+   * ⚠️ A UNIT BELONGS TO A MEASUREMENT, NOT TO A DESCRIPTION. The reference line
+   * carries "m" because its COORDINATES are metres, but its preview is
+   * "Polyline (2 points)" - a shape summary - and "Polyline (2 points) m" reads
+   * as a length. Same for a count of differing values.
+   */
+  showUnit: boolean
+  /** How many of the elements this build could read this setting for. */
+  readCount: number
+  /** Applies to the type but was read for none of the elements. */
+  unread: boolean
+}
+
+export interface PropertyGroup {
+  group: string
+  rows: PropertyRow[]
+}
+
+export interface PropertyList {
+  elementType: string
+  /** The type's plural, which is what the container is called. */
+  label: string
+  elementCount: number
+  groups: PropertyGroup[]
+}
+
+/**
+ * The properties of one element type, from the schema and the values that came
+ * back with it.
+ *
+ * ⚠️ A ROW THAT DOES NOT APPLY IS OMITTED, A ROW THAT IS MERELY UNREAD IS KEPT.
+ * A Basic wall has no Composite and never will, so offering it for promotion
+ * would create a node that answers Absent for every element for ever. A setting
+ * that applies and simply was not read is a different thing - it is what this
+ * build cannot do YET, it is worth seeing, and it is marked rather than hidden.
+ */
+export function propertyListOf(
+  schema: ElementTypeSchema | undefined,
+  elements: readonly ElementDescription[],
+): PropertyList | undefined {
+  if (schema === undefined) return undefined
+
+  const readable = elements.filter((element) => element.available)
+  const valuesOf = readable.map(
+    (element) => new Map<string, ElementSettingValue>(element.settings.map((setting) => [setting.id, setting])),
+  )
+
+  const groups: PropertyGroup[] = []
+  for (const descriptor of schema.settings) {
+    // Applicable to at least ONE of the elements in hand. A mixed container of
+    // Basic and Composite walls shows both material rows, because each is real
+    // for part of the set; a container of only Basic walls shows one.
+    if (!valuesOf.some((values) => applies(descriptor, values))) continue
+
+    const texts = valuesOf
+      .map((values) => values.get(descriptor.id)?.text)
+      .filter((text): text is string => text !== undefined)
+    const distinct = new Set(texts)
+
+    let preview = ''
+    if (distinct.size === 1) preview = [...distinct][0]
+    else if (distinct.size > 1) preview = `${distinct.size} values`
+
+    let section = groups.find((candidate) => candidate.group === descriptor.group)
+    if (section === undefined) {
+      section = { group: descriptor.group, rows: [] }
+      groups.push(section)
+    }
+    section.rows.push({
+      settingId: descriptor.id,
+      label: descriptor.label,
+      group: descriptor.group,
+      valueType: descriptor.valueType,
+      unit: descriptor.unit,
+      origin: descriptor.origin,
+      preview,
+      sharedValue: distinct.size === 1,
+      showUnit: distinct.size === 1 && descriptor.unit !== '' && MEASURED_TYPES.has(descriptor.valueType),
+      readCount: texts.length,
+      unread: texts.length === 0,
+    })
+  }
+
+  return {
+    elementType: schema.id,
+    label: schema.plural,
+    elementCount: elements.length,
+    groups,
+  }
+}
+
+/**
+ * The human-readable name of one element.
+ *
+ * ⚠️ A GUID IS NOT A NAME. It is the identity and it has to stay reachable, but
+ * "55614A45-AD1B-4CFD-..." tells a person nothing about which wall they are
+ * looking at, and a list of four of them tells them nothing four times. The
+ * user's own element ID is what Archicad shows them; the zone name, the library
+ * part and the type label are the next best answers, in that order.
+ */
+export function elementDisplayName(element: ElementDescription): string {
+  const setting = (id: string): string => element.settings.find((value) => value.id === id)?.text ?? ''
+  return (
+    setting('elementId') ||
+    setting('zoneName') ||
+    setting('libraryPart') ||
+    element.typeLabel ||
+    element.guid
+  )
+}

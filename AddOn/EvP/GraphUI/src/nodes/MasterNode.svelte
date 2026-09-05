@@ -181,7 +181,23 @@
   {/if}
   {#if browserOpen}
     <div class="panel-anchor">
-      <ParameterBrowser nodeId={id} count={selectionCount} parameters={data.parameters} outputs={data.result?.outputs} outputPorts={data.schema.outputs} isSelectionSet={data.schema.display === 'selectionSet'} busy={data.selectionBusy} onclose={() => (browserOpen = false)} onselectionaction={data.onselectionaction} oncopyreference={data.oncopyportreference} />
+      <ParameterBrowser
+        nodeId={id}
+        count={selectionCount}
+        parameters={data.parameters}
+        outputs={data.result?.outputs}
+        outputPorts={data.schema.outputs}
+        isSelectionSet={data.schema.display === 'selectionSet'}
+        busy={data.selectionBusy}
+        elementGroups={data.elementGroups}
+        ondescribeelements={data.ondescribeelements}
+        promoted={data.promotedSettings}
+        onpromote={(target) => data.onpromotesetting?.(id, target)}
+        onsettingmenu={(target) => data.onsettingmenu?.(id, target)}
+        onclose={() => (browserOpen = false)}
+        onselectionaction={data.onselectionaction}
+        oncopyreference={data.oncopyportreference}
+      />
     </div>
   {/if}
   {#if inspectorOpen}

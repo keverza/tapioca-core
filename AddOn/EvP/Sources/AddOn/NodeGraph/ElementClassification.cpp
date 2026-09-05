@@ -35,9 +35,37 @@ std::vector<S> Join (std::vector<S> first, std::vector<S> second)
     return first;
 }
 
+// THE MODEL EXTENT, on every type that has one.
+//
+// ⚠️ ARCHICAD'S OWN, NOT A NUMBER THIS BUILD DERIVED FROM THE OUTLINE.
+// ACAPI_Element_CalcBounds answers for construction AND 2D elements - for a 2D
+// element it simply leaves the vertical extent unfilled - and it accounts for
+// the things a polygon does not: slant, thickness, the objects a wall hosts, the
+// real solid rather than its plan footprint. Computing a box from `outline`
+// would be plausible, cheap and wrong for every slanted wall in the model.
+//
+// ⚠️ TWO CORNERS RATHER THAN A BOX TYPE. The runtime has no box ValueType, and
+// inventing one to carry six doubles would put a new type through the evaluator,
+// the encoder, the client and every port-compatibility check for a value that is
+// exactly two points. A downstream node that wants a size subtracts them.
+std::vector<S> BoundingBox ()
+{
+    return {
+        { "boundsMin", "Bounds Min", G::Geometry, ValueType::Point3, kMetres },
+        { "boundsMax", "Bounds Max", G::Geometry, ValueType::Point3, kMetres },
+    };
+}
+
+// ⚠️ THE BOUNDS GO ON EVERY TYPE, INCLUDING THE ONES WHOSE STRUCT THIS BUILD
+// DOES NOT TRANSCRIBE. CalcBounds takes an element HEAD, so it answers for a
+// Curtain Wall and a Stair exactly as well as for a Wall - those types are
+// unread because nobody has written out their fields, not because Archicad
+// cannot answer about them. This is the one thing a `CommonOnly` type can say
+// about its geometry, and withholding it would be withholding an answer the API
+// gives for free.
 std::vector<S> With (std::vector<S> extra)
 {
-    return Join (Common (), std::move (extra));
+    return Join (Join (Common (), BoundingBox ()), std::move (extra));
 }
 
 SettingCondition WhenStructureIs (const char* text)
@@ -146,7 +174,7 @@ std::vector<S> Opening ()
 // fills would be worse: an empty field and an unread field look identical.
 ElementTypeDescriptor CommonOnly (std::string id, std::string label, std::string plural, bool container = true)
 {
-    return { std::move (id), std::move (label), std::move (plural), container, Common () };
+    return { std::move (id), std::move (label), std::move (plural), container, With ({}) };
 }
 
 const std::vector<ElementTypeDescriptor>& Catalog ()

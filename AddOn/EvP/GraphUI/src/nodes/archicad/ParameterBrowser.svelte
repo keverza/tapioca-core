@@ -1,7 +1,16 @@
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity'
-  import type { GraphParameter, NodeOutputRecord, NodeTypeSchema, SelectionAction } from '../../types'
+  import type {
+    ElementDescriptionResponse,
+    ElementGroup,
+    GraphParameter,
+    NodeOutputRecord,
+    NodeTypeSchema,
+    SelectionAction,
+    SettingMenuTarget,
+  } from '../../types'
   import { filterValueTree, flattenValueTree, nodeValueTree } from '../types/valueTree'
+  import PropertyList from './PropertyList.svelte'
   import ValueTreeRow from './ValueTreeRow.svelte'
 
   let {
@@ -12,6 +21,11 @@
     outputPorts = [],
     busy = false,
     isSelectionSet = false,
+    elementGroups = [],
+    ondescribeelements,
+    onpromote,
+    onsettingmenu,
+    promoted = [],
     onclose,
     onselectionaction,
     oncopyreference,
@@ -23,10 +37,26 @@
     outputPorts?: NodeTypeSchema['outputs']
     busy?: boolean
     isSelectionSet?: boolean
+    /** The Archicad elements this node holds, when it holds any. */
+    elementGroups?: ElementGroup[]
+    ondescribeelements?: (guids: string[]) => Promise<ElementDescriptionResponse>
+    onpromote?: (target: SettingMenuTarget) => void
+    onsettingmenu?: (target: SettingMenuTarget) => void
+    /** Setting ids already promoted on this node. */
+    promoted?: string[]
     onclose: () => void
     onselectionaction?: (nodeId: string, action: SelectionAction) => void
     oncopyreference?: (nodeId: string, portId: string, direction: 'output') => void
   } = $props()
+
+  /**
+   * ⚠️ PROPERTIES FIRST, VALUES SECOND, AND THAT ORDER IS THE POINT. This panel
+   * used to open on the value tree - a list of GUIDs, which is what the node
+   * PRODUCED. Somebody opening a browser on a wall wants to know what a wall
+   * HAS. The tree is still here, below, because the identities are real and
+   * occasionally what you want; it is no longer the first and only answer.
+   */
+  let tab = $state<'properties' | 'values'>('properties')
 
   let query = $state('')
   // Roots open, leaves closed: the shape is what you want first, and a
@@ -93,28 +123,50 @@
     </div>
   {/if}
 
-  <label>
-    <span>Filter</span>
-    <input bind:value={query} placeholder="Name, type or value" />
-  </label>
-
-  <nav aria-label="Tree controls">
-    <button type="button" onclick={expandAll}>Expand all</button>
-    <button type="button" onclick={() => (expanded = new SvelteSet())}>Collapse all</button>
-    <button type="button" disabled={tree.length === 0} title="Copy the rows shown, tab separated" onclick={copyAll}>Copy all</button>
+  <!--
+    Two tabs, not two panels. §4 asks for Information / Properties / Relations /
+    Display / Comment; two of those exist today and inventing the other three as
+    empty shells would be three promises the build cannot keep.
+  -->
+  <nav class="tabs" aria-label="Browser sections">
+    <button type="button" class:active={tab === 'properties'} onclick={() => (tab = 'properties')}>Properties</button>
+    <button type="button" class:active={tab === 'values'} onclick={() => (tab = 'values')}>Values</button>
   </nav>
 
-  <section>
-    {#each tree as root (root.id)}
-      <ValueTreeRow node={root} {expanded} ontoggle={toggle} oncopy={copy} oncopyreference={copyReference} />
-    {:else}
-      <p>
-        {query.trim() === ''
-          ? 'This node holds no stored fields and has published no outputs yet. Evaluate the graph to browse what it produces.'
-          : `Nothing under this node matches "${query}".`}
-      </p>
-    {/each}
-  </section>
+  {#if tab === 'properties'}
+    <section class="pane">
+      <PropertyList
+        groups={elementGroups}
+        ondescribe={ondescribeelements}
+        {onpromote}
+        onmenu={onsettingmenu}
+        {promoted}
+      />
+    </section>
+  {:else}
+    <label>
+      <span>Filter</span>
+      <input bind:value={query} placeholder="Name, type or value" />
+    </label>
+
+    <nav aria-label="Tree controls">
+      <button type="button" onclick={expandAll}>Expand all</button>
+      <button type="button" onclick={() => (expanded = new SvelteSet())}>Collapse all</button>
+      <button type="button" disabled={tree.length === 0} title="Copy the rows shown, tab separated" onclick={copyAll}>Copy all</button>
+    </nav>
+
+    <section>
+      {#each tree as root (root.id)}
+        <ValueTreeRow node={root} {expanded} ontoggle={toggle} oncopy={copy} oncopyreference={copyReference} />
+      {:else}
+        <p>
+          {query.trim() === ''
+            ? 'This node holds no stored fields and has published no outputs yet. Evaluate the graph to browse what it produces.'
+            : `Nothing under this node matches "${query}".`}
+        </p>
+      {/each}
+    </section>
+  {/if}
 </aside>
 
 <style>
@@ -124,9 +176,9 @@
     top: 0;
     left: calc(100% + 10px);
     display: grid;
-    grid-template-rows: auto auto auto auto minmax(100px, 1fr);
-    width: 330px;
-    max-height: 420px;
+    grid-template-rows: auto auto auto minmax(100px, 1fr);
+    width: 360px;
+    max-height: 480px;
     overflow: hidden;
     border: 1px solid var(--border);
     border-top: 2px solid var(--node-color);
@@ -148,4 +200,10 @@
   nav button:hover { color: var(--text); }
   section { min-height: 0; padding: 5px 8px 8px; overflow: auto; background: var(--canvas); }
   section p { margin: 0; padding: 15px 8px; color: var(--text-faint); font-size: 9px; line-height: 1.45; text-align: center; }
+  .tabs { display: flex; padding: 0 9px; border-bottom: 1px solid var(--border); gap: 2px; }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--text-faint); }
+  .tabs button.active { border-bottom-color: var(--node-color); color: var(--text); }
+  .tabs button:hover { color: var(--text); }
+  .pane { padding: 8px 9px 10px; }
+  .pane :global(p) { padding: 0; text-align: left; }
 </style>

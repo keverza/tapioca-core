@@ -65,6 +65,24 @@
   <span class="label">{label}</span>
   <span class="summary">{summary}</span>
   <!--
+    ⚠️ THE ROW CARRIES ITS OWN REMOVE, because it is the only way to reach it.
+    A docked row is not draggable and is not selected by a marquee, so the
+    ordinary Delete path cannot see it - without this button the only way to
+    undo a promotion is to delete the whole host node and start again.
+
+    It deletes the NODE, which is what a promotion is. The wire goes with it,
+    the same as deleting any node, and undo puts both back.
+  -->
+  <button
+    type="button"
+    class="remove nodrag"
+    title="Remove this promotion"
+    aria-label={`Remove the promoted ${label}`}
+    onclick={(event) => {
+      event.stopPropagation()
+      data.onunpromote?.(id)
+    }}>−</button>
+  <!--
     ⚠️ THE HANDLE ID IS THE PORT'S, NOT THE ROW'S. It is the node's real
     `values` output; naming it after the promotion would make an edge that no
     longer validated against the node's own schema.
@@ -94,4 +112,16 @@
   .glyph { color: var(--text-faint); font-size: 8px; }
   .label { overflow: hidden; flex: 1 1 auto; font: 9px/1 'Segoe UI', sans-serif; text-overflow: ellipsis; white-space: nowrap; }
   .summary { color: var(--text-faint); font: 8px/1 ui-monospace, monospace; }
+  .remove {
+    width: 14px;
+    height: 14px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    font: 11px/1 'Segoe UI', sans-serif;
+  }
+  .remove:hover { border-color: var(--danger); color: var(--danger); }
 </style>
