@@ -609,6 +609,13 @@ export interface SchemaNodeData extends Record<string, unknown> {
   elementGroups?: ElementGroup[]
   /** A container asking for the live settings of what it holds. */
   ondescribeelements?: (guids: string[]) => Promise<ElementDescriptionResponse>
+  /**
+   * A right-click on one settings row, on its way to THE context menu.
+   *
+   * The node adds its own id; everything above it is presentational and does not
+   * know which node it is drawing.
+   */
+  onsettingmenu?: (nodeId: string, target: SettingMenuTarget) => void
   portConnections?: PortConnectionState[]
   messages?: ComponentMessage[]
 }
@@ -688,6 +695,22 @@ export interface ElementDescriptionResponse {
   truncated: boolean
   types: ElementTypeSchema[]
   elements: ElementDescription[]
+}
+
+/**
+ * A settings row a user right-clicked, and where they did it.
+ *
+ * ⚠️ SCREEN COORDINATES, NOT FLOW ONES. The menu is drawn over the whole editor
+ * rather than inside the canvas transform, so a pane that is panned or zoomed
+ * must not move it - the pointer is where the pointer was.
+ */
+export interface SettingMenuTarget {
+  settingId: string
+  label: string
+  /** The catalog type the promotion would be made against. */
+  elementType: string
+  x: number
+  y: number
 }
 
 /** One container in a selection node's stack: a type, and what it holds. */

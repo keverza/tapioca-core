@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { ElementDescriptionResponse, ElementGroup, ExecutionMode, NodeTypeSchema } from '../../types'
+  import type {
+    ElementDescriptionResponse,
+    ElementGroup,
+    ExecutionMode,
+    NodeTypeSchema,
+    SettingMenuTarget,
+  } from '../../types'
   import ElementContainer from '../archicad/ElementContainer.svelte'
   import type { PortConnectionState } from '../types/port'
   import { NODE_SWATCHES, portColor, type DisplayState } from '../types/display'
@@ -19,6 +25,7 @@
     connections = [],
     elementGroups = [],
     ondescribeelements,
+    onsettingmenu,
     onname,
     oncolor,
     onmode,
@@ -43,6 +50,8 @@
     /** Present on a node that holds Archicad elements; empty on every other. */
     elementGroups?: ElementGroup[]
     ondescribeelements?: (guids: string[]) => Promise<ElementDescriptionResponse>
+    /** A right-click on one settings row, on its way to the editor's menu. */
+    onsettingmenu?: (target: SettingMenuTarget) => void
     onname: (name: string) => void
     oncolor: (color: string) => void
     onmode: (mode: ExecutionMode) => void
@@ -135,7 +144,7 @@
     <fieldset>
       <legend>Elements</legend>
       {#each elementGroups as group (group.elementType)}
-        <ElementContainer {group} ondescribe={ondescribeelements} />
+        <ElementContainer {group} ondescribe={ondescribeelements} {onsettingmenu} />
       {/each}
     </fieldset>
   {/if}

@@ -1,5 +1,5 @@
 import { callTapioca } from './bridge'
-import { layoutFromPositions, type LayoutRecord } from './editor'
+import { layoutFromPositions, type DockState, type LayoutRecord } from './editor'
 import type { PositionStore, SelectionAction, SelectionActionOutcome } from './types'
 
 /**
@@ -78,11 +78,16 @@ export async function saveGraph(
   label: string,
   positions: PositionStore,
   nodeIds: Iterable<string>,
+  docks: ReadonlyMap<string, DockState> = new Map(),
 ): Promise<StoreOutcome> {
   return callTapioca<StoreOutcome>('Tapioca.GraphLibrarySave', {
     name,
     label,
-    nodeLayout: layoutFromPositions(positions, nodeIds),
+    // ⚠️ THE DOCKS TRAVEL WITH THE GRAPH, NOT IN localStorage. A promoted row is
+    // part of what the workflow IS; a graph opened on another machine that drew
+    // every promotion as a loose box would be the same graph rendered as
+    // something nobody would recognise.
+    nodeLayout: layoutFromPositions(positions, nodeIds, docks),
   })
 }
 

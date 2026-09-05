@@ -255,9 +255,27 @@ export function describeNameRule(): string {
   return 'Letters, digits, dot, dash and underscore only, and it cannot start with a dot.'
 }
 
-export function layoutFromPositions(positions: PositionStore, nodeIds: Iterable<string>): LayoutRecord[] {
+/**
+ * The per-node layout to save with a graph.
+ *
+ * ⚠️ A DOCKED ROW SAVES ITS DOCK AND NOT ITS POSITION. Where a promoted row sits
+ * is DERIVED from its host and its order - see `dockedNodePosition` - so writing
+ * a position for one would persist a second answer to the same question, and the
+ * two would disagree the moment the host moved. The dock is the truth; the
+ * coordinates are a consequence.
+ */
+export function layoutFromPositions(
+  positions: PositionStore,
+  nodeIds: Iterable<string>,
+  docks: ReadonlyMap<string, DockState> = new Map(),
+): LayoutRecord[] {
   const records: LayoutRecord[] = []
   for (const nodeId of nodeIds) {
+    const dock = docks.get(nodeId)
+    if (dock !== undefined) {
+      records.push({ nodeId, fields: dockToFields(dock) })
+      continue
+    }
     const position = positions.get(nodeId)
     if (position === undefined) continue
     records.push({
@@ -271,8 +289,22 @@ export function layoutFromPositions(positions: PositionStore, nodeIds: Iterable<
   return records
 }
 
-export function applyLayoutToPositions(layout: LayoutRecord[], positions: PositionStore): void {
+export function applyLayoutToPositions(
+  layout: LayoutRecord[],
+  positions: PositionStore,
+  docks?: Map<string, DockState>,
+): void {
+  docks?.clear()
   for (const record of layout) {
+    const dock = dockFromFields(record.fields)
+    if (dock !== undefined) {
+      docks?.set(record.nodeId, dock)
+      // ⚠️ AND NO POSITION IS SET FOR IT, even if the file carries one. A caller
+      // that ignores docks entirely gets a node with no stored position, which
+      // falls to automatic placement - a visible box in a plausible spot, which
+      // is the same degradation an orphaned dock gets.
+      continue
+    }
     const x = Number(record.fields.find((field) => field.key === 'x')?.value)
     const y = Number(record.fields.find((field) => field.key === 'y')?.value)
     // A layout round-tripped from another client may carry fields this build
@@ -782,4 +814,41 @@ export function nextDockOrder(docks: ReadonlyMap<string, DockState>, hostNodeId:
   for (const dock of docks.values())
     if (dock.dockedTo === hostNodeId) next = Math.max(next, dock.dockOrder + 1)
   return next
+}
+
+/**
+ * Where a docked row sits, relative to its host.
+ *
+ * ⚠️ RELATIVE, BECAUSE THE ROW IS A CHILD NODE. SvelteFlow positions a node with
+ * a `parentId` against its parent's origin and moves it when the parent moves,
+ * which is exactly what docking means - so dragging a container carries its
+ * promoted rows without this file tracking anything. The alternative, keeping
+ * absolute positions in step by hand, is a synchronisation problem that shows up
+ * as rows sliding out from under their node during a drag.
+ */
+export const DOCK_ROW_HEIGHT = 20
+
+export function dockedNodePosition(hostHeight: number, order: number): XY {
+  return { x: 0, y: Math.max(0, hostHeight) + order * DOCK_ROW_HEIGHT }
+}
+
+/**
+ * A host's docked rows, and everything else that must go with it when it is
+ * deleted.
+ *
+ * ⚠️ DELETING A HOST TAKES ITS ROWS. They are drawn inside it and cannot be
+ * selected on their own, so a delete that left them behind would leave nodes the
+ * user cannot see, cannot reach and did not know survived - still evaluating,
+ * still reading the model. This is the cost §45.2 named for drawing a node as a
+ * row, and it is paid here.
+ */
+export function withDockedRows(
+  nodeIds: readonly string[],
+  docks: ReadonlyMap<string, DockState>,
+): string[] {
+  const doomed = new Set(nodeIds)
+  // One pass is enough: a row cannot itself be a host, because promotion only
+  // ever docks onto the node a property was browsed from.
+  for (const [nodeId, dock] of docks) if (doomed.has(dock.dockedTo)) doomed.add(nodeId)
+  return [...doomed]
 }

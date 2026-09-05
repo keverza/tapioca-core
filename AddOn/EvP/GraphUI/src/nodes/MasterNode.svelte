@@ -192,6 +192,7 @@
       connections={data.portConnections}
       elementGroups={data.elementGroups}
       ondescribeelements={data.ondescribeelements}
+      onsettingmenu={(target) => data.onsettingmenu?.(id, target)}
       name={displayName}
       color={nodeColor}
       {mode}

@@ -8,6 +8,11 @@ import {
   nextDockOrder,
   promotionPlan,
   rekeyByAssignment,
+  withDockedRows,
+  applyLayoutToPositions,
+  layoutFromPositions,
+  dockedNodePosition,
+  DOCK_ROW_HEIGHT,
   type DockState,
 } from '../src/editor.ts'
 
@@ -133,4 +138,87 @@ test('promoting again appends rather than renumbering the existing rows', () => 
   assert.equal(nextDockOrder(docks, 'walls'), 5)
   // A host with no rows yet starts at zero rather than at the global maximum.
   assert.equal(nextDockOrder(docks, 'beams'), 0)
+})
+
+test('a docked row saves its dock and not a position', () => {
+  // ⚠️ TWO ANSWERS TO ONE QUESTION IS THE BUG. A row's coordinates are derived
+  // from its host and its order; persisting them too would let the file disagree
+  // with the derivation the moment the host moved.
+  const positions = new Map([
+    ['walls', { x: 100, y: 40 }],
+    ['row', { x: 999, y: 999 }],
+  ])
+  const docks = new Map<string, DockState>([['row', { dockedTo: 'walls', dockOrder: 1 }]])
+
+  const layout = layoutFromPositions(positions, ['walls', 'row'], docks)
+  const forRow = layout.find((record) => record.nodeId === 'row')
+  assert.deepEqual(
+    forRow?.fields.map((f) => f.key).sort(),
+    ['dockOrder', 'dockedTo'],
+  )
+  const forHost = layout.find((record) => record.nodeId === 'walls')
+  assert.deepEqual(
+    forHost?.fields.map((f) => f.key).sort(),
+    ['x', 'y'],
+  )
+})
+
+test('layout round-trips docks and positions to the right stores', () => {
+  const positions = new Map([['walls', { x: 100, y: 40 }]])
+  const docks = new Map<string, DockState>([['row', { dockedTo: 'walls', dockOrder: 2 }]])
+  const layout = layoutFromPositions(positions, ['walls', 'row'], docks)
+
+  const backPositions = new Map()
+  const backDocks = new Map<string, DockState>()
+  applyLayoutToPositions(layout, backPositions, backDocks)
+
+  assert.deepEqual(backPositions.get('walls'), { x: 100, y: 40 })
+  assert.deepEqual(backDocks.get('row'), { dockedTo: 'walls', dockOrder: 2 })
+  // The row got no position, so it falls to automatic placement rather than to
+  // the origin, if a caller ever draws it as a box.
+  assert.equal(backPositions.has('row'), false)
+})
+
+test('a caller that ignores docks still loads the rest of the layout', () => {
+  // applyLayoutToPositions is called in one place without a dock store; a
+  // missing argument must not throw or lose the ordinary nodes.
+  const layout = layoutFromPositions(
+    new Map([['walls', { x: 5, y: 6 }]]),
+    ['walls', 'row'],
+    new Map<string, DockState>([['row', { dockedTo: 'walls', dockOrder: 0 }]]),
+  )
+  const positions = new Map()
+  applyLayoutToPositions(layout, positions)
+  assert.deepEqual(positions.get('walls'), { x: 5, y: 6 })
+})
+
+test('rows stack under their host by order', () => {
+  assert.deepEqual(dockedNodePosition(60, 0), { x: 0, y: 60 })
+  assert.deepEqual(dockedNodePosition(60, 2), { x: 0, y: 60 + 2 * DOCK_ROW_HEIGHT })
+  // A host whose height has not been measured yet must not push rows above it.
+  assert.deepEqual(dockedNodePosition(-10, 0), { x: 0, y: 0 })
+})
+
+test('deleting a host takes its docked rows with it', () => {
+  // ⚠️ THE COST OF DRAWING A NODE AS A ROW, PAID. A row left behind is a node
+  // the user cannot see, cannot reach, and did not know survived - still
+  // evaluating and still reading the model.
+  const docks = new Map<string, DockState>([
+    ['h1', { dockedTo: 'walls', dockOrder: 0 }],
+    ['h2', { dockedTo: 'walls', dockOrder: 1 }],
+    ['other', { dockedTo: 'slabs', dockOrder: 0 }],
+  ])
+  assert.deepEqual(withDockedRows(['walls'], docks).sort(), ['h1', 'h2', 'walls'])
+})
+
+test('deleting a row alone leaves its host and its siblings', () => {
+  const docks = new Map<string, DockState>([
+    ['h1', { dockedTo: 'walls', dockOrder: 0 }],
+    ['h2', { dockedTo: 'walls', dockOrder: 1 }],
+  ])
+  assert.deepEqual(withDockedRows(['h1'], docks), ['h1'])
+})
+
+test('deleting a node that hosts nothing is unchanged', () => {
+  assert.deepEqual(withDockedRows(['lonely'], new Map()), ['lonely'])
 })

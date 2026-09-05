@@ -13,15 +13,28 @@
    * ⚠️ AND IT NEVER RENDERS A LABEL IT WAS NOT GIVEN. The setting names, groups
    * and order arrive in the same response as the values; see elements.ts.
    */
-  import type { ElementDescription, ElementDescriptionResponse, ElementGroup, ElementTypeSchema } from '../../types'
-  import { settingSectionsOf, unreadSettingCount } from './elements'
+  import type {
+    ElementDescription,
+    ElementDescriptionResponse,
+    ElementGroup,
+    ElementTypeSchema,
+    SettingMenuTarget,
+  } from '../../types'
+  import { settingSectionsOf, unreadSettingCount, type SettingRow } from './elements'
 
   let {
     group,
     ondescribe,
+    onsettingmenu,
   }: {
     group: ElementGroup
     ondescribe?: (guids: string[]) => Promise<ElementDescriptionResponse>
+    /**
+     * A right-click on one settings row. Raised rather than handled, because the
+     * editor owns THE context menu - three menus in three sizes on screen at
+     * once is what happens when each panel draws its own.
+     */
+    onsettingmenu?: (target: SettingMenuTarget) => void
   } = $props()
 
   let open = $state(false)
@@ -66,6 +79,28 @@
 
   function schemaFor(element: ElementDescription): ElementTypeSchema | undefined {
     return schemas.find((schema) => schema.id === element.elementType)
+  }
+
+  /**
+   * Right-click on a settings row.
+   *
+   * ⚠️ IT CARRIES THE GROUP'S TYPE, NOT THE ELEMENT'S. A promotion is made
+   * against a TYPE's schema and applies to every element the host produces, so
+   * the row that was clicked names the setting and the container names the type.
+   * Sending the clicked element's own guid would suggest the promotion is about
+   * that one element, which it is not.
+   */
+  function rowMenu(event: MouseEvent, row: SettingRow): void {
+    if (onsettingmenu === undefined) return
+    event.preventDefault()
+    event.stopPropagation()
+    onsettingmenu({
+      settingId: row.id,
+      label: row.label,
+      elementType: group.elementType,
+      x: event.clientX,
+      y: event.clientY,
+    })
   }
 
   function title(element: ElementDescription): string {
@@ -127,10 +162,16 @@
                         about the DEFINITION of length rather than about the
                         reader, and the marker is the only thing that tells them.
                       -->
-                      <dt>
+                      <!--
+                        ⚠️ THE WHOLE ROW IS THE TARGET, dt AND dd BOTH. A menu
+                        that only opened over the label would make the value -
+                        the half a user is looking at when they decide they want
+                        it downstream - the one place right-click does nothing.
+                      -->
+                      <dt oncontextmenu={(event) => rowMenu(event, row)}>
                         {row.label}{#if row.origin === 'derived'}<abbr title="Computed by Tapioca; Archicad has no such field">ƒ</abbr>{/if}
                       </dt>
-                      <dd>{row.text}{#if row.unit !== ''}<em> {row.unit}</em>{/if}</dd>
+                      <dd oncontextmenu={(event) => rowMenu(event, row)}>{row.text}{#if row.unit !== ''}<em> {row.unit}</em>{/if}</dd>
                     {/each}
                   </dl>
                 {/each}

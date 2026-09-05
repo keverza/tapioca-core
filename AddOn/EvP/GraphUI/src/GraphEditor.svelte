@@ -61,6 +61,11 @@
     centreOn,
     centredPasteAnchor,
     duplicationPlan,
+    promotionPlan,
+    dockedRows,
+    dockedNodePosition,
+    nextDockOrder,
+    withDockedRows,
     nominalNodeSize,
     parameterGestureKey,
     parseClipboard,
@@ -70,6 +75,7 @@
     REFERENCE_EDGE_STYLE,
     UNDO_DEPTH_CHOICES,
     type AssignedNode,
+    type DockState,
     type DetailLevel,
     type GraphClipboard,
     type MetadataSnapshot,
@@ -93,6 +99,7 @@
   import ScriptEditor from './nodes/script/ScriptEditor.svelte'
   import type { DiagnosticMode } from './performance'
   import MasterNode from './nodes/MasterNode.svelte'
+  import PromotedRow from './nodes/archicad/PromotedRow.svelte'
   import { requestQuickMenu, requestRename } from './nodes/renameRequest.svelte'
   import { parseNodePresentations, serializeNodePresentations } from './nodes/serialization'
   import ToolStrip from './ToolStrip.svelte'
@@ -114,10 +121,11 @@
     PositionStore,
     SchemaNodeData,
     SelectionAction,
+    SettingMenuTarget,
     NodeVisualState,
   } from './types'
 
-  const nodeTypes: NodeTypes = { schema: MasterNode }
+  const nodeTypes: NodeTypes = { schema: MasterNode, promoted: PromotedRow }
   /**
    * MIDDLE mouse pans; left drag is a selection rectangle.
    *
@@ -129,6 +137,15 @@
   const PAN_BUTTONS = [1]
   const positions: PositionStore = new Map()
   const visuals = new Map<string, NodeVisualState>()
+  /**
+   * Which nodes are drawn as rows under another, and in what order.
+   *
+   * ⚠️ LAYOUT, NOT DOCUMENT. Whether a node is a row or a box changes nothing
+   * about what the graph computes, so it rides in the same per-node metadata as
+   * positions - round-tripped by the runtime and never read by it. See §45.3 of
+   * the property browser handoff.
+   */
+  const docks = new Map<string, DockState>()
   const SNAP_GRID: [number, number] = [16, 16]
   const { fitView, screenToFlowPosition } = useSvelteFlow<Node<SchemaNodeData>, Edge>()
 
@@ -137,6 +154,7 @@
     | { kind: 'node'; x: number; y: number; node: Node<SchemaNodeData> }
     | { kind: 'edge'; x: number; y: number; edge: Edge }
     | { kind: 'port'; x: number; y: number; nodeId: string; portId: string; direction: 'input' | 'output' }
+    | { kind: 'setting'; x: number; y: number; nodeId: string; target: SettingMenuTarget }
 
   type ToolGesture =
     | { kind: 'rectangle'; pointerId: number; start: XYPosition }
@@ -332,6 +350,78 @@
   }
 
   /**
+   * A node's placement: an ordinary position, or a row parented to its host.
+   *
+   * ⚠️ `parentId` IS THE DOCK, AND THE LIBRARY MAINTAINS IT. A child node is
+   * positioned against its parent's origin and moves with it, so dragging a
+   * container carries its promoted rows without this file tracking anything.
+   * Keeping two absolute positions in step by hand is the version of this that
+   * shows up as rows sliding out from under their node mid-drag.
+   *
+   * `extent: 'parent'` is deliberately NOT set: it would clamp a row inside its
+   * host's box, and these are drawn BELOW it.
+   */
+  function dockPlacement(nodeId: string, index: number) {
+    const dock = docks.get(nodeId)
+    if (dock === undefined) return { position: positionFor(nodeId, index) }
+    return {
+      parentId: dock.dockedTo,
+      position: dockedNodePosition(hostHeight(dock.dockedTo), dock.dockOrder),
+      // A row is dragged by dragging its host. Letting one be dragged on its own
+      // would move it relative to the node it belongs to, and there is no
+      // meaning to give that offset.
+      draggable: false,
+    }
+  }
+
+  /**
+   * How tall the host is on screen, so its first row clears it.
+   *
+   * Measured rather than assumed: a selection node with six containers is much
+   * taller than an empty one, and a fixed offset would put the rows through the
+   * middle of it.
+   *
+   * ⚠️ THE MEASUREMENT IS A FRAME BEHIND, WHICH IS WHY THE EFFECT BELOW EXISTS.
+   * This runs while `nodes` is being rebuilt, so it reads the PREVIOUS array -
+   * and on a freshly loaded graph there is no previous array at all, so every
+   * host measures as the fallback and every row would be drawn through the
+   * middle of the node it belongs to.
+   */
+  function hostHeight(hostNodeId: string): number {
+    const host = nodes.find((node) => node.id === hostNodeId)
+    return host?.measured?.height ?? host?.height ?? 84
+  }
+
+  /**
+   * Put docked rows back under their hosts once the hosts have been measured.
+   *
+   * ⚠️ IT MUST SETTLE, AND THE GUARD IS WHAT MAKES IT. Writing `nodes` re-runs
+   * this effect, so a pass that assigned unconditionally would loop for ever;
+   * only a row whose y actually differs is moved, and once every row agrees with
+   * its host's measured height nothing is written and the effect is quiet.
+   *
+   * A row is also skipped while its host is being dragged: SvelteFlow is moving
+   * the parent and the child together, and a reposition mid-drag would fight it.
+   */
+  $effect(() => {
+    if (docks.size === 0) return
+    let changed = false
+    const next = nodes.map((node) => {
+      const dock = docks.get(node.id)
+      if (dock === undefined) return node
+      const host = nodes.find((candidate) => candidate.id === dock.dockedTo)
+      if (host === undefined || host.dragging === true) return node
+      const measured = host.measured?.height ?? host.height
+      if (measured === undefined) return node
+      const position = dockedNodePosition(measured, dock.dockOrder)
+      if (node.position.x === position.x && node.position.y === position.y) return node
+      changed = true
+      return { ...node, position }
+    })
+    if (changed) nodes = next
+  })
+
+  /**
    * What a node's own viewport should draw.
    *
    * ⚠️ IT FOLLOWS THE SAME WIRE THE RUNTIME'S PREVIEW PROJECTION DOES. A Preview
@@ -393,10 +483,16 @@
      */
     const schemaOf = (node: GraphNodeRecord) => schemaForNode(node, schemas.get(node.nodeType))
     const resultMap = new Map(results.map((item) => [item.nodeId, item]))
+    // Rows whose host is gone come back as ordinary boxes rather than
+    // disappearing; see `dockedRows`.
+    const present = state.nodes.map((node) => node.nodeId)
+    const orphaned = new Set(dockedRows(docks, present).orphans)
+    for (const nodeId of orphaned) docks.delete(nodeId)
+
     nodes = state.nodes.map((node, index) => ({
       id: node.nodeId,
-      type: 'schema',
-      position: positionFor(node.nodeId, index),
+      type: docks.has(node.nodeId) ? 'promoted' : 'schema',
+      ...dockPlacement(node.nodeId, index),
       data: {
         onvisualchange: handleVisualChange,
         visual: visuals.get(node.nodeId),
@@ -458,6 +554,7 @@
         // already holds - no host call to draw a node's own body.
         elementGroups: elementGroupsFor(node, schemaOf(node), resultMap.get(node.nodeId)),
         ondescribeelements: describeElements,
+        onsettingmenu: openSettingContext,
         viewerValues:
           schemaOf(node)?.display === 'preview'
             ? viewerValuesFor(node, schemaOf(node), state.edges, resultMap)
@@ -1026,8 +1123,17 @@
 
   async function removeElements(selectedNodes: Node<SchemaNodeData>[], selectedEdges: Edge[]): Promise<void> {
     if (selectedNodes.length === 0 && selectedEdges.length === 0) return
+    /*
+      ⚠️ DELETING A HOST TAKES ITS PROMOTED ROWS WITH IT. A row is drawn inside
+      its host and cannot be selected on its own, so leaving one behind leaves a
+      node the user cannot see, cannot reach and did not know survived - still
+      evaluating, still reading the model on every project change. This is the
+      cost §45.2 named for drawing a node as a row, and it is paid here.
+    */
+    const doomedNodeIds = withDockedRows(selectedNodes.map((node) => node.id), docks)
+
     if (!nativeConnected) {
-      const removedNodeIds = new Set(selectedNodes.map((node) => node.id))
+      const removedNodeIds = new Set(doomedNodeIds)
       const removedEdgeIds = new Set(selectedEdges.map((edge) => edge.id))
       nodes = nodes.filter((node) => !removedNodeIds.has(node.id))
       edges = edges.filter(
@@ -1035,16 +1141,19 @@
           !removedEdgeIds.has(edge.id) && !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target),
       )
       removeNodesFromFrames(removedNodeIds)
-      for (const nodeId of removedNodeIds) visuals.delete(nodeId)
+      for (const nodeId of removedNodeIds) {
+        visuals.delete(nodeId)
+        docks.delete(nodeId)
+      }
       persistVisuals()
-      message = `Removed ${selectedNodes.length} browser-only nodes and ${selectedEdges.length} connections`
+      message = `Removed ${removedNodeIds.size} browser-only nodes and ${selectedEdges.length} connections`
       return
     }
     busy = true
     failed = false
     try {
       await callTapioca('Tapioca.GraphEraseElements', {
-        nodeIds: selectedNodes.map((node) => node.id),
+        nodeIds: doomedNodeIds,
         edges: selectedEdges.map((edge) => ({
           sourceNode: edge.source,
           sourcePort: edge.sourceHandle ?? '',
@@ -1064,8 +1173,13 @@
         keyed by an id that is unique for the session, which is a much smaller
         price than an undo that visibly rearranges the graph.
       */
-      removeNodesFromFrames(new Set(selectedNodes.map((node) => node.id)))
-      message = `Removed ${selectedNodes.length} nodes and ${selectedEdges.length} connections`
+      removeNodesFromFrames(new Set(doomedNodeIds))
+      // ⚠️ THE DOCK IS DROPPED, UNLIKE THE POSITION AND THE NICKNAME. Those are
+      // kept so Ctrl+Z puts a node back where it was; a dock cannot be, because
+      // undo may restore the row without its host and a dock pointing at a node
+      // that is not coming back would draw a row under nothing.
+      for (const nodeId of doomedNodeIds) docks.delete(nodeId)
+      message = `Removed ${doomedNodeIds.length} nodes and ${selectedEdges.length} connections`
     } catch (error) {
       failed = true
       message = error instanceof Error ? error.message : String(error)
@@ -1695,7 +1809,7 @@
     libraryBusy = true
     libraryError = ''
     try {
-      const outcome = await saveGraph(name, name, positions, nodes.map((node) => node.id))
+      const outcome = await saveGraph(name, name, positions, nodes.map((node) => node.id), docks)
       if (!outcome.ok) {
         libraryError = outcome.error
         return
@@ -1727,7 +1841,7 @@
       // The runtime carried the layout; adopt it BEFORE redrawing so nodes land
       // where they were saved rather than on the automatic grid.
       positions.clear()
-      applyLayoutToPositions(outcome.nodeLayout, positions)
+      applyLayoutToPositions(outcome.nodeLayout, positions, docks)
       currentGraphName = name
       loadVisuals()
       resetTimeline()
@@ -1793,6 +1907,7 @@
       }
       positions.clear()
       visuals.clear()
+      docks.clear()
       annotations = []
       currentGraphName = ''
       persistVisuals()
@@ -2474,6 +2589,95 @@
     contextTarget = { kind: 'port', ...target, ...contextPosition(event) }
   }
 
+  function openSettingContext(nodeId: string, target: SettingMenuTarget): void {
+    contextTarget = { kind: 'setting', nodeId, target, x: target.x, y: target.y }
+  }
+
+  /**
+   * The output a promotion reads its elements from.
+   *
+   * ⚠️ NAMED, NOT GUESSED. Taking "the first list output" would silently pick
+   * whichever port the catalog happened to register first, which is exactly the
+   * bug the parameter browser's own Copy Reference was fixed for. A node with no
+   * `elements` output cannot host a promotion, and the menu says so rather than
+   * promoting from something else.
+   */
+  function promotionSourcePort(nodeId: string): string {
+    const node = nodes.find((candidate) => candidate.id === nodeId)
+    return node?.data.schema.outputs.some((port) => port.portId === 'elements') === true ? 'elements' : ''
+  }
+
+  /**
+   * Promote one setting into a row under its node.
+   *
+   * ⚠️ ONE TRANSACTION, AND THE DOCK IS WRITTEN ONLY AFTER IT IS ACCEPTED. The
+   * node and its wire go together (see promotionPlan); the layout is keyed by
+   * alias until the runtime says what the node was actually called. Writing the
+   * dock first would leave the editor holding a row for a node a refused
+   * transaction never created.
+   */
+  async function promoteSetting(nodeId: string, target: SettingMenuTarget): Promise<void> {
+    const sourcePort = promotionSourcePort(nodeId)
+    if (sourcePort === '') {
+      message = 'This node has no elements output to promote from.'
+      return
+    }
+    if (!nativeConnected) {
+      message = 'Promoting needs the native graph runtime.'
+      return
+    }
+    const plan = promotionPlan(
+      nodeId,
+      sourcePort,
+      target.settingId,
+      target.elementType,
+      nextDockOrder(docks, nodeId),
+      () => `promote-1`,
+    )
+    busy = true
+    failed = false
+    try {
+      const assigned = await applyEdits(plan.edits, `Promote ${target.label}`)
+      for (const [id, dock] of rekeyByAssignment(plan.docks, assigned)) {
+        docks.set(id, dock)
+        // The label the browser showed, so the row is named what the user
+        // promoted rather than by the setting id. An alias they type later wins.
+        visuals.set(id, { ...visuals.get(id), nickname: target.label })
+      }
+      persistVisuals()
+      await reloadState()
+      message = `Promoted ${target.label} / revision ${revision}`
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+      await reloadState()
+    } finally {
+      busy = false
+    }
+  }
+
+  /**
+   * Undock a row: the same node, drawn as a box.
+   *
+   * ⚠️ NO EDIT, AND THAT IS THE POINT OF THE WHOLE DESIGN. §21 asks that
+   * "Convert to explicit node" preserve every downstream link; here there is
+   * nothing for it to preserve, because nothing about the document changes. The
+   * row's own position is seeded beside its former host so it does not land on
+   * the origin.
+   */
+  function undockRow(nodeId: string): void {
+    const dock = docks.get(nodeId)
+    if (dock === undefined) return
+    const host = positions.get(dock.dockedTo)
+    docks.delete(nodeId)
+    positions.set(nodeId, {
+      x: (host?.x ?? 0) + 320,
+      y: (host?.y ?? 0) + dock.dockOrder * 40,
+    })
+    void reloadState()
+    message = 'Converted to an explicit node'
+  }
+
   function openEdgeContext({ edge, event }: { edge: Edge; event: MouseEvent }): void {
     event.preventDefault()
     contextTarget = { kind: 'edge', edge, ...contextPosition(event) }
@@ -2484,6 +2688,7 @@
       const port = contextPort()
       return port === undefined ? 'Port' : `${port.label} / ${port.valueType}`
     }
+    if (contextTarget?.kind === 'setting') return contextTarget.target.label
     if (contextTarget?.kind === 'node') return contextTarget.node.data.schema.label
     if (contextTarget?.kind === 'edge') return 'Connection'
     const annotation = selectedAnnotation()
@@ -2509,6 +2714,45 @@
   }
 
   function contextActions() {
+    // A settings row. Two verbs, exactly the two the brief asks for: take the
+    // reference away as text, or make it a thing on the canvas.
+    if (contextTarget?.kind === 'setting') {
+      const { nodeId, target } = contextTarget
+      const already = [...docks.entries()].some(
+        ([rowId, dock]) =>
+          dock.dockedTo === nodeId &&
+          nodes.find((node) => node.id === rowId)?.data.parameters.some(
+            (parameter) => parameter.parameterId === 'setting' && parameter.value?.text === target.settingId,
+          ) === true,
+      )
+      const noSource = promotionSourcePort(nodeId) === ''
+      return [
+        {
+          label: 'Copy reference',
+          run: () => {
+            // The readable form, which is the only one a settings row has: there
+            // is no promoted node yet to carry a machine-readable identity, and
+            // inventing one for a row nobody promoted would put an id in the
+            // clipboard that resolves to nothing.
+            void navigator.clipboard?.writeText?.(`@${nodeId}.${target.settingId}`).catch(() => {})
+            message = `Copied @${nodeId}.${target.settingId}`
+          },
+        },
+        {
+          label: 'Promote parameter',
+          disabled: !nativeConnected || noSource || already,
+          title: !nativeConnected
+            ? 'Requires a native expected-revision graph edit'
+            : noSource
+              ? 'This node has no elements output to promote from'
+              : already
+                ? 'Already promoted on this node'
+                : undefined,
+          run: () => void promoteSetting(nodeId, target),
+        },
+      ]
+    }
+
     // Ports go through the SAME menu as everything else. The transforms are
     // grouped rather than listed flat, because they are a different kind of
     // thing from the four verbs above them.
@@ -2613,6 +2857,13 @@
         { label: 'Quick actions', title: 'Also: middle-click the node', run: () => requestQuickMenu(node.id) },
         { label: 'Rename', title: 'Also: right-click the node title', run: () => requestRename(node.id) },
         { label: 'Fit node', run: () => void fitView({ nodes: [node], duration: 180, padding: 0.8 }) },
+        // ⚠️ OFFERED ONLY ON A ROW, AND IT IS NOT AN EDIT. §21's "Convert to
+        // explicit node" is a layout change here: the same node stops being
+        // drawn as a row and becomes a box, with every wire it already had. That
+        // is the whole reason a promotion is a node in the first place.
+        ...(docks.has(node.id)
+          ? [{ label: 'Convert to explicit node', run: () => undockRow(node.id) }]
+          : []),
         modeAction('Enable', 'enabled', true, ''),
         modeAction('Disable', 'disabled', true, ''),
         modeAction(
