@@ -35,11 +35,14 @@ constexpr const char kEditResponseSchema[] =
     R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["revision","dirtyNodes"]})json";
 constexpr const char kEditsInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"expectedRevision":{"type":"integer","minimum":0},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200},"edits":{"type":"array","minItems":1,"maxItems":512,"items":{"oneOf":[{"type":"object","properties":{"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","nodeType"]},{"type":"object","properties":{"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]},{"type":"object","properties":{"editKind":{"const":"setExecutionMode"},"nodeId":{"type":"string","minLength":1},"mode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]}},"additionalProperties":false,"required":["editKind","nodeId","mode"]},{"type":"object","properties":{"editKind":{"const":"setPortModifier"},"nodeId":{"type":"string","minLength":1},"portId":{"type":"string","minLength":1},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]}},"additionalProperties":false,"required":["editKind","nodeId","portId","modifier"]},{"type":"object","properties":{"editKind":{"const":"releaseHolding"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]}]}}},"additionalProperties":false,"required":["edits"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
-constexpr const char kHistoryDepthInputSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"depth":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":false,"required":["depth"]})json";
-
+constexpr const char kHistoryDepthInputSchema[] =
+
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"depth":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":false,"required":["depth"]})json";
+
+
+
 constexpr const char kHistoryStateResponseSchema[] =
-    R"json({"type":"object","properties":{"canUndo":{"type":"boolean"},"canRedo":{"type":"boolean"},"undoLabel":{"type":"string"},"redoLabel":{"type":"string"},"depth":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["canUndo","canRedo","undoLabel","redoLabel","depth"]})json";
+    R"json({"type":"object","properties":{"canUndo":{"type":"boolean"},"canRedo":{"type":"boolean"},"undoLabel":{"type":"string"},"redoLabel":{"type":"string"},"depth":{"type":"integer","minimum":1},"undoCount":{"type":"integer","minimum":0},"redoCount":{"type":"integer","minimum":0},"stepsRecorded":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["canUndo","canRedo","undoLabel","redoLabel","depth","undoCount","redoCount","stepsRecorded"]})json";
 constexpr const char kEraseElementsInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeIds":{"type":"array","items":{"type":"string","minLength":1}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["nodeIds","edges"]})json";
 // Decode ONE edit object into a GraphEdit.
@@ -269,18 +272,31 @@ class GraphRedoCommand : public GateFreeGraphCommand {
         return EditResponse (result.revision, result.dirtyNodes);
     }
 };
+// One shape for both verbs that answer with history, so a field added here
+// cannot reach one client and not the other.
+GS::ObjectState EncodeHistory (const graph::HistoryState& state)
+{
+    GS::ObjectState response;
+    response.Add ("canUndo", state.canUndo);
+    response.Add ("canRedo", state.canRedo);
+    response.Add ("undoLabel", GraphText (state.undoLabel));
+    response.Add ("redoLabel", GraphText (state.redoLabel));
+    // The value ACTUALLY in force, which is the clamped one - a client that
+    // asked for 5000 needs to know it got 200 rather than show its request.
+    response.Add ("depth", static_cast<GS::Int64> (state.depth));
+    response.Add ("undoCount", static_cast<GS::Int64> (state.undoCount));
+    response.Add ("redoCount", static_cast<GS::Int64> (state.redoCount));
+    // See HistoryState::stepsRecorded: this is what lets a client interleave
+    // its own metadata history with the document's.
+    response.Add ("stepsRecorded", static_cast<GS::Int64> (state.stepsRecorded));
+    return response;
+}
+
 class GraphGetHistoryCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        const graph::HistoryState state = graph::GraphRuntimeState::Get ().History (ReadGraphIdParam (params));
-        GS::ObjectState response;
-        response.Add ("canUndo", state.canUndo);
-        response.Add ("canRedo", state.canRedo);
-        response.Add ("undoLabel", GraphText (state.undoLabel));
-        response.Add ("redoLabel", GraphText (state.redoLabel));
-        response.Add ("depth", static_cast<GS::Int64> (state.depth));
-        return response;
+        return EncodeHistory (graph::GraphRuntimeState::Get ().History (ReadGraphIdParam (params)));
     }
 };
 class GraphSetHistoryDepthCommand : public GateFreeGraphCommand {
@@ -291,17 +307,7 @@ class GraphSetHistoryDepthCommand : public GateFreeGraphCommand {
         if (!params.Get ("depth", depth) || depth < 0)
             return NativeCommandResult::Failure (GraphText ("depth must be a positive number of steps"));
         graph::GraphRuntimeState::Get ().SetHistoryDepth (ReadGraphIdParam (params), static_cast<size_t> (depth));
-
-        const graph::HistoryState state = graph::GraphRuntimeState::Get ().History (ReadGraphIdParam (params));
-        GS::ObjectState response;
-        response.Add ("canUndo", state.canUndo);
-        response.Add ("canRedo", state.canRedo);
-        response.Add ("undoLabel", GraphText (state.undoLabel));
-        response.Add ("redoLabel", GraphText (state.redoLabel));
-        // The value ACTUALLY in force, which is the clamped one - a client that
-        // asked for 5000 needs to know it got 200 rather than show its request.
-        response.Add ("depth", static_cast<GS::Int64> (state.depth));
-        return response;
+        return EncodeHistory (graph::GraphRuntimeState::Get ().History (ReadGraphIdParam (params)));
     }
 };
 

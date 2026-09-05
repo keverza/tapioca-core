@@ -34,6 +34,14 @@
     type EffectiveTool,
   } from './annotations'
   import ApplicationMenu from './ApplicationMenu.svelte'
+  import CommitBar from './CommitBar.svelte'
+  import {
+    assemblyIsStale,
+    buildCommitAssembly,
+    commitBlockerText,
+    commitLamp,
+    commitOutcome,
+  } from './commit'
   import {
     containerElementType,
     containerGroupOf,
@@ -53,6 +61,10 @@
     initialTheme,
     initialUndoDepth,
     isCatalogConnectionValid,
+    metadataChanged,
+    nativeStepsSince,
+    pushUndoStep,
+    snapshotMetadata,
     centreOn,
     centredPasteAnchor,
     duplicationPlan,
@@ -66,7 +78,9 @@
     UNDO_DEPTH_CHOICES,
     type DetailLevel,
     type GraphClipboard,
+    type MetadataSnapshot,
     type ThemeMode,
+    type UndoStep,
   } from './editor'
   import LibraryDialog, { type LibraryMode } from './LibraryDialog.svelte'
   import {
@@ -173,6 +187,18 @@
   let attributeListings = $state.raw<Record<string, AttributeListing>>({})
   const optionRequests = new Set<string>()
   let results = $state.raw<NodeResultRecord[]>([])
+
+  /* --- The commit surface -------------------------------------------------
+   *
+   * ⚠️ THE SET ACCEPT COMMITS IS THE RUNTIME'S LIST, NOT AN INFERENCE. It is
+   * `skippedEffectNodes` from the most recent pass; see commit.ts for why
+   * recomputing it from the catalog would be wrong.
+   */
+  let lastSummary = $state.raw<EvaluationSummary | null>(null)
+  let committing = $state(false)
+  /** True from a successful ACCEPT until the next edit or pass. */
+  let committedRecently = $state(false)
+  let assemblyOpen = $state(false)
   let revision = $state(0)
   let busy = $state(false)
   let message = $state('Connecting to the native graph runtime...')
@@ -555,7 +581,11 @@
     offering an undo that is not there.
   */
   async function reloadState(): Promise<void> {
+    const previous = revision
     applyState(await callTapioca<GraphState>('Tapioca.GraphGetState'))
+    // The Committed lamp is about the state of the model, and an edit makes it
+    // a claim about a graph that has since changed.
+    if (revision !== previous) committedRecently = false
     await refreshHistory()
   }
 
@@ -585,6 +615,11 @@
       loadVisuals()
       applyState(state)
       loadEditorAnnotations()
+      // Adopt the runtime's counter first, then start the timeline empty: the
+      // graph on screen is where this session begins, and steps recorded before
+      // the palette opened are not steps this editor can put metadata back for.
+      await refreshHistory()
+      resetTimeline()
       message = `${catalog.length} native node types / revision ${revision}`
     } catch (error) {
       failed = true
@@ -629,6 +664,7 @@
       edges: [{ sourceNode: 'diagnostic-source', sourcePort: 'value', targetNode: 'diagnostic-sink', targetPort: 'value' }],
     })
     loadEditorAnnotations()
+    resetTimeline()
   }
 
   async function addNode(nodeType: string, requestedPosition?: XYPosition): Promise<void> {
@@ -1251,7 +1287,10 @@
     if (solutionLocked || !nativeConnected || busy) return
     busy = true
     try {
-      await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {})
+      // The summary is KEPT, not discarded: `skippedEffectNodes` from the most
+      // recent pass is exactly what ACCEPT would commit, and the automatic pass
+      // is the pass that is nearly always most recent.
+      lastSummary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {})
       await refreshResults()
       await reloadState()
       failed = false
@@ -1307,6 +1346,89 @@
       message = error instanceof Error ? error.message : String(error)
     } finally {
       executeBusyNode = null
+    }
+  }
+
+  /** A row's two names, from the catalog and the node's own nickname. */
+  function describeCommitNode(nodeId: string): { name: string; writes: string } {
+    const record = nodes.find((node) => node.id === nodeId)
+    const schema = record?.data.schema
+    const writes = schema?.label ?? nodeId
+    return { name: visuals.get(nodeId)?.nickname?.trim() || writes, writes }
+  }
+
+  /**
+   * Whether this graph writes to Archicad at all.
+   *
+   * ⚠️ USED ONLY TO EXPLAIN AN EMPTY ASSEMBLY, NEVER TO BUILD ONE. "This graph
+   * writes nothing" and "everything it writes is already committed" are
+   * different sentences, and the runtime's list cannot tell them apart because
+   * both are the empty list.
+   */
+  const graphHasEffectfulNode = $derived(nodes.some((node) => node.data.schema.effect === 'hostUiWrite'))
+
+  const assembly = $derived(buildCommitAssembly(lastSummary, results, describeCommitNode, graphHasEffectfulNode))
+
+  const lamp = $derived(commitLamp({ busy, solutionLocked, failed, committed: committedRecently }))
+
+  /**
+   * RUN: a forced re-evaluation that writes nothing, and the resume when the
+   * solution is locked. Safe by construction, which is why it has no guard
+   * beyond needing the runtime.
+   */
+  function runNow(): void {
+    if (solutionLocked) {
+      toggleSolutionLock()
+      scheduleAutoRun()
+      return
+    }
+    void evaluate()
+  }
+
+  /**
+   * ACCEPT: the only control in this editor that writes to the user's model.
+   *
+   * ⚠️ `targets` IS THE LIST THE USER READ, NOT THE WHOLE GRAPH. A graph-wide
+   * effectful pass would commit a node that appeared after the assembly was
+   * drawn - the same surprise `handleExecute` narrows away for one node.
+   */
+  async function acceptCommit(): Promise<void> {
+    if (!nativeConnected) {
+      message = 'Committing needs the native graph runtime.'
+      return
+    }
+    const targets = [...assembly.ready]
+    if (targets.length === 0) {
+      message = commitBlockerText(assembly.blocker)
+      return
+    }
+    if (assemblyIsStale(assembly, revision)) {
+      // The graph moved while the list was on screen. Rebuild rather than
+      // commit against something the user is no longer looking at.
+      message = `The list was built at revision ${assembly.revision}; the graph is at ${revision}. Run again.`
+      failed = true
+      return
+    }
+    committing = true
+    failed = false
+    try {
+      const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {
+        targets,
+        allowSideEffects: true,
+      })
+      lastSummary = summary
+      await refreshResults()
+      await reloadState()
+      const outcome = commitOutcome(summary, targets)
+      committedRecently = outcome.committed
+      failed = outcome.failed
+      message = outcome.message
+      if (outcome.committed) assemblyOpen = false
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      committing = false
     }
   }
 
@@ -1376,6 +1498,8 @@
     failed = false
     try {
       const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', { maxParallel })
+      lastSummary = summary
+      committedRecently = false
       await refreshResults()
       await reloadState()
       const complete = results.filter((result) => result.status === 'success').length
@@ -1707,6 +1831,7 @@
       applyLayoutToPositions(outcome.nodeLayout, positions)
       currentGraphName = name
       loadVisuals()
+      resetTimeline()
       annotations = loadAnnotations(localStorage, name)
       closeLibrary()
       busy = true
@@ -1751,6 +1876,7 @@
       positions.clear()
       visuals.clear()
       persistVisuals()
+      resetTimeline()
       message = 'Cleared the browser-only fixture'
       return
     }
@@ -1772,6 +1898,7 @@
       currentGraphName = ''
       persistVisuals()
       persistAnnotations()
+      resetTimeline()
       message = 'New graph'
     } catch (error) {
       failed = true
@@ -1788,8 +1915,27 @@
     else void openLibrary(action)
   }
 
-  function rememberPosition({ targetNode }: { targetNode: Node<SchemaNodeData> | null }): void {
-    if (targetNode !== null) positions.set(targetNode.id, { ...targetNode.position })
+  /**
+   * A finished drag: keep the layout, and make it an undo step.
+   *
+   * Svelte Flow reports every node the gesture moved, not just the one under
+   * the pointer, so a multi-node drag is ONE step rather than one per node -
+   * which is what the user performed.
+   *
+   * `recordEditorStep` compares against the settled snapshot, so a drag that
+   * ends where it started records nothing and Ctrl+Z is not spent on it.
+   */
+  function rememberPosition({
+    targetNode,
+    nodes: dragged,
+  }: {
+    targetNode: Node<SchemaNodeData> | null
+    nodes?: Node<SchemaNodeData>[]
+  }): void {
+    const moved = dragged !== undefined && dragged.length > 0 ? dragged : targetNode === null ? [] : [targetNode]
+    if (moved.length === 0) return
+    for (const node of moved) positions.set(node.id, { ...node.position })
+    recordEditorStep(moved.length === 1 ? 'Move node' : `Move ${moved.length} nodes`)
   }
 
   /* --- Copy, duplicate, paste, undo --------------------------------------
@@ -1815,13 +1961,148 @@
   /** Set while Alt is held on a node drag; the drop duplicates instead of moving. */
   let dragOrigin: Map<string, XYPosition> | null = null
 
-  let history = $state<{ canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string; depth: number }>({
+  /**
+   * What the RUNTIME's stack says. Not what the Undo menu shows.
+   *
+   * The user's timeline is `undoTimeline` below, which interleaves these steps
+   * with the editor's own; this is only the document half of it.
+   */
+  interface NativeHistoryState {
+    canUndo: boolean
+    canRedo: boolean
+    undoLabel: string
+    redoLabel: string
+    depth: number
+    undoCount: number
+    redoCount: number
+    /** Monotonic; see `nativeStepsSince`. */
+    stepsRecorded: number
+  }
+
+  let nativeHistory = $state<NativeHistoryState>({
     canUndo: false,
     canRedo: false,
     undoLabel: '',
     redoLabel: '',
     depth: initialUndoDepth(localStorage),
+    undoCount: 0,
+    redoCount: 0,
+    stepsRecorded: 0,
   })
+
+  /* --- The one timeline the user actually walks ---------------------------
+   *
+   * ⚠️ A NODE'S POSITION IS NOT IN THE DOCUMENT, SO THE RUNTIME'S STACK CANNOT
+   * UNDO A MOVE. Layout is editor metadata the evaluator never reads, and it
+   * stays that way: promoting coordinates into the semantic document would turn
+   * every drag into a graph change and re-run the graph for it.
+   *
+   * So moves are recorded here, runtime steps are recorded here as MARKERS, and
+   * Ctrl+Z walks the single ordered list. Two independent stacks would undo
+   * things in an order the user never performed them in.
+   */
+  let undoTimeline = $state.raw<UndoStep[]>([])
+  let redoTimeline = $state.raw<UndoStep[]>([])
+
+  /**
+   * The metadata as it stood when the last step was recorded.
+   *
+   * Everything that changed since belongs to the step about to be recorded,
+   * which is what makes a paste's positions part of the paste rather than a
+   * separate undo step of their own.
+   */
+  let settledMetadata: MetadataSnapshot = snapshotMetadata(new Map(), new Map())
+
+  /** The runtime's monotonic push counter as of the last reading. */
+  let lastStepsRecorded = 0
+
+  /** What the Edit menu shows: the timeline, plus the depth in force. */
+  const history = $derived({
+    canUndo: undoTimeline.length > 0,
+    canRedo: redoTimeline.length > 0,
+    undoLabel: undoTimeline[undoTimeline.length - 1]?.label ?? '',
+    redoLabel: redoTimeline[redoTimeline.length - 1]?.label ?? '',
+    depth: nativeHistory.depth,
+  })
+
+  function currentMetadata(): MetadataSnapshot {
+    return snapshotMetadata(positions, visuals)
+  }
+
+  /** Record a step the editor owns, and make it the new settled point. */
+  function recordEditorStep(label: string, coalesceKey = ''): void {
+    const after = currentMetadata()
+    if (!metadataChanged(settledMetadata, after)) return
+    undoTimeline = pushUndoStep(
+      undoTimeline,
+      { kind: 'editor', label, coalesceKey, before: settledMetadata, after },
+      nativeHistory.depth,
+    )
+    // A new step makes the redo branch unreachable, exactly as it does natively.
+    redoTimeline = []
+    settledMetadata = after
+  }
+
+  /**
+   * Notice steps the runtime recorded and put markers on the timeline for them.
+   *
+   * Driven off `stepsRecorded` rather than the stack size: a step recorded when
+   * the stack is already at its depth leaves the size unchanged, and so does a
+   * coalesced edit, so the size cannot tell "something happened" from "nothing
+   * did".
+   */
+  function recordNativeSteps(): void {
+    const added = nativeStepsSince(lastStepsRecorded, nativeHistory.stepsRecorded)
+    lastStepsRecorded = nativeHistory.stepsRecorded
+    if (added === 0) return
+    const after = currentMetadata()
+    for (let index = 0; index < added; index += 1) {
+      undoTimeline = pushUndoStep(
+        undoTimeline,
+        {
+          kind: 'native',
+          label: nativeHistory.undoLabel,
+          coalesceKey: '',
+          // Only the first marker carries the metadata from before the
+          // operation; the rest sit at the state it left behind.
+          before: index === 0 ? settledMetadata : after,
+          after,
+        },
+        nativeHistory.depth,
+      )
+    }
+    redoTimeline = []
+    settledMetadata = after
+  }
+
+  /**
+   * Put the metadata maps back to a snapshot, and move the nodes on screen to
+   * match. Callers that follow this with `reloadState` get the rest for free,
+   * because `applyState` reads these maps.
+   */
+  function restoreMetadata(snapshot: MetadataSnapshot): void {
+    positions.clear()
+    for (const [id, at] of snapshot.positions) positions.set(id, { x: at.x, y: at.y })
+    visuals.clear()
+    for (const [id, visual] of snapshot.visuals) visuals.set(id, { ...visual })
+    persistVisuals()
+    nodes = nodes.map((node) => {
+      const at = positions.get(node.id)
+      return at === undefined ? node : { ...node, position: { x: at.x, y: at.y } }
+    })
+  }
+
+  /**
+   * Opening a different graph starts a new timeline.
+   *
+   * The steps that were on it refer to nodes of the graph just closed; keeping
+   * them would let one Ctrl+Z drop a stranger's layout onto this one.
+   */
+  function resetTimeline(): void {
+    undoTimeline = []
+    redoTimeline = []
+    settledMetadata = currentMetadata()
+  }
 
   /**
    * Ask the runtime to keep this many steps, and adopt the number it agrees to.
@@ -1831,24 +2112,32 @@
    */
   async function setUndoDepth(depth: number): Promise<void> {
     localStorage.setItem('tapioca.graph.undoDepth', String(depth))
-    history = { ...history, depth }
-    if (!nativeConnected) return
-    try {
-      history = await callTapioca('Tapioca.GraphSetHistoryDepth', { graphId, depth })
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error)
+    nativeHistory = { ...nativeHistory, depth }
+    if (nativeConnected) {
+      try {
+        nativeHistory = await callTapioca('Tapioca.GraphSetHistoryDepth', { graphId, depth })
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error)
+      }
     }
+    // Trim from the OLD end, the same end the runtime drops from, and at once
+    // rather than at the next edit: a setting that only takes effect later is
+    // a setting that appears not to work.
+    if (undoTimeline.length > nativeHistory.depth)
+      undoTimeline = undoTimeline.slice(undoTimeline.length - nativeHistory.depth)
   }
 
   async function refreshHistory(): Promise<void> {
     if (!nativeConnected) return
     try {
-      history = await callTapioca('Tapioca.GraphGetHistory', {})
+      nativeHistory = await callTapioca('Tapioca.GraphGetHistory', {})
     } catch {
-      // A missing verb must not break editing; the shortcuts simply report
-      // nothing to undo.
-      history = { ...history, canUndo: false, canRedo: false, undoLabel: '', redoLabel: '' }
+      // A missing verb must not break editing. Editor steps stay undoable;
+      // only the document half goes quiet.
+      nativeHistory = { ...nativeHistory, canUndo: false, canRedo: false, undoLabel: '', redoLabel: '' }
+      return
     }
+    recordNativeSteps()
   }
 
   /**
@@ -1976,17 +2265,39 @@
     await pasteClipboard(clipboard, at, `Duplicate ${ids.length} node${ids.length === 1 ? '' : 's'}`)
   }
 
+  /**
+   * One step back along the timeline.
+   *
+   * ⚠️ THE METADATA IS RESTORED BEFORE `reloadState`, NOT AFTER. `applyState`
+   * rebuilds every node from the position and presentation maps, so restoring
+   * them first means the node the runtime just brought back is drawn where it
+   * was, with the nickname and colour it had. Restoring afterwards would draw
+   * it on the automatic grid first and move it a frame later.
+   */
   async function undo(): Promise<void> {
-    if (!nativeConnected) {
+    const step = undoTimeline[undoTimeline.length - 1]
+    if (step === undefined) {
+      message = 'Nothing to undo.'
+      return
+    }
+    if (step.kind === 'native' && !nativeConnected) {
       message = 'Undo needs the native graph runtime.'
       return
     }
     busy = true
     try {
-      await callTapioca('Tapioca.GraphUndo', { graphId })
-      await reloadState()
+      if (step.kind === 'native') {
+        await callTapioca('Tapioca.GraphUndo', { graphId })
+        restoreMetadata(step.before)
+        await reloadState()
+      } else {
+        restoreMetadata(step.before)
+      }
+      undoTimeline = undoTimeline.slice(0, -1)
+      redoTimeline = [...redoTimeline, step]
+      settledMetadata = currentMetadata()
       failed = false
-      message = `Undone / revision ${revision}`
+      message = step.label === '' ? 'Undone' : `Undone ${step.label}`
     } catch (error) {
       // "nothing to undo" is a refusal, not a failure; say so without the
       // error styling that suggests something broke.
@@ -1997,16 +2308,29 @@
   }
 
   async function redo(): Promise<void> {
-    if (!nativeConnected) {
+    const step = redoTimeline[redoTimeline.length - 1]
+    if (step === undefined) {
+      message = 'Nothing to redo.'
+      return
+    }
+    if (step.kind === 'native' && !nativeConnected) {
       message = 'Redo needs the native graph runtime.'
       return
     }
     busy = true
     try {
-      await callTapioca('Tapioca.GraphRedo', { graphId })
-      await reloadState()
+      if (step.kind === 'native') {
+        await callTapioca('Tapioca.GraphRedo', { graphId })
+        restoreMetadata(step.after)
+        await reloadState()
+      } else {
+        restoreMetadata(step.after)
+      }
+      redoTimeline = redoTimeline.slice(0, -1)
+      undoTimeline = [...undoTimeline, step]
+      settledMetadata = currentMetadata()
       failed = false
-      message = `Redone / revision ${revision}`
+      message = step.label === '' ? 'Redone' : `Redone ${step.label}`
     } catch (error) {
       message = error instanceof Error ? error.message : String(error)
     } finally {
@@ -2815,6 +3139,25 @@
       />
     {/if}
   </section>
+
+  <!--
+    ⚠️ A ROW OF THE CHROME, NOT A FLOATING OVERLAY. This is the one control that
+    must never be behind a node, and it must not overlap the minimap or the
+    zoom controls either.
+  -->
+  <CommitBar
+    {lamp}
+    {assembly}
+    {revision}
+    nodeCount={nodes.length}
+    durationMs={lastSummary?.parallelism?.wallClockMs ?? 0}
+    {busy}
+    {committing}
+    {nativeConnected}
+    bind:open={assemblyOpen}
+    onrun={runNow}
+    onaccept={() => void acceptCommit()}
+  />
 
   <footer class:error={failed}>
     <span class:active={busy}></span>

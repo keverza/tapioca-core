@@ -106,6 +106,98 @@ export function initialUndoDepth(storage: Pick<Storage, 'getItem'> | undefined):
   return Number.isInteger(stored) && stored >= 1 && stored <= 200 ? stored : DEFAULT_UNDO_DEPTH
 }
 
+/* --- The undo timeline ----------------------------------------------------
+ *
+ * ⚠️ HALF OF WHAT A USER CALLS AN EDIT IS NOT IN THE DOCUMENT. The runtime owns
+ * nodes, edges and parameters, and its undo stack is snapshots of exactly those.
+ * A node's POSITION is not among them, and deliberately so: the evaluator never
+ * reads a coordinate, and putting layout in the semantic document would make
+ * every move a graph change, dirty the nodes, and re-run the graph for a drag.
+ *
+ * But `Ctrl+Z` is a promise about what the user just did, not about which side
+ * of the bridge stored it. So the editor keeps ONE timeline whose entries are
+ * either a marker for a runtime step or a metadata step of its own, and undo
+ * walks that timeline: a marker calls `GraphUndo`, a metadata step is reversed
+ * here, and either way the metadata that belongs with that moment is restored.
+ *
+ * The alternative - two independent stacks, Ctrl+Z hitting whichever - undoes
+ * things in an order the user never performed them in, which is worse than not
+ * undoing moves at all.
+ */
+
+export interface MetadataSnapshot {
+  positions: ReadonlyMap<string, XY>
+  visuals: ReadonlyMap<string, NodeVisualState>
+}
+
+export interface UndoStep {
+  /** `native`: the runtime holds this step. `editor`: this module does. */
+  kind: 'native' | 'editor'
+  label: string
+  /** Consecutive editor steps sharing a non-empty key fold into one. */
+  coalesceKey: string
+  before: MetadataSnapshot
+  after: MetadataSnapshot
+}
+
+/** A snapshot that shares nothing with the live maps it was taken from. */
+export function snapshotMetadata(
+  positions: ReadonlyMap<string, XY>,
+  visuals: ReadonlyMap<string, NodeVisualState>,
+): MetadataSnapshot {
+  return {
+    positions: new Map([...positions].map(([id, at]) => [id, { x: at.x, y: at.y }])),
+    visuals: new Map([...visuals].map(([id, visual]) => [id, { ...visual }])),
+  }
+}
+
+/** Whether two snapshots would look any different on the canvas. */
+export function metadataChanged(a: MetadataSnapshot, b: MetadataSnapshot): boolean {
+  return JSON.stringify(serializeSnapshot(a)) !== JSON.stringify(serializeSnapshot(b))
+}
+
+function serializeSnapshot(snapshot: MetadataSnapshot): unknown {
+  const positions = [...snapshot.positions].sort(([a], [b]) => (a < b ? -1 : 1))
+  const visuals = [...snapshot.visuals].sort(([a], [b]) => (a < b ? -1 : 1))
+  return { positions, visuals }
+}
+
+/**
+ * Add a step, honouring coalescing and the depth in force.
+ *
+ * ⚠️ THE TIMELINE IS TRIMMED TO THE SAME DEPTH THE RUNTIME KEEPS, FROM THE SAME
+ * END. If it were longer, `Ctrl+Z` would eventually reach a marker for a runtime
+ * step the runtime has already dropped and refuse with "nothing to undo" while
+ * still showing an enabled Undo.
+ */
+export function pushUndoStep(stack: readonly UndoStep[], step: UndoStep, depth: number): UndoStep[] {
+  const last = stack[stack.length - 1]
+  if (
+    step.kind === 'editor' &&
+    step.coalesceKey !== '' &&
+    last !== undefined &&
+    last.kind === 'editor' &&
+    last.coalesceKey === step.coalesceKey
+  ) {
+    // Fold: the earlier entry already holds the state from before the gesture.
+    return [...stack.slice(0, -1), { ...last, after: step.after }]
+  }
+  const grown = [...stack, step]
+  return grown.length > depth ? grown.slice(grown.length - depth) : grown
+}
+
+/**
+ * How many undoable steps the runtime recorded between two readings of its
+ * history.
+ *
+ * Driven off `stepsRecorded` rather than `undoCount` because a step recorded
+ * when the stack is already full leaves the count unchanged, and a coalesced
+ * edit does too. See `HistoryState::stepsRecorded` in the runtime.
+ */
+export function nativeStepsSince(previous: number, current: number): number {
+  return current > previous ? current - previous : 0
+}
+
 // ---------------------------------------------------------------------------
 // Workflow library helpers.
 //

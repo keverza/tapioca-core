@@ -300,6 +300,7 @@ void GraphRuntimeState::PushHistoryLocked (Slot& slot, const GraphDocument& befo
         return;
 
     slot.undoStack.push_back (HistoryEntry { before, label, coalesceKey });
+    ++slot.stepsRecorded;
 
     // Drop from the OLD end. A deque would avoid the shift, but the depth is
     // small and bounded and the copy dominates either way.
@@ -391,6 +392,9 @@ HistoryState GraphRuntimeState::History (const GraphId& graphId) const
     if (state.canRedo)
         state.redoLabel = slot.redoStack.back ().label;
     state.depth = slot.undoDepth;
+    state.undoCount = slot.undoStack.size ();
+    state.redoCount = slot.redoStack.size ();
+    state.stepsRecorded = slot.stepsRecorded;
     return state;
 }
 

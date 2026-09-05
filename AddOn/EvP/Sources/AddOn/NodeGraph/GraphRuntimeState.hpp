@@ -127,6 +127,21 @@ struct HistoryState {
     // What the graph is currently keeping, so a client shows the setting in
     // force rather than the one it last asked for.
     size_t depth = kDefaultUndoDepth;
+
+    // How deep each side currently is.
+    size_t undoCount = 0;
+    size_t redoCount = 0;
+
+    // ⚠️ MONOTONIC, AND THAT IS THE WHOLE POINT OF IT. A client that keeps its
+    // own metadata history - node positions, which this document does not hold -
+    // has to interleave its steps with these, and so must be able to ask "did
+    // the runtime record a step since I last looked?". `undoCount` cannot answer
+    // that: once the stack is at `depth` a recorded step also drops the oldest
+    // one, so the count is unchanged, and a coalesced edit is likewise
+    // indistinguishable from no edit at all. This only ever goes up, once per
+    // entry actually pushed, so the difference between two readings is exactly
+    // the number of new undoable steps.
+    uint64_t stepsRecorded = 0;
 };
 
 // Rejection codes this file owns. Prose moves between builds; a client's branch
@@ -325,6 +340,9 @@ class GraphRuntimeState final {
         std::vector<HistoryEntry> undoStack;
         std::vector<HistoryEntry> redoStack;
         size_t undoDepth = kDefaultUndoDepth;
+
+        // See HistoryState::stepsRecorded. Counts pushes, not stack size.
+        uint64_t stepsRecorded = 0;
 
         mutable std::mutex documentMutex;
 

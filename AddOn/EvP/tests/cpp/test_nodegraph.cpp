@@ -1332,6 +1332,65 @@ TEST (NodeGraphUndo, TheDepthIsASettingAndLoweringItTakesEffectAtOnce)
     EXPECT_EQ (2U, undone);
 }
 
+// A client keeps undo steps of its own for the things this document does not
+// hold - node positions above all - and has to interleave them with these in
+// the order the user performed them. `stepsRecorded` is what makes that
+// possible, and these are the three cases where the stack SIZE cannot.
+TEST (NodeGraphUndo, StepsRecordedCountsPushesRatherThanStackSize)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-steps-recorded";
+
+    const uint64_t start = runtime.History (graphId).stepsRecorded;
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("a", 1.0), "Add a").accepted);
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("b", 2.0), "Add b").accepted);
+    EXPECT_EQ (start + 2, runtime.History (graphId).stepsRecorded);
+    EXPECT_EQ (2U, runtime.History (graphId).undoCount);
+
+    // 1. A COALESCED EDIT records nothing, and must be reported as nothing: a
+    //    client that added a timeline entry here would offer one Ctrl+Z too many.
+    ASSERT_TRUE (runtime
+                     .Apply (graphId, GraphEdit { SetParameterEdit { "a", "value", Value (5.0) } }, "Set value",
+                             "gesture-1")
+                     .accepted);
+    const uint64_t afterFirstOfGesture = runtime.History (graphId).stepsRecorded;
+    ASSERT_TRUE (runtime
+                     .Apply (graphId, GraphEdit { SetParameterEdit { "a", "value", Value (6.0) } }, "Set value",
+                             "gesture-1")
+                     .accepted);
+    EXPECT_EQ (afterFirstOfGesture, runtime.History (graphId).stepsRecorded) << "the second edit folded into the first";
+
+    // 2. UNDO AND REDO move the stacks without recording anything new.
+    const uint64_t beforeUndo = runtime.History (graphId).stepsRecorded;
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    EXPECT_EQ (beforeUndo, runtime.History (graphId).stepsRecorded);
+    EXPECT_EQ (1U, runtime.History (graphId).redoCount);
+    ASSERT_TRUE (runtime.Redo (graphId).accepted);
+    EXPECT_EQ (beforeUndo, runtime.History (graphId).stepsRecorded);
+    EXPECT_EQ (0U, runtime.History (graphId).redoCount);
+}
+
+TEST (NodeGraphUndo, StepsRecordedStillMovesWhenTheStackIsFull)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-steps-at-cap";
+    runtime.SetHistoryDepth (graphId, 2);
+
+    for (int index = 0; index < 2; ++index)
+        ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("n" + std::to_string (index), 0.0)).accepted);
+
+    const HistoryState full = runtime.History (graphId);
+    ASSERT_EQ (2U, full.undoCount);
+
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("n2", 0.0)).accepted);
+    const HistoryState after = runtime.History (graphId);
+
+    // THIS IS THE CASE THE COUNT CANNOT ANSWER: a step was recorded AND the
+    // oldest was dropped, so the size is identical either way.
+    EXPECT_EQ (full.undoCount, after.undoCount);
+    EXPECT_EQ (full.stepsRecorded + 1, after.stepsRecorded);
+}
+
 TEST (NodeGraphUndo, AnAbsurdDepthIsClampedRatherThanObeyed)
 {
     GraphRuntimeState& runtime = GraphRuntimeState::Get ();
