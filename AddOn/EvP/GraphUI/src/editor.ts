@@ -629,3 +629,157 @@ export function clipboardExtent(clipboard: GraphClipboard): { width: number; hei
 export function centredPasteAnchor(clipboard: GraphClipboard, centre: XY): XY {
   return centreOn(centre, clipboardExtent(clipboard))
 }
+
+// ---------------------------------------------------------------------------
+// PROMOTION.
+//
+// ⚠️ A PROMOTED PROPERTY IS AN ORDINARY NODE, DOCKED. Promoting `Height` on a
+// Walls container adds an `archicad.element.setting` node, wires it from the
+// host's element output, and records in LAYOUT that it should be drawn as a row
+// under its host rather than as a box of its own. There is no second data model
+// for promoted rows and therefore no conversion between them: "Convert to
+// explicit node" clears one layout field, which is why it cannot lose a
+// downstream link.
+//
+// See §45 of HANDOFF-TAPIOCA-GraphUI-Property-Browser.md for why the additive
+// instance-port design this replaced does not work.
+//
+// ⚠️ AND THE DOCK IS LAYOUT, NOT DOCUMENT. Whether a node is drawn as a row or
+// as a box changes nothing about what the graph computes, so it lives in the
+// same per-node metadata as positions - which the runtime round-trips and never
+// reads. Putting it in the document would give the evaluator an opinion about
+// drawing.
+// ---------------------------------------------------------------------------
+
+/** The node type a promotion creates. The runtime's id, not a label. */
+export const ELEMENT_SETTING_NODE_TYPE = 'archicad.element.setting'
+
+export interface DockState {
+  /** The node this row is drawn under. */
+  dockedTo: string
+  /** Where among its host's rows. Ties break on node id, so order is total. */
+  dockOrder: number
+}
+
+export interface PromotionPlan {
+  edits: (AddNodeEdit | ConnectEdit)[]
+  /** The transaction-local name of the node being added, for rekeying. */
+  alias: string
+  /** Keyed by alias, rekeyed onto the assigned id once the runtime answers. */
+  docks: Map<string, DockState>
+}
+
+/**
+ * The edits that promote one setting off `hostNodeId`.
+ *
+ * ⚠️ ONE TRANSACTION, ADD AND WIRE TOGETHER. A promotion that added the node
+ * and then connected it in a second call could leave a graph holding a setting
+ * node wired to nothing - a node the user did not ask for and cannot explain -
+ * if the second call failed or the app closed between them. `alias` is what
+ * makes the wire nameable before the node has an id; see AddNodeEdit.
+ *
+ * `elementType` is stored on the node rather than inferred at run time. A
+ * promotion is made against ONE type's schema, and rewiring the host to another
+ * type has to be visible rather than silently answering anyway.
+ */
+export function promotionPlan(
+  hostNodeId: string,
+  hostOutputPort: string,
+  settingId: string,
+  elementType: string,
+  dockOrder: number,
+  newAlias: (nodeType: string) => string,
+): PromotionPlan {
+  const alias = newAlias(ELEMENT_SETTING_NODE_TYPE)
+  const plan: PromotionPlan = { edits: [], alias, docks: new Map() }
+
+  plan.edits.push({
+    editKind: 'addNode',
+    alias,
+    nodeType: ELEMENT_SETTING_NODE_TYPE,
+    parameters: [
+      { parameterId: 'setting', value: { valueType: 'string', text: settingId } },
+      { parameterId: 'elementType', value: { valueType: 'string', text: elementType } },
+    ],
+  })
+  plan.edits.push({
+    editKind: 'connect',
+    sourceNode: hostNodeId,
+    sourcePort: hostOutputPort,
+    targetNode: alias,
+    targetPort: 'elements',
+  })
+  plan.docks.set(alias, { dockedTo: hostNodeId, dockOrder })
+  return plan
+}
+
+/**
+ * The dock a node's layout fields describe, or `undefined` for a node drawn as
+ * an ordinary box.
+ *
+ * ⚠️ A MISSING OR UNPARSEABLE ORDER DOCKS THE ROW AT THE END RATHER THAN
+ * UNDOCKING IT. A graph written by a client that records the host but not the
+ * order is still a graph whose author meant that node to be a row; dropping the
+ * dock over a bad number would silently scatter a node's promoted rows across
+ * the canvas, which looks like data loss and is much harder to explain than a
+ * row in the wrong place.
+ */
+export function dockFromFields(fields: readonly { key: string; value: string }[]): DockState | undefined {
+  const dockedTo = fields.find((field) => field.key === 'dockedTo')?.value ?? ''
+  if (dockedTo === '') return undefined
+  const order = Number(fields.find((field) => field.key === 'dockOrder')?.value)
+  return { dockedTo, dockOrder: Number.isFinite(order) ? order : Number.MAX_SAFE_INTEGER }
+}
+
+export function dockToFields(dock: DockState): { key: string; value: string }[] {
+  return [
+    { key: 'dockedTo', value: dock.dockedTo },
+    { key: 'dockOrder', value: String(dock.dockOrder) },
+  ]
+}
+
+/**
+ * The docked rows of each host, in the order they should be drawn.
+ *
+ * ⚠️ A ROW WHOSE HOST IS NOT IN `nodeIds` IS RETURNED UNDOCKED, not hidden. A
+ * dock pointing at a deleted node would otherwise make its row vanish from the
+ * canvas while still being in the document and still evaluating - a node the
+ * user cannot see, cannot select and cannot delete. Orphans become ordinary
+ * boxes, which is visible and fixable.
+ */
+export function dockedRows(
+  docks: ReadonlyMap<string, DockState>,
+  nodeIds: Iterable<string>,
+): { byHost: Map<string, string[]>; orphans: string[] } {
+  const present = new Set(nodeIds)
+  const byHost = new Map<string, string[]>()
+  const orphans: string[] = []
+
+  const ordered = [...docks.entries()]
+    .filter(([nodeId]) => present.has(nodeId))
+    // Node id breaks a tie, so two rows promoted in the same gesture do not
+    // swap places between repaints.
+    .sort((a, b) => a[1].dockOrder - b[1].dockOrder || a[0].localeCompare(b[0]))
+
+  for (const [nodeId, dock] of ordered) {
+    if (!present.has(dock.dockedTo) || dock.dockedTo === nodeId) {
+      orphans.push(nodeId)
+      continue
+    }
+    const rows = byHost.get(dock.dockedTo)
+    if (rows === undefined) byHost.set(dock.dockedTo, [nodeId])
+    else rows.push(nodeId)
+  }
+  return { byHost, orphans }
+}
+
+/**
+ * The next free row index under a host. Appends rather than renumbering, so
+ * promoting a fourth property does not move the first three.
+ */
+export function nextDockOrder(docks: ReadonlyMap<string, DockState>, hostNodeId: string): number {
+  let next = 0
+  for (const dock of docks.values())
+    if (dock.dockedTo === hostNodeId) next = Math.max(next, dock.dockOrder + 1)
+  return next
+}

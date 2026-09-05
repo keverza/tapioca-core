@@ -347,10 +347,20 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     EXPECT_EQ (21U, byCategory["Geometry"]); // inputs, vectors, polygons, solids, curves and the surface makers
     EXPECT_EQ (6U, byCategory["Transform"]); // move, rotate, scale, mirror and the two arrays
     EXPECT_EQ (3U, byCategory["Math"]);      // remap, random, toInteger
-    // One container per element type the classification table marks as one. The
-    // number is the table's, not a taste: a type that quietly lost its container
-    // moves it, and test_elementclassification.cpp says which.
-    EXPECT_EQ (18U, byCategory["Archicad Elements"]);
+    // One container per element type the classification table marks as one, plus
+    // the setting projection. The container count is the TABLE's rather than a
+    // taste, so it is counted off the prefix instead of being written down here:
+    // a magic number in this test would have to be edited every time the table
+    // gained a type, which is exactly when nobody looks at what it was asserting.
+    size_t containers = 0;
+    for (const auto& [id, nodeType] : registry.Types ())
+        if (!ElementTypeOfContainerNode (id).empty ())
+            ++containers;
+    EXPECT_EQ (18U, containers);
+    // archicad.element.setting is in the same category and is NOT a container -
+    // it is what a promoted property row is made of. See §45 of the property
+    // browser handoff.
+    EXPECT_EQ (containers + 1U, byCategory["Archicad Elements"]);
     // The script node family: one type per language, so a user looking for
     // "Python" finds a node called Python rather than one they must place and
     // then reconfigure. Their ports are NOT here - they are declared in the file
@@ -363,7 +373,7 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     // list.* - length, item, reverse, sort, slice. Ordinary lifted bodies,
     // unlike tree.*: they answer about ONE branch and the runtime walks the rest.
     EXPECT_EQ (5U, byCategory["List"]);
-    EXPECT_EQ (89U, registry.Types ().size ());
+    EXPECT_EQ (90U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -1378,8 +1388,8 @@ TEST (NodeGraphUndo, UndoRestoresTheWiresAndNotJustTheNodes)
                                     GraphEdit { AddNodeEdit { Node { "sum", "add" } } } },
                                   "Build")
                      .accepted);
-    ASSERT_TRUE (
-        runtime.Apply (graphId, GraphEdit { ConnectEdit { Edge { "a", "value", "sum", "left" } } }, "Connect").accepted);
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { ConnectEdit { Edge { "a", "value", "sum", "left" } } }, "Connect")
+                     .accepted);
     ASSERT_EQ (1U, runtime.Document (graphId).Edges ().size ());
 
     // Deleting the node takes its wire with it. This is exactly the case a
@@ -1515,15 +1525,13 @@ TEST (NodeGraphUndo, StepsRecordedCountsPushesRatherThanStackSize)
 
     // 1. A COALESCED EDIT records nothing, and must be reported as nothing: a
     //    client that added a timeline entry here would offer one Ctrl+Z too many.
-    ASSERT_TRUE (runtime
-                     .Apply (graphId, GraphEdit { SetParameterEdit { "a", "value", Value (5.0) } }, "Set value",
-                             "gesture-1")
-                     .accepted);
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { SetParameterEdit { "a", "value", Value (5.0) } }, "Set value", "gesture-1")
+            .accepted);
     const uint64_t afterFirstOfGesture = runtime.History (graphId).stepsRecorded;
-    ASSERT_TRUE (runtime
-                     .Apply (graphId, GraphEdit { SetParameterEdit { "a", "value", Value (6.0) } }, "Set value",
-                             "gesture-1")
-                     .accepted);
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { SetParameterEdit { "a", "value", Value (6.0) } }, "Set value", "gesture-1")
+            .accepted);
     EXPECT_EQ (afterFirstOfGesture, runtime.History (graphId).stepsRecorded) << "the second edit folded into the first";
 
     // 2. UNDO AND REDO move the stacks without recording anything new.
@@ -1650,6 +1658,10 @@ class StubHost final : public IArchicadHost {
     // unclassified, which is the same answer the real host gives for a type this
     // build does not name.
     std::map<std::string, std::string> typeOf;
+    // What the stub says each guid's settings are. Absent entirely for a guid
+    // with none, which is the same answer the real reader gives for a field this
+    // build does not transcribe.
+    std::map<std::string, std::map<std::string, Value>> settingsOf;
     bool describeFails = false;
     mutable int describeCalls = 0;
 
@@ -1675,6 +1687,9 @@ class StubHost final : public IArchicadHost {
                 description.elementType = found->second;
                 description.typeLabel = found->second;
             }
+            const auto settings = settingsOf.find (element.guid);
+            if (settings != settingsOf.end ())
+                description.settings = settings->second;
             descriptions.push_back (std::move (description));
         }
         return true;
@@ -5317,4 +5332,243 @@ TEST (NodeGraphFlowControl, IfPassesTheBranchItsConditionNames)
         ASSERT_EQ (1U, taken.size ());
         EXPECT_EQ (condition ? "yes" : "no", std::get<std::string> (taken[0].DataValue ()));
     }
+}
+
+// ---------------------------------------------------------------------------
+// archicad.element.setting - what a promoted row IS.
+//
+// ⚠️ THE CONTRACT UNDER TEST IS INDEX PARITY. Everything downstream of a
+// promoted setting assumes value[i] belongs to element[i] of the source. A list
+// that compacts itself where an element had no answer still adds up, still looks
+// plausible, and is wrong about every element after the gap - so the cases below
+// are mostly about elements that could NOT be answered for.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+Node ElementSettingNode (const std::string& nodeId, const std::string& settingId, const std::string& elementType = {})
+{
+    Node node { nodeId, "archicad.element.setting" };
+    node.parameters.emplace ("setting", Argument { Value (settingId) });
+    node.parameters.emplace ("elementType", Argument { Value (elementType) });
+    return node;
+}
+
+// A selection wired into a setting node - the shape the property browser's
+// promote action builds.
+void PromoteOnto (GraphDocument& graph, const NodeRegistry& registry, std::initializer_list<std::string> guids,
+                  const std::string& settingId, const std::string& elementType = {})
+{
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { SelectionSetNode ("sel", guids) } }).accepted);
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { ElementSettingNode ("h", settingId, elementType) } })
+            .accepted);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Edge { "sel", "elements", "h", "elements" } } })
+                     .accepted);
+}
+
+} // namespace
+
+TEST (NodeGraphElementSetting, OneValuePerElementInTheOrderTheyWereGiven)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1", "w2" }, "height");
+
+    StubHost host;
+    host.HoldsTyped ({ { "w1", "wall" }, { "w2", "wall" } });
+    host.settingsOf["w1"] = { { "height", Value (3.2) } };
+    host.settingsOf["w2"] = { { "height", Value (2.7) } };
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const Argument values = Out (evaluator.Result ("h"), "values");
+    ASSERT_EQ (2U, values.Items ().size ());
+    EXPECT_DOUBLE_EQ (3.2, std::get<double> (values.Items ()[0].DataValue ()));
+    EXPECT_DOUBLE_EQ (2.7, std::get<double> (values.Items ()[1].DataValue ()));
+
+    // ONE read for the whole list, exactly as a container does.
+    EXPECT_EQ (1, host.describeCalls);
+}
+
+TEST (NodeGraphElementSetting, AnElementWithNoAnswerHoldsItsPlaceRatherThanBeingDropped)
+{
+    // ⚠️ THE CASE THE WHOLE DESIGN TURNS ON. Three elements in, three values
+    // out. Dropping the middle one would leave a two-item list whose second
+    // entry belongs to the third element - which is the failure nobody notices,
+    // because the list is still a list of heights and still looks right.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1", "gone", "w2" }, "height");
+
+    StubHost host;
+    // "gone" is deliberately absent from the project.
+    host.HoldsTyped ({ { "w1", "wall" }, { "w2", "wall" } });
+    host.settingsOf["w1"] = { { "height", Value (3.2) } };
+    host.settingsOf["w2"] = { { "height", Value (2.7) } };
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const Argument values = Out (evaluator.Result ("h"), "values");
+    ASSERT_EQ (3U, values.Items ().size ());
+    EXPECT_DOUBLE_EQ (3.2, std::get<double> (values.Items ()[0].DataValue ()));
+    EXPECT_EQ (ValueType::Absent, values.Items ()[1].Type ());
+    EXPECT_DOUBLE_EQ (2.7, std::get<double> (values.Items ()[2].DataValue ()));
+}
+
+TEST (NodeGraphElementSetting, ASettingTheReaderDidNotFillIsAbsentRatherThanZero)
+{
+    // Unread and zero are different facts, and a promoted Height that read 0 for
+    // a wall this build cannot measure would be believed.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1", "w2" }, "height");
+
+    StubHost host;
+    host.HoldsTyped ({ { "w1", "wall" }, { "w2", "wall" } });
+    // w1 was read, but this build fills no height for it. w2 has one.
+    host.settingsOf["w1"] = { { "thickness", Value (0.3) } };
+    host.settingsOf["w2"] = { { "height", Value (2.7) } };
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host).succeeded);
+
+    const Argument values = Out (evaluator.Result ("h"), "values");
+    ASSERT_EQ (2U, values.Items ().size ());
+    EXPECT_EQ (ValueType::Absent, values.Items ()[0].Type ());
+    EXPECT_DOUBLE_EQ (2.7, std::get<double> (values.Items ()[1].DataValue ()));
+}
+
+TEST (NodeGraphElementSetting, OneElementProjectsAsAScalarBecauseThatIsTheRuntimesListConvention)
+{
+    // ⚠️ NOT THIS NODE'S DOING, AND WORTH KNOWING BEFORE IT SURPRISES SOMEONE.
+    // ProjectTreeToValue collapses one item at one path to a scalar - "a
+    // consumer that asked for a value cannot be told the difference any other
+    // way" - so a container holding exactly one wall promotes to a bare number
+    // rather than to a list of one. Every node in the runtime behaves this way,
+    // including the containers' own `elements`, so index parity (§43.1) is a
+    // claim about lists of two or more and this is the boundary case.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1" }, "height");
+
+    StubHost host;
+    host.HoldsTyped ({ { "w1", "wall" } });
+    host.settingsOf["w1"] = { { "height", Value (3.2) } };
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host).succeeded);
+
+    const Argument values = Out (evaluator.Result ("h"), "values");
+    EXPECT_NE (ValueType::List, values.Type ());
+    EXPECT_DOUBLE_EQ (3.2, std::get<double> (values.AsValue ().DataValue ()));
+
+    // And the same element with nothing to answer collapses to a bare Absent
+    // rather than to a one-item list holding one.
+    host.settingsOf["w1"] = {};
+    Evaluator second;
+    ASSERT_TRUE (RunWithHost (second, graph, registry, ExecuteRuntimeNode, &host, false, 2).succeeded);
+    EXPECT_EQ (ValueType::Absent, Out (second.Result ("h"), "values").Type ());
+}
+
+TEST (NodeGraphElementSetting, RewiringToAnotherTypeGoesAbsentRatherThanAnsweringAnyway)
+{
+    // ⚠️ WHY elementType IS STORED. The promotion was made against a wall's
+    // schema. Feeding the same node slabs must not quietly produce a column of
+    // numbers under a label that meant something else - the gap is what makes
+    // the mistake findable.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1", "s1" }, "height", "wall");
+
+    StubHost host;
+    host.HoldsTyped ({ { "w1", "wall" }, { "s1", "slab" } });
+    host.settingsOf["w1"] = { { "height", Value (3.2) } };
+    // The slab genuinely has a value under that id; it is still not this
+    // promotion's answer.
+    host.settingsOf["s1"] = { { "height", Value (9.9) } };
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host).succeeded);
+
+    const Argument values = Out (evaluator.Result ("h"), "values");
+    ASSERT_EQ (2U, values.Items ().size ());
+    EXPECT_DOUBLE_EQ (3.2, std::get<double> (values.Items ()[0].DataValue ()));
+    EXPECT_EQ (ValueType::Absent, values.Items ()[1].Type ());
+}
+
+TEST (NodeGraphElementSetting, AnEmptyElementTypeAcceptsWhateverItIsGiven)
+{
+    // A setting promoted from a mixed selection rather than from one type's
+    // container has no single type to record, and must not therefore answer
+    // nothing.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1", "s1" }, "layer");
+
+    StubHost host;
+    host.HoldsTyped ({ { "w1", "wall" }, { "s1", "slab" } });
+    host.settingsOf["w1"] = { { "layer", Value (std::string ("Shell")) } };
+    host.settingsOf["s1"] = { { "layer", Value (std::string ("Floors")) } };
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host).succeeded);
+
+    const Argument values = Out (evaluator.Result ("h"), "values");
+    ASSERT_EQ (2U, values.Items ().size ());
+    EXPECT_EQ ("Shell", std::get<std::string> (values.Items ()[0].DataValue ()));
+    EXPECT_EQ ("Floors", std::get<std::string> (values.Items ()[1].DataValue ()));
+}
+
+TEST (NodeGraphElementSetting, AnUnwiredNodeIsEmptyAndNeverAsksTheHost)
+{
+    // Dropped but not yet wired is not a broken graph, and it is not a reason to
+    // cross the gate either.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { ElementSettingNode ("h", "height") } }).accepted);
+
+    StubHost host;
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host).succeeded);
+    EXPECT_TRUE (Out (evaluator.Result ("h"), "values").Items ().empty ());
+    EXPECT_EQ (0, host.describeCalls);
+}
+
+TEST (NodeGraphElementSetting, ElementsWithNoChosenSettingFailRatherThanReadingEmpty)
+{
+    // The other way round: elements ARE wired and no setting was chosen. Silence
+    // here would be a column of Absents that looks like a model problem, when it
+    // is a node nobody finished configuring.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    PromoteOnto (graph, registry, { "w1" }, "");
+
+    StubHost host;
+    host.HoldsTyped ({ { "w1", "wall" } });
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host);
+    EXPECT_FALSE (outcome.succeeded);
+}
+
+TEST (NodeGraphElementSetting, ItDependsOnTheProjectSoTheAnswerGoesStaleWhenTheModelMoves)
+{
+    // ⚠️ THE TRADE PROMOTION MAKES. The inspector reads through a command and
+    // dirties nothing; this node is the opposite by design, because promoting a
+    // setting is asking the graph to depend on it. A node that did not declare
+    // the generation would serve the previous run's height for ever.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find ("archicad.element.setting");
+    ASSERT_NE (nullptr, type);
+    EXPECT_EQ (EffectKind::ReadModel, type->effect);
+    EXPECT_EQ (ExecutionDomain::ArchicadMainThread, type->executionDomain);
+    EXPECT_TRUE (type->generations.Contains (GenerationDomain::Project));
+    // Not bypassable: `values` has no input to be forwarded from.
+    EXPECT_TRUE (type->bypassMappings.empty ());
 }

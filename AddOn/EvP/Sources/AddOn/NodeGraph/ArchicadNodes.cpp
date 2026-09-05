@@ -14,6 +14,7 @@ constexpr const char kGetSelection[] = "archicad.getSelection";
 constexpr const char kSetSelection[] = "archicad.setSelection";
 constexpr const char kContainerPrefix[] = "archicad.container.";
 constexpr const char kLibraryPart[] = "archicad.libraryPart";
+constexpr const char kElementSetting[] = "archicad.element.setting";
 
 std::vector<Value> ToValueList (const std::vector<ArchicadElementRef>& elements)
 {
@@ -194,6 +195,69 @@ void RegisterArchicadNodes (NodeRegistry& registry)
     if (!registry.Register (std::move (libraryPart), error))
         throw std::logic_error (error);
 
+    // ONE SETTING OF THE ELEMENTS GIVEN TO IT.
+    //
+    // ⚠️ THIS IS WHAT A PROMOTED ROW *IS*. The property browser's promote
+    // action creates one of these, wires it from the source node's elements,
+    // and marks it in editor metadata as docked under its host; the editor then
+    // draws it as a row with an output nub instead of as a box. There is no
+    // second representation and no conversion between them - see §45 of
+    // HANDOFF-TAPIOCA-GraphUI-Property-Browser.md. "Convert to explicit node"
+    // clears a metadata field, which is why it cannot lose a downstream link.
+    //
+    // ⚠️ AND IT IS ReadModel WITH A Project GENERATION, WHICH THE INSPECTOR IS
+    // NOT. GraphDescribeElements answers the panel without touching the
+    // evaluator, deliberately - opening a browser must not dirty a graph. This
+    // node is the opposite by design: promoting a setting is asking the graph to
+    // depend on it, so the answer has to go stale when the model moves.
+    NodeType setting;
+    setting.id = kElementSetting;
+    setting.label = "Element Setting";
+    setting.category = "Archicad Elements";
+    setting.description = "One setting read from each element given to it, in the same order.";
+    setting.executionDomain = ExecutionDomain::ArchicadMainThread;
+    setting.effect = EffectKind::ReadModel;
+    setting.generations = { GenerationDomain::Project };
+    // Not required, for the same reason a container's input is not: this is a
+    // thing you drop and wire afterwards.
+    setting.inputs.push_back ({ "elements", "Elements", ValueType::List, false });
+    {
+        ParameterSchema which { "setting", "Setting", ValueType::String, false, Value (std::string {}) };
+        ParameterUi ui;
+        // ⚠️ NOT A Select, AND NOT AN optionSource EITHER. Which settings exist
+        // depends on the ELEMENT TYPE, so there is no one list to enumerate and
+        // no host question that would produce one. The property browser is the
+        // picker; this parameter is what it writes.
+        ui.widget = ParameterWidget::Text;
+        ui.section = "Setting";
+        ui.help =
+            "The catalog id of the setting to read - promote one from the property browser rather than typing it.";
+        which.ui = ui;
+        setting.parameters.push_back (std::move (which));
+    }
+    {
+        // ⚠️ THE TYPE THE PROMOTION WAS MADE AGAINST, STORED RATHER THAN
+        // INFERRED. A promotion is made against one type's schema; rewiring the
+        // source to a different type has to be VISIBLE rather than silently
+        // producing nothing, and without the type recorded there is nothing to
+        // compare the incoming elements against.
+        ParameterSchema type { "elementType", "Element Type", ValueType::String, false, Value (std::string {}) };
+        ParameterUi ui;
+        ui.widget = ParameterWidget::ReadOnly;
+        ui.section = "Setting";
+        ui.help = "The element type this setting was promoted from. Empty accepts any type.";
+        type.ui = ui;
+        setting.parameters.push_back (std::move (type));
+    }
+    // ⚠️ ONE OUTPUT, FLAT, AND INDEX-PARALLEL TO THE INPUT. Not one branch per
+    // element: see §43.1. An element with no answer holds an ABSENT at its
+    // index rather than being dropped, because a list that compacts itself
+    // re-indexes every element after the gap - which adds up and is wrong about
+    // all of them.
+    setting.outputs.push_back ({ "values", "Values", ValueType::List });
+    if (!registry.Register (std::move (setting), error))
+        throw std::logic_error (error);
+
     RegisterElementContainers (registry);
 }
 
@@ -248,7 +312,7 @@ void RegisterElementContainers (NodeRegistry& registry)
 bool IsArchicadNodeType (const std::string& nodeTypeId)
 {
     return nodeTypeId == kGetSelection || nodeTypeId == kSetSelection || nodeTypeId == kLibraryPart ||
-           !ElementTypeOfContainerNode (nodeTypeId).empty ();
+           nodeTypeId == kElementSetting || !ElementTypeOfContainerNode (nodeTypeId).empty ();
 }
 
 bool ExecuteArchicadNode (const Node& node, const ValueMap& inputs, const NodeExecutionContext& context,
@@ -334,6 +398,70 @@ bool ExecuteArchicadNode (const Node& node, const ValueMap& inputs, const NodeEx
 
         outputs.emplace ("elements", ValueFromElements (kept));
         outputs.emplace ("count", Value (static_cast<int64_t> (kept.size ())));
+        return true;
+    }
+
+    // ONE SETTING, ONE VALUE PER INPUT ELEMENT, SAME ORDER.
+    if (node.nodeType == kElementSetting) {
+        const auto text = [&node] (const char* id) -> std::string {
+            const auto stored = node.parameters.find (id);
+            if (stored == node.parameters.end () || stored->second.Type () != ValueType::String)
+                return {};
+            return std::get<std::string> (stored->second.DataValue ());
+        };
+        const std::string settingId = text ("setting");
+        const std::string wantedType = text ("elementType");
+
+        const auto found = inputs.find ("elements");
+        std::vector<ArchicadElementRef> elements;
+        if (found != inputs.end ())
+            elements = ElementsFromValue (found->second);
+
+        // An unchosen setting on an unwired node is EMPTY, not an error - the
+        // seconds between dropping a node and configuring it are not a broken
+        // graph. A setting id that names nothing is a different matter and is
+        // caught below, once there are elements to fail against.
+        if (elements.empty ()) {
+            outputs.emplace ("values", Argument::FromItems ({}));
+            return true;
+        }
+        if (settingId.empty ()) {
+            error = "no setting has been chosen";
+            return false;
+        }
+
+        std::vector<ElementDescription> descriptions;
+        // ONE read for the whole list, exactly as the container does.
+        if (!context.archicad->DescribeElements (elements, descriptions, error))
+            return false;
+
+        std::vector<Value> values;
+        values.reserve (elements.size ());
+        for (size_t i = 0; i < elements.size (); ++i) {
+            // ⚠️ THE LOOP IS OVER THE INPUT, NOT OVER THE DESCRIPTIONS, and a
+            // short answer leaves Absent at the tail rather than shortening the
+            // output. Index parity with the elements that went IN is the whole
+            // contract of this node (§43.1); a host that answered for fewer
+            // elements than it was asked about must not be able to shift every
+            // value one place to the left.
+            if (i >= descriptions.size ()) {
+                values.emplace_back ();
+                continue;
+            }
+            const ElementDescription& description = descriptions[i];
+            // Unreadable, or not the type this setting was promoted against.
+            // Both are ABSENT rather than an error: one bad element in a
+            // hundred should not fail the graph, and the gap is visible at the
+            // index where it happened.
+            if (!description.available || (!wantedType.empty () && description.elementType != wantedType)) {
+                values.emplace_back ();
+                continue;
+            }
+            const auto value = description.settings.find (settingId);
+            values.emplace_back (value == description.settings.end () ? Value {} : value->second);
+        }
+
+        outputs.emplace ("values", Argument::FromItems (std::move (values)));
         return true;
     }
 
