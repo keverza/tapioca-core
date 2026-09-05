@@ -8,6 +8,7 @@
 #include "NodeGraph/ScriptNodes.hpp"
 #include "NodeGraph/ScriptReload.hpp"
 #include "NodeGraph/ScriptSource.hpp"
+#include "NodeGraph/ScriptIntelligence.hpp"
 #include "NodeGraph/ScriptWorkspace.hpp"
 
 // ShellExecuteW. Not reached through the SDK prelude, and this is the only file
@@ -99,6 +100,18 @@ constexpr const char kSetNameInputSchema[] =
 // Opening the library takes nothing at all: there is one workflow library per
 // machine, and which node asked has no bearing on where it is.
 constexpr const char kEmptyInputSchema[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
+// A completion request. `line` and `character` are zero-based and `character` is
+// a UTF-16 code-unit offset - which is what a JavaScript string index already is,
+// so the browser sends CodeMirror's own column unconverted.
+constexpr const char kCompleteInputSchema[] =
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeId":{"type":"string","minLength":1},"file":{"type":"string"},"source":{"type":"string"},"line":{"type":"integer","minimum":0},"character":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["nodeId","source","line","character"]})json";
+
+constexpr const char kCompleteResponseSchema[] =
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"items":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"insertText":{"type":"string"},"kind":{"type":"string"},"detail":{"type":"string"},"documentation":{"type":"string"}},"additionalProperties":false,"required":["label","insertText","kind","detail","documentation"]}}},"additionalProperties":false,"required":["ok","error","items"]})json";
+
+// The language server's availability, and the on-demand install that changes it.
+constexpr const char kIntelligenceResponseSchema[] =
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"state":{"type":"string"},"message":{"type":"string"},"executable":{"type":"string"}},"additionalProperties":false,"required":["ok","error","state","message","executable"]})json";
 
 // What the script picker draws from. `template` and `suggestedName` are here
 // rather than in a verb of their own because they are asked for at exactly the
@@ -278,7 +291,18 @@ class GraphScriptCreateCommand : public GateFreeGraphCommand {
         // `apartment_metrics` scaffolds inside the workflow library, which is
         // what makes that location a preset rather than something the user has
         // to spell out every time.
-        const graph::Node* placed = graph::GraphRuntimeState::Get ().Document (graphId).FindNode (nodeId);
+        //
+        // ⚠️ THE DOCUMENT IS BOUND TO A NAMED LOCAL, AND IT HAS TO BE.
+        // `GraphRuntimeState::Document` returns a COPY - it takes the slot's
+        // mutex and hands back a snapshot - so `Document(id).FindNode(id)` in one
+        // expression returns a pointer INTO A TEMPORARY that is destroyed at the
+        // semicolon. Reading `placed->nodeType` after that is reading freed
+        // memory: it produced a garbage node type, which failed the language
+        // check, which reported a perfectly ordinary Python node as "not a script
+        // node" and made Create unusable. Never dereference a pointer obtained
+        // from a by-value accessor's temporary.
+        const graph::GraphDocument document = graph::GraphRuntimeState::Get ().Document (graphId);
+        const graph::Node* placed = document.FindNode (nodeId);
         graph::ScriptLanguage language = graph::ScriptLanguage::Python;
         if (placed == nullptr || !graph::ScriptNodeLanguage (placed->nodeType, language))
             return NativeCommandResult::Failure (GraphText ("'" + nodeId + "' is not a script node"));
@@ -568,7 +592,11 @@ class GraphScriptLibraryCommand : public GateFreeGraphCommand {
         // offered a folder whose only entry is main.js. Read from the DOCUMENT
         // rather than from the script store, so a node placed a second ago -
         // which has no stored script state at all yet - still gets a listing.
-        const graph::Node* placed = graph::GraphRuntimeState::Get ().Document (graphId).FindNode (nodeId);
+        //
+        // The document is a named local because `Document` returns a COPY; see
+        // GraphScriptCreateCommand for what a pointer into that temporary does.
+        const graph::GraphDocument document = graph::GraphRuntimeState::Get ().Document (graphId);
+        const graph::Node* placed = document.FindNode (nodeId);
         graph::ScriptLanguage language = graph::ScriptLanguage::Python;
         if (placed == nullptr || !graph::ScriptNodeLanguage (placed->nodeType, language))
             return NativeCommandResult::Failure (GraphText ("'" + nodeId + "' is not a script node"));
@@ -684,6 +712,131 @@ class GraphScriptOpenLibraryCommand : public GateFreeGraphCommand {
     }
 };
 
+// ---------------------------------------------------------------------------
+// Code intelligence.
+//
+// ⚠️ THREE VERBS, AND THE SPLIT IS THE DESIGN. Completion is asked for on every
+// keystroke after a dot and must be cheap and gate-free; the status is polled by
+// a panel; the install is a minute of network that returns immediately and is
+// watched through the status. Folding them into one verb would put a download
+// behind something the editor calls while somebody is typing.
+//
+// ⚠️ AND THE BROWSER NEVER SPEAKS LSP. It sends a position and a buffer and gets
+// back labels - see ScriptCompletion. Relaying raw JSON-RPC would be less code
+// here and would hand a browser inside Archicad the ability to ask a language
+// server to read any file on the machine; the whole reason the script verbs name
+// files relatively is that a name from a browser must not be able to become an
+// arbitrary path.
+
+class GraphScriptCompleteCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::NodeId nodeId;
+        if (!ReadNodeId (params, nodeId))
+            return NativeCommandResult::Failure (GS::UniString ("nodeId is required", CC_UTF8));
+
+        GS::UniString sourceText;
+        params.Get ("source", sourceText);
+        GS::UniString requested;
+        params.Get ("file", requested);
+        Int32 line = 0;
+        Int32 character = 0;
+        params.Get ("line", line);
+        params.Get ("character", character);
+
+        const graph::ScriptState state = graph::ScriptStore::Get ().State (nodeId);
+        const graph::ScriptWorkspace workspace = graph::ResolveScriptWorkspace (state.path, state.language);
+
+        // ⚠️ THE SAME RESOLVER EVERY OTHER FILE VERB USES. `file` arrives from a
+        // browser, and completion is not a reason to let it name a path the read
+        // and write verbs would refuse.
+        std::string absolute;
+        std::string refusal;
+        const std::string file = GraphUtf8 (requested);
+        if (!graph::ResolveWorkspaceFile (workspace, file, absolute, refusal))
+            return NativeCommandResult::Failure (GraphText (refusal));
+
+        // The entry file, when the editor did not name one - the same default the
+        // read verb applies, so a node opens without the browser first learning
+        // whether its entry is main.py or main.js.
+        const std::string name = file.empty () ? std::string (graph::EntryFileName (workspace.language)) : file;
+
+        std::string error;
+        const std::vector<graph::ScriptCompletion> completions = graph::ScriptIntelligence::Get ().Complete (
+            workspace, name, GraphUtf8 (sourceText), static_cast<int> (line), static_cast<int> (character), error);
+
+        GS::Array<GS::ObjectState> encoded;
+        for (const graph::ScriptCompletion& completion : completions) {
+            GS::ObjectState item;
+            item.Add ("label", GraphText (completion.label));
+            item.Add ("insertText", GraphText (completion.insertText));
+            item.Add ("kind", GraphText (completion.kind));
+            item.Add ("detail", GraphText (completion.detail));
+            item.Add ("documentation", GraphText (completion.documentation));
+            encoded.Push (std::move (item));
+        }
+
+        GS::ObjectState response;
+        // ⚠️ A SERVER THAT COULD NOT ANSWER IS ok:false WITH AN EMPTY LIST, NOT A
+        // FAILED COMMAND. This is called while somebody is typing; a bridge error
+        // thrown over the panel on every keystroke because the server is still
+        // starting would be far worse than a menu that does not appear.
+        response.Add ("ok", error.empty ());
+        response.Add ("error", GraphText (error));
+        response.Add ("items", encoded);
+        return response;
+    }
+};
+
+GS::ObjectState EncodeIntelligenceStatus ()
+{
+    const graph::IntelligenceStatus status = graph::ScriptIntelligence::Get ().Status ();
+    const char* state = "notInstalled";
+    switch (status.state) {
+        case graph::IntelligenceState::NotInstalled:
+            state = "notInstalled";
+            break;
+        case graph::IntelligenceState::Installing:
+            state = "installing";
+            break;
+        case graph::IntelligenceState::Ready:
+            state = "ready";
+            break;
+        case graph::IntelligenceState::Failed:
+            state = "failed";
+            break;
+    }
+    GS::ObjectState response;
+    response.Add ("ok", true);
+    response.Add ("error", GS::UniString ());
+    response.Add ("state", GS::UniString (state, CC_UTF8));
+    response.Add ("message", GraphText (status.message));
+    response.Add ("executable", GraphText (status.executable));
+    return response;
+}
+
+class GraphScriptIntelligenceCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        return EncodeIntelligenceStatus ();
+    }
+};
+
+class GraphScriptInstallIntelligenceCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        // ⚠️ RETURNS IMMEDIATELY, AND THE STATUS IS HOW PROGRESS IS WATCHED. The
+        // install is ~56 MB over the network into the runtime's site-packages;
+        // holding a native verb open for that would block a worker thread for a
+        // minute and time out in the bridge long before it finished.
+        graph::ScriptIntelligence::Get ().BeginInstall ();
+        return EncodeIntelligenceStatus ();
+    }
+};
+
 const NativeCommandRegistration registrations[] = {
     { "GraphScriptStatus", &MakeRegisteredNativeCommand<GraphScriptStatusCommand>, false, kNodeInputSchema,
       kStatusResponseSchema },
@@ -707,6 +860,12 @@ const NativeCommandRegistration registrations[] = {
       kStatusResponseSchema },
     { "GraphScriptOpenLibrary", &MakeRegisteredNativeCommand<GraphScriptOpenLibraryCommand>, false, kEmptyInputSchema,
       kOpenResponseSchema },
+    { "GraphScriptComplete", &MakeRegisteredNativeCommand<GraphScriptCompleteCommand>, false, kCompleteInputSchema,
+      kCompleteResponseSchema },
+    { "GraphScriptIntelligence", &MakeRegisteredNativeCommand<GraphScriptIntelligenceCommand>, false, kEmptyInputSchema,
+      kIntelligenceResponseSchema },
+    { "GraphScriptInstallIntelligence", &MakeRegisteredNativeCommand<GraphScriptInstallIntelligenceCommand>, false,
+      kEmptyInputSchema, kIntelligenceResponseSchema },
 };
 
 } // namespace

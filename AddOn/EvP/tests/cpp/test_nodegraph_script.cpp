@@ -12,6 +12,7 @@
 #include "NodeGraph/GraphSerializer.hpp"
 #include "NodeGraph/NodeExecution.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
+#include "NodeGraph/ScriptIntelligence.hpp"
 #include "NodeGraph/ScriptManifest.hpp"
 #include "NodeGraph/ScriptNodes.hpp"
 #include "NodeGraph/ScriptRuntime.hpp"
@@ -125,6 +126,412 @@ class TempWorkspace {
 };
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Code intelligence: the LSP client, without a language server.
+//
+// ⚠️ THE POINT OF THE FACTORY HOOK IS THIS SECTION. basedpyright is a 150 MB
+// on-demand download with a bundled Node runtime; a suite that needed it would
+// be a suite nobody could run. What is actually easy to get wrong here is not
+// pyright, it is the CLIENT - a Content-Length counted in the wrong unit, a
+// header split across two pipe reads, a document version that repeats, a
+// Windows path pasted into a URI - and every one of those is exercised below
+// against a fake server that answers from a script.
+
+namespace {
+
+// A stand-in language server: it records what was written to it and replies to
+// whatever it is told to reply to.
+class FakeLanguageServer : public ILanguageServerProcess {
+  public:
+    bool Running () const override
+    {
+        return running;
+    }
+
+    bool Write (const std::string& bytes) override
+    {
+        written += bytes;
+        // Answer every request the moment it arrives, the way a real server
+        // eventually would. Notifications carry no id and get no reply.
+        std::string body;
+        std::string pending = written;
+        written.clear ();
+        std::string leftover = pending;
+        while (TakeLspMessage (leftover, body)) {
+            requests.push_back (body);
+            const json::ParseResult parsed = json::Parse (body);
+            if (!parsed.ok)
+                continue;
+            const json::JsonValue* id = parsed.value.Find ("id");
+            int64_t number = 0;
+            if (id == nullptr || !id->AsInteger (number))
+                continue;
+            const json::JsonValue* method = parsed.value.Find ("method");
+            std::string name;
+            if (method != nullptr)
+                method->AsString (name);
+            Reply (number, name);
+        }
+        return true;
+    }
+
+    void Read (std::string& into) override
+    {
+        into += outbox;
+        outbox.clear ();
+    }
+
+    void Stop () override
+    {
+        running = false;
+    }
+
+    // What the client sent, in order, as raw JSON bodies.
+    std::vector<std::string> requests;
+    // The completion result the next completion request will be answered with.
+    std::string completionJson = R"({"isIncomplete":false,"items":[]})";
+    bool running = true;
+    // When set, replies are split across two reads, so the client has to cope
+    // with a message arriving in pieces.
+    bool dribble = false;
+
+  private:
+    void Reply (int64_t id, const std::string& method)
+    {
+        std::string result = "null";
+        if (method == "initialize")
+            result = R"({"capabilities":{"completionProvider":{"triggerCharacters":["."]}}})";
+        else if (method == "textDocument/completion")
+            result = completionJson;
+        const std::string body = R"({"jsonrpc":"2.0","id":)" + std::to_string (id) + R"(,"result":)" + result + "}";
+        outbox += FrameLspMessage (body);
+    }
+
+    std::string written;
+    std::string outbox;
+};
+
+// Finds the one request the client sent for `method`, as parsed JSON.
+json::JsonValue RequestFor (const FakeLanguageServer& server, const std::string& method)
+{
+    for (const std::string& body : server.requests) {
+        const json::ParseResult parsed = json::Parse (body);
+        if (!parsed.ok)
+            continue;
+        const json::JsonValue* name = parsed.value.Find ("method");
+        std::string text;
+        if (name != nullptr && name->AsString (text) && text == method)
+            return parsed.value;
+    }
+    return json::JsonValue {};
+}
+
+// Installs `server` as the one process the client may start, and takes it away
+// again - a factory left behind would leak into every later test in the binary.
+class WithFakeServer {
+  public:
+    explicit WithFakeServer (FakeLanguageServer* server)
+    {
+        SetLanguageServerProcessFactory (
+            [server] (const std::string&, const std::vector<std::string>&) -> std::unique_ptr<ILanguageServerProcess> {
+                return std::unique_ptr<ILanguageServerProcess> (new Borrowed (server));
+            });
+    }
+    ~WithFakeServer ()
+    {
+        ScriptIntelligence::Get ().Shutdown ();
+        SetLanguageServerProcessFactory (nullptr);
+    }
+
+  private:
+    // The client OWNS the process it starts, and the test wants to keep looking
+    // at the fake afterwards - so what it is handed is a non-owning shim.
+    class Borrowed : public ILanguageServerProcess {
+      public:
+        explicit Borrowed (FakeLanguageServer* target) : target_ (target)
+        {
+        }
+        bool Running () const override
+        {
+            return target_->Running ();
+        }
+        bool Write (const std::string& bytes) override
+        {
+            return target_->Write (bytes);
+        }
+        void Read (std::string& into) override
+        {
+            target_->Read (into);
+        }
+        void Stop () override
+        {
+            target_->Stop ();
+        }
+
+      private:
+        FakeLanguageServer* target_;
+    };
+};
+
+} // namespace
+
+TEST (ScriptIntelligenceFraming, ALengthIsCountedInBytesAndNotInCharacters)
+{
+    // ⚠️ THE FAILURE THIS PINS IS PERMANENT, NOT INTERMITTENT. A length counted
+    // in anything but bytes desynchronises the stream forever - every later
+    // message is read at the wrong offset - so it presents as a language server
+    // that worked until somebody typed an accented character in a comment.
+    // The bytes spelled out rather than a u8 literal: in C++20 that is a
+    // char8_t array and will not construct a std::string, and the point here is
+    // the BYTES anyway - this is a two-byte character, one UTF-16 unit.
+    const std::string body = "{\"text\":\"caf"
+                             "\xC3\xA9"
+                             "\"}";
+    const std::string framed = FrameLspMessage (body);
+    EXPECT_NE (framed.find ("Content-Length: " + std::to_string (body.size ())), std::string::npos);
+
+    std::string buffer = framed;
+    std::string taken;
+    ASSERT_TRUE (TakeLspMessage (buffer, taken));
+    EXPECT_EQ (taken, body);
+    EXPECT_TRUE (buffer.empty ());
+}
+
+TEST (ScriptIntelligenceFraming, APartialMessageIsLeftAloneUntilTheRestArrives)
+{
+    // The normal case, not an edge case: a pipe read returns whatever bytes have
+    // arrived, which is routinely half a header or most of a body.
+    const std::string framed = FrameLspMessage (R"({"id":1})");
+    std::string buffer = framed.substr (0, 12);
+    std::string body;
+    EXPECT_FALSE (TakeLspMessage (buffer, body));
+    EXPECT_EQ (buffer, framed.substr (0, 12)) << "a partial read must not consume the buffer";
+
+    buffer = framed.substr (0, framed.size () - 3);
+    EXPECT_FALSE (TakeLspMessage (buffer, body)) << "a complete header with a partial body is still partial";
+
+    buffer = framed;
+    EXPECT_TRUE (TakeLspMessage (buffer, body));
+    EXPECT_EQ (body, R"({"id":1})");
+}
+
+TEST (ScriptIntelligenceFraming, TwoMessagesInOneReadAreTakenOneAtATime)
+{
+    std::string buffer = FrameLspMessage (R"({"id":1})") + FrameLspMessage (R"({"id":2})");
+    std::string body;
+    ASSERT_TRUE (TakeLspMessage (buffer, body));
+    EXPECT_EQ (body, R"({"id":1})");
+    ASSERT_TRUE (TakeLspMessage (buffer, body));
+    EXPECT_EQ (body, R"({"id":2})");
+    EXPECT_FALSE (TakeLspMessage (buffer, body));
+}
+
+TEST (ScriptIntelligenceFraming, AnUnknownHeaderIsSkippedAndTheContentTypeIsIgnored)
+{
+    // A server adding a header must not stop the stream.
+    std::string buffer = "Content-Type: application/vscode-jsonrpc\r\nContent-Length: 8\r\n\r\n{\"id\":1}";
+    std::string body;
+    ASSERT_TRUE (TakeLspMessage (buffer, body));
+    EXPECT_EQ (body, R"({"id":1})");
+}
+
+TEST (ScriptIntelligenceUri, AWindowsPathBecomesAFileUriTheServerWillRecognise)
+{
+    // ⚠️ THE LEADING SLASH IS NOT COSMETIC. Without it `file://C:/x` parses `C:`
+    // as the URI's HOST, and the server answers about a document it does not
+    // have - an empty completion list, and no clue why.
+    EXPECT_EQ (PathToFileUri ("C:\\Tapioca\\Workflows\\apartment\\main.py"),
+               "file:///C:/Tapioca/Workflows/apartment/main.py");
+
+    // A space is the common case, on a folder under a user's own name.
+    EXPECT_EQ (PathToFileUri ("C:\\My Scripts\\main.py"), "file:///C:/My%20Scripts/main.py");
+
+    // And a non-ASCII folder is percent-encoded BYTE BY BYTE, which is what makes
+    // the UTF-8 path survive.
+    EXPECT_EQ (PathToFileUri ("C:\\caf"
+                              "\xC3\xA9"
+                              "\\main.py"),
+               "file:///C:/caf%C3%A9/main.py");
+}
+
+TEST (ScriptIntelligenceCompletion, ReadsBothAListAndABareArray)
+{
+    // The protocol allows either, and servers use both. Assuming one is how a
+    // client works against one server and returns nothing against the next.
+    const json::ParseResult list =
+        json::Parse (R"({"isIncomplete":false,"items":[{"label":"hypot","kind":3,"detail":"(x, y) -> float"}]})");
+    ASSERT_TRUE (list.ok);
+    const std::vector<ScriptCompletion> fromList = ParseCompletionResult (list.value);
+    ASSERT_EQ (fromList.size (), 1u);
+    EXPECT_EQ (fromList[0].label, "hypot");
+    EXPECT_EQ (fromList[0].kind, "function");
+    EXPECT_EQ (fromList[0].detail, "(x, y) -> float");
+    // No insertText, so the label is what gets inserted.
+    EXPECT_EQ (fromList[0].insertText, "hypot");
+
+    const json::ParseResult array = json::Parse (R"([{"label":"pi","kind":21}])");
+    ASSERT_TRUE (array.ok);
+    const std::vector<ScriptCompletion> fromArray = ParseCompletionResult (array.value);
+    ASSERT_EQ (fromArray.size (), 1u);
+    EXPECT_EQ (fromArray[0].kind, "constant");
+}
+
+TEST (ScriptIntelligenceCompletion, InsertTextWinsOverTheLabelAndDocumentationIsOneLine)
+{
+    // ⚠️ A `json(` DELIMITER, NOT A BARE `R"(`. The label below ends in
+    // `(points)"`, and the sequence `)"` closes a bare raw string right there -
+    // which does not fail as a string error but as an unrelated syntax error
+    // several tokens later.
+    const json::ParseResult parsed = json::Parse (
+        R"json({"items":[{"label":"polygon_area(points)","insertText":"polygon_area",)json"
+        R"json("documentation":{"kind":"markdown","value":"The shoelace area.\nWinding order is not the caller's problem."}}]})json");
+    ASSERT_TRUE (parsed.ok);
+    const std::vector<ScriptCompletion> completions = ParseCompletionResult (parsed.value);
+    ASSERT_EQ (completions.size (), 1u);
+    // What is DRAWN and what is INSERTED are different, and a menu that inserted
+    // the label would paste the signature into the user's script.
+    EXPECT_EQ (completions[0].label, "polygon_area(points)");
+    EXPECT_EQ (completions[0].insertText, "polygon_area");
+    // A completion list is fifty items and numpy's docstrings are essays.
+    EXPECT_EQ (completions[0].documentation, "The shoelace area.");
+}
+
+TEST (ScriptIntelligenceCompletion, AnItemWithNoLabelIsDroppedRatherThanDrawnBlank)
+{
+    const json::ParseResult parsed = json::Parse (R"({"items":[{"kind":3},{"label":""},{"label":"ok"}]})");
+    ASSERT_TRUE (parsed.ok);
+    const std::vector<ScriptCompletion> completions = ParseCompletionResult (parsed.value);
+    ASSERT_EQ (completions.size (), 1u);
+    EXPECT_EQ (completions[0].label, "ok");
+}
+
+TEST (ScriptIntelligenceCompletion, AnUnknownKindDrawsNoIconRatherThanTheWrongOne)
+{
+    const json::ParseResult parsed = json::Parse (R"({"items":[{"label":"x","kind":99}]})");
+    ASSERT_TRUE (parsed.ok);
+    EXPECT_TRUE (ParseCompletionResult (parsed.value)[0].kind.empty ());
+    EXPECT_TRUE (CompletionKindWord (0).empty ());
+    EXPECT_EQ (CompletionKindWord (9), "module");
+}
+
+TEST (ScriptIntelligenceClient, ConfiguresTheNodesOwnImportRootsOnEveryRequest)
+{
+    // ⚠️ THE FAILURE THIS PINS IS SILENT. One server serves every script node and
+    // each has its own folder on its own path; configuring once at initialize
+    // would mean the second node asked about resolved its imports against the
+    // FIRST node's folder - and the only symptom is a completion list quietly
+    // missing that node's helpers.
+    const TempWorkspace node ("tapioca_lsp_roots");
+    node.Write ("main.py", "import math\nout = math.hy\n");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    FakeLanguageServer server;
+    server.completionJson = R"({"items":[{"label":"hypot","kind":3}]})";
+    const WithFakeServer installed (&server);
+
+    std::string error;
+    const std::vector<ScriptCompletion> completions =
+        ScriptIntelligence::Get ().Complete (workspace, "main.py", "import math\nout = math.hy\n", 1, 13, error);
+    ASSERT_TRUE (error.empty ()) << error;
+    ASSERT_EQ (completions.size (), 1u);
+    EXPECT_EQ (completions[0].label, "hypot");
+
+    const json::JsonValue configuration = RequestFor (server, "workspace/didChangeConfiguration");
+    const json::JsonValue* paths =
+        configuration.Find ("params") == nullptr
+            ? nullptr
+            : configuration.Find ("params")->Find ("settings")->Find ("python")->Find ("analysis")->Find ("extraPaths");
+    ASSERT_NE (paths, nullptr);
+    const json::JsonArray* entries = paths->AsArray ();
+    ASSERT_NE (entries, nullptr);
+    ASSERT_FALSE (entries->empty ());
+    std::string first;
+    ASSERT_TRUE ((*entries)[0].AsString (first));
+    // The node's OWN folder first, which is what lets it shadow a shared helper -
+    // and it must be the same list the runtime puts on sys.path.
+    EXPECT_EQ (first, workspace.importRoots.front ());
+    EXPECT_EQ (entries->size (), workspace.importRoots.size ());
+}
+
+TEST (ScriptIntelligenceClient, TheSecondRequestChangesTheDocumentRatherThanOpeningItAgain)
+{
+    // ⚠️ VERSIONS MUST INCREASE AND NEVER REPEAT. A server that sees a version it
+    // has already processed may ignore the change, which presents as completion
+    // answering about the text as it was several keystrokes ago - the single most
+    // confusing way this feature can fail.
+    const TempWorkspace node ("tapioca_lsp_versions");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    FakeLanguageServer server;
+    const WithFakeServer installed (&server);
+
+    std::string error;
+    ScriptIntelligence::Get ().Complete (workspace, "main.py", "a = 1\n", 0, 5, error);
+    ScriptIntelligence::Get ().Complete (workspace, "main.py", "a = 12\n", 0, 6, error);
+
+    int opens = 0;
+    std::vector<int64_t> versions;
+    for (const std::string& body : server.requests) {
+        const json::ParseResult parsed = json::Parse (body);
+        if (!parsed.ok)
+            continue;
+        const json::JsonValue* method = parsed.value.Find ("method");
+        std::string name;
+        if (method == nullptr || !method->AsString (name))
+            continue;
+        if (name == "textDocument/didOpen")
+            ++opens;
+        if (name == "textDocument/didChange") {
+            int64_t version = 0;
+            parsed.value.Find ("params")->Find ("textDocument")->Find ("version")->AsInteger (version);
+            versions.push_back (version);
+        }
+    }
+    EXPECT_EQ (opens, 1) << "the same document must be opened once, then changed";
+    ASSERT_EQ (versions.size (), 1u);
+    EXPECT_EQ (versions[0], 2);
+}
+
+TEST (ScriptIntelligenceClient, TheEditorsBufferIsSentRatherThanTheFileOnDisk)
+{
+    // The whole reason completion is useful: it is asked for on text the user is
+    // midway through typing and has NOT saved. A client that analysed the file on
+    // disk would complete against the version before the edit being made.
+    const TempWorkspace node ("tapioca_lsp_buffer");
+    node.Write ("main.py", "# saved version\n");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    FakeLanguageServer server;
+    const WithFakeServer installed (&server);
+
+    std::string error;
+    ScriptIntelligence::Get ().Complete (workspace, "main.py", "# unsaved edit\n", 0, 14, error);
+
+    const json::JsonValue opened = RequestFor (server, "textDocument/didOpen");
+    std::string text;
+    ASSERT_NE (opened.Find ("params"), nullptr);
+    opened.Find ("params")->Find ("textDocument")->Find ("text")->AsString (text);
+    EXPECT_EQ (text, "# unsaved edit\n");
+}
+
+TEST (ScriptIntelligenceClient, AServerThatWillNotStartIsAnEmptyListAndAReasonRatherThanAThrow)
+{
+    // ⚠️ A COMPLETION MENU THAT DOES NOT APPEAR IS A MUCH SMALLER FAILURE THAN AN
+    // EDITOR THAT STOPS ACCEPTING KEYS. Nothing about code intelligence may take
+    // a script node, a graph or Archicad down.
+    const TempWorkspace node ("tapioca_lsp_absent");
+    const ScriptWorkspace workspace = ResolveScriptWorkspace (node.Path (), ScriptLanguage::Python);
+
+    SetLanguageServerProcessFactory (nullptr);
+    ScriptIntelligence::Get ().Shutdown ();
+
+    std::string error;
+    const std::vector<ScriptCompletion> completions =
+        ScriptIntelligence::Get ().Complete (workspace, "main.py", "x = 1\n", 0, 5, error);
+    EXPECT_TRUE (completions.empty ());
+    EXPECT_FALSE (error.empty ());
+}
 
 // ---------------------------------------------------------------------------
 // The workspace: a node is a folder.
@@ -490,19 +897,24 @@ TEST (ScriptManifest, AShebangDoesNotEndTheBlock)
     EXPECT_TRUE (manifest.Ok ());
 }
 
-TEST (ScriptManifest, AnUntypedOutputIsRefusedAndAnUntypedInputIsNot)
+TEST (ScriptManifest, NeitherDirectionNeedsATypeAndADeclaredOneStillPinsIt)
 {
-    // An output's value is checked against its port's type, so an untyped output
-    // could only ever accept anything - which turns every wiring mistake into a
-    // surprise somewhere downstream.
-    const ScriptManifest bad = ParsePython ("# @in a\n# @out b\nb = a\n");
-    ASSERT_FALSE (bad.Ok ());
-    EXPECT_NE (bad.diagnostics.front ().message.find ("needs a type"), std::string::npos);
-    EXPECT_EQ (bad.diagnostics.front ().line, 2u);
+    // ⚠️ THE REGRESSION THIS PINS RUNS THE OTHER WAY FROM THE RULE IT REPLACED.
+    // An untyped output used to be refused outright, on the grounds that a port
+    // accepting anything turns a wiring mistake into a surprise downstream. That
+    // cost is real; what made the rule wrong is that the type of a script output
+    // is decided by the line that computes it, so the header was a restatement
+    // that could only ever be wrong - and it was mandatory on every script.
+    const ScriptManifest inferred = ParsePython ("# @in a\n# @out b\nb = a\n");
+    ASSERT_TRUE (inferred.Ok ()) << inferred.diagnostics.front ().message;
+    EXPECT_EQ (inferred.inputs[0].valueType, ValueType::Absent);
+    ASSERT_EQ (inferred.outputs.size (), 1u);
+    EXPECT_EQ (inferred.outputs[0].valueType, ValueType::Absent);
 
-    const ScriptManifest good = ParsePython ("# @in a\n# @out b : number\nb = a\n");
-    ASSERT_TRUE (good.Ok ());
-    EXPECT_EQ (good.inputs[0].valueType, ValueType::Absent);
+    // And declaring one still pins the interface, which is the whole reason to.
+    const ScriptManifest pinned = ParsePython ("# @in a\n# @out b : number\nb = a\n");
+    ASSERT_TRUE (pinned.Ok ());
+    EXPECT_EQ (pinned.outputs[0].valueType, ValueType::Double);
 }
 
 TEST (ScriptManifest, AQuotedDefaultIsNotMistakenForTheLabel)
@@ -650,7 +1062,11 @@ TEST (ScriptSource, TheStarterScriptComputesSomethingFromTwoInputsWithDefaults)
     EXPECT_EQ (manifest.inputs[1].id, "y");
     ASSERT_EQ (manifest.outputs.size (), 1u);
     EXPECT_EQ (manifest.outputs[0].id, "out");
-    EXPECT_EQ (manifest.outputs[0].valueType, ValueType::Double);
+    // ⚠️ UNTYPED, DELIBERATELY, AND THE TEMPLATE IS WHERE PEOPLE LEARN THE FORM.
+    // An output's type is decided by the line that computes it; writing it again
+    // in the header is a restatement that can only ever be wrong. A starter
+    // script that declared one would teach everybody to keep declaring them.
+    EXPECT_EQ (manifest.outputs[0].valueType, ValueType::Absent);
     EXPECT_EQ (manifest.defaults.count ("x"), 1u);
     EXPECT_EQ (manifest.defaults.count ("y"), 1u);
     // And the body is not a comment block: it imports and it assigns the output.
@@ -893,6 +1309,96 @@ TEST (ScriptRuntimeJs, RunsAndReadsBackTheDeclaredOutputs)
         RunJs ("area = radius * 2;", { { "radius", Value (3.0) } }, { Out ("area", ValueType::Double) });
     ASSERT_TRUE (result.ok) << result.error;
     EXPECT_EQ (std::get<double> (result.outputs.at ("area").DataValue ()), 6.0);
+}
+
+// ---------------------------------------------------------------------------
+// Inferred outputs: `@out result`, with no type written down.
+//
+// ⚠️ THESE ARE ABOUT WHAT THE VALUE STAYS, NOT ABOUT WHETHER IT ARRIVES. The
+// version this replaced flattened an untyped output to TEXT, which "worked" -
+// `out = 2.5` arrived downstream as the string "2.5" - and made omitting the
+// type useless, so nobody did. A number has to still be a number.
+
+TEST (ScriptInference, ANumberStaysANumberAndAWholeOneStaysAnInteger)
+{
+    const ScriptRunResult number = RunJs ("out = 2.5;", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (number.ok) << number.error;
+    EXPECT_EQ (number.outputs.at ("out").Type (), ValueType::Double);
+    EXPECT_EQ (std::get<double> (number.outputs.at ("out").AsValue ().DataValue ()), 2.5);
+
+    // ⚠️ A WHOLE NUMBER IS AN INTEGER, AND IN JAVASCRIPT THAT IS A DECISION ABOUT
+    // THE VALUE. JS has one number type, so `2` and `2.0` are indistinguishable -
+    // and a count from a JS node has to wire into the same integer port a Python
+    // node's count does, or identical scripts produce different graph types.
+    const ScriptRunResult whole = RunJs ("out = 4;", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (whole.ok) << whole.error;
+    EXPECT_EQ (whole.outputs.at ("out").Type (), ValueType::Integer);
+}
+
+TEST (ScriptInference, TextBoolAndAPointKeepTheirShapes)
+{
+    const ScriptRunResult text = RunJs ("out = 'wall';", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (text.ok) << text.error;
+    EXPECT_EQ (text.outputs.at ("out").Type (), ValueType::String);
+
+    // ⚠️ BOOL IS TESTED WITH JS_IsBool AND NOT JS_ToBool. Everything in JavaScript
+    // is truthy-convertible, so a decoder that asked "can this be a bool" first -
+    // which is exactly what the JSON decoder can safely do - would turn every
+    // output in the language into `true`.
+    const ScriptRunResult flag = RunJs ("out = false;", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (flag.ok) << flag.error;
+    EXPECT_EQ (flag.outputs.at ("out").Type (), ValueType::Bool);
+    EXPECT_EQ (std::get<bool> (flag.outputs.at ("out").AsValue ().DataValue ()), false);
+
+    const ScriptRunResult point = RunJs ("out = { x: 1, y: 2, z: 3 };", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (point.ok) << point.error;
+    EXPECT_EQ (point.outputs.at ("out").Type (), ValueType::Point3);
+}
+
+TEST (ScriptInference, AnArrayIsALISTAndNeverAPolyline)
+{
+    // ⚠️ THE ONE PLACE INFERENCE DELIBERATELY DOES NOT GUESS. An array of points
+    // is a list of points; a polyline and a polygon differ from it by whether the
+    // last point joins the first, which is a fact about INTENT that no shape
+    // carries. A script that means a polyline says `@out edge : polyline`, and
+    // that is precisely what declaring a type is for.
+    const ScriptRunResult list = RunJs ("out = [{x:0,y:0,z:0},{x:1,y:0,z:0}];", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (list.ok) << list.error;
+    ASSERT_EQ (list.outputs.at ("out").Type (), ValueType::List);
+    ASSERT_EQ (list.outputs.at ("out").Items ().size (), 2u);
+    EXPECT_EQ (list.outputs.at ("out").Items ()[0].Type (), ValueType::Point3);
+
+    // A DECLARED polyline still reads the same array as a polyline, unchanged.
+    const ScriptRunResult polyline =
+        RunJs ("out = [{x:0,y:0,z:0},{x:1,y:0,z:0}];", {}, { Out ("out", ValueType::Polyline) });
+    ASSERT_TRUE (polyline.ok) << polyline.error;
+    EXPECT_EQ (polyline.outputs.at ("out").Type (), ValueType::Polyline);
+}
+
+TEST (ScriptInference, AHeterogeneousListIsKeptItemByItem)
+{
+    // A declared `list` reads every item as a number, because a header has no way
+    // to state a per-item type. An inferred one had no header to disagree with,
+    // so each item keeps what it is.
+    const ScriptRunResult mixed = RunJs ("out = [1, 'two', true];", {}, { Out ("out", ValueType::Absent) });
+    ASSERT_TRUE (mixed.ok) << mixed.error;
+    ASSERT_EQ (mixed.outputs.at ("out").Items ().size (), 3u);
+    EXPECT_EQ (mixed.outputs.at ("out").Items ()[0].Type (), ValueType::Integer);
+    EXPECT_EQ (mixed.outputs.at ("out").Items ()[1].Type (), ValueType::String);
+    EXPECT_EQ (mixed.outputs.at ("out").Items ()[2].Type (), ValueType::Bool);
+}
+
+TEST (ScriptInference, AnInferredOutputStillCannotFabricateGeometryOrAnElement)
+{
+    // Omitting the type relaxes what a script may RETURN, never what it may
+    // INVENT. Both refusals are the ones a declared port already makes.
+    const ScriptRunResult mesh =
+        RunJs ("out = { isMesh: true, vertexCount: 3 };", {}, { Out ("out", ValueType::Absent) });
+    EXPECT_FALSE (mesh.ok);
+    EXPECT_NE (mesh.error.find ("mesh"), std::string::npos);
+
+    const ScriptRunResult element = RunJs ("out = { elementGuid: '' };", {}, { Out ("out", ValueType::Absent) });
+    EXPECT_FALSE (element.ok);
 }
 
 TEST (ScriptRuntimeJs, NamesTheOutputTheScriptForgotToSet)

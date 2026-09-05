@@ -1,5 +1,5 @@
 import { callTapioca } from '../../bridge.ts'
-import type { ScriptStatus } from './script.ts'
+import type { ScriptCompletionItem, ScriptStatus } from './script.ts'
 
 /**
  * The verbs, and nothing else.
@@ -194,6 +194,60 @@ export async function setScriptName(nodeId: string, name: string, graphId?: stri
  */
 export async function openScriptLibraryFolder(): Promise<void> {
   await callTapioca('Tapioca.GraphScriptOpenLibrary', {})
+}
+
+/**
+ * Completion at a position in a node's buffer.
+ *
+ * ⚠️ THE BUFFER IS SENT, NOT READ FROM DISK, AND THAT IS THE WHOLE FEATURE.
+ * Completion is asked for on text the user is midway through typing and has not
+ * saved; a request that named only the file would complete against the version
+ * before the edit being made.
+ *
+ * ⚠️ AND THE BROWSER NEVER SPEAKS LSP. It sends a position and gets labels back.
+ * Relaying raw JSON-RPC would be less code and would give a browser inside
+ * Archicad a way to ask a language server to read any file on the machine.
+ *
+ * `character` is a UTF-16 code-unit offset into the line — which is exactly what
+ * a JavaScript string index is, so CodeMirror's own column goes across
+ * unconverted. Do not "fix" this into a byte offset.
+ */
+export async function completeScript(
+  nodeId: string,
+  file: string,
+  source: string,
+  line: number,
+  character: number,
+  graphId?: string,
+): Promise<{ ok: boolean; error: string; items: ScriptCompletionItem[] }> {
+  const params = { nodeId, file, source, line, character }
+  return callTapioca('Tapioca.GraphScriptComplete', graphId === undefined ? params : { ...params, graphId })
+}
+
+export type IntelligenceState = 'notInstalled' | 'installing' | 'ready' | 'failed'
+
+export interface ScriptIntelligenceStatus {
+  ok: boolean
+  error: string
+  state: IntelligenceState
+  message: string
+  /** Where the language server would be, so "not installed" can say what is missing. */
+  executable: string
+}
+
+/** Whether code intelligence is available on this machine. */
+export async function fetchIntelligenceStatus(): Promise<ScriptIntelligenceStatus> {
+  return callTapioca<ScriptIntelligenceStatus>('Tapioca.GraphScriptIntelligence', {})
+}
+
+/**
+ * Starts the on-demand install of the language server.
+ *
+ * Returns as soon as it has STARTED, not when it finishes: it is about 56 MB
+ * over the network, and progress is watched by polling the status.
+ */
+export async function installIntelligence(): Promise<ScriptIntelligenceStatus> {
+  return callTapioca<ScriptIntelligenceStatus>('Tapioca.GraphScriptInstallIntelligence', {})
 }
 
 export async function openScriptInEditor(nodeId: string, graphId?: string): Promise<void> {

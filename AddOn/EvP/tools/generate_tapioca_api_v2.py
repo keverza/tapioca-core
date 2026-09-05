@@ -103,9 +103,19 @@ from typing import Any
 # it just read, so it can never overwrite an edit made in the external editor.
 # OpenLibrary hands the library folder to the shell, creating it when a machine
 # has never had a workflow deployed. None of the three touch the model.
-EXPECTED_REGISTRY_COMMANDS = 185
+# 2026-09-05, code intelligence for script nodes: +3 for GraphScriptComplete,
+# GraphScriptIntelligence and GraphScriptInstallIntelligence. Complete hands one
+# buffer and a cursor position to a basedpyright language server started from
+# Tapioca's own interpreter and returns completion LABELS - the browser never
+# speaks LSP, because relaying raw JSON-RPC would hand a browser inside Archicad
+# a way to ask a language server to read any file on the machine. The server is
+# not shipped: it brings a bundled Node runtime and most users never open a
+# script node, so Install pip-installs it on demand into the runtime's own
+# site-packages and Intelligence reports whether it is there. All three are
+# host-independent; none touches the model.
+EXPECTED_REGISTRY_COMMANDS = 188
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 204
+EXPECTED_TOTAL_COMMANDS = 207
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

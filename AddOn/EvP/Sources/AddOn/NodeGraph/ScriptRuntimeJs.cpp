@@ -208,6 +208,85 @@ bool PointsFromJs (JSContext* context, JSValueConst value, std::vector<Point3>& 
     return true;
 }
 
+/**
+ * What a value IS, when the header did not say.
+ *
+ * ⚠️ IT MUST AGREE WITH ScriptValueJson's InferScriptValue, DECISION FOR
+ * DECISION. The two engines decode independently - building a JSON string just
+ * to have QuickJS parse it again would be pure cost - so every rule here is a
+ * rule written twice, and this one is the newest and therefore the likeliest to
+ * drift. Same order, same refusals: an array is a LIST and never a polyline,
+ * because a script that means a polyline has to say so.
+ *
+ * ⚠️ THE ORDER IS THE ALGORITHM, NOT A STYLE. In JavaScript everything is
+ * truthy-convertible and `JS_ToBool` succeeds on a number, a string and an
+ * object alike, so testing bool first the way the JSON decoder can would turn
+ * every output into `true`. The strict predicates run first and `JS_IsBool` is
+ * the test, not `JS_ToBool`.
+ */
+bool InferFromJs (JSContext* context, JSValueConst value, Value& out, std::string& error)
+{
+    if (JS_IsBool (value)) {
+        out = Value (JS_ToBool (context, value) != 0);
+        return true;
+    }
+    if (JS_IsString (value)) {
+        out = Value (Utf8 (context, value));
+        return true;
+    }
+    if (JS_IsNumber (value)) {
+        // ⚠️ JavaScript HAS ONE NUMBER TYPE, so "is this an integer" is a question
+        // about the VALUE and not about its type - `2` and `2.0` are the same
+        // double and there is nothing to tell them apart. Treating a whole number
+        // as an integer is what makes a count from a JS node wire into the same
+        // integer port a Python node's count does; the alternative is that the two
+        // languages produce different graph types from identical scripts.
+        double number = 0.0;
+        if (JS_ToFloat64 (context, &number, value) < 0) {
+            error = "expected a number";
+            return false;
+        }
+        int64_t whole = static_cast<int64_t> (number);
+        if (static_cast<double> (whole) == number) {
+            out = Value (whole);
+            return true;
+        }
+        out = Value (number);
+        return true;
+    }
+    if (JS_IsArray (value)) {
+        error = "a list output needs the Argument form";
+        return false;
+    }
+    if (JS_IsObject (value)) {
+        JSValue guid = JS_GetPropertyStr (context, value, "elementGuid");
+        const bool hasGuid = !JS_IsUndefined (guid);
+        JS_FreeValue (context, guid);
+        if (hasGuid)
+            return FromJs (context, value, ValueType::ArchicadElementRef, out, error);
+
+        JSValue mesh = JS_GetPropertyStr (context, value, "isMesh");
+        const bool hasMesh = !JS_IsUndefined (mesh);
+        JS_FreeValue (context, mesh);
+        if (hasMesh) {
+            error = "a script cannot produce a mesh; use the geometry nodes and wire the result";
+            return false;
+        }
+
+        JSValue x = JS_GetPropertyStr (context, value, "x");
+        JSValue y = JS_GetPropertyStr (context, value, "y");
+        const bool isPoint = !JS_IsUndefined (x) && !JS_IsUndefined (y);
+        JS_FreeValue (context, x);
+        JS_FreeValue (context, y);
+        if (isPoint)
+            return FromJs (context, value, ValueType::Point3, out, error);
+    }
+
+    error = "the script produced something with no graph type; return a number, text, a "
+            "point or a list, or declare the port's type in the header";
+    return false;
+}
+
 bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Value& out, std::string& error)
 {
     switch (expected) {
@@ -285,11 +364,13 @@ bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Value& 
             error = "a script cannot produce a mesh; use the geometry nodes and wire the result";
             return false;
         case ValueType::Absent:
-            // An `any` output. Nothing can be checked and nothing should be
-            // invented, so it travels as text - which is what a Panel would show
-            // anyway, and is honest about having lost the type.
-            out = Value (Utf8 (context, value));
-            return true;
+            // An INFERRED output: `@out result`, with no type written down. Must
+            // agree with ScriptValueJson's InferScriptValue value for value - the
+            // whole promise of this node family is that a script translated
+            // between the two languages behaves the same, and the two decoders are
+            // separate code. TheJavaScriptEngineAndTheSharedProjectionAgree is
+            // what holds them together.
+            return InferFromJs (context, value, out, error);
     }
     error = "unsupported type";
     return false;
@@ -297,7 +378,10 @@ bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Value& 
 
 bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Argument& out, std::string& error)
 {
-    if (expected != ValueType::List) {
+    // An inferred port decides between scalar and list from the VALUE; a declared
+    // one never has to. Mirrors ScriptValueJson's Argument overload.
+    const bool inferredList = expected == ValueType::Absent && JS_IsArray (value);
+    if (expected != ValueType::List && !inferredList) {
         Value scalar;
         if (!FromJs (context, value, expected, scalar, error))
             return false;
@@ -321,7 +405,10 @@ bool FromJs (JSContext* context, JSValueConst value, ValueType expected, Argumen
         // the catalog carries today. A heterogeneous list would need a
         // per-item type the header has no way to state, so it is refused
         // rather than guessed.
-        const bool ok = FromJs (context, item, ValueType::Double, decoded, error);
+        // A DECLARED list carries numbers; an INFERRED one reads each item's own
+        // shape, because there was no header to state it with. Mirrors
+        // ScriptValueJson's Argument overload.
+        const bool ok = FromJs (context, item, inferredList ? ValueType::Absent : ValueType::Double, decoded, error);
         JS_FreeValue (context, item);
         if (!ok)
             return false;

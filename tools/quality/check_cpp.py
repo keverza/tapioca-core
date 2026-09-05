@@ -794,6 +794,55 @@ def _check_architecture_srb_variables(failures: list[str]) -> None:
                 )
 
 
+def _check_architecture_document_temporaries(failures: list[str]) -> None:
+    """No pointer or reference may be taken out of a by-value graph snapshot.
+
+    ⚠️ THIS RULE EXISTS BECAUSE BREAKING IT SILENTLY BROKE THE SCRIPT NODE.
+    `GraphRuntimeState::Document` takes the slot's mutex and returns a COPY of
+    the document, so
+
+        const Node* node = GraphRuntimeState::Get().Document(id).FindNode(id);
+
+    hands back a pointer INTO A TEMPORARY that is destroyed at the semicolon.
+    The next line reads freed memory. It does not crash and it does not warn --
+    it produced a garbage `nodeType`, which failed the language check, which
+    reported an ordinary Python node as "not a script node" and made
+    GraphScriptCreate unusable for anyone who pressed it.
+
+    The expression reads as correct, which is exactly why it needs a rule rather
+    than a reviewer. The fix is one line: bind the snapshot to a named local and
+    call through that, so it outlives the pointer.
+
+    ⚠️ ONLY THE ACCESSORS THAT RETURN A HANDLE ARE FLAGGED. `Document(id).Revision()`
+    is fine -- it copies a value out before the temporary dies -- and forbidding
+    it would make the rule something people work around instead of obey.
+    """
+    sources = REPO_ROOT / "AddOn/EvP/Sources"
+    if not sources.is_dir():
+        return
+
+    # `Document (...)` immediately followed by a member that yields a pointer or
+    # a reference into the snapshot. The argument list is matched without nesting
+    # on purpose: every call site passes a plain graph id, and a pattern that
+    # tried to balance parentheses would be the thing that breaks next.
+    pattern = re.compile(r"\.Document\s*\([^()]*\)\s*\.\s*(Find\w*|Nodes|Edges)\s*\(")
+    comment_pattern = re.compile(r"//[^\n]*")
+
+    for path in sorted(sources.rglob("*.cpp")):
+        text = comment_pattern.sub("", path.read_text(encoding="utf-8"))
+        for match in pattern.finditer(text):
+            line = text.count("\n", 0, match.start()) + 1
+            failures.append(
+                f"DANGLING: {_display_repo_path(path)}:{line} calls "
+                f"`Document(...).{match.group(1)}(...)`. Document returns a COPY, so the "
+                "pointer or reference this yields dies at the end of the statement and "
+                "every later read is of freed memory. Bind the snapshot first:\n"
+                "      const graph::GraphDocument document = ...Document (graphId);\n"
+                "      const graph::Node* node = document.FindNode (nodeId);\n"
+                "    (This exact expression broke GraphScriptCreate on 2026-09-05.)"
+            )
+
+
 def _run_architecture(verbose: bool) -> int:
     failures: list[str] = []
     checks = [
@@ -806,6 +855,7 @@ def _run_architecture(verbose: bool) -> int:
         ("REGISTRY  one provider per domain, all registered", _check_architecture_registry),
         ("CITATIONS entry-point docs cite symbols, not lines", _check_architecture_citations),
         ("SRB       SRB-bound shader variables are never STATIC", _check_architecture_srb_variables),
+        ("DANGLING  no handle taken out of a by-value graph snapshot", _check_architecture_document_temporaries),
     ]
     for label, check in checks:
         before = len(failures)

@@ -123,6 +123,75 @@ JsonValue ScriptValueToJson (const Argument& value)
     return JsonValue::Array (std::move (array));
 }
 
+/**
+ * What a value IS, when the header did not say.
+ *
+ * ⚠️ THIS READS THE SHAPE, AND THE VERSION IT REPLACED READ NOTHING. An untyped
+ * output used to travel as TEXT - honest about having lost the type, and useless:
+ * `out = 2.5` arrived downstream as the string "2.5", so the first thing anyone
+ * did after omitting a type was put it back. Since omitting it is now the
+ * ordinary way to write a script node, inference has to produce the value the
+ * script actually computed.
+ *
+ * ⚠️ AND IT NEVER GUESSES BETWEEN TWO ANSWERS. An array of points is a LIST of
+ * points, not a polyline and not a polygon: those differ by whether the last
+ * point joins the first, which is a fact about intent that no shape carries. A
+ * script that means a polyline says `@out edge : polyline`, and that is exactly
+ * the case declaring a type is for.
+ *
+ * A mesh and an element are refused here for the same reasons they are refused
+ * when declared - a script may read them and must not be able to invent one.
+ */
+static bool InferScriptValue (const JsonValue& source, Value& out, std::string& error)
+{
+    bool flag = false;
+    if (source.AsBool (flag)) {
+        out = Value (flag);
+        return true;
+    }
+
+    std::string text;
+    if (source.AsString (text)) {
+        out = Value (std::move (text));
+        return true;
+    }
+
+    // Integral first, and the distinction is KEPT rather than widened: an index,
+    // a count and a storey number are integers, and handing them downstream as
+    // doubles is how `2` becomes `2.0` in a label.
+    int64_t whole = 0;
+    if (source.IsIntegral () && source.AsInteger (whole)) {
+        out = Value (whole);
+        return true;
+    }
+    double number = 0.0;
+    if (source.AsDouble (number)) {
+        out = Value (number);
+        return true;
+    }
+
+    if (source.AsArray () != nullptr) {
+        // A scalar Value cannot carry a list; the Argument overload handles the
+        // collection case before ever reaching here. Saying so beats producing
+        // something that looks like a value and is not.
+        error = "a list output needs the Argument form";
+        return false;
+    }
+
+    if (source.Find ("elementGuid") != nullptr)
+        return ScriptValueFromJson (source, ValueType::ArchicadElementRef, out, error);
+    if (source.Find ("isMesh") != nullptr) {
+        error = "a script cannot produce a mesh; use the geometry nodes and wire the result";
+        return false;
+    }
+    if (source.Find ("x") != nullptr && source.Find ("y") != nullptr)
+        return ScriptValueFromJson (source, ValueType::Point3, out, error);
+
+    error = "the script produced something with no graph type; return a number, text, a "
+            "point or a list, or declare the port's type in the header";
+    return false;
+}
+
 bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Value& out, std::string& error)
 {
     switch (expected) {
@@ -215,18 +284,11 @@ bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Value& ou
         case ValueType::Mesh:
             error = "a script cannot produce a mesh; use the geometry nodes and wire the result";
             return false;
-        case ValueType::Absent: {
-            // An `any` output. Nothing can be checked and nothing should be
-            // invented, so it travels as text - honest about having lost the type,
-            // and the same thing a Panel would show.
-            std::string text;
-            if (source.AsString (text)) {
-                out = Value (std::move (text));
-                return true;
-            }
-            out = Value (json::Write (source, 0));
-            return true;
-        }
+        case ValueType::Absent:
+            // An INFERRED output: `@out result`, with no type written down. See
+            // InferScriptValue for why the shape is read rather than the value
+            // being flattened to text, which is what this used to do.
+            return InferScriptValue (source, out, error);
     }
     error = "unsupported type";
     return false;
@@ -234,7 +296,15 @@ bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Value& ou
 
 bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Argument& out, std::string& error)
 {
-    if (expected != ValueType::List) {
+    // ⚠️ AN INFERRED PORT DECIDES BETWEEN SCALAR AND LIST FROM THE VALUE, which a
+    // DECLARED port never has to: `@out result` is one port whether the script
+    // sets it to a number or to a hundred of them, and the header has said
+    // nothing either way. A typed port keeps the old behaviour exactly - `list`
+    // demands an array, `number` refuses one - because that is what declaring the
+    // type is for.
+    const bool inferredList = expected == ValueType::Absent && source.AsArray () != nullptr;
+
+    if (expected != ValueType::List && !inferredList) {
         Value scalar;
         if (!ScriptValueFromJson (source, expected, scalar, error))
             return false;
@@ -250,11 +320,14 @@ bool ScriptValueFromJson (const JsonValue& source, ValueType expected, Argument&
     std::vector<Value> items;
     items.reserve (array->size ());
     for (const JsonValue& element : *array) {
-        // Numbers, as every list in the catalog carries today. A
-        // heterogeneous list would need a per-item type the header has no way
-        // to state, so it is refused rather than guessed.
+        // A DECLARED list carries numbers, as every list in the catalog does
+        // today: a heterogeneous list would need a per-item type the header has
+        // no way to state, so it is refused rather than guessed. An INFERRED one
+        // reads each item's own shape, because there was no header to state it
+        // with - which is what lets `@out points` carry the points the script
+        // built without the author first learning the type vocabulary.
         Value item;
-        if (!ScriptValueFromJson (element, ValueType::Double, item, error))
+        if (!ScriptValueFromJson (element, inferredList ? ValueType::Absent : ValueType::Double, item, error))
             return false;
         items.push_back (std::move (item));
     }

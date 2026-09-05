@@ -286,14 +286,25 @@ ScriptManifest ParseScriptManifest (const std::string& source, ScriptLanguage la
             continue;
         }
         if (typeWord.empty ()) {
-            // An input may omit its type and mean "any". An output may not: the
-            // evaluator checks a produced value against its port's type, so an
-            // untyped output would have to accept anything - which turns every
-            // wiring mistake into a surprise somewhere downstream instead.
-            if (!isInput) {
-                fail (lineNumber, "output '" + port.id + "' needs a type, as in `@out " + port.id + " : number`");
-                continue;
-            }
+            // ⚠️ EITHER DIRECTION MAY OMIT ITS TYPE, AND AN OUTPUT ONCE COULD NOT.
+            // The old rule refused `@out result` outright, reasoning that a port
+            // which accepted anything turned a wiring mistake into a surprise
+            // downstream. That cost is real and it is not what people were paying:
+            // the type of a script's output is decided by the line that computes
+            // it, so writing it a second time in the header is a restatement that
+            // can only ever be wrong - and it was mandatory on every script anyone
+            // wrote, including a one-line one.
+            //
+            // So Absent on an output now means INFERRED: the value keeps whatever
+            // type it comes back as - a number stays a number, a point stays a
+            // point - see ScriptValueFromJson's Absent case, which reads the shape
+            // rather than flattening it to text.
+            //
+            // Declaring a type still does the thing the old rule wanted. It PINS
+            // the interface: the evaluator checks against it, the wire refuses a
+            // mismatch at connect time, and the node's shape stops depending on
+            // what the script happened to produce this run. That is worth having
+            // on a node other people wire into, and it is now a choice.
             port.valueType = ValueType::Absent;
         }
         else if (!ParseScriptValueType (typeWord, port.valueType)) {

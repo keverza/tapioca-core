@@ -203,6 +203,12 @@ set (EVP_NODEGRAPH_SOURCES
     # curve and transform had grown past the point where anyone could find the
     # one they came for.
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GeometryNodes.cpp"
+    # The portable half of code intelligence: LSP framing, request routing, URI
+    # encoding and completion parsing. ScriptIntelligenceWin32.cpp - the half
+    # that starts a process - is deliberately ABSENT for the same reason
+    # ScriptWatcherWin32.cpp is, and the factory hook is what lets these tests
+    # drive the protocol against a scripted fake server instead.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/ScriptIntelligence.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ParameterDescriptors.cpp"
     # NodeInputs is the one place that states "a wired input wins over the
     # typed-in one", so no family can implement that precedence backwards.

@@ -34,7 +34,8 @@
 #include "Python/GraphScriptRuntime.hpp"          // the Python half of the script node family
 #include "NodeGraph/ScriptReload.hpp"             // reloads a script node when its file is saved
 #include "NodeGraph/ScriptSource.hpp"             // the file watcher behind that
-#include "NodeGraph/WorkerPool.hpp"                // joined on quit, never at static destruction
+#include "NodeGraph/ScriptIntelligence.hpp"       // the language server, started on demand and stopped here
+#include "NodeGraph/WorkerPool.hpp"               // joined on quit, never at static destruction
 #include "Notify/ChangeTracker.hpp"               // E25 — the model change token
 #include "Notify/BackgroundArm.hpp"               // E25 — its background arming thread
 #include "Python/MainThreadGate.hpp"
@@ -391,6 +392,14 @@ GSErrCode Initialize (void)
     // equivalent line - it is compiled in, and MakeRuntimeNodeRegistry installs it.
     evp::InstallPythonScriptRuntime ();
 
+    // How code intelligence starts a process. Installed HERE rather than beside
+    // the JavaScript runtime in MakeRuntimeNodeRegistry, because that function is
+    // in the offline suite and this implementation is Win32 - the same split
+    // IScriptWatcher has. Installing it starts nothing: the language server is
+    // launched by the first completion request, if the user has ever asked for
+    // one to be installed at all.
+    evp::nodegraph::InstallWin32LanguageServerProcess ();
+
     // One install per registered menu resource — the same handler, which routes on
     // menuResID. A resource registered but not installed here is a dead menu item.
     // Recorded, not aborted on, for the same reason as the registrations above.
@@ -535,6 +544,10 @@ GSErrCode FreeData (void)
         gScriptWatcher->Stop ();
         gScriptWatcher.reset ();
     }
+    // The language server is a CHILD PROCESS, so leaving it running is not a
+    // leak the OS tidies up - it is a node.exe the user finds in Task Manager
+    // after closing Archicad and cannot account for.
+    evp::nodegraph::ScriptIntelligence::Get ().Shutdown ();
     // After the host is detached and before the gate closes: a pool thread that
     // outlived this module would be Windows running freed code, and joining at
     // static destruction would do it under the loader lock. Idempotent, so the

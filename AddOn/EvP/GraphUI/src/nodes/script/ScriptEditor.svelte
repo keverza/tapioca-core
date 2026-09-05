@@ -47,12 +47,16 @@
   import { EMPTY_SCRIPT_STATUS, SCRIPT_POLL_INTERVAL_MS, fileNameOf, workspaceNameOf, type ScriptStatus } from './script'
   import {
     addScriptFile,
+    completeScript,
     createScript,
+    fetchIntelligenceStatus,
+    installIntelligence,
     fetchScriptLibrary,
     fetchScriptStatus,
     openScriptInEditor,
     openScriptLibraryFolder,
     readScriptSource,
+    type ScriptIntelligenceStatus,
     reloadScript,
     revealScriptInExplorer,
     writeScriptSource,
@@ -115,6 +119,60 @@
 
   /** Whether the starter script has been asked for on THIS node. See the effect. */
   let draftAsked = $state(false)
+
+  /**
+   * Whether a language server is available, and the offer to install one.
+   *
+   * ⚠️ POLLED ONLY WHILE IT IS NOT READY. The install is a ~56 MB download and
+   * the state changes exactly twice in a session - not installed to installing to
+   * ready - so once it is ready there is nothing left to watch and the timer
+   * stops. A status poll running forever beside the one script nodes already do
+   * would be bridge traffic for an answer that cannot change.
+   */
+  let intelligence = $state<ScriptIntelligenceStatus | null>(null)
+
+  $effect(() => {
+    let cancelled = false
+    async function look(): Promise<void> {
+      try {
+        const next = await fetchIntelligenceStatus()
+        if (!cancelled) intelligence = next
+      } catch {
+        /* Swallowed: an older add-on has no such verb, and the editor works
+           perfectly well without completion. Nothing is drawn in that case. */
+      }
+    }
+    void look()
+    const timer = window.setInterval(() => {
+      if (intelligence?.state === 'ready' || document.hidden) return
+      void look()
+    }, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  })
+
+  /**
+   * Completions at a position, for CodeEditor.
+   *
+   * ⚠️ HANDED OVER ONLY WHEN A SERVER IS READY, so the editor falls back to
+   * CodeMirror's own word list rather than asking a verb that will refuse on
+   * every keystroke. And it never throws: a failed completion is an empty menu,
+   * because this runs while somebody is typing.
+   */
+  const completeAt = $derived(
+    intelligence?.state !== 'ready' || status.path === ''
+      ? undefined
+      : async (line: number, character: number, source: string) => {
+          try {
+            const answer = await completeScript(nodeId, active, source, line, character, graphId)
+            return answer.items
+          } catch {
+            return []
+          }
+        },
+  )
 
   /**
    * How wide the panel is, in pixels, remembered per browser.
@@ -468,21 +526,40 @@
       the interesting thing to do with a new script node is read the template and
       change a line, not think of a filename.
     -->
+    {#if draft === null}
+      <!--
+        ⚠️ NOT A READ-ONLY EMPTY EDITOR. The starter script comes from the native
+        side, so until it arrives there is genuinely nothing to type into - and an
+        editor that renders, focuses and silently swallows every keystroke reads
+        as a broken editor rather than as a request that has not landed. Say which
+        it is, and offer the retry.
+      -->
+      <p class="empty">
+        {#if busy}
+          Fetching the starter script…
+        {:else}
+          {error === '' ? 'No starter script yet.' : error}
+        {/if}
+      </p>
+      <footer>
+        <button disabled={busy} onclick={() => { draftAsked = false; error = '' }}>Try again</button>
+        <button disabled={busy} onclick={() => void guard(() => openScriptLibraryFolder())}>Workflows folder</button>
+      </footer>
+    {:else}
     <label class="draft-name">
       <span>Save as</span>
       <input
         type="text"
         spellcheck="false"
         placeholder="new_script"
-        value={draft?.name ?? ''}
+        value={draft.name}
         oninput={(event) => { if (draft !== null) draft = { ...draft, name: event.currentTarget.value } }}
       />
     </label>
     <div class="editor">
       <CodeEditor
-        text={draft?.text ?? ''}
-        language={draft?.language ?? "python"}
-        readOnly={draft === null}
+        text={draft.text}
+        language={draft.language}
         onchange={(text) => { if (draft !== null) draft = { ...draft, text }; error = '' }}
         onsave={() => void saveDraft()}
       />
@@ -490,7 +567,7 @@
     {#if error !== ''}<p class="error">{error}</p>{/if}
     {#if error === '' && notice !== ''}<p class="notice">{notice}</p>{/if}
     <footer>
-      <button class="primary" disabled={busy || draft === null} onclick={() => void saveDraft()}>
+      <button class="primary" disabled={busy} onclick={() => void saveDraft()}>
         {busy ? 'Working…' : 'Create and save'}
       </button>
       <button disabled={busy} onclick={() => void guard(() => openScriptLibraryFolder())} title="Where every script node folder lives">
@@ -498,6 +575,7 @@
       </button>
       <span class="phase">Not saved yet</span>
     </footer>
+    {/if}
   {:else}
     <!--
       The tab strip. A shared file is marked and never mixed in with the node's
@@ -569,6 +647,7 @@
       <CodeEditor
         text={buffer.text}
         {language}
+        complete={completeAt}
         diagnostics={active === '' ? status.diagnostics.map((item) => ({ line: item.line, message: item.message })) : []}
         readOnly={buffer.incoming !== null}
         {revealLine}
@@ -645,6 +724,25 @@
       {#if unsaved.length > 0}
         <button class="ghost danger" onclick={onclose} title={`Close and lose: ${unsaved.join(', ')}`}>Discard</button>
       {/if}
+      <!--
+        ⚠️ AN OFFER, NOT A WARNING, AND IT IS NOT DRAWN WHEN IT IS READY. Code
+        intelligence is a ~56 MB download most people never need, so its absence
+        is an ordinary state of a working editor rather than something wrong -
+        and a row that said "not installed" forever would read as a defect. Once
+        installed there is nothing to say, so nothing is said.
+      -->
+      {#if intelligence !== null && intelligence.state !== 'ready'}
+        <button
+          class="ghost"
+          disabled={busy || intelligence.state === 'installing'}
+          title={intelligence.state === 'failed'
+            ? intelligence.message
+            : 'Downloads a Python language server (~56 MB) into Tapioca’s runtime for completion'}
+          onclick={() => void guard(async () => { intelligence = await installIntelligence() })}
+        >
+          {intelligence.state === 'installing' ? 'Installing…' : 'Enable completion'}
+        </button>
+      {/if}
       <span class="phase" class:conflict={phase === 'conflict'} class:dirty={phase === 'dirty'}>
         {#if phase === 'conflict'}Conflict{:else if phase === 'dirty'}Unsaved{:else}Saved{/if}
       </span>
@@ -693,6 +791,7 @@
    */
   .grip { position: absolute; z-index: 1; top: 0; bottom: 0; left: -3px; width: 7px; cursor: ew-resize; touch-action: none; }
   .grip:hover::after, .grip.dragging::after { position: absolute; inset: 0 3px; background: var(--accent); content: ''; }
+  .empty { margin: 0; flex: 1 1 auto; padding: 18px 14px; color: var(--text-faint); }
   .draft-name { display: grid; align-items: center; padding: 8px 11px; border-bottom: 1px solid var(--border); gap: 7px; grid-template-columns: 48px 1fr; }
   .draft-name span { color: var(--text-faint); font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
   .draft-name input { min-width: 0; height: 22px; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--canvas); color: var(--text); font: 11px ui-monospace, monospace; }

@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 185,
+      "nativeRegistry": 188,
       "dispatcherLocal": 19,
-      "total": 204
+      "total": 207
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -13739,6 +13739,92 @@
       }
     },
     {
+      "name": "Tapioca.GraphScriptComplete",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "file": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "character": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "source",
+          "line",
+          "character"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "insertText": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": "string"
+                },
+                "documentation": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "insertText",
+                "kind",
+                "detail",
+                "documentation"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "items"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GraphScriptCreate",
       "implementation": "native-registry",
       "inputScheme": {
@@ -13885,6 +13971,80 @@
           "files",
           "importRoots",
           "migratedFrom"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptInstallIntelligence",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "executable": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "state",
+          "message",
+          "executable"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphScriptIntelligence",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "executable": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "state",
+          "message",
+          "executable"
         ]
       }
     },

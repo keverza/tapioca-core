@@ -8,7 +8,14 @@
    * tested without a browser. Keeping the editor dumb is what stops "the rules"
    * from quietly becoming "whatever the widget happened to do".
    */
-  import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
+  import {
+    autocompletion,
+    closeBrackets,
+    closeBracketsKeymap,
+    completionKeymap,
+    type CompletionContext,
+    type CompletionResult,
+  } from '@codemirror/autocomplete'
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
   import { javascript } from '@codemirror/lang-javascript'
   import { python } from '@codemirror/lang-python'
@@ -35,6 +42,10 @@
   } from '@codemirror/view'
   import { tags } from '@lezer/highlight'
   import { untrack } from 'svelte'
+  // ⚠️ THE TYPE COMES FROM script.ts, NOT FROM scriptBridge.ts, and that is the
+  // same rule as the note at the top: this component must not know there is a
+  // bridge. script.ts is the module with no window.EvP in it.
+  import type { ScriptCompletionItem } from './script'
 
   let {
     text,
@@ -42,11 +53,25 @@
     diagnostics = [],
     readOnly = false,
     revealLine = 0,
+    complete,
     onchange,
     onsave,
   }: {
     text: string
     language: 'python' | 'javascript'
+    /**
+     * Completions at a position, from whoever knows how to get them.
+     *
+     * ⚠️ A CALLBACK, BECAUSE THIS COMPONENT STILL DECIDES NOTHING. It does not
+     * know which node it is editing, it must not call the bridge, and it has no
+     * business knowing there is a language server at all - see the note at the
+     * top. `line` and `character` are handed over exactly as CodeMirror counts
+     * them, which is already what LSP means.
+     *
+     * Absent means no completion beyond CodeMirror's own word list, which is the
+     * ordinary state on a machine where the server is not installed.
+     */
+    complete?: (line: number, character: number, source: string) => Promise<ScriptCompletionItem[]>
     /** 1-based lines, as the header parser and the runtime both report them. */
     diagnostics?: { line: number; message: string; severity?: 'error' | 'warning' }[]
     readOnly?: boolean
@@ -59,6 +84,53 @@
 
   let host = $state<HTMLDivElement>()
   let view: EditorView | undefined
+
+  /**
+   * Asks the owner for completions at the cursor.
+   *
+   * ⚠️ THE `from` IS THE START OF THE WORD BEING TYPED, NOT THE CURSOR. Return
+   * the cursor and CodeMirror inserts the completion AFTER the partial word, so
+   * accepting `hypot` at `math.hy|` writes `math.hyhypot`. `matchBefore` finds
+   * where the identifier began; after a dot there is no identifier yet and the
+   * cursor is correct.
+   *
+   * ⚠️ AND IT FIRES ON AN EXPLICIT REQUEST OR AFTER A DOT, NOT ON EVERY KEY. Each
+   * call is a round trip to a language server; running one per keystroke while
+   * somebody types a comment would be constant bridge traffic for a menu nobody
+   * asked for. `explicit` is Ctrl+Space.
+   */
+  async function requestCompletions(context: CompletionContext): Promise<CompletionResult | null> {
+    if (complete === undefined) return null
+    const word = context.matchBefore(/[\w.]*/)
+    const afterDot = context.matchBefore(/\.\s*$/) !== null
+    if (!context.explicit && !afterDot && (word === null || word.from === word.to)) return null
+
+    const line = context.state.doc.lineAt(context.pos)
+    // Zero-based, and `character` is a UTF-16 offset - which a JavaScript string
+    // index already is, so this is the protocol's own unit with no conversion.
+    const items = await complete(line.number - 1, context.pos - line.from, context.state.doc.toString())
+    if (items.length === 0) return null
+
+    // The identifier being typed, if there is one. `math.hy` -> from at `hy`,
+    // because the dot is not part of the word being completed.
+    const identifier = context.matchBefore(/[A-Za-z_]\w*$/)
+    return {
+      from: identifier === null ? context.pos : identifier.from,
+      options: items.map((item) => ({
+        label: item.label,
+        apply: item.insertText,
+        type: item.kind === '' ? undefined : item.kind,
+        detail: item.detail === '' ? undefined : item.detail,
+        info: item.documentation === '' ? undefined : item.documentation,
+      })),
+      // ⚠️ THE SERVER IS RE-ASKED AS THE USER KEEPS TYPING. Pyright returns the
+      // members of the expression BEFORE the dot; filtering that list locally is
+      // right for `hy` -> `hypot`, but the moment another dot or a bracket is
+      // typed the expression itself changed and the old list is about a
+      // different object.
+      validFor: /^\w*$/,
+    }
+  }
 
   const languageSlot = new Compartment()
   const readOnlySlot = new Compartment()
@@ -136,7 +208,14 @@
           indentUnit.of('    '),
           bracketMatching(),
           closeBrackets(),
-          autocompletion(),
+          autocompletion({
+            // The language server's answers come FIRST and CodeMirror's own
+            // word list stays: on a machine with no server installed the word
+            // list is all there is, and losing it there would make the editor
+            // worse than it was before code intelligence existed.
+            override: complete === undefined ? undefined : [requestCompletions],
+            activateOnTyping: true,
+          }),
           highlightSelectionMatches(),
           syntaxHighlighting(highlight),
           lintGutter(),

@@ -141,7 +141,12 @@ std::string ScriptTemplateSource (ScriptLanguage language)
     body += prefix + "\n";
     body += prefix + " @in  x : number = 0   \"X\"\n";
     body += prefix + " @in  y : number = 0   \"Y\"\n";
-    body += prefix + " @out out : number\n";
+    // ⚠️ UNTYPED, AND THAT IS THE LESSON THE TEMPLATE IS TEACHING. An output's
+    // type is decided by the line that computes it; writing it again here is a
+    // restatement that can only ever be wrong. Add `: number` when you want the
+    // node's interface PINNED - on a node other people wire into, that is worth
+    // having - and leave it off the rest of the time.
+    body += prefix + " @out out\n";
     body += "\n";
     if (language == ScriptLanguage::Python) {
         // The node's own folder and the shared library are both on sys.path for

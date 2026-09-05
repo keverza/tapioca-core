@@ -23,6 +23,25 @@ export interface ScriptPortInfo {
   required?: boolean
 }
 
+/**
+ * One completion, as the menu draws it.
+ *
+ * ⚠️ FLATTENED NATIVELY, AND DELIBERATELY NOT AN LSP CompletionItem. A browser
+ * has no business knowing about textEdit, insertTextFormat or resolve support,
+ * and a palette that passed LSP structures through would have to track the
+ * protocol's version alongside the server's. It lives HERE rather than in
+ * scriptBridge.ts so CodeEditor can name the type without importing the bridge.
+ */
+export interface ScriptCompletionItem {
+  label: string
+  /** What is actually inserted, which is not always the label. */
+  insertText: string
+  /** "function", "module", "class"… or empty when the server did not say. */
+  kind: string
+  detail: string
+  documentation: string
+}
+
 export interface ScriptDiagnostic {
   /** 1-based, or 0 when the problem is the file as a whole. */
   line: number
