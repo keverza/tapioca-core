@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Background,
+    ViewportPortal,
     BackgroundVariant,
     Controls,
     MiniMap,
@@ -44,16 +45,27 @@
   import { parsePortReference, serializePortReference } from './nodes/types/portReference'
   import {
     applyLayoutToPositions,
+    collectClipboard,
     describeValueRule,
     detailLevelForZoom,
     displayedOutputText,
     graphValueFromText,
     initialTheme,
+    initialUndoDepth,
     isCatalogConnectionValid,
+    centreOn,
+    centredPasteAnchor,
+    duplicationPlan,
+    nominalNodeSize,
+    parameterGestureKey,
+    parseClipboard,
     GRAPH_EDGE_TYPE,
+    PASTE_OFFSET,
     REFERENCE_EDGE_COLOR,
     REFERENCE_EDGE_STYLE,
+    UNDO_DEPTH_CHOICES,
     type DetailLevel,
+    type GraphClipboard,
     type ThemeMode,
   } from './editor'
   import LibraryDialog, { type LibraryMode } from './LibraryDialog.svelte'
@@ -535,8 +547,16 @@
     results = response.results
   }
 
+  /*
+    ⚠️ HISTORY IS REFRESHED HERE, NOT AT EACH EDIT SITE. This is the one place
+    every accepted edit passes through, which is the same reason the automatic
+    run is driven off the revision rather than from each call: a new kind of
+    edit added later cannot forget to update it, and the Edit menu cannot end up
+    offering an undo that is not there.
+  */
   async function reloadState(): Promise<void> {
     applyState(await callTapioca<GraphState>('Tapioca.GraphGetState'))
+    await refreshHistory()
   }
 
   async function initialize(): Promise<void> {
@@ -683,8 +703,10 @@
     if (busy || effectiveTool !== 'select') return
     contextTarget = null
     const bounds = canvas?.getBoundingClientRect()
+    // Centred on the pointer rather than hung from it. The clamp then keeps it
+    // on screen, so a press near an edge still shows the whole dialog.
     const point = clampDialogPosition(
-      { x: client.x - (bounds?.left ?? 0), y: client.y - (bounds?.top ?? 0) },
+      centreOn({ x: client.x - (bounds?.left ?? 0), y: client.y - (bounds?.top ?? 0) }, BROWSER_SIZE),
       BROWSER_SIZE,
       { width: bounds?.width ?? BROWSER_SIZE.width, height: bounds?.height ?? BROWSER_SIZE.height },
     )
@@ -708,7 +730,10 @@
     const schema = carried?.schema
     carried = null
     if (schema === undefined) return
-    void addNode(schema.nodeType, screenToFlowPosition(client, { snapToGrid: snapEnabled }))
+    void addNode(
+      schema.nodeType,
+      centreOn(screenToFlowPosition(client, { snapToGrid: snapEnabled }), nominalNodeSize(schema.display)),
+    )
   }
 
   async function connect(connection: Connection, reference = false): Promise<void> {
@@ -842,7 +867,33 @@
     busy = true
     failed = false
     try {
-      await callTapioca('Tapioca.GraphApplyEdit', { graphId, editKind: 'setParam', nodeId, parameterId, value })
+      /*
+        ⚠️ THE GESTURE KEY IS WHAT MAKES ONE SLIDER DRAG ONE Ctrl+Z. The runtime
+        folds consecutive edits carrying the same key into a single undo step,
+        and `parameterGesture` is bumped when a control reports that its gesture
+        ended - so two separate drags of the SAME slider stay two steps.
+      */
+      await callTapioca('Tapioca.GraphApplyEdit', {
+        graphId,
+        editKind: 'setParam',
+        nodeId,
+        parameterId,
+        value,
+        label: 'Set value',
+        coalesceKey: parameterGestureKey(nodeId, parameterId, parameterGesture),
+      })
+      /*
+        ⚠️ THE GESTURE ENDS HERE, AND IT HAS TO. Today's controls commit ONCE -
+        the slider on `change` (release), the field on blur or Enter - so one
+        commit is one completed gesture. Leaving the token alone would give every
+        edit of the same parameter the same key, and the runtime would fold a
+        whole afternoon of separate slider adjustments into a single Ctrl+Z.
+
+        The key is still sent rather than omitted: a control that STREAMS while
+        dragging only has to hold the token still for the duration, and it gets
+        one undo step for the drag with no runtime change.
+      */
+      parameterGesture += 1
       await reloadState()
       message = `${nodeId}.${parameterId} = ${text.trim()} / revision ${revision}`
     } catch (error) {
@@ -978,11 +1029,19 @@
           targetPort: edge.targetHandle ?? '',
         })),
       })
-      for (const node of selectedNodes)
-        positions.delete(node.id)
+      /*
+        ⚠️ THE POSITION AND THE PRESENTATION ARE KEPT, NOT DELETED, AND THAT IS
+        WHAT MAKES Ctrl+Z PUT THE NODE BACK WHERE IT WAS. Layout and nickname
+        live in EDITOR metadata, which the runtime carries but does not own;
+        undo restores the document, so anything the editor threw away on delete
+        is simply gone and the node reappears on the automatic grid with its
+        name and colour lost.
+
+        A stale entry for a node that is never coming back costs one map slot
+        keyed by an id that is unique for the session, which is a much smaller
+        price than an undo that visibly rearranges the graph.
+      */
       removeNodesFromFrames(new Set(selectedNodes.map((node) => node.id)))
-      for (const node of selectedNodes) visuals.delete(node.id)
-      persistVisuals()
       message = `Removed ${selectedNodes.length} nodes and ${selectedEdges.length} connections`
     } catch (error) {
       failed = true
@@ -1027,6 +1086,60 @@
       event.preventDefault()
       return
     }
+    /*
+      Copy, cut, paste, duplicate and undo.
+
+      ⚠️ ALL OF THEM GUARDED ON `editing`. A Ctrl+C inside a rename box, a number
+      field or the code editor is a TEXT copy and belongs to the field; swallowing
+      it here would break the one shortcut everybody has muscle memory for.
+
+      `controlChord` is set for the same reason Ctrl+G sets it: Ctrl is also the
+      knife modifier, and a chord must not leave the canvas holding a blade.
+    */
+    if ((event.ctrlKey || event.metaKey) && !editing) {
+      const key = event.key.toLocaleLowerCase()
+      if (key === 'z') {
+        controlChord = true
+        event.preventDefault()
+        // Shift+Ctrl+Z is redo, which is the shape Windows and the web agree on.
+        void (event.shiftKey ? redo() : undo())
+        return
+      }
+      if (key === 'y') {
+        controlChord = true
+        event.preventDefault()
+        void redo()
+        return
+      }
+      if (key === 'c') {
+        controlChord = true
+        copySelection()
+        event.preventDefault()
+        return
+      }
+      if (key === 'x') {
+        controlChord = true
+        event.preventDefault()
+        if (copySelection()) void removeSelection()
+        return
+      }
+      if (key === 'v') {
+        controlChord = true
+        event.preventDefault()
+        if (graphClipboard === null) {
+          message = 'The graph clipboard is empty.'
+          return
+        }
+        void pasteClipboard(graphClipboard, pasteAnchor(graphClipboard), `Paste ${graphClipboard.nodes.length} node${graphClipboard.nodes.length === 1 ? '' : 's'}`)
+        return
+      }
+      if (key === 'd') {
+        controlChord = true
+        event.preventDefault()
+        void duplicateSelection()
+        return
+      }
+    }
     // Delete removes the selected annotation. The flow library's own delete key
     // only reaches nodes and edges, and an annotation is neither.
     if (
@@ -1052,6 +1165,11 @@
       return
     }
     if (event.key !== 'Escape') return
+    if (altGhost !== null) {
+      cancelAltDrag()
+      event.preventDefault()
+      return
+    }
     if (carried !== null) {
       carried = null
       event.preventDefault()
@@ -1232,6 +1350,10 @@
       await callTapioca(overlayRunning ? 'Tapioca.CloseDiligentOverlay' : 'Tapioca.OpenDiligentOverlay', {})
       message = overlayRunning ? 'Closing the Tapioca overlay' : 'Opening the Tapioca overlay'
       await refreshOverlayState()
+      // The stored preference is only a request until the runtime has been
+      // told; a palette reopened with a remembered depth of 50 must not keep
+      // the runtime's default 20 while the menu claims 50.
+      await setUndoDepth(history.depth)
     } catch (error) {
       failed = true
       message = error instanceof Error ? error.message : String(error)
@@ -1668,6 +1790,301 @@
 
   function rememberPosition({ targetNode }: { targetNode: Node<SchemaNodeData> | null }): void {
     if (targetNode !== null) positions.set(targetNode.id, { ...targetNode.position })
+  }
+
+  /* --- Copy, duplicate, paste, undo --------------------------------------
+   *
+   * The rules live in editor.ts as pure functions; this is the part that talks
+   * to the runtime and to the pointer.
+   */
+
+  /**
+   * The graph clipboard.
+   *
+   * ⚠️ IN-PAGE AND AUTHORITATIVE, WITH THE OS CLIPBOARD AS A MIRROR. The editor
+   * is served as a DATA resource at an about:blank origin, where reading
+   * `navigator.clipboard` is refused - `pastePortReference` already has to
+   * apologise for exactly that. So the copy lives here, and writing the same
+   * JSON out is best-effort and never gates a paste.
+   */
+  let graphClipboard = $state<GraphClipboard | null>(null)
+
+  /** Bumped when a gesture ends, so the next one is a separate undo step. */
+  let parameterGesture = 0
+
+  /** Set while Alt is held on a node drag; the drop duplicates instead of moving. */
+  let dragOrigin: Map<string, XYPosition> | null = null
+
+  let history = $state<{ canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string; depth: number }>({
+    canUndo: false,
+    canRedo: false,
+    undoLabel: '',
+    redoLabel: '',
+    depth: initialUndoDepth(localStorage),
+  })
+
+  /**
+   * Ask the runtime to keep this many steps, and adopt the number it agrees to.
+   *
+   * The stored value is a REQUEST; the runtime clamps it, and what comes back is
+   * what the menu shows. Persisted so the choice survives the palette closing.
+   */
+  async function setUndoDepth(depth: number): Promise<void> {
+    localStorage.setItem('tapioca.graph.undoDepth', String(depth))
+    history = { ...history, depth }
+    if (!nativeConnected) return
+    try {
+      history = await callTapioca('Tapioca.GraphSetHistoryDepth', { graphId, depth })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  async function refreshHistory(): Promise<void> {
+    if (!nativeConnected) return
+    try {
+      history = await callTapioca('Tapioca.GraphGetHistory', {})
+    } catch {
+      // A missing verb must not break editing; the shortcuts simply report
+      // nothing to undo.
+      history = { ...history, canUndo: false, canRedo: false, undoLabel: '', redoLabel: '' }
+    }
+  }
+
+  /**
+   * One transaction: several edits, all or none, against the revision this
+   * editor last read.
+   *
+   * ⚠️ `expectedRevision` IS THE POINT, NOT AN OPTIMISATION. Without it a paste
+   * built while a background run finished would be applied to a graph the user
+   * has not seen. With it the runtime refuses and this reloads, which is the
+   * behaviour PLAT-NODEGRAPH-EDITOR's acceptance criteria ask for.
+   */
+  async function applyEdits(
+    edits: readonly unknown[],
+    label: string,
+    coalesceKey = '',
+  ): Promise<boolean> {
+    if (edits.length === 0) return false
+    const params: Record<string, unknown> = { graphId, edits, expectedRevision: revision, label }
+    if (coalesceKey !== '') params.coalesceKey = coalesceKey
+    await callTapioca('Tapioca.GraphApplyEdits', params)
+    return true
+  }
+
+  function selectedNodeIds(): string[] {
+    return nodes.filter((node) => node.selected).map((node) => node.id)
+  }
+
+  /**
+   * Where a paste lands: the CLUSTER centred on the pointer.
+   *
+   * Centring the bounding box rather than the first node, so a pasted group
+   * arrives around the cursor instead of hanging down and to the right of it.
+   */
+  function pasteAnchor(clipboard: GraphClipboard): XYPosition {
+    return centredPasteAnchor(clipboard, screenToFlowPosition(browserAnchor(), { snapToGrid: snapEnabled }))
+  }
+
+  function copySelection(): boolean {
+    const ids = selectedNodeIds()
+    if (ids.length === 0) {
+      message = 'Select a node first.'
+      return false
+    }
+    graphClipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals)
+    // Best-effort only. See graphClipboard.
+    void navigator.clipboard?.writeText?.(JSON.stringify(graphClipboard)).catch(() => {})
+    message = `Copied ${graphClipboard.nodes.length} node${graphClipboard.nodes.length === 1 ? '' : 's'}`
+    return true
+  }
+
+  /**
+   * Paste, duplicate and Alt-drop all end here: one clipboard, one anchor, one
+   * transaction.
+   */
+  async function pasteClipboard(clipboard: GraphClipboard, at: XYPosition, label: string): Promise<void> {
+    if (clipboard.nodes.length === 0) {
+      message = 'Nothing to paste.'
+      return
+    }
+    if (!nativeConnected) {
+      message = 'Pasting needs the native graph runtime.'
+      return
+    }
+    const stamp = Date.now().toString(36)
+    let ordinal = 0
+    const plan = duplicationPlan(clipboard, at, (nodeType) => `${nodeType}-${stamp}-${++ordinal}`)
+
+    busy = true
+    failed = false
+    try {
+      await applyEdits(plan.edits, label)
+      // Only AFTER the runtime accepted. Positions and presentation are editor
+      // metadata for nodes that now exist; writing them first would leave the
+      // editor holding layout for nodes a refused transaction never created.
+      for (const [id, position] of plan.positions) positions.set(id, position)
+      for (const [id, visual] of plan.visuals) visuals.set(id, visual)
+      persistVisuals()
+      await reloadState()
+      // Select what was just pasted, so the next drag moves the copy.
+      const fresh = new Set(plan.renames.values())
+      nodes = nodes.map((node) => ({ ...node, selected: fresh.has(node.id) }))
+      message = `${label} / revision ${revision}`
+    } catch (error) {
+      for (const id of plan.renames.values()) {
+        positions.delete(id)
+        visuals.delete(id)
+      }
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+      await reloadState()
+    } finally {
+      busy = false
+    }
+  }
+
+  /** The wires as the clipboard wants them, from the bound edge array. */
+  function clipboardEdges() {
+    return edges.map((edge) => ({
+      sourceNode: edge.source,
+      sourcePort: edge.sourceHandle ?? '',
+      targetNode: edge.target,
+      targetPort: edge.targetHandle ?? '',
+    }))
+  }
+
+  /**
+   * Duplicate in place, at a small offset.
+   *
+   * ⚠️ DOES NOT TOUCH THE CLIPBOARD. Ctrl+D then Ctrl+V must paste what was
+   * COPIED earlier, not what was just duplicated - overwriting the clipboard
+   * with a side effect of a different command is the kind of surprise that
+   * makes people stop trusting both.
+   */
+  async function duplicateSelection(): Promise<void> {
+    const ids = selectedNodeIds()
+    if (ids.length === 0) {
+      message = 'Select a node first.'
+      return
+    }
+    const clipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals)
+    const at = {
+      x: Math.min(...clipboard.nodes.map((node) => node.position.x)) + PASTE_OFFSET,
+      y: Math.min(...clipboard.nodes.map((node) => node.position.y)) + PASTE_OFFSET,
+    }
+    await pasteClipboard(clipboard, at, `Duplicate ${ids.length} node${ids.length === 1 ? '' : 's'}`)
+  }
+
+  async function undo(): Promise<void> {
+    if (!nativeConnected) {
+      message = 'Undo needs the native graph runtime.'
+      return
+    }
+    busy = true
+    try {
+      await callTapioca('Tapioca.GraphUndo', { graphId })
+      await reloadState()
+      failed = false
+      message = `Undone / revision ${revision}`
+    } catch (error) {
+      // "nothing to undo" is a refusal, not a failure; say so without the
+      // error styling that suggests something broke.
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      busy = false
+    }
+  }
+
+  async function redo(): Promise<void> {
+    if (!nativeConnected) {
+      message = 'Redo needs the native graph runtime.'
+      return
+    }
+    busy = true
+    try {
+      await callTapioca('Tapioca.GraphRedo', { graphId })
+      await reloadState()
+      failed = false
+      message = `Redone / revision ${revision}`
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      busy = false
+    }
+  }
+
+  /**
+   * Alt-drag: a ghost outline follows the pointer and the nodes do not move.
+   *
+   * ⚠️ THE MODIFIER IS READ AT THE PRESS, NOT AT THE DROP, AND THAT IS A
+   * CORRECTION. An earlier revision read `altKey` on the drop so the decision
+   * could be changed mid-gesture, which sounded generous and was wrong: the
+   * node had already been dragged across the canvas by then, so pressing Alt at
+   * the last moment silently converted a move the user had watched happen into
+   * a copy, and releasing it converted a copy into a move. A gesture must mean
+   * the same thing at the end as it did at the start.
+   *
+   * So Alt has to be down BEFORE the drag begins. Once it is, the originals stay
+   * exactly where they are and an outline shows where the copies will land.
+   */
+  let altGhost = $state<{ rects: { x: number; y: number; width: number; height: number }[]; dx: number; dy: number } | null>(
+    null,
+  )
+  let altDragIds: string[] = []
+  let altDragStart: XYPosition | null = null
+
+  /** The rectangles a ghost draws: one per node being copied, in flow coordinates. */
+  function ghostRects(ids: readonly string[]): { x: number; y: number; width: number; height: number }[] {
+    const wanted = new Set(ids)
+    return nodes
+      .filter((node) => wanted.has(node.id))
+      .map((node) => ({
+        x: node.position.x,
+        y: node.position.y,
+        width: node.measured?.width ?? nominalNodeSize(node.data.schema.display).width,
+        height: node.measured?.height ?? nominalNodeSize(node.data.schema.display).height,
+      }))
+  }
+
+  function beginAltDrag(event: PointerEvent, nodeId: string): void {
+    // A node that was already selected drags its whole selection; one that was
+    // not is treated as the only thing being copied, which is what clicking it
+    // would have selected anyway.
+    const selected = selectedNodeIds()
+    altDragIds = selected.includes(nodeId) ? selected : [nodeId]
+    altDragStart = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    altGhost = { rects: ghostRects(altDragIds), dx: 0, dy: 0 }
+  }
+
+  function moveAltDrag(event: PointerEvent): void {
+    if (altGhost === null || altDragStart === null) return
+    const now = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    altGhost = { ...altGhost, dx: now.x - altDragStart.x, dy: now.y - altDragStart.y }
+  }
+
+  function cancelAltDrag(): void {
+    altGhost = null
+    altDragIds = []
+    altDragStart = null
+  }
+
+  function endAltDrag(): void {
+    const ghost = altGhost
+    const ids = altDragIds
+    altGhost = null
+    altDragIds = []
+    altDragStart = null
+    if (ghost === null || ids.length === 0) return
+    // A press with no travel is a click, not a duplicate.
+    if (Math.abs(ghost.dx) < 4 && Math.abs(ghost.dy) < 4) return
+
+    const clipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals)
+    const at = {
+      x: Math.min(...clipboard.nodes.map((node) => node.position.x)) + ghost.dx,
+      y: Math.min(...clipboard.nodes.map((node) => node.position.y)) + ghost.dy,
+    }
+    void pasteClipboard(clipboard, at, `Duplicate ${ids.length} node${ids.length === 1 ? '' : 's'}`)
   }
 
   function editorMetadataKey(): string {
@@ -2190,6 +2607,17 @@
       {snapEnabled}
       {theme}
       {performanceOpen}
+      {history}
+      undoDepths={UNDO_DEPTH_CHOICES}
+      onundodepth={(depth) => void setUndoDepth(depth)}
+      onundo={() => void undo()}
+      onredo={() => void redo()}
+      oncopy={copySelection}
+      onpaste={() => {
+        if (graphClipboard === null) { message = 'The graph clipboard is empty.'; return }
+        void pasteClipboard(graphClipboard, pasteAnchor(graphClipboard), `Paste ${graphClipboard.nodes.length} node${graphClipboard.nodes.length === 1 ? '' : 's'}`)
+      }}
+      onduplicate={() => void duplicateSelection()}
       onrefresh={() => { void reloadState(); void refreshOverlayState() }}
       onevaluate={() => void evaluate()}
       onevaluatesequential={() => void evaluate(1)}
@@ -2236,14 +2664,37 @@
     class:tool-knife={effectiveTool === 'knife'}
     aria-label="Node graph canvas"
     data-detail-level={detailLevel}
+    onpointerdowncapture={(event) => {
+      /*
+        ⚠️ CAPTURE PHASE, BECAUSE SVELTE FLOW'S OWN DRAG STARTS ON THIS EVENT.
+        By the time a bubbling handler runs, the library has already begun
+        moving the node - and the whole point of Alt-drag is that the node does
+        NOT move. Stopping it here is the only place the gesture can be claimed
+        before the library takes it.
+      */
+      if (!event.altKey || effectiveTool !== 'select' || busy) return
+      const node = (event.target as Element | null)?.closest?.('.svelte-flow__node[data-id]')
+      const nodeId = node?.getAttribute('data-id')
+      if (nodeId === null || nodeId === undefined) return
+      event.stopPropagation()
+      event.preventDefault()
+      beginAltDrag(event, nodeId)
+    }}
     onpointerdown={handleToolPointerDown}
     onpointermove={(event) => {
       pointerAt = { x: event.clientX, y: event.clientY }
+      moveAltDrag(event)
       movePlainMarker(event)
       handleToolPointerMove(event)
     }}
-    onpointerup={handleToolPointerUp}
-    onpointercancel={handleToolPointerUp}
+    onpointerup={(event) => {
+      endAltDrag()
+      handleToolPointerUp(event)
+    }}
+    onpointercancel={(event) => {
+      cancelAltDrag()
+      handleToolPointerUp(event)
+    }}
     ondblclick={handlePaneDoubleClick}
     bind:this={canvas}
   >
@@ -2277,6 +2728,22 @@
       deleteKey={['Backspace', 'Delete']}
       >
         <AnnotationLayer annotations={resolvedAnnotations} draft={annotationDraft} selectedId={selectedAnnotationId ?? undefined} />
+        {#if altGhost !== null}
+          <!--
+            Presentation only, and never a node. The copies do not exist until
+            C++ accepts them, so what follows the pointer is an outline in flow
+            coordinates - the same rule the eraser preview and the visual frames
+            follow.
+          -->
+          <ViewportPortal target="front">
+            {#each altGhost.rects as rect}
+              <div
+                class="alt-ghost"
+                style={`transform: translate(${rect.x + altGhost.dx}px, ${rect.y + altGhost.dy}px); width: ${rect.width}px; height: ${rect.height}px;`}
+              ></div>
+            {/each}
+          </ViewportPortal>
+        {/if}
         {#if diagnosticMode === 'flow'}
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
           <Controls position="bottom-left" />
@@ -2297,7 +2764,7 @@
         x={browserRequest.x}
         y={browserRequest.y}
         oncarry={(schema, event) => (carried = { schema, origin: { x: event.clientX, y: event.clientY } })}
-        oncreate={(schema) => void addNode(schema.nodeType, browserRequest?.position)}
+        oncreate={(schema) => void addNode(schema.nodeType, browserRequest === null ? undefined : centreOn(browserRequest.position, nominalNodeSize(schema.display)))}
         onclose={() => (browserRequest = null)}
       />
     {/if}

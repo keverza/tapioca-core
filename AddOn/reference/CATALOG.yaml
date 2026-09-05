@@ -121,13 +121,16 @@ entries:
     kind: directory
     profiles: [build, test]
     authority: "OpenGL Mathematics (GLM)"
-    version: "1.1.0"
+    version: "1.0.3"
     source: "https://github.com/g-truc/glm"
     provenance: >-
       Pinned header-only source used behind Tapioca's vector and transform math.
+      Corrected from 1.1.0 on 2026-09-05: upstream has never published that tag, so
+      -FromUpstream answered 404 and a clean public checkout could not be provisioned
+      at all. 1.0.3 is the latest tag g-truc/glm actually carries.
     download:
-      url: https://github.com/g-truc/glm/archive/refs/tags/1.1.0.zip
-      archive_subpath: glm-1.1.0
+      url: https://github.com/g-truc/glm/archive/refs/tags/1.0.3.zip
+      archive_subpath: glm-1.0.3
 
   - path: msgpack-c-cpp_master
     kind: directory

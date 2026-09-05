@@ -77,9 +77,25 @@ from typing import Any
 # split is deliberate - StartSunStudy needs the main thread because Archicad
 # computes the sun, and the other four are gate-free so a long analysis never
 # occupies the thread the application draws on.
-EXPECTED_REGISTRY_COMMANDS = 177
+# 2026-09-05, the graph edit transaction: +4 for GraphApplyEdits, GraphUndo,
+# GraphRedo and GraphGetHistory. GraphApplyEdits is the all-or-nothing batch the
+# editor needed before node copy could exist at all - five separate edits leave a
+# refused paste half applied - and it carries the expected revision so a
+# transaction built against a graph that has since moved is refused rather than
+# applied to something the client has not seen. Undo and redo are document
+# snapshots rather than inverse edits, so they cannot get the inverse of an edit
+# wrong, and GraphGetHistory is what lets the Edit menu say whether there is
+# anything to undo instead of offering a row that fails. All four moved into
+# NodeGraphEditCommands.cpp with GraphApplyEdit and GraphEraseElements, because
+# adding them pushed NodeGraphCommands.cpp past the architecture size cap.
+# 2026-09-05, the undo depth setting: +1 for GraphSetHistoryDepth. How many
+# steps a graph keeps is a user setting rather than a constant, defaulting to 20
+# - each step is a whole document copy, so depth is paid for in memory and the
+# runtime clamps the request into [1, 200] and answers with what is actually in
+# force rather than what was asked for.
+EXPECTED_REGISTRY_COMMANDS = 182
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 196
+EXPECTED_TOTAL_COMMANDS = 201
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

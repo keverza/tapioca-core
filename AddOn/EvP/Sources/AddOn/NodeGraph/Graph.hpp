@@ -167,6 +167,21 @@ class GraphDocument {
         return revision_;
     }
 
+    // Take another document's CONTENT, under a NEW revision.
+    //
+    // ⚠️ THE REVISION MUST NOT GO BACKWARDS, WHICH IS WHY THIS IS NOT `*this =
+    // other`. A plain assignment would restore the old counter too, and the
+    // revision is the client's change TOKEN, not a version label: an editor that
+    // saw revision 9, undid to 7 and then saw 8 again would conclude nothing had
+    // changed since it last read, and would keep showing the graph it had. So
+    // the content rewinds and the counter keeps climbing - undo is a new state
+    // of the document, not a return to an old one.
+    //
+    // Used by the batch transaction to roll back a refused edit, and by undo and
+    // redo. All three want exactly this: content from a snapshot, identity that
+    // still moves forward.
+    void RestoreContent (const GraphDocument& other);
+
   private:
     friend EditResult ApplyEdit (GraphDocument&, const NodeRegistry&, const GraphEdit&);
 

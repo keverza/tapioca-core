@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import type { ThemeMode } from './editor'
 
-  type MenuId = 'file' | 'run' | 'flow' | 'debug'
+  type MenuId = 'file' | 'edit' | 'run' | 'flow' | 'debug'
   type FileAction = 'new' | 'load' | 'save'
 
   let {
@@ -11,6 +11,14 @@
     snapEnabled,
     theme,
     performanceOpen,
+    history,
+    undoDepths,
+    onundodepth,
+    onundo,
+    onredo,
+    oncopy,
+    onpaste,
+    onduplicate,
     onrefresh,
     onevaluate,
     onevaluatesequential,
@@ -27,6 +35,16 @@
     snapEnabled: boolean
     theme: ThemeMode
     performanceOpen: boolean
+    /** What undo and redo would do, so the rows can say so rather than fail. */
+    history: { canUndo: boolean; canRedo: boolean; undoLabel: string; redoLabel: string; depth: number }
+    /** The depths offered, and the one in force is history.depth. */
+    undoDepths: readonly number[]
+    onundodepth: (depth: number) => void
+    onundo: () => void
+    onredo: () => void
+    oncopy: () => void
+    onpaste: () => void
+    onduplicate: () => void
     onrefresh: () => void
     onevaluate: () => void
     onevaluatesequential: () => void
@@ -39,7 +57,7 @@
     ontoggleperformance: () => void
   } = $props()
 
-  const menuIds: MenuId[] = ['file', 'run', 'flow', 'debug']
+  const menuIds: MenuId[] = ['file', 'edit', 'run', 'flow', 'debug']
   let activeMenu = $state<MenuId | null>(null)
   let displayOptionsOpen = $state(false)
   let root = $state<HTMLElement>()
@@ -182,7 +200,35 @@
 
       {#if activeMenu === id}
         <div id={`menu-${id}`} class:menu-right={id === 'debug'} class="menu-popover" role="menu" tabindex="-1" onkeydown={(event) => menuKey(event, id)}>
-          {#if id === 'file'}
+          {#if id === 'edit'}
+            <!--
+              The shortcuts work without this menu; the menu exists so they are
+              DISCOVERABLE. A keystroke nobody can find is half a feature, and
+              the disabled state is the only place the editor says out loud that
+              there is nothing to undo.
+            -->
+            <button role="menuitem" type="button" disabled={busy || !history.canUndo} onclick={() => invoke(onundo)}>
+              {history.canUndo && history.undoLabel !== '' ? `Undo ${history.undoLabel}` : 'Undo'}<kbd>Ctrl+Z</kbd>
+            </button>
+            <button role="menuitem" type="button" disabled={busy || !history.canRedo} onclick={() => invoke(onredo)}>
+              {history.canRedo && history.redoLabel !== '' ? `Redo ${history.redoLabel}` : 'Redo'}<kbd>Shift+Ctrl+Z</kbd>
+            </button>
+            <div class="menu-separator" role="separator"></div>
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(oncopy)}>Copy<kbd>Ctrl+C</kbd></button>
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onpaste)}>Paste<kbd>Ctrl+V</kbd></button>
+            <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(onduplicate)}>Duplicate<kbd>Ctrl+D</kbd></button>
+            <div class="menu-separator" role="separator"></div>
+            <div class="menu-caption" role="presentation">Undo steps kept</div>
+            {#each undoDepths as depth}
+              <button
+                role="menuitemradio"
+                class="menu-toggle"
+                type="button"
+                aria-checked={history.depth === depth}
+                onclick={() => invoke(() => onundodepth(depth))}
+              >{depth}</button>
+            {/each}
+          {:else if id === 'file'}
             <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(() => onfileaction('new'))}>New graph</button>
             <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(() => onfileaction('load'))}>Load graph...</button>
             <button role="menuitem" type="button" disabled={busy} onclick={() => invoke(() => onfileaction('save'))}>Save graph...</button>

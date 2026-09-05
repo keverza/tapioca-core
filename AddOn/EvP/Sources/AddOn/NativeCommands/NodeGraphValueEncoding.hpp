@@ -49,6 +49,16 @@ constexpr size_t kMaxEncodedMeshVertices = 20000;
 // `expand` is false for list members, which is what keeps the encoding two
 // levels deep and the response schemas non-recursive. A plain Value converts
 // implicitly, so a scalar caller passes one exactly as before.
+// Inbound, and shared by every command that accepts one.
+//
+// ⚠️ ONE DECODER, NOT ONE PER COMMAND FILE. The single-edit verb, the batched
+// transaction and the element commands all have to agree on what a legal value
+// and a legal edge look like; a private copy in each file is how they come to
+// disagree about a corner of the schema.
+bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std::string& error);
+
+graph::Edge ReadEdge (const GS::ObjectState& params);
+
 GS::ObjectState EncodeValue (const graph::Argument& value, bool expand);
 
 // One published output port, flat value AND branch structure.

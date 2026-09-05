@@ -3,6 +3,8 @@
 
 #include "NativeCommands/NodeGraphValueEncoding.hpp"
 
+// GraphUtf8/GraphText, shared by the decoders that moved here.
+#include "NativeCommands/NodeGraphCommandSupport.hpp"
 #include "NodeGraph/ValueText.hpp"
 
 #include <string>
@@ -144,6 +146,71 @@ GS::ObjectState EncodeProjectedOutput (const std::string& portId, const graph::d
     }
     output.Add ("branches", branches);
     return output;
+}
+
+// Inbound. Returns false when the payload names a type it does not carry a
+// value for, rather than silently substituting a default.
+bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std::string& error)
+{
+    GS::UniString valueTypeName;
+    if (!state.Get ("valueType", valueTypeName)) {
+        error = "the value is missing valueType";
+        return false;
+    }
+    const std::string valueType = GraphUtf8 (valueTypeName);
+
+    if (valueType == "bool") {
+        bool flag = false;
+        if (!state.Get ("bool", flag)) {
+            error = "a bool value requires 'bool'";
+            return false;
+        }
+        out = graph::Value (flag);
+        return true;
+    }
+    if (valueType == "integer" || valueType == "double") {
+        double number = 0.0;
+        if (!state.Get ("number", number)) {
+            error = "a numeric value requires 'number'";
+            return false;
+        }
+        out = valueType == "integer" ? graph::Value (static_cast<int64_t> (number)) : graph::Value (number);
+        return true;
+    }
+    if (valueType == "string" || valueType == "archicadElementRef") {
+        GS::UniString text;
+        if (!state.Get ("text", text)) {
+            error = "a text value requires 'text'";
+            return false;
+        }
+        if (valueType == "string")
+            out = graph::Value (GraphUtf8 (text));
+        else
+            out = graph::Value (graph::ArchicadElementRef { GraphUtf8 (text) });
+        return true;
+    }
+    if (valueType == "point3") {
+        GS::Array<double> numbers;
+        if (!state.Get ("numbers", numbers) || numbers.GetSize () != 3) {
+            error = "a point3 value requires three numbers";
+            return false;
+        }
+        out = graph::Value (graph::Point3 { numbers[0], numbers[1], numbers[2] });
+        return true;
+    }
+    error = "a parameter cannot carry the value type '" + valueType + "'";
+    return false;
+}
+
+
+graph::Edge ReadEdge (const GS::ObjectState& params)
+{
+    GS::UniString sourceNode, sourcePort, targetNode, targetPort;
+    params.Get ("sourceNode", sourceNode);
+    params.Get ("sourcePort", sourcePort);
+    params.Get ("targetNode", targetNode);
+    params.Get ("targetPort", targetPort);
+    return { GraphUtf8 (sourceNode), GraphUtf8 (sourcePort), GraphUtf8 (targetNode), GraphUtf8 (targetPort) };
 }
 
 } // namespace geomsrv

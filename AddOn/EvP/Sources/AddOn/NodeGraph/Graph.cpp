@@ -8,6 +8,15 @@ const Node* GraphDocument::FindNode (const NodeId& nodeId) const
     return iterator == nodes_.end () ? nullptr : &iterator->second;
 }
 
+void GraphDocument::RestoreContent (const GraphDocument& other)
+{
+    if (&other == this)
+        return;
+    nodes_ = other.nodes_;
+    edges_ = other.edges_;
+    ++revision_;
+}
+
 // ⚠️ THESE SPELLINGS ARE THE PERSISTED FORMAT AND THE WIRE FORMAT AT ONCE.
 // A saved graph carries them, so renaming one silently changes every stored
 // workflow's meaning. Add a name; never repurpose one.

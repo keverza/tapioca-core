@@ -148,6 +148,45 @@ main[data-theme='light'] {
   box-sizing: border-box;
 }
 
+/*
+  SCROLLBARS FOLLOW THE THEME.
+
+  ⚠️ WITHOUT THIS THEY ARE THE BROWSER'S OWN, WHICH IS WHITE. The page is a DATA
+  resource in a WebView that has no idea the application is dark, so every
+  overflowing panel - the inspector, the node browser, the code editor - drew a
+  bright rail against a #1f1f1f surface. `color-scheme` alone is not enough,
+  because the theme is a data attribute here rather than the OS preference.
+
+  Both spellings on purpose: `scrollbar-color` is the standard one, and the
+  WebKit pseudo-elements are what the embedded WebView2 actually honours.
+*/
+* {
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--border);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
+}
+
 html,
 body,
 #app,
@@ -943,4 +982,30 @@ main > footer code.locked {
 
 .canvas[data-detail-level='compact'] .selection-actions {
   display: none;
+}
+
+/*
+  Where an Alt-drag will drop its copies. An outline rather than a filled
+  preview, because nothing here exists yet: the runtime has not been asked, and
+  a solid node would be a claim the graph does not back up.
+*/
+.alt-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1px dashed var(--accent);
+  border-radius: 2px;
+  background: var(--accent-soft);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* A non-interactive label inside a menu, for a group of radio rows. */
+.menu-caption {
+  padding: 4px 11px 2px;
+  color: var(--text-faint);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
 }

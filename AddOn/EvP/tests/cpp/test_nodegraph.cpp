@@ -30,6 +30,7 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <memory>
@@ -1048,6 +1049,299 @@ TEST (NodeGraphRuntimeState, HoldsGraphsByIdWithIndependentDocumentsAndStreams)
 
     ASSERT_EQ (1U, runtime.RecentRuns (first, 0).size ());
     EXPECT_EQ (summary.runId, runtime.RecentRuns (first, 0).front ().runId);
+}
+
+// --- Phase 0: batched transactions, expected revisions, and history ---------
+//
+// These go through GraphRuntimeState rather than ApplyEdit directly, because the
+// whole point is the behaviour AROUND the edits: the rollback, the revision
+// check and the undo stack all live in the runtime, not in the edit.
+
+namespace {
+
+/**
+ * Read one numeric parameter out of a document.
+ *
+ * ⚠️ TAKES THE DOCUMENT BY VALUE AND KEEPS IT ALIVE FOR THE READ. GraphRuntimeState
+ * hands out documents by value, so FindNode on a chained temporary returns a
+ * pointer that is dangling by the time the caller reads through it.
+ */
+double ParameterOf (const GraphDocument& document, const std::string& nodeId, const std::string& parameterId)
+{
+    const Node* node = document.FindNode (nodeId);
+    return node == nullptr ? std::numeric_limits<double>::quiet_NaN ()
+                           : std::get<double> (node->parameters.at (parameterId).DataValue ());
+}
+
+GraphEdit AddNumberNode (const std::string& nodeId, double value)
+{
+    Node node { nodeId, "number" };
+    node.parameters.emplace ("value", Value (value));
+    return GraphEdit { AddNodeEdit { node } };
+}
+
+} // namespace
+
+TEST (NodeGraphTransaction, AppliesEveryEditOrNoneOfThem)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "txn-all-or-nothing";
+
+    // The third edit names a node type that does not exist, so the whole batch
+    // must leave the document exactly as it found it - not two nodes in.
+    const std::vector<GraphEdit> edits {
+        AddNumberNode ("a", 1.0),
+        AddNumberNode ("b", 2.0),
+        GraphEdit { AddNodeEdit { Node { "c", "no.such.node.type" } } },
+    };
+
+    const uint64_t before = runtime.Document (graphId).Revision ();
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits);
+
+    EXPECT_FALSE (result.accepted);
+    EXPECT_EQ (2U, result.failedIndex) << "a client cannot report WHICH edit refused without this";
+    EXPECT_TRUE (runtime.Document (graphId).Nodes ().empty ())
+        << "a partly applied batch is the state this exists to prevent";
+
+    // The revision still moved, and that is correct: the rollback is a new state
+    // of the document, so a client watching the revision re-reads and sees the
+    // graph it actually has rather than trusting a stale copy.
+    EXPECT_GT (runtime.Document (graphId).Revision (), before);
+}
+
+TEST (NodeGraphTransaction, AcceptedBatchAppliesEveryEditAndReportsEveryDirtyNode)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "txn-accepted";
+
+    const std::vector<GraphEdit> edits { AddNumberNode ("a", 1.0), AddNumberNode ("b", 2.0) };
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits, "Paste 2 nodes");
+
+    ASSERT_TRUE (result.accepted) << result.error;
+    EXPECT_EQ (2U, runtime.Document (graphId).Nodes ().size ());
+    EXPECT_EQ (2U, result.dirtyNodes.size ());
+}
+
+TEST (NodeGraphTransaction, RefusesABatchBuiltAgainstARevisionThatHasMovedOn)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "txn-revision";
+
+    const uint64_t stale = runtime.Document (graphId).Revision ();
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("someone-else", 9.0)).accepted);
+
+    const BatchEditResult result = runtime.ApplyBatch (graphId, stale, { AddNumberNode ("mine", 1.0) });
+    EXPECT_FALSE (result.accepted);
+    EXPECT_EQ (batchcode::kRevisionConflict, result.code);
+    EXPECT_EQ (nullptr, runtime.Document (graphId).FindNode ("mine"));
+
+    // The same batch against the revision the document really has is accepted,
+    // which is what makes a conflict a retry rather than a dead end.
+    const BatchEditResult retry =
+        runtime.ApplyBatch (graphId, runtime.Document (graphId).Revision (), { AddNumberNode ("mine", 1.0) });
+    EXPECT_TRUE (retry.accepted) << retry.error;
+}
+
+TEST (NodeGraphTransaction, RefusesAnEmptyBatchAndOneThatIsAbsurdlyLarge)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "txn-bounds";
+
+    EXPECT_EQ (batchcode::kEmptyBatch, runtime.ApplyBatch (graphId, std::nullopt, {}).code);
+
+    std::vector<GraphEdit> tooMany;
+    for (size_t index = 0; index <= kMaxBatchEdits; ++index)
+        tooMany.push_back (AddNumberNode ("n" + std::to_string (index), 0.0));
+    EXPECT_EQ (batchcode::kBatchTooLarge, runtime.ApplyBatch (graphId, std::nullopt, tooMany).code);
+}
+
+TEST (NodeGraphTransaction, RefusesAReleaseInsideABatchBecauseItCannotBeRolledBack)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "txn-release";
+
+    const std::vector<GraphEdit> edits { AddNumberNode ("a", 1.0), GraphEdit { ReleaseHoldingEdit { "a" } } };
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits);
+
+    EXPECT_FALSE (result.accepted);
+    EXPECT_EQ (batchcode::kUnbatchableEdit, result.code);
+    // Refused BEFORE anything ran, so the legal first edit did not land either.
+    EXPECT_TRUE (runtime.Document (graphId).Nodes ().empty ());
+}
+
+TEST (NodeGraphUndo, UndoRestoresADeletedNodeAndRedoRemovesItAgain)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-delete";
+
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("doomed", 4.0), "Add node").accepted);
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { RemoveNodeEdit { "doomed" } }, "Delete node").accepted);
+    ASSERT_EQ (nullptr, runtime.Document (graphId).FindNode ("doomed"));
+
+    EXPECT_TRUE (runtime.History (graphId).canUndo);
+    EXPECT_EQ ("Delete node", runtime.History (graphId).undoLabel);
+
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    // ⚠️ HELD IN A NAMED LOCAL, NOT CHAINED. Document() returns BY VALUE, so a
+    // pointer taken straight out of runtime.Document (id).FindNode (...) points
+    // into a temporary that dies at the end of that statement.
+    const GraphDocument afterUndo = runtime.Document (graphId);
+    const Node* restored = afterUndo.FindNode ("doomed");
+    ASSERT_NE (nullptr, restored) << "the node came back";
+    EXPECT_EQ (4.0, std::get<double> (restored->parameters.at ("value").DataValue ())) << "and so did what was in it";
+
+    ASSERT_TRUE (runtime.Redo (graphId).accepted);
+    EXPECT_EQ (nullptr, runtime.Document (graphId).FindNode ("doomed"));
+
+    // Two consecutive undos walk back two steps rather than sticking on one.
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    EXPECT_TRUE (runtime.Document (graphId).Nodes ().empty ());
+    EXPECT_FALSE (runtime.History (graphId).canUndo);
+    EXPECT_EQ (batchcode::kNothingToUndo, runtime.Undo (graphId).code);
+}
+
+TEST (NodeGraphUndo, UndoRestoresTheWiresAndNotJustTheNodes)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-wires";
+
+    ASSERT_TRUE (runtime
+                     .ApplyBatch (graphId, std::nullopt,
+                                  { AddNumberNode ("a", 1.0), AddNumberNode ("b", 2.0),
+                                    GraphEdit { AddNodeEdit { Node { "sum", "add" } } } },
+                                  "Build")
+                     .accepted);
+    ASSERT_TRUE (
+        runtime.Apply (graphId, GraphEdit { ConnectEdit { Edge { "a", "value", "sum", "left" } } }, "Connect").accepted);
+    ASSERT_EQ (1U, runtime.Document (graphId).Edges ().size ());
+
+    // Deleting the node takes its wire with it. This is exactly the case a
+    // hand-written inverse action gets wrong: it puts the node back and forgets
+    // the edge, because removing the edge was a CONSEQUENCE rather than the edit.
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { RemoveNodeEdit { "a" } }, "Delete node").accepted);
+    ASSERT_TRUE (runtime.Document (graphId).Edges ().empty ());
+
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    EXPECT_NE (nullptr, runtime.Document (graphId).FindNode ("a"));
+    EXPECT_EQ (1U, runtime.Document (graphId).Edges ().size ()) << "the wire came back with the node";
+}
+
+TEST (NodeGraphUndo, OneSliderDragIsOneUndoStep)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-slider";
+
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("n", 0.0), "Add node").accepted);
+
+    // What a drag actually sends: many setParam edits under one gesture key.
+    for (int step = 1; step <= 40; ++step)
+        ASSERT_TRUE (runtime
+                         .Apply (graphId, GraphEdit { SetParameterEdit { "n", "value", Value (double (step)) } },
+                                 "Set value", "setParam:n:value:gesture-1")
+                         .accepted);
+    EXPECT_EQ (40.0, ParameterOf (runtime.Document (graphId), "n", "value"));
+
+    // One Ctrl+Z returns to before the drag, not to 39.
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    EXPECT_EQ (0.0, ParameterOf (runtime.Document (graphId), "n", "value"));
+
+    // A SECOND DRAG IS A SECOND STEP. The key carries a gesture id precisely so
+    // that two drags of the same slider do not collapse into one undo entry.
+    ASSERT_TRUE (runtime.Redo (graphId).accepted);
+    ASSERT_TRUE (runtime
+                     .Apply (graphId, GraphEdit { SetParameterEdit { "n", "value", Value (99.0) } }, "Set value",
+                             "setParam:n:value:gesture-2")
+                     .accepted);
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    EXPECT_EQ (40.0, ParameterOf (runtime.Document (graphId), "n", "value"))
+        << "the second drag undid to the end of the first, not past it";
+}
+
+TEST (NodeGraphUndo, AnEditAfterAnUndoDiscardsTheRedoBranch)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-branch";
+
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("a", 1.0), "Add a").accepted);
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+    ASSERT_TRUE (runtime.History (graphId).canRedo);
+
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("b", 2.0), "Add b").accepted);
+    EXPECT_FALSE (runtime.History (graphId).canRedo) << "a future that no longer follows is not offered";
+    EXPECT_EQ (batchcode::kNothingToRedo, runtime.Redo (graphId).code);
+}
+
+TEST (NodeGraphUndo, ARefusedEditLeavesNoUndoStep)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-refused";
+
+    ASSERT_FALSE (runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "x", "no.such.node.type" } } }).accepted);
+    EXPECT_FALSE (runtime.History (graphId).canUndo)
+        << "a Ctrl+Z that appears to do nothing is worse than a disabled one";
+}
+
+TEST (NodeGraphUndo, TheStackIsBoundedAndDropsTheOldestStep)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-bounded";
+    EXPECT_EQ (kDefaultUndoDepth, runtime.History (graphId).depth) << "twenty steps unless asked otherwise";
+
+    for (size_t index = 0; index < kDefaultUndoDepth + 10; ++index)
+        ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("n" + std::to_string (index), 0.0)).accepted);
+
+    size_t undone = 0;
+    while (runtime.Undo (graphId).accepted)
+        ++undone;
+    EXPECT_EQ (kDefaultUndoDepth, undone);
+
+    // The steps that fell off the old end are gone, so the graph does NOT come
+    // back empty. Undo is bounded, and that is a promise rather than a defect.
+    EXPECT_EQ (10U, runtime.Document (graphId).Nodes ().size ());
+}
+
+TEST (NodeGraphUndo, TheDepthIsASettingAndLoweringItTakesEffectAtOnce)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-depth";
+
+    runtime.SetHistoryDepth (graphId, 3);
+    EXPECT_EQ (3U, runtime.History (graphId).depth);
+
+    for (int index = 0; index < 10; ++index)
+        ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("n" + std::to_string (index), 0.0)).accepted);
+    size_t undone = 0;
+    while (runtime.Undo (graphId).accepted)
+        ++undone;
+    EXPECT_EQ (3U, undone);
+
+    // Raising it does not invent steps that were never kept.
+    runtime.SetHistoryDepth (graphId, 50);
+    EXPECT_EQ (50U, runtime.History (graphId).depth);
+    EXPECT_FALSE (runtime.History (graphId).canUndo);
+
+    // Lowering discards immediately rather than waiting for the next edit, so
+    // the setting means what it says as soon as it is applied.
+    for (int index = 0; index < 8; ++index)
+        ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("m" + std::to_string (index), 0.0)).accepted);
+    runtime.SetHistoryDepth (graphId, 2);
+    undone = 0;
+    while (runtime.Undo (graphId).accepted)
+        ++undone;
+    EXPECT_EQ (2U, undone);
+}
+
+TEST (NodeGraphUndo, AnAbsurdDepthIsClampedRatherThanObeyed)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "history-clamp";
+
+    runtime.SetHistoryDepth (graphId, 0);
+    EXPECT_EQ (kMinUndoDepth, runtime.History (graphId).depth) << "zero would mean no undo at all";
+
+    runtime.SetHistoryDepth (graphId, 100000);
+    EXPECT_EQ (kMaxUndoDepth, runtime.History (graphId).depth) << "each step is a whole document copy";
 }
 
 // --- Stage C: Archicad binding ---------------------------------------------

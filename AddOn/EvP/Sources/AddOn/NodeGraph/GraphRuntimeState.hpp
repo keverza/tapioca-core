@@ -82,6 +82,69 @@ struct ResultsSnapshot {
     std::vector<RuntimeNodeResult> nodes;
 };
 
+// What one all-or-nothing transaction did, or refused to do.
+//
+// Separate from EditResult because a batch can fail for two reasons a single
+// edit cannot: the document moved under the client (`expectedRevision`), and one
+// member of the batch was refused (`failedIndex`). A client that only knows
+// "rejected" cannot tell the user WHICH of five pasted nodes was the problem.
+struct BatchEditResult {
+    bool accepted = false;
+
+    // Stable machine-readable reason, empty when accepted.
+    std::string code;
+    std::string error;
+
+    // Which edit refused, when a member of the batch did. Meaningless when the
+    // batch was refused before any edit ran - a revision conflict, say - which is
+    // why `code` and not this is what a client branches on.
+    size_t failedIndex = 0;
+
+    std::vector<NodeId> dirtyNodes;
+    uint64_t revision = 0;
+};
+
+// How many undo steps a graph keeps unless the client asks for another number.
+//
+// Each step is a whole document copy, so this trades memory for depth: the
+// practical cost is the graph size times this number. Twenty is deep enough to
+// walk back out of a wrong turn and shallow enough that a large graph does not
+// quietly hold twenty copies of itself.
+constexpr size_t kDefaultUndoDepth = 20;
+
+// The range a client may ask for. Zero would mean "no undo at all", which is a
+// setting nobody wants and an easy way to lose work to a typo.
+constexpr size_t kMinUndoDepth = 1;
+constexpr size_t kMaxUndoDepth = 200;
+
+// Whether undo and redo have anything to do, and what they would undo.
+struct HistoryState {
+    bool canUndo = false;
+    bool canRedo = false;
+    std::string undoLabel;
+    std::string redoLabel;
+
+    // What the graph is currently keeping, so a client shows the setting in
+    // force rather than the one it last asked for.
+    size_t depth = kDefaultUndoDepth;
+};
+
+// Rejection codes this file owns. Prose moves between builds; a client's branch
+// must not.
+namespace batchcode {
+constexpr const char* kRevisionConflict = "graph.revisionConflict";
+constexpr const char* kEmptyBatch = "graph.emptyBatch";
+constexpr const char* kBatchTooLarge = "graph.batchTooLarge";
+constexpr const char* kUnbatchableEdit = "graph.unbatchableEdit";
+constexpr const char* kNothingToUndo = "graph.nothingToUndo";
+constexpr const char* kNothingToRedo = "graph.nothingToRedo";
+} // namespace batchcode
+
+// The most edits one transaction may carry. A paste is a handful of nodes; a
+// number this size is a client bug or a hostile caller, and either way the
+// answer is to refuse rather than to hold the document lock for a very long time.
+constexpr size_t kMaxBatchEdits = 512;
+
 class GraphRuntimeState final {
   public:
     static GraphRuntimeState& Get ();
@@ -93,7 +156,53 @@ class GraphRuntimeState final {
     // Documents are created on first reference, so a client never has to open
     // one before editing it.
     GraphDocument Document (const GraphId& graphId) const;
-    EditResult Apply (const GraphId& graphId, const GraphEdit& edit);
+
+    // One edit. Recorded on the undo stack like a batch is, because the two
+    // edits the user most wants back - a deleted node and a slider they dragged
+    // too far - both arrive through here rather than through ApplyBatch.
+    EditResult Apply (const GraphId& graphId, const GraphEdit& edit, const std::string& label = std::string (),
+                      const std::string& coalesceKey = std::string ());
+
+    // Several edits, all or none, against the revision the client last read.
+    //
+    // ⚠️ THE POINT IS THE ROLLBACK, NOT THE ROUND-TRIP SAVING. Applying five
+    // edits one at a time leaves the document in a state nobody designed when
+    // the third is refused - four nodes pasted, one missing, and no wire between
+    // them. This either moves the document all the way or not at all.
+    //
+    // `expectedRevision` is the revision the client built the request against.
+    // Nothing else may have moved the document in between; if it did, the batch
+    // is refused rather than applied to a graph the client has not seen. Pass
+    // nullopt to skip the check, which is only right for a request that cannot
+    // be stale.
+    //
+    // `label` names the transaction for undo ("Paste 5 nodes"). `coalesceKey`,
+    // when non-empty, folds this transaction into the PREVIOUS undo entry if
+    // that entry carried the same key - which is how a slider drag that lands
+    // two hundred setParam edits becomes one Ctrl+Z. The key is opaque here; the
+    // client makes it unique per gesture, because two separate drags of the same
+    // slider must not collapse into one.
+    BatchEditResult ApplyBatch (const GraphId& graphId, std::optional<uint64_t> expectedRevision,
+                                const std::vector<GraphEdit>& edits, const std::string& label = std::string (),
+                                const std::string& coalesceKey = std::string ());
+
+    // Step the document back, and forward again.
+    //
+    // ⚠️ IMPLEMENTED WITH SNAPSHOTS, NOT INVERSE EDITS, AND THAT IS THE WHOLE
+    // DESIGN. An inverse action has to be written once per edit kind and is
+    // wrong the day an edit gains a side effect somebody forgets to mirror - the
+    // classic symptom being an undo that restores a node without its wires.
+    // GraphDocument is two containers and a counter, so a copy IS the inverse,
+    // for every edit kind that exists and every one added later.
+    BatchEditResult Undo (const GraphId& graphId);
+    BatchEditResult Redo (const GraphId& graphId);
+    HistoryState History (const GraphId& graphId) const;
+
+    // How many steps this graph keeps. Clamped into [kMinUndoDepth,
+    // kMaxUndoDepth]; lowering it discards the oldest steps immediately rather
+    // than waiting for the next edit, so the setting means what it says as soon
+    // as it is applied.
+    void SetHistoryDepth (const GraphId& graphId, size_t depth);
 
     // Runs the request's targets. An empty target list means the document's
     // terminal nodes, never "every node".
@@ -184,13 +293,38 @@ class GraphRuntimeState final {
     // Called with the slot's document mutex held; see the definition.
     void PublishPreviewLocked (const GraphId& graphId, Slot& slot);
 
+    // Record `before` as one undo step. Called with the document mutex held, and
+    // only once the edit is known to have been ACCEPTED - a refused edit did not
+    // move the document, so an undo entry for it would be a Ctrl+Z that appears
+    // to do nothing.
+    void PushHistoryLocked (Slot& slot, const GraphDocument& before, const std::string& label,
+                            const std::string& coalesceKey);
+
+    // The half of undo and redo that is the same in both directions: move the
+    // document to `target`, work out what that changed, invalidate it and
+    // republish. Called with the document mutex held.
+    BatchEditResult StepHistoryLocked (const GraphId& graphId, Slot& slot, const GraphDocument& target);
+
     // One graph's whole world. Held by unique_ptr so a reference handed out
     // under the map lock stays valid while the map grows.
+    // One undoable step: the document as it stood BEFORE the transaction.
+    struct HistoryEntry {
+        GraphDocument document;
+        std::string label;
+        std::string coalesceKey;
+    };
+
     struct Slot {
         GraphDocument document;
         GraphMetadata metadata;
         Evaluator evaluator;
         RunRecorder recorder;
+
+        // Guarded by documentMutex, because they are only ever read or written
+        // in the same critical section that moves the document.
+        std::vector<HistoryEntry> undoStack;
+        std::vector<HistoryEntry> redoStack;
+        size_t undoDepth = kDefaultUndoDepth;
 
         mutable std::mutex documentMutex;
 

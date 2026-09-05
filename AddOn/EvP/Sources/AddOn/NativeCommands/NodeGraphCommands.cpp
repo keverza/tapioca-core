@@ -45,14 +45,6 @@ constexpr const char kStateResponseSchema[] =
 
 // `numberValue` is retained as a deprecated alias so the existing editor build
 // keeps working across this change. New clients send `value`.
-constexpr const char kEditInputSchema[] =
-    R"json({"oneOf":[{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","nodeType"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setExecutionMode"},"nodeId":{"type":"string","minLength":1},"mode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]}},"additionalProperties":false,"required":["editKind","nodeId","mode"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setPortModifier"},"nodeId":{"type":"string","minLength":1},"portId":{"type":"string","minLength":1},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]}},"additionalProperties":false,"required":["editKind","nodeId","portId","modifier"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"releaseHolding"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]}],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
-
-constexpr const char kEditResponseSchema[] =
-    R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["revision","dirtyNodes"]})json";
-
-constexpr const char kEraseElementsInputSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"nodeIds":{"type":"array","items":{"type":"string","minLength":1}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["nodeIds","edges"]})json";
 
 // allowSideEffects defaults to FALSE and must be sent deliberately. A preview,
 // a watch and an auto-evaluated branch all leave it out, which is what keeps a
@@ -163,70 +155,6 @@ GS::ObjectState EncodeParameterUi (const graph::ParameterUi& ui)
     state.Add ("options", options);
     state.Add ("optionSource", graph::ParameterOptionSourceName (ui.optionSource));
     return state;
-}
-
-// Inbound. Returns false when the payload names a type it does not carry a
-// value for, rather than silently substituting a default.
-bool DecodeParameterValue (const GS::ObjectState& state, graph::Value& out, std::string& error)
-{
-    GS::UniString valueTypeName;
-    if (!state.Get ("valueType", valueTypeName)) {
-        error = "the value is missing valueType";
-        return false;
-    }
-    const std::string valueType = GraphUtf8 (valueTypeName);
-
-    if (valueType == "bool") {
-        bool flag = false;
-        if (!state.Get ("bool", flag)) {
-            error = "a bool value requires 'bool'";
-            return false;
-        }
-        out = graph::Value (flag);
-        return true;
-    }
-    if (valueType == "integer" || valueType == "double") {
-        double number = 0.0;
-        if (!state.Get ("number", number)) {
-            error = "a numeric value requires 'number'";
-            return false;
-        }
-        out = valueType == "integer" ? graph::Value (static_cast<int64_t> (number)) : graph::Value (number);
-        return true;
-    }
-    if (valueType == "string" || valueType == "archicadElementRef") {
-        GS::UniString text;
-        if (!state.Get ("text", text)) {
-            error = "a text value requires 'text'";
-            return false;
-        }
-        if (valueType == "string")
-            out = graph::Value (GraphUtf8 (text));
-        else
-            out = graph::Value (graph::ArchicadElementRef { GraphUtf8 (text) });
-        return true;
-    }
-    if (valueType == "point3") {
-        GS::Array<double> numbers;
-        if (!state.Get ("numbers", numbers) || numbers.GetSize () != 3) {
-            error = "a point3 value requires three numbers";
-            return false;
-        }
-        out = graph::Value (graph::Point3 { numbers[0], numbers[1], numbers[2] });
-        return true;
-    }
-    error = "a parameter cannot carry the value type '" + valueType + "'";
-    return false;
-}
-
-graph::Edge ReadEdge (const GS::ObjectState& params)
-{
-    GS::UniString sourceNode, sourcePort, targetNode, targetPort;
-    params.Get ("sourceNode", sourceNode);
-    params.Get ("sourcePort", sourcePort);
-    params.Get ("targetNode", targetNode);
-    params.Get ("targetPort", targetPort);
-    return { GraphUtf8 (sourceNode), GraphUtf8 (sourcePort), GraphUtf8 (targetNode), GraphUtf8 (targetPort) };
 }
 
 class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
@@ -411,153 +339,6 @@ class GraphGetStateCommand : public GateFreeGraphCommand {
         response.Add ("lastEventSeq", static_cast<GS::Int64> (snapshot.lastEventSeq));
         response.Add ("nodes", nodes);
         response.Add ("edges", edges);
-        return response;
-    }
-};
-
-class GraphApplyEditCommand : public GateFreeGraphCommand {
-  protected:
-    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
-    {
-        GS::UniString editKindValue;
-        params.Get ("editKind", editKindValue);
-        const std::string editKind = GraphUtf8 (editKindValue);
-        graph::GraphEdit edit;
-        std::string error;
-
-        if (editKind == "addNode") {
-            GS::UniString nodeId, nodeType;
-            params.Get ("nodeId", nodeId);
-            params.Get ("nodeType", nodeType);
-            graph::Node node { GraphUtf8 (nodeId), GraphUtf8 (nodeType) };
-
-            GS::Array<GS::ObjectState> parameters;
-            if (params.Get ("parameters", parameters)) {
-                for (const GS::ObjectState& parameter : parameters) {
-                    GS::UniString parameterId;
-                    GS::ObjectState valueState;
-                    graph::Value value;
-                    if (!parameter.Get ("parameterId", parameterId) || !parameter.Get ("value", valueState) ||
-                        !DecodeParameterValue (valueState, value, error))
-                        return NativeCommandResult::Failure (GraphText (error.empty () ? "invalid parameter" : error));
-                    node.parameters.insert_or_assign (GraphUtf8 (parameterId), std::move (value));
-                }
-            }
-            double numberValue = 0.0;
-            if (params.Get ("numberValue", numberValue))
-                node.parameters.insert_or_assign ("value", graph::Value (numberValue));
-            edit.data = graph::AddNodeEdit { std::move (node) };
-        }
-        else if (editKind == "removeNode") {
-            GS::UniString nodeId;
-            params.Get ("nodeId", nodeId);
-            edit.data = graph::RemoveNodeEdit { GraphUtf8 (nodeId) };
-        }
-        else if (editKind == "connect") {
-            edit.data = graph::ConnectEdit { ReadEdge (params) };
-        }
-        else if (editKind == "disconnect") {
-            edit.data = graph::DisconnectEdit { ReadEdge (params) };
-        }
-        // Stage F5. Deliberately ON THIS ENDPOINT rather than as verbs of their
-        // own: a mode change and a release move the document exactly as a wire
-        // does, so they get the same validation, the same revision and the same
-        // dirty-closure answer. Two endpoints would be two answers.
-        else if (editKind == "setExecutionMode") {
-            GS::UniString nodeId, modeName;
-            params.Get ("nodeId", nodeId);
-            params.Get ("mode", modeName);
-            graph::ExecutionMode mode = graph::ExecutionMode::Enabled;
-            if (!graph::ParseExecutionMode (GraphUtf8 (modeName), mode))
-                return NativeCommandResult::Failure (GraphText ("unknown execution mode: " + GraphUtf8 (modeName)));
-            edit.data = graph::SetExecutionModeEdit { GraphUtf8 (nodeId), mode };
-        }
-        // Here for the same reason setExecutionMode is: a modifier moves the
-        // document exactly as a wire does, so it gets the same validation, the
-        // same revision and the same dirty-closure answer.
-        else if (editKind == "setPortModifier") {
-            GS::UniString nodeId, portId, modifierName;
-            params.Get ("nodeId", nodeId);
-            params.Get ("portId", portId);
-            params.Get ("modifier", modifierName);
-            graph::PortModifier modifier = graph::PortModifier::None;
-            if (!graph::ParsePortModifier (GraphUtf8 (modifierName), modifier))
-                return NativeCommandResult::Failure (GraphText ("unknown port modifier: " + GraphUtf8 (modifierName)));
-            edit.data = graph::SetPortModifierEdit { GraphUtf8 (nodeId), GraphUtf8 (portId), modifier };
-        }
-        else if (editKind == "releaseHolding") {
-            GS::UniString nodeId;
-            params.Get ("nodeId", nodeId);
-            edit.data = graph::ReleaseHoldingEdit { GraphUtf8 (nodeId) };
-        }
-        else {
-            GS::UniString nodeId, parameterId;
-            params.Get ("nodeId", nodeId);
-            params.Get ("parameterId", parameterId);
-            graph::Value value;
-            GS::ObjectState valueState;
-            double numberValue = 0.0;
-            if (params.Get ("value", valueState)) {
-                if (!DecodeParameterValue (valueState, value, error))
-                    return NativeCommandResult::Failure (GraphText (error));
-            }
-            else if (params.Get ("numberValue", numberValue)) {
-                value = graph::Value (numberValue);
-            }
-            else {
-                return NativeCommandResult::Failure (GraphText ("setParam requires a value"));
-            }
-            edit.data = graph::SetParameterEdit { GraphUtf8 (nodeId), GraphUtf8 (parameterId), std::move (value) };
-        }
-
-        const graph::EditResult result = graph::GraphRuntimeState::Get ().Apply (ReadGraphIdParam (params), edit);
-        if (!result.accepted) {
-            // The code goes into the failure text until Phase 0 gives this
-            // endpoint a structured rejection envelope. It is prefixed rather
-            // than dropped so a rejection is already greppable, and so the
-            // client migration to a `code` field is a parse change rather than
-            // a runtime change.
-            const std::string reported = result.code.empty () ? result.error : "[" + result.code + "] " + result.error;
-            return NativeCommandResult::Failure (GraphText (reported));
-        }
-        GS::Array<GS::UniString> dirtyNodes;
-        for (const graph::NodeId& nodeId : result.dirtyNodes)
-            dirtyNodes.Push (GraphText (nodeId));
-        GS::ObjectState response;
-        response.Add ("revision", static_cast<GS::Int64> (result.revision));
-        response.Add ("dirtyNodes", dirtyNodes);
-        return response;
-    }
-};
-
-class GraphEraseElementsCommand : public GateFreeGraphCommand {
-  protected:
-    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
-    {
-        GS::Array<GS::UniString> nodeIds;
-        GS::Array<GS::ObjectState> edgeStates;
-        params.Get ("nodeIds", nodeIds);
-        params.Get ("edges", edgeStates);
-
-        graph::RemoveElementsEdit remove;
-        remove.nodeIds.reserve (nodeIds.GetSize ());
-        remove.edges.reserve (edgeStates.GetSize ());
-        for (const GS::UniString& nodeId : nodeIds)
-            remove.nodeIds.push_back (GraphUtf8 (nodeId));
-        for (const GS::ObjectState& edge : edgeStates)
-            remove.edges.push_back (ReadEdge (edge));
-
-        const graph::EditResult result =
-            graph::GraphRuntimeState::Get ().Apply (ReadGraphIdParam (params), graph::GraphEdit { std::move (remove) });
-        if (!result.accepted)
-            return NativeCommandResult::Failure (GraphText (result.error));
-
-        GS::Array<GS::UniString> dirtyNodes;
-        for (const graph::NodeId& nodeId : result.dirtyNodes)
-            dirtyNodes.Push (GraphText (nodeId));
-        GS::ObjectState response;
-        response.Add ("revision", static_cast<GS::Int64> (result.revision));
-        response.Add ("dirtyNodes", dirtyNodes);
         return response;
     }
 };
@@ -858,10 +639,6 @@ const NativeCommandRegistration registrations[] = {
       kCatalogResponseSchema },
     { "GraphGetState", &MakeRegisteredNativeCommand<GraphGetStateCommand>, false, kGraphInputSchema,
       kStateResponseSchema },
-    { "GraphApplyEdit", &MakeRegisteredNativeCommand<GraphApplyEditCommand>, false, kEditInputSchema,
-      kEditResponseSchema },
-    { "GraphEraseElements", &MakeRegisteredNativeCommand<GraphEraseElementsCommand>, false, kEraseElementsInputSchema,
-      kEditResponseSchema },
     { "GraphEvaluate", &MakeRegisteredNativeCommand<GraphEvaluateCommand>, false, kEvaluateInputSchema,
       kEvaluateResponseSchema },
     { "GraphCancel", &MakeRegisteredNativeCommand<GraphCancelCommand>, false, kGraphInputSchema,

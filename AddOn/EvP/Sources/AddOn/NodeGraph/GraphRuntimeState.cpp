@@ -286,7 +286,206 @@ void GraphRuntimeState::PublishPreviewLocked (const GraphId& graphId, Slot& slot
     evp::preview::GraphPreviewStore::Get ().PublishGraph (graphId, projection.primitives);
 }
 
-EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& edit)
+void GraphRuntimeState::PushHistoryLocked (Slot& slot, const GraphDocument& before, const std::string& label,
+                                           const std::string& coalesceKey)
+{
+    // A new edit makes the redo branch unreachable. Keeping it would let Ctrl+Y
+    // after an edit reapply a future that no longer follows from the present.
+    slot.redoStack.clear ();
+
+    // Coalesce: the previous entry already holds the document from BEFORE the
+    // gesture started, so folding into it is simply declining to push. This is
+    // what makes one slider drag one Ctrl+Z rather than two hundred.
+    if (!coalesceKey.empty () && !slot.undoStack.empty () && slot.undoStack.back ().coalesceKey == coalesceKey)
+        return;
+
+    slot.undoStack.push_back (HistoryEntry { before, label, coalesceKey });
+
+    // Drop from the OLD end. A deque would avoid the shift, but the depth is
+    // small and bounded and the copy dominates either way.
+    while (slot.undoStack.size () > slot.undoDepth)
+        slot.undoStack.erase (slot.undoStack.begin ());
+}
+
+BatchEditResult GraphRuntimeState::StepHistoryLocked (const GraphId& graphId, Slot& slot, const GraphDocument& target)
+{
+    // ⚠️ EVERY NODE ON BOTH SIDES IS DIRTY, WHICH IS DELIBERATELY MORE THAN THE
+    // MINIMUM. Working out the true difference means comparing parameters, wires
+    // and modes node by node, and an under-invalidation here does not look like
+    // a bug - it looks like a node that quietly kept the result of a graph that
+    // no longer exists. Over-invalidating costs a recompute; under-invalidating
+    // costs the user's trust in every number on screen.
+    std::vector<NodeId> dirty;
+    dirty.reserve (slot.document.Nodes ().size () + target.Nodes ().size ());
+    for (const auto& [nodeId, node] : slot.document.Nodes ())
+        dirty.push_back (nodeId);
+    for (const auto& [nodeId, node] : target.Nodes ())
+        dirty.push_back (nodeId);
+    std::sort (dirty.begin (), dirty.end ());
+    dirty.erase (std::unique (dirty.begin (), dirty.end ()), dirty.end ());
+
+    slot.document.RestoreContent (target);
+    slot.evaluator.Invalidate (slot.document, dirty);
+    PublishPreviewLocked (graphId, slot);
+
+    BatchEditResult result;
+    result.accepted = true;
+    result.dirtyNodes = std::move (dirty);
+    result.revision = slot.document.Revision ();
+    return result;
+}
+
+BatchEditResult GraphRuntimeState::Undo (const GraphId& graphId)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+
+    BatchEditResult refused;
+    refused.revision = slot.document.Revision ();
+    if (slot.undoStack.empty ()) {
+        refused.code = batchcode::kNothingToUndo;
+        refused.error = "there is nothing to undo";
+        return refused;
+    }
+
+    HistoryEntry entry = std::move (slot.undoStack.back ());
+    slot.undoStack.pop_back ();
+    // The CURRENT document becomes the redo step, under the label of the edit
+    // being undone, so "Redo Delete node" names the same act "Undo Delete node"
+    // did rather than the one before it.
+    slot.redoStack.push_back (HistoryEntry { slot.document, entry.label, std::string () });
+    return StepHistoryLocked (graphId, slot, entry.document);
+}
+
+BatchEditResult GraphRuntimeState::Redo (const GraphId& graphId)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+
+    BatchEditResult refused;
+    refused.revision = slot.document.Revision ();
+    if (slot.redoStack.empty ()) {
+        refused.code = batchcode::kNothingToRedo;
+        refused.error = "there is nothing to redo";
+        return refused;
+    }
+
+    HistoryEntry entry = std::move (slot.redoStack.back ());
+    slot.redoStack.pop_back ();
+    // ⚠️ PUSHED DIRECTLY, NOT THROUGH PushHistoryLocked, WHICH CLEARS THE REDO
+    // STACK. A redo is not a new edit; clearing here would make the second
+    // consecutive redo impossible.
+    slot.undoStack.push_back (HistoryEntry { slot.document, entry.label, std::string () });
+    return StepHistoryLocked (graphId, slot, entry.document);
+}
+
+HistoryState GraphRuntimeState::History (const GraphId& graphId) const
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    HistoryState state;
+    state.canUndo = !slot.undoStack.empty ();
+    state.canRedo = !slot.redoStack.empty ();
+    if (state.canUndo)
+        state.undoLabel = slot.undoStack.back ().label;
+    if (state.canRedo)
+        state.redoLabel = slot.redoStack.back ().label;
+    state.depth = slot.undoDepth;
+    return state;
+}
+
+void GraphRuntimeState::SetHistoryDepth (const GraphId& graphId, size_t depth)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+    slot.undoDepth = std::clamp (depth, kMinUndoDepth, kMaxUndoDepth);
+    // ⚠️ APPLIED NOW, NOT AT THE NEXT EDIT. A user who lowers the depth to free
+    // memory has asked for those copies to go; leaving them until something
+    // else happens to push the stack would be a setting that has not taken
+    // effect and no way to tell.
+    while (slot.undoStack.size () > slot.undoDepth)
+        slot.undoStack.erase (slot.undoStack.begin ());
+}
+
+BatchEditResult GraphRuntimeState::ApplyBatch (const GraphId& graphId, std::optional<uint64_t> expectedRevision,
+                                               const std::vector<GraphEdit>& edits, const std::string& label,
+                                               const std::string& coalesceKey)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (slot.documentMutex);
+
+    BatchEditResult result;
+    result.revision = slot.document.Revision ();
+
+    if (expectedRevision.has_value () && *expectedRevision != slot.document.Revision ()) {
+        result.code = batchcode::kRevisionConflict;
+        result.error = "the graph is at revision " + std::to_string (slot.document.Revision ()) +
+                       ", not the expected " + std::to_string (*expectedRevision);
+        return result;
+    }
+    if (edits.empty ()) {
+        result.code = batchcode::kEmptyBatch;
+        result.error = "a transaction must carry at least one edit";
+        return result;
+    }
+    if (edits.size () > kMaxBatchEdits) {
+        result.code = batchcode::kBatchTooLarge;
+        result.error = "a transaction may carry at most " + std::to_string (kMaxBatchEdits) + " edits";
+        return result;
+    }
+
+    // ⚠️ A RELEASE CANNOT BE ROLLED BACK, SO IT CANNOT BE BATCHED. Its effect is
+    // half in the document and half in the EVALUATOR's staged value, and only
+    // the document half is snapshotted here. Refusing it outright is honest;
+    // accepting it and rolling back only the document would leave the graph in a
+    // state neither the client nor the runtime believes in. A release is a single
+    // deliberate gesture anyway - it has no business inside a paste.
+    for (size_t index = 0; index < edits.size (); ++index) {
+        if (std::get_if<ReleaseHoldingEdit> (&edits[index].data) != nullptr) {
+            result.code = batchcode::kUnbatchableEdit;
+            result.error = "releaseHolding cannot take part in a transaction; apply it on its own";
+            result.failedIndex = index;
+            return result;
+        }
+    }
+
+    // The rollback. See GraphDocument::RestoreContent for why this is a copy and
+    // not a list of inverse actions.
+    const GraphDocument before = slot.document;
+
+    std::vector<NodeId> dirty;
+    for (size_t index = 0; index < edits.size (); ++index) {
+        const EditResult step = ApplyEdit (slot.document, registry_, edits[index]);
+        if (!step.accepted) {
+            slot.document.RestoreContent (before);
+            result.code = step.code;
+            result.error = step.error;
+            result.failedIndex = index;
+            result.revision = slot.document.Revision ();
+            return result;
+        }
+        dirty.insert (dirty.end (), step.dirtyNodes.begin (), step.dirtyNodes.end ());
+    }
+
+    std::sort (dirty.begin (), dirty.end ());
+    dirty.erase (std::unique (dirty.begin (), dirty.end ()), dirty.end ());
+
+    PushHistoryLocked (slot, before, label.empty () ? "Edit" : label, coalesceKey);
+
+    // ⚠️ ONCE, NOT PER EDIT. Invalidating inside the loop would republish the
+    // preview for a document that is halfway through a transaction the caller
+    // may still roll back - a viewport flash of a state that never existed.
+    slot.evaluator.Invalidate (slot.document, dirty);
+    PublishPreviewLocked (graphId, slot);
+
+    result.accepted = true;
+    result.dirtyNodes = std::move (dirty);
+    result.revision = slot.document.Revision ();
+    return result;
+}
+
+EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& edit, const std::string& label,
+                                     const std::string& coalesceKey)
 {
     Slot& slot = SlotFor (graphId);
     std::lock_guard lock (slot.documentMutex);
@@ -305,6 +504,11 @@ EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& ed
             return EditResult { false, code, error, {}, slot.document.Revision () };
     }
 
+    // Taken before the edit so it can become the undo step. A copy of two
+    // containers on every accepted edit is the cost of Ctrl+Z; the alternative
+    // is an inverse action per edit kind, which is the thing that goes wrong.
+    const GraphDocument before = slot.document;
+
     EditResult result = ApplyEdit (slot.document, registry_, edit);
     if (result.accepted) {
         if (release != nullptr) {
@@ -313,6 +517,12 @@ EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& ed
             // way round would leave them describing the pre-release run.
             slot.evaluator.ReleaseHolding (slot.document, release->nodeId);
         }
+        // ⚠️ A RELEASE IS NOT RECORDED, for the same reason it cannot be batched:
+        // undoing it would restore the document's holding mode without putting
+        // the promoted value back, so Ctrl+Z would appear to work and quietly
+        // lose data. See ApplyBatch.
+        if (release == nullptr)
+            PushHistoryLocked (slot, before, label.empty () ? "Edit" : label, coalesceKey);
         slot.evaluator.Invalidate (slot.document, result.dirtyNodes);
         PublishPreviewLocked (graphId, slot);
     }

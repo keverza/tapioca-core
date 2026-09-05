@@ -27,6 +27,7 @@
 #include "NativeCommands/ModelGeometryCommands.hpp"
 #include "NativeCommands/NotifyCommands.hpp"
 #include "NativeCommands/NodeGraphCommands.hpp"
+#include "NativeCommands/NodeGraphEditCommands.hpp"
 #include "NativeCommands/NodeGraphLibraryCommands.hpp"
 #include "NativeCommands/LibraryPreviewCommands.hpp"
 #include "NativeCommands/NodeGraphElementCommands.hpp"
@@ -108,6 +109,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetViewerSyncCommandRegistrations,
     &GetPreviewCommandRegistrations,
     &GetNodeGraphCommandRegistrations,
+    &GetNodeGraphEditCommandRegistrations,
     &GetNodeGraphLibraryCommandRegistrations,
     &GetNodeGraphSelectionCommandRegistrations,
     &GetNodeGraphScriptCommandRegistrations,

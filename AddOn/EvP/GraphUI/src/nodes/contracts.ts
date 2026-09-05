@@ -25,7 +25,18 @@ export function capabilitiesFor(schema: NodeTypeSchema): NodeCapabilities {
     bypass: (schema.bypassMappings?.length ?? 0) > 0,
     disable: true,
     freeze: schema.holdCapable === true,
-    resizable: viewer || schema.parameters.length > 2 || schema.display === 'text' || schema.display === 'script',
+    /**
+     * ⚠️ ONLY THE NODES WHOSE CONTENT HAS A SIZE. This used to include any node
+     * with more than two parameters, which handed a resize frame to every
+     * slider and picker on the canvas - nodes whose height is entirely decided
+     * by their rows. The visible cost was a resize outline flickering around a
+     * Number node while its slider was being dragged, but the real cost is that
+     * a resizable node invites a size it cannot use.
+     *
+     * What is left is the three bodies that genuinely hold a variable amount of
+     * something: a preview's viewport, a panel's text, and a script's editor.
+     */
+    resizable: viewer || schema.display === 'text' || schema.display === 'script',
     /**
      * ⚠️ ONLY EFFECTFUL NODES GET THE BUTTON, AND EVERY EFFECTFUL NODE GETS IT.
      * Automatic evaluation runs the graph continuously and NEVER commits a host
@@ -45,13 +56,35 @@ export function capabilitiesFor(schema: NodeTypeSchema): NodeCapabilities {
   }
 }
 
+/**
+ * The smallest a node may be dragged to, by what its body holds.
+ *
+ * Header, ports and padding come to roughly 70px before the body draws
+ * anything at all, which is why every floor here is well above it.
+ */
+function minimumSizeFor(schema: NodeTypeSchema, capabilities: NodeCapabilities): { width: number; height: number } {
+  if (capabilities.nodeViewer) return { width: 240, height: 200 }
+  if (schema.display === 'script') return { width: 280, height: 180 }
+  if (schema.display === 'text') return { width: 220, height: 140 }
+  return { width: 220, height: 110 }
+}
+
 export function presentationFor(schema: NodeTypeSchema): NodePresentation {
   const capabilities = capabilitiesFor(schema)
   return {
     bodyMode: bodyModeFor(schema),
     portLayout: 'horizontal',
     resizable: capabilities.resizable,
-    minSize: { width: 220, height: 80 },
+    /**
+     * The floor a resize may not go under.
+     *
+     * ⚠️ NOT ONE NUMBER FOR EVERY BODY. 80px was below the height these bodies
+     * actually occupy, so dragging the frame in pushed the content out through
+     * the node's own edges - a viewport clipped to a sliver, a code editor with
+     * no room for a line. The minimum is what the body needs to draw itself: a
+     * viewport wants room to be a viewport, and text wants more than a header.
+     */
+    minSize: minimumSizeFor(schema, capabilities),
     maxSize: { width: 720, height: 640 },
     controls: {
       inline: schema.parameters.length > 0,

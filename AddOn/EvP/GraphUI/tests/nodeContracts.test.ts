@@ -52,3 +52,33 @@ test('diagnostics aggregate by severity and retain port context when copied', ()
   assert.equal(aggregateSeverity(messages), 'error')
   assert.match(formatDiagnostics(messages), /PORT-1 Missing data \/ input/)
 })
+
+test('only bodies with a variable amount of content are resizable', () => {
+  // ⚠️ THE REGRESSION THIS PINS: "more than two parameters" used to make a node
+  // resizable, which handed a resize frame to every slider and picker on the
+  // canvas - nodes whose height is decided entirely by their rows. The visible
+  // symptom was an outline flickering around a Number node while its slider was
+  // being dragged.
+  const many = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      parameterId: `p${index}`,
+      label: `P${index}`,
+      valueType: 'double',
+      required: false,
+    }))
+
+  const slider = { ...schema, display: 'default', parameters: many(5) } as NodeTypeSchema
+  assert.equal(presentationFor(slider).resizable, false, 'a node full of parameters is not resizable')
+
+  assert.equal(presentationFor(schema).resizable, true, 'a preview has a viewport with a size')
+  assert.equal(presentationFor({ ...schema, display: 'text' } as NodeTypeSchema).resizable, true, 'a panel holds text')
+  assert.equal(presentationFor({ ...schema, display: 'script' } as NodeTypeSchema).resizable, true, 'a script holds an editor')
+})
+
+test('the minimum size is what the body needs, not one number for every node', () => {
+  // A floor below the content pushes it out through the node's own edges.
+  const preview = presentationFor(schema).minSize
+  const plain = presentationFor({ ...schema, display: 'default', parameters: [] } as NodeTypeSchema).minSize
+  assert.ok(preview!.height > plain!.height, 'a viewport needs room to be a viewport')
+  assert.ok(plain!.height > 70, 'header, ports and padding come to roughly 70px before the body draws')
+})
