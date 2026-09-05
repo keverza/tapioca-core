@@ -51,6 +51,54 @@ enum class SettingGroup {
 
 const char* SettingGroupName (SettingGroup group);
 
+// WHERE A SETTING'S VALUE COMES FROM. Two members, because two is what this
+// build can honestly distinguish today.
+//
+// ⚠️ IT IS NOT DECORATION. A user reading "Length" on a wall is entitled to know
+// that Archicad has no such field - API_WallType carries begC, endC and angle,
+// and the number in the row is arithmetic this build did. That matters the
+// moment the number disagrees with a schedule: a native field that disagrees is
+// a bug in the reader, and a derived one is a disagreement about definition.
+enum class SettingOrigin {
+    // Transcribed from an ACAPI struct field.
+    Archicad,
+
+    // Computed by Tapioca from fields that are. See ReferenceLineLength.
+    Derived,
+};
+
+const char* SettingOriginName (SettingOrigin origin);
+
+// WHEN A SETTING APPLIES AT ALL, as a value another setting takes.
+//
+// ⚠️ THIS EXISTS TO SEPARATE "NOT APPLICABLE" FROM "NOT READ", which the panel
+// previously could not do. A Basic wall has no composite; the reader therefore
+// writes none, and without this the inspector would report it as a field the
+// build cannot read yet - telling the user the panel is short when it is
+// complete. With it, the material rows are conditional on `structure` and
+// exactly one of them is expected for any given wall.
+//
+// Deliberately ONE equality against ONE sibling, not an expression language. The
+// cases that exist are `structure == "Basic"`, `"Composite"` and `"Profiled"` -
+// the spellings SettingGroupName's sibling StructureName actually emits. A
+// predicate grammar to serve three equalities would be a second thing to test
+// and a second thing for every client to implement.
+struct SettingCondition {
+    // Empty when the setting always applies, which is the default.
+    std::string settingId;
+
+    // The TEXT the sibling's value must render as. Text rather than a Value
+    // because the settings this gates are all closed String spellings, and
+    // comparing rendered text is what a client can do without carrying the
+    // runtime's Value at all.
+    std::string equalsText;
+
+    bool Always () const
+    {
+        return settingId.empty ();
+    }
+};
+
 struct ElementSettingDescriptor {
     std::string id;
     std::string label;
@@ -63,6 +111,11 @@ struct ElementSettingDescriptor {
     // the field - is the kind of quiet disagreement that makes a 90 degree wall
     // read as 1.57.
     std::string unit;
+
+    SettingOrigin origin = SettingOrigin::Archicad;
+
+    // Empty settingId means unconditional, which is what almost every setting is.
+    SettingCondition appliesWhen;
 };
 
 struct ElementTypeDescriptor {
@@ -84,6 +137,33 @@ struct ElementTypeDescriptor {
 const std::vector<ElementTypeDescriptor>& ElementTypeCatalog ();
 
 const ElementTypeDescriptor* FindElementType (const std::string& id);
+
+// ---------------------------------------------------------------------------
+// THE DERIVED GEOMETRY OF A REFERENCE LINE.
+//
+// ⚠️ HERE RATHER THAN IN THE READER, AND THAT IS THE WHOLE POINT. Archicad
+// stores a wall's reference line as two endpoints and a central angle; the
+// length and the curve are arithmetic. Arithmetic in ElementReaderImpl.cpp
+// would be arithmetic the offline suite cannot reach, in the one file whose
+// defence is that it contains nothing to get wrong. So the reader hands over
+// three doubles and copies back the answer, and the sign conventions, the
+// degenerate chord and the straight-line case are all tested here.
+//
+// `angleRadians` is the SIGNED central angle - API_WallType::angle,
+// API_BeamType::curveAngle. Zero means straight, which is the common case and
+// the one that must not go through the arc path at all.
+
+// The plan length of the reference line. Zero for a degenerate chord, which is
+// a real thing a model can contain and not an error to refuse.
+double ReferenceLineLength (const Point3& begin, const Point3& end, double angleRadians);
+
+// The reference line as a polyline, tessellated when it is an arc.
+//
+// A straight line is exactly two points and no tessellation - so a rectangular
+// building does not acquire a hundred collinear vertices per wall. `segments`
+// caps the arc; the default is what an inspector row and a downstream curve can
+// both live with.
+Polyline ReferenceLinePath (const Point3& begin, const Point3& end, double angleRadians, int segments = 24);
 
 // One element as the host read it.
 struct ElementDescription {

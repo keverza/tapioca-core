@@ -12,6 +12,7 @@
 import type {
   ElementDescription,
   ElementGroup,
+  ElementSettingSchema,
   ElementSettingValue,
   ElementTypeSchema,
   GraphParameter,
@@ -84,6 +85,31 @@ export interface SettingRow {
   label: string
   unit: string
   text: string
+  /** 'archicad' or 'derived' - see ElementSettingSchema.origin. */
+  origin: string
+}
+
+/**
+ * Whether a descriptor applies to THIS element at all.
+ *
+ * ⚠️ NOT THE SAME QUESTION AS "DID THE READER FILL IT". A Basic wall has no
+ * composite: the row does not apply, and the reader correctly wrote nothing.
+ * An unread row is one that DOES apply and is still missing. Conflating them
+ * makes a complete panel report itself as short - see `unreadSettingCount`.
+ *
+ * The condition is the runtime's, carried in the same response as the values,
+ * and it is compared against the sibling's RENDERED TEXT because that is the
+ * only form of the sibling a client is given.
+ */
+function applies(descriptor: ElementSettingSchema, values: Map<string, ElementSettingValue>): boolean {
+  if (descriptor.appliesWhenSetting === '') return true
+  const governing = values.get(descriptor.appliesWhenSetting)
+  // ⚠️ AN UNREAD GOVERNING SETTING MAKES THE ROW INAPPLICABLE, NOT APPLICABLE.
+  // If the build could not read what structure a wall is, it cannot know which
+  // of the three material rows to expect - and reporting all three as unread
+  // would blame the reader for three fields on the strength of one.
+  if (governing === undefined) return false
+  return governing.text === descriptor.appliesWhenEquals
 }
 
 export interface SettingSection {
@@ -120,6 +146,7 @@ export function settingSectionsOf(
       label: descriptor.label,
       unit: descriptor.unit,
       text: value.text,
+      origin: descriptor.origin,
     })
   }
   return sections
@@ -136,8 +163,14 @@ export function unreadSettingCount(
   schema: ElementTypeSchema | undefined,
 ): number {
   if (schema === undefined) return 0
-  const present = new Set(element.settings.map((setting) => setting.id))
-  return schema.settings.filter((descriptor) => !present.has(descriptor.id)).length
+  const values = new Map<string, ElementSettingValue>(element.settings.map((setting) => [setting.id, setting]))
+  // ⚠️ ROWS THAT DO NOT APPLY ARE NOT MISSING ROWS. A Basic wall declares a
+  // Composite and a Profile it cannot have; counting those made every wall in
+  // the model report two settings "this build does not read yet", which is a
+  // complaint about the reader for something the reader got right.
+  return schema.settings.filter(
+    (descriptor) => !values.has(descriptor.id) && applies(descriptor, values),
+  ).length
 }
 
 /**

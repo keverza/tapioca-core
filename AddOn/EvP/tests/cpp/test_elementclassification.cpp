@@ -299,3 +299,193 @@ TEST (ElementContainers, TheCapturedTypeListRoundTripsThroughAValue)
     EXPECT_TRUE (TypesFromValue (Value (std::string ("wall"))).empty ());
     EXPECT_TRUE (TypesFromValue (Value ()).empty ());
 }
+
+// ---------------------------------------------------------------------------
+// The property surface the browser promotes from. These tests exist because the
+// catalog is the ONLY place the four readers agree, and because three of the
+// settings below are ones a user asked for by name and this build did not have.
+// ---------------------------------------------------------------------------
+
+TEST (ElementClassification, AnOpeningCarriesTheWidthAndHeightAUserAsksItFor)
+{
+    // ⚠️ THE CASE THAT MOTIVATED THE CHANGE. Windows and doors were classified
+    // but carried the common four and nothing else, so "width" - the first thing
+    // anyone asks a window - was not merely unread, it was not in the schema.
+    for (const char* id : { "window", "door", "skylight" }) {
+        const ElementTypeDescriptor& type = Type (id);
+        EXPECT_TRUE (HasSetting (type, "width")) << id;
+        EXPECT_TRUE (HasSetting (type, "height")) << id;
+        EXPECT_EQ ("m", Setting (type, "width").unit) << id;
+        EXPECT_EQ (ValueType::Double, Setting (type, "height").valueType) << id;
+    }
+}
+
+TEST (ElementClassification, OnlyAWallMountedOpeningSitsAlongAWall)
+{
+    // `lower` and `objLoc` are API_WindowType's, not API_OpeningBaseType's. A
+    // skylight is in a roof and has neither, so declaring them for it would be a
+    // row the reader can never fill.
+    EXPECT_TRUE (HasSetting (Type ("window"), "sillHeight"));
+    EXPECT_TRUE (HasSetting (Type ("door"), "positionAlongWall"));
+    EXPECT_FALSE (HasSetting (Type ("skylight"), "sillHeight"));
+    EXPECT_FALSE (HasSetting (Type ("skylight"), "positionAlongWall"));
+}
+
+TEST (ElementClassification, LengthIsDeclaredDerivedBecauseArchicadHasNoSuchField)
+{
+    // API_WallType has begC, endC and angle - no length. A user comparing this
+    // row against a schedule is entitled to know the number is arithmetic.
+    for (const char* id : { "wall", "beam" }) {
+        const ElementSettingDescriptor& length = Setting (Type (id), "length");
+        EXPECT_EQ (SettingOrigin::Derived, length.origin) << id;
+        EXPECT_EQ ("m", length.unit) << id;
+    }
+    // And everything transcribed from a struct field says so, so `Derived` stays
+    // a claim about the few rather than a default nobody set.
+    EXPECT_EQ (SettingOrigin::Archicad, Setting (Type ("wall"), "thickness").origin);
+    EXPECT_EQ (SettingOrigin::Archicad, Setting (Type ("zone"), "zoneName").origin);
+}
+
+TEST (ElementClassification, AReferenceLineLocationIsNotAReferenceLine)
+{
+    const ElementTypeDescriptor& wall = Type ("wall");
+    // The String keeps its id, because a saved promotion addresses it by id and
+    // re-pointing an id at a new ValueType is undetectable to any reader.
+    EXPECT_EQ (ValueType::String, Setting (wall, "referenceLine").valueType);
+    EXPECT_EQ ("Reference Line Location", Setting (wall, "referenceLine").label);
+    // The geometry is a separate setting under a separate id.
+    EXPECT_EQ (ValueType::Polyline, Setting (wall, "referenceLinePath").valueType);
+}
+
+TEST (ElementClassification, TheStructureRowsAreConditionalOnTheStructure)
+{
+    const ElementTypeDescriptor& wall = Type ("wall");
+    EXPECT_TRUE (Setting (wall, "structure").appliesWhen.Always ());
+
+    const ElementSettingDescriptor& composite = Setting (wall, "composite");
+    EXPECT_EQ ("structure", composite.appliesWhen.settingId);
+    EXPECT_EQ ("Composite", composite.appliesWhen.equalsText);
+    EXPECT_EQ ("Basic", Setting (wall, "buildingMaterial").appliesWhen.equalsText);
+}
+
+TEST (ElementClassification, EveryConditionNamesASiblingThatExistsOnTheSameType)
+{
+    // A condition pointing at a setting the type does not have could never be
+    // satisfied, so the row it gates would be permanently invisible - which
+    // looks exactly like a reader that never fills it.
+    for (const ElementTypeDescriptor& type : ElementTypeCatalog ()) {
+        for (const ElementSettingDescriptor& setting : type.settings) {
+            if (setting.appliesWhen.Always ())
+                continue;
+            EXPECT_TRUE (HasSetting (type, setting.appliesWhen.settingId))
+                << type.id << "." << setting.id << " is gated on a setting the type does not carry";
+            EXPECT_FALSE (setting.appliesWhen.equalsText.empty ()) << type.id << "." << setting.id;
+        }
+    }
+}
+
+TEST (ElementClassification, OnlyTheWallDeclaresAProfileBecauseOnlyItHasTheField)
+{
+    // API_WallType carries profileAttr; API_SlabType and API_ShellBaseType do
+    // not. A Profile row on a slab would be a row nothing can fill.
+    EXPECT_TRUE (HasSetting (Type ("wall"), "profile"));
+    EXPECT_FALSE (HasSetting (Type ("slab"), "profile"));
+    EXPECT_FALSE (HasSetting (Type ("roof"), "profile"));
+    EXPECT_FALSE (HasSetting (Type ("shell"), "profile"));
+    // But all of them still say WHICH structure they are.
+    EXPECT_TRUE (HasSetting (Type ("slab"), "structure"));
+}
+
+TEST (ElementClassification, EachWallSurfaceCarriesItsOwnOverriddenFlag)
+{
+    // API_OverriddenAttribute is APIOptional<API_AttributeIndex>: a name AND a
+    // hasValue. Without the flag, an inherited surface and one that could not be
+    // read would render identically, and they are opposite facts.
+    const ElementTypeDescriptor& wall = Type ("wall");
+    for (const char* surface : { "referenceSurface", "oppositeSurface", "sideSurface" }) {
+        EXPECT_TRUE (HasSetting (wall, surface)) << surface;
+        EXPECT_EQ (ValueType::String, Setting (wall, surface).valueType) << surface;
+        const std::string flag = std::string (surface) + "Overridden";
+        EXPECT_TRUE (HasSetting (wall, flag)) << flag;
+        EXPECT_EQ (ValueType::Bool, Setting (wall, flag).valueType) << flag;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The derived reference line. Here rather than in the reader precisely so that
+// it CAN be tested - see the header.
+// ---------------------------------------------------------------------------
+
+namespace {
+constexpr double kPi = 3.14159265358979323846;
+}
+
+TEST (ReferenceLine, AStraightLineIsItsChordAndExactlyTwoPoints)
+{
+    const Point3 a { 0.0, 0.0, 0.0 };
+    const Point3 b { 3.0, 4.0, 0.0 };
+    EXPECT_NEAR (5.0, ReferenceLineLength (a, b, 0.0), 1e-9);
+
+    // ⚠️ TWO POINTS, NOT `segments` COLLINEAR ONES. A rectangular building would
+    // otherwise carry twenty times the vertices for no information.
+    const Polyline path = ReferenceLinePath (a, b, 0.0);
+    ASSERT_EQ (2u, path.points.size ());
+    EXPECT_NEAR (0.0, path.points.front ().x, 1e-9);
+    EXPECT_NEAR (3.0, path.points.back ().x, 1e-9);
+}
+
+TEST (ReferenceLine, ASemicircleIsHalfItsCircumference)
+{
+    // A chord of 2 subtending pi is a diameter: radius 1, arc length pi.
+    const Point3 a { 0.0, 0.0, 0.0 };
+    const Point3 b { 2.0, 0.0, 0.0 };
+    EXPECT_NEAR (kPi, ReferenceLineLength (a, b, kPi), 1e-6);
+    // An arc is always longer than the chord it spans.
+    EXPECT_GT (ReferenceLineLength (a, b, 1.0), 2.0);
+}
+
+TEST (ReferenceLine, TheSignOfTheAngleChoosesTheSideTheArcBulgesTo)
+{
+    // ⚠️ THE FAILURE THIS CATCHES MIRRORS EVERY CURVED WALL ABOUT ITS OWN CHORD,
+    // which reads as a modelling mistake rather than a reader one.
+    const Point3 a { 0.0, 0.0, 0.0 };
+    const Point3 b { 2.0, 0.0, 0.0 };
+    const Polyline positive = ReferenceLinePath (a, b, kPi / 2.0);
+    const Polyline negative = ReferenceLinePath (a, b, -kPi / 2.0);
+    ASSERT_FALSE (positive.points.empty ());
+    ASSERT_FALSE (negative.points.empty ());
+
+    const auto midY = [] (const Polyline& path) { return path.points[path.points.size () / 2].y; };
+    EXPECT_NE (midY (positive) > 0.0, midY (negative) > 0.0);
+    // Same length either way; only the side differs.
+    EXPECT_NEAR (ReferenceLineLength (a, b, kPi / 2.0), ReferenceLineLength (a, b, -kPi / 2.0), 1e-9);
+}
+
+TEST (ReferenceLine, AnArcKeepsTheModelsOwnEndpoints)
+{
+    // A rounding drift at the last vertex leaves a visible gap where two walls
+    // meet, so the endpoints are copied rather than computed.
+    const Point3 a { 1.5, -2.25, 0.0 };
+    const Point3 b { 4.75, 3.5, 0.0 };
+    const Polyline path = ReferenceLinePath (a, b, 1.2);
+    ASSERT_GE (path.points.size (), 3u);
+    EXPECT_DOUBLE_EQ (a.x, path.points.front ().x);
+    EXPECT_DOUBLE_EQ (a.y, path.points.front ().y);
+    EXPECT_DOUBLE_EQ (b.x, path.points.back ().x);
+    EXPECT_DOUBLE_EQ (b.y, path.points.back ().y);
+}
+
+TEST (ReferenceLine, DegenerateInputsProduceAnAnswerRatherThanRefusing)
+{
+    // A zero-length wall and a non-finite angle are things a hand-edited or
+    // corrupt document can contain; neither is worth failing a whole read for.
+    const Point3 a { 2.0, 2.0, 0.0 };
+    EXPECT_NEAR (0.0, ReferenceLineLength (a, a, 0.0), 1e-12);
+    EXPECT_NEAR (0.0, ReferenceLineLength (a, a, 1.0), 1e-12);
+    EXPECT_EQ (2u, ReferenceLinePath (a, a, 0.0).points.size ());
+
+    const Point3 b { 5.0, 2.0, 0.0 };
+    // A full turn has no finite circumscribing arc through two points; the
+    // straight fallback is the answer that does not produce an infinity.
+    EXPECT_NEAR (3.0, ReferenceLineLength (a, b, 2.0 * kPi), 1e-6);
+}

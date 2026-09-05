@@ -10,7 +10,12 @@ import {
   UNCLASSIFIED_ELEMENT_TYPE,
   type ElementTypeInfo,
 } from '../src/nodes/archicad/elements.ts'
-import type { ElementDescription, ElementTypeSchema, GraphParameter } from '../src/types.ts'
+import type {
+  ElementDescription,
+  ElementSettingSchema,
+  ElementTypeSchema,
+  GraphParameter,
+} from '../src/types.ts'
 
 /**
  * ⚠️ WHAT THESE TESTS PROTECT. Two lists have to stay PARALLEL - the guids a
@@ -80,16 +85,65 @@ test('a node with no capture stacks nothing', () => {
 
 // --- the settings tree ------------------------------------------------------
 
+/**
+ * One descriptor, with the fields a test does not care about defaulted. The
+ * runtime always sends all of them; spelling them out on every row would make
+ * these fixtures unreadable and would bury the one field a given test is about.
+ */
+function setting(
+  id: string,
+  label: string,
+  group: string,
+  valueType: string,
+  unit = '',
+  extra: Partial<ElementSettingSchema> = {},
+): ElementSettingSchema {
+  return {
+    id,
+    label,
+    group,
+    valueType,
+    unit,
+    origin: 'archicad',
+    appliesWhenSetting: '',
+    appliesWhenEquals: '',
+    ...extra,
+  }
+}
+
 const wallSchema: ElementTypeSchema = {
   id: 'wall',
   label: 'Wall',
   plural: 'Walls',
   settings: [
-    { id: 'elementId', label: 'ID', group: 'Identity', valueType: 'string', unit: '' },
-    { id: 'layer', label: 'Layer', group: 'Identity', valueType: 'string', unit: '' },
-    { id: 'referenceLine', label: 'Reference Line', group: 'Placement', valueType: 'string', unit: '' },
-    { id: 'thickness', label: 'Thickness', group: 'Geometry', valueType: 'double', unit: 'm' },
-    { id: 'height', label: 'Height', group: 'Geometry', valueType: 'double', unit: 'm' },
+    setting('elementId', 'ID', 'Identity', 'string'),
+    setting('layer', 'Layer', 'Identity', 'string'),
+    setting('referenceLine', 'Reference Line Location', 'Placement', 'string'),
+    setting('thickness', 'Thickness', 'Geometry', 'double', 'm'),
+    setting('height', 'Height', 'Geometry', 'double', 'm'),
+  ],
+}
+
+/**
+ * A wall whose three material rows are conditional on its structure, which is
+ * how the runtime actually declares them.
+ */
+const structuredWallSchema: ElementTypeSchema = {
+  id: 'wall',
+  label: 'Wall',
+  plural: 'Walls',
+  settings: [
+    setting('elementId', 'ID', 'Identity', 'string'),
+    setting('structure', 'Structure', 'Structure', 'string'),
+    setting('buildingMaterial', 'Building Material', 'Structure', 'string', '', {
+      appliesWhenSetting: 'structure',
+      appliesWhenEquals: 'Basic',
+    }),
+    setting('composite', 'Composite', 'Structure', 'string', '', {
+      appliesWhenSetting: 'structure',
+      appliesWhenEquals: 'Composite',
+    }),
+    setting('length', 'Length', 'Geometry', 'double', 'm', { origin: 'derived' }),
   ],
 }
 
@@ -197,4 +251,53 @@ test('a container ignores list members that are not element references', () => {
     catalog,
   )
   assert.deepEqual(groups[0].guids, ['w1'])
+})
+
+test('a row that does not apply is not a row this build failed to read', () => {
+  // ⚠️ THE DEFECT THIS CLOSES. A Basic wall has no composite, so the reader
+  // correctly writes none - and the panel used to count that as a setting "this
+  // build does not read yet", telling the user it was short when it was
+  // complete. Only the row the structure actually selects can be missing.
+  const basic = described([
+    { id: 'elementId', text: 'W-01' },
+    { id: 'structure', text: 'Basic' },
+    { id: 'buildingMaterial', text: 'Concrete' },
+    { id: 'length', text: '4.2' },
+  ])
+  assert.equal(unreadSettingCount(basic, structuredWallSchema), 0)
+
+  // The same wall as a composite: now `composite` is the row that applies and
+  // `buildingMaterial` is the one that does not.
+  const composite = described([
+    { id: 'elementId', text: 'W-02' },
+    { id: 'structure', text: 'Composite' },
+    { id: 'length', text: '4.2' },
+  ])
+  assert.equal(unreadSettingCount(composite, structuredWallSchema), 1)
+})
+
+test('an unread governing setting does not make every row it gates unread', () => {
+  // Not knowing what structure a wall is means not knowing which material row
+  // to expect. Counting all of them would blame the reader for three fields on
+  // the strength of one.
+  const element = described([
+    { id: 'elementId', text: 'W-03' },
+    { id: 'length', text: '4.2' },
+  ])
+  assert.equal(unreadSettingCount(element, structuredWallSchema), 1)
+})
+
+test('a row carries the origin of its value so a derived number says so', () => {
+  // Archicad has no wall length; the number is arithmetic Tapioca did, and a
+  // disagreement with a schedule means something different because of that.
+  const sections = settingSectionsOf(
+    described([
+      { id: 'structure', text: 'Basic' },
+      { id: 'length', text: '4.2' },
+    ]),
+    structuredWallSchema,
+  )
+  const rows = sections.flatMap((section) => section.rows)
+  assert.equal(rows.find((row) => row.id === 'length')?.origin, 'derived')
+  assert.equal(rows.find((row) => row.id === 'structure')?.origin, 'archicad')
 })

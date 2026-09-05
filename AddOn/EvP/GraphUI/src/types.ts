@@ -630,6 +630,27 @@ export interface ElementSettingSchema {
   valueType: string
   /** The unit of the VALUE, not a decoration: an angle marked deg IS in degrees. */
   unit: string
+  /**
+   * 'archicad' when the value is a field of an ACAPI struct, 'derived' when
+   * Tapioca computed it.
+   *
+   * ⚠️ WORTH SHOWING. Archicad has no wall length - it has two endpoints and an
+   * angle - so a Length row that disagrees with a schedule is a disagreement
+   * about definition, not a reader bug, and the user can only tell which if the
+   * row says where the number came from.
+   */
+  origin: string
+  /**
+   * The sibling setting this row is conditional on, empty when it always
+   * applies, together with the text that sibling must render as.
+   *
+   * ⚠️ THIS IS WHAT SEPARATES "DOES NOT APPLY" FROM "NOT READ". A Basic wall has
+   * no composite, so the reader writes none; without the condition the panel
+   * would report it as a field this build cannot read yet, which tells the user
+   * the panel is short when it is complete. See `settingSectionsOf`.
+   */
+  appliesWhenSetting: string
+  appliesWhenEquals: string
 }
 
 export interface ElementTypeSchema {

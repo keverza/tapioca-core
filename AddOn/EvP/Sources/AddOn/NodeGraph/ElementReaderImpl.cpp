@@ -326,6 +326,59 @@ void PutOutline (Settings& settings, const API_Guid& guid, const API_Polygon& po
 
 // --- per-type transcription -------------------------------------------------
 
+// The one structure setting that APPLIES, and not the two that do not.
+//
+// ⚠️ THE CONDITION IS THE CATALOG'S, AND THIS MUST AGREE WITH IT. See
+// ElementClassification's Structure(): `buildingMaterial` is declared for
+// "Basic", `composite` for "Composite", `profile` for "Profile", and the
+// spellings here are the ones StructureName returns. Writing all three - which
+// this did before - put a composite name on a Basic wall, where it is not what
+// the wall is built from.
+void PutStructure (Settings& settings, API_ModelElemStructureType structure, const API_AttributeIndex& buildingMaterial,
+                   const API_AttributeIndex& composite, const API_AttributeIndex& profile)
+{
+    PutText (settings, "structure", StructureName (structure));
+    switch (structure) {
+        case API_BasicStructure:
+            PutText (settings, "buildingMaterial", AttributeName (API_BuildingMaterialID, buildingMaterial));
+            break;
+        case API_CompositeStructure:
+            PutText (settings, "composite", AttributeName (API_CompWallID, composite));
+            break;
+        case API_ProfileStructure:
+            PutText (settings, "profile", AttributeName (API_ProfileID, profile));
+            break;
+        default:
+            break;
+    }
+}
+
+// One API_OverriddenAttribute as the two settings the catalog declares for it.
+//
+// ⚠️ THE BOOL IS ALWAYS WRITTEN, THE NAME ONLY WHEN OVERRIDDEN. That pairing is
+// what lets a client tell an inherited surface from one it could not read; see
+// WallSurfaces() in ElementClassification.cpp.
+void PutSurface (Settings& settings, const char* nameId, const char* overriddenId,
+                 const API_OverriddenAttribute& surface)
+{
+    PutBool (settings, overriddenId, surface.hasValue);
+    if (surface.hasValue)
+        PutText (settings, nameId, AttributeName (API_MaterialID, surface.value));
+}
+
+// The derived reference line, for the two types that have one. The arithmetic
+// is ElementClassification's and is tested offline; this only supplies the
+// three numbers and copies the answer back.
+void PutReferenceLine (Settings& settings, const API_Coord& begin, const API_Coord& end, double angleRadians)
+{
+    const Point3 from { begin.x, begin.y, 0.0 };
+    const Point3 to { end.x, end.y, 0.0 };
+    PutNumber (settings, "length", ReferenceLineLength (from, to, angleRadians));
+    Polyline path = ReferenceLinePath (from, to, angleRadians);
+    if (!path.points.empty ())
+        settings.emplace ("referenceLinePath", Value (std::move (path)));
+}
+
 void ReadWall (const API_WallType& wall, Settings& settings)
 {
     PutText (settings, "referenceLine", WallReferenceLineName (wall.referenceLineLocation));
@@ -335,12 +388,31 @@ void ReadWall (const API_WallType& wall, Settings& settings)
     PutNumber (settings, "topOffset", wall.topOffset);
     PutPoint (settings, "begin", wall.begC.x, wall.begC.y, 0.0);
     PutPoint (settings, "end", wall.endC.x, wall.endC.y, 0.0);
+    PutReferenceLine (settings, wall.begC, wall.endC, wall.angle);
     PutText (settings, "wallShape", WallShapeName (wall.type));
     PutAngle (settings, "slantAngle", wall.slantAlpha);
     PutBool (settings, "flipped", wall.flipped);
-    PutText (settings, "structure", StructureName (wall.modelElemStructureType));
-    PutText (settings, "buildingMaterial", AttributeName (API_BuildingMaterialID, wall.buildingMaterial));
-    PutText (settings, "composite", AttributeName (API_CompWallID, wall.composite));
+    PutStructure (settings, wall.modelElemStructureType, wall.buildingMaterial, wall.composite, wall.profileAttr);
+    PutSurface (settings, "referenceSurface", "referenceSurfaceOverridden", wall.refMat);
+    PutSurface (settings, "oppositeSurface", "oppositeSurfaceOverridden", wall.oppMat);
+    PutSurface (settings, "sideSurface", "sideSurfaceOverridden", wall.sidMat);
+}
+
+// Windows, doors and skylights. API_DoorType IS API_WindowType, so the first two
+// share every field; a skylight has the same opening base and a different owner,
+// which is a relation rather than a setting and is not read here.
+void ReadOpeningBase (const API_OpeningBaseType& opening, Settings& settings)
+{
+    PutNumber (settings, "width", opening.width);
+    PutNumber (settings, "height", opening.height);
+    PutBool (settings, "reflected", opening.reflected);
+}
+
+void ReadWindowDoor (const API_WindowType& window, Settings& settings)
+{
+    ReadOpeningBase (window.openingBase, settings);
+    PutNumber (settings, "sillHeight", window.lower);
+    PutNumber (settings, "positionAlongWall", window.objLoc);
 }
 
 void ReadSlab (const API_SlabType& slab, Settings& settings)
@@ -349,9 +421,8 @@ void ReadSlab (const API_SlabType& slab, Settings& settings)
     PutNumber (settings, "level", slab.level);
     PutText (settings, "referencePlane", SlabReferencePlaneName (slab.referencePlaneLocation));
     PutNumber (settings, "offsetFromTop", slab.offsetFromTop);
-    PutText (settings, "structure", StructureName (slab.modelElemStructureType));
-    PutText (settings, "buildingMaterial", AttributeName (API_BuildingMaterialID, slab.buildingMaterial));
-    PutText (settings, "composite", AttributeName (API_CompWallID, slab.composite));
+    // No profile: API_SlabType has no profileAttr. See StructureWithProfile().
+    PutStructure (settings, slab.modelElemStructureType, slab.buildingMaterial, slab.composite, {});
     PutOutline (settings, slab.head.guid, slab.poly);
 }
 
@@ -371,6 +442,7 @@ void ReadBeam (const API_BeamType& beam, Settings& settings)
 {
     PutPoint (settings, "begin", beam.begC.x, beam.begC.y, 0.0);
     PutPoint (settings, "end", beam.endC.x, beam.endC.y, 0.0);
+    PutReferenceLine (settings, beam.begC, beam.endC, beam.curveAngle);
     PutNumber (settings, "level", beam.level);
     PutNumber (settings, "offset", beam.offset);
     PutText (settings, "shape", BeamShapeName (beam.beamShape));
@@ -413,9 +485,8 @@ void ReadShellBase (const API_ShellBaseType& base, Settings& settings)
 {
     PutNumber (settings, "thickness", base.thickness);
     PutNumber (settings, "level", base.level);
-    PutText (settings, "structure", StructureName (base.modelElemStructureType));
-    PutText (settings, "buildingMaterial", AttributeName (API_BuildingMaterialID, base.buildingMaterial));
-    PutText (settings, "composite", AttributeName (API_CompWallID, base.composite));
+    // No profile: API_ShellBaseType has no profileAttr either.
+    PutStructure (settings, base.modelElemStructureType, base.buildingMaterial, base.composite, {});
 }
 
 void ReadMesh (const API_MeshType& mesh, Settings& settings)
@@ -511,6 +582,21 @@ void ReadOne (const std::string& guid, const std::map<short, Story>& stories, El
             break;
         case API_ZoneID:
             ReadZone (element.zone, settings);
+            break;
+        case API_WindowID:
+            ReadWindowDoor (element.window, settings);
+            break;
+        case API_DoorID:
+            // API_DoorType IS API_WindowType - see the typedef in
+            // APIdefs_Elements.h - but the UNION MEMBER is still `door`, and
+            // reading `element.window` here would read the right bytes for the
+            // wrong reason and break the day the typedef stops holding.
+            ReadWindowDoor (element.door, settings);
+            break;
+        case API_SkylightID:
+            // No sill and no position along a wall: those are API_WindowType's,
+            // and a skylight sits in a roof.
+            ReadOpeningBase (element.skylight.openingBase, settings);
             break;
         case API_RoofID:
             ReadShellBase (element.roof.shellBase, settings);

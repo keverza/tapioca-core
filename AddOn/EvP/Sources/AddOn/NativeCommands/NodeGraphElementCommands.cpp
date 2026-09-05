@@ -45,7 +45,7 @@ constexpr const char kDescribeInputSchema[] =
     R"json({"type":"object","properties":{"guids":{"type":"array","items":{"type":"string","minLength":1}}},"additionalProperties":false,"required":["guids"]})json";
 
 constexpr const char kDescribeResponseSchema[] =
-    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"truncated":{"type":"boolean"},"types":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"plural":{"type":"string"},"settings":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"group":{"type":"string"},"valueType":{"type":"string"},"unit":{"type":"string"}},"additionalProperties":false,"required":["id","label","group","valueType","unit"]}}},"additionalProperties":false,"required":["id","label","plural","settings"]}},"elements":{"type":"array","items":{"type":"object","properties":{"guid":{"type":"string"},"elementType":{"type":"string"},"typeLabel":{"type":"string"},"available":{"type":"boolean"},"detail":{"type":"string"},"settings":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"},"hasNumber":{"type":"boolean"},"number":{"type":"number"}},"additionalProperties":false,"required":["id","text","hasNumber","number"]}}},"additionalProperties":false,"required":["guid","elementType","typeLabel","available","detail","settings"]}}},"additionalProperties":false,"required":["ok","error","truncated","types","elements"]})json";
+    R"json({"type":"object","properties":{"ok":{"type":"boolean"},"error":{"type":"string"},"truncated":{"type":"boolean"},"types":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"plural":{"type":"string"},"settings":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"group":{"type":"string"},"valueType":{"type":"string"},"unit":{"type":"string"},"origin":{"type":"string","enum":["archicad","derived"]},"appliesWhenSetting":{"type":"string"},"appliesWhenEquals":{"type":"string"}},"additionalProperties":false,"required":["id","label","group","valueType","unit","origin","appliesWhenSetting","appliesWhenEquals"]}}},"additionalProperties":false,"required":["id","label","plural","settings"]}},"elements":{"type":"array","items":{"type":"object","properties":{"guid":{"type":"string"},"elementType":{"type":"string"},"typeLabel":{"type":"string"},"available":{"type":"boolean"},"detail":{"type":"string"},"settings":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"text":{"type":"string"},"hasNumber":{"type":"boolean"},"number":{"type":"number"}},"additionalProperties":false,"required":["id","text","hasNumber","number"]}}},"additionalProperties":false,"required":["guid","elementType","typeLabel","available","detail","settings"]}}},"additionalProperties":false,"required":["ok","error","truncated","types","elements"]})json";
 
 // A setting's number, when it HAS one. Bools deliberately do not: a checkbox
 // rendered as 1 is worse than a checkbox rendered from its text.
@@ -91,6 +91,14 @@ GS::ObjectState EncodeType (const graph::ElementTypeDescriptor& type)
         row.Add ("group", GraphText (graph::SettingGroupName (setting.group)));
         row.Add ("valueType", GraphText (GraphValueTypeName (setting.valueType)));
         row.Add ("unit", GraphText (setting.unit));
+        // Where the value came from, and when the row applies at all. Both are
+        // the CATALOG's answers - see ElementClassification.hpp. A client that
+        // recomputed either would be a second place they could be got wrong, and
+        // the one that renders "not read yet" over a row that simply does not
+        // apply to this element.
+        row.Add ("origin", GraphText (graph::SettingOriginName (setting.origin)));
+        row.Add ("appliesWhenSetting", GraphText (setting.appliesWhen.settingId));
+        row.Add ("appliesWhenEquals", GraphText (setting.appliesWhen.equalsText));
         settings.Push (row);
     }
     encoded.Add ("settings", settings);

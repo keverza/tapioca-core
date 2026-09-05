@@ -1,6 +1,7 @@
 #include "NodeGraph/ElementClassification.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <map>
 
@@ -39,15 +40,103 @@ std::vector<S> With (std::vector<S> extra)
     return Join (Common (), std::move (extra));
 }
 
-// The structure trio, shared by every type that can be Basic, Composite or
-// Profiled. Repeating the three descriptors on six types is how they end up
-// spelled differently on one of them.
+SettingCondition WhenStructureIs (const char* text)
+{
+    return SettingCondition { "structure", text };
+}
+
+// The structure set, shared by every type that can be Basic or Composite.
+// Repeating these descriptors on six types is how they end up spelled
+// differently on one of them.
+//
+// ⚠️ THE MATERIAL ROWS ARE CONDITIONAL ON `structure`, and that is a
+// correctness fix rather than a nicety. Before it, every wall showed a Building
+// Material AND a Composite AND the reader filled both, so a Basic wall displayed
+// a composite name that does not apply to it and a composite wall displayed a
+// building material that is not what it is built from. APIdefs_Elements.h says
+// so at the field itself: "Composite index of wall. Used only, if structure type
+// is API_CompositeStructure." Now `structure` says which row is meaningful, the
+// reader fills only that one, and a client with no value for the others knows
+// they do not apply rather than that they could not be read. See
+// SettingCondition.
 std::vector<S> Structure ()
 {
     return {
         { "structure", "Structure", G::Structure, ValueType::String, {} },
-        { "buildingMaterial", "Building Material", G::Structure, ValueType::String, {} },
-        { "composite", "Composite", G::Structure, ValueType::String, {} },
+        { "buildingMaterial",
+          "Building Material",
+          G::Structure,
+          ValueType::String,
+          {},
+          SettingOrigin::Archicad,
+          WhenStructureIs ("Basic") },
+        { "composite",
+          "Composite",
+          G::Structure,
+          ValueType::String,
+          {},
+          SettingOrigin::Archicad,
+          WhenStructureIs ("Composite") },
+    };
+}
+
+// ⚠️ ONLY THE WALL GETS A PROFILE ROW, AND THAT IS THE API'S DOING, NOT A
+// PREFERENCE. API_WallType carries `profileAttr`; API_SlabType and
+// API_ShellBaseType carry `modelElemStructureType`, `buildingMaterial` and
+// `composite` and NOTHING ELSE - grep them. Handing every structural type the
+// same three-way row would declare a Profile setting on a slab that the reader
+// has no field to fill, which is exactly the "declared but never written"
+// failure this file exists to prevent.
+//
+// Columns and beams are profiled too, but per SEGMENT (API_ColumnType::nSegments)
+// rather than on the element, so their structure is not a row here either.
+std::vector<S> StructureWithProfile ()
+{
+    return Join (Structure (), { { "profile",
+                                   "Profile",
+                                   G::Structure,
+                                   ValueType::String,
+                                   {},
+                                   SettingOrigin::Archicad,
+                                   WhenStructureIs ("Profiled") } });
+}
+
+// The three surfaces of a wall, each as a NAME plus whether that name is an
+// element-level override.
+//
+// ⚠️ TWO SETTINGS PER SURFACE, BECAUSE API_OverriddenAttribute IS TWO THINGS.
+// It is APIOptional<API_AttributeIndex>: an attribute index and a `hasValue`
+// saying whether the element overrides its building material's surface or
+// inherits it. Collapsed into one row, an inherited surface and a surface this
+// build failed to read would render identically - and they are opposite facts.
+// The bool is ALWAYS filled; the name only when there is an override to name.
+// So an absent name beside `false` reads as "inherited", and an absent name
+// beside `true` reads as a failed attribute lookup, which is visible.
+//
+// ⚠️ AND THERE IS NO "THE" INHERITED SURFACE TO RESOLVE. For a Basic wall it
+// would be the building material's; for a composite it is per skin, and for a
+// profile per component. Resolving one of those and printing it under a single
+// label would be an answer to a question the model does not have.
+std::vector<S> WallSurfaces ()
+{
+    return {
+        { "referenceSurface", "Reference Surface", G::Display, ValueType::String, {} },
+        { "referenceSurfaceOverridden", "Reference Surface Overridden", G::Display, ValueType::Bool, {} },
+        { "oppositeSurface", "Opposite Surface", G::Display, ValueType::String, {} },
+        { "oppositeSurfaceOverridden", "Opposite Surface Overridden", G::Display, ValueType::Bool, {} },
+        { "sideSurface", "Side Surface", G::Display, ValueType::String, {} },
+        { "sideSurfaceOverridden", "Side Surface Overridden", G::Display, ValueType::Bool, {} },
+    };
+}
+
+// What every window, door and skylight has, from API_OpeningBaseType. Doors are
+// API_WindowType by typedef, so one list genuinely serves all three.
+std::vector<S> Opening ()
+{
+    return {
+        { "width", "Width", G::Geometry, ValueType::Double, kMetres },
+        { "height", "Height", G::Geometry, ValueType::Double, kMetres },
+        { "reflected", "Mirrored", G::Geometry, ValueType::Bool, {} },
     };
 }
 
@@ -65,24 +154,47 @@ const std::vector<ElementTypeDescriptor>& Catalog ()
     static const std::vector<ElementTypeDescriptor> catalog = [] {
         std::vector<ElementTypeDescriptor> types;
 
-        types.push_back ({ "wall", "Wall", "Walls", true,
-                           With (Join (
-                               {
-                                   // The five a user names when asked what a wall
-                                   // is: where its reference line runs, how thick,
-                                   // how tall, and how it sits on its story.
-                                   { "referenceLine", "Reference Line", G::Placement, ValueType::String, {} },
-                                   { "thickness", "Thickness", G::Geometry, ValueType::Double, kMetres },
-                                   { "height", "Height", G::Geometry, ValueType::Double, kMetres },
-                                   { "bottomOffset", "Bottom Offset", G::Placement, ValueType::Double, kMetres },
-                                   { "topOffset", "Top Offset", G::Placement, ValueType::Double, kMetres },
-                                   { "begin", "Begin", G::Geometry, ValueType::Point3, kMetres },
-                                   { "end", "End", G::Geometry, ValueType::Point3, kMetres },
-                                   { "wallShape", "Shape", G::Geometry, ValueType::String, {} },
-                                   { "slantAngle", "Slant Angle", G::Geometry, ValueType::Double, kDegrees },
-                                   { "flipped", "Flipped", G::Display, ValueType::Bool, {} },
-                               },
-                               Structure ())) });
+        types.push_back (
+            { "wall", "Wall", "Walls", true,
+              With (
+                  Join (Join (
+                            {
+                                // The five a user names when asked what a
+                                // wall is: where its reference line runs,
+                                // how thick, how tall, how long, and how it
+                                // sits on its story.
+                                //
+                                // ⚠️ `referenceLine` IS A LOCATION, NOT A
+                                // CURVE, and its label now says so. It
+                                // carries API_WallReferenceLineLocationID -
+                                // "Center", "Outside" - and was previously
+                                // labelled "Reference Line", which read as
+                                // a promise of geometry that a String
+                                // cannot keep. The id is UNCHANGED on
+                                // purpose: a saved promotion addresses this
+                                // setting by id, and re-pointing an id at a
+                                // different ValueType is the one schema
+                                // change no reader can detect.
+                                { "referenceLine", "Reference Line Location", G::Placement, ValueType::String, {} },
+                                // The curve itself, under its own id.
+                                { "referenceLinePath", "Reference Line", G::Geometry, ValueType::Polyline, kMetres },
+                                { "thickness", "Thickness", G::Geometry, ValueType::Double, kMetres },
+                                { "height", "Height", G::Geometry, ValueType::Double, kMetres },
+                                // ⚠️ DERIVED. API_WallType HAS NO LENGTH -
+                                // it has begC, endC and angle. See
+                                // ReferenceLineLength for the arithmetic
+                                // and SettingOrigin for why the row says so.
+                                { "length", "Length", G::Geometry, ValueType::Double, kMetres, SettingOrigin::Derived },
+                                { "bottomOffset", "Bottom Offset", G::Placement, ValueType::Double, kMetres },
+                                { "topOffset", "Top Offset", G::Placement, ValueType::Double, kMetres },
+                                { "begin", "Begin", G::Geometry, ValueType::Point3, kMetres },
+                                { "end", "End", G::Geometry, ValueType::Point3, kMetres },
+                                { "wallShape", "Shape", G::Geometry, ValueType::String, {} },
+                                { "slantAngle", "Slant Angle", G::Geometry, ValueType::Double, kDegrees },
+                                { "flipped", "Flipped", G::Display, ValueType::Bool, {} },
+                            },
+                            StructureWithProfile ()),
+                        WallSurfaces ())) });
 
         types.push_back ({ "slab", "Slab", "Slabs", true,
                            With (Join (
@@ -115,6 +227,16 @@ const std::vector<ElementTypeDescriptor>& Catalog ()
                            With ({
                                { "begin", "Begin", G::Geometry, ValueType::Point3, kMetres },
                                { "end", "End", G::Geometry, ValueType::Point3, kMetres },
+                               // ⚠️ DERIVED, AND IT IS THE PLAN LENGTH. Same
+                               // arithmetic as a wall's, over begC/endC and
+                               // curveAngle. A SLANTED beam's axis is longer than
+                               // this by 1/cos(slantAngle) - the slant is reported
+                               // beside it rather than folded in, because a length
+                               // that silently means two different things
+                               // depending on another field is worse than one that
+                               // means one thing.
+                               { "length", "Length", G::Geometry, ValueType::Double, kMetres, SettingOrigin::Derived },
+                               { "referenceLinePath", "Reference Axis", G::Geometry, ValueType::Polyline, kMetres },
                                { "level", "Level", G::Placement, ValueType::Double, kMetres },
                                { "offset", "Reference Axis Offset", G::Placement, ValueType::Double, kMetres },
                                { "shape", "Shape", G::Geometry, ValueType::String, {} },
@@ -201,9 +323,26 @@ const std::vector<ElementTypeDescriptor>& Catalog ()
         types.push_back (CommonOnly ("curtainWall", "Curtain Wall", "Curtain Walls"));
         types.push_back (CommonOnly ("stair", "Stair", "Stairs"));
         types.push_back (CommonOnly ("railing", "Railing", "Railings"));
-        types.push_back (CommonOnly ("door", "Door", "Doors"));
-        types.push_back (CommonOnly ("window", "Window", "Windows"));
-        types.push_back (CommonOnly ("skylight", "Skylight", "Skylights"));
+
+        // THE OPENINGS. Windows, doors and skylights share API_OpeningBaseType,
+        // and API_DoorType IS API_WindowType by typedef - so the width and height
+        // a user asks an opening for come from one place and are read once.
+        //
+        // A window and a door additionally sit somewhere ALONG their wall, which
+        // a skylight does not: `objLoc` and `lower` are API_WindowType's, not the
+        // opening base's.
+        const std::vector<S> inWall = {
+            { "sillHeight", "Sill Height", G::Placement, ValueType::Double, kMetres },
+            { "positionAlongWall", "Position Along Wall", G::Placement, ValueType::Double, kMetres },
+        };
+        types.push_back ({ "door", "Door", "Doors", true, With (Join (Opening (), inWall)) });
+        types.push_back ({ "window", "Window", "Windows", true, With (Join (Opening (), inWall)) });
+        types.push_back ({ "skylight", "Skylight", "Skylights", true, With (Opening ()) });
+
+        // NOT an opening in the API_OpeningBaseType sense. API_OpeningID is the
+        // standalone void cut through an element, with its own struct, and giving
+        // it a width and a height this build does not read would be inventing two
+        // fields to make a name look consistent.
         types.push_back (CommonOnly ("opening", "Opening", "Openings"));
 
         // 2D and documentation elements. Classified so a mixed selection groups
@@ -259,6 +398,115 @@ std::vector<ElementTypeGroup> Collect (const std::vector<std::string>& typeOf,
 } // namespace
 
 const char* const kUnclassifiedElementTypeId = "other";
+
+const char* SettingOriginName (SettingOrigin origin)
+{
+    switch (origin) {
+        case SettingOrigin::Archicad:
+            return "archicad";
+        case SettingOrigin::Derived:
+            return "derived";
+    }
+    return "archicad";
+}
+
+// The arc through `begin` and `end` subtending `angleRadians`, as centre and
+// radius. Returns false for the cases that have no arc: a straight segment, a
+// degenerate chord, or a full turn.
+namespace {
+
+constexpr double kPi = 3.14159265358979323846;
+
+bool ArcOf (const Point3& begin, const Point3& end, double angleRadians, Point3& centre, double& radius,
+            double& startAngle)
+{
+    if (!std::isfinite (angleRadians) || angleRadians == 0.0)
+        return false;
+
+    const double dx = end.x - begin.x;
+    const double dy = end.y - begin.y;
+    const double chord = std::sqrt (dx * dx + dy * dy);
+    if (!(chord > 0.0))
+        return false;
+
+    const double half = std::sin (angleRadians / 2.0);
+    // A chord subtending a zero or full turn has no finite circumscribing arc.
+    if (std::abs (half) < 1e-12)
+        return false;
+
+    radius = chord / (2.0 * half);
+    if (!std::isfinite (radius))
+        return false;
+
+    // The centre sits off the chord's midpoint along its perpendicular, on the
+    // side the SIGN of the angle chooses. Getting that sign wrong mirrors every
+    // curved wall in the model about its own chord, which is a failure that
+    // looks like a modelling mistake rather than a reader one.
+    const double midX = (begin.x + end.x) / 2.0;
+    const double midY = (begin.y + end.y) / 2.0;
+    const double apothem = radius * std::cos (angleRadians / 2.0);
+    centre = Point3 { midX - apothem * (dy / chord), midY + apothem * (dx / chord), begin.z };
+
+    // ⚠️ THE RADIUS GOES POSITIVE ONLY NOW, AND NOT ONE LINE EARLIER. Both terms
+    // above are signed, and it is their sign that puts the centre on the correct
+    // side of the chord for a clockwise sweep. But the caller uses the radius to
+    // step AROUND that centre, and a negative one there reflects every point
+    // through it - which put both sweep directions on the same side of the
+    // chord, the exact mirroring this arithmetic exists to get right.
+    radius = std::abs (radius);
+    startAngle = std::atan2 (begin.y - centre.y, begin.x - centre.x);
+    return true;
+}
+
+} // namespace
+
+double ReferenceLineLength (const Point3& begin, const Point3& end, double angleRadians)
+{
+    Point3 centre;
+    double radius = 0.0;
+    double startAngle = 0.0;
+    if (ArcOf (begin, end, angleRadians, centre, radius, startAngle))
+        return std::abs (radius * angleRadians);
+
+    const double dx = end.x - begin.x;
+    const double dy = end.y - begin.y;
+    const double length = std::sqrt (dx * dx + dy * dy);
+    return std::isfinite (length) ? length : 0.0;
+}
+
+Polyline ReferenceLinePath (const Point3& begin, const Point3& end, double angleRadians, int segments)
+{
+    Polyline path;
+
+    Point3 centre;
+    double radius = 0.0;
+    double startAngle = 0.0;
+    if (!ArcOf (begin, end, angleRadians, centre, radius, startAngle)) {
+        // ⚠️ EXACTLY TWO POINTS, NO TESSELLATION. A straight wall is the common
+        // case; putting `segments` collinear vertices on it would make every
+        // rectangular building's outline twenty times larger for no information.
+        path.points.push_back (begin);
+        path.points.push_back (end);
+        return path;
+    }
+
+    // At least one segment per quarter turn, so a shallow arc does not get the
+    // full budget and a near-full circle is not drawn as a triangle.
+    const int steps = std::max (
+        2,
+        std::min (segments, std::max (2, static_cast<int> (std::ceil (std::abs (angleRadians) / (kPi / 2.0) * 8.0)))));
+    path.points.reserve (static_cast<size_t> (steps) + 1);
+    for (int i = 0; i <= steps; ++i) {
+        const double t = static_cast<double> (i) / static_cast<double> (steps);
+        const double a = startAngle + angleRadians * t;
+        path.points.push_back (Point3 { centre.x + radius * std::cos (a), centre.y + radius * std::sin (a), begin.z });
+    }
+    // The endpoints are the model's, not the arithmetic's: a rounding drift at
+    // the last vertex would leave a visible gap where two walls meet.
+    path.points.front () = begin;
+    path.points.back () = end;
+    return path;
+}
 
 const char* SettingGroupName (SettingGroup group)
 {

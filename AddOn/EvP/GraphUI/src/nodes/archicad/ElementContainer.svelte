@@ -119,7 +119,17 @@
                   <h4>{section.group}</h4>
                   <dl>
                     {#each section.rows as row (row.id)}
-                      <dt>{row.label}</dt>
+                      <!--
+                        ⚠️ A DERIVED ROW SAYS SO. Archicad has no wall length -
+                        it has two endpoints and an angle - so this number is
+                        arithmetic Tapioca did. A user checking the panel against
+                        a schedule needs to know that a disagreement here is
+                        about the DEFINITION of length rather than about the
+                        reader, and the marker is the only thing that tells them.
+                      -->
+                      <dt>
+                        {row.label}{#if row.origin === 'derived'}<abbr title="Computed by Tapioca; Archicad has no such field">ƒ</abbr>{/if}
+                      </dt>
                       <dd>{row.text}{#if row.unit !== ''}<em> {row.unit}</em>{/if}</dd>
                     {/each}
                   </dl>
@@ -178,6 +188,7 @@
   h4 { margin: 5px 0 2px; padding-left: 17px; color: var(--text-faint); font: 8px/1 ui-monospace, monospace; letter-spacing: .09em; text-transform: uppercase; }
   dl { display: grid; margin: 0; padding: 0 4px 0 17px; grid-template-columns: 1fr auto; gap: 1px 8px; }
   dt { color: var(--text-faint); font: 9px/1.5 'Segoe UI', sans-serif; }
+  dt abbr { margin-left: 3px; border: 0; color: var(--text-faint); cursor: help; font: italic 8px/1 'Segoe UI', serif; opacity: .75; text-decoration: none; }
   dd { overflow: hidden; margin: 0; font: 9px/1.5 ui-monospace, monospace; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
   dd em { color: var(--text-faint); font-style: normal; }
   .note { margin: 4px 6px; color: var(--text-faint); font: 9px/1.4 'Segoe UI', sans-serif; }
