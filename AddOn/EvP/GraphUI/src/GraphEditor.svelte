@@ -34,14 +34,6 @@
     type EffectiveTool,
   } from './annotations'
   import ApplicationMenu from './ApplicationMenu.svelte'
-  import CommitBar from './CommitBar.svelte'
-  import {
-    assemblyIsStale,
-    buildCommitAssembly,
-    commitBlockerText,
-    commitLamp,
-    commitOutcome,
-  } from './commit'
   import {
     containerElementType,
     containerGroupOf,
@@ -187,18 +179,6 @@
   let attributeListings = $state.raw<Record<string, AttributeListing>>({})
   const optionRequests = new Set<string>()
   let results = $state.raw<NodeResultRecord[]>([])
-
-  /* --- The commit surface -------------------------------------------------
-   *
-   * ⚠️ THE SET ACCEPT COMMITS IS THE RUNTIME'S LIST, NOT AN INFERENCE. It is
-   * `skippedEffectNodes` from the most recent pass; see commit.ts for why
-   * recomputing it from the catalog would be wrong.
-   */
-  let lastSummary = $state.raw<EvaluationSummary | null>(null)
-  let committing = $state(false)
-  /** True from a successful ACCEPT until the next edit or pass. */
-  let committedRecently = $state(false)
-  let assemblyOpen = $state(false)
   let revision = $state(0)
   let busy = $state(false)
   let message = $state('Connecting to the native graph runtime...')
@@ -581,11 +561,7 @@
     offering an undo that is not there.
   */
   async function reloadState(): Promise<void> {
-    const previous = revision
     applyState(await callTapioca<GraphState>('Tapioca.GraphGetState'))
-    // The Committed lamp is about the state of the model, and an edit makes it
-    // a claim about a graph that has since changed.
-    if (revision !== previous) committedRecently = false
     await refreshHistory()
   }
 
@@ -1287,10 +1263,7 @@
     if (solutionLocked || !nativeConnected || busy) return
     busy = true
     try {
-      // The summary is KEPT, not discarded: `skippedEffectNodes` from the most
-      // recent pass is exactly what ACCEPT would commit, and the automatic pass
-      // is the pass that is nearly always most recent.
-      lastSummary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {})
+      await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {})
       await refreshResults()
       await reloadState()
       failed = false
@@ -1346,89 +1319,6 @@
       message = error instanceof Error ? error.message : String(error)
     } finally {
       executeBusyNode = null
-    }
-  }
-
-  /** A row's two names, from the catalog and the node's own nickname. */
-  function describeCommitNode(nodeId: string): { name: string; writes: string } {
-    const record = nodes.find((node) => node.id === nodeId)
-    const schema = record?.data.schema
-    const writes = schema?.label ?? nodeId
-    return { name: visuals.get(nodeId)?.nickname?.trim() || writes, writes }
-  }
-
-  /**
-   * Whether this graph writes to Archicad at all.
-   *
-   * ⚠️ USED ONLY TO EXPLAIN AN EMPTY ASSEMBLY, NEVER TO BUILD ONE. "This graph
-   * writes nothing" and "everything it writes is already committed" are
-   * different sentences, and the runtime's list cannot tell them apart because
-   * both are the empty list.
-   */
-  const graphHasEffectfulNode = $derived(nodes.some((node) => node.data.schema.effect === 'hostUiWrite'))
-
-  const assembly = $derived(buildCommitAssembly(lastSummary, results, describeCommitNode, graphHasEffectfulNode))
-
-  const lamp = $derived(commitLamp({ busy, solutionLocked, failed, committed: committedRecently }))
-
-  /**
-   * RUN: a forced re-evaluation that writes nothing, and the resume when the
-   * solution is locked. Safe by construction, which is why it has no guard
-   * beyond needing the runtime.
-   */
-  function runNow(): void {
-    if (solutionLocked) {
-      toggleSolutionLock()
-      scheduleAutoRun()
-      return
-    }
-    void evaluate()
-  }
-
-  /**
-   * ACCEPT: the only control in this editor that writes to the user's model.
-   *
-   * ⚠️ `targets` IS THE LIST THE USER READ, NOT THE WHOLE GRAPH. A graph-wide
-   * effectful pass would commit a node that appeared after the assembly was
-   * drawn - the same surprise `handleExecute` narrows away for one node.
-   */
-  async function acceptCommit(): Promise<void> {
-    if (!nativeConnected) {
-      message = 'Committing needs the native graph runtime.'
-      return
-    }
-    const targets = [...assembly.ready]
-    if (targets.length === 0) {
-      message = commitBlockerText(assembly.blocker)
-      return
-    }
-    if (assemblyIsStale(assembly, revision)) {
-      // The graph moved while the list was on screen. Rebuild rather than
-      // commit against something the user is no longer looking at.
-      message = `The list was built at revision ${assembly.revision}; the graph is at ${revision}. Run again.`
-      failed = true
-      return
-    }
-    committing = true
-    failed = false
-    try {
-      const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {
-        targets,
-        allowSideEffects: true,
-      })
-      lastSummary = summary
-      await refreshResults()
-      await reloadState()
-      const outcome = commitOutcome(summary, targets)
-      committedRecently = outcome.committed
-      failed = outcome.failed
-      message = outcome.message
-      if (outcome.committed) assemblyOpen = false
-    } catch (error) {
-      failed = true
-      message = error instanceof Error ? error.message : String(error)
-    } finally {
-      committing = false
     }
   }
 
@@ -1498,8 +1388,6 @@
     failed = false
     try {
       const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', { maxParallel })
-      lastSummary = summary
-      committedRecently = false
       await refreshResults()
       await reloadState()
       const complete = results.filter((result) => result.status === 'success').length
@@ -3139,25 +3027,6 @@
       />
     {/if}
   </section>
-
-  <!--
-    ⚠️ A ROW OF THE CHROME, NOT A FLOATING OVERLAY. This is the one control that
-    must never be behind a node, and it must not overlap the minimap or the
-    zoom controls either.
-  -->
-  <CommitBar
-    {lamp}
-    {assembly}
-    {revision}
-    nodeCount={nodes.length}
-    durationMs={lastSummary?.parallelism?.wallClockMs ?? 0}
-    {busy}
-    {committing}
-    {nativeConnected}
-    bind:open={assemblyOpen}
-    onrun={runNow}
-    onaccept={() => void acceptCommit()}
-  />
 
   <footer class:error={failed}>
     <span class:active={busy}></span>
