@@ -45,6 +45,7 @@
   import { parsePortReference, serializePortReference } from './nodes/types/portReference'
   import {
     applyLayoutToPositions,
+    clipboardOfAnnotation,
     collectClipboard,
     describeValueRule,
     detailLevelForZoom,
@@ -78,6 +79,7 @@
     type AssignedNode,
     type DockState,
     type DetailLevel,
+    type DuplicationPlan,
     type GraphClipboard,
     type MetadataSnapshot,
     type ThemeMode,
@@ -2253,7 +2255,7 @@
       message = 'Select a node first.'
       return false
     }
-    graphClipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals)
+    graphClipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals, annotations)
     // Best-effort only. See graphClipboard.
     void navigator.clipboard?.writeText?.(JSON.stringify(graphClipboard)).catch(() => {})
     message = `Copied ${graphClipboard.nodes.length} node${graphClipboard.nodes.length === 1 ? '' : 's'}`
@@ -2265,8 +2267,19 @@
    * transaction.
    */
   async function pasteClipboard(clipboard: GraphClipboard, at: XYPosition, label: string): Promise<void> {
-    if (clipboard.nodes.length === 0) {
+    if (clipboard.nodes.length === 0 && clipboard.annotations.length === 0) {
       message = 'Nothing to paste.'
+      return
+    }
+    // ⚠️ AN ANNOTATION-ONLY PASTE NEEDS NO RUNTIME AND NO TRANSACTION. A
+    // rectangle is presentation the runtime has never heard of, so demanding a
+    // bridge for it would refuse an operation that touches nothing the bridge
+    // owns. It still records an undo step, because it is a change the user made.
+    if (clipboard.nodes.length === 0) {
+      const plan = duplicationPlan(clipboard, at, () => '')
+      addPastedAnnotations(plan, [])
+      recordEditorStep(label)
+      message = label
       return
     }
     if (!nativeConnected) {
@@ -2290,6 +2303,7 @@
       for (const [id, position] of rekeyByAssignment(plan.positions, assigned)) positions.set(id, position)
       for (const [id, visual] of rekeyByAssignment(plan.visuals, assigned)) visuals.set(id, visual)
       persistVisuals()
+      addPastedAnnotations(plan, assigned)
       await reloadState()
       // Select what was just pasted, so the next drag moves the copy.
       const fresh = new Set(assigned.map((entry) => entry.nodeId))
@@ -2304,6 +2318,42 @@
     } finally {
       busy = false
     }
+  }
+
+  /**
+   * Put a paste's frames and rectangles on the canvas.
+   *
+   * ⚠️ THE ANNOTATION IS NAMED HERE, WHICH IS NOT A CONTRADICTION OF X-2. The
+   * runtime names NODES because it owns them; it has never heard of an
+   * annotation, so naming one is the editor's job and there is nobody else to
+   * ask. That is also why this runs after the transaction rather than inside it.
+   *
+   * A frame that ends up holding nothing is dropped: its bounds are derived from
+   * its members, so a memberless frame would draw as a zero-size box that cannot
+   * be clicked and cannot be deleted.
+   */
+  function addPastedAnnotations(plan: DuplicationPlan, assigned: readonly AssignedNode[]): void {
+    if (plan.annotations.length === 0) return
+    const ids = new Map(assigned.map((entry) => [entry.alias, entry.nodeId]))
+    const stamp = Date.now().toString(36)
+    let ordinal = 0
+    const pasted: EditorAnnotation[] = []
+    for (const annotation of plan.annotations) {
+      const members = annotation.memberNodeIds
+        .map((alias) => ids.get(alias))
+        .filter((nodeId): nodeId is string => nodeId !== undefined)
+      if (annotation.kind === 'frame' && members.length === 0) continue
+      pasted.push({
+        id: `${annotation.kind}-${stamp}-${++ordinal}`,
+        kind: annotation.kind,
+        bounds: { ...annotation.bounds },
+        label: annotation.label,
+        memberNodeIds: members,
+      })
+    }
+    if (pasted.length === 0) return
+    annotations = [...annotations, ...pasted]
+    persistAnnotations()
   }
 
   /** The wires as the clipboard wants them, from the bound edge array. */
@@ -2327,10 +2377,19 @@
   async function duplicateSelection(): Promise<void> {
     const ids = selectedNodeIds()
     if (ids.length === 0) {
+      // A selected annotation and no nodes is an unambiguous request: duplicate
+      // the annotation. Refusing with "select a node first" while a rectangle
+      // sits there visibly selected is the editor disagreeing with the screen.
+      const annotation = selectedAnnotation()
+      if (annotation !== undefined) {
+        const at = { x: annotation.bounds.x + PASTE_OFFSET, y: annotation.bounds.y + PASTE_OFFSET }
+        await pasteClipboard(clipboardOfAnnotation(annotation), at, `Duplicate ${annotation.kind}`)
+        return
+      }
       message = 'Select a node first.'
       return
     }
-    const clipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals)
+    const clipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals, annotations)
     const at = {
       x: Math.min(...clipboard.nodes.map((node) => node.position.x)) + PASTE_OFFSET,
       y: Math.min(...clipboard.nodes.map((node) => node.position.y)) + PASTE_OFFSET,
@@ -2476,7 +2535,7 @@
     // A press with no travel is a click, not a duplicate.
     if (Math.abs(ghost.dx) < 4 && Math.abs(ghost.dy) < 4) return
 
-    const clipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals)
+    const clipboard = collectClipboard(ids, nodes, clipboardEdges(), positions, visuals, annotations)
     const at = {
       x: Math.min(...clipboard.nodes.map((node) => node.position.x)) + ghost.dx,
       y: Math.min(...clipboard.nodes.map((node) => node.position.y)) + ghost.dy,

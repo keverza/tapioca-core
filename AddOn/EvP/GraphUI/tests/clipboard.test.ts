@@ -11,12 +11,14 @@ import {
   centreOn,
   centredPasteAnchor,
   clipboardExtent,
+  clipboardOfAnnotation,
   initialUndoDepth,
   nominalNodeSize,
   DEFAULT_UNDO_DEPTH,
   NOMINAL_NODE_SIZE,
   type GraphClipboard,
 } from '../src/editor.ts'
+import type { EditorAnnotation } from '../src/annotations.ts'
 
 /**
  * The rules these cover are the whole of copy/paste. Each one is a decision
@@ -33,7 +35,11 @@ function node(id: string, x: number, y: number, nodeType = 'number') {
   } as never
 }
 
-function clipboardOf(ids: string[], edges: GraphClipboard['edges'] = []) {
+function clipboardOf(
+  ids: string[],
+  edges: GraphClipboard['edges'] = [],
+  annotations: EditorAnnotation[] = [],
+) {
   const nodes = [node('a', 100, 100), node('b', 180, 260), node('c', 400, 100)]
   const positions = new Map([
     ['a', { x: 100, y: 100 }],
@@ -41,7 +47,21 @@ function clipboardOf(ids: string[], edges: GraphClipboard['edges'] = []) {
     ['c', { x: 400, y: 100 }],
   ])
   const visuals = new Map([['a', { nickname: 'Width', color: '#7d94ae' }]])
-  return collectClipboard(ids, nodes, edges, positions, visuals)
+  return collectClipboard(ids, nodes, edges, positions, visuals, annotations)
+}
+
+function frameOf(id: string, members: string[]): EditorAnnotation {
+  return {
+    id,
+    kind: 'frame',
+    bounds: { x: 0, y: 0, width: 300, height: 300 },
+    label: 'Inputs',
+    memberNodeIds: members,
+  }
+}
+
+function rectangleAt(id: string, x: number, y: number): EditorAnnotation {
+  return { id, kind: 'rectangle', bounds: { x, y, width: 120, height: 80 }, label: 'Note', memberNodeIds: [] }
 }
 
 let counter = 0
@@ -145,7 +165,11 @@ test('pasting twice yields two independent sets', () => {
 })
 
 test('an empty clipboard plans nothing rather than throwing', () => {
-  const plan = duplicationPlan({ version: CLIPBOARD_VERSION, nodes: [], edges: [] }, { x: 0, y: 0 }, newAlias)
+  const plan = duplicationPlan(
+    { version: CLIPBOARD_VERSION, nodes: [], edges: [], annotations: [] },
+    { x: 0, y: 0 },
+    newAlias,
+  )
   assert.deepEqual(plan.edits, [])
   assert.equal(plan.renames.size, 0)
 })
@@ -255,4 +279,60 @@ test('an alias the runtime did not answer for is dropped, not guessed', () => {
 test('rekeying an empty assignment yields nothing rather than the aliases', () => {
   const plan = duplicationPlan(clipboardOf(['a']), { x: 0, y: 0 }, newAlias)
   assert.equal(rekeyByAssignment(plan.positions, []).size, 0)
+})
+
+test('a frame travels with a copy only when every member is selected', () => {
+  const whole = clipboardOf(['a', 'b'], [], [frameOf('f1', ['a', 'b'])])
+  assert.equal(whole.annotations.length, 1)
+  assert.equal(whole.annotations[0].label, 'Inputs')
+
+  // ⚠️ THE SAME RULE AS AN EDGE. A frame half in the selection cannot be copied
+  // honestly: the copy would claim a node it does not own, or arrive with half
+  // its membership silently missing.
+  const partial = clipboardOf(['a'], [], [frameOf('f1', ['a', 'b'])])
+  assert.deepEqual(partial.annotations, [])
+})
+
+test('a rectangle is attached to no node and travels with none', () => {
+  const clipboard = clipboardOf(['a', 'b'], [], [rectangleAt('r1', 0, 0)])
+  assert.deepEqual(clipboard.annotations, [], 'it is copied by selecting the rectangle itself')
+})
+
+test("a copied frame points at the copies, not at the originals", () => {
+  const clipboard = clipboardOf(['a', 'b'], [], [frameOf('f1', ['a', 'b'])])
+  const plan = duplicationPlan(clipboard, { x: 0, y: 0 }, newAlias)
+  assert.equal(plan.annotations.length, 1)
+  assert.deepEqual(plan.annotations[0].memberNodeIds, [plan.renames.get('a'), plan.renames.get('b')])
+  // Wiring the copy's frame to the original's nodes is the same mistake as
+  // wiring a copied edge to the original's upstream.
+  for (const member of plan.annotations[0].memberNodeIds) assert.ok(!['a', 'b'].includes(member))
+})
+
+test('a frame is not moved by the paste offset, because its bounds follow its members', () => {
+  const clipboard = clipboardOf(['a', 'b'], [], [frameOf('f1', ['a', 'b'])])
+  const plan = duplicationPlan(clipboard, { x: 900, y: 900 }, newAlias)
+  assert.deepEqual(plan.annotations[0].bounds, { x: 0, y: 0, width: 300, height: 300 })
+})
+
+test('a rectangle IS moved by the paste offset, because it owns its bounds', () => {
+  const clipboard = clipboardOfAnnotation(rectangleAt('r1', 40, 60))
+  const plan = duplicationPlan(clipboard, { x: 240, y: 260 }, newAlias)
+  assert.deepEqual(plan.edits, [], 'a rectangle adds nothing to the graph')
+  assert.equal(plan.annotations[0].bounds.x, 240)
+  assert.equal(plan.annotations[0].bounds.y, 260)
+  assert.equal(plan.annotations[0].bounds.width, 120)
+})
+
+test('a clipboard written before annotations existed still parses', () => {
+  // ⚠️ ABSENT IS EMPTY, NOT INVALID.
+  const parsed = parseClipboard('{"version":1,"nodes":[],"edges":[]}')
+  assert.deepEqual(parsed?.annotations, [])
+})
+
+test('a malformed annotation rejects the whole clipboard rather than half-reading it', () => {
+  assert.equal(parseClipboard('{"version":1,"nodes":[],"edges":[],"annotations":[{"kind":"blob"}]}'), undefined)
+  const good = parseClipboard(
+    '{"version":1,"nodes":[],"edges":[],"annotations":[{"kind":"rectangle","bounds":{"x":1,"y":2,"width":3,"height":4},"label":"n","memberNodeIds":[]}]}',
+  )
+  assert.equal(good?.annotations[0].label, 'n')
 })

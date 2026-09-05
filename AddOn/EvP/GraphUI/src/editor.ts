@@ -426,6 +426,32 @@ export interface GraphClipboard {
   version: 1
   nodes: ClipboardNode[]
   edges: ClipboardEdge[]
+  /**
+   * The frames whose members are ALL in the selection, and nothing else.
+   *
+   * ⚠️ THE SAME RULE AS AN EDGE, FOR THE SAME REASON. A frame half in the
+   * selection cannot be copied honestly: the copy would either claim nodes it
+   * does not own, or come back with half its membership silently missing. Both
+   * are worse than not copying it, so a partly-selected frame is left behind.
+   *
+   * A frame's bounds are DERIVED from its members (`resolveFrameBounds`), so a
+   * copied frame needs only its member list remapped - it fits its copies by
+   * itself. A rectangle owns its bounds and is moved by the paste offset.
+   */
+  annotations: ClipboardAnnotation[]
+}
+
+/**
+ * An annotation on the clipboard.
+ *
+ * `memberNodeIds` still names the ORIGINALS, exactly as a copied edge does, so
+ * that `duplicationPlan` can rewrite them onto the aliases.
+ */
+export interface ClipboardAnnotation {
+  kind: 'rectangle' | 'frame'
+  bounds: { x: number; y: number; width: number; height: number }
+  label: string
+  memberNodeIds: string[]
 }
 
 export const CLIPBOARD_VERSION = 1
@@ -476,6 +502,15 @@ export interface DuplicationPlan {
   visuals: Map<string, NodeVisualState>
   /** Old id -> the alias standing in for its copy. */
   renames: Map<string, string>
+  /**
+   * The annotations to add once the transaction is accepted.
+   *
+   * `memberNodeIds` here holds ALIASES, like everything else in the plan; the
+   * caller rekeys them onto the assigned ids. They carry no id of their own -
+   * an annotation is browser-owned, so the caller names it, which is the one
+   * place naming is still the editor's job because the runtime never sees one.
+   */
+  annotations: ClipboardAnnotation[]
 }
 
 /**
@@ -493,6 +528,7 @@ export function collectClipboard(
   edges: readonly ClipboardEdge[],
   positions: PositionStore,
   visuals: ReadonlyMap<string, NodeVisualState>,
+  annotations: readonly EditorAnnotation[] = [],
 ): GraphClipboard {
   const wanted = new Set(selectedNodeIds)
   const copied: ClipboardNode[] = []
@@ -511,6 +547,38 @@ export function collectClipboard(
     version: CLIPBOARD_VERSION,
     nodes: copied,
     edges: edges.filter((edge) => present.has(edge.sourceNode) && present.has(edge.targetNode)),
+    annotations: annotations
+      // A rectangle has no members, so it is attached to no node and travels
+      // with none. It is copied by selecting the rectangle itself.
+      .filter(
+        (annotation) =>
+          annotation.kind === 'frame' &&
+          annotation.memberNodeIds.length > 0 &&
+          annotation.memberNodeIds.every((nodeId) => present.has(nodeId)),
+      )
+      .map((annotation) => ({
+        kind: annotation.kind,
+        bounds: { ...annotation.bounds },
+        label: annotation.label,
+        memberNodeIds: [...annotation.memberNodeIds],
+      })),
+  }
+}
+
+/** One annotation on its own, for duplicating a rectangle nothing else holds. */
+export function clipboardOfAnnotation(annotation: EditorAnnotation): GraphClipboard {
+  return {
+    version: CLIPBOARD_VERSION,
+    nodes: [],
+    edges: [],
+    annotations: [
+      {
+        kind: annotation.kind,
+        bounds: { ...annotation.bounds },
+        label: annotation.label,
+        memberNodeIds: [],
+      },
+    ],
   }
 }
 
@@ -533,13 +601,69 @@ function topLeft(nodes: readonly ClipboardNode[]): XY {
  * translated so the selection's top-left lands on `at`, which is what makes a
  * pasted cluster keep its shape instead of collapsing onto one point.
  */
+/**
+ * Move a clipboard's annotations to where the paste is landing, and point their
+ * member lists at the copies.
+ *
+ * A FRAME IS NOT MOVED, because its bounds are recomputed from its members and
+ * the members have already moved. A rectangle IS, because it owns its bounds and
+ * nothing else would carry it.
+ */
+function offsetAnnotations(
+  clipboard: GraphClipboard,
+  at: XY,
+  renames: ReadonlyMap<string, string>,
+): ClipboardAnnotation[] {
+  const origin = clipboard.nodes.length > 0 ? topLeft(clipboard.nodes) : annotationOrigin(clipboard)
+  return clipboard.annotations.map((annotation) => ({
+    kind: annotation.kind,
+    label: annotation.label,
+    bounds:
+      annotation.kind === 'frame'
+        ? { ...annotation.bounds }
+        : {
+            ...annotation.bounds,
+            x: at.x + (annotation.bounds.x - origin.x),
+            y: at.y + (annotation.bounds.y - origin.y),
+          },
+    // An alias for every member that was copied. `every` in collectClipboard
+    // guarantees they all were, so a name that survives untranslated here means
+    // a clipboard from somewhere else, and dropping it is better than pointing
+    // a copied frame at the original's nodes.
+    memberNodeIds: annotation.memberNodeIds
+      .map((nodeId) => renames.get(nodeId))
+      .filter((alias): alias is string => alias !== undefined),
+  }))
+}
+
+/** Where an annotation-only clipboard starts, so the paste can be placed. */
+function annotationOrigin(clipboard: GraphClipboard): XY {
+  if (clipboard.annotations.length === 0) return { x: 0, y: 0 }
+  return {
+    x: Math.min(...clipboard.annotations.map((annotation) => annotation.bounds.x)),
+    y: Math.min(...clipboard.annotations.map((annotation) => annotation.bounds.y)),
+  }
+}
+
 export function duplicationPlan(
   clipboard: GraphClipboard,
   at: XY,
   newAlias: (nodeType: string) => string,
 ): DuplicationPlan {
-  const plan: DuplicationPlan = { edits: [], positions: new Map(), visuals: new Map(), renames: new Map() }
-  if (clipboard.nodes.length === 0) return plan
+  const plan: DuplicationPlan = {
+    edits: [],
+    positions: new Map(),
+    visuals: new Map(),
+    renames: new Map(),
+    annotations: [],
+  }
+  // An annotation-only clipboard still has work to do: a rectangle holds no
+  // nodes, so there is nothing to add to the graph and everything to add to the
+  // canvas.
+  if (clipboard.nodes.length === 0) {
+    plan.annotations = offsetAnnotations(clipboard, at, new Map())
+    return plan
+  }
 
   const origin = topLeft(clipboard.nodes)
   for (const node of clipboard.nodes) {
@@ -557,6 +681,8 @@ export function duplicationPlan(
     if (node.parameters.length > 0) edit.parameters = node.parameters.map((parameter) => ({ ...parameter }))
     plan.edits.push(edit)
   }
+
+  plan.annotations = offsetAnnotations(clipboard, at, plan.renames)
 
   for (const edge of clipboard.edges) {
     const source = plan.renames.get(edge.sourceNode)
@@ -621,7 +747,28 @@ export function parseClipboard(text: string): GraphClipboard | undefined {
       return undefined
     edges.push(edge)
   }
-  return { version: CLIPBOARD_VERSION, nodes, edges }
+  // ⚠️ ABSENT IS EMPTY, NOT INVALID. A clipboard written before annotations
+  // travelled with a copy is still a perfectly good clipboard of nodes.
+  const annotations: ClipboardAnnotation[] = []
+  for (const annotation of Array.isArray(candidate.annotations) ? candidate.annotations : []) {
+    if (
+      (annotation?.kind !== 'rectangle' && annotation?.kind !== 'frame') ||
+      typeof annotation?.bounds?.x !== 'number' ||
+      typeof annotation?.bounds?.y !== 'number' ||
+      typeof annotation?.bounds?.width !== 'number' ||
+      typeof annotation?.bounds?.height !== 'number' ||
+      typeof annotation?.label !== 'string' ||
+      !Array.isArray(annotation?.memberNodeIds)
+    )
+      return undefined
+    annotations.push({
+      kind: annotation.kind,
+      bounds: { ...annotation.bounds },
+      label: annotation.label,
+      memberNodeIds: annotation.memberNodeIds.filter((nodeId) => typeof nodeId === 'string'),
+    })
+  }
+  return { version: CLIPBOARD_VERSION, nodes, edges, annotations }
 }
 
 /**
