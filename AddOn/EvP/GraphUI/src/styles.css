@@ -41,6 +41,7 @@
   --danger: #e8776b;
   --nub-ring: #2a2a2a;
   --wire: #8a8a8a;
+  --reference: #b4a7ca;
   --code-keyword: #c678dd;
   --code-function: #61afef;
   --code-string: #98c379;
@@ -82,6 +83,7 @@ main[data-theme='light'] {
   --danger: #c2352c;
   --nub-ring: #f5f5f5;
   --wire: #6e6e6e;
+  --reference: #6a4f9e;
   --code-keyword: #a626a4;
   --code-function: #4078f2;
   --code-string: #50a14f;
@@ -107,7 +109,6 @@ main[data-theme='light'] {
     --accent: #1e6fb8;
     --accent-soft: #d7e6f4;
     --on-accent: #ffffff;
-  --on-accent: #ffffff;
     --canvas: #e8e8e8;
     --surface: #f5f5f5;
     --surface-raised: #e0e0e0;
@@ -123,6 +124,7 @@ main[data-theme='light'] {
     --danger: #c2352c;
     --nub-ring: #f5f5f5;
     --wire: #6e6e6e;
+    --reference: #6a4f9e;
     --code-keyword: #a626a4;
     --code-function: #4078f2;
     --code-string: #50a14f;

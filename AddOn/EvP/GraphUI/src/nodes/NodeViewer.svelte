@@ -65,9 +65,14 @@
     position: relative;
     height: 100%;
     overflow: hidden;
-    border: 1px solid #303945;
+    border: 1px solid var(--border);
     border-radius: 4px;
-    background: radial-gradient(circle at 50% 35%, #26313b 0%, #0c1014 72%);
+    /*
+     * The viewport followed neither theme: it was a fixed dark blue-grey well,
+     * which read as a hole in the light theme. The gradient stays - a viewport
+     * wants a ground that recedes - but it is now made of the app's own tones.
+     */
+    background: radial-gradient(circle at 50% 35%, var(--surface-raised) 0%, var(--canvas) 72%);
   }
 
   /*
@@ -90,7 +95,7 @@
     left: 0;
     width: 100%;
     margin: 0;
-    color: #6d7b89;
+    color: var(--text-faint);
     font: 9px/1 'Segoe UI', sans-serif;
     text-align: center;
     transform: translateY(-50%);
@@ -103,8 +108,8 @@
     bottom: 6px;
     padding: 3px 5px;
     border-radius: 2px;
-    background: rgb(8 11 14 / 72%);
-    color: #aeb9c5;
+    background: var(--surface);
+    color: var(--text-muted);
     font: 8px/1 ui-monospace, monospace;
     pointer-events: none;
   }

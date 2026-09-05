@@ -226,7 +226,7 @@
   .reference-row { display: grid; grid-template-columns: minmax(48px, .8fr) minmax(60px, 1fr) 42px 42px; align-items: center; gap: 3px; }
   .reference-row > span { overflow: hidden; color: var(--text-muted); font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
   .reference-row code { overflow: hidden; color: var(--text-faint); font: 8px/1 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-  .reference-row code .reference { display: none; color: #b4a7ca; }
+  .reference-row code .reference { display: none; color: var(--reference); }
   .reference-row code .value { color: var(--value-color); }
   .reference-row code.bound:hover .value { display: none; }
   .reference-row code.bound:hover .reference { display: inline; }

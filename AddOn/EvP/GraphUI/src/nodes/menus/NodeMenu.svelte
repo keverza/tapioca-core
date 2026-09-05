@@ -177,10 +177,16 @@
   /* On = the flag's colour fills the wedge; off = the colour is only its edge. */
   .segment.on path { fill: color-mix(in srgb, var(--flag) 38%, var(--surface)); stroke: var(--flag); }
   .segment.on text { fill: var(--text); }
-  .segment.view { --flag: #65a9b8; }
-  .segment.browse { --flag: #6e91c9; }
-  .segment.state { --flag: #7da76a; }
-  .segment.bypass { --flag: #a580bd; }
+  /*
+   * SEMANTIC, NOT DECORATIVE. Four hand-picked hues said nothing about what the
+   * segments do; these say it. Looking and browsing are both "show me", so they
+   * are deliberately the same colour - a distinction drawn in hue that means
+   * nothing is a distinction the reader has to learn and then ignore.
+   */
+  .segment.view { --flag: var(--accent); }
+  .segment.browse { --flag: var(--accent); }
+  .segment.state { --flag: var(--success); }
+  .segment.bypass { --flag: var(--text-faint); }
   .segment.hold { --flag: var(--warning); }
   .segment.neutral { --flag: var(--node-color); }
 </style>

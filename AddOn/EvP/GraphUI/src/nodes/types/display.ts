@@ -119,6 +119,15 @@ const PORT_COLORS: Record<string, string> = {
 }
 
 /** The grey a port of no declared type gets - `absent` means "any type" here. */
+/**
+ * What a node's viewport draws with when the node has been given no colour.
+ *
+ * Here rather than inline in `NodeBody.svelte` because it is a VALUE, not a
+ * theme token: it is the default of a per-node property the user can change,
+ * and it belongs beside the other node-colour literals that this module owns.
+ */
+export const DEFAULT_VIEWER_COLOR = '#75c695'
+
 export const ANY_PORT_COLOR = '#8a8a8a'
 
 export function portColor(valueType: string): string {

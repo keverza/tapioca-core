@@ -297,34 +297,55 @@
 </aside>
 
 <style>
-  .performance-panel { position: absolute; z-index: 8; top: 12px; right: 12px; width: min(390px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; border: 1px solid #485564; border-top: 3px solid #ffb000; border-radius: 4px; background: rgb(17 22 28 / 97%); color: #dce4ec; box-shadow: 0 18px 60px rgb(0 0 0 / 55%); font: 11px/1.4 'Segoe UI', sans-serif; }
-  header { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 11px 13px; border-bottom: 1px solid #303945; background: #202731; }
+  /*
+   * ⚠️ THIS PANEL USED TO BE THE LAST PLACE AMBER SURVIVED, AND THE LAST PLACE
+   * THAT IGNORED THE THEME. It was a fixed blue-black HUD with `#ffb000`
+   * headings, which meant a diagnostic opened in the light theme arrived as a
+   * dark rectangle in a colour the rest of the interface had stopped using.
+   *
+   * It still reads as an overlay - it keeps its own elevation, its warning-
+   * coloured top rule and its shadow - but every colour is now a token, so the
+   * signal "this is a diagnostic" is carried by SHAPE and by `--warning`, not by
+   * a palette of its own.
+   */
+  .performance-panel { position: absolute; z-index: 8; top: 12px; right: 12px; width: min(390px, calc(100% - 24px)); max-height: calc(100% - 24px); overflow: auto; border: 1px solid var(--border); border-top: 3px solid var(--warning); border-radius: 4px; background: var(--surface); color: var(--text); box-shadow: 0 18px 60px rgb(0 0 0 / 35%); font: 11px/1.4 'Segoe UI', sans-serif; }
+  header { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; padding: 11px 13px; border-bottom: 1px solid var(--border-faint); background: var(--surface-raised); }
   header div { display: grid; }
-  header span { color: #ffb000; font-size: 8px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+  header span { color: var(--text-muted); font-size: 8px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
   header strong { font-size: 15px; }
-  button, select { height: 28px; border: 1px solid #465361; border-radius: 3px; background: #252e38; color: #dce4ec; font: 10px 'Segoe UI', sans-serif; }
+  button, select { height: 28px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface-raised); color: var(--text); font: 10px 'Segoe UI', sans-serif; }
   button { padding: 0 10px; cursor: pointer; }
   button:disabled { cursor: default; opacity: .4; }
   .close { height: 24px; }
-  section { padding: 11px 13px; border-bottom: 1px solid #29323c; }
+  section { padding: 11px 13px; border-bottom: 1px solid var(--border-faint); }
   .paths label { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; }
-  .paths p { margin: 8px 0 0; color: #8392a2; font-size: 10px; }
+  .paths p { margin: 8px 0 0; color: var(--text-muted); font-size: 10px; }
   .live { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
-  .live div { display: grid; padding: 7px 8px; background: #0d1217; }
-  .live span { color: #718092; font-size: 9px; text-transform: uppercase; }
-  .live strong { color: #ffcb5b; font: 600 13px ui-monospace, monospace; }
-  .capture { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-bottom: 1px solid #29323c; }
-  .capture button { border-color: #bb840d; background: #8c6208; }
-  .capture button.recording { border-color: #e36d5b; background: #8a3025; }
-  .capture span { color: #8d9baa; font: 10px ui-monospace, monospace; }
-  h2 { margin: 0 0 7px; color: #8d9baa; font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
-  .result p { margin: 4px 0; color: #bdc8d3; }
-  .result .comparison { margin-top: 8px; padding-left: 8px; border-left: 2px solid #ffb000; color: #ffcb5b; }
+  .live div { display: grid; padding: 7px 8px; background: var(--canvas); }
+  /* --text-muted, not --text-faint: these are 9px uppercase LABELS, so they
+     are held to 4.5:1 rather than the 3:1 a faint rule gets. */
+  .live span { color: var(--text-muted); font-size: 9px; text-transform: uppercase; }
+  .live strong { color: var(--text); font: 600 13px ui-monospace, monospace; }
+  .capture { display: flex; align-items: center; gap: 10px; padding: 11px 13px; border-bottom: 1px solid var(--border-faint); }
+  /*
+   * ⚠️ --warning AND --danger ARE CARRIED BY BORDERS AND BY RECORDING'S TEXT, NOT
+   * BY FILLS. They are lamp colours, measured against the 3:1 floor for a
+   * graphic; white on the light theme's --warning is 3.48:1, which is under the
+   * 4.5:1 that any of this panel's text needs. So the state is signalled by the
+   * rule around the button, and only --danger - which does clear 4.5:1 on
+   * --surface in both themes - is also allowed to colour a word.
+   */
+  .capture button { border-color: var(--warning); }
+  .capture button.recording { border-color: var(--danger); color: var(--danger); }
+  .capture span { color: var(--text-muted); font: 10px ui-monospace, monospace; }
+  h2 { margin: 0 0 7px; color: var(--text-muted); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
+  .result p { margin: 4px 0; color: var(--text); }
+  .result .comparison { margin-top: 8px; padding-left: 8px; border-left: 2px solid var(--warning); color: var(--text); }
   dl { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin: 9px 0 0; }
   dl div { display: flex; justify-content: space-between; }
-  dt { color: #718092; } dd { margin: 0; font-family: ui-monospace, monospace; }
+  dt { color: var(--text-muted); } dd { margin: 0; font-family: ui-monospace, monospace; }
   .log { display: grid; gap: 4px; }
-  .log code { color: #8897a7; font: 9px/1.35 ui-monospace, monospace; overflow-wrap: anywhere; }
+  .log code { color: var(--text-muted); font: 9px/1.35 ui-monospace, monospace; overflow-wrap: anywhere; }
   footer { display: flex; gap: 7px; padding: 10px 13px; }
   @media (max-width: 520px) { .performance-panel { top: 6px; right: 6px; width: calc(100% - 12px); max-height: calc(100% - 12px); } }
 </style>

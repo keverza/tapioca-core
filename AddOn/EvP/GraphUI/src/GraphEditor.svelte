@@ -1149,6 +1149,11 @@
         visuals.delete(nodeId)
         docks.delete(nodeId)
       }
+      // The fixture has no runtime and therefore no undo step to attach this to.
+      // Settling it says so: without this the metadata change would be folded
+      // into whatever the NEXT step turns out to be, and one Ctrl+Z would undo
+      // a drag and a deletion together.
+      forgetMetadataChange()
       persistVisuals()
       message = `Removed ${removedNodeIds.size} browser-only nodes and ${selectedEdges.length} connections`
       return
@@ -2057,7 +2062,7 @@
    * which is what makes a paste's positions part of the paste rather than a
    * separate undo step of their own.
    */
-  let settledMetadata: MetadataSnapshot = snapshotMetadata(new Map(), new Map())
+  let settledMetadata: MetadataSnapshot = snapshotMetadata(new Map(), new Map(), [])
 
   /** The runtime's monotonic push counter as of the last reading. */
   let lastStepsRecorded = 0
@@ -2072,7 +2077,19 @@
   })
 
   function currentMetadata(): MetadataSnapshot {
-    return snapshotMetadata(positions, visuals)
+    return snapshotMetadata(positions, visuals, annotations)
+  }
+
+  /**
+   * Accept a metadata change as the new baseline WITHOUT making it undoable.
+   *
+   * For changes that belong to no step - the standalone fixture's edits, which
+   * have no runtime step to ride along with. Leaving them unsettled would fold
+   * them into whatever step comes next, so one Ctrl+Z would take back two
+   * unrelated things.
+   */
+  function forgetMetadataChange(): void {
+    settledMetadata = currentMetadata()
   }
 
   /** Record a step the editor owns, and make it the new settled point. */
@@ -2131,6 +2148,15 @@
     for (const [id, at] of snapshot.positions) positions.set(id, { x: at.x, y: at.y })
     visuals.clear()
     for (const [id, visual] of snapshot.visuals) visuals.set(id, { ...visual })
+    annotations = snapshot.annotations.map((annotation) => ({
+      ...annotation,
+      bounds: { ...annotation.bounds },
+      memberNodeIds: [...annotation.memberNodeIds],
+    }))
+    // A selection that survives its own annotation would leave the context menu
+    // offering to rename something that is no longer there.
+    if (!annotations.some((annotation) => annotation.id === selectedAnnotationId)) selectedAnnotationId = null
+    persistAnnotations()
     persistVisuals()
     nodes = nodes.map((node) => {
       const at = positions.get(node.id)
@@ -2481,6 +2507,7 @@
     }
     annotations = [...annotations, frame]
     persistAnnotations()
+    recordEditorStep('Group nodes')
     message = `Grouped ${frame.memberNodeIds.length} nodes in a visual frame / Ctrl+G`
   }
 
@@ -2500,6 +2527,7 @@
     annotations = removeAnnotation(annotations, id)
     if (selectedAnnotationId === id) selectedAnnotationId = null
     persistAnnotations()
+    recordEditorStep(`Delete ${removed?.kind ?? 'annotation'}`)
     message = `Deleted the ${removed?.kind ?? 'annotation'} "${removed?.label || 'untitled'}"`
   }
 
@@ -2510,6 +2538,7 @@
     if (label === null) return
     annotations = renameAnnotation(annotations, id, label)
     persistAnnotations()
+    recordEditorStep('Rename annotation')
     message = label.trim() === '' ? 'Cleared the annotation label' : `Renamed the annotation to "${label.trim()}"`
   }
 
@@ -2519,6 +2548,9 @@
     annotations = []
     selectedAnnotationId = null
     persistAnnotations()
+    // The one action here that can lose the most work, and the one most worth
+    // being able to take back.
+    recordEditorStep(`Remove ${count} annotation${count === 1 ? '' : 's'}`)
     message = `Removed ${count} annotation${count === 1 ? '' : 's'}`
   }
 
@@ -3075,6 +3107,7 @@
           { ...draft, id: `rectangle-${Date.now().toString(36)}`, label: 'Annotation' },
         ]
         persistAnnotations()
+        recordEditorStep('Draw rectangle')
         message = 'Created presentation-only rectangle.'
       }
     } else {

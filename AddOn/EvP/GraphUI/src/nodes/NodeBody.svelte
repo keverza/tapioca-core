@@ -9,7 +9,7 @@
   import NodePort from './NodePort.svelte'
   import NodeViewer from './NodeViewer.svelte'
   import ScriptPanel from './script/ScriptPanel.svelte'
-  import { portStructure } from './types/display'
+  import { DEFAULT_VIEWER_COLOR, portStructure } from './types/display'
   import { panelRows, panelStructure } from './types/panelRows'
 
   let { id, data, definition, bodyMode, viewMode, portLayout, viewerVisible, onbrowse, onbrowselibrary }: { id: string; data: SchemaNodeData; definition: NodeDefinition; bodyMode: NodeBodyMode; viewMode: NodeViewMode; portLayout: PortLayout; viewerVisible: boolean; onbrowse: () => void; onbrowselibrary?: (parameterId: string) => void } = $props()
@@ -118,7 +118,7 @@
   section - and the node stops drawing one.
 -->
 {#if viewMode !== 'compact' && viewerVisible && (bodyMode === 'viewer' || bodyMode === 'parameters+viewer')}
-  <section class="viewer" class:active={viewerActive}><NodeViewer values={data.viewerValues ?? []} representation={data.visual?.display?.style?.representation ?? 'default'} color={data.visual?.color ?? '#75c695'} active={viewerActive} onactive={toggleViewer} /></section>
+  <section class="viewer" class:active={viewerActive}><NodeViewer values={data.viewerValues ?? []} representation={data.visual?.display?.style?.representation ?? 'default'} color={data.visual?.color ?? DEFAULT_VIEWER_COLOR} active={viewerActive} onactive={toggleViewer} /></section>
 {/if}
 </div>
 

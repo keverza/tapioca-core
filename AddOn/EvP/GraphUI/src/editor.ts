@@ -1,5 +1,6 @@
 import type { Connection, Edge, Node } from '@xyflow/svelte'
 import type { GraphParameter, GraphValue, NodeOutputRecord, PositionStore, SchemaNodeData } from './types'
+import type { EditorAnnotation } from './annotations'
 import type { NodeVisualState } from './nodes/types/node'
 
 export type DetailLevel = 'compact' | 'normal' | 'detailed'
@@ -155,6 +156,15 @@ export function rekeyByAssignment<T>(
 export interface MetadataSnapshot {
   positions: ReadonlyMap<string, XY>
   visuals: ReadonlyMap<string, NodeVisualState>
+  /**
+   * Rectangles and visual frames.
+   *
+   * ⚠️ IN THE SNAPSHOT EVEN THOUGH THE RUNTIME HAS NEVER HEARD OF THEM. That is
+   * the point: an annotation is editor metadata, so the document's undo stack
+   * cannot restore one, and an editor where Ctrl+Z takes back a node move but
+   * not a deleted frame is an editor whose Ctrl+Z you have to think about.
+   */
+  annotations: readonly EditorAnnotation[]
 }
 
 export interface UndoStep {
@@ -171,10 +181,18 @@ export interface UndoStep {
 export function snapshotMetadata(
   positions: ReadonlyMap<string, XY>,
   visuals: ReadonlyMap<string, NodeVisualState>,
+  annotations: readonly EditorAnnotation[] = [],
 ): MetadataSnapshot {
   return {
     positions: new Map([...positions].map(([id, at]) => [id, { x: at.x, y: at.y }])),
     visuals: new Map([...visuals].map(([id, visual]) => [id, { ...visual }])),
+    // The member list is copied too: a frame that loses a node keeps the list it
+    // had, or undoing the deletion would put the node back outside its frame.
+    annotations: annotations.map((annotation) => ({
+      ...annotation,
+      bounds: { ...annotation.bounds },
+      memberNodeIds: [...annotation.memberNodeIds],
+    })),
   }
 }
 
@@ -186,7 +204,10 @@ export function metadataChanged(a: MetadataSnapshot, b: MetadataSnapshot): boole
 function serializeSnapshot(snapshot: MetadataSnapshot): unknown {
   const positions = [...snapshot.positions].sort(([a], [b]) => (a < b ? -1 : 1))
   const visuals = [...snapshot.visuals].sort(([a], [b]) => (a < b ? -1 : 1))
-  return { positions, visuals }
+  // Annotations are compared in their own order rather than sorted: the order
+  // is what decides which rectangle draws over which, so a reordering IS a
+  // change the user can see.
+  return { positions, visuals, annotations: snapshot.annotations }
 }
 
 /**

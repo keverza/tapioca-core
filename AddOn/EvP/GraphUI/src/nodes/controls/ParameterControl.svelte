@@ -176,9 +176,9 @@
   .control { min-width: 0; }
   output, .upstream { display: block; box-sizing: border-box; width: 100%; overflow: hidden; min-height: 19px; padding: 4px 5px; border: 0; background: var(--canvas); color: var(--text-faint); font: 9px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
   /* Dashed, because a connected input is showing a value it does not own. */
-  .upstream { border: 1px dashed #858b94; }
+  .upstream { border: 1px dashed var(--text-faint); }
   .upstream .value { color: var(--value-color); }
-  .upstream .reference { display: none; color: #b4a7ca; }
+  .upstream .reference { display: none; color: var(--reference); }
   .upstream:hover .value { display: none; }
   .upstream:hover .reference { display: inline; }
   .upstream:focus { border-color: var(--node-color); outline: none; }

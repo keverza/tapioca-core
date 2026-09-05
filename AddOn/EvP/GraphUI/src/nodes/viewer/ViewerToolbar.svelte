@@ -10,5 +10,5 @@
 
 <style>
   .toolbar { position: absolute; right: 5px; bottom: 5px; display: flex; gap: 3px; }
-  button { height: 22px; padding: 0 6px; background: rgb(8 11 14 / 76%); color: #aeb9c5; font-size: 7px; }
+  button { height: 22px; padding: 0 6px; background: var(--surface); color: var(--text-muted); font-size: 7px; }
 </style>

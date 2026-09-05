@@ -29,6 +29,10 @@
   } = $props()
 
   const HEX = /^#[0-9a-fA-F]{6}$/
+  // ⚠️ NOT A THEME TOKEN, AND MUST NOT BECOME ONE. This is the swatch shown for
+  // a value that is not a colour - it stands for "unreadable", so it has to look
+  // the same in both themes or the swatch would report the theme rather than the
+  // value.
   const colour = $derived(HEX.test(value.trim()) ? value.trim() : '#808080')
 
   function commit(next: string): void {
