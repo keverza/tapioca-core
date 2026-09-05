@@ -1169,6 +1169,172 @@ TEST (NodeGraphTransaction, RefusesAReleaseInsideABatchBecauseItCannotBeRolledBa
     EXPECT_TRUE (runtime.Document (graphId).Nodes ().empty ());
 }
 
+// NAMING A NODE IS THE RUNTIME'S JOB. A client that invents ids is a second
+// authority on identity: its scheme is a rule this document cannot enforce, and
+// two editors on one graph would eventually collide.
+TEST (NodeGraphNaming, AnUnnamedNodeIsNamedByTheRuntimeAndTheNameComesBack)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-single";
+
+    Node unnamed { "", "number" };
+    const EditResult result = runtime.Apply (graphId, GraphEdit { AddNodeEdit { unnamed } }, "Add node");
+    ASSERT_TRUE (result.accepted);
+    EXPECT_FALSE (result.assignedNodeId.empty ()) << "a client cannot attach layout to a node it cannot name";
+
+    const GraphDocument document = runtime.Document (graphId);
+    EXPECT_NE (nullptr, document.FindNode (result.assignedNodeId));
+    // Readable rather than opaque: the id appears in messages, in wires and in
+    // saved files.
+    EXPECT_EQ ("number-1", result.assignedNodeId);
+}
+
+TEST (NodeGraphNaming, TheNameIsTheLastSegmentOfTheTypeAndAnOrdinal)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-shape";
+
+    const EditResult first = runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "", "math.remap" } } });
+    ASSERT_TRUE (first.accepted);
+    EXPECT_EQ ("remap-1", first.assignedNodeId) << "math.remap-1 would carry a dot into every wire that names it";
+
+    const EditResult second = runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "", "number" } } });
+    ASSERT_TRUE (second.accepted);
+    EXPECT_EQ ("number-2", second.assignedNodeId) << "the ordinal is the document's, not the type's";
+}
+
+// The ordinal is monotonic within a session and is NOT derived from the nodes
+// present. A client keeps position, nickname and colour keyed by id, so an id
+// reused after a delete would hand the next node a dead one's appearance.
+TEST (NodeGraphNaming, ADeletedNodesNameIsNeverHandedOutAgain)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-no-reuse";
+
+    const EditResult first = runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "", "number" } } });
+    ASSERT_TRUE (first.accepted);
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { RemoveNodeEdit { first.assignedNodeId } }).accepted);
+
+    const EditResult second = runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "", "number" } } });
+    ASSERT_TRUE (second.accepted);
+    EXPECT_NE (first.assignedNodeId, second.assignedNodeId);
+}
+
+// Undo rewinds the document; it must not rewind the counter, for the same reason.
+TEST (NodeGraphNaming, UndoDoesNotRewindTheNameCounter)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-undo";
+
+    const EditResult first = runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "", "number" } } }, "Add");
+    ASSERT_TRUE (first.accepted);
+    ASSERT_TRUE (runtime.Undo (graphId).accepted);
+
+    const EditResult second = runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "", "number" } } }, "Add");
+    ASSERT_TRUE (second.accepted);
+    EXPECT_NE (first.assignedNodeId, second.assignedNodeId)
+        << "the undone node's editor metadata is still keyed by its id";
+}
+
+TEST (NodeGraphNaming, AnExplicitNameIsStillHonouredSoASavedGraphKeepsItsOwn)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-explicit";
+
+    const EditResult result = runtime.Apply (graphId, AddNumberNode ("saved-node", 1.0));
+    ASSERT_TRUE (result.accepted);
+    EXPECT_TRUE (result.assignedNodeId.empty ()) << "nothing was assigned; the caller named it";
+    const GraphDocument document = runtime.Document (graphId);
+    EXPECT_NE (nullptr, document.FindNode ("saved-node"));
+}
+
+TEST (NodeGraphNaming, AnEmptyNameIsRefusedAtTheEditBoundary)
+{
+    GraphDocument document;
+    const NodeRegistry registry = MakeRegistry ();
+    // Reached only by a caller that bypassed GraphRuntimeState. A node keyed by
+    // the empty string is one the next add collides with.
+    const EditResult result = ApplyEdit (document, registry, GraphEdit { AddNodeEdit { Node { "", "number" } } });
+    EXPECT_FALSE (result.accepted);
+    EXPECT_EQ ("edit.emptyNodeId", result.code);
+}
+
+// A PASTE ADDS NODES AND WIRES THEM IN ONE TRANSACTION, so the wires name nodes
+// whose real ids do not exist when the client builds the batch. That is what an
+// alias is for.
+TEST (NodeGraphNaming, ABatchResolvesAliasesSoAPasteCanWireItself)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-alias";
+
+    std::vector<GraphEdit> edits;
+    edits.push_back (GraphEdit { AddNodeEdit { Node { "", "number" }, "left" } });
+    edits.push_back (GraphEdit { AddNodeEdit { Node { "", "add" }, "sum" } });
+    edits.push_back (GraphEdit { ConnectEdit { Edge { "left", "value", "sum", "left" } } });
+
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits, "Paste");
+    ASSERT_TRUE (result.accepted) << result.error;
+    ASSERT_EQ (2U, result.assignedNodes.size ());
+    EXPECT_EQ ("left", result.assignedNodes[0].first);
+    EXPECT_EQ ("sum", result.assignedNodes[1].first);
+
+    const GraphDocument document = runtime.Document (graphId);
+    ASSERT_EQ (1U, document.Edges ().size ());
+    // The wire names the ASSIGNED ids, not the aliases the client wrote.
+    EXPECT_EQ (result.assignedNodes[0].second, document.Edges ()[0].sourceNode);
+    EXPECT_EQ (result.assignedNodes[1].second, document.Edges ()[0].targetNode);
+}
+
+TEST (NodeGraphNaming, ARefusedBatchAssignsNothing)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-alias-refused";
+
+    std::vector<GraphEdit> edits;
+    edits.push_back (GraphEdit { AddNodeEdit { Node { "", "number" }, "one" } });
+    edits.push_back (GraphEdit { AddNodeEdit { Node { "", "no.such.node.type" }, "two" } });
+
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits, "Paste");
+    ASSERT_FALSE (result.accepted);
+    // A client that kept these would hold layout for nodes that do not exist.
+    EXPECT_TRUE (result.assignedNodes.empty ());
+    EXPECT_TRUE (runtime.Document (graphId).Nodes ().empty ());
+}
+
+TEST (NodeGraphNaming, AnAliasThatNamesAnExistingNodeIsRefusedRatherThanResolved)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-alias-conflict";
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("existing", 1.0)).accepted);
+
+    std::vector<GraphEdit> edits;
+    edits.push_back (GraphEdit { AddNodeEdit { Node { "", "number" }, "existing" } });
+
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits, "Paste");
+    ASSERT_FALSE (result.accepted);
+    // Resolving it would silently bind the client's wires to the new node
+    // instead of the one it meant, with nothing on screen to say so.
+    EXPECT_EQ (batchcode::kAliasConflict, result.code);
+    EXPECT_EQ (1U, runtime.Document (graphId).Nodes ().size ());
+}
+
+TEST (NodeGraphNaming, AnEditNamingNoAliasStillMeansTheNodeItSays)
+{
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    const GraphId graphId = "naming-alias-passthrough";
+    ASSERT_TRUE (runtime.Apply (graphId, AddNumberNode ("existing", 4.0)).accepted);
+
+    std::vector<GraphEdit> edits;
+    edits.push_back (GraphEdit { AddNodeEdit { Node { "", "add" }, "sum" } });
+    edits.push_back (GraphEdit { ConnectEdit { Edge { "existing", "value", "sum", "left" } } });
+
+    const BatchEditResult result = runtime.ApplyBatch (graphId, std::nullopt, edits, "Paste");
+    ASSERT_TRUE (result.accepted) << result.error;
+    const GraphDocument document = runtime.Document (graphId);
+    ASSERT_EQ (1U, document.Edges ().size ());
+    EXPECT_EQ ("existing", document.Edges ()[0].sourceNode) << "a name that is not an alias is left alone";
+}
+
 TEST (NodeGraphUndo, UndoRestoresADeletedNodeAndRedoRemovesItAgain)
 {
     GraphRuntimeState& runtime = GraphRuntimeState::Get ();

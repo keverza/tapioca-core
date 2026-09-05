@@ -12,6 +12,22 @@ namespace evp::nodegraph {
 
 struct AddNodeEdit {
     Node node;
+
+    // The transaction-local name a client used for this node before it had one.
+    //
+    // NAMING A NODE IS THE RUNTIME'S JOB, NOT A CLIENT'S. A browser that invents
+    // ids is a second authority on identity: two editors on one graph would
+    // collide, and a client's scheme (a timestamp, a counter of its own) is a
+    // rule the document cannot enforce. So `node.id` may arrive EMPTY, meaning
+    // "you name it", and GraphRuntimeState fills it in before ApplyEdit ever
+    // sees the edit.
+    //
+    // A batch then has a problem the single edit does not: a paste adds nodes
+    // AND wires them together, and the wires must name nodes whose real ids do
+    // not exist yet. `alias` is how - other edits in the SAME transaction refer
+    // to this node by it, and the runtime rewrites them to the assigned id. It
+    // is scoped to the transaction and is never stored.
+    std::string alias;
 };
 
 struct RemoveNodeEdit {
@@ -134,6 +150,13 @@ struct EditResult {
     // but SetScriptInterfaceEdit, which is the only one that can do it - see
     // there for why it is allowed to at all.
     std::vector<Edge> droppedEdges;
+
+    // The id the runtime gave a node the caller did not name. Empty for every
+    // edit but an AddNodeEdit that arrived with an empty `node.id`.
+    //
+    // LAST ON PURPOSE: the aggregate is brace-initialised at several call sites,
+    // and a field inserted in the middle silently rebinds every one of them.
+    NodeId assignedNodeId;
 };
 
 class NodeRegistry;

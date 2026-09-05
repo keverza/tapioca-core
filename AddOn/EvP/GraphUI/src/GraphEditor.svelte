@@ -54,6 +54,7 @@
     initialUndoDepth,
     isCatalogConnectionValid,
     metadataChanged,
+    rekeyByAssignment,
     nativeStepsSince,
     pushUndoStep,
     snapshotMetadata,
@@ -68,6 +69,7 @@
     REFERENCE_EDGE_COLOR,
     REFERENCE_EDGE_STYLE,
     UNDO_DEPTH_CHOICES,
+    type AssignedNode,
     type DetailLevel,
     type GraphClipboard,
     type MetadataSnapshot,
@@ -643,13 +645,26 @@
     resetTimeline()
   }
 
+  /**
+   * Add one node.
+   *
+   * ⚠️ THE RUNTIME NAMES IT, AND THE LAYOUT IS WRITTEN AFTERWARDS. This used
+   * to mint an id from the node type and a timestamp and send it, which made the
+   * browser a second authority on identity - a scheme the document cannot
+   * enforce, and one that two editors on the same graph would eventually collide
+   * on. Now the id comes back in `assignedNodes` and the position is attached to
+   * it, which also removes the old rollback: there is no longer a moment where
+   * the editor holds layout for a node a refused edit never created.
+   */
   async function addNode(nodeType: string, requestedPosition?: XYPosition): Promise<void> {
     if (nodeType === '') return
     const position = requestedPosition ?? positionAtViewportCenter()
-    const nodeId = `${nodeType}-${Date.now().toString(36)}`
     if (!nativeConnected) {
       const schema = catalog.find((item) => item.nodeType === nodeType)
       if (schema === undefined) return
+      // The fixture has no runtime to name anything, so it names its own - and
+      // says so, because a browser-only node is not a node in a graph.
+      const nodeId = `fixture-${nodeType}-${nodes.length + 1}`
       positions.set(nodeId, position)
       nodes = [
         ...nodes,
@@ -666,18 +681,14 @@
     busy = true
     failed = false
     try {
-      positions.set(nodeId, position)
-      const params: Record<string, unknown> = {
-        editKind: 'addNode',
-        nodeId,
-        nodeType,
-      }
+      const params: Record<string, unknown> = { editKind: 'addNode', nodeType }
       if (nodeType === 'number') params.numberValue = 0
-      await callTapioca('Tapioca.GraphApplyEdit', params)
+      const outcome = await callTapioca<{ assignedNodes?: AssignedNode[] }>('Tapioca.GraphApplyEdit', params)
+      const nodeId = outcome.assignedNodes?.[0]?.nodeId ?? ''
+      if (nodeId !== '') positions.set(nodeId, position)
       await reloadState()
-      message = `Added ${nodeId} / revision ${revision}`
+      message = nodeId === '' ? `Added a node / revision ${revision}` : `Added ${nodeId} / revision ${revision}`
     } catch (error) {
-      positions.delete(nodeId)
       failed = true
       message = error instanceof Error ? error.message : String(error)
     } finally {
@@ -2041,12 +2052,12 @@
     edits: readonly unknown[],
     label: string,
     coalesceKey = '',
-  ): Promise<boolean> {
-    if (edits.length === 0) return false
+  ): Promise<AssignedNode[]> {
+    if (edits.length === 0) return []
     const params: Record<string, unknown> = { graphId, edits, expectedRevision: revision, label }
     if (coalesceKey !== '') params.coalesceKey = coalesceKey
-    await callTapioca('Tapioca.GraphApplyEdits', params)
-    return true
+    const outcome = await callTapioca<{ assignedNodes?: AssignedNode[] }>('Tapioca.GraphApplyEdits', params)
+    return outcome.assignedNodes ?? []
   }
 
   function selectedNodeIds(): string[] {
@@ -2089,30 +2100,31 @@
       message = 'Pasting needs the native graph runtime.'
       return
     }
-    const stamp = Date.now().toString(36)
+    // ⚠️ ALIASES, NOT IDS. The nodes do not exist yet, so the plan names them
+    // only for the duration of the transaction; the runtime assigns the real ids
+    // and answers with the mapping. An alias has to be unique within one batch
+    // and nothing more, which an ordinal is.
     let ordinal = 0
-    const plan = duplicationPlan(clipboard, at, (nodeType) => `${nodeType}-${stamp}-${++ordinal}`)
+    const plan = duplicationPlan(clipboard, at, () => `paste-${++ordinal}`)
 
     busy = true
     failed = false
     try {
-      await applyEdits(plan.edits, label)
-      // Only AFTER the runtime accepted. Positions and presentation are editor
-      // metadata for nodes that now exist; writing them first would leave the
-      // editor holding layout for nodes a refused transaction never created.
-      for (const [id, position] of plan.positions) positions.set(id, position)
-      for (const [id, visual] of plan.visuals) visuals.set(id, visual)
+      const assigned = await applyEdits(plan.edits, label)
+      // Only AFTER the runtime accepted, and under the ids it chose. Writing
+      // layout first would leave the editor holding positions for nodes a
+      // refused transaction never created.
+      for (const [id, position] of rekeyByAssignment(plan.positions, assigned)) positions.set(id, position)
+      for (const [id, visual] of rekeyByAssignment(plan.visuals, assigned)) visuals.set(id, visual)
       persistVisuals()
       await reloadState()
       // Select what was just pasted, so the next drag moves the copy.
-      const fresh = new Set(plan.renames.values())
+      const fresh = new Set(assigned.map((entry) => entry.nodeId))
       nodes = nodes.map((node) => ({ ...node, selected: fresh.has(node.id) }))
       message = `${label} / revision ${revision}`
     } catch (error) {
-      for (const id of plan.renames.values()) {
-        positions.delete(id)
-        visuals.delete(id)
-      }
+      // Nothing to roll back: no metadata was written for a transaction that was
+      // refused, because none of it had a node id to be written under.
       failed = true
       message = error instanceof Error ? error.message : String(error)
       await reloadState()

@@ -102,6 +102,12 @@ struct BatchEditResult {
 
     std::vector<NodeId> dirtyNodes;
     uint64_t revision = 0;
+
+    // The ids the runtime gave the nodes this transaction added, in the order
+    // the adds appeared, each paired with the transaction-local alias the caller
+    // used for it (empty when it used none). This is how a client learns what
+    // its paste is actually called.
+    std::vector<std::pair<std::string, NodeId>> assignedNodes;
 };
 
 // How many undo steps a graph keeps unless the client asks for another number.
@@ -153,6 +159,10 @@ constexpr const char* kBatchTooLarge = "graph.batchTooLarge";
 constexpr const char* kUnbatchableEdit = "graph.unbatchableEdit";
 constexpr const char* kNothingToUndo = "graph.nothingToUndo";
 constexpr const char* kNothingToRedo = "graph.nothingToRedo";
+// An alias in a transaction names a node the document already has. Refused
+// rather than resolved: the client's wires would silently bind to the new node
+// instead of the existing one, and nothing on screen would say so.
+constexpr const char* kAliasConflict = "graph.aliasConflict";
 } // namespace batchcode
 
 // The most edits one transaction may carry. A paste is a handful of nodes; a
@@ -315,6 +325,14 @@ class GraphRuntimeState final {
     void PushHistoryLocked (Slot& slot, const GraphDocument& before, const std::string& label,
                             const std::string& coalesceKey);
 
+    // A fresh id for a node of `nodeType`, unique in this slot's document.
+    // Called with the document mutex held.
+    NodeId GenerateNodeIdLocked (Slot& slot, const std::string& nodeType);
+
+    // Lift the ordinal above every id already in the document, so a graph loaded
+    // from disk does not start naming nodes over the top of its own.
+    void SeedNodeOrdinalLocked (Slot& slot);
+
     // The half of undo and redo that is the same in both directions: move the
     // document to `target`, work out what that changed, invalidate it and
     // republish. Called with the document mutex held.
@@ -343,6 +361,17 @@ class GraphRuntimeState final {
 
         // See HistoryState::stepsRecorded. Counts pushes, not stack size.
         uint64_t stepsRecorded = 0;
+
+        // The next ordinal a generated node id will carry.
+        //
+        // MONOTONIC WITHIN A SESSION, AND DELIBERATELY NOT PART OF THE DOCUMENT.
+        // Deriving it from the nodes present would reuse the id of a node that
+        // was just deleted, and a client keeps editor metadata - position,
+        // nickname, colour - keyed by id, so the next node would silently
+        // inherit a dead one's appearance. Undo must not rewind it either, for
+        // the same reason, which is why it lives in the slot rather than in the
+        // GraphDocument the history snapshots.
+        uint64_t nextNodeOrdinal = 1;
 
         mutable std::mutex documentMutex;
 

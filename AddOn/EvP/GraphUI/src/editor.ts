@@ -106,6 +106,33 @@ export function initialUndoDepth(storage: Pick<Storage, 'getItem'> | undefined):
   return Number.isInteger(stored) && stored >= 1 && stored <= 200 ? stored : DEFAULT_UNDO_DEPTH
 }
 
+/** What the runtime answers with after a transaction that added nodes. */
+export interface AssignedNode {
+  alias: string
+  nodeId: string
+}
+
+/**
+ * Move a plan's alias-keyed metadata onto the ids the runtime chose.
+ *
+ * ⚠️ AN ALIAS THE RESPONSE DOES NOT MENTION IS DROPPED, NOT GUESSED. Keeping
+ * layout under a name no node has is how an editor comes to hold positions for
+ * nodes that do not exist; if the runtime named fewer nodes than the plan asked
+ * for, the honest thing is to have less layout, not invented layout.
+ */
+export function rekeyByAssignment<T>(
+  byAlias: ReadonlyMap<string, T>,
+  assigned: readonly AssignedNode[],
+): Map<string, T> {
+  const ids = new Map(assigned.map((entry) => [entry.alias, entry.nodeId]))
+  const result = new Map<string, T>()
+  for (const [alias, value] of byAlias) {
+    const nodeId = ids.get(alias)
+    if (nodeId !== undefined) result.set(nodeId, value)
+  }
+  return result
+}
+
 /* --- The undo timeline ----------------------------------------------------
  *
  * ⚠️ HALF OF WHAT A USER CALLS AN EDIT IS NOT IN THE DOCUMENT. The runtime owns
@@ -361,7 +388,16 @@ export interface XY {
 /** One `addNode` edit, in the shape `Tapioca.GraphApplyEdits` accepts. */
 export interface AddNodeEdit {
   editKind: 'addNode'
-  nodeId: string
+  /**
+   * ⚠️ NO `nodeId`. THE RUNTIME NAMES NODES.
+   *
+   * A browser that invents ids is a second authority on identity: its scheme is
+   * a rule the document cannot enforce, and two editors on one graph would
+   * eventually collide. `alias` is a name local to THIS transaction - other
+   * edits in the same batch use it to refer to a node whose real id does not
+   * exist yet, and the response says what each one was actually called.
+   */
+  alias: string
   nodeType: string
   parameters?: GraphParameter[]
 }
@@ -376,11 +412,16 @@ export interface ConnectEdit {
 
 export interface DuplicationPlan {
   edits: (AddNodeEdit | ConnectEdit)[]
-  /** New id -> where it goes. The runtime never reads a position; the editor does. */
+  /**
+   * ⚠️ KEYED BY ALIAS, NOT BY NODE ID, because the ids do not exist yet - the
+   * runtime assigns them and answers with them. The caller rekeys these onto the
+   * assigned ids once the transaction is accepted, which is also the point at
+   * which the nodes are real enough to have layout at all.
+   */
   positions: Map<string, XY>
-  /** New id -> the presentation copied from the original. */
+  /** Alias -> the presentation copied from the original. */
   visuals: Map<string, NodeVisualState>
-  /** Old id -> new id, so a caller can select what it just pasted. */
+  /** Old id -> the alias standing in for its copy. */
   renames: Map<string, string>
 }
 
@@ -442,21 +483,21 @@ function topLeft(nodes: readonly ClipboardNode[]): XY {
 export function duplicationPlan(
   clipboard: GraphClipboard,
   at: XY,
-  newId: (nodeType: string) => string,
+  newAlias: (nodeType: string) => string,
 ): DuplicationPlan {
   const plan: DuplicationPlan = { edits: [], positions: new Map(), visuals: new Map(), renames: new Map() }
   if (clipboard.nodes.length === 0) return plan
 
   const origin = topLeft(clipboard.nodes)
   for (const node of clipboard.nodes) {
-    const id = newId(node.nodeType)
-    plan.renames.set(node.nodeId, id)
-    plan.positions.set(id, {
+    const alias = newAlias(node.nodeType)
+    plan.renames.set(node.nodeId, alias)
+    plan.positions.set(alias, {
       x: at.x + (node.position.x - origin.x),
       y: at.y + (node.position.y - origin.y),
     })
-    if (node.visual !== undefined) plan.visuals.set(id, { ...node.visual })
-    const edit: AddNodeEdit = { editKind: 'addNode', nodeId: id, nodeType: node.nodeType }
+    if (node.visual !== undefined) plan.visuals.set(alias, { ...node.visual })
+    const edit: AddNodeEdit = { editKind: 'addNode', alias, nodeType: node.nodeType }
     // Omitted rather than sent empty: the schema accepts no `parameters` at all,
     // and an empty array is a claim that the node had none rather than that none
     // were copied.

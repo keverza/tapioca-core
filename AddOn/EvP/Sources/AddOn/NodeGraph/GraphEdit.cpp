@@ -247,6 +247,14 @@ EditResult ApplyEdit (GraphDocument& document, const NodeRegistry& registry, con
         [&] (const auto& operation) {
             using T = std::decay_t<decltype (operation)>;
             if constexpr (std::is_same_v<T, AddNodeEdit>) {
+                // The runtime names unnamed nodes before an edit reaches here,
+                // so an empty id at this depth is a caller that bypassed it -
+                // and a node keyed by "" would be one the next add collides with.
+                if (operation.node.id.empty ()) {
+                    error = "node id must not be empty";
+                    code = "edit.emptyNodeId";
+                    return false;
+                }
                 if (candidate.nodes_.contains (operation.node.id)) {
                     error = "node already exists: " + operation.node.id;
                     return false;

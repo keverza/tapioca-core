@@ -10,6 +10,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Everything that MOVES the graph document: one edit, a batched all-or-nothing
@@ -30,11 +31,11 @@ constexpr const char kGraphInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kEditInputSchema[] =
-    R"json({"oneOf":[{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","nodeType"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setExecutionMode"},"nodeId":{"type":"string","minLength":1},"mode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","mode"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setPortModifier"},"nodeId":{"type":"string","minLength":1},"portId":{"type":"string","minLength":1},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","portId","modifier"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"releaseHolding"},"nodeId":{"type":"string","minLength":1},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId"]}],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"oneOf":[{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"alias":{"type":"string","minLength":1,"maxLength":120},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeType"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setExecutionMode"},"nodeId":{"type":"string","minLength":1},"mode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","mode"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"setPortModifier"},"nodeId":{"type":"string","minLength":1},"portId":{"type":"string","minLength":1},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId","portId","modifier"]},{"type":"object","properties":{"graphId":{"type":"string","minLength":1},"editKind":{"const":"releaseHolding"},"nodeId":{"type":"string","minLength":1},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200}},"additionalProperties":false,"required":["editKind","nodeId"]}],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 constexpr const char kEditResponseSchema[] =
-    R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["revision","dirtyNodes"]})json";
+    R"json({"type":"object","properties":{"revision":{"type":"integer","minimum":1},"dirtyNodes":{"type":"array","items":{"type":"string"}},"assignedNodes":{"type":"array","items":{"type":"object","properties":{"alias":{"type":"string"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["alias","nodeId"]}}},"additionalProperties":false,"required":["revision","dirtyNodes","assignedNodes"]})json";
 constexpr const char kEditsInputSchema[] =
-    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"expectedRevision":{"type":"integer","minimum":0},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200},"edits":{"type":"array","minItems":1,"maxItems":512,"items":{"oneOf":[{"type":"object","properties":{"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","nodeType"]},{"type":"object","properties":{"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]},{"type":"object","properties":{"editKind":{"const":"setExecutionMode"},"nodeId":{"type":"string","minLength":1},"mode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]}},"additionalProperties":false,"required":["editKind","nodeId","mode"]},{"type":"object","properties":{"editKind":{"const":"setPortModifier"},"nodeId":{"type":"string","minLength":1},"portId":{"type":"string","minLength":1},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]}},"additionalProperties":false,"required":["editKind","nodeId","portId","modifier"]},{"type":"object","properties":{"editKind":{"const":"releaseHolding"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]}]}}},"additionalProperties":false,"required":["edits"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"expectedRevision":{"type":"integer","minimum":0},"label":{"type":"string","maxLength":120},"coalesceKey":{"type":"string","maxLength":200},"edits":{"type":"array","minItems":1,"maxItems":512,"items":{"oneOf":[{"type":"object","properties":{"editKind":{"const":"addNode"},"nodeId":{"type":"string","minLength":1},"alias":{"type":"string","minLength":1,"maxLength":120},"nodeType":{"type":"string","minLength":1},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"}},"additionalProperties":false,"required":["parameterId","value"]}},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeType"]},{"type":"object","properties":{"editKind":{"const":"removeNode"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]},{"type":"object","properties":{"editKind":{"enum":["connect","disconnect"]},"sourceNode":{"type":"string","minLength":1},"sourcePort":{"type":"string","minLength":1},"targetNode":{"type":"string","minLength":1},"targetPort":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","sourceNode","sourcePort","targetNode","targetPort"]},{"type":"object","properties":{"editKind":{"const":"setParam"},"nodeId":{"type":"string","minLength":1},"parameterId":{"type":"string","minLength":1},"value":{"$ref":"#/$defs/parameterValue"},"numberValue":{"type":"number"}},"additionalProperties":false,"required":["editKind","nodeId","parameterId"]},{"type":"object","properties":{"editKind":{"const":"setExecutionMode"},"nodeId":{"type":"string","minLength":1},"mode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]}},"additionalProperties":false,"required":["editKind","nodeId","mode"]},{"type":"object","properties":{"editKind":{"const":"setPortModifier"},"nodeId":{"type":"string","minLength":1},"portId":{"type":"string","minLength":1},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]}},"additionalProperties":false,"required":["editKind","nodeId","portId","modifier"]},{"type":"object","properties":{"editKind":{"const":"releaseHolding"},"nodeId":{"type":"string","minLength":1}},"additionalProperties":false,"required":["editKind","nodeId"]}]}}},"additionalProperties":false,"required":["edits"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 constexpr const char kHistoryDepthInputSchema[] =
 
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"depth":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":false,"required":["depth"]})json";
@@ -62,8 +63,15 @@ bool DecodeEdit (const GS::ObjectState& params, graph::GraphEdit& edit, std::str
     const std::string editKind = GraphUtf8 (editKindValue);
 
     if (editKind == "addNode") {
-        GS::UniString nodeId, nodeType;
+        // ⚠️ `nodeId` IS OPTIONAL, AND CLIENTS SHOULD NOT SEND IT. An absent id
+        // means the runtime names the node, which is what makes identity the
+        // document's business rather than a browser's. It is still accepted so a
+        // graph restored from a file keeps the names it was saved with; `alias`
+        // is what a client uses to refer to a node it is creating in the same
+        // transaction.
+        GS::UniString nodeId, alias, nodeType;
         params.Get ("nodeId", nodeId);
+        params.Get ("alias", alias);
         params.Get ("nodeType", nodeType);
         graph::Node node { GraphUtf8 (nodeId), GraphUtf8 (nodeType) };
 
@@ -85,7 +93,7 @@ bool DecodeEdit (const GS::ObjectState& params, graph::GraphEdit& edit, std::str
         double numberValue = 0.0;
         if (params.Get ("numberValue", numberValue))
             node.parameters.insert_or_assign ("value", graph::Value (numberValue));
-        edit.data = graph::AddNodeEdit { std::move (node) };
+        edit.data = graph::AddNodeEdit { std::move (node), GraphUtf8 (alias) };
         return true;
     }
     if (editKind == "removeNode") {
@@ -172,14 +180,31 @@ void ReadHistoryHints (const GS::ObjectState& params, std::string& label, std::s
     if (params.Get ("coalesceKey", coalesceValue))
         coalesceKey = GraphUtf8 (coalesceValue);
 }
-GS::ObjectState EditResponse (uint64_t revision, const std::vector<graph::NodeId>& dirtyNodes)
+// One response shape for both edit verbs.
+//
+// `assignedNodes` IS THE ANSWER TO "WHAT IS MY NODE CALLED". A client no longer
+// names the nodes it adds, so this is the only way it learns the ids the runtime
+// chose - and the only way a paste can attach its layout to the right nodes.
+// Always present, empty when the caller named everything itself.
+GS::ObjectState EditResponse (uint64_t revision, const std::vector<graph::NodeId>& dirtyNodes,
+                              const std::vector<std::pair<std::string, graph::NodeId>>& assignedNodes)
 {
     GS::Array<GS::UniString> dirty;
     for (const graph::NodeId& nodeId : dirtyNodes)
         dirty.Push (GraphText (nodeId));
+
+    GS::Array<GS::ObjectState> assigned;
+    for (const auto& [alias, nodeId] : assignedNodes) {
+        GS::ObjectState entry;
+        entry.Add ("alias", GraphText (alias));
+        entry.Add ("nodeId", GraphText (nodeId));
+        assigned.Push (entry);
+    }
+
     GS::ObjectState response;
     response.Add ("revision", static_cast<GS::Int64> (revision));
     response.Add ("dirtyNodes", dirty);
+    response.Add ("assignedNodes", assigned);
     return response;
 }
 class GraphApplyEditCommand : public GateFreeGraphCommand {
@@ -205,7 +230,10 @@ class GraphApplyEditCommand : public GateFreeGraphCommand {
             const std::string reported = result.code.empty () ? result.error : "[" + result.code + "] " + result.error;
             return NativeCommandResult::Failure (GraphText (reported));
         }
-        return EditResponse (result.revision, result.dirtyNodes);
+        std::vector<std::pair<std::string, graph::NodeId>> assigned;
+        if (!result.assignedNodeId.empty ())
+            assigned.emplace_back (std::string (), result.assignedNodeId);
+        return EditResponse (result.revision, result.dirtyNodes, assigned);
     }
 };
 // A rejection a client can branch on: the stable code, the prose, and - when one
@@ -249,7 +277,7 @@ class GraphApplyEditsCommand : public GateFreeGraphCommand {
             ReadGraphIdParam (params), expectedRevision, edits, label, coalesceKey);
         if (!result.accepted)
             return BatchFailure (result);
-        return EditResponse (result.revision, result.dirtyNodes);
+        return EditResponse (result.revision, result.dirtyNodes, result.assignedNodes);
     }
 };
 class GraphUndoCommand : public GateFreeGraphCommand {
@@ -259,7 +287,7 @@ class GraphUndoCommand : public GateFreeGraphCommand {
         const graph::BatchEditResult result = graph::GraphRuntimeState::Get ().Undo (ReadGraphIdParam (params));
         if (!result.accepted)
             return BatchFailure (result);
-        return EditResponse (result.revision, result.dirtyNodes);
+        return EditResponse (result.revision, result.dirtyNodes, result.assignedNodes);
     }
 };
 class GraphRedoCommand : public GateFreeGraphCommand {
@@ -269,7 +297,7 @@ class GraphRedoCommand : public GateFreeGraphCommand {
         const graph::BatchEditResult result = graph::GraphRuntimeState::Get ().Redo (ReadGraphIdParam (params));
         if (!result.accepted)
             return BatchFailure (result);
-        return EditResponse (result.revision, result.dirtyNodes);
+        return EditResponse (result.revision, result.dirtyNodes, result.assignedNodes);
     }
 };
 // One shape for both verbs that answer with history, so a field added here

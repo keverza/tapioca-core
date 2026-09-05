@@ -9,7 +9,9 @@
 #include "Preview/GraphPreviewStore.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <set>
+#include <string>
 #include <variant>
 
 namespace evp::nodegraph {
@@ -267,6 +269,9 @@ StoreResult GraphRuntimeState::LoadFromLibrary (const std::string& name, const G
     slot.metadata = std::move (loaded.metadata);
     // The cache belonged to the previous program.
     slot.evaluator.Reset ();
+    // A saved graph carries ids this runtime generated in an earlier session.
+    // Naming from 1 again would collide with its own file.
+    SeedNodeOrdinalLocked (slot);
     return result;
 }
 
@@ -284,6 +289,113 @@ void GraphRuntimeState::PublishPreviewLocked (const GraphId& graphId, Slot& slot
     const PreviewProjection projection = ProjectGraphPreview (
         graphId, slot.document, registry_, [&slot] (const NodeId& nodeId) { return slot.evaluator.Result (nodeId); });
     evp::preview::GraphPreviewStore::Get ().PublishGraph (graphId, projection.primitives);
+}
+
+// The readable half of a generated id: the last segment of the node type, so
+// `math.add` names `add-7` rather than `math.add-7` or an opaque `n7`. A node id
+// appears in error messages, in saved files and in every wire, and one a person
+// can read is worth the few lines it costs to make.
+namespace {
+std::string ShortTypeName (const std::string& nodeType)
+{
+    const size_t dot = nodeType.rfind ('.');
+    const std::string tail = dot == std::string::npos ? nodeType : nodeType.substr (dot + 1);
+    std::string cleaned;
+    cleaned.reserve (tail.size ());
+    for (const char character : tail) {
+        // Anything that is not a letter, a digit or a dash would make an id that
+        // is awkward to quote; there is no reason to carry it into a name.
+        if (std::isalnum (static_cast<unsigned char> (character)) != 0 || character == '-')
+            cleaned.push_back (static_cast<char> (std::tolower (static_cast<unsigned char> (character))));
+    }
+    return cleaned.empty () ? std::string ("node") : cleaned;
+}
+
+// The trailing `-<digits>` of an id, if it has one. Used to lift the ordinal
+// above a loaded document's own names.
+std::optional<uint64_t> TrailingOrdinal (const NodeId& nodeId)
+{
+    const size_t dash = nodeId.rfind ('-');
+    if (dash == std::string::npos || dash + 1 >= nodeId.size ())
+        return std::nullopt;
+    const std::string digits = nodeId.substr (dash + 1);
+    if (!std::all_of (digits.begin (), digits.end (),
+                      [] (char character) { return std::isdigit (static_cast<unsigned char> (character)) != 0; }))
+        return std::nullopt;
+    // A very long run of digits is not an ordinal this ever wrote; refusing to
+    // parse it is safer than overflowing on a name from somewhere else.
+    if (digits.size () > 18)
+        return std::nullopt;
+    return std::stoull (digits);
+}
+// Rewrite every node reference in `edit` through the aliases this transaction
+// has assigned so far.
+//
+// A PASTE ADDS NODES AND WIRES THEM IN ONE TRANSACTION, so the wires name nodes
+// whose real ids did not exist when the client built the batch. Resolution is
+// strictly backwards-looking: an edit can only refer to an alias an EARLIER edit
+// introduced, which is the same order the client wrote them in and keeps the
+// rule "an alias means one node" true no matter how the batch is arranged.
+//
+// A name that is not an alias is left exactly as it is - that is how an edit
+// refers to a node the document already had.
+void ResolveAliases (GraphEdit& edit, const std::map<std::string, NodeId>& aliases)
+{
+    const auto resolve = [&aliases] (NodeId& nodeId) {
+        if (const auto found = aliases.find (nodeId); found != aliases.end ())
+            nodeId = found->second;
+    };
+    const auto resolveEdge = [&resolve] (Edge& edge) {
+        resolve (edge.sourceNode);
+        resolve (edge.targetNode);
+    };
+
+    std::visit (
+        [&] (auto& operation) {
+            using T = std::decay_t<decltype (operation)>;
+            if constexpr (std::is_same_v<T, AddNodeEdit>) {
+                // Nothing to resolve: this edit is what DEFINES an alias.
+            }
+            else if constexpr (std::is_same_v<T, RemoveElementsEdit>) {
+                for (NodeId& nodeId : operation.nodeIds)
+                    resolve (nodeId);
+                for (Edge& edge : operation.edges)
+                    resolveEdge (edge);
+            }
+            else if constexpr (std::is_same_v<T, ConnectEdit> || std::is_same_v<T, DisconnectEdit>) {
+                resolveEdge (operation.edge);
+            }
+            else {
+                // Every remaining edit names exactly one node.
+                resolve (operation.nodeId);
+            }
+        },
+        edit.data);
+}
+
+} // namespace
+
+NodeId GraphRuntimeState::GenerateNodeIdLocked (Slot& slot, const std::string& nodeType)
+{
+    const std::string stem = ShortTypeName (nodeType);
+    // The loop is the belt to the counter's braces: the counter alone is right
+    // unless a document arrived carrying a name that looks like one of ours,
+    // and a duplicate id is refused by ApplyEdit rather than silently merged.
+    for (;;) {
+        NodeId candidate = stem + "-" + std::to_string (slot.nextNodeOrdinal++);
+        if (slot.document.FindNode (candidate) == nullptr)
+            return candidate;
+    }
+}
+
+void GraphRuntimeState::SeedNodeOrdinalLocked (Slot& slot)
+{
+    uint64_t highest = 0;
+    for (const auto& [nodeId, node] : slot.document.Nodes ()) {
+        if (const std::optional<uint64_t> ordinal = TrailingOrdinal (nodeId); ordinal.has_value ())
+            highest = std::max (highest, *ordinal);
+    }
+    slot.nextNodeOrdinal = highest + 1;
 }
 
 void GraphRuntimeState::PushHistoryLocked (Slot& slot, const GraphDocument& before, const std::string& label,
@@ -458,14 +570,38 @@ BatchEditResult GraphRuntimeState::ApplyBatch (const GraphId& graphId, std::opti
     const GraphDocument before = slot.document;
 
     std::vector<NodeId> dirty;
+    std::map<std::string, NodeId> aliases;
     for (size_t index = 0; index < edits.size (); ++index) {
-        const EditResult step = ApplyEdit (slot.document, registry_, edits[index]);
+        GraphEdit edit = edits[index];
+        ResolveAliases (edit, aliases);
+
+        if (auto* add = std::get_if<AddNodeEdit> (&edit.data); add != nullptr) {
+            if (!add->alias.empty () && slot.document.FindNode (add->alias) != nullptr) {
+                slot.document.RestoreContent (before);
+                result.code = batchcode::kAliasConflict;
+                result.error = "alias " + add->alias + " names a node this graph already has";
+                result.failedIndex = index;
+                result.revision = slot.document.Revision ();
+                return result;
+            }
+            if (add->node.id.empty ()) {
+                add->node.id = GenerateNodeIdLocked (slot, add->node.nodeType);
+                result.assignedNodes.emplace_back (add->alias, add->node.id);
+            }
+            if (!add->alias.empty ())
+                aliases.emplace (add->alias, add->node.id);
+        }
+
+        const EditResult step = ApplyEdit (slot.document, registry_, edit);
         if (!step.accepted) {
             slot.document.RestoreContent (before);
             result.code = step.code;
             result.error = step.error;
             result.failedIndex = index;
             result.revision = slot.document.Revision ();
+            // The ids handed out by the refused half were never applied, and a
+            // client that kept them would hold layout for nodes that do not exist.
+            result.assignedNodes.clear ();
             return result;
         }
         dirty.insert (dirty.end (), step.dirtyNodes.begin (), step.dirtyNodes.end ());
@@ -513,7 +649,17 @@ EditResult GraphRuntimeState::Apply (const GraphId& graphId, const GraphEdit& ed
     // is an inverse action per edit kind, which is the thing that goes wrong.
     const GraphDocument before = slot.document;
 
-    EditResult result = ApplyEdit (slot.document, registry_, edit);
+    // An add that arrived unnamed is named HERE, under the document lock, which
+    // is the only place that can promise the id is free.
+    GraphEdit named = edit;
+    NodeId assigned;
+    if (auto* add = std::get_if<AddNodeEdit> (&named.data); add != nullptr && add->node.id.empty ()) {
+        assigned = GenerateNodeIdLocked (slot, add->node.nodeType);
+        add->node.id = assigned;
+    }
+
+    EditResult result = ApplyEdit (slot.document, registry_, named);
+    result.assignedNodeId = result.accepted ? assigned : NodeId ();
     if (result.accepted) {
         if (release != nullptr) {
             // Promote first, THEN invalidate. Invalidate clears the downstream
