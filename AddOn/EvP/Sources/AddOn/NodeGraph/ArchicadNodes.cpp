@@ -15,6 +15,7 @@ constexpr const char kSetSelection[] = "archicad.setSelection";
 constexpr const char kContainerPrefix[] = "archicad.container.";
 constexpr const char kLibraryPart[] = "archicad.libraryPart";
 constexpr const char kElementSetting[] = "archicad.element.setting";
+constexpr const char kCamera[] = "archicad.camera";
 
 std::vector<Value> ToValueList (const std::vector<ArchicadElementRef>& elements)
 {
@@ -34,12 +35,236 @@ std::vector<Value> ToStringList (const std::vector<std::string>& values)
     return list;
 }
 
+// ---------------------------------------------------------------------------
+// THE CAMERA CODEC.
+//
+// ⚠️ THE FIELD NAMES ARE StartDiligentCapture'S, NOT THIS FILE'S CHOICE.
+// A camera captured here is handed to the renderer verbatim by the capture node,
+// so writing any other spelling would put a translation step between the two
+// halves of one feature - and a translation step is where an axis goes missing.
+// The four fields this interface does not carry are written anyway, with the
+// values the renderer's own schema requires, because that schema demands all
+// eleven and a partial object is refused rather than defaulted.
+// The field whose presence says "this string is a camera at all". Any of the
+// eleven would do; `valid` is the one a hand-written stub is likeliest to carry,
+// so requiring it rejects the least and still rejects a string that is not a
+// camera object.
+constexpr const char kCameraProbeField[] = "valid";
+
+double ReadNumber (const json::JsonValue& object, const char* key)
+{
+    const json::JsonValue* found = object.Find (key);
+    double value = 0.0;
+    if (found != nullptr)
+        found->AsDouble (value);
+    return value;
+}
+
 } // namespace
+
+std::string EncodeCamera (const ViewCamera& camera)
+{
+    json::JsonObject fields;
+    fields["valid"] = json::JsonValue::Bool (camera.valid);
+    fields["source"] = json::JsonValue::String (camera.source);
+    // Always false, and written rather than omitted: the renderer's schema
+    // requires the field, and this path never captures a parallel projection -
+    // ReadViewCameraOnHostThread refuses one before it gets here.
+    fields["orthographic"] = json::JsonValue::Bool (false);
+    // Likewise always false. `viewMoving` means "Archicad was provably scrolling
+    // while this was read", which is a live-sync concern; a camera the user
+    // captured by pressing a button was read from a settled view.
+    fields["viewMoving"] = json::JsonValue::Bool (false);
+    fields["eyeX"] = json::JsonValue::Double (camera.eye[0]);
+    fields["eyeY"] = json::JsonValue::Double (camera.eye[1]);
+    fields["eyeZ"] = json::JsonValue::Double (camera.eye[2]);
+    fields["targetX"] = json::JsonValue::Double (camera.target[0]);
+    fields["targetY"] = json::JsonValue::Double (camera.target[1]);
+    fields["targetZ"] = json::JsonValue::Double (camera.target[2]);
+    fields["viewConeDegreesHorizontal"] = json::JsonValue::Double (camera.viewConeDegreesHorizontal);
+    // ⚠️ THE SUN TRAVELS IN THE SAME ROW AS THE CAMERA, NOT IN A SECOND
+    // PARALLEL LIST. The selection set already carries a pair of parallel lists
+    // (guids and their types) and its own comments record the cost: when one is
+    // shorter than the other every entry after the gap is wrong about itself,
+    // and the panel still adds up. One row that holds everything about one
+    // capture cannot fall out of step with itself.
+    //
+    // These four names are outside StartDiligentCapture's camera schema, which
+    // sets additionalProperties false - so the capture node sends the camera
+    // fields and the sun fields to different places rather than forwarding this
+    // object whole. That is a slice 4 concern; storing them together is what
+    // makes it possible at all.
+    fields["hasSun"] = json::JsonValue::Bool (camera.hasSun);
+    fields["sunAzimuthDegrees"] = json::JsonValue::Double (camera.sunAzimuthDegrees);
+    fields["sunAltitudeDegrees"] = json::JsonValue::Double (camera.sunAltitudeDegrees);
+    fields["sunBearingDegrees"] = json::JsonValue::Double (camera.sunBearingDegrees);
+    fields["sunSource"] = json::JsonValue::String (camera.sunSource);
+    // ⚠️ ARCHICAD'S OWN SUN STRUCT, STORED SO RESTORE SURVIVES A SAVE.
+    // The derived angles above cannot be written back - their convention is this
+    // repository's, not the DevKit's - so without these a graph reloaded from
+    // disk could position the camera and not the light. See ViewCamera.
+    fields["sunFromDate"] = json::JsonValue::Bool (camera.sunFromDate);
+    fields["sunRawAzimuth"] = json::JsonValue::Double (camera.sunRawAzimuth);
+    fields["sunRawAltitude"] = json::JsonValue::Double (camera.sunRawAltitude);
+    fields["sunYear"] = json::JsonValue::Integer (camera.sunYear);
+    fields["sunMonth"] = json::JsonValue::Integer (camera.sunMonth);
+    fields["sunDay"] = json::JsonValue::Integer (camera.sunDay);
+    fields["sunHour"] = json::JsonValue::Integer (camera.sunHour);
+    fields["sunMinute"] = json::JsonValue::Integer (camera.sunMinute);
+    fields["sunSecond"] = json::JsonValue::Integer (camera.sunSecond);
+    fields["sunSummerTime"] = json::JsonValue::Bool (camera.sunSummerTime);
+    // One line: this is a parameter value, not a file a human reads in a diff.
+    return json::Write (json::JsonValue::Object (std::move (fields)), 0);
+}
+
+bool DecodeCamera (const std::string& encoded, ViewCamera& camera)
+{
+    const json::ParseResult parsed = json::Parse (encoded);
+    if (!parsed.ok || parsed.value.Find (kCameraProbeField) == nullptr)
+        return false;
+
+    bool valid = false;
+    const json::JsonValue* validField = parsed.value.Find ("valid");
+    if (validField != nullptr)
+        validField->AsBool (valid);
+
+    ViewCamera read;
+    read.valid = valid;
+    const json::JsonValue* source = parsed.value.Find ("source");
+    if (source != nullptr)
+        source->AsString (read.source);
+    read.eye[0] = ReadNumber (parsed.value, "eyeX");
+    read.eye[1] = ReadNumber (parsed.value, "eyeY");
+    read.eye[2] = ReadNumber (parsed.value, "eyeZ");
+    read.target[0] = ReadNumber (parsed.value, "targetX");
+    read.target[1] = ReadNumber (parsed.value, "targetY");
+    read.target[2] = ReadNumber (parsed.value, "targetZ");
+    read.viewConeDegreesHorizontal = ReadNumber (parsed.value, "viewConeDegreesHorizontal");
+    // Absent means NO SUN, which is exactly what a graph saved before this
+    // existed should read as - not a sun at azimuth zero, which is a real
+    // direction and would light every restored frame from due east.
+    const json::JsonValue* hasSun = parsed.value.Find ("hasSun");
+    bool sun = false;
+    if (hasSun != nullptr)
+        hasSun->AsBool (sun);
+    read.hasSun = sun;
+    read.sunAzimuthDegrees = ReadNumber (parsed.value, "sunAzimuthDegrees");
+    read.sunAltitudeDegrees = ReadNumber (parsed.value, "sunAltitudeDegrees");
+    read.sunBearingDegrees = ReadNumber (parsed.value, "sunBearingDegrees");
+    const json::JsonValue* sunSource = parsed.value.Find ("sunSource");
+    if (sunSource != nullptr)
+        sunSource->AsString (read.sunSource);
+
+    const auto flag = [&parsed] (const char* key) {
+        const json::JsonValue* found = parsed.value.Find (key);
+        bool value = false;
+        if (found != nullptr)
+            found->AsBool (value);
+        return value;
+    };
+    const auto whole = [&parsed] (const char* key) {
+        const json::JsonValue* found = parsed.value.Find (key);
+        int64_t value = 0;
+        if (found != nullptr)
+            found->AsInteger (value);
+        return static_cast<int> (value);
+    };
+    read.sunFromDate = flag ("sunFromDate");
+    read.sunRawAzimuth = ReadNumber (parsed.value, "sunRawAzimuth");
+    read.sunRawAltitude = ReadNumber (parsed.value, "sunRawAltitude");
+    read.sunYear = whole ("sunYear");
+    read.sunMonth = whole ("sunMonth");
+    read.sunDay = whole ("sunDay");
+    read.sunHour = whole ("sunHour");
+    read.sunMinute = whole ("sunMinute");
+    read.sunSecond = whole ("sunSecond");
+    read.sunSummerTime = flag ("sunSummerTime");
+    camera = read;
+    return true;
+}
+
+std::vector<ViewCamera> CamerasFromValue (const Argument& value)
+{
+    std::vector<ViewCamera> cameras;
+
+    // ⚠️ A LONE CAMERA IS A ONE-ITEM LIST, NOT A MISTAKE, AND READING IT
+    // AS EMPTY WAS A REAL BUG. The tree layer projects a branch holding one item
+    // back as that ITEM rather than as a list - ordinary tree semantics, and the
+    // same reason `structureOfValue` calls a non-list an item. So a camera node
+    // holding exactly one camera hands the capture node a String, and a decoder
+    // that insisted on a List would have rendered nothing while reporting
+    // success. One camera is the commonest list there is.
+    if (value.Type () == ValueType::String) {
+        ViewCamera camera;
+        if (DecodeCamera (std::get<std::string> (value.DataValue ()), camera))
+            cameras.push_back (camera);
+        return cameras;
+    }
+
+    if (value.Type () != ValueType::List)
+        return cameras;
+    for (const Value& item : value.Items ()) {
+        if (item.Type () != ValueType::String)
+            continue;
+        ViewCamera camera;
+        // ⚠️ AN UNREADABLE ROW IS DROPPED, NOT SUBSTITUTED. It can only come
+        // from a hand-edited document, and a zeroed camera would take its place
+        // in the list looking exactly like a real one - then point the 3D window
+        // at the origin when somebody pressed Restore on it.
+        if (DecodeCamera (std::get<std::string> (item.DataValue ()), camera))
+            cameras.push_back (camera);
+    }
+    return cameras;
+}
+
+std::string EncodeCameraSun (const ViewCamera& camera)
+{
+    json::JsonObject fields;
+    // ⚠️ SetDiligentSun'S OWN FIELD NAMES. `enabled` is that command's word
+    // for "override the project's sun with these angles", and it is false for a
+    // camera that carries none - so wiring a sunless camera into anything that
+    // consumes this leaves the renderer's own sun alone instead of pointing it
+    // at due east.
+    fields["enabled"] = json::JsonValue::Bool (camera.hasSun);
+    // The MODEL angle, CCW from +X. Not the bearing - see ViewCamera.
+    fields["azimuthDegrees"] = json::JsonValue::Double (camera.sunAzimuthDegrees);
+    fields["altitudeDegrees"] = json::JsonValue::Double (camera.sunAltitudeDegrees);
+    // Carried alongside for a reader rather than for the renderer, which never
+    // asks for it. A panel showing "-80" would send somebody hunting for a bug
+    // that is a convention.
+    fields["bearingDegrees"] = json::JsonValue::Double (camera.sunBearingDegrees);
+    // Which rule produced the angles. Published rather than kept internal because
+    // the two ways this can be wrong - a frozen sun and a discarded typed one -
+    // look identical from the numbers, and this is the field that tells them
+    // apart without a rebuild.
+    fields["source"] = json::JsonValue::String (camera.sunSource);
+    return json::Write (json::JsonValue::Object (std::move (fields)), 0);
+}
+
+Argument SunFromCameras (const std::vector<ViewCamera>& cameras)
+{
+    std::vector<Value> list;
+    list.reserve (cameras.size ());
+    for (const ViewCamera& camera : cameras)
+        list.emplace_back (EncodeCameraSun (camera));
+    return Argument::FromItems (std::move (list));
+}
+
+Argument ValueFromCameras (const std::vector<ViewCamera>& cameras)
+{
+    std::vector<Value> list;
+    list.reserve (cameras.size ());
+    for (const ViewCamera& camera : cameras)
+        list.emplace_back (EncodeCamera (camera));
+    return Argument::FromItems (std::move (list));
+}
 
 const char* const kSelectionSetNodeType = kGetSelection;
 const char* const kSelectionSetParameter = "elements";
 const char* const kSelectionTypesParameter = "elementTypes";
 const char* const kElementContainerPrefix = kContainerPrefix;
+const char* const kCameraSetNodeType = kCamera;
+const char* const kCameraSetParameter = "cameras";
 
 std::string ElementContainerNodeType (const std::string& elementTypeId)
 {
@@ -136,6 +361,47 @@ void RegisterArchicadNodes (NodeRegistry& registry)
     getSelection.outputs.push_back ({ "elements", "Elements", ValueType::List });
     getSelection.outputs.push_back ({ "count", "Count", ValueType::Integer });
     if (!registry.Register (std::move (getSelection), error))
+        throw std::logic_error (error);
+
+    // A LIST OF CAMERAS the user captures from Archicad's 3D window, one press
+    // at a time. The capture node renders one frame per entry.
+    //
+    // ⚠️ Pure/Worker AND IT DECLARES NO GENERATION, for exactly the reason
+    // the selection set does not: the node's output IS its stored parameter, so
+    // evaluating it reads nothing from the host. A node that tracked the live 3D
+    // window would change its answer - and dirty everything downstream of it -
+    // every time the user orbited, which is the opposite of what a captured
+    // camera is for. The set changes when a button is pressed and at no other
+    // time.
+    //
+    // ⚠️ AND THE CAMERA COMES FROM ARCHICAD'S 3D WINDOW, NOT THE VIEWER.
+    // A user decision, and it is what makes the loop "orbit in Archicad, press
+    // Add, orbit, press Add" rather than a second navigation surface to learn.
+    NodeType camera;
+    camera.id = kCamera;
+    camera.label = "Camera";
+    camera.category = "Archicad";
+    camera.description =
+        "Camera positions you capture from Archicad's 3D window. Add stores where you are looking now, "
+        "Restore points the 3D window back at one, Remove and Clear change the list.";
+    camera.executionDomain = ExecutionDomain::Worker;
+    camera.effect = EffectKind::Pure;
+    camera.display = NodeDisplay::CameraSet;
+    // NO DEFAULT VALUE, deliberately, exactly as the selection set has none: an
+    // absent parameter already means an empty list, so a default would be a
+    // second spelling of the same state and would put a list where every other
+    // node's defaultValue is a scalar.
+    camera.parameters.push_back ({ kCameraSetParameter, "Cameras", ValueType::List, false });
+    camera.outputs.push_back ({ "cameras", "Cameras", ValueType::List });
+    // ⚠️ A SEPARATE OUTPUT, INDEX-PARALLEL TO `cameras`, RATHER THAN A
+    // FIELD INSIDE THEM. The two are wired to different places - a camera
+    // positions the frame and a sun lights it - and a consumer that wanted only
+    // the lighting would otherwise have to parse a camera to find it. Parallel
+    // by construction rather than by promise: both are projected from the SAME
+    // stored rows, so they cannot come out different lengths.
+    camera.outputs.push_back ({ "sun", "Sun", ValueType::List });
+    camera.outputs.push_back ({ "count", "Count", ValueType::Integer });
+    if (!registry.Register (std::move (camera), error))
         throw std::logic_error (error);
 
     NodeType setSelection;
@@ -312,7 +578,7 @@ void RegisterElementContainers (NodeRegistry& registry)
 bool IsArchicadNodeType (const std::string& nodeTypeId)
 {
     return nodeTypeId == kGetSelection || nodeTypeId == kSetSelection || nodeTypeId == kLibraryPart ||
-           nodeTypeId == kElementSetting || !ElementTypeOfContainerNode (nodeTypeId).empty ();
+           nodeTypeId == kElementSetting || nodeTypeId == kCamera || !ElementTypeOfContainerNode (nodeTypeId).empty ();
 }
 
 bool ExecuteArchicadNode (const Node& node, const ValueMap& inputs, const NodeExecutionContext& context,
@@ -327,6 +593,19 @@ bool ExecuteArchicadNode (const Node& node, const ValueMap& inputs, const NodeEx
             stored == node.parameters.end () ? std::vector<ArchicadElementRef> {} : ElementsFromValue (stored->second);
         outputs.emplace ("count", Value (static_cast<int64_t> (elements.size ())));
         outputs.emplace ("elements", ValueFromElements (elements));
+        return true;
+    }
+
+    // The camera list evaluates to what it holds, like the selection set and for
+    // the same reason: no host, no project, no generation, so it runs offline and
+    // stays clean while the user navigates.
+    if (node.nodeType == kCamera) {
+        const auto stored = node.parameters.find (kCameraSetParameter);
+        const std::vector<ViewCamera> cameras =
+            stored == node.parameters.end () ? std::vector<ViewCamera> {} : CamerasFromValue (stored->second);
+        outputs.emplace ("count", Value (static_cast<int64_t> (cameras.size ())));
+        outputs.emplace ("cameras", ValueFromCameras (cameras));
+        outputs.emplace ("sun", SunFromCameras (cameras));
         return true;
     }
 

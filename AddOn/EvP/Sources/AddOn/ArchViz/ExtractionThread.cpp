@@ -570,16 +570,25 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             SliceTimeoutMs, sliceErr);
         const int64_t sliceElapsed = NowMs () - sliceStart;
 
-        if (!ok || !st->completed.load ()) {
-            // ABANDON THE WHOLE SLICE — do not harvest its meshes. The job may
-            // still be running or may run later, and the shared_ptr keeps its
-            // state alive for that writer. Retrying the same cursor costs one
-            // re-extraction; reading a buffer another thread is writing costs a
-            // crash that only happens when Archicad is busy.
+        // ⚠️ WAIT FOR A TIMED-OUT SLICE, NEVER RETRY IT - see the header.
+        if (!ok && !st->completed.load ()) {
+            const int64_t deadline = NowMs () + static_cast<int64_t> (SliceTimeoutMs) * 8;
+            {
+                std::lock_guard<std::mutex> lock (mutex_);
+                progress_.phase = "extracting - one element is taking longer than a slice";
+            }
+            while (!st->completed.load () && NowMs () < deadline && !stopFlag_.load ())
+                std::this_thread::sleep_for (std::chrono::milliseconds (opt.gapMs));
+        }
+
+        if (!st->completed.load ()) {
+            // ABANDON IT — never harvest a buffer another thread may be writing.
             ++consecutiveTimeouts;
             if (consecutiveTimeouts >= 5) {
                 std::lock_guard<std::mutex> lock (mutex_);
-                progress_.phase = "the main-thread gate stopped dispatching; extraction paused";
+                progress_.phase = "element " + std::to_string (cursor) + " of " + std::to_string (handle->count) +
+                                  " never finished tessellating. Archicad may "
+                                  "be regenerating the 3D model - run Main-Thread Gate Watch to tell those apart";
                 break;
             }
             std::this_thread::sleep_for (std::chrono::milliseconds (opt.gapMs * 4));

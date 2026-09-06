@@ -38,7 +38,7 @@ constexpr const char kGraphInputSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json";
 
 constexpr const char kCatalogResponseSchema[] =
-    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"effect":{"type":"string","enum":["pure","readModel","hostUiWrite"]},"display":{"type":"string","enum":["ports","text","preview","selectionSet","script"]},"bypassMappings":{"type":"array","items":{"type":"object","properties":{"inputId":{"type":"string"},"outputId":{"type":"string"}},"additionalProperties":false,"required":["inputId","outputId"]}},"holdCapable":{"type":"boolean"},"instancePorts":{"type":"boolean"},"generations":{"type":"array","items":{"type":"string","enum":["project","selection"]}},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/value"},"ui":{"type":"object","properties":{"widget":{"type":"string","enum":["auto","number","slider","boolean","select","text","vector","point","color","readOnly","previewTarget","libraryPart"]},"section":{"type":"string"},"order":{"type":"integer"},"help":{"type":"string"},"unit":{"type":"string"},"minimum":{"type":"number"},"maximum":{"type":"number"},"step":{"type":"number","exclusiveMinimum":0},"decimals":{"type":"integer","minimum":0,"maximum":15},"minimumParameter":{"type":"string"},"maximumParameter":{"type":"string"},"stepParameter":{"type":"string"},"decimalsParameter":{"type":"string"},"components":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["label","value"]}},"optionSource":{"type":"string","enum":["none","layer","pen","fill","lineType","surface","buildingMaterial","composite","profile"]}},"additionalProperties":false,"required":["widget","section","order","help","unit","components","options","optionSource"]}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","effect","display","bypassMappings","holdCapable","instancePorts","generations","inputs","outputs","parameters"]}},"elementTypes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"plural":{"type":"string"},"container":{"type":"boolean"}},"additionalProperties":false,"required":["id","label","plural","container"]}}},"additionalProperties":false,"required":["nodeTypes","elementTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
+    R"json({"type":"object","properties":{"nodeTypes":{"type":"array","items":{"type":"object","properties":{"nodeType":{"type":"string"},"label":{"type":"string"},"category":{"type":"string"},"description":{"type":"string"},"executionDomain":{"type":"string","enum":["worker","archicadMainThread","renderThread"]},"effect":{"type":"string","enum":["pure","readModel","hostUiWrite"]},"display":{"type":"string","enum":["ports","text","preview","selectionSet","cameraSet","script"]},"commitLabel":{"type":"string"},"bypassMappings":{"type":"array","items":{"type":"object","properties":{"inputId":{"type":"string"},"outputId":{"type":"string"}},"additionalProperties":false,"required":["inputId","outputId"]}},"holdCapable":{"type":"boolean"},"instancePorts":{"type":"boolean"},"generations":{"type":"array","items":{"type":"string","enum":["project","selection"]}},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"defaultValue":{"$ref":"#/$defs/value"},"ui":{"type":"object","properties":{"widget":{"type":"string","enum":["auto","number","slider","boolean","select","text","vector","point","color","readOnly","previewTarget","libraryPart"]},"section":{"type":"string"},"order":{"type":"integer"},"help":{"type":"string"},"unit":{"type":"string"},"minimum":{"type":"number"},"maximum":{"type":"number"},"step":{"type":"number","exclusiveMinimum":0},"decimals":{"type":"integer","minimum":0,"maximum":15},"minimumParameter":{"type":"string"},"maximumParameter":{"type":"string"},"stepParameter":{"type":"string"},"decimalsParameter":{"type":"string"},"components":{"type":"array","items":{"type":"string"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["label","value"]}},"optionSource":{"type":"string","enum":["none","layer","pen","fill","lineType","surface","buildingMaterial","composite","profile","modelView3D"]}},"additionalProperties":false,"required":["widget","section","order","help","unit","components","options","optionSource"]}},"additionalProperties":false,"required":["parameterId","label","valueType","required"]}}},"additionalProperties":false,"required":["nodeType","label","category","description","executionDomain","effect","display","bypassMappings","holdCapable","instancePorts","generations","inputs","outputs","parameters"]}},"elementTypes":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"label":{"type":"string"},"plural":{"type":"string"},"container":{"type":"boolean"}},"additionalProperties":false,"required":["id","label","plural","container"]}}},"additionalProperties":false,"required":["nodeTypes","elementTypes"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
 
 constexpr const char kStateResponseSchema[] =
     R"json({"type":"object","properties":{"graphId":{"type":"string"},"revision":{"type":"integer","minimum":0},"lastRunId":{"type":"integer","minimum":0},"lastEventSeq":{"type":"integer","minimum":0},"nodes":{"type":"array","items":{"type":"object","properties":{"nodeId":{"type":"string"},"nodeType":{"type":"string"},"executionMode":{"type":"string","enum":["enabled","disabled","bypassed","holding"]},"inputModifiers":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"modifier":{"type":"string","enum":["none","flatten","graft","simplify","reverse","round","normalise"]}},"additionalProperties":false,"required":["portId","modifier"]}},"parameters":{"type":"array","items":{"type":"object","properties":{"parameterId":{"type":"string"},"value":{"$ref":"#/$defs/value"}},"additionalProperties":false,"required":["parameterId","value"]}},"inputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"},"required":{"type":"boolean"},"acceptsMultiple":{"type":"boolean"}},"additionalProperties":false,"required":["portId","label","valueType","required","acceptsMultiple"]}},"outputs":{"type":"array","items":{"type":"object","properties":{"portId":{"type":"string"},"label":{"type":"string"},"valueType":{"type":"string"}},"additionalProperties":false,"required":["portId","label","valueType"]}}},"additionalProperties":false,"required":["nodeId","nodeType","executionMode","parameters"]}},"edges":{"type":"array","items":{"type":"object","properties":{"sourceNode":{"type":"string"},"sourcePort":{"type":"string"},"targetNode":{"type":"string"},"targetPort":{"type":"string"}},"additionalProperties":false,"required":["sourceNode","sourcePort","targetNode","targetPort"]}}},"additionalProperties":false,"required":["graphId","revision","lastRunId","lastEventSeq","nodes","edges"],"$defs":{"leafValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"}},"additionalProperties":false,"required":["valueType"]},"value":{"type":"object","properties":{"valueType":{"type":"string","enum":["absent","bool","integer","double","string","point3","polyline","polygon","mesh","archicadElementRef","list"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"}},"indices":{"type":"array","items":{"type":"integer","minimum":0}},"itemCount":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"items":{"type":"array","items":{"$ref":"#/$defs/leafValue"}}},"additionalProperties":false,"required":["valueType"]},"parameterValue":{"type":"object","properties":{"valueType":{"type":"string","enum":["bool","integer","double","string","point3","archicadElementRef"]},"bool":{"type":"boolean"},"number":{"type":"number"},"text":{"type":"string"},"numbers":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3}},"additionalProperties":false,"required":["valueType"]}}})json";
@@ -172,6 +172,7 @@ class GraphGetNodeTypesCommand : public GateFreeGraphCommand {
             record.Add ("executionDomain", DomainName (nodeType.executionDomain));
             record.Add ("effect", graph::EffectKindName (nodeType.effect));
             record.Add ("display", graph::NodeDisplayName (nodeType.display));
+            record.Add ("commitLabel", GraphText (nodeType.commitLabel));
             // Stage F3/F4. The editor greys "Bypass" and "Hold" per node type
             // from THIS, rather than attempting the edit to find out: an action
             // that is offered and then refused is worse than one that was never
@@ -343,6 +344,69 @@ class GraphGetStateCommand : public GateFreeGraphCommand {
     }
 };
 
+// RUN THE GRAPH OFF THE CALLER'S THREAD.
+//
+// ⚠️ NOT AN OPTIMISATION - IT IS THE ONLY WAY A LONG NODE CAN WORK FROM
+// THE EDITOR. A gate-free command runs INLINE on the caller's thread, and when
+// the caller is the editor that thread is Archicad's own: the DG::Browser bridge
+// dispatches on the UI thread. The evaluator's coordinator is then the main
+// thread and it blocks on its worker pool, so any node that needs
+// MainThreadGate - a headless capture asking for the 3D model - waits on a
+// thread that is waiting on it. The gate gives up 20 seconds later and reports
+// that Archicad is "almost certainly GENERATING" a model it already had, which
+// is a true sentence about the wrong problem.
+//
+// The same graph has always worked from Python over the loopback server, for the
+// single reason that it arrives on a worker thread. This verb puts the editor on
+// the same footing.
+//
+// Start returns immediately; the client polls GraphRunState. One run at a time
+// per graph - a second is refused rather than queued, because two runs
+// committing side effects into one document is not something anybody asked for.
+class GraphRunAsyncCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        graph::EvaluationRequest request;
+        GS::Array<GS::UniString> targets;
+        if (params.Get ("targets", targets)) {
+            for (const GS::UniString& target : targets)
+                request.targets.push_back (GraphUtf8 (target));
+        }
+        bool allowSideEffects = false;
+        if (params.Get ("allowSideEffects", allowSideEffects))
+            request.allowSideEffects = allowSideEffects;
+
+        const graph::GraphId graphId = ReadGraphIdParam (params);
+        const bool started = graph::GraphRuntimeState::Get ().StartAsyncRun (graphId, request);
+        GS::ObjectState os;
+        os.Add ("started", started);
+        // Refused is a REPORTED outcome, not a failure: the client asked a
+        // reasonable question and the answer is "one is already running".
+        os.Add ("error", started ? GS::UniString () : GS::UniString ("a run is already in progress", CC_UTF8));
+        return os;
+    }
+};
+
+class GraphRunStateCommand : public GateFreeGraphCommand {
+  protected:
+    NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        const graph::GraphRuntimeState::AsyncRunState state =
+            graph::GraphRuntimeState::Get ().AsyncRun (ReadGraphIdParam (params));
+        GS::ObjectState os;
+        os.Add ("running", state.running);
+        os.Add ("finished", state.finished);
+        os.Add ("succeeded", state.succeeded);
+        os.Add ("error", GraphText (state.error));
+        os.Add ("executedCount", static_cast<GS::Int64> (state.executedCount));
+        // What the run is DOING. Empty for work that reports none, which is most
+        // of it - only a capture currently has stages worth showing.
+        os.Add ("progress", GraphText (state.progress));
+        return os;
+    }
+};
+
 class GraphEvaluateCommand : public GateFreeGraphCommand {
   protected:
     NativeCommandResult ExecuteGraph (const GS::ObjectState& params, GS::ProcessControl&) const override
@@ -368,8 +432,26 @@ class GraphEvaluateCommand : public GateFreeGraphCommand {
         if (params.Get ("maxParallel", maxParallel) && maxParallel > 0)
             request.maxParallel = static_cast<size_t> (maxParallel);
 
-        const graph::EvaluationSummary summary =
-            graph::GraphRuntimeState::Get ().Evaluate (ReadGraphIdParam (params), request);
+        // ⚠️ REFUSED RATHER THAN QUEUED BEHIND THE RUN IN FLIGHT, AND
+        // THIS GUARD IS LOAD-BEARING. Evaluate blocks on the graph's run mutex;
+        // this command runs INLINE on the caller's thread, and when that caller
+        // is the editor the thread is Archicad's own. Blocking it stops the
+        // event loop, which stops MainThreadGate dispatching, which starves the
+        // very run being waited on - it dies reporting "the main-thread gate
+        // stopped dispatching" and the wait was the cause. Measured exactly that
+        // way: an automatic re-run fired 90ms after the capture's own commit
+        // changed the document.
+        const graph::GraphId graphId = ReadGraphIdParam (params);
+        if (graph::GraphRuntimeState::Get ().AsyncRunInFlight (graphId)) {
+            GS::ObjectState busy;
+            busy.Add ("succeeded", false);
+            busy.Add ("error", GS::UniString ("a run is already in progress", CC_UTF8));
+            busy.Add ("executedCount", static_cast<GS::Int64> (0));
+            busy.Add ("effectsCommitted", false);
+            return busy;
+        }
+
+        const graph::EvaluationSummary summary = graph::GraphRuntimeState::Get ().Evaluate (graphId, request);
 
         // A failed graph is a REPORTED outcome, not a failed command. The
         // difference matters: a client has to be able to render which node
@@ -639,6 +721,12 @@ const NativeCommandRegistration registrations[] = {
       kCatalogResponseSchema },
     { "GraphGetState", &MakeRegisteredNativeCommand<GraphGetStateCommand>, false, kGraphInputSchema,
       kStateResponseSchema },
+    { "GraphRunAsync", &MakeRegisteredNativeCommand<GraphRunAsyncCommand>, false,
+      R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1},"targets":{"type":"array","items":{"type":"string","minLength":1}},"allowSideEffects":{"type":"boolean"}},"additionalProperties":false,"required":[]})json",
+      R"json({"type":"object","properties":{"started":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["started","error"]})json" },
+    { "GraphRunState", &MakeRegisteredNativeCommand<GraphRunStateCommand>, false,
+      R"json({"type":"object","properties":{"graphId":{"type":"string","minLength":1}},"additionalProperties":false,"required":[]})json",
+      R"json({"type":"object","properties":{"running":{"type":"boolean"},"finished":{"type":"boolean"},"succeeded":{"type":"boolean"},"error":{"type":"string"},"executedCount":{"type":"integer","minimum":0},"progress":{"type":"string"}},"additionalProperties":false,"required":["running","finished","succeeded","error","executedCount","progress"]})json" },
     { "GraphEvaluate", &MakeRegisteredNativeCommand<GraphEvaluateCommand>, false, kEvaluateInputSchema,
       kEvaluateResponseSchema },
     { "GraphCancel", &MakeRegisteredNativeCommand<GraphCancelCommand>, false, kGraphInputSchema,

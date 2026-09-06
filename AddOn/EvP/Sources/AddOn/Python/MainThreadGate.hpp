@@ -21,7 +21,9 @@
 #include "ACAPinc.h"
 #include "UniString.hpp"
 
+#include <cstdint>
 #include <functional>
+#include <string>
 
 namespace evp {
 
@@ -68,6 +70,59 @@ class MainThreadGate {
     bool Post (const std::function<void ()>& fn, GS::UniString& error);
 
     static constexpr int DefaultTimeoutMs = 30000;
+
+    // ---- WHY THE GATE IS OR IS NOT DISPATCHING ----------------------------
+    //
+    // ⚠️ THIS EXISTS BECAUSE "the main-thread gate stopped dispatching" IS
+    // TRUE AND USELESS ON ITS OWN. It is the symptom of something else holding
+    // Archicad's UI thread, and the message names neither what nor for how long.
+    // Three live failures were spent guessing at it; these numbers are what turn
+    // the next one into a reading rather than a theory.
+    //
+    // ⚠️ AND IT IS READABLE FROM A WORKER THREAD, WHICH IS THE WHOLE POINT.
+    // A diagnostic that needed the main thread could not observe a stalled main
+    // thread - it would queue behind exactly the thing it was sent to measure.
+    // Every field here is an atomic and Snapshot() takes no lock the UI thread
+    // could be holding, so Tapioca.MainThreadGateState answers over loopback
+    // while Archicad is frozen.
+    //
+    // The discriminator it provides: if `posted` keeps climbing while
+    // `dispatched` does not, the event loop is not running our handler and the
+    // UI thread is busy or blocked. If both climb, the gate is healthy and the
+    // fault is elsewhere.
+    struct Stats {
+        uint64_t posted = 0;
+        uint64_t dispatched = 0;
+        // Invoke called ON the main thread runs inline and never queues. A high
+        // count here with a low `posted` means the work is not crossing at all.
+        uint64_t inlineRuns = 0;
+        uint64_t timeouts = 0;
+        uint64_t postFailures = 0;
+        // What is waiting right now.
+        uint64_t queueDepth = 0;
+        // Milliseconds since the last successful dispatch. The number that says
+        // "the loop has been dead this long".
+        int64_t msSinceLastDispatch = -1;
+        int64_t msSinceLastPost = -1;
+        // The longest a job has ever waited between being posted and running.
+        int64_t longestWaitMs = 0;
+        bool shuttingDown = false;
+        bool mainThreadKnown = false;
+
+        // ---- who is holding the main thread -------------------------------
+        // The native command currently executing ON the main thread, if any, and
+        // for how long. This is the field that NAMES the culprit instead of
+        // leaving it to be inferred: a gate that stopped dispatching while
+        // "GraphEvaluate" has been running for 40 seconds is not a mystery.
+        std::string mainThreadCommand;
+        int64_t mainThreadCommandMs = -1;
+    };
+
+    Stats Snapshot () const;
+
+    // Called by the command dispatcher around anything it runs ON the main
+    // thread. Empty name clears it.
+    static void NoteMainThreadCommand (const char* name);
 
   private:
     MainThreadGate () = default;

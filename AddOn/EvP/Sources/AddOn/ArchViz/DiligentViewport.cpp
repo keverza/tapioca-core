@@ -325,6 +325,12 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // `hoverId` back out for the callout.
         PickState pickState;
         std::chrono::steady_clock::time_point captureReadyAt;
+        // Which frame of the batch comes next. OUTSIDE the frame loop, beside
+        // captureReadyAt and for the same reason - it has to survive the
+        // iterations between one capture and the next. Render-thread local:
+        // captureFrames_ is written before this thread starts and is read-only
+        // afterwards.
+        size_t captureIndex = 0;
 
         while (!stopRequested_.load ()) {
             bool captureThisFrame = false;
@@ -482,7 +488,24 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                     const auto now = std::chrono::steady_clock::now ();
                     if (captureReadyAt == std::chrono::steady_clock::time_point {})
                         captureReadyAt = now;
+                    // ⚠️ THE SETTLE IS PER FRAME, NOT PER BATCH, and the clock
+                    // is restarted every time the camera moves. The 100 ms was
+                    // never about extraction finishing - that is the condition
+                    // above - it is about the RENDERER settling: temporal
+                    // antialiasing accumulates across frames, and a shot taken
+                    // on the first frame after a camera jump carries the
+                    // previous viewpoint smeared through it. Capturing eight
+                    // cameras with one settle would have made frame 1 clean and
+                    // the other seven ghosted.
                     captureThisFrame = now - captureReadyAt >= std::chrono::milliseconds (100);
+                    if (captureThisFrame) {
+                        // Under the lock, like every other write to the stats: a
+                        // caller polls these from the main thread while this
+                        // thread is writing them.
+                        std::lock_guard<std::mutex> lock (mutex_);
+                        captureStats_.stage = "rendering " + std::to_string (captureIndex + 1) + " of " +
+                                              std::to_string (captureFrames_.size ());
+                    }
                 }
             }
 
@@ -911,26 +934,14 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             context->SetRenderTargets (1, none, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
 
             if (captureThisFrame) {
-                {
-                    std::lock_guard<std::mutex> lock (mutex_);
-                    captureStats_.stage = "encoding";
-                }
-                std::string png;
-                std::string captureError;
-                if (!target.CapturePng (context, png, captureError))
-                    throw std::runtime_error (captureError);
-                uint64_t captureId = runCaptureId;
-                if (captureId == 0 || captureId == (std::numeric_limits<uint64_t>::max) () ||
-                    !activeCaptureId_.compare_exchange_strong (captureId, 0))
-                    break;
-                ScreenshotStore::Get ().Publish ("diligent", png, captureId);
-                {
-                    std::lock_guard<std::mutex> lock (mutex_);
-                    captureStats_.stage = "teardown";
-                    captureStats_.bytes = png.size ();
-                }
+                // ⚠️ BODY IN DiligentCapture.cpp, LEAVING THE ORDERED CALL
+                // SITE. This file may not grow: frame-body work is extracted.
                 ++frames;
-                break;
+                if (CaptureOneFrame (target, context, camera, scene, width, height, runCaptureId, captureIndex,
+                                     captureReadyAt) == CaptureStep::Finished)
+                    break;
+                captureThisFrame = false;
+                continue;
             }
             if (!offscreen)
                 ApplyRequestedFrameLatency (target, requestedFrameLatency_.load (), appliedLatency);

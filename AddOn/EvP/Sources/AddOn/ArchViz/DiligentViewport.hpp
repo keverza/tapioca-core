@@ -21,6 +21,11 @@ namespace geomsrv::archviz {
 // including the definition would pull the D3D and Diligent headers this one
 // deliberately keeps out.
 class DiligentViewportTarget;
+// Same reasoning, for the two the capture step needs: a signature does not need
+// the definition, and pulling DiligentScene.hpp in here would drag the Diligent
+// headers this one keeps out.
+class Camera;
+class DiligentScene;
 
 struct HudState;
 
@@ -247,6 +252,26 @@ struct CameraStart {
     bool viewMoving = false;
 };
 
+// ONE FRAME OF A CAPTURE BATCH: where to put the camera, and what to light it
+// with.
+//
+// ⚠️ THE SUN TRAVELS PER FRAME, NOT PER BATCH, and that is the whole
+// reason the graph's camera node captures one per row. A list of viewpoints
+// taken across a day is a sun study; a batch that lit every frame with whatever
+// the viewer was last set to would render the same afternoon eight times and
+// look entirely plausible doing it.
+//
+// `sunEnabled` false means "use the project's own sun" - the same word
+// Tapioca.SetDiligentSun uses, and the same meaning - so a camera captured
+// before sun capture existed leaves the lighting alone rather than pointing it
+// at due east.
+struct CaptureFrame {
+    CameraStart camera;
+    bool sunEnabled = false;
+    float sunAzimuthDegrees = 0.0f; // model angle, CCW from +X. See ProjectEnv/ProjectSun.hpp.
+    float sunAltitudeDegrees = 0.0f;
+};
+
 struct DiligentCaptureStats {
     uint64_t id = 0;
     std::string status = "idle";
@@ -256,6 +281,17 @@ struct DiligentCaptureStats {
     uint64_t bytes = 0;
     std::string url;
     std::string failureMessage;
+
+    // ---- batches ----------------------------------------------------------
+    // How many frames were asked for and how many have been WRITTEN. A caller
+    // polls these to say "rendering 3 of 8" instead of watching a stage string
+    // sit on "rendering" for four minutes, which is indistinguishable from a
+    // hang on a real project.
+    size_t frameCount = 1;
+    size_t framesDone = 0;
+    // One path per completed frame, in camera order. Empty for a single capture
+    // that published to the screenshot store instead - see StartCaptureBatch.
+    std::vector<std::string> paths;
 };
 
 // The viewport's render thread. It owns every Diligent object it creates and
@@ -283,6 +319,30 @@ class DiligentViewport final {
 
     bool StartCapture (uint32_t width, uint32_t height, const CameraStart& camera, int renderQuality,
                        const CaptureOverlays& overlays, uint64_t& captureId, std::string& error);
+
+    // MANY FRAMES, ONE EXTRACTION.
+    //
+    // ⚠️ THIS IS THE WHOLE POINT OF THE BATCH, AND IT IS NOT A
+    // MICRO-OPTIMISATION. Every StartCapture clears the scene queue and runs a
+    // FULL model extraction - seconds to minutes on a real project, and the
+    // reason `maxSeconds` is 300 - so eight cameras through the single-frame
+    // path is eight extractions of a model that did not change between them. The
+    // batch extracts once and then moves the camera, which is what makes a
+    // camera list worth having at all.
+    //
+    // ⚠️ AND IT IS STILL EXCLUSIVE. A batch refuses to start while the
+    // viewport or another extraction is running, exactly as a single capture
+    // does: there is one scene queue and one extraction worker, and two passes
+    // interleaving on them would stitch a scene out of two states of the project.
+    //
+    // `outputDirectory` empty keeps the single-capture behaviour - one frame,
+    // published to the screenshot store and fetched over loopback. Non-empty
+    // writes `00.png`, `01.png` ... into it AS EACH FRAME IS ENCODED, so peak
+    // memory does not grow with the number of cameras: eight 4K PNGs held at
+    // once to hand back at the end would be tens of megabytes for no reason.
+    bool StartCaptureBatch (uint32_t width, uint32_t height, const std::vector<CaptureFrame>& frames, int renderQuality,
+                            const CaptureOverlays& overlays, const std::string& outputDirectory, uint64_t& captureId,
+                            std::string& error);
     bool CancelCapture (uint64_t captureId);
     DiligentCaptureStats CaptureStats () const;
     bool CurrentCamera (CameraStart& camera) const;
@@ -509,8 +569,7 @@ class DiligentViewport final {
     //
     // ⚠️ CALL IT AFTER `BeginFrame`, NEVER BEFORE. Before, it reports the size the
     // last frame had and the resize is a frame later than it needs to be.
-    void AdoptSurfaceSize (const DiligentViewportTarget& target, uint32_t& width,
-                           uint32_t& height);
+    void AdoptSurfaceSize (const DiligentViewportTarget& target, uint32_t& width, uint32_t& height);
 
     std::atomic<bool> blanked_ { false };
     // The banner, with its own mutex and its own expiry -- see
@@ -553,6 +612,15 @@ class DiligentViewport final {
     // not touch anything the frame loop owns.
     void ApplyCaptureSettings (HudState& hudState) const;
 
+    // What one captured frame does after it is drawn: encode, store, and either
+    // move to the next camera or finish. Defined in ArchViz/DiligentCapture.cpp -
+    // see that file's header for why it is neither in the frame loop nor in the
+    // support unit. RENDER THREAD.
+    enum class CaptureStep { Finished, NextCamera };
+    CaptureStep CaptureOneFrame (DiligentViewportTarget& target, Diligent::IDeviceContext* context, Camera& camera,
+                                 DiligentScene& scene, uint32_t width, uint32_t height, uint64_t runCaptureId,
+                                 size_t& captureIndex, std::chrono::steady_clock::time_point& captureReadyAt);
+
     std::atomic<int> captureRenderQuality_ { 1 };
     // ---- what a HEADLESS CAPTURE draws of the storey overlay ----------------
     //
@@ -568,6 +636,15 @@ class DiligentViewport final {
     std::atomic<float> captureStorySliceWidthPixels_ { 2.0f };
     std::atomic<uint32_t> captureStorySliceRgba_ { 0x3C3C3CFFu };
     std::atomic<uint32_t> captureStorySliceFillRgba_ { 0xC8C8C84Du };
+
+    // ---- the batch ----------------------------------------------------------
+    // ⚠️ WRITTEN BEFORE THE THREAD STARTS AND READ-ONLY AFTER, which is
+    // what makes them safe to touch from the frame loop without a lock. The
+    // lifecycle mutex already serialises starts, and a batch cannot be added to
+    // once it is running - Cancel is the only thing that changes it, and that
+    // goes through activeCaptureId_ like everything else.
+    std::vector<CaptureFrame> captureFrames_;
+    std::string captureOutputDirectory_;
 
     // ---- camera generation (PLAT-RE99) -------------------------------------
     // ⚠️ IT ANSWERS A QUESTION THE DESYNC MEASUREMENT STRUCTURALLY CANNOT. That

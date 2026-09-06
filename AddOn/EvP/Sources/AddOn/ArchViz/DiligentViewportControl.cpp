@@ -91,35 +91,80 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
 bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, const CameraStart& camera, int renderQuality,
                                      const CaptureOverlays& overlays, uint64_t& captureId, std::string& error)
 {
+    // The single capture IS a one-frame batch, and delegating rather than
+    // duplicating is what keeps the two from drifting: there is one validation
+    // rule, one exclusivity check and one frame loop. An empty output directory
+    // preserves this path's contract exactly - one PNG, published to the
+    // screenshot store and fetched over loopback - so MassingFeasibility and
+    // evp.outputs.diligent_capture are untouched.
+    CaptureFrame single;
+    single.camera = camera;
+    return StartCaptureBatch (width, height, { single }, renderQuality, overlays, std::string {}, captureId, error);
+}
+
+bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, const std::vector<CaptureFrame>& frames,
+                                          int renderQuality, const CaptureOverlays& overlays,
+                                          const std::string& outputDirectory, uint64_t& captureId, std::string& error)
+{
     std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
     captureId = 0;
-    if (!camera.valid || camera.orthographic) {
-        error = "headless capture currently requires a valid perspective camera";
+
+    if (frames.empty ()) {
+        error = "a capture batch needs at least one camera";
         return false;
     }
-    for (int axis = 0; axis < 3; ++axis) {
-        if (!std::isfinite (camera.eye[axis]) || !std::isfinite (camera.target[axis]) ||
-            std::abs (camera.eye[axis]) > 1e15f || std::abs (camera.target[axis]) > 1e15f) {
-            error = "headless capture camera coordinates must be finite and within +/-1e15 metres";
+    // ⚠️ EVERY CAMERA IS VALIDATED BEFORE ANY EXTRACTION STARTS. The
+    // extraction is the expensive half - minutes on a real project - and failing
+    // on camera six after paying for it is the one outcome a batch must not
+    // have. Same rules as a single capture, and the message names WHICH camera
+    // so a list of eight is debuggable.
+    for (size_t index = 0; index < frames.size (); ++index) {
+        const CameraStart& camera = frames[index].camera;
+        const std::string which = "camera " + std::to_string (index + 1);
+        if (!camera.valid || camera.orthographic) {
+            error = "headless capture currently requires a valid perspective camera (" + which + ")";
+            return false;
+        }
+        for (int axis = 0; axis < 3; ++axis) {
+            if (!std::isfinite (camera.eye[axis]) || !std::isfinite (camera.target[axis]) ||
+                std::abs (camera.eye[axis]) > 1e15f || std::abs (camera.target[axis]) > 1e15f) {
+                error = "headless capture camera coordinates must be finite and within +/-1e15 metres (" + which + ")";
+                return false;
+            }
+        }
+        const double dx = double (camera.eye[0]) - double (camera.target[0]);
+        const double dy = double (camera.eye[1]) - double (camera.target[1]);
+        const double dz = double (camera.eye[2]) - double (camera.target[2]);
+        if (dx * dx + dy * dy + dz * dz <= 1e-8f || camera.viewConeDegreesHorizontal <= 1.0f ||
+            camera.viewConeDegreesHorizontal >= 179.0f) {
+            error =
+                "headless capture requires distinct eye/target points and a horizontal field of view in (1, 179) (" +
+                which + ")";
             return false;
         }
     }
-    const double dx = double (camera.eye[0]) - double (camera.target[0]);
-    const double dy = double (camera.eye[1]) - double (camera.target[1]);
-    const double dz = double (camera.eye[2]) - double (camera.target[2]);
-    if (dx * dx + dy * dy + dz * dz <= 1e-8f || camera.viewConeDegreesHorizontal <= 1.0f ||
-        camera.viewConeDegreesHorizontal >= 179.0f) {
-        error = "headless capture requires distinct eye/target points and a horizontal field of view in (1, 179)";
-        return false;
-    }
-    if (IsRunning () || ExtractionWorker::Get ().IsRunning ()) {
-        error = "a Diligent viewport or extraction pass is already running";
+
+    // ⚠️ NAME WHICH ONE, because they are cleared differently and the
+    // combined sentence sent a user hunting for a viewer window that was not
+    // open. A viewport left running also blocks the 3D viewer and the overlay
+    // from the menu - StartUnlocked refuses on the same flag - so this is the
+    // message that explains all three symptoms at once.
+    const bool viewportBusy = IsRunning ();
+    const bool extractionBusy = ExtractionWorker::Get ().IsRunning ();
+    if (viewportBusy || extractionBusy) {
+        error = viewportBusy && extractionBusy ? "a Diligent viewport AND an extraction pass are still running"
+                : viewportBusy ? "a Diligent viewport is still running - close the 3D viewer and overlay, or "
+                                 "run the Diligent Pipeline Reset diagnostic"
+                               : "an extraction pass is still running - it finishes or gives up on its own; "
+                                 "the Diligent Pipeline Reset diagnostic stops it now";
         return false;
     }
     if (worker_.joinable ())
         worker_.join ();
 
     SceneCmdQueue::Get ().Clear ();
+    captureFrames_ = frames;
+    captureOutputDirectory_ = outputDirectory;
     {
         std::lock_guard<std::mutex> lock (mutex_);
         captureId = ++nextCaptureId_;
@@ -129,7 +174,14 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, const Came
         captureStats_.stage = "extracting";
         captureStats_.width = width;
         captureStats_.height = height;
-        captureStats_.url = "http://127.0.0.1:19191/screenshot/diligent?id=" + std::to_string (captureId);
+        captureStats_.frameCount = frames.size ();
+        captureStats_.framesDone = 0;
+        // The loopback URL is the SINGLE capture's contract and stays exactly as
+        // it was. A batch writes files instead, and its `paths` are what a caller
+        // reads - publishing eight frames to a store that holds one would hand
+        // back seven dead links.
+        if (outputDirectory.empty ())
+            captureStats_.url = "http://127.0.0.1:19191/screenshot/diligent?id=" + std::to_string (captureId);
     }
     activeCaptureId_.store (captureId);
     captureRenderQuality_.store (renderQuality);
@@ -151,7 +203,11 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, const Came
     surface.mode = SurfaceMode::Offscreen;
     surface.width = width;
     surface.height = height;
-    if (!StartUnlocked (surface, camera)) {
+    // The FIRST camera starts the run; the frame loop moves to the rest as it
+    // captures them. Passing it here also keeps the "Archicad gave us a camera"
+    // path intact - the loop must not frame the model over a camera it was
+    // handed (see `framedRealGeometry`).
+    if (!StartUnlocked (surface, captureFrames_.front ().camera)) {
         ExtractionWorker::Get ().Stop ();
         SceneCmdQueue::Get ().Clear ();
         activeCaptureId_.store (0);
@@ -221,8 +277,7 @@ void DiligentViewport::RequestResize (uint32_t width, uint32_t height)
     resizePending_.store (true);
 }
 
-void DiligentViewport::AdoptSurfaceSize (const DiligentViewportTarget& target, uint32_t& width,
-                                         uint32_t& height)
+void DiligentViewport::AdoptSurfaceSize (const DiligentViewportTarget& target, uint32_t& width, uint32_t& height)
 {
     const uint32_t actualWidth = target.Width ();
     const uint32_t actualHeight = target.Height ();

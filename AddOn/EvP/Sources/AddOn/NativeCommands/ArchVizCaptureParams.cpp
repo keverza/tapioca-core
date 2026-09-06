@@ -74,4 +74,26 @@ archviz::DiligentViewport::CaptureOverlays ReadCaptureOverlays (const GS::Object
     return overlays;
 }
 
+archviz::CaptureFrame ReadCaptureFrame (const GS::ObjectState& params)
+{
+    archviz::CaptureFrame frame;
+    frame.camera = ReadCaptureCamera (params);
+
+    // The sun is a nested object so a caller can omit it entirely, which is the
+    // ordinary case for a camera captured before the graph stored one.
+    GS::ObjectState sun;
+    if (params.Get ("sun", sun)) {
+        bool enabled = false;
+        sun.Get ("enabled", enabled);
+        frame.sunEnabled = enabled;
+        double azimuth = 0.0;
+        double altitude = 0.0;
+        sun.Get ("azimuthDegrees", azimuth);
+        sun.Get ("altitudeDegrees", altitude);
+        frame.sunAzimuthDegrees = static_cast<float> (azimuth);
+        frame.sunAltitudeDegrees = static_cast<float> (altitude);
+    }
+    return frame;
+}
+
 } // namespace geomsrv

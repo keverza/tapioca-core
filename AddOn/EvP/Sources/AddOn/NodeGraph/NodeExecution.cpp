@@ -4,6 +4,7 @@
 #include "NodeGraph/BuiltinNodes.hpp"
 #include "NodeGraph/GeometryNodes.hpp"
 #include "NodeGraph/ListNodes.hpp"
+#include "NodeGraph/RenderNodes.hpp"
 #include "NodeGraph/ScriptNodes.hpp"
 #include "NodeGraph/ScriptRuntime.hpp"
 #include "NodeGraph/TreeNodes.hpp"
@@ -16,6 +17,7 @@ NodeRegistry MakeRuntimeNodeRegistry ()
     RegisterGeometryNodes (registry);
     RegisterListNodes (registry);
     RegisterArchicadNodes (registry);
+    RegisterRenderNodes (registry);
     RegisterScriptNodes (registry);
     RegisterTreeNodes (registry);
     // Installed here rather than by a static initialiser, so the engine exists
@@ -35,6 +37,8 @@ bool ExecuteRuntimeNode (const Node& node, const ValueMap& inputs, const NodeExe
         return ExecuteGeometryNode (node, inputs, context, outputs, error);
     if (IsListNodeType (node.nodeType))
         return ExecuteListNode (node, inputs, context, outputs, error);
+    if (IsRenderNodeType (node.nodeType))
+        return ExecuteRenderNode (node, inputs, context, outputs, error);
     if (IsScriptNodeType (node.nodeType))
         return ExecuteScriptNode (node, inputs, context, outputs, error);
     return ExecuteBuiltinNode (node, inputs, context, outputs, error);

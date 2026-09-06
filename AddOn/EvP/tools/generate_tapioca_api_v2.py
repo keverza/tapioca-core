@@ -113,9 +113,62 @@ from typing import Any
 # script node, so Install pip-installs it on demand into the runtime's own
 # site-packages and Intelligence reports whether it is there. All three are
 # host-independent; none touches the model.
-EXPECTED_REGISTRY_COMMANDS = 188
+# 2026-09-06, the camera list node: +1 for GraphCameraAction, the camera-set
+# node's four buttons (add, remove, restore, clear). It is the selection set's
+# GraphSelectionAction with a different vocabulary and an index, and it is a
+# VERB rather than a node effect for the same reason that one is: a graph that
+# moved the user's 3D window during an ordinary run would be a defect, so the
+# only thing that writes the view is a button the user pressed. Reads the 3D
+# window's projection and, for restore, writes it; it never touches the model.
+# 2026-09-06, the capture batch: +1 for StartDiligentCaptureBatch. Many cameras
+# from ONE model extraction, which is the whole point of it - StartDiligentCapture
+# clears the scene queue and walks the entire model on every call, so a list of
+# eight viewpoints through that path costs eight full extractions of a model that
+# did not change between them. It also carries a SUN PER FRAME, which the
+# single-camera command has no field for at all, and writes each PNG to disk as it
+# is encoded rather than holding them all. Reads the model; writes only the files
+# it was asked for. Registered from the new ArchVizCaptureCommands.cpp, which the
+# extractor picks up through its *Commands.cpp glob.
+# 2026-09-06, the capture node's picker: +1 for List3DViews. The Navigator's
+# View Map, filtered to the 3D views, so the capture node's Model View parameter
+# can be chosen from what THIS project contains - the same rule every attribute
+# picker follows, and the reason the browser never enumerates a model domain for
+# itself. Read-only; the view is applied (and left applied) by the capture, not
+# by this. Registered from NativeCommands/GraphCaptureCommands.cpp, which is
+# split from GraphCaptureService.cpp because a registration provider must live in
+# a *Commands.cpp for the registry to find it.
+# 2026-09-06, running a graph off the caller's thread: +2 for GraphRunAsync and
+# GraphRunState. NOT a convenience. A gate-free command runs INLINE on the
+# caller's thread, and when the caller is the graph editor that thread is
+# Archicad's own - the DG::Browser bridge dispatches on the UI thread. The
+# evaluator's coordinator is then the main thread and it blocks on its worker
+# pool, so any node needing MainThreadGate (a headless capture asking for the 3D
+# model) waits on the thread that is waiting for it; the gate gives up after 20
+# seconds and blames a model that was never missing. The same graph has always
+# worked from Python, for the single reason that it arrives on a worker thread.
+# Start returns at once and the client polls; the state also carries the running
+# capture's stage, which is what lets a node say "rendering 3 of 8" instead of
+# looking hung. Neither touches the model.
+# 2026-09-06, the gate diagnostic: +1 for MainThreadGateState. "The main-thread
+# gate stopped dispatching" is a symptom that names neither cause nor duration,
+# and three live capture failures were spent inferring it. This reports the
+# gate's own counters - posted against dispatched, queue depth, time since the
+# last dispatch - beside the native command currently holding Archicad's UI
+# thread and the extraction's own phase. GATE-FREE ON PURPOSE, which is the whole
+# design: a diagnostic that needed the main thread could not observe a stalled
+# main thread, so this answers over loopback while the UI is frozen. Reads
+# counters only; touches nothing.
+# 2026-09-06, recovering a stuck renderer: +1 for ResetDiligentPipeline. ONE
+# stuck `running_` flag refuses the 3D viewer, the 3D overlay and a headless
+# capture through the same check in DiligentViewport::StartUnlocked, so a capture
+# that failed while the viewport was still winding down takes the menu items down
+# with it and nothing says why. This stops both the extraction worker and the
+# render thread - Stop() rather than a cancel, so the flags are provably clear
+# when it returns - and is a no-op when nothing is running, which is what makes it
+# a first move rather than a last resort. Touches no model data.
+EXPECTED_REGISTRY_COMMANDS = 195
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 207
+EXPECTED_TOTAL_COMMANDS = 214
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

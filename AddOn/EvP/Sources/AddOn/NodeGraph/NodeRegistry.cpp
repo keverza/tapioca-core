@@ -30,6 +30,8 @@ const char* NodeDisplayName (NodeDisplay display)
             return "preview";
         case NodeDisplay::SelectionSet:
             return "selectionSet";
+        case NodeDisplay::CameraSet:
+            return "cameraSet";
         case NodeDisplay::Script:
             return "script";
     }
@@ -101,6 +103,8 @@ const char* ParameterOptionSourceName (ParameterOptionSource source)
             return "composite";
         case ParameterOptionSource::Profile:
             return "profile";
+        case ParameterOptionSource::ModelView3D:
+            return "modelView3D";
     }
     return "none";
 }

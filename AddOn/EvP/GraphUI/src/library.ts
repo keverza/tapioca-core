@@ -1,6 +1,13 @@
 import { callTapioca } from './bridge'
 import { layoutFromPositions, type DockState, type LayoutRecord } from './editor'
-import type { PositionStore, SelectionAction, SelectionActionOutcome } from './types'
+import type {
+  CameraAction,
+  CameraActionOutcome,
+  GraphRunState,
+  PositionStore,
+  SelectionAction,
+  SelectionActionOutcome,
+} from './types'
 
 /**
  * The workflow library: saved graphs, as files the runtime owns.
@@ -111,4 +118,37 @@ export async function applySelectionAction(
   action: SelectionAction,
 ): Promise<SelectionActionOutcome> {
   return callTapioca<SelectionActionOutcome>('Tapioca.GraphSelectionAction', { nodeId, action })
+}
+
+/**
+ * One of the camera list's four actions.
+ *
+ * A button press, not an evaluation - the same contract the selection actions
+ * carry. `index` names the row for Restore and Remove and is ignored by the
+ * other two; the runtime REFUSES an index past the end rather than clamping it,
+ * because a clamped Restore points the 3D window at a camera the user did not
+ * click.
+ */
+export async function applyCameraAction(
+  nodeId: string,
+  action: CameraAction,
+  index: number,
+): Promise<CameraActionOutcome> {
+  return callTapioca<CameraActionOutcome>('Tapioca.GraphCameraAction', { nodeId, action, index })
+}
+
+/**
+ * Start a run on the runtime's OWN thread, and ask how it is going.
+ *
+ * ⚠️ THE ONLY WAY TO COMMIT A LONG NODE FROM THE EDITOR. Tapioca.GraphEvaluate
+ * runs inline on the caller's thread, which here is Archicad's UI thread - fine
+ * for a graph of arithmetic, a deadlock for a node that needs the main-thread
+ * gate. See the native command's own note.
+ */
+export async function startRun(targets: string[], allowSideEffects: boolean): Promise<{ started: boolean; error: string }> {
+  return callTapioca<{ started: boolean; error: string }>('Tapioca.GraphRunAsync', { targets, allowSideEffects })
+}
+
+export async function runState(): Promise<GraphRunState> {
+  return callTapioca<GraphRunState>('Tapioca.GraphRunState')
 }

@@ -4,6 +4,8 @@
 #include "MainThreadGate.hpp"
 #include "ResourceMDIDIds.hpp" // AC_MDID_DEV / AC_MDID_LOC, parsed from AddOnFix.grc
 
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <memory>
@@ -60,11 +62,39 @@ struct Completion {
 struct Job {
     std::function<void ()> fn;
     std::shared_ptr<Completion> completion; // null == fire-and-forget
+    // When it was queued, so the wait it actually suffered is measurable rather
+    // than guessed from the outside.
+    int64_t postedMs = 0;
 };
 
 std::mutex queueMutex;
 std::deque<Job> jobQueue;
 bool shuttingDown = false;
+
+// ---- the dispatch counters ------------------------------------------------
+// Atomics, so a worker thread can read them while the main thread is wedged -
+// which is the one moment they matter. See MainThreadGate::Stats.
+std::atomic<uint64_t> statPosted { 0 };
+std::atomic<uint64_t> statDispatched { 0 };
+std::atomic<uint64_t> statInline { 0 };
+std::atomic<uint64_t> statTimeouts { 0 };
+std::atomic<uint64_t> statPostFailures { 0 };
+std::atomic<int64_t> statLastDispatchMs { 0 };
+std::atomic<int64_t> statLastPostMs { 0 };
+std::atomic<int64_t> statLongestWaitMs { 0 };
+
+// The command running on the main thread right now. A mutex rather than an
+// atomic because it is a string; held only for a copy, and never by the gate's
+// dispatch path, so a reader cannot be blocked by the thread it is measuring.
+std::mutex commandMutex;
+std::string mainThreadCommand;
+int64_t mainThreadCommandStartedMs = 0;
+
+int64_t NowMs ()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now ().time_since_epoch ())
+        .count ();
+}
 
 // Runs on the MAIN thread. One posted command consumes exactly one job, so
 // ordering is preserved and a job can never be run twice.
@@ -77,6 +107,17 @@ GSErrCode GateJobHandler (GSHandle /*params*/, GSPtr /*resultData*/, bool /*sile
             return NoError;
         job = std::move (jobQueue.front ());
         jobQueue.pop_front ();
+    }
+
+    const int64_t dispatchedMs = NowMs ();
+    statDispatched.fetch_add (1, std::memory_order_relaxed);
+    statLastDispatchMs.store (dispatchedMs, std::memory_order_relaxed);
+    if (job.postedMs != 0) {
+        const int64_t waited = dispatchedMs - job.postedMs;
+        int64_t longest = statLongestWaitMs.load (std::memory_order_relaxed);
+        while (waited > longest &&
+               !statLongestWaitMs.compare_exchange_weak (longest, waited, std::memory_order_relaxed)) {
+        }
     }
 
     if (job.fn)
@@ -96,8 +137,11 @@ bool PostJob (Job&& job, GS::UniString& error)
             error = "MainThreadGate: the add-on is shutting down.";
             return false;
         }
+        job.postedMs = NowMs ();
         jobQueue.push_back (std::move (job));
     }
+    statPosted.fetch_add (1, std::memory_order_relaxed);
+    statLastPostMs.store (NowMs (), std::memory_order_relaxed);
 
     const API_ModulID mdid = { AC_MDID_DEV, AC_MDID_LOC }; // ourselves
     const GSErrCode err =
@@ -107,6 +151,7 @@ bool PostJob (Job&& job, GS::UniString& error)
         std::lock_guard<std::mutex> lock (queueMutex);
         if (!jobQueue.empty ())
             jobQueue.pop_back ();
+        statPostFailures.fetch_add (1, std::memory_order_relaxed);
         error = GS::UniString::Printf ("MainThreadGate: CallFromEventLoop failed to post (err=%d).", (int) err);
         return false;
     }
@@ -176,6 +221,7 @@ bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS
     // would block the very event loop that has to dispatch the job — a
     // guaranteed self-deadlock.
     if (IsMainThread ()) {
+        statInline.fetch_add (1, std::memory_order_relaxed);
         fn ();
         return true;
     }
@@ -185,6 +231,7 @@ bool MainThreadGate::Invoke (const std::function<void ()>& fn, int timeoutMs, GS
         return false;
 
     if (!completion->WaitFor (timeoutMs)) {
+        statTimeouts.fetch_add (1, std::memory_order_relaxed);
         // Best-effort revoke: if the job is still queued, drop it so it cannot
         // run against a caller that has already given up. Losing this race means
         // the job is executing (or has just executed) on the main thread, which
@@ -223,6 +270,48 @@ bool MainThreadGate::Post (const std::function<void ()>& fn, GS::UniString& erro
         return true;
     }
     return PostJob (Job { fn, nullptr }, error);
+}
+
+MainThreadGate::Stats MainThreadGate::Snapshot () const
+{
+    Stats stats;
+    stats.posted = statPosted.load (std::memory_order_relaxed);
+    stats.dispatched = statDispatched.load (std::memory_order_relaxed);
+    stats.inlineRuns = statInline.load (std::memory_order_relaxed);
+    stats.timeouts = statTimeouts.load (std::memory_order_relaxed);
+    stats.postFailures = statPostFailures.load (std::memory_order_relaxed);
+    stats.longestWaitMs = statLongestWaitMs.load (std::memory_order_relaxed);
+
+    const int64_t now = NowMs ();
+    const int64_t lastDispatch = statLastDispatchMs.load (std::memory_order_relaxed);
+    const int64_t lastPost = statLastPostMs.load (std::memory_order_relaxed);
+    stats.msSinceLastDispatch = lastDispatch == 0 ? -1 : now - lastDispatch;
+    stats.msSinceLastPost = lastPost == 0 ? -1 : now - lastPost;
+
+    {
+        std::lock_guard<std::mutex> lock (queueMutex);
+        stats.queueDepth = jobQueue.size ();
+        stats.shuttingDown = shuttingDown;
+    }
+    stats.mainThreadKnown = mainThreadId != std::thread::id {};
+    {
+        std::lock_guard<std::mutex> lock (commandMutex);
+        stats.mainThreadCommand = mainThreadCommand;
+        stats.mainThreadCommandMs = mainThreadCommand.empty () ? -1 : now - mainThreadCommandStartedMs;
+    }
+    return stats;
+}
+
+void MainThreadGate::NoteMainThreadCommand (const char* name)
+{
+    std::lock_guard<std::mutex> lock (commandMutex);
+    if (name == nullptr || *name == '\0') {
+        mainThreadCommand.clear ();
+        mainThreadCommandStartedMs = 0;
+        return;
+    }
+    mainThreadCommand = name;
+    mainThreadCommandStartedMs = NowMs ();
 }
 
 } // namespace evp

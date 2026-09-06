@@ -7,6 +7,8 @@
 
 #include "ArchViz/ExtractionEnvironment.hpp"
 
+#include "ProjectEnv/ProjectSun.hpp"
+
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/ColourSpace.hpp"
 #include "ArchViz/MaterialTable.hpp"
@@ -110,115 +112,20 @@ bool ReadEnvironment (EnvironmentUpload& out)
     if (ACAPI_GeoLocation_GetPlaceSets (&place) != NoError)
         return false;
 
-    // ⚠️ THE STORED ANGLES ARE AUTHORITATIVE, AND THIS USED TO CALL
-    // ACAPI_GeoLocation_CalcSunOnPlace INSTEAD. That was wrong, and the way it
-    // was wrong is invisible in most projects.
-    //
-    // Archicad's Sun dialog offers TWO ways to set the sun: pick a date, time and
-    // place and let it compute the angles, or TYPE THE AZIMUTH AND ALTITUDE
-    // DIRECTLY. In the second case the stored `sunAngXY`/`sunAngZ` are the user's
-    // numbers and the stored date/time is whatever it happened to be --
-    // CalcSunOnPlace then overwrites the user's sun with the one the calendar
-    // implies, and the viewer lights the model from somewhere Archicad's own 3D
-    // window plainly does not. That is exactly the live report: Archicad
-    // 240 deg / 35 deg, the viewer -80 deg / 45 deg. The azimuths differ by a
-    // convention; THE ALTITUDES CANNOT, and 45 against 35 is what says the two
-    // are not reading the same sun at all.
-    //
-    // The old comment justified the recompute as "GetPlaceSets returns what was
-    // last written, with no guarantee it followed the last date edit". If that is
-    // ever true it is Archicad's own 3D window's problem too -- and matching that
-    // window is the entire requirement (SceneCmdQueue.hpp, EnvironmentUpload).
-    // The recomputed pair is still LOGGED below, so a project where the two
-    // disagree names itself instead of being silently resolved one way.
+    // ⚠️ WHICH SUN ARCHICAD SHADES WITH IS ArchViz/ProjectSun.cpp'S QUESTION NOW,
+    // AND ITS HEADER CARRIES THE REASONING THAT USED TO BE HERE - a project has
+    // TWO independent suns, the 3D window uses the one in 3D Projection
+    // Settings, and there are two opposite ways of getting it wrong (a frozen
+    // cached angle, and a recompute that discards a typed sun). It moved because
+    // a SECOND caller appeared: the graph's camera node captures the sun a
+    // viewpoint was taken under, and a copy of this logic is precisely how the
+    // viewer and the capture would come to disagree about the light in one
+    // frame. The resolver logs its own provenance and the RE67 drift.
+    const ProjectSun viewSun = ResolveProjectSun ();
+    const double sunAngXY = viewSun.valid ? viewSun.sunAngXY : place.sunAngXY;
+    const double sunAngZ = viewSun.valid ? viewSun.sunAngZ : place.sunAngZ;
+    const std::string sunSource = viewSun.source;
     constexpr double kRadToDeg = 57.29577951308232;
-    constexpr double kDegToRad = 0.017453292519943295;
-
-    // ⚠️ AND THE PLACE SUN IS STILL NOT THE ONE ARCHICAD SHADES WITH (PLAT-RE67,
-    // confirmed 2026-08-14). Everything above is about which of the PLACE's two
-    // answers to believe, and the answer turned out to be neither: a project
-    // carries a SECOND, independent sun in 3D Projection Settings -> Sun
-    // Position (an API_SunAngleSettings inside API_PerspPars/API_AxonoPars), the
-    // 3D window shades with THAT one, and the two dialogs drift apart in
-    // silence. The project that found it had the place at 2018-08-20 12:00
-    // (altitude 47.5 deg) and the view at 2017-03-22 10:00 (28.4 deg) -- a
-    // 19-degree error that looked for weeks like a convention bug.
-    //
-    // The place sun stays as the FALLBACK: if the projection settings cannot be
-    // read there is still a sun, and it is the one this file used to use.
-    double sunAngXY = place.sunAngXY;
-    double sunAngZ = place.sunAngZ;
-    std::string sunSource = "PLACE settings (fallback -- the 3D projection settings did not read)";
-
-    API_3DProjectionInfo projection = {};
-    if (ACAPI_View_Get3DProjectionSets (&projection) == NoError) {
-        // The union is discriminated by isPersp and both arms carry the same
-        // settings struct; reading the wrong arm yields plausible garbage rather
-        // than an error.
-        const API_SunAngleSettings& viewSun =
-            projection.isPersp ? projection.u.persp.sunAngSets : projection.u.axono.sunAngSets;
-        if (viewSun.sunPosOpt == API_SunPosition_GivenByAngles) {
-            // ⚠️ DEGREES, AND THE SAME ANGLE CONVENTION AS sunAngXY -- MEASURED,
-            // NOT DOCUMENTED. The DevKit says only "rotation angle of the Sun
-            // around the target": no unit, no zero. The 2026-08-14 Custom-mode
-            // run had sunAzimuth = 312.524045 while CalcSunOnPlace gave
-            // sunAngXY = 312.52 deg for the same view, so the field is degrees
-            // and is NOT the compass bearing (137.5 deg in that project).
-            //
-            // ⚠️ WHAT THAT RUN DOES *NOT* SETTLE, and the next person deserves
-            // to know: project north was 90 deg, so a convention differing from
-            // sunAngXY by a north term cannot be ruled out -- the exact trap
-            // that made `compass = 90 - sunAngXY` look correct for a whole
-            // round (GetPlaceInfoCommand). Re-run DiligentShadowProbe at a
-            // different project north before treating this as settled.
-            sunAngXY = viewSun.sunAzimuth * kDegToRad;
-            sunAngZ = viewSun.sunAltitude * kDegToRad;
-            sunSource = "3D projection settings, TYPED angles (Custom)";
-        }
-        else {
-            // Date-and-Time mode. The dialog sets a moment but never a place, so
-            // the view's date is evaluated against the PROJECT's latitude,
-            // longitude and time zone -- and the elevation exists nowhere in the
-            // UI at all, which is why it has to be computed rather than read.
-            API_PlaceInfo viewMoment = place;
-            viewMoment.year = viewSun.year;
-            viewMoment.month = viewSun.month;
-            viewMoment.day = viewSun.day;
-            viewMoment.hour = viewSun.hour;
-            viewMoment.minute = viewSun.minute;
-            viewMoment.second = viewSun.second;
-            viewMoment.sumTime = viewSun.summerTime;
-            if (ACAPI_GeoLocation_CalcSunOnPlace (&viewMoment) == NoError) {
-                sunAngXY = viewMoment.sunAngXY;
-                sunAngZ = viewMoment.sunAngZ;
-                sunSource = "3D projection settings, DATE " + std::to_string (viewSun.year) + "-" +
-                            std::to_string (viewSun.month) + "-" + std::to_string (viewSun.day) + " " +
-                            std::to_string (viewSun.hour) + ":" + std::to_string (viewSun.minute);
-            }
-            else {
-                ArchVizLog ("ArchViz sun ⚠ the 3D view is in Date-and-Time mode but CalcSunOnPlace "
-                            "refused its date; falling back to the PLACE sun, which is very "
-                            "probably not what the 3D window is shading with.");
-            }
-        }
-
-        // Always logged, never silently resolved: the gap between the sun in use
-        // and the place sun IS the RE67 drift, and a project where they agree
-        // cannot be used to test any of this.
-        const double azDelta = std::abs ((sunAngXY - place.sunAngXY) * kRadToDeg);
-        const double altDelta = std::abs ((sunAngZ - place.sunAngZ) * kRadToDeg);
-        if (azDelta > 0.5 || altDelta > 0.5)
-            ArchVizLog ("ArchViz sun: the 3D VIEW's sun and the PROJECT PLACE's differ (azimuth by " +
-                        std::to_string (azDelta) + " deg, altitude by " + std::to_string (altDelta) +
-                        " deg). The VIEW's is used -- it is what Archicad's own 3D window shades "
-                        "with (PLAT-RE67). This is the ordinary state of a project whose 3D "
-                        "Projection Settings carry their own Sun Position, and is not an error.");
-    }
-    else {
-        ArchVizLog ("ArchViz sun ⚠ ACAPI_View_Get3DProjectionSets failed, so the 3D window's OWN "
-                    "sun could not be read and the project place's is being used instead. "
-                    "Shadows will not match Archicad's unless the two happen to agree.");
-    }
 
     const double horizontal = std::cos (sunAngZ);
     out.sunX = static_cast<float> (horizontal * std::cos (sunAngXY));

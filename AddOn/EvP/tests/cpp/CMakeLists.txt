@@ -185,6 +185,11 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/TreeSerialization.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Data/ValueTypeAssistant.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadHost.cpp"
+    # The seam between the graph runtime and the RENDERER, and the reason the
+    # capture node is testable offline at all: the interface is here, the one
+    # implementation is on the far side of the features boundary, and a suite
+    # with no renderer installed exercises the "no renderer" path honestly.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/CaptureService.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/ArchicadNodes.cpp"
     # The element type table. ElementReaderImpl.cpp - the ACAPI half that
     # fills it in - is deliberately ABSENT for the same reason
@@ -222,6 +227,11 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeExecution.cpp"
+    # The render family: what a headless capture is TOLD. Renderer-free by
+    # construction - it names no ArchViz type and includes no Diligent header,
+    # producing only a string in the capture command's own field names - so
+    # unlike the renderer it configures, it is covered offline.
+    "${EVP_ROOT}/Sources/AddOn/NodeGraph/RenderNodes.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeRegistry.cpp"
     # PreviewProjection turns a graph's RESULTS into preview primitives. It is
     # here, in the node-graph suite rather than the preview one, because what it

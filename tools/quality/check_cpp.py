@@ -145,6 +145,15 @@ TIER_ASSIGNMENTS = {
     "Notify": "services",
     "Palette": "UI",
     "PlanOverlay": "features",
+    # Project-wide environment read from the DevKit - today, which of a project's
+    # two suns Archicad's 3D window actually shades with. Services tier and NOT
+    # under ArchViz/ for the same reason SunStudy/ is not: the Diligent viewport
+    # is one consumer and the node graph's camera capture is another, so a
+    # features-tier home would put a shared answer behind one of its own clients.
+    # Unlike SunStudy/ this one DOES touch the DevKit - it is a read of project
+    # state, not a computation over a snapshot - which is ordinary for this tier
+    # (Screenshot/ and Metadata/ do too).
+    "ProjectEnv": "services",
     "Preview": "services",
     "Python": "services",
     "Screenshot": "services",
@@ -197,6 +206,33 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # contract, which is worse than the sideways include.
     ("NativeCommands/ArchVizCaptureParams.hpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/ArchVizCaptureParams.cpp", "ArchViz/DiligentViewport.hpp"),
+    # Extracted OUT of ArchVizCommands.cpp a second time (2026-09-06), when the
+    # batch capture pushed that file back over the cap. Same reason as its
+    # neighbours above, unchanged: these four verbs drive the viewport's capture
+    # lifecycle directly - StartCaptureBatch takes the viewport's own CaptureFrame
+    # and CaptureOverlays - and restating those structs on this side would create a
+    # second definition of the capture contract, which is worse than the sideways
+    # include.
+    ("NativeCommands/ArchVizCaptureCommands.cpp", "ArchViz/DiligentViewport.hpp"),
+    # The renderer half of the NODE GRAPH's capture seam (2026-09-06). The
+    # interface it implements, NodeGraph/CaptureService.hpp, is services-tier and
+    # therefore may not name DiligentViewport at all - which is the whole reason
+    # the seam exists - so exactly one translation unit has to know both sides.
+    # That is the same arrangement NodeGraph/ArchicadHostImpl.cpp has for ACAPI,
+    # and the alternative is a graph runtime that includes the renderer.
+    ("NativeCommands/GraphCaptureService.cpp", "ArchViz/DiligentViewport.hpp"),
+    # The main-thread gate diagnostic (2026-09-06). It reports the gate's
+    # dispatch health BESIDE the extraction's own progress, because "the
+    # main-thread gate stopped dispatching" is a sentence the extraction emits -
+    # the two have to be legible in one reading or the person debugging is
+    # correlating two logs by hand at the moment they can least afford to.
+    ("NativeCommands/GateDiagnosticCommands.cpp", "ArchViz/ExtractionThread.hpp"),
+    # Same diagnostic, same reason (2026-09-06): one stuck `running_` flag refuses
+    # the 3D viewer, the 3D overlay AND a headless capture, so reporting the
+    # viewport's state beside the gate's is what collapses three unrelated-looking
+    # faults back into the one fact. ResetDiligentPipeline stops both for the same
+    # reason - a user should not have to restart Archicad to clear it.
+    ("NativeCommands/GateDiagnosticCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/SelectionBridge.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ViewportOverlayWindow.hpp"),
     ("NativeCommands/CommandBase.hpp", "Diagnostics/ApiError.hpp"),

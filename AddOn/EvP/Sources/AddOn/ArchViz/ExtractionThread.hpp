@@ -94,67 +94,89 @@ namespace archviz {
 // ⚠️ AN OPAQUE ENTRY (null guid, `OpaqueEventId`) MEANS FULL. It is EvP's own
 // write or a project event: identity unknown, and never mappable to a mesh.
 //
+// ⚠️ A TIMED-OUT SLICE IS USUALLY STILL RUNNING, NOT LOST, AND THE LOOP
+// WAITS FOR IT RATHER THAN RETRYING. Measured 2026-09-06 with
+// Tapioca.MainThreadGateState, during a graph capture that had failed four
+// times: every posted job DISPATCHED, the longest any job waited to start was
+// 9 ms, and no command held Archicad's UI thread - yet the slice Invoke timed
+// out once every 1500 ms and `extracted` never left 0.
+//
+// The cause is the rule stated at the slice itself: AT LEAST ONE ELEMENT PER
+// SLICE, ALWAYS, because a single curtain wall or stair can outlast the whole
+// budget. When it outlasts SliceTimeoutMs too, the waiter gives up while the
+// main thread is still legitimately working on that element - and the old code
+// then posted ANOTHER slice, which queued BEHIND the one still running, timed
+// out in its turn, and after five of those declared the gate dead. Nothing ever
+// progressed, and the message blamed a gate that was provably healthy. Four
+// debugging attempts went after that gate before the diagnostic settled it.
+//
+// So a timeout is a question, not a verdict: the pass waits on `completed`,
+// which is the flag the job sets on its way out and therefore the one thing
+// that makes harvesting safe. Only a slice that never finishes AT ALL is
+// abandoned, and the message then says what was measured rather than assuming
+// which half failed.
+//
 // ⚠️ SETTLE IS NOT A PERFORMANCE TUNING KNOB. A drag notifies per frame; without
 // it the viewer re-extracts continuously while the user is still moving the wall,
 // which competes with the edit itself for the main thread.
 // ---------------------------------------------------------------------------
 
 class ExtractionWorker final {
-public:
+  public:
     static ExtractionWorker& Get ();
 
     enum class Mode : uint8_t {
-        Once,   // one pass, then the thread exits
-        Live,   // one pass, then arm, then watch and re-extract what changes
+        Once, // one pass, then the thread exits
+        Live, // one pass, then arm, then watch and re-extract what changes
     };
 
     struct Progress {
-        bool     running  = false;
-        bool     done     = false;   // completed a full pass
-        bool     gaveUp   = false;   // hit maxSeconds with elements left
-        uint32_t total    = 0;       // elements the model reported
-        uint32_t extracted = 0;      // elements that yielded geometry
-        uint32_t empty    = 0;       // elements with nothing drawable (ordinary)
-        uint32_t pushed   = 0;       // uploads handed to the queue
-        uint32_t materials = 0;      // surfaces in the pool
+        bool running = false;
+        bool done = false;      // completed a full pass
+        bool gaveUp = false;    // hit maxSeconds with elements left
+        uint32_t total = 0;     // elements the model reported
+        uint32_t extracted = 0; // elements that yielded geometry
+        uint32_t empty = 0;     // elements with nothing drawable (ordinary)
+        uint32_t pushed = 0;    // uploads handed to the queue
+        uint32_t materials = 0; // surfaces in the pool
         uint64_t triangles = 0;
-        uint32_t slices   = 0;       // main-thread visits used
+        uint32_t slices = 0; // main-thread visits used
         // ⚠️ TWO DIFFERENT NUMBERS — BackgroundArm's warning, restated because
         // conflating them made its first live run unreadable. `longestHoldMs` is
         // time spent INSIDE the slice, i.e. how long Archicad was actually held;
         // `longestRoundTripMs` is the whole Invoke seen from here, which is
         // mostly WAITING FOR THE GATE and says how busy Archicad is, not what we
         // cost it.
-        int64_t  longestHoldMs      = 0;
-        int64_t  longestRoundTripMs = 0;
-        int64_t  acquireMs = 0;      // the one long call: getting the model
-        int64_t  elapsedMs = 0;
+        int64_t longestHoldMs = 0;
+        int64_t longestRoundTripMs = 0;
+        int64_t acquireMs = 0; // the one long call: getting the model
+        int64_t elapsedMs = 0;
         // How long the worker spent WAITING for the render thread to drain,
         // rather than extracting. Large means the GPU side is the bottleneck and
         // the slice budget is not.
-        int64_t  throttledMs = 0;
-        std::string phase;           // "acquiring" / "extracting" / "idle" / an error
+        int64_t throttledMs = 0;
+        std::string phase; // "acquiring" / "extracting" / "idle" / an error
 
         // ---- live sync (Phase 7) ------------------------------------------
-        bool     live      = false;  // the watch loop is running
-        uint32_t fullPasses    = 0;
+        bool live = false; // the watch loop is running
+        uint32_t fullPasses = 0;
         uint32_t partialPasses = 0;
-        uint32_t removed   = 0;      // elements told to disappear from the scene
-        uint32_t armed     = 0;      // observers attached to what the 3D view shows
-        uint32_t armRefused = 0;     // elements the database would not let us observe
+        uint32_t removed = 0;    // elements told to disappear from the scene
+        uint32_t armed = 0;      // observers attached to what the 3D view shows
+        uint32_t armRefused = 0; // elements the database would not let us observe
         // ⚠️ ATTACHING IS NOT LISTENING. AttachObserver LINKS an element to this
         // add-on; delivery needs InstallElementObserver, which lives in
         // ChangeTracker and used to be called only from EvP.WatchModel. Live
         // sync armed hundreds of elements and was DEAF, and nothing in `armed`
         // could say so. This is that missing bit, reported.
-        bool     handlersInstalled = false;
-        uint32_t dirtyPending = 0;   // what the tracker holds for THIS consumer
+        bool handlersInstalled = false;
+        uint32_t dirtyPending = 0; // what the tracker holds for THIS consumer
         // ⚠️ EDIT -> PIXEL, END TO END, and it is the number Phase 7 is judged
         // on. Measured from the last change notification of the batch to the
         // moment its uploads were queued, so it includes the settle wait — which
         // is most of it, deliberately.
-        int64_t  lastSyncMs = 0;
-        int64_t  lastPassMs = 0;     // how long the last re-extraction itself took
+        int64_t lastSyncMs = 0;
+        int64_t lastPassMs = 0; // how long the last re-extraction itself took
     };
 
     // Begins (or restarts) a pass. Returns immediately — nothing ACAPI happens
@@ -165,8 +187,7 @@ public:
     // `maxSeconds` is a HARD WALL, not a tuning knob: a pass that cannot finish
     // in a sensible time should give up and SAY so rather than keep tapping the
     // main thread indefinitely.
-    void Start (bool full = true, int64_t sliceMs = 8, int64_t gapMs = 16,
-                int64_t maxSeconds = 300);
+    void Start (bool full = true, int64_t sliceMs = 8, int64_t gapMs = 16, int64_t maxSeconds = 300);
 
     // One pass, then WATCH: arm the observer on what the 3D view shows, register
     // a dirty cursor of our own, and re-extract what changes until stopped.
@@ -188,8 +209,7 @@ public:
     // stops rather than spinning a watch loop that can never fire. Passing true
     // restores the old behaviour AND the old symptom; it exists so the arming
     // path stays reachable for the probe that has to confirm the cause.
-    void StartLive (int64_t settleMs = 400, int64_t pollMs = 100,
-                    int64_t sliceMs = 8, int64_t gapMs = 16,
+    void StartLive (int64_t settleMs = 400, int64_t pollMs = 100, int64_t sliceMs = 8, int64_t gapMs = 16,
                     bool armObservers = false);
 
     // Stops the pass and JOINS. Safe when not running.
@@ -202,7 +222,10 @@ public:
     // Flag only, no join — for main-thread callers that must never block.
     void RequestStop ();
 
-    bool     IsRunning () const { return running_.load (); }
+    bool IsRunning () const
+    {
+        return running_.load ();
+    }
     Progress Snapshot () const;
 
     // Whether a FULL pass should also cut every storey and union the result.
@@ -217,25 +240,31 @@ public:
     // so far, which is a confident outline of part of a building. The viewer
     // turns it on and asks for a refresh; until that refresh lands the overlay
     // keeps whatever it last had, which is honest.
-    void SetStorySlicesWanted (bool wanted) { storySlicesWanted_.store (wanted); }
-    bool StorySlicesWanted () const { return storySlicesWanted_.load (); }
+    void SetStorySlicesWanted (bool wanted)
+    {
+        storySlicesWanted_.store (wanted);
+    }
+    bool StorySlicesWanted () const
+    {
+        return storySlicesWanted_.load ();
+    }
 
-private:
+  private:
     ExtractionWorker () = default;
     ~ExtractionWorker ();
     ExtractionWorker (const ExtractionWorker&) = delete;
     ExtractionWorker& operator= (const ExtractionWorker&) = delete;
 
     struct Options {
-        Mode    mode       = Mode::Once;
-        bool    full       = true;
-        int64_t sliceMs    = 8;
-        int64_t gapMs      = 16;
+        Mode mode = Mode::Once;
+        bool full = true;
+        int64_t sliceMs = 8;
+        int64_t gapMs = 16;
         int64_t maxSeconds = 300;
-        int64_t settleMs   = 400;
-        int64_t pollMs     = 100;
+        int64_t settleMs = 400;
+        int64_t pollMs = 100;
         // See StartLive: attaching observers WRITES TO THE PROJECT DATABASE.
-        bool    armObservers = false;
+        bool armObservers = false;
     };
 
     void StartWith (const Options& opt);
@@ -276,15 +305,15 @@ private:
     // surface.
     std::map<int32_t, std::pair<std::string, SurfaceSubstance>> substanceMemory_;
 
-    std::thread        worker_;
-    std::atomic<bool>  stopFlag_ { false };
-    std::atomic<bool>  running_  { false };
-    std::atomic<bool>  storySlicesWanted_ { false };
+    std::thread worker_;
+    std::atomic<bool> stopFlag_ { false };
+    std::atomic<bool> running_ { false };
+    std::atomic<bool> storySlicesWanted_ { false };
     mutable std::mutex mutex_;
-    Progress           progress_;
+    Progress progress_;
 };
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

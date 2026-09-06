@@ -6,6 +6,9 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
 #include "NativeCommands/SchemaValidator.hpp"
+#include "NativeCommands/ArchVizCaptureCommands.hpp"
+#include "NativeCommands/GateDiagnosticCommands.hpp"
+#include "NativeCommands/GraphCaptureCommands.hpp"
 #include "NativeCommands/ArchVizCommands.hpp"
 #include "NativeCommands/ViewerSyncCommands.hpp"
 #include "NativeCommands/AttributeCommands.hpp"
@@ -32,6 +35,7 @@
 #include "NativeCommands/LibraryPreviewCommands.hpp"
 #include "NativeCommands/NodeGraphElementCommands.hpp"
 #include "NativeCommands/NodeGraphScriptCommands.hpp"
+#include "NativeCommands/NodeGraphCameraCommands.hpp"
 #include "NativeCommands/NodeGraphSelectionCommands.hpp"
 #include "NativeCommands/NurbsCommands.hpp"
 #include "NativeCommands/PlanGeometryCommands.hpp"
@@ -105,6 +109,9 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetPlanOverlayCommandRegistrations,
     &GetPlanTrackCommandRegistrations,
     &GetArchVizCommandRegistrations,
+    &GetArchVizCaptureCommandRegistrations,
+    &GetGraphCaptureCommandRegistrations,
+    &GetGateDiagnosticCommandRegistrations,
     &GetPointCloudCommandRegistrations,
     &GetViewerSyncCommandRegistrations,
     &GetPreviewCommandRegistrations,
@@ -112,6 +119,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetNodeGraphEditCommandRegistrations,
     &GetNodeGraphLibraryCommandRegistrations,
     &GetNodeGraphSelectionCommandRegistrations,
+    &GetNodeGraphCameraCommandRegistrations,
     &GetNodeGraphScriptCommandRegistrations,
     &GetNodeGraphElementCommandRegistrations,
     &GetLibraryPreviewCommandRegistrations,

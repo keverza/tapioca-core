@@ -629,7 +629,20 @@ GS::UniString DispatchApiCall (const GS::UniString& command, const GS::UniString
         backendName = "native";
 
         const GS::String commandName (name.ToCStr ().Get ());
+        // ⚠️ RECORDED ONLY WHEN IT IS ACTUALLY THE MAIN THREAD, and that
+        // condition is the diagnostic. A gate-free command runs inline on
+        // whatever thread called it: over loopback that is a worker and nothing
+        // is at stake, but from the editor's browser bridge it is Archicad's UI
+        // thread - and anything slow there stops the event loop, which stops the
+        // gate dispatching, which kills any extraction waiting on it. When that
+        // happens, Tapioca.MainThreadGateState can now NAME the command and say
+        // how long it has been running instead of leaving it to be guessed.
+        const bool onMainThread = evp::MainThreadGate::Get ().IsMainThread ();
+        if (onMainThread)
+            evp::MainThreadGate::NoteMainThreadCommand (commandName.ToCStr ());
         const geomsrv::NativeCommandResult result = geomsrv::ExecuteNativeCommand (commandName, params);
+        if (onMainThread)
+            evp::MainThreadGate::NoteMainThreadCommand (nullptr);
 
         if (!result.ok) {
             error = MakeError (NativeFailureCode (result), result.error, command);

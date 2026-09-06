@@ -2,6 +2,7 @@
 
 #include "NodeGraph/ArchicadHost.hpp"
 #include "NodeGraph/ArchicadNodes.hpp"
+#include "NodeGraph/CaptureService.hpp"
 #include "NodeGraph/ElementClassification.hpp"
 #include "NodeGraph/GraphAlgorithms.hpp"
 #include "NodeGraph/NodeExecution.hpp"
@@ -212,6 +213,198 @@ GraphRuntimeState::ApplySelectionAction (const GraphId& graphId, const NodeId& n
     result.evaluation = Evaluate (graphId, request);
     result.ok = true;
     return result;
+}
+
+GraphRuntimeState::CameraActionResult
+GraphRuntimeState::ApplyCameraAction (const GraphId& graphId, const NodeId& nodeId, CameraAction action, size_t index)
+{
+    CameraActionResult result;
+
+    Slot& slot = SlotFor (graphId);
+    std::vector<ViewCamera> stored;
+    {
+        std::lock_guard lock (slot.documentMutex);
+        const Node* node = slot.document.FindNode (nodeId);
+        if (node == nullptr) {
+            result.error = "there is no node called '" + nodeId + "'";
+            return result;
+        }
+        if (node->nodeType != kCameraSetNodeType) {
+            result.error = "node '" + nodeId + "' is not a camera list";
+            return result;
+        }
+        const auto parameter = node->parameters.find (kCameraSetParameter);
+        if (parameter != node->parameters.end ())
+            stored = CamerasFromValue (parameter->second);
+        result.revision = slot.document.Revision ();
+    }
+
+    IArchicadHost* host = ActiveArchicadHost ();
+    // Clear and Remove are list edits and need no project; Add reads the 3D
+    // window and Restore writes it.
+    const bool needsHost = action == CameraAction::Add || action == CameraAction::Restore;
+    if (needsHost && (host == nullptr || !host->IsAvailable ())) {
+        result.error = "no Archicad project is open";
+        return result;
+    }
+
+    // Bounds first, and the same message for both, because "row 4 of 3" is the
+    // same mistake whichever button made it.
+    if (action == CameraAction::Remove || action == CameraAction::Restore) {
+        if (index >= stored.size ()) {
+            result.count = stored.size ();
+            result.error = "there is no camera at position " + std::to_string (index + 1) + "; the list holds " +
+                           std::to_string (stored.size ());
+            return result;
+        }
+    }
+
+    if (action == CameraAction::Restore) {
+        // Reads the list and writes the host, changing nothing in the document -
+        // so it returns before any edit, exactly as Reselect does.
+        if (!host->SetViewCamera (stored[index], result.threeDWindowInFront, result.error))
+            return result;
+        result.ok = true;
+        result.count = stored.size ();
+        return result;
+    }
+
+    std::vector<ViewCamera> next;
+    if (action == CameraAction::Clear) {
+        result.changed = stored.size ();
+    }
+    else if (action == CameraAction::Remove) {
+        next = stored;
+        next.erase (next.begin () + static_cast<std::ptrdiff_t> (index));
+        result.changed = 1;
+    }
+    else {
+        ViewCamera captured;
+        if (!host->GetViewCamera (captured, result.error))
+            return result;
+        // ⚠️ AN AXONOMETRIC WINDOW IS REFUSED HERE, NOT STORED AND FAILED
+        // LATER. `valid` false means there was no camera to capture, and the
+        // host put the reason in `source` - so the refusal can say "the 3D
+        // window is axonometric" rather than "invalid camera". Storing it would
+        // put a row in the list that every capture downstream of it would refuse,
+        // hours later, with no way to tell which row was wrong.
+        if (!captured.valid) {
+            result.count = stored.size ();
+            result.error = captured.source.empty () ? std::string ("there is no camera to capture") : captured.source;
+            return result;
+        }
+        next = stored;
+        // No de-duplication, deliberately, and this is where a camera list and a
+        // selection set genuinely differ: a selection is a SET and adding the
+        // same element twice is meaningless, while two captures a millimetre
+        // apart are two frames the user asked for. Judging which cameras are
+        // "the same" would be this file inventing a tolerance nobody chose.
+        next.push_back (captured);
+        result.changed = 1;
+    }
+
+    // Through the ordinary validated edit, so the revision moves, the dirty set
+    // is computed the usual way, and the list persists with the graph like any
+    // other parameter.
+    const EditResult edit =
+        Apply (graphId, GraphEdit { SetParameterEdit { nodeId, kCameraSetParameter, ValueFromCameras (next) } });
+    if (!edit.accepted) {
+        result.error = edit.error;
+        return result;
+    }
+    result.revision = edit.revision;
+    result.count = next.size ();
+
+    // The button IS the run, as with the selection set: evaluating what the
+    // change can reach - and nothing else - is what makes a capture visible
+    // without anybody pressing Evaluate afterwards.
+    EvaluationRequest request;
+    request.targets = TerminalNodesDownstreamOf (Document (graphId), nodeId);
+    result.evaluation = Evaluate (graphId, request);
+    result.ok = true;
+    return result;
+}
+
+bool GraphRuntimeState::StartAsyncRun (const GraphId& graphId, const EvaluationRequest& request)
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (asyncMutex_);
+    if (slot.async.running)
+        return false;
+    // A finished thread still has to be joined before it can be replaced.
+    if (slot.asyncThread.joinable ())
+        slot.asyncThread.join ();
+
+    slot.async = AsyncRunState {};
+    slot.async.running = true;
+    // ⚠️ THE THREAD TAKES ITS OWN COPIES. It outlives this call by
+    // definition, and the request is the caller's.
+    slot.asyncThread = std::thread ([this, graphId, request] () {
+        EvaluationSummary summary;
+        std::string failure;
+        try {
+            summary = Evaluate (graphId, request);
+        }
+        catch (const std::exception& raised) {
+            failure = raised.what ();
+        }
+        catch (...) {
+            failure = "the graph runtime raised an unknown error";
+        }
+
+        Slot& finished = SlotFor (graphId);
+        std::lock_guard done (asyncMutex_);
+        finished.async.running = false;
+        finished.async.finished = true;
+        finished.async.progress.clear ();
+        if (!failure.empty ()) {
+            finished.async.succeeded = false;
+            finished.async.error = failure;
+            return;
+        }
+        finished.async.succeeded = summary.succeeded;
+        finished.async.error = summary.error;
+        finished.async.executedCount = summary.executedCount;
+    });
+    return true;
+}
+
+bool GraphRuntimeState::AsyncRunInFlight (const GraphId& graphId) const
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (asyncMutex_);
+    return slot.async.running;
+}
+
+GraphRuntimeState::AsyncRunState GraphRuntimeState::AsyncRun (const GraphId& graphId) const
+{
+    Slot& slot = SlotFor (graphId);
+    std::lock_guard lock (asyncMutex_);
+    AsyncRunState state = slot.async;
+    // The progress belongs to whatever is running, not to the run record, so it
+    // is read live rather than stored: a finished run has none.
+    if (state.running)
+        state.progress = CaptureProgress ();
+    return state;
+}
+
+void GraphRuntimeState::StopAsyncRuns ()
+{
+    // ⚠️ JOINED, NOT DETACHED. A run still touching the runtime while the
+    // add-on unloads is the one fatal outcome here - the same rule
+    // ExtractionThread states for its own worker.
+    std::vector<std::thread> pending;
+    {
+        std::lock_guard lock (asyncMutex_);
+        std::lock_guard map (mapMutex_);
+        for (auto& [graphId, slot] : graphs_) {
+            (void) graphId;
+            if (slot && slot->asyncThread.joinable ())
+                pending.push_back (std::move (slot->asyncThread));
+        }
+    }
+    for (std::thread& thread : pending)
+        thread.join ();
 }
 
 GraphMetadata GraphRuntimeState::Metadata (const GraphId& graphId) const

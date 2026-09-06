@@ -127,3 +127,94 @@ def test_text_label_helpers_are_thin_retained_api_calls(monkeypatch):
         ("Tapioca.SetDiligentTextLabels", {"labels": [label]}, False),
         ("Tapioca.ClearDiligentTextLabels", {}, False),
     ]
+
+
+def test_capture_batch_sends_every_camera_once_and_returns_the_written_paths(monkeypatch, tmp_path):
+    """The batch is ONE start for N cameras - that is the whole reason it exists.
+
+    A loop over diligent_capture would re-extract the model per camera; this
+    asserts the wrapper issues a single StartDiligentCaptureBatch carrying all of
+    them, and hands back the paths the renderer reported rather than inventing
+    them from the directory.
+    """
+    calls = []
+    states = iter([
+        result({"id": 4, "status": "running", "stage": "extracting",
+                "frameCount": 2, "framesDone": 0, "paths": []}),
+        result({"id": 4, "status": "running", "stage": "rendering 2 of 2",
+                "frameCount": 2, "framesDone": 1, "paths": ["a"]}),
+        result({"id": 4, "status": "completed", "stage": "completed",
+                "frameCount": 2, "framesDone": 2,
+                "paths": [str(tmp_path / "00.png"), str(tmp_path / "01.png")]}),
+    ])
+
+    def fake_call(command, params=None, **kwargs):
+        calls.append((command, params))
+        if command == "Tapioca.StartDiligentCaptureBatch":
+            return result({"id": 4, "status": "running", "frameCount": 2})
+        if command == "Tapioca.DiligentCaptureState":
+            return next(states)
+        raise AssertionError("unexpected command %s" % command)
+
+    monkeypatch.setattr(api, "call", fake_call)
+    monkeypatch.setattr(outputs._time, "sleep", lambda seconds: None)
+
+    lit = camera(1.0)
+    lit["sun"] = {"enabled": True, "azimuthDegrees": 135.0, "altitudeDegrees": 40.0}
+    written = outputs.diligent_capture_batch([lit, camera(2.0)], 800, 600,
+                                             directory=str(tmp_path))
+
+    assert written == [str(tmp_path / "00.png"), str(tmp_path / "01.png")]
+
+    starts = [params for command, params in calls
+              if command == "Tapioca.StartDiligentCaptureBatch"]
+    assert len(starts) == 1, "a batch must be ONE start, not one per camera"
+    assert len(starts[0]["cameras"]) == 2
+    # The sun rides with its own camera. Without this the renderer lights every
+    # frame the same way and the result looks entirely plausible.
+    assert starts[0]["cameras"][0]["sun"]["azimuthDegrees"] == 135.0
+    assert "sun" not in starts[0]["cameras"][1]
+    assert starts[0]["outputDirectory"] == str(tmp_path)
+
+
+def test_capture_batch_reports_how_far_it_got_when_it_times_out(monkeypatch, tmp_path):
+    """A batch runs for minutes; "timed out" alone does not say whether it moved."""
+    monkeypatch.setattr(outputs._time, "sleep", lambda seconds: None)
+
+    def fake_call(command, params=None, **kwargs):
+        if command == "Tapioca.StartDiligentCaptureBatch":
+            return result({"id": 5, "status": "running", "frameCount": 8})
+        if command == "Tapioca.DiligentCaptureState":
+            return result({"id": 5, "status": "running", "stage": "rendering 3 of 8",
+                           "frameCount": 8, "framesDone": 2, "paths": []})
+        if command == "Tapioca.CancelDiligentCapture":
+            return result({"cancelled": True})
+        raise AssertionError("unexpected command %s" % command)
+
+    monkeypatch.setattr(api, "call", fake_call)
+    with pytest.raises(outputs.OutputError) as failure:
+        outputs.diligent_capture_batch([camera(1.0)], 800, 600,
+                                       directory=str(tmp_path), timeout=0.0)
+    assert "2 of 8" in str(failure.value)
+
+
+def test_capture_batch_refuses_a_failed_run_with_the_stage_it_died_in(monkeypatch, tmp_path):
+    monkeypatch.setattr(outputs._time, "sleep", lambda seconds: None)
+
+    def fake_call(command, params=None, **kwargs):
+        if command == "Tapioca.StartDiligentCaptureBatch":
+            return result({"id": 6, "status": "running", "frameCount": 3})
+        if command == "Tapioca.DiligentCaptureState":
+            return result({"id": 6, "status": "failed", "stage": "rendering 2 of 3",
+                           "frameCount": 3, "framesDone": 1, "paths": [],
+                           "failureMessage": "the device was removed"})
+        raise AssertionError("unexpected command %s" % command)
+
+    monkeypatch.setattr(api, "call", fake_call)
+    with pytest.raises(outputs.OutputError) as failure:
+        outputs.diligent_capture_batch([camera(1.0)], 800, 600, directory=str(tmp_path))
+    # Both halves: WHERE it died and WHY. One without the other sends the reader
+    # to the wrong half of a long pipeline.
+    assert "rendering 2 of 3" in str(failure.value)
+    assert "device was removed" in str(failure.value)
+

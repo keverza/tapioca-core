@@ -87,6 +87,9 @@
   } from './editor'
   import LibraryDialog, { type LibraryMode } from './LibraryDialog.svelte'
   import {
+    applyCameraAction,
+    startRun,
+    runState,
     applySelectionAction,
     browseForGraph,
     deleteGraph,
@@ -123,6 +126,9 @@
     PortReference,
     PositionStore,
     SchemaNodeData,
+    CameraAction,
+    ModelView,
+    GraphRunState,
     SelectionAction,
     SettingMenuTarget,
     NodeVisualState,
@@ -284,10 +290,12 @@
   // five buttons disable rather than the whole canvas going busy for what is a
   // sub-second round trip.
   let selectionBusyNode = $state<string | null>(null)
+  let cameraBusyNode = $state<string | null>(null)
 
   // The node whose host effect is being committed, for the same reason: one
   // node's press should not grey the whole canvas.
   let executeBusyNode = $state<string | null>(null)
+  let executeProgress = $state('')
 
   /**
    * The Tapioca overlay: on, off, and in flight.
@@ -553,6 +561,8 @@
         },
         onselectionaction: handleSelectionAction,
         selectionBusy: selectionBusyNode === node.nodeId,
+        oncameraaction: handleCameraAction,
+        cameraBusy: cameraBusyNode === node.nodeId,
         // Only a selection set stacks containers, and it does so from what it
         // already holds - no host call to draw a node's own body.
         elementGroups: elementGroupsFor(node, schemaOf(node), resultMap.get(node.nodeId)),
@@ -567,6 +577,7 @@
             : undefined,
         onexecute: handleExecute,
         executeBusy: executeBusyNode === node.nodeId,
+        executeProgress: executeBusyNode === node.nodeId ? executeProgress : '',
         schema: schemaOf(node) ?? {
           nodeType: node.nodeType,
           label: node.nodeType,
@@ -950,6 +961,27 @@
       return
     }
     try {
+      // ⚠️ THE 3D VIEWS ARE A DIFFERENT COMMAND, NOT A KIND OF ATTRIBUTE.
+      // They answer the same question - what does this project contain - and so
+      // they ride the same request, cache and publish path; but a view is a
+      // Navigator item, not an attribute, and Tapioca.ListAttributes has no
+      // business knowing about the View Map. The rows are mapped onto the
+      // attribute shape here, which is the only place that mapping exists:
+      // `name` carries the GUID because that is what the parameter stores, and
+      // the projection rides in the label so an axonometric view - a perfectly
+      // good SCOPE, but never a camera - is recognisable before it is chosen.
+      if (source === 'modelView3D') {
+        const views = await callTapioca<{ views?: ModelView[] }>('Tapioca.List3DViews')
+        publishAttributeListing(source, {
+          attributes: (views.views ?? []).map((view, index) => ({
+            label: view.projection === 'axonometric' ? `${view.name} (axonometric)` : view.name,
+            name: view.guid,
+            folder: view.path === '' ? undefined : view.path,
+            index,
+          })),
+        })
+        return
+      }
       const listing = await callTapioca<AttributeListing>('Tapioca.ListAttributes', {
         kind: source,
         ...(penSet === undefined ? {} : { penSet }),
@@ -972,6 +1004,27 @@
    * what closes that loop; it is a shallow remap of presentation data and does
    * not touch positions, selection or anything semantic.
    */
+  /**
+   * Push the commit state onto the nodes already on the canvas.
+   *
+   * ⚠️ THE SAME SNAPSHOT PROBLEM publishAttributeListing SOLVES, AND IT
+   * BIT THE SAME WAY. `executeBusyNode` is state, but the bound node array is
+   * rebuilt only when graph state reloads - so pressing Capture set the flag,
+   * nothing redrew, and the button sat there looking untouched for the entire
+   * run. Every other effectful node finishes in milliseconds, which is why this
+   * was invisible until a node took minutes.
+   */
+  function publishExecuteState(): void {
+    nodes = nodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        executeBusy: executeBusyNode === node.id,
+        executeProgress: executeBusyNode === node.id ? executeProgress : '',
+      },
+    }))
+  }
+
   function publishAttributeListing(source: string, listing: AttributeListing): void {
     attributeListings = { ...attributeListings, [source]: listing }
     nodes = nodes.map((node) => ({ ...node, data: { ...node.data, attributeListings } }))
@@ -1439,30 +1492,62 @@
       return
     }
     executeBusyNode = nodeId
+    executeProgress = 'Starting...'
+    // Before the first await, so the button changes on the PRESS rather than
+    // 250ms later when the first poll lands.
+    publishExecuteState()
     failed = false
+    // ⚠️ THE AUTOMATIC PASS MUST NOT FIRE WHILE THIS RUNS, AND THAT IS NOT
+    // ABOUT WASTED WORK. `busy` gates scheduleAutoRun; without it the commit's
+    // own document change schedules an automatic Tapioca.GraphEvaluate 90ms
+    // later, which runs INLINE on Archicad's UI thread and BLOCKS on the graph's
+    // run mutex behind the capture. A blocked UI thread is a stopped event loop,
+    // a stopped event loop is a MainThreadGate that never dispatches, and the
+    // capture then dies reporting "the main-thread gate stopped dispatching" -
+    // killed by the run that was waiting for it. The native side refuses the
+    // overlapping evaluate too; this stops it being asked for.
+    busy = true
     try {
-      const summary = await callTapioca<EvaluationSummary>('Tapioca.GraphEvaluate', {
-        targets: [nodeId],
-        allowSideEffects: true,
-      })
-      await refreshResults()
-      await reloadState()
-      if (!summary.succeeded) {
+      // ⚠️ STARTED ON THE RUNTIME'S OWN THREAD, NOT EVALUATED HERE.
+      // Tapioca.GraphEvaluate runs inline on the caller's thread, and this
+      // caller is Archicad's UI thread - so a node that needs the main-thread
+      // gate would be waiting on the thread that is waiting for it. That
+      // deadlock is what a headless capture reported as "gave up waiting 20s
+      // for the 3D model": a true sentence about the wrong problem.
+      const started = await startRun([nodeId], true)
+      if (!started.started) {
         failed = true
-        message = summary.error || `${nodeId} failed`
-      } else if (summary.effectsCommitted === false) {
-        // Refused rather than performed, which the runtime reports rather than
-        // throwing. Saying "sent" here would be a lie the model would not back up.
-        failed = true
-        message = `${nodeId} was not committed: ${summary.skippedEffectNodes?.join(', ') || 'the runtime skipped it'}`
-      } else {
-        message = `Sent ${nodeId} to Archicad`
+        message = started.error || 'a run is already in progress'
+        return
+      }
+
+      // Polled rather than awaited, so the node can say what it is doing. A
+      // capture walks the whole model before its first frame; a button that
+      // just stayed pressed would be indistinguishable from a hang.
+      for (;;) {
+        await new Promise((resume) => setTimeout(resume, 250))
+        const state = await runState()
+        executeProgress = state.progress || 'Working...'
+        publishExecuteState()
+        if (state.running) continue
+        await refreshResults()
+        await reloadState()
+        if (!state.succeeded) {
+          failed = true
+          message = state.error || `${nodeId} failed`
+        } else {
+          message = `Sent ${nodeId} to Archicad`
+        }
+        return
       }
     } catch (error) {
       failed = true
       message = error instanceof Error ? error.message : String(error)
     } finally {
       executeBusyNode = null
+      executeProgress = ''
+      busy = false
+      publishExecuteState()
     }
   }
 
@@ -1715,6 +1800,54 @@
       message = error instanceof Error ? error.message : String(error)
     } finally {
       selectionBusyNode = null
+      await refreshResults()
+      await reloadState()
+    }
+  }
+
+  /**
+   * One of the camera list's four buttons.
+   *
+   * The same shape as handleSelectionAction, and for the same reason: the
+   * runtime changes the list AND evaluates what the change reaches, so this only
+   * has to redraw. Restore is the one that changes nothing in the document - it
+   * points Archicad's 3D window at a stored pose - so it reports differently.
+   */
+  async function handleCameraAction(nodeId: string, action: CameraAction, index: number): Promise<void> {
+    if (!nativeConnected) {
+      message = 'The camera list needs the native graph runtime.'
+      return
+    }
+    cameraBusyNode = nodeId
+    failed = false
+    try {
+      const outcome = await applyCameraAction(nodeId, action, index)
+      if (!outcome.ok) {
+        failed = true
+        // The RUNTIME'S sentence, not one composed here. "The 3D window is
+        // axonometric" tells the user which window to change; a message this
+        // file wrote could only say that the action failed.
+        message = outcome.error
+      } else if (action === 'restore') {
+        message = outcome.threeDWindowInFront
+          ? `Archicad's 3D window is looking through camera ${index + 1}`
+          : `Camera ${index + 1} applied - switch to Archicad's 3D window to see it`
+      } else {
+        const verb = action === 'add' ? 'Captured' : action === 'remove' ? 'Removed' : 'Cleared'
+        message = `${verb}: ${outcome.count} camera${outcome.count === 1 ? '' : 's'} in the list`
+        // Reported separately, as with the selection set: the list can change
+        // correctly and the graph downstream of it still fail, and one message
+        // for both would make a successful capture read as a failed one.
+        if (outcome.evaluationError !== '') {
+          failed = true
+          message += ` / downstream: ${outcome.evaluationError}`
+        }
+      }
+    } catch (error) {
+      failed = true
+      message = error instanceof Error ? error.message : String(error)
+    } finally {
+      cameraBusyNode = null
       await refreshResults()
       await reloadState()
     }

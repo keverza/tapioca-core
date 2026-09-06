@@ -1,14 +1,16 @@
 <script lang="ts">
   import type { NodeBodyMode, NodeDefinition, NodeViewMode } from './types/node'
   import type { PortLayout } from './types/port'
-  import type { SchemaNodeData, SelectionAction } from '../types'
+  import type { CameraAction, SchemaNodeData, SelectionAction } from '../types'
   import type { PortReference } from './types/portReference'
+  import CameraList from './archicad/CameraList.svelte'
   import ElementContainer from './archicad/ElementContainer.svelte'
   import ElementReference from './archicad/ElementReference.svelte'
   import NodeControls from './NodeControls.svelte'
   import NodePort from './NodePort.svelte'
   import NodeViewer from './NodeViewer.svelte'
   import ScriptPanel from './script/ScriptPanel.svelte'
+  import { camerasOf } from './archicad/cameras'
   import { DEFAULT_VIEWER_COLOR, portStructure } from './types/display'
   import { panelRows, panelStructure } from './types/panelRows'
 
@@ -37,6 +39,7 @@
   const actions: { action: SelectionAction; label: string }[] = [
     { action: 'update', label: 'Update' }, { action: 'add', label: 'Add' }, { action: 'remove', label: 'Remove' }, { action: 'reselect', label: 'Reselect' }, { action: 'clear', label: 'Clear' },
   ]
+  const cameras = $derived(camerasOf(data.parameters))
   function toggleViewer(): void { viewerActive = !viewerActive }
 </script>
 
@@ -74,6 +77,21 @@
       {/each}
     </section>
   {/if}
+{:else if viewMode !== 'compact' && data.schema.display === 'cameraSet'}
+  <!--
+    ⚠️ ITS OWN BODY, NOT THE SELECTION SET'S, THOUGH THE TWO LOOK ALIKE.
+    They share a shape - a captured list with buttons - and nothing else: the
+    actions are different words, a row is a pose rather than an element, and
+    Restore writes the 3D window where Reselect writes the selection. Reusing the
+    selection body would have meant drawing an Update button that cannot exist.
+  -->
+  <CameraList
+    {cameras}
+    busy={data.cameraBusy ?? false}
+    onaction={data.oncameraaction === undefined
+      ? undefined
+      : (action: CameraAction, index: number) => data.oncameraaction?.(id, action, index)}
+  />
 {:else if data.schema.display === 'script'}
   <!--
     ⚠️ THE PORTS ARE DRAWN ABOVE THIS, BY THE ORDINARY PORT SECTION, and the panel
@@ -114,7 +132,14 @@
   -->
   <section class="execute nodrag">
     <button type="button" disabled={data.executeBusy || !data.onexecute} onclick={() => data.onexecute?.(id)}>
-      {data.executeBusy ? 'Sending...' : 'Send to Archicad'}
+      <!--
+        The PROGRESS while it is running, not a fixed "Sending...". A capture
+        walks the whole model before its first frame and then renders one per
+        camera; a button that just stayed pressed for four minutes is one a user
+        gives up on. Nodes whose effect is instant never show anything but the
+        fallback, because they finish before a poll returns.
+      -->
+      {data.executeBusy ? (data.executeProgress || 'Working...') : (data.schema.commitLabel || 'Send to Archicad')}
     </button>
   </section>
 {/if}

@@ -303,6 +303,104 @@ class GraphRuntimeState final {
 
     SelectionActionResult ApplySelectionAction (const GraphId& graphId, const NodeId& nodeId, SelectionAction action);
 
+    // ---- the camera set's four actions -------------------------------------
+    //
+    // ⚠️ THE SAME RULE AS THE SELECTION ACTIONS ABOVE, AND A DIFFERENT
+    // VOCABULARY. A camera list is captured the same way - a button press, never
+    // an evaluation - but there is no Update: a selection has one obvious
+    // "current" value to replace the set with, and a camera list is built one
+    // viewpoint at a time by design. Reusing the selection's five words would
+    // have meant an Update button that either did nothing or silently threw away
+    // every camera but one.
+    enum class CameraAction {
+        // Append Archicad's 3D window camera to the list.
+        Add,
+        // Drop the camera at `index`.
+        Remove,
+        // Point Archicad's 3D window at the camera at `index`. Reads the list,
+        // never writes it.
+        Restore,
+        // Empty the list.
+        Clear,
+    };
+
+    struct CameraActionResult {
+        bool ok = false;
+        std::string error;
+
+        // The list's length after the action.
+        size_t count = 0;
+        // How many cameras the action added or removed. Restore changes none.
+        size_t changed = 0;
+
+        uint64_t revision = 0;
+
+        // Restore only: whether Archicad's 3D window was the one on screen when
+        // the camera was applied. False is a SUCCESS with a caveat - the
+        // projection did change, and the user will see it when they switch to
+        // the 3D window - and reporting it is what keeps "nothing happened" from
+        // being the only thing a user can say about that case.
+        bool threeDWindowInFront = true;
+
+        // Present when the action changed the list, exactly as above: the run
+        // that refreshed everything the change can reach.
+        std::optional<EvaluationSummary> evaluation;
+    };
+
+    // `index` is read by Remove and Restore and ignored by the others. Out of
+    // range is a reported refusal rather than a clamp: pressing Restore on a row
+    // that is not there must not quietly move the view to a different one.
+    CameraActionResult ApplyCameraAction (const GraphId& graphId, const NodeId& nodeId, CameraAction action,
+                                          size_t index);
+
+    // ---- running a graph OFF the caller's thread ---------------------------
+    //
+    // ⚠️ THIS EXISTS BECAUSE OF A DEADLOCK, NOT FOR TIDINESS, and the
+    // deadlock is structural rather than a bug in any one node.
+    //
+    // A gate-free command runs INLINE ON THE CALLER'S THREAD (see
+    // Python/ApiDispatcher.cpp). When the caller is the editor, that thread is
+    // Archicad's own: the DG::Browser bridge dispatches on the UI thread. The
+    // evaluator's coordinator then IS the main thread, and it blocks waiting for
+    // its worker pool. Any node that needs MainThreadGate - a headless capture
+    // asks it for the 3D model - is then waiting for a thread that is waiting
+    // for it, and the gate times out 20 seconds later reporting that Archicad is
+    // "almost certainly GENERATING" a model it in fact already had.
+    //
+    // The same graph run from Python over the loopback server has always worked,
+    // for the one reason that it arrives on a worker thread. This puts the
+    // editor on the same footing rather than making every long node defend
+    // itself.
+    //
+    // One run at a time, per graph. Starting a second while one is in flight is
+    // refused rather than queued: two runs committing side effects into one
+    // document is not a thing a user asked for.
+    struct AsyncRunState {
+        bool running = false;
+        // True once a run has finished and its outcome is readable. False before
+        // the first run, which is a different state from "finished with nothing".
+        bool finished = false;
+        bool succeeded = false;
+        std::string error;
+        size_t executedCount = 0;
+        // What the run is DOING, for a client to draw. Empty when it is not the
+        // kind of work that reports any.
+        std::string progress;
+    };
+
+    // False when a run is already in flight for this graph.
+    bool StartAsyncRun (const GraphId& graphId, const EvaluationRequest& request);
+    // Whether a run is in flight for this graph. Cheap, and the reason it is
+    // public: a synchronous Evaluate would BLOCK on the run mutex behind it, and
+    // when the caller is Archicad's UI thread that block stops the event loop -
+    // which stops MainThreadGate dispatching, which kills the very run it is
+    // waiting for. Callers on that thread must ask first.
+    bool AsyncRunInFlight (const GraphId& graphId) const;
+    AsyncRunState AsyncRun (const GraphId& graphId) const;
+    // Joins any finished thread. Called on teardown so a run cannot outlive the
+    // add-on.
+    void StopAsyncRuns ();
+
     // Saves the live graph `graphId` into the library under `name`.
     StoreResult SaveToLibrary (const GraphId& graphId, const std::string& name);
 
@@ -348,6 +446,11 @@ class GraphRuntimeState final {
     };
 
     struct Slot {
+        // The run in flight, if any. Guarded by asyncMutex_ rather than
+        // documentMutex_: a run holds the document lock repeatedly and briefly,
+        // and a state query must not have to wait behind a whole evaluation.
+        AsyncRunState async;
+        std::thread asyncThread;
         GraphDocument document;
         GraphMetadata metadata;
         Evaluator evaluator;
@@ -394,6 +497,10 @@ class GraphRuntimeState final {
     NodeRegistry registry_;
 
     mutable std::mutex libraryMutex_;
+    // Guards every Slot::async and Slot::asyncThread. One mutex for all of them
+    // rather than one per slot: a state query is a read of two words and must
+    // not queue behind an evaluation holding a slot's own lock.
+    mutable std::mutex asyncMutex_;
     std::unique_ptr<IGraphStore> library_;
 };
 

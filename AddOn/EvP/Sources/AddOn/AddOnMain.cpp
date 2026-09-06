@@ -29,15 +29,16 @@
 #include "Server/HttpServer.hpp"
 #include "NativeCommands/PlanOverlayCommands.hpp" // ShutdownPlanOverlay — Win32 windows we own
 #include "ArchViz/ViewportOverlayWindow.hpp"      // the 3D overlay, same hazard
-#include "NodeGraph/ArchicadHostImpl.hpp"         // the graph runtime's one ACAPI seam
-#include "NodeGraph/GraphRuntimeState.hpp"        // the graphs whose script nodes are reloaded
-#include "Python/GraphScriptRuntime.hpp"          // the Python half of the script node family
-#include "NodeGraph/ScriptReload.hpp"             // reloads a script node when its file is saved
-#include "NodeGraph/ScriptSource.hpp"             // the file watcher behind that
-#include "NodeGraph/ScriptIntelligence.hpp"       // the language server, started on demand and stopped here
-#include "NodeGraph/WorkerPool.hpp"               // joined on quit, never at static destruction
-#include "Notify/ChangeTracker.hpp"               // E25 — the model change token
-#include "Notify/BackgroundArm.hpp"               // E25 — its background arming thread
+#include "NativeCommands/GraphCaptureService.hpp"
+#include "NodeGraph/ArchicadHostImpl.hpp"   // the graph runtime's one ACAPI seam
+#include "NodeGraph/GraphRuntimeState.hpp"  // the graphs whose script nodes are reloaded
+#include "Python/GraphScriptRuntime.hpp"    // the Python half of the script node family
+#include "NodeGraph/ScriptReload.hpp"       // reloads a script node when its file is saved
+#include "NodeGraph/ScriptSource.hpp"       // the file watcher behind that
+#include "NodeGraph/ScriptIntelligence.hpp" // the language server, started on demand and stopped here
+#include "NodeGraph/WorkerPool.hpp"         // joined on quit, never at static destruction
+#include "Notify/ChangeTracker.hpp"         // E25 — the model change token
+#include "Notify/BackgroundArm.hpp"         // E25 — its background arming thread
 #include "Python/MainThreadGate.hpp"
 #include "Python/ApiCommandCatalog.hpp"
 #include "Python/PathUtils.hpp"     // EvpDataDir / AppendTextLine — ACAPI-free, safe this early
@@ -361,6 +362,10 @@ GSErrCode Initialize (void)
     // makes "the project closed under a run" and "the module is unloading"
     // expressible rather than a dangling call into freed code.
     evp::nodegraph::SetActiveArchicadHost (&evp::nodegraph::ArchicadHostImpl::Get ());
+    // The renderer half of the graph's capture seam. Installed here for the same
+    // reason the Archicad host is: this is the one place that may name both
+    // sides of the services/features boundary.
+    evp::nodegraph::SetActiveCaptureService (&geomsrv::GraphCaptureService ());
 
     // The script node family's file watcher, installed on the same terms and for
     // the same reason: it is a platform object the portable runtime only knows by
@@ -536,6 +541,10 @@ GSErrCode FreeData (void)
     // flight sees no host and fails its Archicad nodes cleanly, instead of
     // marshalling ACAPI work into a module that is being unloaded.
     evp::nodegraph::SetActiveArchicadHost (nullptr);
+    // Before the host detaches: a run still touching the runtime while the
+    // add-on unloads is the one fatal outcome here.
+    evp::nodegraph::GraphRuntimeState::Get ().StopAsyncRuns ();
+    evp::nodegraph::SetActiveCaptureService (nullptr);
     // Detached and joined before the gate closes, for the reason the host is: the
     // watcher's thread posts to the gate, and a thread that outlived this module
     // would be Windows running freed code.

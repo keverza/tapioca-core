@@ -8,6 +8,7 @@
 // behaviour a user actually sees lives - are testable without Archicad, and the
 // only untestable code is the thin ACAPI implementation of the interface.
 
+#include "NodeGraph/ArchicadHost.hpp"
 #include "NodeGraph/Evaluator.hpp"
 #include "NodeGraph/NodeRegistry.hpp"
 
@@ -17,6 +18,36 @@ namespace evp::nodegraph {
 // Named here because the command that operates the five buttons has to address
 // both, and a second spelling of either is a bug waiting for a rename.
 extern const char* const kSelectionSetNodeType;
+
+// The camera-set node, and the parameter its captured list lives in.
+//
+// ⚠️ THE LIST IS A PARAMETER, EXACTLY AS THE SELECTION SET'S IS, and for
+// the same three reasons: it saves, loads and round-trips with the graph with no
+// extra machinery; the node stays Pure, so evaluating it reads nothing from the
+// host and it cannot go dirty because the user moved the 3D window; and the
+// buttons that change it are native verbs that evaluate what they affect, so a
+// capture is visible without anybody pressing Evaluate.
+extern const char* const kCameraSetNodeType;
+extern const char* const kCameraSetParameter;
+
+// One captured camera, in the eleven-field shape StartDiligentCapture consumes.
+// Encoded as JSON into a String item so the list is an ordinary List parameter -
+// see kCameraSetParameter for why it is stored rather than looked up, and
+// IArchicadHost's ViewCamera for why the field names are the renderer's.
+std::string EncodeCamera (const ViewCamera& camera);
+bool DecodeCamera (const std::string& encoded, ViewCamera& camera);
+
+// The sun that was lighting the model when a camera was captured, in
+// Tapioca.SetDiligentSun's own field names so it reaches the renderer unchanged.
+// A camera with no sun encodes as `enabled` false, which is what a graph saved
+// before sun capture existed - or one taken with no readable place information -
+// produces.
+std::string EncodeCameraSun (const ViewCamera& camera);
+Argument SunFromCameras (const std::vector<ViewCamera>& cameras);
+
+// The stored list, and the list as a parameter value.
+std::vector<ViewCamera> CamerasFromValue (const Argument& value);
+Argument ValueFromCameras (const std::vector<ViewCamera>& cameras);
 extern const char* const kSelectionSetParameter;
 
 // The parallel list of element TYPE IDS captured with the guids.

@@ -7,6 +7,8 @@
 #include "NodeGraph/GraphReports.hpp"
 #include "NodeGraph/GraphRuntimeState.hpp"
 #include "NodeGraph/NodeExecution.hpp"
+#include "NodeGraph/CaptureService.hpp"
+#include "NodeGraph/RenderNodes.hpp"
 #include "NodeGraph/ScriptNodes.hpp"
 #include "Geometry/Transforms.hpp"
 #include "NodeGraph/PreviewProjection.hpp"
@@ -342,8 +344,9 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     EXPECT_EQ (2U, byCategory["Inspect"]); // panel, preview
     EXPECT_EQ (2U, byCategory["Flow"]);    // dataDam - Stage F, so Holding is reachable
     EXPECT_EQ (2U, byCategory["Input"]);   // numberSlider, booleanToggle
-    EXPECT_EQ (11U,
-               byCategory["Archicad"]); // an attribute picker per domain, the two selection nodes, the library part
+    EXPECT_EQ (12U,
+               byCategory["Archicad"]);      // an attribute picker per domain, the two selection nodes, the library
+                                             // part, the camera list
     EXPECT_EQ (21U, byCategory["Geometry"]); // inputs, vectors, polygons, solids, curves and the surface makers
     EXPECT_EQ (6U, byCategory["Transform"]); // move, rotate, scale, mirror and the two arrays
     EXPECT_EQ (3U, byCategory["Math"]);      // remap, random, toInteger
@@ -373,7 +376,12 @@ TEST (NodeGraphBuiltins, CatalogIsSchemaDrivenAndPure)
     // list.* - length, item, reverse, sort, slice. Ordinary lifted bodies,
     // unlike tree.*: they answer about ONE branch and the runtime walks the rest.
     EXPECT_EQ (5U, byCategory["List"]);
-    EXPECT_EQ (90U, registry.Types ().size ());
+    // Render - what a headless capture is TOLD, and the capture itself. Its own
+    // category rather than "Archicad" because these configure and drive the
+    // RENDERER, not the model: a user hunting for image size would not look
+    // under Archicad.
+    EXPECT_EQ (2U, byCategory["Render"]);
+    EXPECT_EQ (93U, registry.Types ().size ());
     EXPECT_EQ (ExecutionDomain::Worker, registry.Find ("scaleList")->executionDomain);
     EXPECT_EQ (ValueType::List, registry.Find ("watch")->outputs.front ().valueType);
 
@@ -1703,6 +1711,96 @@ class StubHost final : public IArchicadHost {
         }
         applied = elements;
         return true;
+    }
+
+    // ---- the 3D window's camera --------------------------------------------
+    // What the stub's 3D window is currently showing, and where Restore put it.
+    // `viewCamera.valid` false is how the axonometric case is expressed - the
+    // real host reports exactly that, with the reason in `source`.
+    ViewCamera viewCamera;
+    std::vector<ViewCamera> restored;
+    bool getViewCameraFails = false;
+    bool setViewCameraFails = false;
+    // What the stub's front window is. The real host reports this so a Restore
+    // applied while the user is on the floor plan can say so - it succeeded, and
+    // they will see it when they switch.
+    bool threeDWindowInFront = true;
+
+    bool GetViewCamera (ViewCamera& camera, std::string& error) const override
+    {
+        if (getViewCameraFails) {
+            error = "Archicad did not respond";
+            return false;
+        }
+        camera = viewCamera;
+        return true;
+    }
+
+    bool SetViewCamera (const ViewCamera& camera, bool& inFront, std::string& error) override
+    {
+        inFront = false;
+        if (setViewCameraFails) {
+            error = "Archicad refused the camera";
+            return false;
+        }
+        restored.push_back (camera);
+        viewCamera = camera;
+        inFront = threeDWindowInFront;
+        return true;
+    }
+
+    // Convenience: point the stub's 3D window at a perspective camera whose
+    // numbers are distinguishable at a glance.
+    void Looking (double eyeX)
+    {
+        viewCamera = ViewCamera {};
+        viewCamera.valid = true;
+        viewCamera.source = "perspective";
+        // A sun, because the real host reads one whenever the project has place
+        // information - which is nearly always. The sunless case gets its own
+        // helper below rather than being the default here.
+        viewCamera.hasSun = true;
+        viewCamera.sunAzimuthDegrees = 135.0;
+        viewCamera.sunAltitudeDegrees = 40.0;
+        viewCamera.sunBearingDegrees = 315.0;
+        viewCamera.sunSource = "date";
+        // Archicad's own struct, which Restore round-trips without interpreting.
+        viewCamera.sunFromDate = true;
+        viewCamera.sunRawAzimuth = 210.0;
+        viewCamera.sunRawAltitude = 40.0;
+        viewCamera.sunYear = 2026;
+        viewCamera.sunMonth = 6;
+        viewCamera.sunDay = 21;
+        viewCamera.sunHour = 16;
+        viewCamera.sunMinute = 30;
+        viewCamera.sunSummerTime = true;
+        viewCamera.eye[0] = eyeX;
+        viewCamera.eye[1] = 2.0;
+        viewCamera.eye[2] = 3.0;
+        viewCamera.target[0] = 4.0;
+        viewCamera.target[1] = 5.0;
+        viewCamera.target[2] = 6.0;
+        viewCamera.viewConeDegreesHorizontal = 60.0;
+    }
+
+    // A project with no readable place information: a valid camera carrying no
+    // sun. Rare, and the one case where the sun output must say so rather than
+    // reporting a direction.
+    void LookingWithNoSun (double eyeX)
+    {
+        Looking (eyeX);
+        viewCamera.hasSun = false;
+        viewCamera.sunAzimuthDegrees = 0.0;
+        viewCamera.sunAltitudeDegrees = 0.0;
+        viewCamera.sunBearingDegrees = 0.0;
+    }
+
+    // The other answer the real host gives: a parallel projection, which has no
+    // camera position at all.
+    void LookingAxonometric ()
+    {
+        viewCamera = ViewCamera {};
+        viewCamera.source = "the 3D window is axonometric, which has no camera position - switch it to perspective";
     }
 
     // Convenience: put these guids in the selection and make them resolvable.
@@ -3685,6 +3783,966 @@ TEST (NodeGraphSelectionSet, TheSetSurvivesASaveAndLoadBecauseItIsAnOrdinaryPara
         ElementsFromValue (loaded.document.FindNode ("sel")->parameters.at ("elements"));
     ASSERT_EQ (2U, elements.size ());
     EXPECT_EQ ("guid-b", elements[1].guid);
+}
+
+// ===========================================================================
+// THE CAMERA SET (PLAT-AV-CAPTURENODES slice 1)
+//
+// Written against the same StubHost as the selection set, and for the same
+// reason: the node is defined against IArchicadHost, so everything a user
+// actually presses is covered offline. The only untested half is the ACAPI
+// projection read and write, which is why that one verifies its own writes.
+
+namespace {
+
+using CameraAction = GraphRuntimeState::CameraAction;
+
+std::vector<ViewCamera> CamerasOf (const GraphDocument& document, const NodeId& nodeId)
+{
+    const Node* node = document.FindNode (nodeId);
+    if (node == nullptr)
+        return {};
+    const auto parameter = node->parameters.find (kCameraSetParameter);
+    if (parameter == node->parameters.end ())
+        return {};
+    return CamerasFromValue (parameter->second);
+}
+
+GraphId FreshCameraGraph (const char* name)
+{
+    const GraphId graphId = FreshGraphId (name);
+    EXPECT_TRUE (GraphRuntimeState::Get ()
+                     .Apply (graphId, GraphEdit { AddNodeEdit { Node { "cam", kCameraSetNodeType } } })
+                     .accepted);
+    return graphId;
+}
+
+} // namespace
+
+// ===========================================================================
+// RENDER SETTINGS (PLAT-AV-CAPTURENODES slice 2)
+//
+// ⚠️ WHAT these protect: this node's whole job is to produce a string the
+// capture command will accept, and every way it can fail is silent. A field
+// spelled differently from StartDiligentCapture's schema, a colour packed in the
+// wrong byte order, or a size outside the schema's range all look like a working
+// node right up until a batch dies after extracting the model.
+
+namespace {
+
+Node RenderSettingsNode (const NodeId& id)
+{
+    return Node { id, kRenderSettingsNodeType };
+}
+
+std::string SettingsTextOf (Evaluator& evaluator, const NodeId& id)
+{
+    const std::shared_ptr<const NodeResult> result = evaluator.Result (id);
+    if (result == nullptr)
+        return {};
+    return std::get<std::string> (Out (result, kRenderSettingsOutput).DataValue ());
+}
+
+} // namespace
+
+// ===========================================================================
+// THE CAPTURE NODE (PLAT-AV-CAPTURENODES slice 4)
+//
+// ⚠️ WHAT IS TESTABLE HERE AND WHAT IS NOT. The renderer lives on the far side
+// of ICaptureService, so everything the NODE decides is covered offline - which
+// cameras it sends, which sun, what it does when nothing is wired, and that it
+// refuses rather than crashes with no renderer installed. What cannot be covered
+// is whether the frames come out right; that needs Archicad and a GPU.
+
+namespace {
+
+class StubCaptureService final : public ICaptureService {
+  public:
+    std::vector<CaptureBatchRequest> requests;
+    std::vector<std::string> answer;
+    std::string failure;
+    bool observeCancellation = false;
+
+    bool Capture (const CaptureBatchRequest& request, const std::function<bool ()>& cancelled,
+                  std::vector<std::string>& paths, std::string& error) override
+    {
+        requests.push_back (request);
+        if (observeCancellation && cancelled ()) {
+            error = "the capture was cancelled";
+            return false;
+        }
+        if (!failure.empty ()) {
+            error = failure;
+            return false;
+        }
+        paths = answer;
+        return true;
+    }
+};
+
+// Installs a capture service for the duration of a test, like ScopedHost.
+class ScopedCaptureService {
+  public:
+    explicit ScopedCaptureService (ICaptureService* service)
+    {
+        SetActiveCaptureService (service);
+    }
+    ~ScopedCaptureService ()
+    {
+        SetActiveCaptureService (nullptr);
+    }
+};
+
+GraphDocument CaptureGraph (const NodeRegistry& registry, const std::vector<ViewCamera>& cameras)
+{
+    GraphDocument graph;
+    Node source { "cam", kCameraSetNodeType };
+    source.parameters[kCameraSetParameter] = ValueFromCameras (cameras);
+    EXPECT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { source } }).accepted);
+    EXPECT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "shot", kCaptureNodeType } } }).accepted);
+    EXPECT_TRUE (ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Edge { "cam", "cameras", "shot", "cameras" } } })
+                     .accepted);
+    EXPECT_TRUE (
+        ApplyEdit (graph, registry, GraphEdit { ConnectEdit { Edge { "cam", "sun", "shot", "sun" } } }).accepted);
+    return graph;
+}
+
+ViewCamera LitCamera (double eyeX, double azimuth)
+{
+    ViewCamera camera;
+    camera.valid = true;
+    camera.source = "perspective";
+    camera.eye[0] = eyeX;
+    camera.target[0] = eyeX + 10.0;
+    camera.viewConeDegreesHorizontal = 60.0;
+    camera.hasSun = true;
+    camera.sunAzimuthDegrees = azimuth;
+    camera.sunAltitudeDegrees = 40.0;
+    return camera;
+}
+
+} // namespace
+
+TEST (NodeGraphCapture, ItIsDeferredSoAnOrdinaryRunNeverRendersAnything)
+{
+    // ⚠️ THE MOST IMPORTANT PROPERTY OF THIS NODE. A capture takes minutes; a
+    // graph that started one because a slider moved would be unusable. The
+    // permission gate that stops it is the same one Set Selection relies on, and
+    // this asserts the node is actually behind it.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find (kCaptureNodeType);
+    ASSERT_NE (nullptr, type);
+    EXPECT_EQ (EffectKind::HostUiWrite, type->effect);
+
+    GraphDocument graph = CaptureGraph (registry, { LitCamera (1.0, 135.0) });
+    StubCaptureService service;
+    service.answer = { "one.png" };
+    const ScopedCaptureService installed (&service);
+
+    StubHost host;
+    Evaluator evaluator;
+    // allowSideEffects defaults to REFUSED, which is what an automatic run is.
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host).succeeded);
+    EXPECT_TRUE (service.requests.empty ()) << "an ordinary evaluation rendered something";
+
+    // The deliberate press does run it. A NEW run id, because the first run left
+    // the node clean and a repeat of the same run would find nothing to do.
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true, 2).succeeded);
+    EXPECT_EQ (1U, service.requests.size ());
+}
+
+TEST (NodeGraphCapture, EveryCameraAndItsOwnSunReachTheRendererInOrder)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph = CaptureGraph (registry, { LitCamera (1.0, 135.0), LitCamera (2.0, -30.0) });
+
+    StubCaptureService service;
+    service.answer = { "00.png", "01.png" };
+    const ScopedCaptureService installed (&service);
+
+    StubHost host;
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    ASSERT_EQ (1U, service.requests.size ()) << "one batch, not one call per camera";
+    const std::vector<ViewCamera>& sent = service.requests[0].cameras;
+    ASSERT_EQ (2U, sent.size ());
+    EXPECT_DOUBLE_EQ (1.0, sent[0].eye[0]);
+    EXPECT_DOUBLE_EQ (2.0, sent[1].eye[0]);
+    // ⚠️ EACH FRAME KEEPS ITS OWN SUN. Losing this renders a whole list under
+    // one afternoon and looks entirely deliberate.
+    EXPECT_TRUE (sent[0].hasSun);
+    EXPECT_DOUBLE_EQ (135.0, sent[0].sunAzimuthDegrees);
+    EXPECT_DOUBLE_EQ (-30.0, sent[1].sunAzimuthDegrees);
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("shot");
+    ASSERT_NE (nullptr, result);
+    EXPECT_EQ (2, std::get<int64_t> (Out (result, "count").DataValue ()));
+}
+
+TEST (NodeGraphCapture, AnUnwiredNodeIsEmptyRatherThanAFailedGraph)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { Node { "shot", kCaptureNodeType } } }).accepted);
+
+    StubCaptureService service;
+    const ScopedCaptureService installed (&service);
+    StubHost host;
+    Evaluator evaluator;
+    // The seconds between dropping a node and wiring it are not a broken graph,
+    // and they must not be a render either.
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true).succeeded);
+    EXPECT_TRUE (service.requests.empty ());
+    EXPECT_EQ (0, std::get<int64_t> (Out (evaluator.Result ("shot"), "count").DataValue ()));
+}
+
+TEST (NodeGraphCapture, WithNoRendererInstalledItSaysSoInsteadOfCrashing)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph = CaptureGraph (registry, { LitCamera (1.0, 135.0) });
+
+    // No ScopedCaptureService: this is the offline suite, a headless run, or the
+    // add-on before startup finished. Ordinary, not exceptional.
+    StubHost host;
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true);
+    EXPECT_FALSE (outcome.succeeded);
+    // The message names the missing HALF. "capture failed" would send the reader
+    // to the cameras.
+    EXPECT_NE (std::string::npos, outcome.error.find ("no renderer"));
+}
+
+TEST (NodeGraphCapture, TheRenderersFailureIsReportedRatherThanReplaced)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph = CaptureGraph (registry, { LitCamera (1.0, 135.0) });
+
+    StubCaptureService service;
+    service.failure = "a Diligent viewport or extraction pass is already running";
+    const ScopedCaptureService installed (&service);
+
+    StubHost host;
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, &host, true);
+    EXPECT_FALSE (outcome.succeeded);
+    // The RENDERER'S sentence, verbatim: "close the 3D viewer" is something the
+    // user can act on, and no message this layer composed would say it.
+    EXPECT_NE (std::string::npos, outcome.error.find ("already running"));
+}
+
+TEST (NodeGraphCapture, TheModelViewParameterIsListedByTheProjectRatherThanTheCatalog)
+{
+    // The same rule the layer picker follows: which views exist is the open
+    // document's answer, so the catalog names the DOMAIN and a client asks.
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find (kCaptureNodeType);
+    ASSERT_NE (nullptr, type);
+    const auto view = std::find_if (type->parameters.begin (), type->parameters.end (),
+                                    [] (const ParameterSchema& parameter) { return parameter.id == "modelView"; });
+    ASSERT_NE (type->parameters.end (), view);
+    ASSERT_TRUE (view->ui.has_value ());
+    EXPECT_EQ (ParameterOptionSource::ModelView3D, view->ui->optionSource);
+    EXPECT_TRUE (view->ui->options.empty ()) << "a project domain must not be frozen into the catalog";
+}
+
+TEST (NodeGraphRenderSettings, TheDefaultsAreTheRenderersOwnAndRoundTrip)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { RenderSettingsNode ("settings") } }).accepted);
+
+    Evaluator evaluator;
+    // Pure, and it reads nothing: no host, no project. That is what lets a saved
+    // workflow carry its output size with nothing open.
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    RenderSettings settings;
+    ASSERT_TRUE (DecodeRenderSettings (SettingsTextOf (evaluator, "settings"), settings));
+    EXPECT_EQ (1920, settings.width);
+    EXPECT_EQ (1080, settings.height);
+    EXPECT_EQ ("realistic", settings.renderQuality);
+    EXPECT_FALSE (settings.storySlices);
+    EXPECT_EQ ("dashed", settings.storySliceOccluded);
+    // The renderer's own defaults, restated: dark grey line over a translucent
+    // light grey fill. See DiligentViewport::CaptureOverlays.
+    EXPECT_EQ (0x3C3C3CFFu, settings.storySliceRgba);
+    EXPECT_EQ (0xC8C8C84Du, settings.storySliceFillRgba);
+}
+
+TEST (NodeGraphRenderSettings, EveryFieldTheCaptureSchemaRequiresIsWritten)
+{
+    // ⚠️ THE FIELD NAMES ARE StartDiligentCapture'S, AND A TYPO HERE IS
+    // INVISIBLE UNTIL A CAPTURE RUNS. The command's schema sets
+    // additionalProperties false and lists these as required, so a misspelling
+    // is rejected there - after the model has been extracted, minutes into a
+    // batch, with nothing to show for it.
+    const std::string encoded = EncodeRenderSettings (RenderSettings {});
+    for (const char* field : { "width", "height", "renderQuality", "storySlices", "storySliceFill",
+                               "storySliceOccluded", "storySliceWidthPixels", "storySliceRgba", "storySliceFillRgba" })
+        EXPECT_NE (std::string::npos, encoded.find (field)) << field;
+}
+
+TEST (NodeGraphRenderSettings, ASizeOutsideTheCapturesRangeIsClampedByTheBodyRatherThanHinted)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    Node node = RenderSettingsNode ("settings");
+    node.parameters["width"] = Value (static_cast<int64_t> (99999));
+    node.parameters["height"] = Value (static_cast<int64_t> (2));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr).succeeded);
+
+    RenderSettings settings;
+    ASSERT_TRUE (DecodeRenderSettings (SettingsTextOf (evaluator, "settings"), settings));
+    // ⚠️ THE UI RANGE IS A DISPLAY HINT THE EVALUATOR NEVER READS - NodeType.hpp
+    // says so outright - so a node that wants a bound has to enforce it in its
+    // body. Without this the capture command rejects the request on its schema,
+    // which is a far worse place to find out.
+    EXPECT_EQ (8192, settings.width);
+    EXPECT_EQ (16, settings.height);
+}
+
+TEST (NodeGraphRenderSettings, AnUnknownChoiceFallsBackRatherThanFailingTheGraph)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    Node node = RenderSettingsNode ("settings");
+    node.parameters["renderQuality"] = Value (std::string ("cinematic"));
+    node.parameters["storySliceOccluded"] = Value (std::string ("wobbly"));
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    Evaluator evaluator;
+    // A document written by a later build naming a fourth quality should still
+    // render, in the default, rather than failing a graph the user cannot fix.
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr).succeeded);
+
+    RenderSettings settings;
+    ASSERT_TRUE (DecodeRenderSettings (SettingsTextOf (evaluator, "settings"), settings));
+    EXPECT_EQ ("realistic", settings.renderQuality);
+    EXPECT_EQ ("dashed", settings.storySliceOccluded);
+}
+
+TEST (NodeGraphRenderSettings, ColoursPackAsRgbaWithOpacityInTheAlphaByte)
+{
+    // Byte order is the one thing here that produces a plausible WRONG picture
+    // rather than an error: swap the ends and the renderer draws the alpha as
+    // red. 0xC8C8C84D is also above 2^31, so it must survive as an int64.
+    EXPECT_EQ (0x102030FFu, PackRgba ("#102030", 255, 0));
+    EXPECT_EQ (0xC8C8C84Du, PackRgba ("#C8C8C8", 0x4D, 0));
+    EXPECT_EQ (0xAABBCC00u, PackRgba ("#aabbcc", 0, 0));
+
+    // Anything the colour widget could not have produced is the fallback: a typo
+    // in a contour colour must not stop a capture running.
+    EXPECT_EQ (0x3C3C3CFFu, PackRgba ("not a colour", 255, 0x3C3C3CFFu));
+    EXPECT_EQ (0x3C3C3CFFu, PackRgba ("#12345", 255, 0x3C3C3CFFu));
+    EXPECT_EQ (0x3C3C3CFFu, PackRgba ("#12345g", 255, 0x3C3C3CFFu));
+    // Alpha out of range is clamped rather than wrapped - wrapping would turn a
+    // fully opaque fill transparent.
+    EXPECT_EQ (0x000000FFu, PackRgba ("#000000", 999, 0));
+}
+
+TEST (NodeGraphRenderSettings, FillOpacityIsAPercentageAndTheLineIsAlwaysSolid)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+    Node node = RenderSettingsNode ("settings");
+    node.parameters["storySliceColor"] = Value (std::string ("#112233"));
+    node.parameters["storySliceFillColor"] = Value (std::string ("#445566"));
+    node.parameters["storySliceFillOpacity"] = Value (50.0);
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr).succeeded);
+
+    RenderSettings settings;
+    ASSERT_TRUE (DecodeRenderSettings (SettingsTextOf (evaluator, "settings"), settings));
+    // The contour is opaque whatever the fill does: a half-transparent line over
+    // the geometry it describes reads as a rendering fault rather than a choice,
+    // and the renderer's own default line alpha is 0xFF.
+    EXPECT_EQ (0x112233FFu, settings.storySliceRgba);
+    // 50% of 255, rounded.
+    EXPECT_EQ (0x44556680u, settings.storySliceFillRgba);
+}
+
+TEST (NodeGraphRenderSettings, ASettingsStringThatIsNotOneIsRejectedRatherThanDefaulted)
+{
+    // The capture node has to be able to tell "no settings were wired" from
+    // "something else was wired": the first takes the defaults, the second is a
+    // graph the user built wrong and should hear about.
+    RenderSettings settings;
+    EXPECT_FALSE (DecodeRenderSettings ("", settings));
+    EXPECT_FALSE (DecodeRenderSettings ("}{", settings));
+    EXPECT_FALSE (DecodeRenderSettings (R"({"eyeX":1.0})", settings));
+    EXPECT_TRUE (DecodeRenderSettings (EncodeRenderSettings (RenderSettings {}), settings));
+}
+
+TEST (NodeGraphCameraSet, AddAppendsOneCameraPerPressInTheOrderTheyWereCaptured)
+{
+    const GraphId graphId = FreshCameraGraph ("adds");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+
+    host.Looking (10.0);
+    auto result = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ (1U, result.count);
+    EXPECT_EQ (1U, result.changed);
+
+    // Orbit, add again. THE LIST GROWS - it does not replace, which is the whole
+    // difference between this node and the selection set's Update.
+    host.Looking (20.0);
+    result = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0);
+    ASSERT_TRUE (result.ok) << result.error;
+    EXPECT_EQ (2U, result.count);
+
+    const std::vector<ViewCamera> cameras = CamerasOf (runtime.Document (graphId), "cam");
+    ASSERT_EQ (2U, cameras.size ());
+    EXPECT_DOUBLE_EQ (10.0, cameras[0].eye[0]);
+    EXPECT_DOUBLE_EQ (20.0, cameras[1].eye[0]);
+}
+
+TEST (NodeGraphCameraSet, AddingTheSameViewTwiceKeepsBothBecauseCamerasAreNotASet)
+{
+    const GraphId graphId = FreshCameraGraph ("duplicates");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.Looking (10.0);
+
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+    const auto second = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0);
+    ASSERT_TRUE (second.ok) << second.error;
+    // A selection set would union here. Two captures of the same view are two
+    // frames the user asked for, and deciding they are "the same" would mean
+    // inventing a tolerance nobody chose.
+    EXPECT_EQ (2U, second.count);
+    EXPECT_EQ (1U, second.changed);
+}
+
+TEST (NodeGraphCameraSet, AnAxonometricWindowIsRefusedRatherThanStored)
+{
+    const GraphId graphId = FreshCameraGraph ("axono");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.LookingAxonometric ();
+
+    const auto result = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0);
+    EXPECT_FALSE (result.ok);
+    // The HOST's own reason, not a generic one: the user has to know which
+    // window to switch, and "invalid camera" does not say that.
+    EXPECT_NE (std::string::npos, result.error.find ("axonometric"));
+    EXPECT_EQ (0U, result.count);
+    EXPECT_TRUE (CamerasOf (runtime.Document (graphId), "cam").empty ());
+}
+
+TEST (NodeGraphCameraSet, RemoveDropsOneRowAndClearEmptiesTheList)
+{
+    const GraphId graphId = FreshCameraGraph ("removes");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    for (double eyeX : { 10.0, 20.0, 30.0 }) {
+        host.Looking (eyeX);
+        ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+    }
+
+    const auto removed = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Remove, 1);
+    ASSERT_TRUE (removed.ok) << removed.error;
+    EXPECT_EQ (2U, removed.count);
+    const std::vector<ViewCamera> cameras = CamerasOf (runtime.Document (graphId), "cam");
+    ASSERT_EQ (2U, cameras.size ());
+    // The row that was removed is the one that was named, and the rest keep
+    // their order.
+    EXPECT_DOUBLE_EQ (10.0, cameras[0].eye[0]);
+    EXPECT_DOUBLE_EQ (30.0, cameras[1].eye[0]);
+
+    const auto cleared = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Clear, 0);
+    ASSERT_TRUE (cleared.ok) << cleared.error;
+    EXPECT_EQ (0U, cleared.count);
+    EXPECT_EQ (2U, cleared.changed);
+}
+
+TEST (NodeGraphCameraSet, RestorePointsTheWindowAtTheNamedRowAndChangesNothing)
+{
+    const GraphId graphId = FreshCameraGraph ("restore");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    for (double eyeX : { 10.0, 20.0 }) {
+        host.Looking (eyeX);
+        ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+    }
+
+    host.Looking (99.0); // the user has orbited away since
+    const auto result = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Restore, 0);
+    ASSERT_TRUE (result.ok) << result.error;
+    ASSERT_EQ (1U, host.restored.size ());
+    EXPECT_DOUBLE_EQ (10.0, host.restored[0].eye[0]);
+    // Reads the list and writes the host. The document must not move: a Restore
+    // that edited the graph would put an undo step behind a button that only
+    // looks at something.
+    EXPECT_EQ (0U, result.changed);
+    EXPECT_EQ (2U, CamerasOf (runtime.Document (graphId), "cam").size ());
+}
+
+TEST (NodeGraphCameraSet, RestoreFromAnotherWindowSucceedsAndSaysTheViewIsNotInFront)
+{
+    // ⚠️ THE CASE THAT LOOKS LIKE A BROKEN BUTTON. The projection belongs
+    // to the 3D window whether or not that window is on screen, so this genuinely
+    // worked - and without the flag the only thing the user could report is
+    // "Restore does nothing", which is what a missing rebuild also looks like.
+    const GraphId graphId = FreshCameraGraph ("frontwindow");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.Looking (10.0);
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+
+    host.threeDWindowInFront = false;
+    const auto away = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Restore, 0);
+    ASSERT_TRUE (away.ok) << away.error;
+    EXPECT_FALSE (away.threeDWindowInFront);
+    EXPECT_EQ (1U, host.restored.size ());
+
+    host.threeDWindowInFront = true;
+    const auto looking = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Restore, 0);
+    ASSERT_TRUE (looking.ok) << looking.error;
+    EXPECT_TRUE (looking.threeDWindowInFront);
+}
+
+TEST (NodeGraphCameraSet, AnIndexPastTheEndIsRefusedRatherThanClamped)
+{
+    const GraphId graphId = FreshCameraGraph ("bounds");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.Looking (10.0);
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+
+    // Clamping would restore camera 1 while the user pressed the button on a row
+    // that is not there - a wrong view that looks like a right one.
+    const auto restore = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Restore, 5);
+    EXPECT_FALSE (restore.ok);
+    EXPECT_NE (std::string::npos, restore.error.find ("no camera at position 6"));
+    EXPECT_TRUE (host.restored.empty ());
+
+    const auto remove = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Remove, 5);
+    EXPECT_FALSE (remove.ok);
+    EXPECT_EQ (1U, CamerasOf (runtime.Document (graphId), "cam").size ());
+}
+
+TEST (NodeGraphCameraSet, ClearNeedsNoProjectBecauseItTouchesOnlyTheList)
+{
+    const GraphId graphId = FreshCameraGraph ("noproject");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    {
+        StubHost host;
+        const ScopedHost installed (&host);
+        host.Looking (10.0);
+        ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+    }
+
+    StubHost closed;
+    closed.available = false;
+    const ScopedHost installed (&closed);
+
+    // Add and Restore need the 3D window; Clear and Remove are list edits and
+    // must keep working with the project shut.
+    EXPECT_FALSE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+    const auto cleared = runtime.ApplyCameraAction (graphId, "cam", CameraAction::Clear, 0);
+    EXPECT_TRUE (cleared.ok) << cleared.error;
+    EXPECT_EQ (0U, cleared.count);
+}
+
+TEST (NodeGraphCameraSet, RefusesANodeThatIsNotACameraList)
+{
+    const GraphId graphId = FreshGraphId ("wrongcameranode");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+    ASSERT_TRUE (runtime.Apply (graphId, GraphEdit { AddNodeEdit { Node { "panel", "panel" } } }).accepted);
+
+    StubHost host;
+    const ScopedHost installed (&host);
+
+    auto result = runtime.ApplyCameraAction (graphId, "panel", CameraAction::Add, 0);
+    EXPECT_FALSE (result.ok);
+    EXPECT_NE (std::string::npos, result.error.find ("not a camera list"));
+
+    result = runtime.ApplyCameraAction (graphId, "ghost", CameraAction::Add, 0);
+    EXPECT_FALSE (result.ok);
+    EXPECT_NE (std::string::npos, result.error.find ("no node called"));
+}
+
+TEST (NodeGraphCameraSet, TheNodeEvaluatesToWhatItHoldsWithNoHostAtAll)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+
+    ViewCamera first;
+    first.valid = true;
+    first.source = "perspective";
+    first.eye[0] = 1.0;
+    first.target[1] = 2.0;
+    first.viewConeDegreesHorizontal = 55.0;
+
+    Node node { "cam", kCameraSetNodeType };
+    node.parameters[kCameraSetParameter] = ValueFromCameras ({ first });
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    // NO HOST AT ALL - a null one, deliberately. The node is Pure and declares
+    // no generation, so it runs with no Archicad open, which is what lets a saved
+    // workflow name its viewpoints before a project is loaded.
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("cam");
+    ASSERT_NE (nullptr, result);
+    EXPECT_EQ (1, std::get<int64_t> (Out (result, "count").DataValue ()));
+    // The output is the stored list, unchanged: one row in, one row out.
+    // ⚠️ ONE CAMERA ARRIVES AS AN ITEM, NOT A LIST, and the decoder has to
+    // read it. The tree layer projects a one-item branch back as that item -
+    // ordinary tree semantics - so a decoder that insisted on a List would
+    // render nothing for the commonest list there is while reporting success.
+    const Argument produced = Out (result, "cameras");
+    EXPECT_EQ (ValueType::String, produced.Type ());
+    const std::vector<ViewCamera> out = CamerasFromValue (produced);
+    ASSERT_EQ (1U, out.size ());
+    EXPECT_DOUBLE_EQ (1.0, out[0].eye[0]);
+    EXPECT_DOUBLE_EQ (55.0, out[0].viewConeDegreesHorizontal);
+}
+
+TEST (NodeGraphCameraSet, TwoCamerasEvaluateToAListSoTheStructureFollowsTheCount)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+
+    ViewCamera first;
+    first.valid = true;
+    first.eye[0] = 1.0;
+    ViewCamera second;
+    second.valid = true;
+    second.eye[0] = 2.0;
+
+    Node node { "cam", kCameraSetNodeType };
+    node.parameters[kCameraSetParameter] = ValueFromCameras ({ first, second });
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    Evaluator evaluator;
+    const EvaluationOutcome outcome = RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr);
+    ASSERT_TRUE (outcome.succeeded) << outcome.error;
+
+    const Argument produced = Out (evaluator.Result ("cam"), "cameras");
+    EXPECT_EQ (ValueType::List, produced.Type ());
+    const std::vector<ViewCamera> out = CamerasFromValue (produced);
+    ASSERT_EQ (2U, out.size ());
+    EXPECT_DOUBLE_EQ (1.0, out[0].eye[0]);
+    EXPECT_DOUBLE_EQ (2.0, out[1].eye[0]);
+}
+
+TEST (NodeGraphCameraSet, TheSunIsCapturedWithTheCameraAndComesOutIndexParallel)
+{
+    const GraphId graphId = FreshCameraGraph ("sun");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+
+    // Orbit, change the time of day, add again. THIS IS THE POINT of capturing
+    // the sun per row: a list taken across a day is a sun study, not a set of
+    // views all lit the same way.
+    host.Looking (10.0);
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+    host.Looking (20.0);
+    host.viewCamera.sunAzimuthDegrees = -30.0;
+    host.viewCamera.sunAltitudeDegrees = 12.0;
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+
+    const std::vector<ViewCamera> cameras = CamerasOf (runtime.Document (graphId), "cam");
+    ASSERT_EQ (2U, cameras.size ());
+    EXPECT_TRUE (cameras[0].hasSun);
+    EXPECT_DOUBLE_EQ (135.0, cameras[0].sunAzimuthDegrees);
+    EXPECT_DOUBLE_EQ (40.0, cameras[0].sunAltitudeDegrees);
+    EXPECT_DOUBLE_EQ (-30.0, cameras[1].sunAzimuthDegrees);
+    EXPECT_DOUBLE_EQ (12.0, cameras[1].sunAltitudeDegrees);
+}
+
+TEST (NodeGraphCameraSet, TheSunOutputSpeaksSetDiligentSunsOwnVocabulary)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+
+    ViewCamera lit;
+    lit.valid = true;
+    lit.hasSun = true;
+    lit.sunAzimuthDegrees = 135.0;
+    lit.sunAltitudeDegrees = 40.0;
+    lit.sunBearingDegrees = 315.0;
+    ViewCamera second = lit;
+    second.sunAzimuthDegrees = -30.0;
+
+    Node node { "cam", kCameraSetNodeType };
+    node.parameters[kCameraSetParameter] = ValueFromCameras ({ lit, second });
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    Evaluator evaluator;
+    ASSERT_TRUE (RunWithHost (evaluator, graph, registry, ExecuteRuntimeNode, nullptr).succeeded);
+
+    const std::shared_ptr<const NodeResult> result = evaluator.Result ("cam");
+    ASSERT_NE (nullptr, result);
+    const Argument sun = Out (result, "sun");
+    ASSERT_EQ (ValueType::List, sun.Type ());
+    ASSERT_EQ (2U, sun.Items ().size ());
+
+    // ⚠️ THE FIELD NAMES ARE Tapioca.SetDiligentSun'S. A sun that had to be
+    // renamed on its way to the renderer would be a translation step, and a
+    // translation step between an azimuth and a shadow is where a convention
+    // gets swapped for the one it differs from by project north.
+    const std::string first = std::get<std::string> (sun.Items ()[0].DataValue ());
+    for (const char* field : { "enabled", "azimuthDegrees", "altitudeDegrees", "bearingDegrees" })
+        EXPECT_NE (std::string::npos, first.find (field)) << field;
+    EXPECT_NE (std::string::npos, first.find ("135"));
+
+    // Index-parallel with `cameras` by construction: both are projected from the
+    // same stored rows, so they cannot come out different lengths.
+    const Argument cameras = Out (result, "cameras");
+    EXPECT_EQ (cameras.Items ().size (), sun.Items ().size ());
+}
+
+TEST (NodeGraphCameraSet, ACameraWithNoSunReportsOneDisabledRatherThanDueEast)
+{
+    const GraphId graphId = FreshCameraGraph ("nosun");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.LookingWithNoSun (10.0);
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+
+    const std::vector<ViewCamera> cameras = CamerasOf (runtime.Document (graphId), "cam");
+    ASSERT_EQ (1U, cameras.size ());
+    EXPECT_FALSE (cameras[0].hasSun);
+
+    // ⚠️ `enabled` FALSE, NOT AN AZIMUTH OF ZERO. Zero is a real direction -
+    // due east in model space - so a sunless camera that encoded its angles
+    // plainly would light every frame from the horizon and look like a decision
+    // somebody made.
+    const std::string encoded = EncodeCameraSun (cameras[0]);
+    EXPECT_NE (std::string::npos, encoded.find ("false"));
+}
+
+TEST (NodeGraphCameraSet, AGraphSavedBeforeSunCaptureReadsAsNoSunRatherThanAzimuthZero)
+{
+    // ⚠️ THE COMPATIBILITY CASE, AND IT IS SILENT. A camera row written by the
+    // build before this existed has no sun fields at all; defaulting them to
+    // zero WITHOUT the `hasSun` flag would give every such row a sun on the
+    // eastern horizon, which renders as a plausible early morning rather than as
+    // the missing data it is.
+    const std::string old = R"({"valid":true,"source":"perspective","orthographic":false,"viewMoving":false,)"
+                            R"("eyeX":1.0,"eyeY":2.0,"eyeZ":3.0,"targetX":4.0,"targetY":5.0,"targetZ":6.0,)"
+                            R"("viewConeDegreesHorizontal":60.0})";
+
+    ViewCamera camera;
+    ASSERT_TRUE (DecodeCamera (old, camera));
+    EXPECT_TRUE (camera.valid);
+    EXPECT_DOUBLE_EQ (1.0, camera.eye[0]);
+    EXPECT_FALSE (camera.hasSun);
+}
+
+TEST (NodeGraphCameraSet, TheSunSurvivesTheStoredJsonRoundTrip)
+{
+    ViewCamera camera;
+    camera.valid = true;
+    camera.hasSun = true;
+    camera.sunAzimuthDegrees = -80.25;
+    camera.sunAltitudeDegrees = 35.5;
+    camera.sunBearingDegrees = 193.75;
+
+    ViewCamera back;
+    ASSERT_TRUE (DecodeCamera (EncodeCamera (camera), back));
+    EXPECT_TRUE (back.hasSun);
+    // A NEGATIVE model azimuth is ordinary - it is a mathematical angle, not a
+    // compass bearing - so it must survive rather than being normalised into
+    // something that looks tidier and means the same thing in a different
+    // convention.
+    EXPECT_DOUBLE_EQ (-80.25, back.sunAzimuthDegrees);
+    EXPECT_DOUBLE_EQ (35.5, back.sunAltitudeDegrees);
+    EXPECT_DOUBLE_EQ (193.75, back.sunBearingDegrees);
+}
+
+TEST (NodeGraphCameraSet, RestoreCarriesTheSunBackAndSurvivesASaveAndLoad)
+{
+    // ⚠️ THE HALF THAT WOULD OTHERWISE BE LOST ON DISK. Restore writes
+    // Archicad's own API_SunAngleSettings back verbatim; the derived angles
+    // cannot be written back, because their convention is this repository's and
+    // not the DevKit's. If the raw struct did not survive the stored JSON, a
+    // graph reloaded from disk would position the camera and leave the light
+    // where it was - which is the same complaint that started this, one restart
+    // later.
+    ViewCamera camera;
+    camera.valid = true;
+    camera.hasSun = true;
+    camera.sunSource = "date";
+    camera.sunFromDate = true;
+    camera.sunRawAzimuth = 210.5;
+    camera.sunRawAltitude = 41.25;
+    camera.sunYear = 2026;
+    camera.sunMonth = 6;
+    camera.sunDay = 21;
+    camera.sunHour = 16;
+    camera.sunMinute = 30;
+    camera.sunSecond = 15;
+    camera.sunSummerTime = true;
+
+    ViewCamera back;
+    ASSERT_TRUE (DecodeCamera (EncodeCamera (camera), back));
+    EXPECT_TRUE (back.sunFromDate);
+    EXPECT_DOUBLE_EQ (210.5, back.sunRawAzimuth);
+    EXPECT_DOUBLE_EQ (41.25, back.sunRawAltitude);
+    EXPECT_EQ (2026, back.sunYear);
+    EXPECT_EQ (6, back.sunMonth);
+    EXPECT_EQ (21, back.sunDay);
+    EXPECT_EQ (16, back.sunHour);
+    EXPECT_EQ (30, back.sunMinute);
+    EXPECT_EQ (15, back.sunSecond);
+    EXPECT_TRUE (back.sunSummerTime);
+    EXPECT_EQ ("date", back.sunSource);
+}
+
+TEST (NodeGraphCameraSet, RestoreHandsTheHostTheSunItCaptured)
+{
+    const GraphId graphId = FreshCameraGraph ("sunrestore");
+    GraphRuntimeState& runtime = GraphRuntimeState::Get ();
+
+    StubHost host;
+    const ScopedHost installed (&host);
+    host.Looking (10.0);
+    host.viewCamera.sunHour = 16;
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Add, 0).ok);
+
+    // The user moves on: a different view under a different sun.
+    host.Looking (99.0);
+    host.viewCamera.sunHour = 9;
+
+    ASSERT_TRUE (runtime.ApplyCameraAction (graphId, "cam", CameraAction::Restore, 0).ok);
+    ASSERT_EQ (1U, host.restored.size ());
+    // ⚠️ THE SUN TRAVELS WITH THE CAMERA. Restoring the pose and leaving the
+    // light where it was gives back a frame the user never saved.
+    EXPECT_TRUE (host.restored[0].hasSun);
+    EXPECT_EQ (16, host.restored[0].sunHour);
+}
+
+TEST (NodeGraphCameraSet, TheSunOutputSaysWhichRuleProducedIt)
+{
+    // ⚠️ THE TWO WAYS A SUN CAN BE WRONG ARE INDISTINGUISHABLE FROM ITS
+    // ANGLES. A stale cache freezes it across every capture; a needless
+    // recompute throws away a sun the user typed. `source` is what tells them
+    // apart from a Panel instead of from a rebuild.
+    ViewCamera dated;
+    dated.hasSun = true;
+    dated.sunSource = "date";
+    EXPECT_NE (std::string::npos, EncodeCameraSun (dated).find ("date"));
+
+    ViewCamera typed;
+    typed.hasSun = true;
+    typed.sunSource = "angles";
+    EXPECT_NE (std::string::npos, EncodeCameraSun (typed).find ("angles"));
+}
+
+TEST (NodeGraphCameraSet, ACameraRoundTripsThroughItsStoredJsonWithoutLosingAField)
+{
+    ViewCamera camera;
+    camera.valid = true;
+    camera.source = "perspective";
+    camera.eye[0] = -1234.5;
+    camera.eye[1] = 0.125;
+    camera.eye[2] = 9999.0;
+    camera.target[0] = 1.0;
+    camera.target[1] = -2.0;
+    camera.target[2] = 3.5;
+    camera.viewConeDegreesHorizontal = 73.25;
+
+    ViewCamera back;
+    ASSERT_TRUE (DecodeCamera (EncodeCamera (camera), back));
+    EXPECT_TRUE (back.valid);
+    EXPECT_EQ ("perspective", back.source);
+    for (int axis = 0; axis < 3; ++axis) {
+        EXPECT_DOUBLE_EQ (camera.eye[axis], back.eye[axis]);
+        EXPECT_DOUBLE_EQ (camera.target[axis], back.target[axis]);
+    }
+    EXPECT_DOUBLE_EQ (73.25, back.viewConeDegreesHorizontal);
+
+    // The four fields the renderer's schema requires and this interface does not
+    // carry. StartDiligentCapture refuses an object missing any of them, so a
+    // camera that lost one here would fail hours later at the capture.
+    const std::string encoded = EncodeCamera (camera);
+    for (const char* field : { "valid", "source", "orthographic", "viewMoving", "eyeX", "eyeY", "eyeZ", "targetX",
+                               "targetY", "targetZ", "viewConeDegreesHorizontal" })
+        EXPECT_NE (std::string::npos, encoded.find (field)) << field;
+}
+
+TEST (NodeGraphCameraSet, AnUnreadableRowIsDroppedRatherThanBecomingAZeroedCamera)
+{
+    // Only a hand-edited document can produce this. A zeroed camera would sit in
+    // the list looking exactly like a real one and point the 3D window at the
+    // origin when somebody pressed Restore on it.
+    std::vector<Value> rows;
+    rows.emplace_back (std::string ("{\"not\":\"a camera\"}"));
+    rows.emplace_back (EncodeCamera ([] {
+        ViewCamera good;
+        good.valid = true;
+        good.eye[0] = 7.0;
+        return good;
+    }()));
+    rows.emplace_back (std::string ("}{"));
+
+    const std::vector<ViewCamera> cameras = CamerasFromValue (Argument::FromItems (std::move (rows)));
+    ASSERT_EQ (1U, cameras.size ());
+    EXPECT_DOUBLE_EQ (7.0, cameras[0].eye[0]);
+}
+
+TEST (NodeGraphCameraSet, TheListSurvivesASaveAndLoadBecauseItIsAnOrdinaryParameter)
+{
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    GraphDocument graph;
+
+    ViewCamera first;
+    first.valid = true;
+    first.eye[0] = 11.0;
+    ViewCamera second;
+    second.valid = true;
+    second.eye[0] = 22.0;
+
+    Node node { "cam", kCameraSetNodeType };
+    node.parameters[kCameraSetParameter] = ValueFromCameras ({ first, second });
+    ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
+
+    MemoryGraphStore store;
+    ASSERT_TRUE (store.Save ("cameras", graph, GraphMetadata {}).Ok ());
+
+    SerializedGraph loaded;
+    ASSERT_TRUE (store.Load ("cameras", registry, loaded).Ok ());
+    const std::vector<ViewCamera> cameras =
+        CamerasFromValue (loaded.document.FindNode ("cam")->parameters.at (kCameraSetParameter));
+    ASSERT_EQ (2U, cameras.size ());
+    // Order is the capture order and must survive the round trip: the capture
+    // node renders one frame per row, in this order.
+    EXPECT_DOUBLE_EQ (11.0, cameras[0].eye[0]);
+    EXPECT_DOUBLE_EQ (22.0, cameras[1].eye[0]);
 }
 
 // ===========================================================================

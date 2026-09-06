@@ -39,7 +39,8 @@ import urllib.request as _request
 from . import paths
 
 __all__ = ["Artifact", "OutputError", "STANDARD_ACTIONS",
-           "csv_file", "json_file", "text_file", "image", "capture", "diligent_capture", "pdf",
+           "csv_file", "json_file", "text_file", "image", "capture", "diligent_capture",
+           "diligent_capture_batch", "pdf",
            "to_layout", "to_worksheet", "to_3d_document",
            "bake", "set_properties", "set_geometry",
            "run_action", "table_of"]
@@ -209,6 +210,67 @@ def diligent_capture(name, camera, width, height, render_quality="realistic",
         if _time.monotonic() >= deadline:
             call("Tapioca.CancelDiligentCapture", {"id": capture_id}, raise_on_error=False)
             raise OutputError("Diligent capture timed out after %.1f seconds" % float(timeout))
+        _time.sleep(float(poll_interval))
+
+
+def diligent_capture_batch(cameras, width, height, directory=None,
+                           render_quality="realistic", timeout=1800.0,
+                           poll_interval=0.25, **overlays):
+    """Render one frame per camera from a SINGLE model extraction.
+
+    ``cameras`` is a list of camera dicts, each optionally carrying a ``sun``
+    of ``{enabled, azimuthDegrees, altitudeDegrees}``. Returns the list of PNG
+    paths written, in camera order.
+
+    WHY THIS EXISTS RATHER THAN A LOOP OVER ``diligent_capture``: every
+    ``Tapioca.StartDiligentCapture`` clears the scene queue and walks the whole
+    model again, so eight viewpoints through that path cost eight full
+    extractions of a model that did not change between them - minutes each on a
+    real project. The batch extracts once and then moves the camera.
+
+    The frames are written by the renderer as each is encoded, so nothing is
+    fetched over loopback and nothing is held in memory; this only polls and
+    reports where they landed.
+    """
+    from .api import call
+
+    folder = directory or os.path.join(paths.output_dir(),
+                                        "captures-%s" % paths.timestamp())
+    os.makedirs(folder, exist_ok=True)
+
+    request = {
+        "width": width,
+        "height": height,
+        "renderQuality": render_quality,
+        "outputDirectory": folder,
+        "cameras": [dict(camera) for camera in cameras],
+    }
+    request.update(overlays)
+
+    started = call("Tapioca.StartDiligentCaptureBatch", request, raise_on_error=False)
+    if not started.ok:
+        raise OutputError("Diligent capture batch did not start: %s" % _result_error(started))
+
+    capture_id = (started.data or {}).get("id")
+    deadline = _time.monotonic() + float(timeout)
+    while True:
+        state_result = call("Tapioca.DiligentCaptureState", {"id": capture_id},
+                            raise_on_error=False)
+        if not state_result.ok:
+            raise OutputError("Diligent capture state failed: %s" % _result_error(state_result))
+        state = state_result.data or {}
+        status = state.get("status")
+        if status == "completed":
+            return list(state.get("paths") or [])
+        if status in ("failed", "cancelled"):
+            raise OutputError("Diligent capture batch %s during %s: %s"
+                              % (status, state.get("stage"),
+                                 state.get("failureMessage") or "no reason given"))
+        if _time.monotonic() >= deadline:
+            call("Tapioca.CancelDiligentCapture", {"id": capture_id}, raise_on_error=False)
+            raise OutputError(
+                "Diligent capture batch timed out after %.1f seconds (%s of %s frames written)"
+                % (float(timeout), state.get("framesDone"), state.get("frameCount")))
         _time.sleep(float(poll_interval))
 
 

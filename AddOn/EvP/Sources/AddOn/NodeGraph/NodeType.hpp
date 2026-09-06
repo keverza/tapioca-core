@@ -91,6 +91,19 @@ enum class NodeDisplay {
     // NodeGraphSelectionCommands.cpp.
     SelectionSet,
 
+    // The node OWNS a list of captured CAMERAS and is operated on directly:
+    // Add, Remove, Clear and Restore. A client should draw those actions, the
+    // list's size, and one row per camera.
+    //
+    // ⚠️ A SEPARATE KIND FROM SelectionSet, THOUGH THEY LOOK ALIKE. The two
+    // share a shape - a captured list with buttons - and nothing else: the
+    // actions are different words, a row is a pose rather than an element, and
+    // Restore writes the 3D window where Reselect writes the selection. A client
+    // that reused the selection body would draw an Update button that cannot
+    // exist and would have to branch on nodeType to tell them apart, which is
+    // the branch this whole enum exists to remove.
+    CameraSet,
+
     // The node's behaviour is AUTHORED IN A FILE OUTSIDE THE GRAPH. A client
     // should draw the script's path, which runtime it runs under, whether the
     // file on disk is newer than what the node loaded, and the node's log; and
@@ -207,6 +220,12 @@ enum class ParameterOptionSource {
     BuildingMaterial,
     Composite,
     Profile,
+    // A saved 3D view from the Navigator's View Map. Not an attribute domain
+    // like the rest, and listed here for exactly the reason they are: which
+    // views exist is THIS project's answer and changes with the open document,
+    // so it can be neither a static catalog entry nor something a browser
+    // enumerates for itself.
+    ModelView3D,
 };
 
 const char* ParameterOptionSourceName (ParameterOptionSource source);
@@ -318,6 +337,17 @@ struct NodeType {
     // that domain changes - and failing to declare one is what makes it serve a
     // stale answer.
     GenerationSet generations;
+
+    // What this type's commit button SAYS. Empty means the default, which is
+    // "Send to Archicad".
+    //
+    // ⚠️ IT IS A PROPERTY OF THE TYPE BECAUSE THE ALTERNATIVE IS A CLIENT
+    // BRANCHING ON nodeType, which is the branch this whole schema exists to
+    // remove. "Send to Archicad" is exactly right for Set Selection and plainly
+    // wrong for a capture, which sends nothing anywhere - it renders images to
+    // disk. A node that performs an effect knows what that effect is called; the
+    // editor should not have to guess it from an id.
+    std::string commitLabel;
 
     std::vector<PortSchema> inputs;
     std::vector<PortSchema> outputs;

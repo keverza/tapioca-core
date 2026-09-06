@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 188,
+      "nativeRegistry": 195,
       "dispatcherLocal": 19,
-      "total": 207
+      "total": 214
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1848,11 +1848,25 @@
             "minimum": 0
           },
           "url": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           },
           "failureMessage": {
             "type": "string"
+          },
+          "frameCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "framesDone": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "additionalProperties": false,
@@ -1864,7 +1878,10 @@
           "height",
           "bytes",
           "url",
-          "failureMessage"
+          "failureMessage",
+          "frameCount",
+          "framesDone",
+          "paths"
         ]
       }
     },
@@ -11121,6 +11138,101 @@
       }
     },
     {
+      "name": "Tapioca.GraphCameraAction",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "remove",
+              "restore",
+              "clear"
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "nodeId",
+          "action"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "graphId": {
+            "type": "string"
+          },
+          "nodeId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "threeDWindowInFront": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluated": {
+            "type": "boolean"
+          },
+          "executedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "evaluationError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "error",
+          "graphId",
+          "nodeId",
+          "action",
+          "count",
+          "changed",
+          "threeDWindowInFront",
+          "revision",
+          "evaluated",
+          "executedCount",
+          "evaluationError"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GraphCancel",
       "implementation": "native-registry",
       "inputScheme": {
@@ -12379,8 +12491,12 @@
                     "text",
                     "preview",
                     "selectionSet",
+                    "cameraSet",
                     "script"
                   ]
+                },
+                "commitLabel": {
+                  "type": "string"
                 },
                 "bypassMappings": {
                   "type": "array",
@@ -12586,7 +12702,8 @@
                               "surface",
                               "buildingMaterial",
                               "composite",
-                              "profile"
+                              "profile",
+                              "modelView3D"
                             ]
                           }
                         },
@@ -13689,6 +13806,95 @@
           "revision",
           "dirtyNodes",
           "assignedNodes"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphRunAsync",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "allowSideEffects": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "started": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "started",
+          "error"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GraphRunState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "graphId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": []
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "boolean"
+          },
+          "finished": {
+            "type": "boolean"
+          },
+          "succeeded": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "executedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "progress": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "running",
+          "finished",
+          "succeeded",
+          "error",
+          "executedCount",
+          "progress"
         ]
       }
     },
@@ -15163,6 +15369,56 @@
       }
     },
     {
+      "name": "Tapioca.List3DViews",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "views": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "guid": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "projection": {
+                  "type": "string",
+                  "enum": [
+                    "perspective",
+                    "axonometric"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "guid",
+                "name",
+                "path",
+                "projection"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "views"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ListAttributes",
       "implementation": "native-registry",
       "inputScheme": {
@@ -15809,6 +16065,142 @@
           "projectBoundsMin",
           "projectBoundsMax",
           "coordinateUnit"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.MainThreadGateState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "posted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dispatched": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "pending": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inlineRuns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "timeouts": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "postFailures": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queueDepth": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "msSinceLastDispatch": {
+            "type": "integer"
+          },
+          "msSinceLastPost": {
+            "type": "integer"
+          },
+          "longestWaitMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dispatching": {
+            "type": "boolean"
+          },
+          "shuttingDown": {
+            "type": "boolean"
+          },
+          "mainThreadKnown": {
+            "type": "boolean"
+          },
+          "mainThreadCommand": {
+            "type": "string"
+          },
+          "mainThreadCommandMs": {
+            "type": "integer"
+          },
+          "extractionRunning": {
+            "type": "boolean"
+          },
+          "extractionPhase": {
+            "type": "string"
+          },
+          "extractionExtracted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "extractionTotal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "extractionSlices": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "extractionLongestHoldMs": {
+            "type": "integer"
+          },
+          "extractionLongestRoundTripMs": {
+            "type": "integer"
+          },
+          "viewportRunning": {
+            "type": "boolean"
+          },
+          "captureStatus": {
+            "type": "string"
+          },
+          "captureStage": {
+            "type": "string"
+          },
+          "capturePossible": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "posted",
+          "dispatched",
+          "pending",
+          "inlineRuns",
+          "timeouts",
+          "postFailures",
+          "queueDepth",
+          "msSinceLastDispatch",
+          "msSinceLastPost",
+          "longestWaitMs",
+          "dispatching",
+          "shuttingDown",
+          "mainThreadKnown",
+          "mainThreadCommand",
+          "mainThreadCommandMs",
+          "extractionRunning",
+          "extractionPhase",
+          "extractionExtracted",
+          "extractionTotal",
+          "extractionSlices",
+          "extractionLongestHoldMs",
+          "extractionLongestRoundTripMs",
+          "viewportRunning",
+          "captureStatus",
+          "captureStage",
+          "capturePossible",
+          "verdict"
         ]
       }
     },
@@ -18945,6 +19337,35 @@
       }
     },
     {
+      "name": "Tapioca.ResetDiligentPipeline",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "viewportWasRunning": {
+            "type": "boolean"
+          },
+          "extractionWasRunning": {
+            "type": "boolean"
+          },
+          "capturePossible": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "viewportWasRunning",
+          "extractionWasRunning",
+          "capturePossible"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.RunCloudCompare",
       "implementation": "native-registry",
       "inputScheme": {
@@ -21143,6 +21564,173 @@
         "required": [
           "id",
           "status"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.StartDiligentCaptureBatch",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 16,
+            "maximum": 8192
+          },
+          "renderQuality": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "realistic"
+            ]
+          },
+          "storySlices": {
+            "type": "boolean"
+          },
+          "storySliceFill": {
+            "type": "boolean"
+          },
+          "storySliceOccluded": {
+            "type": "string",
+            "enum": [
+              "hidden",
+              "dashed",
+              "solid"
+            ]
+          },
+          "storySliceWidthPixels": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 32
+          },
+          "storySliceRgba": {
+            "type": "integer"
+          },
+          "storySliceFillRgba": {
+            "type": "integer"
+          },
+          "outputDirectory": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cameras": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "type": "object",
+              "properties": {
+                "valid": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "orthographic": {
+                  "type": "boolean"
+                },
+                "viewMoving": {
+                  "type": "boolean"
+                },
+                "eyeX": {
+                  "type": "number"
+                },
+                "eyeY": {
+                  "type": "number"
+                },
+                "eyeZ": {
+                  "type": "number"
+                },
+                "targetX": {
+                  "type": "number"
+                },
+                "targetY": {
+                  "type": "number"
+                },
+                "targetZ": {
+                  "type": "number"
+                },
+                "viewConeDegreesHorizontal": {
+                  "type": "number",
+                  "exclusiveMinimum": 1,
+                  "exclusiveMaximum": 179
+                },
+                "sun": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "azimuthDegrees": {
+                      "type": "number",
+                      "minimum": -360,
+                      "maximum": 360
+                    },
+                    "altitudeDegrees": {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "valid",
+                "source",
+                "orthographic",
+                "viewMoving",
+                "eyeX",
+                "eyeY",
+                "eyeZ",
+                "targetX",
+                "targetY",
+                "targetZ",
+                "viewConeDegreesHorizontal"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "width",
+          "height",
+          "renderQuality",
+          "outputDirectory",
+          "cameras"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "const": "running"
+          },
+          "frameCount": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "frameCount"
         ]
       }
     },

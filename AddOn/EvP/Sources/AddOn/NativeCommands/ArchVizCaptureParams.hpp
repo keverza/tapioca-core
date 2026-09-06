@@ -30,6 +30,12 @@ namespace geomsrv {
 // reports them as failures the caller can read.
 archviz::CameraStart ReadCaptureCamera (const GS::ObjectState& params);
 
+// One batch frame: a camera plus the sun it was captured under. Same decoding
+// rules as above - every field optional, every default "what the caller got
+// before" - and the sun is absent-means-off, which is Tapioca.SetDiligentSun's
+// own meaning of `enabled` and leaves the project's lighting alone.
+archviz::CaptureFrame ReadCaptureFrame (const GS::ObjectState& params);
+
 // What the capture draws BESIDES the model: currently the storey section
 // overlay. Defaults are all off.
 archviz::DiligentViewport::CaptureOverlays ReadCaptureOverlays (const GS::ObjectState& params);

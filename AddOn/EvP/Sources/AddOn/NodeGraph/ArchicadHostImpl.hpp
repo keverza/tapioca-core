@@ -30,6 +30,8 @@ class ArchicadHostImpl final : public IArchicadHost {
     bool DescribeElements (const std::vector<ArchicadElementRef>& elements,
                            std::vector<ElementDescription>& descriptions, std::string& error) const override;
     bool SetSelection (const std::vector<ArchicadElementRef>& elements, std::string& error) override;
+    bool GetViewCamera (ViewCamera& camera, std::string& error) const override;
+    bool SetViewCamera (const ViewCamera& camera, bool& threeDWindowInFront, std::string& error) override;
 
   private:
     ArchicadGenerationSource generations_;

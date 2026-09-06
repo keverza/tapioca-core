@@ -55,6 +55,17 @@ export type ParameterOptionSource =
   | 'buildingMaterial'
   | 'composite'
   | 'profile'
+  /**
+   * A saved 3D view from the Navigator's View Map.
+   *
+   * ⚠️ NOT AN ATTRIBUTE DOMAIN, THOUGH IT TRAVELS THE SAME ROAD. It is
+   * listed here because it answers the same question every other entry does -
+   * "what does THIS project contain" - and so it must come from the host rather
+   * than from a catalog or from the browser. The row shape it is mapped onto is
+   * the attribute one: `name` carries the view's GUID, which is what gets
+   * stored, `label` the view's name and `folder` its place in the map.
+   */
+  | 'modelView3D'
 
 export interface ParameterOption {
   label: string
@@ -162,7 +173,16 @@ export interface NodeTypeSchema {
    * 'preview'. Driven by the catalog rather than by branching on nodeType here,
    * so a new inspectable node needs no change in this file.
    */
-  display?: 'ports' | 'text' | 'preview' | 'selectionSet' | 'script'
+  display?: 'ports' | 'text' | 'preview' | 'selectionSet' | 'cameraSet' | 'script'
+  /**
+   * What this type's commit button says. Absent means "Send to Archicad".
+   *
+   * ⚠️ FROM THE CATALOG, NOT FROM A BRANCH ON nodeType. "Send to Archicad"
+   * is right for Set Selection and plainly wrong for a capture, which sends
+   * nothing anywhere - it renders images to disk. The node that performs the
+   * effect is the thing that knows what the effect is called.
+   */
+  commitLabel?: string
   generations?: string[]
   /**
    * Empty means this type cannot be bypassed. The picker and context menu grey
@@ -459,6 +479,38 @@ export interface EvaluationSummary {
 
 export type SelectionAction = 'update' | 'add' | 'remove' | 'reselect' | 'clear'
 
+/**
+ * The camera list's four actions.
+ *
+ * ⚠️ FOUR, NOT THE SELECTION SET'S FIVE, AND THE MISSING WORD IS THE
+ * POINT. There is no `update`: a selection has one obvious current value to
+ * replace the set with, while a camera list is built one viewpoint at a time -
+ * orbit, add, orbit, add. See NodeGraphCameraCommands.cpp, which is the
+ * authority on this vocabulary.
+ */
+export type CameraAction = 'add' | 'remove' | 'restore' | 'clear'
+
+export interface CameraActionOutcome {
+  ok: boolean
+  error: string
+  nodeId: string
+  action: CameraAction
+  count: number
+  changed: number
+  /**
+   * Restore only. False is a SUCCESS with a caveat: the 3D window's projection
+   * did change, but that window is not the one on screen, so the user sees
+   * nothing until they switch to it. Saying so is what keeps the one case that
+   * looks exactly like a broken button from being reported as one.
+   */
+  threeDWindowInFront: boolean
+  revision: number
+  evaluated: boolean
+  executedCount: number
+  /** Separate from `error`, as with the selection set: the list can change correctly and the graph downstream still fail. */
+  evaluationError: string
+}
+
 export interface SelectionActionOutcome {
   ok: boolean
   error: string
@@ -482,6 +534,35 @@ export interface SelectionActionOutcome {
  * pens, rather than from a second round trip that could disagree with it about
  * which set is showing.
  */
+/** One 3D view from the Navigator's View Map, as Tapioca.List3DViews answers. */
+export interface ModelView {
+  guid: string
+  name: string
+  /** Slash-joined folders above it; empty at the root. */
+  path: string
+  projection: 'perspective' | 'axonometric'
+}
+
+/**
+ * A graph run that is happening on its OWN thread.
+ *
+ * ⚠️ THE EDITOR MUST NOT RUN A LONG GRAPH SYNCHRONOUSLY, and the reason is
+ * structural rather than about responsiveness. A gate-free command runs inline
+ * on the caller's thread, and the caller here is Archicad's UI thread; a node
+ * that needs the main-thread gate - a headless capture asking for the 3D model -
+ * would then be waiting on the very thread that is waiting for it. Start, then
+ * poll.
+ */
+export interface GraphRunState {
+  running: boolean
+  finished: boolean
+  succeeded: boolean
+  error: string
+  executedCount: number
+  /** What the run is doing, when it is the kind of work that can say. */
+  progress: string
+}
+
 export interface AttributeListing {
   attributes: AttributeRow[]
   penSets?: string[]
@@ -506,6 +587,14 @@ export interface SchemaNodeData extends Record<string, unknown> {
    * only channel Svelte Flow gives a custom node.
    */
   onselectionaction?: (nodeId: string, action: SelectionAction) => void
+  /**
+   * Present on camera nodes. The node draws its own buttons, so the handler has
+   * to reach it - and `index` names the row, because Restore and Remove act on
+   * one camera rather than on the list.
+   */
+  oncameraaction?: (nodeId: string, action: CameraAction, index: number) => void
+  /** True while an action on THIS camera node is in flight. */
+  cameraBusy?: boolean
   /** True while an action on THIS node is in flight. */
   selectionBusy?: boolean
   /**
@@ -517,6 +606,15 @@ export interface SchemaNodeData extends Record<string, unknown> {
   onexecute?: (nodeId: string) => void
   /** True while THIS node's effect is being committed. */
   executeBusy?: boolean
+  /**
+   * What that commit is DOING, for a node whose work takes minutes.
+   *
+   * ⚠️ A CAPTURE WITHOUT THIS IS INDISTINGUISHABLE FROM A HANG. It walks
+   * the whole model before the first frame and then renders one frame per
+   * camera; a button that simply stayed pressed for four minutes is a button a
+   * user gives up on.
+   */
+  executeProgress?: string
   /**
    * What this node's viewer should draw.
    *
