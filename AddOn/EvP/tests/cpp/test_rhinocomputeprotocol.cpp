@@ -9,6 +9,7 @@
 //
 // The fixtures marked MEASURED are literal captures, trimmed only of length.
 
+#include "RhinoCompute/RequestSequence.hpp"
 #include "RhinoCompute/RhinoComputeProtocol.hpp"
 
 #include <gtest/gtest.h>
@@ -423,4 +424,91 @@ TEST (RhinoComputeBase64, MatchesTheThreePaddingCases)
     EXPECT_EQ (ToBase64 ({ 'A' }), "QQ==");
     EXPECT_EQ (ToBase64 ({ 'A', 'B' }), "QUI=");
     EXPECT_EQ (ToBase64 ({}), "");
+}
+
+// ── request ordering (RC-005) ────────────────────────────────────────────────
+
+TEST (RhinoComputeSequence, IdsAreMonotonicAndNeverZero)
+{
+    RequestSequence sequence;
+    EXPECT_EQ (sequence.Latest (), 0u);
+    EXPECT_EQ (sequence.Next (), 1u);
+    EXPECT_EQ (sequence.Next (), 2u);
+    EXPECT_EQ (sequence.Latest (), 2u);
+}
+
+TEST (RhinoComputeSequence, AStaleResultCanNeverOverwriteANewerOne)
+{
+    // The case this exists for: a slider drag issues 1 then 2; the cached solve
+    // for 2 returns in 4 ms and the cold one for 1 returns in 120 ms. Without
+    // ordering the user ends up looking at the value they already dragged past.
+    RequestSequence sequence;
+    const uint64_t first = sequence.Next ();
+    const uint64_t second = sequence.Next ();
+
+    EXPECT_TRUE (sequence.Accept (second));
+    EXPECT_FALSE (sequence.Accept (first));
+    EXPECT_EQ (sequence.Accepted (), second);
+}
+
+TEST (RhinoComputeSequence, AcceptanceIsOrderedAgainstWhatWasAcceptedNotWhatWasIssued)
+{
+    // Issue three, and let the newest FAIL so it is never accepted. The second
+    // must still be drawable: ordering against `issued` would reject it and
+    // leave the viewport empty rather than one step behind.
+    RequestSequence sequence;
+    sequence.Next ();
+    const uint64_t second = sequence.Next ();
+    sequence.Next ();
+
+    EXPECT_TRUE (sequence.Accept (second));
+    EXPECT_EQ (sequence.Accepted (), second);
+}
+
+TEST (RhinoComputeSequence, TheSameResultIsNotAcceptedTwice)
+{
+    // The preview cache treats a repeat as a change, so a duplicated response
+    // would rebuild GPU buffers for geometry that did not move.
+    RequestSequence sequence;
+    const uint64_t id = sequence.Next ();
+
+    EXPECT_TRUE (sequence.Accept (id));
+    EXPECT_FALSE (sequence.Accept (id));
+}
+
+TEST (RhinoComputeSequence, ZeroIsNeverAccepted)
+{
+    // A default-constructed SolveResult carries requestId 0. It must not count
+    // as a legitimate answer to anything.
+    RequestSequence sequence;
+    EXPECT_FALSE (sequence.Accept (0));
+}
+
+TEST (RhinoComputeSequence, IsCurrentOnlyForTheNewestIssuedId)
+{
+    RequestSequence sequence;
+    const uint64_t first = sequence.Next ();
+    EXPECT_TRUE (sequence.IsCurrent (first));
+
+    const uint64_t second = sequence.Next ();
+    EXPECT_FALSE (sequence.IsCurrent (first));
+    EXPECT_TRUE (sequence.IsCurrent (second));
+}
+
+TEST (RhinoComputeSequence, ResetForgetsAcceptanceWithoutRewindingIssuedIds)
+{
+    // Loading a new definition: the previous preview is GONE rather than
+    // superseded, so the next result must be accepted whatever its id. But a
+    // solve still in flight from the OLD definition must not pass the gate, so
+    // ids may not rewind.
+    RequestSequence sequence;
+    const uint64_t stale = sequence.Next ();
+    EXPECT_TRUE (sequence.Accept (stale));
+
+    sequence.ResetAccepted ();
+    EXPECT_EQ (sequence.Accepted (), 0u);
+
+    // The in-flight id from before the reset is not newer than what was issued,
+    // and the next id keeps climbing past it.
+    EXPECT_GT (sequence.Next (), stale);
 }

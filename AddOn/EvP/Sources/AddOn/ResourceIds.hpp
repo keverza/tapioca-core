@@ -65,6 +65,21 @@ constexpr short DynamoMenuItemIndex = 1;
 // contract, which is the next slice.
 constexpr short GrasshopperRunMenuResId = 32509;
 constexpr short GrasshopperRunMenuItemIndex = 1;
+// "Start rhino.compute" / "Stop rhino.compute" — the SECOND Grasshopper backend,
+// stateless HTTP where GrasshopperEditorMenuResId's is a stateful named pipe.
+//
+// ⚠️ TWO ITEMS, NOT ONE TOGGLE, for the reason the 3D viewer/overlay pair gives
+// above: a toggle names one state, and this one spends up to 90 SECONDS in a
+// third. "Stop" shown during a cold start would look broken when clicking it
+// appeared to do nothing.
+//
+// Start is deliberately separate from "Grasshopper Editor" rather than folded
+// into it: the two backends each own a Rhino core, and a menu that silently
+// started whichever one it felt like would put two of them against one licence.
+constexpr short RhinoComputeStartMenuResId = 32513;
+constexpr short RhinoComputeStartMenuItemIndex = 1;
+constexpr short RhinoComputeStopMenuResId = 32514;
+constexpr short RhinoComputeStopMenuItemIndex = 1;
 constexpr short GraphEditorMenuResId = 32511; // "Node Graph"
 constexpr short GraphEditorMenuItemIndex = 1;
 

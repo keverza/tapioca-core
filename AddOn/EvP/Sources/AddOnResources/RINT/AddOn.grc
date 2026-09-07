@@ -90,6 +90,19 @@
 /* [  1] */	"Grasshopper Editor^E3^ES^EE^EI^ED^EW^EL"
 }
 
+/* The compute backend's two items. Named for the mechanism rather than for a
+   product noun because a user who needs these is troubleshooting: they have been
+   asked to stop rhino.compute, and the menu should contain that phrase. */
+'STR#' 32513 "Menu strings - Start rhino.compute" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Start rhino.compute^E3^ES^EE^EI^ED^EW^EL"
+}
+
+'STR#' 32514 "Menu strings - Stop rhino.compute" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Stop rhino.compute^E3^ES^EE^EI^ED^EW^EL"
+}
+
 'STR#' 32508 "Menu strings - Dynamo" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Dynamo^E3^ES^EE^EI^ED^EW^EL"

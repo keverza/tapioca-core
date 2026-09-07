@@ -22,8 +22,9 @@
 #include "Notebook/NotebookPalette.hpp"
 #include "Palette/GraphEditorPalette.hpp"
 #include "Palette/WebUIPalette.hpp"
-#include "Grasshopper/GhWorkerHost.hpp" // the supervised Grasshopper worker process
-#include "Dynamo/DynamoHost.hpp"        // Dynamo 4 editor in its own .NET 10 process
+#include "Grasshopper/GhWorkerHost.hpp"         // the supervised Grasshopper worker process
+#include "RhinoCompute/RhinoComputeManager.hpp" // the supervised rhino.compute worker process
+#include "Dynamo/DynamoHost.hpp"                // Dynamo 4 editor in its own .NET 10 process
 #include "AddOnCommands.hpp"
 #include "Server/ServerState.hpp"
 #include "Server/HttpServer.hpp"
@@ -170,6 +171,11 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // a kill second, and neither wants to run during an unload. Stop is
             // a no-op when no worker was ever started.
             evp::grasshopper::GhWorkerHost::Get ().Stop ();
+            // The compute worker is a second external process holding a Rhino
+            // licence. Its job object would kill it when this process ends
+            // anyway, but stopping it here makes the shutdown ORDERLY and
+            // logged rather than merely guaranteed.
+            evp::rhinocompute::RhinoComputeManager::Get ().Stop ();
             // The graph runtime's level pool. Joined here for the same reason as
             // everything else on this line: its threads run code in this module,
             // and static destruction would join them under the loader lock.
@@ -265,6 +271,22 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
                 RecordStartupEvent ("Run Grasshopper Definition: menu command completed");
             }
             break;
+        case RhinoComputeStartMenuResId:
+            if (menuParams->menuItemRef.itemIndex == RhinoComputeStartMenuItemIndex) {
+                RecordStartupEvent ("Start rhino.compute: menu command received");
+                evp::rhinocompute::RhinoComputeManager::StartFromMenu ();
+                RecordStartupEvent ("Start rhino.compute: menu command completed");
+            }
+            break;
+
+        case RhinoComputeStopMenuResId:
+            if (menuParams->menuItemRef.itemIndex == RhinoComputeStopMenuItemIndex) {
+                RecordStartupEvent ("Stop rhino.compute: menu command received");
+                evp::rhinocompute::RhinoComputeManager::StopFromMenu ();
+                RecordStartupEvent ("Stop rhino.compute: menu command completed");
+            }
+            break;
+
         case GrasshopperEditorMenuResId:
             if (menuParams->menuItemRef.itemIndex == GrasshopperEditorMenuItemIndex) {
                 RecordStartupEvent ("Grasshopper Editor: menu command received");
@@ -331,6 +353,12 @@ GSErrCode RegisterInterface (void)
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperEditorMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (RhinoComputeStartMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   RhinoComputeStartMenuResId, "Start rhino.compute item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (RhinoComputeStopMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   RhinoComputeStopMenuResId, "Stop rhino.compute item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (GrasshopperRunMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    GrasshopperRunMenuResId, "Run Grasshopper Definition item");
@@ -435,6 +463,12 @@ GSErrCode Initialize (void)
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperEditorMenuResId, MenuCommandHandler),
                    GrasshopperEditorMenuResId, "Grasshopper Editor item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (RhinoComputeStartMenuResId, MenuCommandHandler),
+                   RhinoComputeStartMenuResId, "Start rhino.compute item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (RhinoComputeStopMenuResId, MenuCommandHandler),
+                   RhinoComputeStopMenuResId, "Stop rhino.compute item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (GrasshopperRunMenuResId, MenuCommandHandler),
                    GrasshopperRunMenuResId, "Run Grasshopper Definition item");
