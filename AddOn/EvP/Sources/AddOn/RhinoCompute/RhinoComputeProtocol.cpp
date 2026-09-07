@@ -420,6 +420,23 @@ bool ParseSolveResponse (const std::string& body, SolveResult& result)
     ReadString (root, "modelunits", result.modelUnits);
     ReadErrorArray (root, "errors", ErrorSource::Grasshopper, "GH_SOLVE_FAILED", result.errors);
 
+    // ⚠️ WARNINGS ARE NOT ERRORS AND MUST NOT BE DROPPED. A Tapioca input that
+    // something else drives reports itself this way: the solve SUCCEEDS, the
+    // result is computed from the wired value rather than the injected one, and
+    // the only trace is here. Read into `warnings` so the panel can show it
+    // without failing the run.
+    const json::JsonValue* warnings = root.Find ("warnings");
+    if (warnings != nullptr) {
+        const json::JsonArray* items = warnings->AsArray ();
+        if (items != nullptr) {
+            for (const json::JsonValue& item : *items) {
+                std::string message;
+                if (item.AsString (message) && !message.empty ())
+                    result.warnings.push_back (message);
+            }
+        }
+    }
+
     const json::JsonValue* values = root.Find ("values");
     if (values != nullptr) {
         const json::JsonArray* items = values->AsArray ();

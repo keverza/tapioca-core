@@ -13,6 +13,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
 
 using namespace evp::rhinocompute;
@@ -330,6 +331,69 @@ TEST (RhinoComputeSolve, IgnoresOutputsThatAreNotTapiocaPreview)
     EXPECT_TRUE (result.meshes.empty ());
     EXPECT_TRUE (result.errors.empty ());
     EXPECT_TRUE (result.success);
+}
+
+TEST (RhinoComputeSolve, ParsesTheLiveBoxCapture)
+{
+    // MEASURED, end to end: three numbers injected into BoxToMesh.gh (4, 6, 3),
+    // meshed, emitted by TapiocaPreviewOutComponent and returned by a Context
+    // Print. This is the exact bytes compute answered with, and it is the only
+    // fixture here that has been through a real Grasshopper solve.
+    //
+    // Note the path: "{0;0}", not "{0}". A Context Print downstream of a mesh
+    // operation produces a two-level path, so anything that assumed a flat
+    // branch key would drop the whole preview.
+    const std::string body =
+        R"RAW({"modelunits":"Millimeters","pointer":"md5_FFFAAB0FE520A5A5A7BBA5CD81587BC5","values":[{"ParamName":"Tx","InnerTree":{"{0;0}":[{"type":"System.String","data":"{\"tapiocaPreview\":1,\"id\":0,\"vertices\":[-4,-6,-3,-4,-6,3,4,-6,-3,4,-6,3,4,-6,-3,4,-6,3,4,6,-3,4,6,3,4,6,-3,4,6,3,-4,6,-3,-4,6,3,-4,6,-3,-4,6,3,-4,-6,-3,-4,-6,3,-4,-6,-3,4,-6,-3,-4,6,-3,4,6,-3,-4,-6,3,-4,6,3,4,-6,3,4,6,3],\"normals\":[0,-1,0,0,-1,0,0,-1,0,0,-1,0,1,0,0,1,0,0,1,0,0,1,0,0,0,1,0,0,1,0,0,1,0,0,1,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,0,0,-1,0,0,-1,0,0,-1,0,0,-1,0,0,1,0,0,1,0,0,1,0,0,1],\"indices\":[1,0,2,5,4,6,9,8,10,13,12,14,17,16,18,21,20,22,1,2,3,5,6,7,9,10,11,13,14,15,17,18,19,21,22,23]}"}]}}]})RAW";
+
+    SolveResult result;
+    ASSERT_TRUE (ParseSolveResponse (body, result));
+    EXPECT_TRUE (result.errors.empty ());
+
+    ASSERT_EQ (result.meshes.size (), 1u);
+    const PreviewMesh& mesh = result.meshes[0];
+
+    // A box: 24 vertices (four per face, unshared for per-face normals) and 12
+    // triangles.
+    EXPECT_EQ (mesh.vertices.size (), 72u);
+    EXPECT_EQ (mesh.normals.size (), 72u);
+    EXPECT_EQ (mesh.indices.size (), 36u);
+
+    // The injected 4/6/3 as a centred box: x[-4,4] y[-6,6] z[-3,3]. If injection
+    // silently stopped working again, this is the assertion that would catch it.
+    float minX = mesh.vertices[0], maxX = mesh.vertices[0];
+    float minY = mesh.vertices[1], maxY = mesh.vertices[1];
+    float minZ = mesh.vertices[2], maxZ = mesh.vertices[2];
+    for (size_t i = 0; i + 2 < mesh.vertices.size (); i += 3) {
+        minX = std::min (minX, mesh.vertices[i]);
+        maxX = std::max (maxX, mesh.vertices[i]);
+        minY = std::min (minY, mesh.vertices[i + 1]);
+        maxY = std::max (maxY, mesh.vertices[i + 1]);
+        minZ = std::min (minZ, mesh.vertices[i + 2]);
+        maxZ = std::max (maxZ, mesh.vertices[i + 2]);
+    }
+
+    EXPECT_FLOAT_EQ (maxX - minX, 8.0f);
+    EXPECT_FLOAT_EQ (maxY - minY, 12.0f);
+    EXPECT_FLOAT_EQ (maxZ - minZ, 6.0f);
+}
+
+TEST (RhinoComputeSolve, CarriesWarningsWithoutFailingTheSolve)
+{
+    // A driven input is the case this exists for: injection is ignored, the
+    // solve succeeds on the wired value, and this array is the only trace.
+    const std::string body =
+        R"({"pointer":"md5_A","values":[],"warnings":["This input has something wired into it."]})";
+
+    SolveResult result;
+    ASSERT_TRUE (ParseSolveResponse (body, result));
+
+    ASSERT_EQ (result.warnings.size (), 1u);
+    EXPECT_NE (result.warnings[0].find ("wired into it"), std::string::npos);
+    // A warning is not a failure. Reporting it as one would make an ordinary
+    // authoring mistake look like a broken worker.
+    EXPECT_TRUE (result.success);
+    EXPECT_TRUE (result.errors.empty ());
 }
 
 // ── readiness ────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
+using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Parameters;
 using Grasshopper.Kernel.Types;
 
@@ -44,6 +45,85 @@ namespace Tapioca.Grasshopper
 
         /// <summary>The current value, as the schema would express a default.</summary>
         string TapiocaCurrentValue { get; }
+    }
+
+    /// <summary>
+    /// Refuses injection into a parameter that something else already drives.
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ THIS TURNS THE QUIETEST FAILURE ON THIS PATH INTO A VISIBLE ONE.
+    /// Contextual injection writes PERSISTENT data, and Grasshopper reads
+    /// persistent data only when a parameter has NO SOURCE. Wire a slider or a
+    /// panel into a workflow input and every value Tapioca sends is discarded —
+    /// while the solve still SUCCEEDS, returning results computed from the wired
+    /// value. Nothing in the response says so.
+    ///
+    /// Measured twice on one definition: number sliders wired into the numeric
+    /// inputs, then a panel wired into a text input, each producing a clean
+    /// HTTP 200 whose output never changed no matter what was injected.
+    ///
+    /// A workflow input IS the slider's replacement. Saying so here costs one
+    /// check and saves the hour it otherwise takes to find.
+    /// </remarks>
+    internal static class TapiocaInputGuard
+    {
+        /// <summary>
+        /// The write path rhino.compute actually uses.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ COMPUTE DOES NOT CALL <c>IGH_ContextualParameter.AssignContextualData</c>.
+        /// It resolves a method literally named "AssignContextualDataTree" by
+        /// REFLECTION on the concrete parameter type and invokes it with a
+        /// <c>Grasshopper.DataTree&lt;T&gt;</c> — see GrasshopperDefinition.cs,
+        /// BuildAndAssignContextualTree, in compute.rhino3d. The call site is
+        /// <c>method?.Invoke(...)</c>, so a parameter that does not declare the
+        /// method is SKIPPED IN SILENCE: no error, no warning, and a solve that
+        /// succeeds against an empty parameter.
+        ///
+        /// That cost this task a full session of measurement. Implementing only
+        /// the published interface is not enough to be a compute input, and
+        /// nothing in the API or the guides says so.
+        ///
+        /// Volatile data rather than persistent, mirroring what compute does for
+        /// its non-contextual inputs one branch above the reflection call:
+        /// ClearData, expire without recomputing, then add. The solution runs as
+        /// NewSolution(false, ...), so data staged here survives into it.
+        /// </remarks>
+        internal static void AssignTree<T> (IGH_Param param, global::Grasshopper.DataTree<T> tree)
+        {
+            param.ClearData ();
+            param.ExpireSolution (false);
+
+            if (tree == null)
+            {
+                return;
+            }
+
+            foreach (GH_Path path in tree.Paths)
+            {
+                List<T> branch = tree.Branch (path);
+                if (branch != null && branch.Count > 0)
+                {
+                    param.AddVolatileDataList (path, branch);
+                }
+            }
+        }
+
+        internal static bool WarnIfDriven (IGH_Param param)
+        {
+            if (param.SourceCount == 0)
+            {
+                return false;
+            }
+
+            param.AddRuntimeMessage (
+                GH_RuntimeMessageLevel.Warning,
+                "This input has something wired into it, so Tapioca's value was ignored and the "
+                    + "wired value was used instead. A workflow input must have no source - it IS "
+                    + "the slider or panel, so disconnect what feeds it.");
+
+            return true;
+        }
     }
 
     /// <summary>
@@ -167,6 +247,11 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
             List<GH_Number> values = new List<GH_Number> ();
 
             if (data != null)
@@ -183,6 +268,18 @@ namespace Tapioca.Grasshopper
 
             SetPersistentData (values);
             ExpireSolution (false);
+        }
+
+        // The method rhino.compute invokes by reflection. See
+        // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
+        public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_Number> tree)
+        {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
+            TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
@@ -323,6 +420,11 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
             List<GH_Integer> values = new List<GH_Integer> ();
 
             if (data != null)
@@ -339,6 +441,18 @@ namespace Tapioca.Grasshopper
 
             SetPersistentData (values);
             ExpireSolution (false);
+        }
+
+        // The method rhino.compute invokes by reflection. See
+        // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
+        public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_Integer> tree)
+        {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
+            TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
@@ -475,6 +589,11 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
             List<GH_Boolean> values = new List<GH_Boolean> ();
 
             if (data != null)
@@ -491,6 +610,18 @@ namespace Tapioca.Grasshopper
 
             SetPersistentData (values);
             ExpireSolution (false);
+        }
+
+        // The method rhino.compute invokes by reflection. See
+        // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
+        public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_Boolean> tree)
+        {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
+            TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
@@ -625,6 +756,11 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
             List<GH_String> values = new List<GH_String> ();
 
             if (data != null)
@@ -641,6 +777,18 @@ namespace Tapioca.Grasshopper
 
             SetPersistentData (values);
             ExpireSolution (false);
+        }
+
+        // The method rhino.compute invokes by reflection. See
+        // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
+        public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_String> tree)
+        {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
+            TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
@@ -783,6 +931,11 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
             List<GH_String> values = new List<GH_String> ();
             List<string> rejected = new List<string> ();
 
@@ -818,6 +971,18 @@ namespace Tapioca.Grasshopper
             }
 
             ExpireSolution (false);
+        }
+
+        // The method rhino.compute invokes by reflection. See
+        // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
+        public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_String> tree)
+        {
+            if (TapiocaInputGuard.WarnIfDriven (this))
+            {
+                return;
+            }
+
+            TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
