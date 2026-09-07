@@ -21463,6 +21463,11 @@
             "minimum": 16,
             "maximum": 8192
           },
+          "dpi": {
+            "type": "number",
+            "minimum": 24,
+            "maximum": 1200
+          },
           "renderQuality": {
             "type": "string",
             "enum": [
@@ -21592,6 +21597,11 @@
             "type": "integer",
             "minimum": 16,
             "maximum": 8192
+          },
+          "dpi": {
+            "type": "number",
+            "minimum": 24,
+            "maximum": 1200
           },
           "renderQuality": {
             "type": "string",

@@ -128,8 +128,9 @@ class DiligentCaptureService final : public graph::ICaptureService {
         graph::ReportCaptureProgress ("preparing");
         uint64_t id = 0;
         if (!av::DiligentViewport::Get ().StartCaptureBatch (
-                static_cast<uint32_t> (settings.width), static_cast<uint32_t> (settings.height), frames,
-                settings.renderQuality == "realistic" ? 1 : 0, overlays, directory, id, error))
+                static_cast<uint32_t> (settings.width), static_cast<uint32_t> (settings.height),
+                static_cast<float> (settings.dpi), frames, settings.renderQuality == "realistic" ? 1 : 0, overlays,
+                directory, id, error))
             return false;
 
         // ⚠️ POLLED, NOT WAITED ON, AND THE CANCELLATION IS CHECKED EVERY PASS.

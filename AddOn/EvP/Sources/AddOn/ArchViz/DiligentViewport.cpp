@@ -888,9 +888,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                         target.DepthFormat (), modelIsDrawn);
             // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
-            UpdateAndDrawSceneText (textLayer, device, context, mutex_, pendingTextLabels_, textLabelSeq_.load (),
-                                    lastTextLabelSeq, textLabels, blanked, offscreen, surface.nwh, viewProj, width,
-                                    height);
+            const bool textReady = UpdateAndDrawSceneText (
+                textLayer, device, context, mutex_, pendingTextLabels_, textLabelSeq_.load (), lastTextLabelSeq,
+                textLabels, blanked, offscreen, surface.nwh, viewProj, width, height, captureDpi_.load ());
+            captureThisFrame = captureThisFrame && textReady;
             if (!offscreen && !annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,

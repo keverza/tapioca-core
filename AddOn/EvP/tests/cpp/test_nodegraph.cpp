@@ -4063,6 +4063,7 @@ TEST (NodeGraphRenderSettings, TheDefaultsAreTheRenderersOwnAndRoundTrip)
     ASSERT_TRUE (DecodeRenderSettings (SettingsTextOf (evaluator, "settings"), settings));
     EXPECT_EQ (1920, settings.width);
     EXPECT_EQ (1080, settings.height);
+    EXPECT_DOUBLE_EQ (96.0, settings.dpi);
     EXPECT_EQ ("realistic", settings.renderQuality);
     EXPECT_FALSE (settings.storySlices);
     EXPECT_EQ ("dashed", settings.storySliceOccluded);
@@ -4080,9 +4081,36 @@ TEST (NodeGraphRenderSettings, EveryFieldTheCaptureSchemaRequiresIsWritten)
     // is rejected there - after the model has been extracted, minutes into a
     // batch, with nothing to show for it.
     const std::string encoded = EncodeRenderSettings (RenderSettings {});
-    for (const char* field : { "width", "height", "renderQuality", "storySlices", "storySliceFill",
+    for (const char* field : { "width", "height", "dpi", "renderQuality", "storySlices", "storySliceFill",
                                "storySliceOccluded", "storySliceWidthPixels", "storySliceRgba", "storySliceFillRgba" })
         EXPECT_NE (std::string::npos, encoded.find (field)) << field;
+}
+
+TEST (NodeGraphRenderSettings, DpiRoundTripsAndItsImageControlPublishesTheCaptureBounds)
+{
+    RenderSettings written;
+    written.dpi = 300.5;
+    RenderSettings read;
+    ASSERT_TRUE (DecodeRenderSettings (EncodeRenderSettings (written), read));
+    EXPECT_DOUBLE_EQ (300.5, read.dpi);
+
+    const NodeRegistry registry = MakeRuntimeNodeRegistry ();
+    const NodeType* type = registry.Find (kRenderSettingsNodeType);
+    ASSERT_NE (nullptr, type);
+    const auto dpi = std::find_if (type->parameters.begin (), type->parameters.end (),
+                                   [] (const ParameterSchema& parameter) { return parameter.id == "dpi"; });
+    ASSERT_NE (type->parameters.end (), dpi);
+    EXPECT_EQ (ValueType::Double, dpi->valueType);
+    ASSERT_TRUE (dpi->defaultValue.has_value ());
+    EXPECT_DOUBLE_EQ (96.0, std::get<double> (dpi->defaultValue->DataValue ()));
+    ASSERT_TRUE (dpi->ui.has_value ());
+    EXPECT_EQ (ParameterWidget::Number, dpi->ui->widget);
+    EXPECT_EQ ("Image", dpi->ui->section);
+    EXPECT_EQ (3, dpi->ui->order);
+    ASSERT_TRUE (dpi->ui->minimum.has_value ());
+    ASSERT_TRUE (dpi->ui->maximum.has_value ());
+    EXPECT_DOUBLE_EQ (24.0, *dpi->ui->minimum);
+    EXPECT_DOUBLE_EQ (1200.0, *dpi->ui->maximum);
 }
 
 TEST (NodeGraphRenderSettings, ASizeOutsideTheCapturesRangeIsClampedByTheBodyRatherThanHinted)
@@ -4092,6 +4120,7 @@ TEST (NodeGraphRenderSettings, ASizeOutsideTheCapturesRangeIsClampedByTheBodyRat
     Node node = RenderSettingsNode ("settings");
     node.parameters["width"] = Value (static_cast<int64_t> (99999));
     node.parameters["height"] = Value (static_cast<int64_t> (2));
+    node.parameters["dpi"] = Value (5000.0);
     ASSERT_TRUE (ApplyEdit (graph, registry, GraphEdit { AddNodeEdit { node } }).accepted);
 
     Evaluator evaluator;
@@ -4105,6 +4134,10 @@ TEST (NodeGraphRenderSettings, ASizeOutsideTheCapturesRangeIsClampedByTheBodyRat
     // which is a far worse place to find out.
     EXPECT_EQ (8192, settings.width);
     EXPECT_EQ (16, settings.height);
+    EXPECT_DOUBLE_EQ (1200.0, settings.dpi);
+
+    ASSERT_TRUE (DecodeRenderSettings (R"({"renderQuality":"realistic","dpi":1.0})", settings));
+    EXPECT_DOUBLE_EQ (24.0, settings.dpi);
 }
 
 TEST (NodeGraphRenderSettings, AnUnknownChoiceFallsBackRatherThanFailingTheGraph)

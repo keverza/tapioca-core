@@ -198,6 +198,25 @@ def test_dynamic_scene_text_pages_keep_cpu_generation_off_the_render_api():
     assert "if (!drawBatch (batch.vertices, batch.pageIndex))" in layer
 
 
+def test_headless_capture_waits_for_exact_text_at_explicit_dpi():
+    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(encoding="utf-8")
+    support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+
+    text_call = renderer.index("const bool textReady = UpdateAndDrawSceneText")
+    readiness_gate = renderer.index("captureThisFrame = captureThisFrame && textReady")
+    capture = renderer.index("if (captureThisFrame)", readiness_gate)
+    assert text_call < readiness_gate < capture
+    assert "captureDpi / 96.0f" in support
+    assert "const bool ready = layer.Draw" in support
+    assert "dpiScale, offscreen" in support
+    assert "requireAllReady" in layer
+    assert "if (requireAllReady && !missingGlyphs.empty ())" in layer
+    assert "capture text could not generate or upload every required glyph" in support
+    assert "std::clamp (label.sizePixels, 6.0f, 192.0f) * dpiScale" in layer
+    assert "std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale" in layer
+
+
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():
     panel = _PANEL.read_text(encoding="utf-8")
     publish = panel[panel.index("void PreviewPanel::PublishOverlay") :]

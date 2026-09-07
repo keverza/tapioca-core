@@ -46,6 +46,7 @@ struct SceneTextLayerStats {
     uint64_t atlasGenerationMicroseconds = 0;
     uint64_t atlasUploadMicroseconds = 0;
     uint64_t drawCalls = 0;
+    uint32_t unavailableGlyphs = 0;
 };
 
 class SceneTextLayer final {
@@ -58,9 +59,9 @@ class SceneTextLayer final {
     bool Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
                std::string& error);
     void Shutdown ();
-    void Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+    bool Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                const std::vector<SceneTextLabel>& labels, const float viewProj[16], uint32_t surfaceWidth,
-               uint32_t surfaceHeight, float dpiScale);
+               uint32_t surfaceHeight, float dpiScale, bool requireAllReady = false);
     bool DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                         const std::vector<ScreenLabel>& labels, uint32_t surfaceWidth, uint32_t surfaceHeight,
                         float dpiScale);

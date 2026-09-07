@@ -317,8 +317,8 @@ class DiligentViewport final {
         uint32_t storySliceFillRgba = 0xC8C8C84Du;
     };
 
-    bool StartCapture (uint32_t width, uint32_t height, const CameraStart& camera, int renderQuality,
-                       const CaptureOverlays& overlays, uint64_t& captureId, std::string& error);
+    bool StartCapture (uint32_t width, uint32_t height, float dpi, const CameraStart& camera, int renderQuality,
+                        const CaptureOverlays& overlays, uint64_t& captureId, std::string& error);
 
     // MANY FRAMES, ONE EXTRACTION.
     //
@@ -340,9 +340,9 @@ class DiligentViewport final {
     // writes `00.png`, `01.png` ... into it AS EACH FRAME IS ENCODED, so peak
     // memory does not grow with the number of cameras: eight 4K PNGs held at
     // once to hand back at the end would be tens of megabytes for no reason.
-    bool StartCaptureBatch (uint32_t width, uint32_t height, const std::vector<CaptureFrame>& frames, int renderQuality,
-                            const CaptureOverlays& overlays, const std::string& outputDirectory, uint64_t& captureId,
-                            std::string& error);
+    bool StartCaptureBatch (uint32_t width, uint32_t height, float dpi, const std::vector<CaptureFrame>& frames,
+                             int renderQuality, const CaptureOverlays& overlays, const std::string& outputDirectory,
+                             uint64_t& captureId, std::string& error);
     bool CancelCapture (uint64_t captureId);
     DiligentCaptureStats CaptureStats () const;
     bool CurrentCamera (CameraStart& camera) const;
@@ -635,6 +635,7 @@ class DiligentViewport final {
                                  size_t& captureIndex, std::chrono::steady_clock::time_point& captureReadyAt);
 
     std::atomic<int> captureRenderQuality_ { 1 };
+    std::atomic<float> captureDpi_ { 96.0f };
     // ---- what a HEADLESS CAPTURE draws of the storey overlay ----------------
     //
     // ⚠️ PARAMETERS OF THE CAPTURE, NOT THE VIEWER'S PERSISTED TOGGLES, and that

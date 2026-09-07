@@ -21,6 +21,8 @@ constexpr const char kCapture[] = "archviz.capture";
 // match it, and the offline suite asserts they do.
 constexpr int64_t kMinPixels = 16;
 constexpr int64_t kMaxPixels = 8192;
+constexpr double kMinDpi = 24.0;
+constexpr double kMaxDpi = 1200.0;
 constexpr double kMinLineWidth = 0.1;
 constexpr double kMaxLineWidth = 32.0;
 
@@ -74,6 +76,11 @@ int64_t ClampPixels (double value)
     return std::clamp (static_cast<int64_t> (std::llround (value)), kMinPixels, kMaxPixels);
 }
 
+double ClampDpi (double value)
+{
+    return std::isfinite (value) ? std::clamp (value, kMinDpi, kMaxDpi) : kMinDpi;
+}
+
 int HexDigit (char character)
 {
     if (character >= '0' && character <= '9')
@@ -114,6 +121,7 @@ std::string EncodeRenderSettings (const RenderSettings& settings)
     json::JsonObject fields;
     fields["width"] = json::JsonValue::Integer (settings.width);
     fields["height"] = json::JsonValue::Integer (settings.height);
+    fields["dpi"] = json::JsonValue::Double (settings.dpi);
     fields["renderQuality"] = json::JsonValue::String (settings.renderQuality);
     fields["storySlices"] = json::JsonValue::Bool (settings.storySlices);
     fields["storySliceFill"] = json::JsonValue::Bool (settings.storySliceFill);
@@ -166,6 +174,7 @@ bool DecodeRenderSettings (const std::string& encoded, RenderSettings& settings)
 
     read.width = std::clamp (integer ("width", 1920), kMinPixels, kMaxPixels);
     read.height = std::clamp (integer ("height", 1080), kMinPixels, kMaxPixels);
+    read.dpi = ClampDpi (number ("dpi", 96.0));
     read.renderQuality = text ("renderQuality", "realistic");
     if (read.renderQuality != "fast" && read.renderQuality != "realistic")
         read.renderQuality = "realistic";
@@ -230,13 +239,15 @@ void RegisterRenderNodes (NodeRegistry& registry)
     settings.parameters.push_back (number ("height", "Height", ValueType::Integer, Value (static_cast<int64_t> (1080)),
                                            "Image", 2, static_cast<double> (kMinPixels),
                                            static_cast<double> (kMaxPixels), "px", "The captured image's height."));
+    settings.parameters.push_back (number ("dpi", "DPI", ValueType::Double, Value (96.0), "Image", 3, kMinDpi, kMaxDpi,
+                                            "dpi", "Target DPI used to scale scene text in the captured image."));
     {
         ParameterSchema quality { "renderQuality", "Quality", ValueType::String, false,
                                   Value (std::string ("realistic")) };
         ParameterUi ui;
         ui.widget = ParameterWidget::Select;
         ui.section = "Image";
-        ui.order = 3;
+        ui.order = 4;
         ui.help = "Realistic uses the full post-processing chain; Fast skips it.";
         // Literal options rather than an optionSource: these two are the
         // renderer's own vocabulary and do not depend on the open project, which
@@ -480,6 +491,7 @@ bool ExecuteRenderNode (const Node& node, const ValueMap& inputs, const NodeExec
     // rejection after the model has already been extracted.
     settings.width = ClampPixels (ReadDouble (node, "width", 1920.0));
     settings.height = ClampPixels (ReadDouble (node, "height", 1080.0));
+    settings.dpi = ClampDpi (ReadDouble (node, "dpi", 96.0));
     settings.renderQuality = ReadChoice (node, "renderQuality", { "fast", "realistic" }, "realistic");
     settings.storySlices = ReadBool (node, "storySlices", false);
     settings.storySliceFill = ReadBool (node, "storySliceFill", false);

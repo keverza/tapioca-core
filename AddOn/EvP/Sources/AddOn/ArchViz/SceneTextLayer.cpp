@@ -437,14 +437,17 @@ void SceneTextLayer::Shutdown ()
     impl_->stats = {};
 }
 
-void SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                            const std::vector<SceneTextLabel>& labels, const float viewProj[16], uint32_t surfaceWidth,
-                           uint32_t surfaceHeight, float dpiScale)
+                           uint32_t surfaceHeight, float dpiScale, bool requireAllReady)
 {
     impl_->stats.labels = impl_->stats.glyphs = impl_->stats.drawCalls = 0;
+    impl_->stats.unavailableGlyphs = 0;
+    if (labels.empty ())
+        return true;
     if (!impl_->stats.ready || device == nullptr || context == nullptr || surfaceWidth == 0 || surfaceHeight == 0 ||
         !std::isfinite (dpiScale) || dpiScale <= 0.0f)
-        return;
+        return false;
     std::vector<PreparedSceneTextLabel> prepared;
     prepared.reserve ((std::min) (labels.size (), kMaximumLabels));
     for (size_t labelIndex = 0; labelIndex < (std::min) (labels.size (), kMaximumLabels); ++labelIndex) {
@@ -452,11 +455,11 @@ void SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
         float anchorX = 0.0f, anchorY = 0.0f;
         if (label.text.empty () || !ProjectAnchor (label, viewProj, surfaceWidth, surfaceHeight, anchorX, anchorY))
             continue;
-        prepared.push_back ({ anchorX, anchorY, &label.text, std::clamp (label.sizePixels * dpiScale, 6.0f, 192.0f),
+        prepared.push_back ({ anchorX, anchorY, &label.text, std::clamp (label.sizePixels, 6.0f, 192.0f) * dpiScale,
                                label.rgba, label.alignment, VerticalAnchor::Baseline, label.haloRgba,
-                               std::clamp (label.haloWidthPixels * dpiScale, 0.0f, 8.0f) });
+                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale });
     }
-    impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, false);
+    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, requireAllReady);
 }
 
 bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
@@ -464,6 +467,7 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
                                     uint32_t surfaceHeight, float dpiScale)
 {
     impl_->stats.labels = impl_->stats.glyphs = impl_->stats.drawCalls = 0;
+    impl_->stats.unavailableGlyphs = 0;
     if (!impl_->stats.ready || device == nullptr || context == nullptr || surfaceWidth == 0 || surfaceHeight == 0 ||
         !std::isfinite (dpiScale) || dpiScale <= 0.0f)
         return false;
@@ -489,6 +493,7 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                                           uint32_t surfaceHeight, bool requireAllReady)
 {
     stats.labels = stats.glyphs = stats.drawCalls = 0;
+    stats.unavailableGlyphs = 0;
     struct ResolvedLabel {
         const PreparedSceneTextLabel* label = nullptr;
         std::shared_ptr<const SceneTextGlyphRun> run;
@@ -509,19 +514,28 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
 
     UploadReadyPages (device);
     std::vector<uint32_t> missingGlyphs;
+    std::vector<uint32_t> requestedGlyphs;
     for (const ResolvedLabel& resolvedLabel : resolved) {
         for (const SceneTextPositionedGlyph& positioned : resolvedLabel.run->glyphs) {
             size_t pageIndex = 0;
-            if (FindGlyphExact (positioned.glyphIndex, pageIndex) == nullptr &&
-                suppressedGlyphs.find (positioned.glyphIndex) == suppressedGlyphs.end ())
+            if (FindGlyphExact (positioned.glyphIndex, pageIndex) == nullptr) {
                 missingGlyphs.push_back (positioned.glyphIndex);
+                if (suppressedGlyphs.find (positioned.glyphIndex) == suppressedGlyphs.end ())
+                    requestedGlyphs.push_back (positioned.glyphIndex);
+            }
         }
     }
     std::sort (missingGlyphs.begin (), missingGlyphs.end ());
     missingGlyphs.erase (std::unique (missingGlyphs.begin (), missingGlyphs.end ()), missingGlyphs.end ());
-    for (size_t begin = 0; begin < missingGlyphs.size (); begin += SceneTextAtlasPage::kMaximumGlyphs) {
-        const size_t end = (std::min) (begin + SceneTextAtlasPage::kMaximumGlyphs, missingGlyphs.size ());
-        atlasCache.Request (std::vector<uint32_t> (missingGlyphs.begin () + begin, missingGlyphs.begin () + end));
+    stats.unavailableGlyphs = static_cast<uint32_t> (
+        std::count_if (missingGlyphs.begin (), missingGlyphs.end (), [this] (uint32_t glyphIndex) {
+            return suppressedGlyphs.find (glyphIndex) != suppressedGlyphs.end ();
+        }));
+    std::sort (requestedGlyphs.begin (), requestedGlyphs.end ());
+    requestedGlyphs.erase (std::unique (requestedGlyphs.begin (), requestedGlyphs.end ()), requestedGlyphs.end ());
+    for (size_t begin = 0; begin < requestedGlyphs.size (); begin += SceneTextAtlasPage::kMaximumGlyphs) {
+        const size_t end = (std::min) (begin + SceneTextAtlasPage::kMaximumGlyphs, requestedGlyphs.size ());
+        atlasCache.Request (std::vector<uint32_t> (requestedGlyphs.begin () + begin, requestedGlyphs.begin () + end));
     }
     if (requireAllReady && !missingGlyphs.empty ())
         return false;

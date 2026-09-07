@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <atomic>
 #include <mutex>
+#include <stdexcept>
 
 #include <windows.h>
 #include <d3d11.h>       // Must precede any Diligent D3D11 interop header (Probe 1a).
@@ -352,11 +353,11 @@ void DiligentViewport::ApplyCaptureSettings (HudState& hudState) const
     hudState.storySliceFillRgba = captureStorySliceFillRgba_.load ();
 }
 
-void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                              std::mutex& mutex, const std::vector<SceneTextLabel>& pendingLabels,
                              uint64_t publishedSequence, uint64_t& adoptedSequence, std::vector<SceneTextLabel>& labels,
                              bool blanked, bool offscreen, void* nativeWindow, const float viewProj[16], uint32_t width,
-                             uint32_t height)
+                             uint32_t height, float captureDpi)
 {
     if (publishedSequence != adoptedSequence) {
         std::lock_guard<std::mutex> lock (mutex);
@@ -364,14 +365,22 @@ void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
         adoptedSequence = publishedSequence;
     }
 
-    float dpiScale = 1.0f;
+    float dpiScale = offscreen ? captureDpi / 96.0f : 1.0f;
     if (!offscreen && nativeWindow != nullptr) {
         const UINT dpi = GetDpiForWindow (static_cast<HWND> (nativeWindow));
         if (dpi != 0)
             dpiScale = float (dpi) / 96.0f;
     }
-    if (!blanked)
-        layer.Draw (device, context, labels, viewProj, width, height, dpiScale);
+    if (blanked)
+        return labels.empty ();
+    const bool ready = layer.Draw (device, context, labels, viewProj, width, height, dpiScale, offscreen);
+    if (offscreen && !ready) {
+        const SceneTextLayerStats stats = layer.Stats ();
+        if (stats.unavailableGlyphs != 0 || stats.atlasGenerationFailures != 0 || stats.atlasUploadFailures != 0 ||
+            stats.atlasRejected != 0)
+            throw std::runtime_error ("capture text could not generate or upload every required glyph");
+    }
+    return ready;
 }
 
 ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,

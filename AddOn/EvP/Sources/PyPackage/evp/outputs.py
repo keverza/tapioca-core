@@ -168,17 +168,20 @@ def capture(name, view="current", save=True):
 
 
 def diligent_capture(name, camera, width, height, render_quality="realistic",
-                      save=True, timeout=300.0, poll_interval=0.1):
+                      save=True, timeout=300.0, poll_interval=0.1, dpi=96.0):
     """Render a fixed-size Diligent frame and return ``(artifact, png_bytes)``.
 
-    Native extraction and rendering are asynchronous. This wrapper polls their
-    non-blocking state command and downloads the completed PNG from loopback.
+    Native extraction and rendering are asynchronous. ``dpi`` controls scene-text
+    scaling and defaults to 96; it does not add physical-resolution PNG metadata.
+    This wrapper polls the non-blocking state command and downloads the completed
+    PNG from loopback.
     """
     from .api import call
 
     started = call("Tapioca.StartDiligentCapture", {
         "width": width,
         "height": height,
+        "dpi": dpi,
         "renderQuality": render_quality,
         "camera": dict(camera),
     }, raise_on_error=False)
@@ -215,10 +218,12 @@ def diligent_capture(name, camera, width, height, render_quality="realistic",
 
 def diligent_capture_batch(cameras, width, height, directory=None,
                            render_quality="realistic", timeout=1800.0,
-                           poll_interval=0.25, **overlays):
+                           poll_interval=0.25, dpi=96.0, **overlays):
     """Render one frame per camera from a SINGLE model extraction.
 
-    ``cameras`` is a list of camera dicts, each optionally carrying a ``sun``
+    ``dpi`` controls scene-text scaling for every frame and defaults to 96; it
+    does not add physical-resolution PNG metadata. ``cameras`` is a list of
+    camera dicts, each optionally carrying a ``sun``
     of ``{enabled, azimuthDegrees, altitudeDegrees}``. Returns the list of PNG
     paths written, in camera order.
 
@@ -241,6 +246,7 @@ def diligent_capture_batch(cameras, width, height, directory=None,
     request = {
         "width": width,
         "height": height,
+        "dpi": dpi,
         "renderQuality": render_quality,
         "outputDirectory": folder,
         "cameras": [dict(camera) for camera in cameras],

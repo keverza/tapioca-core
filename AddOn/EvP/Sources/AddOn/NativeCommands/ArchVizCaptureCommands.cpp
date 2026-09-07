@@ -29,15 +29,17 @@ class StartDiligentCaptureCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Int32 width = 0, height = 0;
+        double dpi = 96.0;
         GS::UniString quality;
         params.Get ("width", width);
         params.Get ("height", height);
+        params.Get ("dpi", dpi);
         params.Get ("renderQuality", quality);
         uint64_t id = 0;
         std::string error;
-        if (!av::DiligentViewport::Get ().StartCapture (uint32_t (width), uint32_t (height), ReadCaptureCamera (params),
-                                                        quality == "realistic" ? 1 : 0, ReadCaptureOverlays (params),
-                                                        id, error))
+        if (!av::DiligentViewport::Get ().StartCapture (uint32_t (width), uint32_t (height), float (dpi),
+                                                        ReadCaptureCamera (params), quality == "realistic" ? 1 : 0,
+                                                        ReadCaptureOverlays (params), id, error))
             return NativeCommandResult::Failure (GS::UniString (error.c_str (), CC_UTF8));
         GS::ObjectState os;
         os.Add ("id", static_cast<GS::Int64> (id));
@@ -75,10 +77,12 @@ class StartDiligentCaptureBatchCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Int32 width = 0, height = 0;
+        double dpi = 96.0;
         GS::UniString quality;
         GS::UniString directory;
         params.Get ("width", width);
         params.Get ("height", height);
+        params.Get ("dpi", dpi);
         params.Get ("renderQuality", quality);
         params.Get ("outputDirectory", directory);
 
@@ -92,7 +96,7 @@ class StartDiligentCaptureBatchCommand : public MainThreadCommand {
         uint64_t id = 0;
         std::string error;
         if (!av::DiligentViewport::Get ().StartCaptureBatch (
-                uint32_t (width), uint32_t (height), frames, quality == "realistic" ? 1 : 0,
+                uint32_t (width), uint32_t (height), float (dpi), frames, quality == "realistic" ? 1 : 0,
                 ReadCaptureOverlays (params), std::string (directory.ToCStr (0, MaxUSize, CC_UTF8).Get ()), id, error))
             return NativeCommandResult::Failure (GS::UniString (error.c_str (), CC_UTF8));
 
@@ -166,10 +170,10 @@ class CancelDiligentCaptureCommand : public MainThreadCommand {
 
 const NativeCommandRegistration registrations[] = {
     { "StartDiligentCapture", &MakeRegisteredNativeCommand<StartDiligentCaptureCommand>, false,
-      R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"renderQuality":{"type":"string","enum":["fast","realistic"]},"storySlices":{"type":"boolean"},"storySliceFill":{"type":"boolean"},"storySliceOccluded":{"type":"string","enum":["hidden","dashed","solid"]},"storySliceWidthPixels":{"type":"number","exclusiveMinimum":0,"maximum":32},"storySliceRgba":{"type":"integer"},"storySliceFillRgba":{"type":"integer"},"camera":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}},"additionalProperties":false,"required":["width","height","renderQuality","camera"]})json",
+      R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"dpi":{"type":"number","minimum":24,"maximum":1200},"renderQuality":{"type":"string","enum":["fast","realistic"]},"storySlices":{"type":"boolean"},"storySliceFill":{"type":"boolean"},"storySliceOccluded":{"type":"string","enum":["hidden","dashed","solid"]},"storySliceWidthPixels":{"type":"number","exclusiveMinimum":0,"maximum":32},"storySliceRgba":{"type":"integer"},"storySliceFillRgba":{"type":"integer"},"camera":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}},"additionalProperties":false,"required":["width","height","renderQuality","camera"]})json",
       R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","const":"running"}},"additionalProperties":false,"required":["id","status"]})json" },
     { "StartDiligentCaptureBatch", &MakeRegisteredNativeCommand<StartDiligentCaptureBatchCommand>, false,
-      R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"renderQuality":{"type":"string","enum":["fast","realistic"]},"storySlices":{"type":"boolean"},"storySliceFill":{"type":"boolean"},"storySliceOccluded":{"type":"string","enum":["hidden","dashed","solid"]},"storySliceWidthPixels":{"type":"number","exclusiveMinimum":0,"maximum":32},"storySliceRgba":{"type":"integer"},"storySliceFillRgba":{"type":"integer"},"outputDirectory":{"type":"string","minLength":1},"cameras":{"type":"array","minItems":1,"maxItems":256,"items":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179},"sun":{"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}}},"additionalProperties":false,"required":["width","height","renderQuality","outputDirectory","cameras"]})json",
+      R"json({"type":"object","properties":{"width":{"type":"integer","minimum":16,"maximum":8192},"height":{"type":"integer","minimum":16,"maximum":8192},"dpi":{"type":"number","minimum":24,"maximum":1200},"renderQuality":{"type":"string","enum":["fast","realistic"]},"storySlices":{"type":"boolean"},"storySliceFill":{"type":"boolean"},"storySliceOccluded":{"type":"string","enum":["hidden","dashed","solid"]},"storySliceWidthPixels":{"type":"number","exclusiveMinimum":0,"maximum":32},"storySliceRgba":{"type":"integer"},"storySliceFillRgba":{"type":"integer"},"outputDirectory":{"type":"string","minLength":1},"cameras":{"type":"array","minItems":1,"maxItems":256,"items":{"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179},"sun":{"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]}}},"additionalProperties":false,"required":["width","height","renderQuality","outputDirectory","cameras"]})json",
       R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1},"status":{"type":"string","const":"running"},"frameCount":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id","status","frameCount"]})json" },
     { "DiligentCaptureState", &MakeRegisteredNativeCommand<DiligentCaptureStateCommand>, false,
       R"json({"type":"object","properties":{"id":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["id"]})json",

@@ -164,11 +164,11 @@ void DrawCornerGnomon (Diligent::IDeviceContext* context, DiligentScene& scene, 
 // the definition for why this lives here rather than in the frame body.
 void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats& sceneStats);
 
-void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                              std::mutex& mutex, const std::vector<SceneTextLabel>& pendingLabels,
                              uint64_t publishedSequence, uint64_t& adoptedSequence, std::vector<SceneTextLabel>& labels,
                              bool blanked, bool offscreen, void* nativeWindow, const float viewProj[16], uint32_t width,
-                             uint32_t height);
+                             uint32_t height, float captureDpi);
 
 ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
                                                   Diligent::IDeviceContext* context, bool blanked, bool offscreen,

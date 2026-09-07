@@ -110,6 +110,7 @@ def test_diligent_capture_polls_then_fetches_and_writes_through_outputs(monkeypa
         "Tapioca.DiligentCaptureState",
         "Tapioca.DiligentCaptureState",
     ]
+    assert calls[0][1]["dpi"] == 96.0
 
 
 def test_text_label_helpers_are_thin_retained_api_calls(monkeypatch):
@@ -175,6 +176,23 @@ def test_capture_batch_sends_every_camera_once_and_returns_the_written_paths(mon
     assert starts[0]["cameras"][0]["sun"]["azimuthDegrees"] == 135.0
     assert "sun" not in starts[0]["cameras"][1]
     assert starts[0]["outputDirectory"] == str(tmp_path)
+    assert starts[0]["dpi"] == 96.0
+
+
+def test_capture_forwards_explicit_target_dpi(monkeypatch):
+    calls = []
+
+    def fake_call(command, params, raise_on_error=False):
+        calls.append((command, params))
+        if command == "Tapioca.StartDiligentCapture":
+            return result({"id": 9, "status": "running"})
+        return result({"id": 9, "status": "cancelled", "stage": "cancelled",
+                       "failureMessage": "test"})
+
+    monkeypatch.setattr(api, "call", fake_call)
+    with pytest.raises(outputs.OutputError):
+        outputs.diligent_capture("dpi", camera(), 800, 600, dpi=300.0, save=False)
+    assert calls[0][1]["dpi"] == 300.0
 
 
 def test_capture_batch_reports_how_far_it_got_when_it_times_out(monkeypatch, tmp_path):

@@ -40,6 +40,7 @@ extern const char* const kCaptureNodeType;
 struct RenderSettings {
     int64_t width = 1920;
     int64_t height = 1080;
+    double dpi = 96.0;
     std::string renderQuality = "realistic";
 
     bool storySlices = false;

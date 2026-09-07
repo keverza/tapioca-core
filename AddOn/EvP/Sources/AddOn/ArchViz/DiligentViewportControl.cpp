@@ -88,7 +88,8 @@ bool DiligentViewport::StartUnlocked (const Surface& surface, const CameraStart&
     return true;
 }
 
-bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, const CameraStart& camera, int renderQuality,
+bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, float dpi, const CameraStart& camera,
+                                     int renderQuality,
                                      const CaptureOverlays& overlays, uint64_t& captureId, std::string& error)
 {
     // The single capture IS a one-frame batch, and delegating rather than
@@ -99,15 +100,21 @@ bool DiligentViewport::StartCapture (uint32_t width, uint32_t height, const Came
     // evp.outputs.diligent_capture are untouched.
     CaptureFrame single;
     single.camera = camera;
-    return StartCaptureBatch (width, height, { single }, renderQuality, overlays, std::string {}, captureId, error);
+    return StartCaptureBatch (width, height, dpi, { single }, renderQuality, overlays, std::string {}, captureId, error);
 }
 
-bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, const std::vector<CaptureFrame>& frames,
-                                          int renderQuality, const CaptureOverlays& overlays,
+bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, float dpi,
+                                           const std::vector<CaptureFrame>& frames, int renderQuality,
+                                           const CaptureOverlays& overlays,
                                           const std::string& outputDirectory, uint64_t& captureId, std::string& error)
 {
     std::lock_guard<std::mutex> lifecycleLock (lifecycleMutex_);
     captureId = 0;
+
+    if (!std::isfinite (dpi) || dpi < 24.0f || dpi > 1200.0f) {
+        error = "capture DPI must be finite and between 24 and 1200";
+        return false;
+    }
 
     if (frames.empty ()) {
         error = "a capture batch needs at least one camera";
@@ -185,6 +192,7 @@ bool DiligentViewport::StartCaptureBatch (uint32_t width, uint32_t height, const
     }
     activeCaptureId_.store (captureId);
     captureRenderQuality_.store (renderQuality);
+    captureDpi_.store (dpi);
     captureStorySlices_.store (overlays.storySlices);
     captureStorySliceFill_.store (overlays.storySliceFill);
     captureStorySliceOccluded_.store (int (overlays.storySliceOccluded));
