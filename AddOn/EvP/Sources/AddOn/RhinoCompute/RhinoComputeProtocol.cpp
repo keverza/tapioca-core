@@ -2,9 +2,11 @@
 
 #include "NodeGraph/Json.hpp"
 
-#include <algorithm>
-#include <cmath>
 #include <cstdio>
+// std::locale::classic, for the number parses below. MSVC happens to pull this
+// in through <sstream>; relying on that is how a locale-correct parse silently
+// stops compiling on a toolchain that does not.
+#include <locale>
 #include <sstream>
 
 namespace evp {
