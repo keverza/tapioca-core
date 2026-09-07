@@ -157,9 +157,12 @@ def test_scene_text_shaping_is_owned_by_the_layout_worker_not_the_render_layer()
 
 def test_projected_annotation_text_keeps_its_translucent_background_panel():
     layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+    projected = (_ADDON / "ArchViz" / "TraceAnnotationLayer.hpp").read_text(encoding="utf-8")
 
     assert "input.uv.x < 0.0" in layer
     assert "VerticalAnchor::Baseline" in layer
+    assert "bool backgroundPanel = true" in projected
+    assert "if (label.backgroundPanel)" in layer
     assert "LinearAbgr (0xFFFFFFE0u)" in layer
     assert layer.index("AddQuad (vertices, boundsLeft") < layer.index(
         "vertices.insert (vertices.end (), labelVertices.begin (), labelVertices.end ())"

@@ -207,6 +207,10 @@ set (EVP_NODEGRAPH_SOURCES
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphSerializer.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/GraphStore.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/Json.cpp"
+    # The rhino.compute wire. DevKit-free and socket-free by construction, so the
+    # half that fails silently - request shaping and response parsing - is proved
+    # here. Process supervision is not, and lives in RhinoComputeManager.
+    "${EVP_ROOT}/Sources/AddOn/RhinoCompute/RhinoComputeProtocol.cpp"
     "${EVP_ROOT}/Sources/AddOn/NodeGraph/NodeExecution.cpp"
     # The render family: what a headless capture is TOLD. Renderer-free by
     # construction - it names no ArchViz type and includes no Diligent header,
@@ -281,10 +285,12 @@ set (EVP_NODEGRAPH_SOURCES
 # that need FreeType/HarfBuzz headers.
 set (EVP_SCENE_TEXT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlasCache.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayout.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayoutCache.cpp")
 set (EVP_SCENE_TEXT_TESTS
     test_scenetextatlas.cpp
+    test_scenetextatlascache.cpp
     test_scenetextlayout.cpp
     test_scenetextlayoutcache.cpp)
 set (EVP_ARCHVIZ_SOURCES
@@ -532,6 +538,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyatlas.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
+    test_rhinocomputeprotocol.cpp
     test_ghpreviewprotocol.cpp
     test_ghpreviewcache.cpp
     test_ghpreviewingest.cpp

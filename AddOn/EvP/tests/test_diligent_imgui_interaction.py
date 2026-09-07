@@ -59,3 +59,20 @@ def test_graph_lab_logs_each_input_stage_without_swap_chain_hooks() -> None:
     assert "WH_GETMESSAGE" in native_input
     assert "PresentHook" not in native_input
     assert "PresentHook" not in lab
+
+
+def test_scene_text_live_check_uses_the_production_text_layer() -> None:
+    hud = (ARCHVIZ / "DiligentHud.cpp").read_text(encoding="utf-8")
+    live_check = (ARCHVIZ / "SceneTextLiveCheck.cpp").read_text(encoding="utf-8")
+    viewport = (ARCHVIZ / "DiligentViewport.cpp").read_text(encoding="utf-8")
+
+    assert "DrawSceneTextLiveCheckControls (state)" in hud
+    assert 'ImGui::Checkbox ("show production text sample"' in live_check
+    assert "sceneTextCheckSizePixels" in live_check
+    assert '"white halo %.2f px; coloured halo 0 px"' in live_check
+    assert "label.backgroundPanel = false" in live_check
+    assert "layer.DrawProjected" in live_check
+    assert "Tapioca HarfBuzz + MTSDF" in live_check
+    assert "Ąžuolų plotas 42 m² | 18° | Ø250" in live_check
+    assert "office affine AV To Wa" in live_check
+    assert "hudState" in viewport[viewport.index("UpdateAndDrawTraceAnnotations") :]
