@@ -49,20 +49,11 @@ crash*, not a particular answer.
 
 ## Three things to know before trusting a green run
 
-**1. The scene-text tests do not run by default.** `EVP_TEXT_RENDERING` is `OFF`
-while that feature is half-finished, so FreeType, HarfBuzz, msdfgen and
-msdf-atlas-gen are not configured and `test_scenetextatlas`,
-`test_scenetextlayout` and `test_scenetextlayoutcache` are not built. The
-configure step says so. This keeps an in-progress feature from turning the gate
-red for everyone else — the node-graph tests have nothing to do with text — but
-it does mean a green run says nothing about scene text. Picking that work back
-up starts with:
-
-```powershell
-.\Invoke-CppTests.ps1   # after: cmake -S . -B build -DEVP_TEXT_RENDERING=ON
-```
-
-The `.apx` build is unaffected and still builds the text stack.
+**1. Scene text is part of the default gate.** FreeType, HarfBuzz, msdfgen and
+msdf-atlas-gen are configured for every test build, and
+`test_scenetextatlas`, `test_scenetextlayout` and
+`test_scenetextlayoutcache` run with the rest of the offline suite. A green run
+therefore covers the same pinned text stack shipped in the `.apx`.
 
 **2. These fixtures are synthetic.** `CLAUDE.md` says never validate a geometry
 algorithm on synthetic data alone, and that still holds. What is here are *analytic*

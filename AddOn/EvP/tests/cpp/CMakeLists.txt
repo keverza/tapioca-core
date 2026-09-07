@@ -37,28 +37,9 @@ set (NANORT_INC "${REF_DIR}/nanort-release")
 set (GLM_INC "${REF_DIR}/glm-master")
 set (CLIPPER2_DIR "${REF_DIR}/Clipper2-main/CPP")
 set (QUICKJS_DIR "${REF_DIR}/quickjs-ng")
-# The vendored text stack (FreeType + HarfBuzz + msdfgen + msdf-atlas-gen) is
-# BEHIND A SWITCH, DEFAULT OFF, while the scene-text feature it serves is
-# half-finished.
-#
-# It is off by default because of what it costs everyone who is NOT working on
-# text: four third-party libraries configure and compile on every fresh build
-# tree, and an in-progress change anywhere in that stack stops the whole offline
-# suite - including the node-graph tests, which have nothing to do with text.
-# A gate that a half-finished neighbouring feature can turn red is a gate people
-# start ignoring.
-#
-# âš ï¸ TURNING IT OFF DROPS REAL COVERAGE, so it says so out loud rather than
-# quietly building fewer tests. Turn it back on with -DEVP_TEXT_RENDERING=ON,
-# which is what anyone picking the feature back up must do.
-option (EVP_TEXT_RENDERING "Build the vendored text-rendering stack and its tests" OFF)
-if (EVP_TEXT_RENDERING)
-    include ("${EVP_ROOT}/cmake/TextRendering.cmake")
-else ()
-    message (STATUS "EVP_TEXT_RENDERING=OFF: skipping FreeType/HarfBuzz/msdfgen and the SceneText* tests. Re-enable with -DEVP_TEXT_RENDERING=ON.")
-    set (TAPIOCA_TEXT_LIBS "")
-    set (TAPIOCA_TEXT_FONT "")
-endif ()
+# Scene text is shipped production code, so its pinned dependencies and tests
+# belong to the default offline gate rather than an optional coverage tier.
+include ("${EVP_ROOT}/cmake/TextRendering.cmake")
 # No msgpack include on purpose: the serializer hand-rolls its writer, and
 # test_serializer.cpp hand-rolls an INDEPENDENT reader from the msgpack spec.
 # Round-tripping through the same library the writer used would prove less.
@@ -296,9 +277,8 @@ set (EVP_NODEGRAPH_SOURCES
 # Getting it wrong reports a rendering fault that is not there (or hides one
 # that is), and it took three live Archicad runs to notice that the last time.
 # âš ï¸ KEEP IT <d3d11.h>-FREE â€” the DXGI format numbers are spelled out on purpose.
-# The three scene-text engines and their tests, listed once and appended only
-# when the stack above is built. They are the only sources here that need
-# FreeType/HarfBuzz headers.
+# The three scene-text engines and their tests. They are the only sources here
+# that need FreeType/HarfBuzz headers.
 set (EVP_SCENE_TEXT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayout.cpp"
@@ -307,11 +287,6 @@ set (EVP_SCENE_TEXT_TESTS
     test_scenetextatlas.cpp
     test_scenetextlayout.cpp
     test_scenetextlayoutcache.cpp)
-if (NOT EVP_TEXT_RENDERING)
-    set (EVP_SCENE_TEXT_SOURCES "")
-    set (EVP_SCENE_TEXT_TESTS "")
-endif ()
-
 set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
@@ -716,9 +691,7 @@ target_compile_definitions (EvPGeomTests PRIVATE
     # and the examples are the half that would rot. An example whose header stops
     # parsing should fail the suite, because it has stopped being an example.
     EVP_TEST_SCRIPT_DIR="${EVP_ROOT}/GraphScripts")
-if (EVP_TEXT_RENDERING)
-    target_compile_definitions (EvPGeomTests PRIVATE EVP_SCENE_TEXT_FONT="${TAPIOCA_TEXT_FONT}")
-endif ()
+target_compile_definitions (EvPGeomTests PRIVATE EVP_SCENE_TEXT_FONT="${TAPIOCA_TEXT_FONT}")
 
 enable_testing ()
 include (GoogleTest)

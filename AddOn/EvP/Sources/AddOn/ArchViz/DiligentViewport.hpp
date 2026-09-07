@@ -474,6 +474,18 @@ class DiligentViewport final {
     {
         return running_.load ();
     }
+    // Main-thread host arbitration. The embedded retained-preview owner
+    // registers its cleanup here so feature code never depends upward on UI.
+    using RetainedHostRelease = void (*) ();
+    void SetRetainedHostRelease (RetainedHostRelease release)
+    {
+        retainedHostRelease_ = release;
+    }
+    void ReleaseRetainedHost ()
+    {
+        if (retainedHostRelease_ != nullptr)
+            retainedHostRelease_ ();
+    }
     DiligentViewportStats Stats () const;
 
     // ---- the overlay path: Archicad drives the camera ----------------------
@@ -540,6 +552,7 @@ class DiligentViewport final {
     void PublishCamera (const CameraStart& camera, bool discontinuity);
 
     std::thread worker_;
+    RetainedHostRelease retainedHostRelease_ = nullptr;
     std::atomic<bool> running_ { false };
     // Set by Start before the worker exists and read by SyncCamera from the main
     // thread, so it cannot be a plain member of the render thread's frame loop.

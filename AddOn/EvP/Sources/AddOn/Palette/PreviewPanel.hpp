@@ -29,6 +29,7 @@ class PreviewPanel {
     short Height () const;
     void PlaceAt (short left, short right, short bottom);
     bool PollRetained ();
+    void RelinquishEmbedded3DHost ();
     void SetEnabled (bool enabled);
     bool IsEnabled () const;
     void SetPaletteVisible (bool visible);
@@ -50,6 +51,8 @@ class PreviewPanel {
     bool IsCanvas (const DG::Item* item) const;
 
   private:
+    static void ReleaseActiveEmbedded3DHost ();
+    static PreviewPanel* activeInstance;
     void RebuildNodes ();
     bool SelectFirstAvailableFrame ();
     void ClearTrace ();

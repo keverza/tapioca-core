@@ -279,6 +279,7 @@ void ArchVizPanel::OpenDiligentViewport ()
         panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
         return;
     }
+    geomsrv::archviz::DiligentViewport::Get ().ReleaseRetainedHost ();
     panel.Show ();
 
     if (geomsrv::archviz::DiligentViewport::Get ().IsRunning ())
@@ -388,6 +389,7 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
         panel.statusText.SetText ("RE51.D1 D3D12 probe is running; wait for it to stop.");
         return;
     }
+    geomsrv::archviz::DiligentViewport::Get ().ReleaseRetainedHost ();
     // ⚠️ THE PALETTE IS *NOT* SHOWN IN OVERLAY MODE, and the first live run is
     // why. Showing it puts an EMPTY floating 3D panel next to the overlay --
     // empty because the picture is going to the overlay window instead, which

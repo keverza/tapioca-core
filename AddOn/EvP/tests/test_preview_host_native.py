@@ -4,8 +4,10 @@ from pathlib import Path
 
 _ADDON = Path(__file__).parents[1] / "Sources" / "AddOn"
 _PANEL = _ADDON / "Palette" / "PreviewPanel.cpp"
+_PANEL_SUPPORT = _ADDON / "Palette" / "PreviewPanelSupport.cpp"
 _VIEWPORT_CONTROL = _ADDON / "ArchViz" / "DiligentViewportControl.cpp"
 _VIEWPORT_SUPPORT = _ADDON / "ArchViz" / "DiligentViewportSupport.cpp"
+_ARCHVIZ_PANEL = _ADDON / "ArchViz" / "ArchVizPanel.cpp"
 _PLAN_HOST = _ADDON / "PlanOverlay" / "PlanCanvasHost.cpp"
 _PLAN_OVERLAY = _ADDON / "PlanOverlay" / "OverlayWindow.cpp"
 _PLAN_COMMANDS = _ADDON / "NativeCommands" / "PlanOverlayCommands.cpp"
@@ -43,6 +45,29 @@ def test_3d_handoffs_are_idle_driven_after_flag_only_stop_requests():
     assert "ArchVizPanel::OpenDiligentViewport" in panel
     assert "ArchVizPanel::CloseDiligentOverlay" in panel
     assert "ArchVizPanel::CloseViewer" in panel
+
+
+def test_external_viewer_relinquishes_embedded_preview_before_busy_check():
+    preview = _PANEL_SUPPORT.read_text(encoding="utf-8")
+    archviz = _ARCHVIZ_PANEL.read_text(encoding="utf-8")
+    release = preview[preview.index("void PreviewPanel::RelinquishEmbedded3DHost") :]
+    release = release[: release.index("bool PreviewPanel::EmbeddedInputAvailable")]
+
+    assert "host.current != previewpanel::Host::Band" in release
+    assert "ReleaseMouseInput ();" in release
+    assert "DiligentViewport::Get ().Stop ();" in release
+    assert "ForgetHardwareInputWindow" in release
+    assert "host.current = previewpanel::Host::None" in release
+    assert "host.transition = false" in release
+
+    viewer = archviz[archviz.index("void ArchVizPanel::OpenDiligentViewport") :]
+    viewer = viewer[: viewer.index("void ArchVizPanel::OpenDiligentOverlay")]
+    overlay = archviz[archviz.index("void ArchVizPanel::OpenDiligentOverlay") :]
+    for opening in (viewer, overlay):
+        relinquish = opening.index("ReleaseRetainedHost")
+        busy_check = opening.index("DiligentViewport::Get ().IsRunning")
+        extraction = opening.index("ExtractionWorker::Get ().StartLive")
+        assert relinquish < busy_check < extraction
 
 
 def test_3d_band_routes_supported_user_item_input_to_existing_ring():
@@ -139,6 +164,16 @@ def test_projected_annotation_text_keeps_its_translucent_background_panel():
     assert layer.index("AddQuad (vertices, boundsLeft") < layer.index(
         "vertices.insert (vertices.end (), labelVertices.begin (), labelVertices.end ())"
     )
+
+
+def test_scene_text_halo_uses_mtsdf_true_distance_in_the_same_glyph_quad():
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+
+    assert "screenRange*(distance.a-0.5)" in layer
+    assert "input.haloWidth" in layer
+    assert "input.haloColor.rgb*haloAlpha" in layer
+    assert "{ 3, 0, 4, Diligent::VT_UINT8, Diligent::True }" in layer
+    assert "{ 4, 0, 1, Diligent::VT_FLOAT32, Diligent::False }" in layer
 
 
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():

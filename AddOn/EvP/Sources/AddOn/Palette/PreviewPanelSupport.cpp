@@ -1,5 +1,8 @@
 #include "Palette/PreviewPanel.hpp"
 
+#include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/HardwareInput.hpp"
+#include "ArchViz/InputRingBuffer.hpp"
 #include "PlanOverlay/OverlayWindow.hpp"
 
 #include "DGWin.h"
@@ -9,6 +12,31 @@
 #include <algorithm>
 
 namespace evp {
+
+PreviewPanel* PreviewPanel::activeInstance = nullptr;
+
+void PreviewPanel::ReleaseActiveEmbedded3DHost ()
+{
+    if (activeInstance != nullptr)
+        activeInstance->RelinquishEmbedded3DHost ();
+}
+
+void PreviewPanel::RelinquishEmbedded3DHost ()
+{
+    if (host.current != previewpanel::Host::Band)
+        return;
+
+    void* const canvasWindow = CanvasWindow ();
+    ReleaseMouseInput ();
+    geomsrv::archviz::DiligentViewport::Get ().Stop ();
+    geomsrv::archviz::InputRingBuffer::Get ().Reset ();
+    geomsrv::archviz::ForgetHardwareInputWindow (canvasWindow);
+    host.current = previewpanel::Host::None;
+    host.target = previewpanel::Host::None;
+    host.transition = false;
+    SetPresentationStatus ("3D opened externally");
+    UpdateLabels ();
+}
 
 bool PreviewPanel::EmbeddedInputAvailable () const
 {

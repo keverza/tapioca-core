@@ -67,10 +67,14 @@ PreviewPanel::PreviewPanel (const DG::Panel& panelRef, DG::CheckItemObserver& ch
     : panel (panelRef), checkObserver (checkObserverRef), buttonObserver (buttonObserverRef),
       popupObserver (popupObserverRef), scrollObserver (scrollObserverRef), userItemObserver (userItemObserverRef)
 {
+    activeInstance = this;
+    geomsrv::archviz::DiligentViewport::Get ().SetRetainedHostRelease (&PreviewPanel::ReleaseActiveEmbedded3DHost);
 }
 
 PreviewPanel::~PreviewPanel ()
 {
+    geomsrv::archviz::DiligentViewport::Get ().SetRetainedHostRelease (nullptr);
+    activeInstance = nullptr;
     void* const canvasWindow = CanvasWindow ();
     ReleaseMouseInput ();
     if (host.current == Host::Band) {

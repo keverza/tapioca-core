@@ -56,6 +56,9 @@ TEST (SceneTextLayout, ShapesLithuanianLigaturesAndCombiningMarksDeterministical
 
     const auto ligature = Shape (shaper, "office");
     EXPECT_LT (ligature.glyphs.size (), 6u);
+    const auto kernedPair = Shape (shaper, "AV");
+    const auto separateAdvance = Shape (shaper, "A").advance + Shape (shaper, "V").advance;
+    EXPECT_LT (kernedPair.advance, separateAdvance);
     const auto decomposed = Shape (shaper, "a\xCC\x81");
     const auto precomposed = Shape (shaper, "\xC3\xA1");
     EXPECT_EQ (decomposed.glyphs.size (), precomposed.glyphs.size ());

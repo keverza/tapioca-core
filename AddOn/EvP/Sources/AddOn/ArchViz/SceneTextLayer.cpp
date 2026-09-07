@@ -38,12 +38,16 @@ struct PreparedSceneTextLabel {
     uint32_t rgba = 0xFFFFFFFFu;
     SceneTextAlignment alignment = SceneTextAlignment::Left;
     VerticalAnchor verticalAnchor = VerticalAnchor::Baseline;
+    uint32_t haloRgba = 0;
+    float haloWidthPixels = 0.0f;
 };
 
 struct SceneTextVertex {
     float position[2];
     float uv[2];
-    uint32_t abgr;
+    uint32_t fillAbgr;
+    uint32_t haloAbgr;
+    float haloWidthPixels;
 };
 
 struct SceneTextConstants {
@@ -53,14 +57,18 @@ struct SceneTextConstants {
 
 constexpr const char* kSceneTextVS = R"hlsl(
 cbuffer SceneTextConstants { float4 g_surface; float4 g_atlasParams; };
-struct VSInput { float2 position : ATTRIB0; float2 uv : ATTRIB1; float4 color : ATTRIB2; };
-struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 color : COLOR; };
+struct VSInput { float2 position : ATTRIB0; float2 uv : ATTRIB1; float4 fillColor : ATTRIB2;
+                 float4 haloColor : ATTRIB3; float haloWidth : ATTRIB4; };
+struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 fillColor : COLOR0;
+                 float4 haloColor : COLOR1; float haloWidth : TEX_COORD1; };
 void main (in VSInput input, out PSInput output)
 {
     output.position = float4(input.position.x*g_surface.x*2.0-1.0,
                              1.0-input.position.y*g_surface.y*2.0, 0.0, 1.0);
     output.uv = input.uv;
-    output.color = input.color;
+    output.fillColor = input.fillColor;
+    output.haloColor = input.haloColor;
+    output.haloWidth = input.haloWidth;
 }
 )hlsl";
 
@@ -68,18 +76,22 @@ constexpr const char* kSceneTextPS = R"hlsl(
 cbuffer SceneTextConstants { float4 g_surface; float4 g_atlasParams; };
 Texture2D g_atlas;
 SamplerState g_atlas_sampler;
-struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 color : COLOR; };
+struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 fillColor : COLOR0;
+                 float4 haloColor : COLOR1; float haloWidth : TEX_COORD1; };
 float Median(float3 value) { return max(min(value.r, value.g), min(max(value.r, value.g), value.b)); }
 float4 main (PSInput input) : SV_TARGET
 {
     if (input.uv.x < 0.0)
-        return float4(input.color.rgb*input.color.a, input.color.a);
-    float distance = Median(g_atlas.Sample(g_atlas_sampler, input.uv).rgb);
+        return float4(input.fillColor.rgb*input.fillColor.a, input.fillColor.a);
+    float4 distance = g_atlas.Sample(g_atlas_sampler, input.uv);
     float2 unitRange = g_atlasParams.x*g_surface.zw;
     float2 screenTexelRange = 1.0/max(fwidth(input.uv), float2(1e-6, 1e-6));
     float screenRange = max(0.5*dot(unitRange, screenTexelRange), 1.0);
-    float coverage = saturate(screenRange*(distance-0.5)+0.5)*input.color.a;
-    return float4(input.color.rgb*coverage, coverage);
+    float fillCoverage = saturate(screenRange*(Median(distance.rgb)-0.5)+0.5);
+    float haloCoverage = saturate(screenRange*(distance.a-0.5)+0.5+max(input.haloWidth, 0.0));
+    float fillAlpha = fillCoverage*input.fillColor.a;
+    float haloAlpha = haloCoverage*input.haloColor.a*(1.0-fillAlpha);
+    return float4(input.fillColor.rgb*fillAlpha+input.haloColor.rgb*haloAlpha, fillAlpha+haloAlpha);
 }
 )hlsl";
 
@@ -140,12 +152,16 @@ bool ProjectAnchor (const SceneTextLabel& label, const float viewProj[16], uint3
 }
 
 void AddQuad (std::vector<SceneTextVertex>& vertices, float left, float top, float right, float bottom, float u0,
-              float v0, float u1, float v1, uint32_t color)
+              float v0, float u1, float v1, uint32_t fillColor, uint32_t haloColor = 0,
+              float haloWidthPixels = 0.0f)
 {
     const SceneTextVertex quad[6] = {
-        { { left, top }, { u0, v1 }, color },     { { right, top }, { u1, v1 }, color },
-        { { right, bottom }, { u1, v0 }, color }, { { left, top }, { u0, v1 }, color },
-        { { right, bottom }, { u1, v0 }, color }, { { left, bottom }, { u0, v0 }, color },
+        { { left, top }, { u0, v1 }, fillColor, haloColor, haloWidthPixels },
+        { { right, top }, { u1, v1 }, fillColor, haloColor, haloWidthPixels },
+        { { right, bottom }, { u1, v0 }, fillColor, haloColor, haloWidthPixels },
+        { { left, top }, { u0, v1 }, fillColor, haloColor, haloWidthPixels },
+        { { right, bottom }, { u1, v0 }, fillColor, haloColor, haloWidthPixels },
+        { { left, bottom }, { u0, v0 }, fillColor, haloColor, haloWidthPixels },
     };
     vertices.insert (vertices.end (), std::begin (quad), std::end (quad));
 }
@@ -245,6 +261,8 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         { 0, 0, 2, Diligent::VT_FLOAT32, Diligent::False },
         { 1, 0, 2, Diligent::VT_FLOAT32, Diligent::False },
         { 2, 0, 4, Diligent::VT_UINT8, Diligent::True },
+        { 3, 0, 4, Diligent::VT_UINT8, Diligent::True },
+        { 4, 0, 1, Diligent::VT_FLOAT32, Diligent::False },
     };
     Diligent::GraphicsPipelineStateCreateInfo pipeline;
     pipeline.PSODesc.Name = "Scene text MTSDF PSO";
@@ -337,7 +355,8 @@ void SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
         if (label.text.empty () || !ProjectAnchor (label, viewProj, surfaceWidth, surfaceHeight, anchorX, anchorY))
             continue;
         prepared.push_back ({ anchorX, anchorY, &label.text, std::clamp (label.sizePixels * dpiScale, 6.0f, 192.0f),
-                              label.rgba, label.alignment, VerticalAnchor::Baseline });
+                               label.rgba, label.alignment, VerticalAnchor::Baseline, label.haloRgba,
+                               std::clamp (label.haloWidthPixels * dpiScale, 0.0f, 8.0f) });
     }
     impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, false);
 }
@@ -427,6 +446,7 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             }
         }
         const uint32_t color = LinearAbgr (label.rgba);
+        const uint32_t haloColor = LinearAbgr (label.haloRgba);
         std::vector<SceneTextVertex> labelVertices;
         size_t emitted = 0;
         float boundsLeft = 0.0f, boundsTop = 0.0f, boundsRight = 0.0f, boundsBottom = 0.0f;
@@ -441,8 +461,8 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             const float bottom = baseline - (positioned.yOffset + glyph->planeBottom) * pixelSize;
             if (right >= 0.0f && left <= float (surfaceWidth) && bottom >= 0.0f && top <= float (surfaceHeight)) {
                 AddQuad (labelVertices, left, top, right, bottom, glyph->atlasLeft / float (atlas.Width ()),
-                         glyph->atlasBottom / float (atlas.Height ()), glyph->atlasRight / float (atlas.Width ()),
-                         glyph->atlasTop / float (atlas.Height ()), color);
+                          glyph->atlasBottom / float (atlas.Height ()), glyph->atlasRight / float (atlas.Width ()),
+                          glyph->atlasTop / float (atlas.Height ()), color, haloColor, label.haloWidthPixels);
                 if (emitted == 0) {
                     boundsLeft = left;
                     boundsTop = top;

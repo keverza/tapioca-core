@@ -20038,6 +20038,16 @@
                   "minimum": 0,
                   "maximum": 4294967295
                 },
+                "haloRgba": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "haloWidthPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8
+                },
                 "alignment": {
                   "type": "string",
                   "enum": [

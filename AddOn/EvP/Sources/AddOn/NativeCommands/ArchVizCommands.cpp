@@ -809,18 +809,24 @@ class SetDiligentTextLabelsCommand : public MainThreadCommand {
             GS::UniString text;
             GS::UniString alignment = "center";
             double sizePixels = 18.0;
+            double haloWidthPixels = 1.25;
             GS::Int64 rgba = 0xFFFFFFFFll;
+            GS::Int64 haloRgba = 0x000000C0ll;
             item.Get ("x", label.anchor[0]);
             item.Get ("y", label.anchor[1]);
             item.Get ("z", label.anchor[2]);
             item.Get ("text", text);
             item.Get ("sizePixels", sizePixels);
             item.Get ("rgba", rgba);
+            item.Get ("haloRgba", haloRgba);
+            item.Get ("haloWidthPixels", haloWidthPixels);
             item.Get ("alignment", alignment);
             const auto utf8 = text.ToCStr (0, GS::MaxUSize, CC_UTF8);
             label.text = utf8.Get ();
             label.sizePixels = static_cast<float> (sizePixels);
             label.rgba = static_cast<uint32_t> (rgba);
+            label.haloRgba = static_cast<uint32_t> (haloRgba);
+            label.haloWidthPixels = static_cast<float> (haloWidthPixels);
             if (alignment == "left")
                 label.alignment = av::SceneTextAlignment::Left;
             else if (alignment == "right")
@@ -905,7 +911,7 @@ const NativeCommandRegistration
           R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json",
           R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json" },
         { "SetDiligentTextLabels", &MakeRegisteredNativeCommand<SetDiligentTextLabelsCommand>, false,
-          R"json({"type":"object","properties":{"labels":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"x":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"y":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"z":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"text":{"type":"string","minLength":1,"maxLength":512},"sizePixels":{"type":"number","minimum":6,"maximum":192},"rgba":{"type":"integer","minimum":0,"maximum":4294967295},"alignment":{"type":"string","enum":["left","center","right"]}},"additionalProperties":false,"required":["x","y","z","text"]}}},"additionalProperties":false,"required":["labels"]})json",
+          R"json({"type":"object","properties":{"labels":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"x":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"y":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"z":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"text":{"type":"string","minLength":1,"maxLength":512},"sizePixels":{"type":"number","minimum":6,"maximum":192},"rgba":{"type":"integer","minimum":0,"maximum":4294967295},"haloRgba":{"type":"integer","minimum":0,"maximum":4294967295},"haloWidthPixels":{"type":"number","minimum":0,"maximum":8},"alignment":{"type":"string","enum":["left","center","right"]}},"additionalProperties":false,"required":["x","y","z","text"]}}},"additionalProperties":false,"required":["labels"]})json",
           R"json({"type":"object","properties":{"count":{"type":"integer","minimum":0,"maximum":256}},"additionalProperties":false,"required":["count"]})json" },
         { "ClearDiligentTextLabels", &MakeRegisteredNativeCommand<ClearDiligentTextLabelsCommand>, false,
           R"json({"type":"object","properties":{},"additionalProperties":false})json",
