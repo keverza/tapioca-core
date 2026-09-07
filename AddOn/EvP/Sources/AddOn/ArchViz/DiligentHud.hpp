@@ -77,6 +77,28 @@ struct HudState {
     bool graphInteractionActive = false;
     uint32_t frameLatency = 0;
 
+    // Production scene-text visual acceptance, controlled in the main-menu
+    // viewer and drawn by SceneTextLayer rather than ImGui's font atlas.
+    bool showSceneTextLiveCheck = false;
+    float sceneTextCheckSizePixels = 24.0f;
+    uint64_t sceneTextLabels = 0;
+    uint64_t sceneTextGlyphs = 0;
+    uint64_t sceneTextAtlasBytes = 0;
+    uint32_t sceneTextAtlasWidth = 0;
+    uint32_t sceneTextAtlasHeight = 0;
+    uint32_t sceneTextAtlasPages = 0;
+    uint32_t sceneTextPendingGlyphs = 0;
+    uint64_t sceneTextStagingBytes = 0;
+    uint64_t sceneTextAtlasMisses = 0;
+    uint64_t sceneTextAtlasUploads = 0;
+    uint64_t sceneTextAtlasUploadFailures = 0;
+    uint64_t sceneTextAtlasEvictions = 0;
+    uint64_t sceneTextAtlasRejected = 0;
+    uint64_t sceneTextAtlasGenerationFailures = 0;
+    uint64_t sceneTextGenerationMicroseconds = 0;
+    uint64_t sceneTextUploadMicroseconds = 0;
+    uint64_t sceneTextDrawCalls = 0;
+
     // Set by the HUD, read by the viewport. `debugView` mirrors
     // DiligentDebugView; the HUD is a SECOND way to set it, alongside the
     // command's parameter, and the two must not fight -- see DiligentHud.cpp.

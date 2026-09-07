@@ -34,6 +34,18 @@ struct SceneTextLayerStats {
     uint64_t atlasBytes = 0;
     uint32_t atlasWidth = 0;
     uint32_t atlasHeight = 0;
+    uint32_t atlasPages = 0;
+    uint32_t pendingGlyphs = 0;
+    uint64_t stagingBytes = 0;
+    uint64_t atlasMisses = 0;
+    uint64_t atlasUploads = 0;
+    uint64_t atlasUploadFailures = 0;
+    uint64_t atlasEvictions = 0;
+    uint64_t atlasRejected = 0;
+    uint64_t atlasGenerationFailures = 0;
+    uint64_t atlasGenerationMicroseconds = 0;
+    uint64_t atlasUploadMicroseconds = 0;
+    uint64_t drawCalls = 0;
 };
 
 class SceneTextLayer final {

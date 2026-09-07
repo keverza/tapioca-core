@@ -4,6 +4,7 @@
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/ImGuiGraphInteractionLab.hpp"
+#include "ArchViz/SceneTextLiveCheck.hpp"
 
 #include <windows.h>
 #include <d3d11.h> // Must precede any Diligent D3D11 interop header (Probe 1a).
@@ -376,6 +377,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
 
             ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
             ImGui::Checkbox ("graph interaction lab", &state.showGraphInteractionLab);
+            DrawSceneTextLiveCheckControls (state);
 
             // ---- Environment ------------------------------------------------
             //

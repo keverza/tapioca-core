@@ -75,4 +75,8 @@ def test_scene_text_live_check_uses_the_production_text_layer() -> None:
     assert "Tapioca HarfBuzz + MTSDF" in live_check
     assert "Ąžuolų plotas 42 m² | 18° | Ø250" in live_check
     assert "office affine AV To Wa" in live_check
+    assert "Łódź | ősz | fațadă" in live_check
+    assert "sceneTextPendingGlyphs" in live_check
+    assert "sceneTextAtlasUploads" in live_check
+    assert "sceneTextAtlasEvictions" in live_check
     assert "hudState" in viewport[viewport.index("UpdateAndDrawTraceAnnotations") :]

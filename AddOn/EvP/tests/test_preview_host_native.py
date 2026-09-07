@@ -164,8 +164,8 @@ def test_projected_annotation_text_keeps_its_translucent_background_panel():
     assert "bool backgroundPanel = true" in projected
     assert "if (label.backgroundPanel)" in layer
     assert "LinearAbgr (0xFFFFFFE0u)" in layer
-    assert layer.index("AddQuad (vertices, boundsLeft") < layer.index(
-        "vertices.insert (vertices.end (), labelVertices.begin (), labelVertices.end ())"
+    assert layer.index("AddQuad (panel.vertices, boundsLeft") < layer.index(
+        "for (VertexBatch& batch : labelBatches)"
     )
 
 
@@ -177,6 +177,25 @@ def test_scene_text_halo_uses_mtsdf_true_distance_in_the_same_glyph_quad():
     assert "input.haloColor.rgb*haloAlpha" in layer
     assert "{ 3, 0, 4, Diligent::VT_UINT8, Diligent::True }" in layer
     assert "{ 4, 0, 1, Diligent::VT_FLOAT32, Diligent::False }" in layer
+
+
+def test_dynamic_scene_text_pages_keep_cpu_generation_off_the_render_api():
+    cache = (_ADDON / "ArchViz" / "SceneTextAtlasCache.cpp").read_text(encoding="utf-8")
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(encoding="utf-8")
+
+    for forbidden in ("ACAPI_", "MainThreadGate", "Diligent::", "DG::"):
+        assert forbidden not in cache
+    assert "GenerateSceneTextAtlasPage" in cache
+    assert "kMaximumStagingPages = 2" in (
+        _ADDON / "ArchViz" / "SceneTextAtlasCache.hpp"
+    ).read_text(encoding="utf-8")
+    assert 'desc.Usage = Diligent::USAGE_IMMUTABLE' in layer
+    assert 'desc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM' in layer
+    assert "UploadReadyPages (device)" in layer
+    assert "draw.StartVertexLocation = startVertex" in layer
+    assert "dynamicPages[pageIndex - 1].srb" in layer
+    assert "std::vector<VertexBatch> batches" in layer
+    assert "if (!drawBatch (batch.vertices, batch.pageIndex))" in layer
 
 
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():

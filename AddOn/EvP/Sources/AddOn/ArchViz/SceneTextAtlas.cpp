@@ -18,6 +18,10 @@ std::vector<uint32_t> SeedCodepoints ()
     std::vector<uint32_t> codepoints;
     for (uint32_t codepoint = 0x20; codepoint <= 0x7E; ++codepoint)
         codepoints.push_back (codepoint);
+    // Common Western European Latin stays in the deterministic seed. Dynamic
+    // pages are for uncommon project text, not ordinary names such as Cafe.
+    for (uint32_t codepoint = 0x00C0; codepoint <= 0x00FF; ++codepoint)
+        codepoints.push_back (codepoint);
     constexpr uint32_t extras[] = {
         0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00D7, 0x0104, 0x0105, 0x010C, 0x010D,
         0x0116, 0x0117, 0x0118, 0x0119, 0x012E, 0x012F, 0x0160, 0x0161, 0x0172,
@@ -104,6 +108,112 @@ std::vector<uint32_t> DecodeSceneTextUtf8 (const std::string& text)
 std::string SceneTextSeedText ()
 {
     return EncodeUtf8 (SeedCodepoints ()) + " office affine fi fl ffi ffl a\xCC\x81";
+}
+
+std::shared_ptr<const SceneTextAtlasPage> GenerateSceneTextAtlasPage (const uint8_t* fontBytes, size_t fontByteCount,
+                                                                      const std::vector<uint32_t>& glyphIds,
+                                                                      std::string& error)
+{
+    std::vector<uint32_t> normalized = glyphIds;
+    std::sort (normalized.begin (), normalized.end ());
+    normalized.erase (std::unique (normalized.begin (), normalized.end ()), normalized.end ());
+    if (normalized.empty () || normalized.size () > SceneTextAtlasPage::kMaximumGlyphs) {
+        error = "a dynamic scene-text atlas page requires 1 to 64 unique glyph IDs";
+        return nullptr;
+    }
+    if (fontBytes == nullptr || fontByteCount == 0 ||
+        fontByteCount > static_cast<size_t> ((std::numeric_limits<int>::max) ())) {
+        error = "the dynamic scene-text atlas font is empty or too large";
+        return nullptr;
+    }
+
+    msdfgen::FreetypeHandle* freetype = msdfgen::initializeFreetype ();
+    if (freetype == nullptr) {
+        error = "msdfgen could not initialize FreeType for a dynamic scene-text atlas page";
+        return nullptr;
+    }
+    msdfgen::FontHandle* font = msdfgen::loadFontData (freetype, fontBytes, static_cast<int> (fontByteCount));
+    if (font == nullptr) {
+        msdfgen::deinitializeFreetype (freetype);
+        error = "FreeType could not load the dynamic scene-text atlas font";
+        return nullptr;
+    }
+
+    std::vector<msdf_atlas::GlyphGeometry> sourceGlyphs;
+    msdf_atlas::FontGeometry fontGeometry (&sourceGlyphs);
+    msdf_atlas::Charset glyphset;
+    for (uint32_t glyphId : normalized)
+        glyphset.add (glyphId);
+    const int loaded = fontGeometry.loadGlyphset (font, 1.0, glyphset, true, false);
+    msdfgen::destroyFont (font);
+    msdfgen::deinitializeFreetype (freetype);
+    if (loaded != static_cast<int> (normalized.size ())) {
+        error = "the dynamic scene-text atlas font did not contain every requested glyph ID";
+        return nullptr;
+    }
+
+    msdf_atlas::TightAtlasPacker packer;
+    packer.setDimensionsConstraint (msdf_atlas::DimensionsConstraint::POWER_OF_TWO_SQUARE);
+    packer.setScale (SceneTextAtlas::kEmPixels);
+    packer.setPixelRange (SceneTextAtlas::kDistanceRangePixels);
+    packer.setSpacing (2);
+    packer.setOuterPixelPadding (msdf_atlas::Padding (1.0));
+    if (packer.pack (sourceGlyphs.data (), static_cast<int> (sourceGlyphs.size ())) != 0) {
+        error = "the requested glyphs did not fit a dynamic MTSDF atlas page";
+        return nullptr;
+    }
+
+    auto page = std::shared_ptr<SceneTextAtlasPage> (new SceneTextAtlasPage ());
+    packer.getDimensions (page->width_, page->height_);
+    if (page->width_ <= 0 || page->height_ <= 0 || page->width_ > SceneTextAtlasPage::kMaximumDimension ||
+        page->height_ > SceneTextAtlasPage::kMaximumDimension) {
+        error = "the dynamic MTSDF atlas page exceeded its 512 pixel bound";
+        return nullptr;
+    }
+
+    unsigned long long seed = 1;
+    for (msdf_atlas::GlyphGeometry& glyph : sourceGlyphs) {
+        glyph.edgeColoring (msdfgen::edgeColoringInkTrap, 3.0, seed);
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+    }
+    using Storage = msdf_atlas::BitmapAtlasStorage<msdf_atlas::byte, 4>;
+    using Generator = msdf_atlas::ImmediateAtlasGenerator<float, 4, msdf_atlas::mtsdfGenerator, Storage>;
+    Generator generator (page->width_, page->height_);
+    generator.setThreadCount (1);
+    generator.generate (sourceGlyphs.data (), static_cast<int> (sourceGlyphs.size ()));
+
+    const msdfgen::BitmapConstSection<msdf_atlas::byte, 4> bitmap = generator.atlasStorage ();
+    page->pixels_.resize (static_cast<size_t> (page->width_) * static_cast<size_t> (page->height_) * 4);
+    for (int y = 0; y < page->height_; ++y)
+        std::memcpy (page->pixels_.data () + static_cast<size_t> (y) * page->width_ * 4, bitmap (0, y),
+                     static_cast<size_t> (page->width_) * 4);
+
+    page->glyphIds_ = std::move (normalized);
+    for (const msdf_atlas::GlyphGeometry& source : sourceGlyphs) {
+        SceneTextGlyph glyph;
+        glyph.codepoint = source.getCodepoint ();
+        glyph.glyphIndex = static_cast<uint32_t> (source.getIndex ());
+        glyph.advance = static_cast<float> (source.getAdvance ());
+        double left = 0.0, bottom = 0.0, right = 0.0, top = 0.0;
+        source.getQuadPlaneBounds (left, bottom, right, top);
+        glyph.planeLeft = static_cast<float> (left);
+        glyph.planeBottom = static_cast<float> (bottom);
+        glyph.planeRight = static_cast<float> (right);
+        glyph.planeTop = static_cast<float> (top);
+        source.getQuadAtlasBounds (left, bottom, right, top);
+        glyph.atlasLeft = static_cast<float> (left);
+        glyph.atlasBottom = static_cast<float> (bottom);
+        glyph.atlasRight = static_cast<float> (right);
+        glyph.atlasTop = static_cast<float> (top);
+        page->glyphs_.emplace (glyph.glyphIndex, glyph);
+    }
+    return page;
+}
+
+const SceneTextGlyph* SceneTextAtlasPage::FindGlyphExact (uint32_t glyphIndex) const
+{
+    const auto found = glyphs_.find (glyphIndex);
+    return found != glyphs_.end () ? &found->second : nullptr;
 }
 
 bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun,
@@ -218,9 +328,13 @@ const SceneTextGlyph* SceneTextAtlas::Find (uint32_t codepoint) const
 
 const SceneTextGlyph* SceneTextAtlas::FindGlyph (uint32_t glyphIndex) const
 {
-    auto found = glyphs_.find (glyphIndex);
-    if (found == glyphs_.end ())
-        found = glyphs_.find (replacementGlyphIndex_);
+    const SceneTextGlyph* found = FindGlyphExact (glyphIndex);
+    return found != nullptr ? found : FindGlyphExact (replacementGlyphIndex_);
+}
+
+const SceneTextGlyph* SceneTextAtlas::FindGlyphExact (uint32_t glyphIndex) const
+{
+    const auto found = glyphs_.find (glyphIndex);
     return found != glyphs_.end () ? &found->second : nullptr;
 }
 

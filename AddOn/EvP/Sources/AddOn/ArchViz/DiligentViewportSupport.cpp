@@ -22,6 +22,7 @@
 #include "ArchViz/GhPreviewGeometry.hpp" // GhPreviewStyle, built from the HUD each frame
 #include "ArchViz/ExtractionThread.hpp"  // the storey overlay's refresh request
 #include "ArchViz/PlanAnchorLayer.hpp"
+#include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/TraceAnnotationLayer.hpp"
@@ -374,15 +375,12 @@ void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
 }
 
 ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
-                                                 bool annotationsOnly, void* nativeWindow, const float viewProj[16],
-                                                 uint32_t width, uint32_t height)
+                                                  Diligent::IDeviceContext* context, bool blanked, bool offscreen,
+                                                  bool annotationsOnly, void* nativeWindow, const float viewProj[16],
+                                                  uint32_t width, uint32_t height, HudState& hudState)
 {
     ProjectedDrawList annotations;
-    if (blanked || offscreen)
-        return annotations;
-    const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
-    if (!selected.has_value ())
+    if (offscreen)
         return annotations;
 
     float dpiScale = 1.0f;
@@ -391,12 +389,19 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
         if (dpi != 0)
             dpiScale = float (dpi) / 96.0f;
     }
-    annotations =
-        BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly);
-    if (!annotations.labels.empty () && layer.IsReady () &&
-        layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale)) {
-        annotations.labels.clear ();
+    if (!blanked) {
+        const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
+        if (selected.has_value ()) {
+            annotations =
+                BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly);
+            if (!annotations.labels.empty () && layer.IsReady () &&
+                layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale)) {
+                annotations.labels.clear ();
+            }
+        }
     }
+    if (!annotationsOnly)
+        DrawSceneTextLiveCheck (layer, device, context, hudState, width, height, dpiScale);
     return annotations;
 }
 

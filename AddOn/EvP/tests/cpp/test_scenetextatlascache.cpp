@@ -70,9 +70,17 @@ TEST (SceneTextAtlasCache, DeduplicatesAndPublishesCopiedFontResultsAsynchronous
     EXPECT_EQ (stats.stagingPages, 0u);
     EXPECT_EQ (stats.stagingBytes, 0u);
 
+    std::vector<uint32_t> overlap = ids;
+    overlap.push_back (ShapeGlyphIds (ReadAtlasCacheFont (), "z").front ());
+    ASSERT_TRUE (cache.Request (ids));
+    ASSERT_TRUE (cache.Request (overlap));
+    EXPECT_EQ (cache.Stats ().misses, 3u);
+    ASSERT_NE (WaitReady (cache), nullptr);
+    ASSERT_NE (WaitReady (cache), nullptr);
+
     ASSERT_TRUE (cache.Request (ids));
     ASSERT_NE (WaitReady (cache), nullptr);
-    EXPECT_EQ (cache.Stats ().misses, 2u);
+    EXPECT_EQ (cache.Stats ().misses, 4u);
 }
 
 TEST (SceneTextAtlasCache, EnforcesRequestAndOutstandingGlyphBounds)

@@ -901,7 +901,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
 
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
-                textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, viewProj, width, height);
+                textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, viewProj, width, height,
+                hudState);
 
             // Last, over everything, into the full-surface viewport the gnomon
             // restored.

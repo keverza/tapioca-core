@@ -171,9 +171,9 @@ void UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
                              uint32_t height);
 
 ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
-                                                 bool annotationsOnly, void* nativeWindow, const float viewProj[16],
-                                                 uint32_t width, uint32_t height);
+                                                  Diligent::IDeviceContext* context, bool blanked, bool offscreen,
+                                                  bool annotationsOnly, void* nativeWindow, const float viewProj[16],
+                                                  uint32_t width, uint32_t height, HudState& hudState);
 
 void CopyOverlayStatsInto (DiligentViewportStats& stats, bool planAnchorsOn, const PlanAnchorLayer& planAnchors,
                            float planAnchorWidthPixels, const SceneTextLayer& textLayer, const Camera& camera,

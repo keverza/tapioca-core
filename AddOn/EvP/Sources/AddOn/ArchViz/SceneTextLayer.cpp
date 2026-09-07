@@ -2,6 +2,7 @@
 
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SceneTextAtlas.hpp"
+#include "ArchViz/SceneTextAtlasCache.hpp"
 #include "ArchViz/SceneTextLayoutCache.hpp"
 
 #include <windows.h>
@@ -18,8 +19,10 @@
 #include <TextureView.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <unordered_set>
 
 namespace geomsrv::archviz {
 namespace {
@@ -40,6 +43,7 @@ struct PreparedSceneTextLabel {
     VerticalAnchor verticalAnchor = VerticalAnchor::Baseline;
     uint32_t haloRgba = 0;
     float haloWidthPixels = 0.0f;
+    bool backgroundPanel = false;
 };
 
 struct SceneTextVertex {
@@ -169,20 +173,107 @@ void AddQuad (std::vector<SceneTextVertex>& vertices, float left, float top, flo
 } // namespace
 
 struct SceneTextLayer::Impl {
+    struct DynamicPage {
+        std::shared_ptr<const SceneTextAtlasPage> atlas;
+        Diligent::RefCntAutoPtr<Diligent::ITexture> texture;
+        Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> srb;
+        uint64_t lastAccess = 0;
+    };
+
     SceneTextAtlas atlas;
     SceneTextLayoutCache layoutCache;
+    SceneTextAtlasCache atlasCache;
     Diligent::RefCntAutoPtr<Diligent::IPipelineState> pso;
     Diligent::RefCntAutoPtr<Diligent::IShaderResourceBinding> srb;
     Diligent::RefCntAutoPtr<Diligent::IBuffer> constants;
     Diligent::RefCntAutoPtr<Diligent::IBuffer> vertices;
     Diligent::RefCntAutoPtr<Diligent::ITexture> texture;
+    std::vector<DynamicPage> dynamicPages;
+    std::unordered_set<uint32_t> suppressedGlyphs;
     size_t vertexCapacity = 0;
+    uint64_t pageAccessSequence = 0;
     SceneTextLayerStats stats;
 
+    void UploadReadyPages (Diligent::IRenderDevice* device);
+    const SceneTextGlyph* FindGlyphExact (uint32_t glyphIndex, size_t& pageIndex);
     bool DrawPrepared (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                        const std::vector<PreparedSceneTextLabel>& labels, uint32_t surfaceWidth, uint32_t surfaceHeight,
-                       bool requireAllReady);
+                        bool requireAllReady);
 };
+
+void SceneTextLayer::Impl::UploadReadyPages (Diligent::IRenderDevice* device)
+{
+    constexpr size_t kMaximumDynamicPages = 4;
+    while (auto page = atlasCache.TakeReady ()) {
+        const auto started = std::chrono::steady_clock::now ();
+        DynamicPage uploaded;
+        uploaded.atlas = std::move (page);
+        Diligent::TextureDesc desc;
+        desc.Name = "Dynamic scene text linear MTSDF atlas";
+        desc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+        desc.Width = static_cast<Diligent::Uint32> (uploaded.atlas->Width ());
+        desc.Height = static_cast<Diligent::Uint32> (uploaded.atlas->Height ());
+        desc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
+        desc.Usage = Diligent::USAGE_IMMUTABLE;
+        desc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+        Diligent::TextureSubResData level;
+        level.pData = uploaded.atlas->Pixels ().data ();
+        level.Stride = Diligent::Uint64 (uploaded.atlas->Width () * 4);
+        Diligent::TextureData initial;
+        initial.pSubResources = &level;
+        initial.NumSubresources = 1;
+        device->CreateTexture (desc, &initial, &uploaded.texture);
+        if (uploaded.texture == nullptr) {
+            suppressedGlyphs.insert (uploaded.atlas->GlyphIds ().begin (), uploaded.atlas->GlyphIds ().end ());
+            ++stats.atlasUploadFailures;
+            continue;
+        }
+        pso->CreateShaderResourceBinding (&uploaded.srb, true);
+        auto* variable = uploaded.srb != nullptr
+                             ? uploaded.srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_atlas")
+                             : nullptr;
+        if (variable == nullptr) {
+            suppressedGlyphs.insert (uploaded.atlas->GlyphIds ().begin (), uploaded.atlas->GlyphIds ().end ());
+            ++stats.atlasUploadFailures;
+            continue;
+        }
+        variable->Set (uploaded.texture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        if (dynamicPages.size () >= kMaximumDynamicPages) {
+            const auto victim = std::min_element (dynamicPages.begin (), dynamicPages.end (), [] (const auto& left,
+                                                                                                  const auto& right) {
+                return left.lastAccess < right.lastAccess;
+            });
+            suppressedGlyphs.insert (victim->atlas->GlyphIds ().begin (), victim->atlas->GlyphIds ().end ());
+            stats.atlasBytes -= victim->atlas->Pixels ().size ();
+            dynamicPages.erase (victim);
+            ++stats.atlasEvictions;
+        }
+        uploaded.lastAccess = ++pageAccessSequence;
+        stats.atlasBytes += uploaded.atlas->Pixels ().size ();
+        dynamicPages.push_back (std::move (uploaded));
+        ++stats.atlasUploads;
+        stats.atlasUploadMicroseconds += static_cast<uint64_t> (
+            std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started)
+                .count ());
+    }
+    stats.atlasPages = static_cast<uint32_t> (1 + dynamicPages.size ());
+}
+
+const SceneTextGlyph* SceneTextLayer::Impl::FindGlyphExact (uint32_t glyphIndex, size_t& pageIndex)
+{
+    if (const SceneTextGlyph* glyph = atlas.FindGlyphExact (glyphIndex)) {
+        pageIndex = 0;
+        return glyph;
+    }
+    for (size_t index = 0; index < dynamicPages.size (); ++index) {
+        if (const SceneTextGlyph* glyph = dynamicPages[index].atlas->FindGlyphExact (glyphIndex)) {
+            dynamicPages[index].lastAccess = ++pageAccessSequence;
+            pageIndex = index + 1;
+            return glyph;
+        }
+    }
+    return nullptr;
+}
 
 SceneTextLayer::SceneTextLayer () : impl_ (new Impl ())
 {
@@ -318,10 +409,13 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return false;
     }
     atlasVariable->Set (impl_->texture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+    if (!impl_->atlasCache.Start (fontBytes.data (), fontBytes.size (), error))
+        return false;
     impl_->stats.ready = true;
     impl_->stats.atlasWidth = static_cast<uint32_t> (impl_->atlas.Width ());
     impl_->stats.atlasHeight = static_cast<uint32_t> (impl_->atlas.Height ());
     impl_->stats.atlasBytes = impl_->atlas.Pixels ().size ();
+    impl_->stats.atlasPages = 1;
     return true;
 }
 
@@ -329,13 +423,17 @@ void SceneTextLayer::Shutdown ()
 {
     if (impl_ == nullptr)
         return;
+    impl_->atlasCache.Stop ();
     impl_->layoutCache.Stop ();
+    impl_->dynamicPages.clear ();
+    impl_->suppressedGlyphs.clear ();
     impl_->vertices.Release ();
     impl_->constants.Release ();
     impl_->srb.Release ();
     impl_->pso.Release ();
     impl_->texture.Release ();
     impl_->vertexCapacity = 0;
+    impl_->pageAccessSequence = 0;
     impl_->stats = {};
 }
 
@@ -343,7 +441,7 @@ void SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
                            const std::vector<SceneTextLabel>& labels, const float viewProj[16], uint32_t surfaceWidth,
                            uint32_t surfaceHeight, float dpiScale)
 {
-    impl_->stats.labels = impl_->stats.glyphs = 0;
+    impl_->stats.labels = impl_->stats.glyphs = impl_->stats.drawCalls = 0;
     if (!impl_->stats.ready || device == nullptr || context == nullptr || surfaceWidth == 0 || surfaceHeight == 0 ||
         !std::isfinite (dpiScale) || dpiScale <= 0.0f)
         return;
@@ -365,6 +463,7 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
                                     const std::vector<ScreenLabel>& labels, uint32_t surfaceWidth,
                                     uint32_t surfaceHeight, float dpiScale)
 {
+    impl_->stats.labels = impl_->stats.glyphs = impl_->stats.drawCalls = 0;
     if (!impl_->stats.ready || device == nullptr || context == nullptr || surfaceWidth == 0 || surfaceHeight == 0 ||
         !std::isfinite (dpiScale) || dpiScale <= 0.0f)
         return false;
@@ -378,16 +477,18 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
         const float horizontalOffset = label.centered ? 0.0f : 4.0f * dpiScale;
         prepared.push_back ({ label.anchor.x + horizontalOffset, label.anchor.y, &label.text,
                               std::clamp (pixelSize, 6.0f, 192.0f), label.rgba,
-                              label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
-                              label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom });
+                               label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
+                               label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
+                              std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
     }
     return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, true);
 }
 
 bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                                         const std::vector<PreparedSceneTextLabel>& labels, uint32_t surfaceWidth,
-                                         uint32_t surfaceHeight, bool requireAllReady)
+                                          const std::vector<PreparedSceneTextLabel>& labels, uint32_t surfaceWidth,
+                                          uint32_t surfaceHeight, bool requireAllReady)
 {
+    stats.labels = stats.glyphs = stats.drawCalls = 0;
     struct ResolvedLabel {
         const PreparedSceneTextLabel* label = nullptr;
         std::shared_ptr<const SceneTextGlyphRun> run;
@@ -406,7 +507,36 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
         resolved.push_back ({ &label, std::move (run) });
     }
 
-    std::vector<SceneTextVertex> vertices;
+    UploadReadyPages (device);
+    std::vector<uint32_t> missingGlyphs;
+    for (const ResolvedLabel& resolvedLabel : resolved) {
+        for (const SceneTextPositionedGlyph& positioned : resolvedLabel.run->glyphs) {
+            size_t pageIndex = 0;
+            if (FindGlyphExact (positioned.glyphIndex, pageIndex) == nullptr &&
+                suppressedGlyphs.find (positioned.glyphIndex) == suppressedGlyphs.end ())
+                missingGlyphs.push_back (positioned.glyphIndex);
+        }
+    }
+    std::sort (missingGlyphs.begin (), missingGlyphs.end ());
+    missingGlyphs.erase (std::unique (missingGlyphs.begin (), missingGlyphs.end ()), missingGlyphs.end ());
+    for (size_t begin = 0; begin < missingGlyphs.size (); begin += SceneTextAtlasPage::kMaximumGlyphs) {
+        const size_t end = (std::min) (begin + SceneTextAtlasPage::kMaximumGlyphs, missingGlyphs.size ());
+        atlasCache.Request (std::vector<uint32_t> (missingGlyphs.begin () + begin, missingGlyphs.begin () + end));
+    }
+    if (requireAllReady && !missingGlyphs.empty ())
+        return false;
+
+    struct VertexBatch {
+        size_t pageIndex = 0;
+        std::vector<SceneTextVertex> vertices;
+    };
+    std::vector<VertexBatch> batches;
+    const auto resolveGlyph = [&] (uint32_t glyphIndex, size_t& pageIndex) {
+        if (const SceneTextGlyph* glyph = FindGlyphExact (glyphIndex, pageIndex))
+            return glyph;
+        pageIndex = 0;
+        return atlas.FindGlyph (glyphIndex);
+    };
     for (const ResolvedLabel& resolvedLabel : resolved) {
         const PreparedSceneTextLabel& label = *resolvedLabel.label;
         const SceneTextGlyphRun& run = *resolvedLabel.run;
@@ -428,7 +558,8 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             float edge = 0.0f;
             for (size_t index = 0; index < glyphCount; ++index) {
                 const SceneTextPositionedGlyph& positioned = run.glyphs[index];
-                const SceneTextGlyph* glyph = atlas.FindGlyph (positioned.glyphIndex);
+                size_t pageIndex = 0;
+                const SceneTextGlyph* glyph = resolveGlyph (positioned.glyphIndex, pageIndex);
                 if (glyph == nullptr)
                     continue;
                 const float value =
@@ -447,22 +578,29 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
         }
         const uint32_t color = LinearAbgr (label.rgba);
         const uint32_t haloColor = LinearAbgr (label.haloRgba);
-        std::vector<SceneTextVertex> labelVertices;
+        std::vector<VertexBatch> labelBatches;
         size_t emitted = 0;
         float boundsLeft = 0.0f, boundsTop = 0.0f, boundsRight = 0.0f, boundsBottom = 0.0f;
         for (size_t index = 0; index < glyphCount; ++index) {
             const SceneTextPositionedGlyph& positioned = run.glyphs[index];
-            const SceneTextGlyph* glyph = atlas.FindGlyph (positioned.glyphIndex);
+            size_t pageIndex = 0;
+            const SceneTextGlyph* glyph = resolveGlyph (positioned.glyphIndex, pageIndex);
             if (glyph == nullptr)
                 continue;
+            const float atlasWidth = pageIndex == 0 ? float (atlas.Width ())
+                                                    : float (dynamicPages[pageIndex - 1].atlas->Width ());
+            const float atlasHeight = pageIndex == 0 ? float (atlas.Height ())
+                                                     : float (dynamicPages[pageIndex - 1].atlas->Height ());
             const float left = pen + (positioned.xOffset + glyph->planeLeft) * pixelSize;
             const float right = pen + (positioned.xOffset + glyph->planeRight) * pixelSize;
             const float top = baseline - (positioned.yOffset + glyph->planeTop) * pixelSize;
             const float bottom = baseline - (positioned.yOffset + glyph->planeBottom) * pixelSize;
             if (right >= 0.0f && left <= float (surfaceWidth) && bottom >= 0.0f && top <= float (surfaceHeight)) {
-                AddQuad (labelVertices, left, top, right, bottom, glyph->atlasLeft / float (atlas.Width ()),
-                          glyph->atlasBottom / float (atlas.Height ()), glyph->atlasRight / float (atlas.Width ()),
-                          glyph->atlasTop / float (atlas.Height ()), color, haloColor, label.haloWidthPixels);
+                if (labelBatches.empty () || labelBatches.back ().pageIndex != pageIndex)
+                    labelBatches.push_back ({ pageIndex, {} });
+                AddQuad (labelBatches.back ().vertices, left, top, right, bottom, glyph->atlasLeft / atlasWidth,
+                          glyph->atlasBottom / atlasHeight, glyph->atlasRight / atlasWidth,
+                          glyph->atlasTop / atlasHeight, color, haloColor, label.haloWidthPixels);
                 if (emitted == 0) {
                     boundsLeft = left;
                     boundsTop = top;
@@ -480,22 +618,34 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             pen += positioned.xAdvance * pixelSize;
         }
         if (emitted > 0) {
-            if (label.verticalAnchor != VerticalAnchor::Baseline) {
+            if (label.backgroundPanel) {
                 const float scale = pixelSize / 18.0f;
-                AddQuad (vertices, boundsLeft - 3.0f * scale, boundsTop - 2.0f * scale, boundsRight + 3.0f * scale,
+                VertexBatch panel;
+                AddQuad (panel.vertices, boundsLeft - 3.0f * scale, boundsTop - 2.0f * scale,
+                         boundsRight + 3.0f * scale,
                          boundsBottom + 2.0f * scale, -1.0f, -1.0f, -1.0f, -1.0f, LinearAbgr (0xFFFFFFE0u));
+                batches.push_back (std::move (panel));
             }
-            vertices.insert (vertices.end (), labelVertices.begin (), labelVertices.end ());
+            for (VertexBatch& batch : labelBatches) {
+                if (!batches.empty () && batches.back ().pageIndex == batch.pageIndex)
+                    batches.back ().vertices.insert (batches.back ().vertices.end (), batch.vertices.begin (),
+                                                      batch.vertices.end ());
+                else
+                    batches.push_back (std::move (batch));
+            }
             ++stats.labels;
             stats.glyphs += emitted;
         }
     }
-    if (vertices.empty ())
+    size_t vertexCount = 0;
+    for (const VertexBatch& batch : batches)
+        vertexCount += batch.vertices.size ();
+    if (vertexCount == 0)
         return true;
 
-    if (this->vertices == nullptr || vertices.size () > vertexCapacity) {
+    if (this->vertices == nullptr || vertexCount > vertexCapacity) {
         this->vertices.Release ();
-        vertexCapacity = std::max<size_t> (vertices.size () * 2, 1024);
+        vertexCapacity = std::max<size_t> (vertexCount * 2, 1024);
         Diligent::BufferDesc desc;
         desc.Name = "Scene text vertices";
         desc.Size = Diligent::Uint64 (vertexCapacity * sizeof (SceneTextVertex));
@@ -512,31 +662,54 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
     context->MapBuffer (this->vertices, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
     if (mapped == nullptr)
         return false;
-    std::memcpy (mapped, vertices.data (), vertices.size () * sizeof (SceneTextVertex));
+    auto* destination = static_cast<SceneTextVertex*> (mapped);
+    for (const VertexBatch& batch : batches) {
+        if (!batch.vertices.empty ()) {
+            std::memcpy (destination, batch.vertices.data (), batch.vertices.size () * sizeof (SceneTextVertex));
+            destination += batch.vertices.size ();
+        }
+    }
     context->UnmapBuffer (this->vertices, Diligent::MAP_WRITE);
-
-    context->MapBuffer (constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
-    if (mapped == nullptr)
-        return false;
-    auto* constants = static_cast<SceneTextConstants*> (mapped);
-    constants->surface[0] = 1.0f / float (surfaceWidth);
-    constants->surface[1] = 1.0f / float (surfaceHeight);
-    constants->surface[2] = 1.0f / float (atlas.Width ());
-    constants->surface[3] = 1.0f / float (atlas.Height ());
-    constants->atlas[0] = SceneTextAtlas::kDistanceRangePixels;
-    constants->atlas[1] = constants->atlas[2] = constants->atlas[3] = 0.0f;
-    context->UnmapBuffer (this->constants, Diligent::MAP_WRITE);
 
     Diligent::IBuffer* buffers[] = { this->vertices };
     const Diligent::Uint64 offsets[] = { 0 };
     context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
-                               Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
+                                Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
     context->SetPipelineState (pso);
-    context->CommitShaderResources (srb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    Diligent::DrawAttribs draw;
-    draw.NumVertices = static_cast<Diligent::Uint32> (vertices.size ());
-    draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
-    context->Draw (draw);
+    Diligent::Uint32 startVertex = 0;
+    const auto drawBatch = [&] (const std::vector<SceneTextVertex>& batch, size_t pageIndex) {
+        if (batch.empty ())
+            return true;
+        const float atlasWidth = pageIndex == 0 ? float (atlas.Width ())
+                                                : float (dynamicPages[pageIndex - 1].atlas->Width ());
+        const float atlasHeight = pageIndex == 0 ? float (atlas.Height ())
+                                                 : float (dynamicPages[pageIndex - 1].atlas->Height ());
+        context->MapBuffer (constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
+        if (mapped == nullptr)
+            return false;
+        auto* values = static_cast<SceneTextConstants*> (mapped);
+        values->surface[0] = 1.0f / float (surfaceWidth);
+        values->surface[1] = 1.0f / float (surfaceHeight);
+        values->surface[2] = 1.0f / atlasWidth;
+        values->surface[3] = 1.0f / atlasHeight;
+        values->atlas[0] = SceneTextAtlas::kDistanceRangePixels;
+        values->atlas[1] = values->atlas[2] = values->atlas[3] = 0.0f;
+        context->UnmapBuffer (constants, Diligent::MAP_WRITE);
+        context->CommitShaderResources (pageIndex == 0 ? srb : dynamicPages[pageIndex - 1].srb,
+                                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        Diligent::DrawAttribs draw;
+        draw.NumVertices = static_cast<Diligent::Uint32> (batch.size ());
+        draw.StartVertexLocation = startVertex;
+        draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        context->Draw (draw);
+        startVertex += draw.NumVertices;
+        ++stats.drawCalls;
+        return true;
+    };
+    for (const VertexBatch& batch : batches) {
+        if (!drawBatch (batch.vertices, batch.pageIndex))
+            return false;
+    }
     return true;
 }
 
@@ -547,7 +720,15 @@ bool SceneTextLayer::IsReady () const
 
 SceneTextLayerStats SceneTextLayer::Stats () const
 {
-    return impl_->stats;
+    SceneTextLayerStats stats = impl_->stats;
+    const SceneTextAtlasCacheStats cache = impl_->atlasCache.Stats ();
+    stats.pendingGlyphs = static_cast<uint32_t> (cache.pending);
+    stats.stagingBytes = cache.stagingBytes;
+    stats.atlasMisses = cache.misses;
+    stats.atlasRejected = cache.rejected;
+    stats.atlasGenerationFailures = cache.failures;
+    stats.atlasGenerationMicroseconds = cache.generationMicroseconds;
+    return stats;
 }
 
 } // namespace geomsrv::archviz

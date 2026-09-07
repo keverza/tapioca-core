@@ -155,6 +155,14 @@ TIER_ASSIGNMENTS = {
     # (Screenshot/ and Metadata/ do too).
     "ProjectEnv": "services",
     "Preview": "services",
+    # rhino.compute's wire and worker: the SECOND Grasshopper backend, stateless
+    # HTTP where Grasshopper/ is a stateful named pipe. Same tier as Grasshopper/
+    # and for the same reason - it is an external process lifecycle owned on
+    # behalf of whatever UI eventually drives it, and it knows nothing about
+    # palettes and nothing about documents. The two backends are alternatives
+    # behind one contract, so a different tier for one of them would be a lie
+    # about their relationship.
+    "RhinoCompute": "services",
     "Python": "services",
     "Screenshot": "services",
     "Server": "services",

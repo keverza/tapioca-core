@@ -32,6 +32,9 @@ struct ScreenLabel {
     uint32_t rgba = 0xFFFFFFFFu;
     float fontSize = 0.0f;
     bool centered = false;
+    uint32_t haloRgba = 0;
+    float haloWidthPixels = 0.0f;
+    bool backgroundPanel = true;
 };
 
 struct ProjectedDrawList {
