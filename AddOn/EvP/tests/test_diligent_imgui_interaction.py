@@ -68,10 +68,22 @@ def test_scene_text_live_check_uses_the_production_text_layer() -> None:
 
     assert "DrawSceneTextLiveCheckControls (state)" in hud
     assert 'ImGui::Checkbox ("show production text sample"' in live_check
+    assert 'ImGui::Checkbox ("show always / hide / fade lines"' in live_check
+    assert 'ImGui::DragFloat3 ("anchor XYZ"' in live_check
+    assert 'ImGui::SliderFloat ("line spacing"' in live_check
     assert "sceneTextCheckSizePixels" in live_check
     assert '"white halo %.2f px; coloured halo 0 px"' in live_check
     assert "label.backgroundPanel = false" in live_check
     assert "layer.DrawProjected" in live_check
+    assert "SceneTextOcclusion::Always" in live_check
+    assert "SceneTextOcclusion::Hide" in live_check
+    assert "SceneTextOcclusion::Fade" in live_check
+    assert '"FADE | 25% behind depth"' in live_check
+    assert "layer.Draw (device, context, depthView" in live_check
+    assert "DrawSceneTextOcclusionLiveCheck" in live_check
+    assert "if (size <= 16.0f)" in live_check
+    assert "label.haloWidthPixels = halo" in live_check
+    assert "label.haloWidthPixels = 0.75f" not in live_check
     assert "Tapioca HarfBuzz + MTSDF" in live_check
     assert "Ąžuolų plotas 42 m² | 18° | Ø250" in live_check
     assert "office affine AV To Wa" in live_check

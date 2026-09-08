@@ -6,9 +6,9 @@
 //
 // There are three surfaces and they are not variations on one thing:
 //
-//   PaletteChild  a Diligent HWND swap chain on the DG UserItem. Opaque, its own
-//                 depth buffer, `ISwapChain::Present`. This is what the viewport
-//                 has always used.
+//   PaletteChild  a Diligent HWND swap chain on the DG UserItem. Opaque,
+//                 `ISwapChain::Present`. This is what the viewport has always
+//                 used.
 //   Overlay       a DirectComposition visual over Archicad's own 3D view
 //                 (PLAT-RE37). NO HWND swap chain at all: the chain is created
 //                 with `CreateSwapChainForComposition`, has premultiplied alpha,
@@ -84,6 +84,10 @@ class DiligentViewportTarget final {
     // tearing rather than as a stale binding.
     bool BeginFrame (Diligent::ITextureView*& rtv, Diligent::ITextureView*& dsv);
     void Present ();
+
+    // Render-thread-only. The target owns one sampleable depth texture in every
+    // mode; null means no valid depth texture is currently available.
+    Diligent::ITextureView* DepthShaderView () const;
 
     // Offscreen mode only. The caller must unbind the colour target before this
     // call; the method copies through a staging texture and returns PNG bytes.

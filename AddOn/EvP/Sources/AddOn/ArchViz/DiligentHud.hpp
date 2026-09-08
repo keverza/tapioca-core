@@ -81,6 +81,9 @@ struct HudState {
     // viewer and drawn by SceneTextLayer rather than ImGui's font atlas.
     bool showSceneTextLiveCheck = false;
     float sceneTextCheckSizePixels = 24.0f;
+    bool showSceneTextOcclusionCheck = false;
+    float sceneTextOcclusionAnchor[3] = { 0.0f, 0.0f, 1.0f };
+    float sceneTextOcclusionSpacingMetres = 0.35f;
     uint64_t sceneTextLabels = 0;
     uint64_t sceneTextGlyphs = 0;
     uint64_t sceneTextAtlasBytes = 0;

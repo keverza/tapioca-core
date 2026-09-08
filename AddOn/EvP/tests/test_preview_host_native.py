@@ -209,12 +209,51 @@ def test_headless_capture_waits_for_exact_text_at_explicit_dpi():
     assert text_call < readiness_gate < capture
     assert "captureDpi / 96.0f" in support
     assert "const bool ready = layer.Draw" in support
-    assert "dpiScale, offscreen" in support
+    assert "dpiScale, nearClip, farClip, perspective, offscreen" in support
     assert "requireAllReady" in layer
     assert "if (requireAllReady && !missingGlyphs.empty ())" in layer
     assert "capture text could not generate or upload every required glyph" in support
     assert "std::clamp (label.sizePixels, 6.0f, 192.0f) * dpiScale" in layer
     assert "std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale" in layer
+
+
+def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
+    renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
+        encoding="utf-8"
+    )
+    support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
+    header = (_ADDON / "ArchViz" / "SceneTextLayer.hpp").read_text(
+        encoding="utf-8"
+    )
+    layer = (_ADDON / "ArchViz" / "SceneTextLayer.cpp").read_text(
+        encoding="utf-8"
+    )
+    commands = (_ADDON / "NativeCommands" / "ArchVizCommands.cpp").read_text(
+        encoding="utf-8"
+    )
+
+    assert "enum class SceneTextOcclusion : uint8_t { Always, Hide, Fade }" in header
+    assert "SceneTextOcclusion::Always" in header
+    assert 'item.Get ("occlusion", occlusion)' in commands
+    assert '\"enum\":[\"always\",\"hide\",\"fade\"]' in commands
+    assert "dsv, target.DepthShaderView (), motionViewProj" in renderer
+    assert "label.occlusion != SceneTextOcclusion::Always" in support
+    assert "SetRenderTargets (1, &colorTarget, nullptr" in support
+    assert "SetRenderTargets (1, &colorTarget, depthTarget" in support
+    assert "if (!labels.empty ())" in support
+    assert "graphics.DepthStencilDesc.DepthWriteEnable = Diligent::False" in layer
+    assert "Texture2D<float> g_depth" in layer
+    assert "for (int y = -1; y <= 1; ++y)" in layer
+    assert "for (int x = -1; x <= 1; ++x)" in layer
+    assert "float LinearDepth(float depth)" in layer
+    assert "max(0.01, anchorDistance*1e-4)" in layer
+    assert "anchorDistance > sampledDistance+depthTolerance" in layer
+    assert "input.occlusionMode < 1.5 ? 0.0 : 0.25" in layer
+    assert "graphics.DSVFormat = Diligent::TEX_FORMAT_UNKNOWN" in layer
+    assert "Scene text clear-depth fallback" in layer
+    assert "SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE" in layer
+    assert "DrawSceneTextOcclusionLiveCheck" in support
+    assert support.index("DrawSceneTextOcclusionLiveCheck") < support.index("UpdateAndDrawTraceAnnotations")
 
 
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():

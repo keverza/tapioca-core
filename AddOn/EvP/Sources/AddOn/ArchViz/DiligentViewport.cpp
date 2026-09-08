@@ -272,7 +272,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 ArchVizLog ("Diligent viewport: the ImGui HUD did not start (" + hudError +
                             "); the viewport runs without it");
             std::string textError;
-            if (!textLayer.Init (device, target.ColorFormat (), target.DepthFormat (), textError))
+            if (!textLayer.Init (device, target.ColorFormat (), textError))
                 ArchVizLog ("Diligent viewport: the scene-text layer did not start (" + textError +
                             "); the viewport runs without retained labels");
             hudState.debugView = debugView_.load ();
@@ -886,27 +886,24 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             if (!annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawGhPreview (scene, context, hudState, viewProj, width, height, target.ColorFormat (),
                                         target.DepthFormat (), modelIsDrawn);
-            // ---- PLAT-RE65: Archicad's own 2D outlines, over everything -----
             gpuTimings.Begin (context, GpuTimingStage::Post);
             const bool textReady = UpdateAndDrawSceneText (
                 textLayer, device, context, mutex_, pendingTextLabels_, textLabelSeq_.load (), lastTextLabelSeq,
-                textLabels, blanked, offscreen, surface.nwh, viewProj, width, height, captureDpi_.load ());
+                textLabels, blanked, offscreen, surface.nwh, rtv, dsv, target.DepthShaderView (), motionViewProj,
+                viewProj, width, height, captureDpi_.load (), Camera::NearClip (), camera.FarClip (),
+                camera.IsPerspective (), hudState);
             captureThisFrame = captureThisFrame && textReady;
             if (!offscreen && !annotationsOnly && !ShouldIsolateGraphInteraction (hudState, input))
                 UpdateAndDrawPlanAnchors (planAnchors, device, context, mutex_, pendingPlanAnchors_,
                                           planAnchorSeq_.load (), lastPlanAnchorSeq, planAnchorsOn_.load () && !blanked,
                                           viewProj, width, height, planAnchorWidthPixels_.load (),
                                           planAnchorRgba_.load ());
-
             if (!offscreen && !annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
+            ProjectedDrawList annotations =
+                UpdateAndDrawTraceAnnotations (textLayer, device, context, blanked, offscreen, annotationsOnly,
+                                               surface.nwh, rtv, dsv, viewProj, width, height, hudState);
 
-            ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
-                textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, viewProj, width, height,
-                hudState);
-
-            // Last, over everything, into the full-surface viewport the gnomon
-            // restored.
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be
             // wrong about, and blanking them read as the viewer having crashed.

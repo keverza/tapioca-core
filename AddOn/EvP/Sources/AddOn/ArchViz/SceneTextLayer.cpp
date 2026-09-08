@@ -44,6 +44,9 @@ struct PreparedSceneTextLabel {
     uint32_t haloRgba = 0;
     float haloWidthPixels = 0.0f;
     bool backgroundPanel = false;
+    float occlusionUv[2] = {};
+    float anchorDepth = 0.0f;
+    float occlusionMode = 0.0f;
 };
 
 struct SceneTextVertex {
@@ -52,19 +55,24 @@ struct SceneTextVertex {
     uint32_t fillAbgr;
     uint32_t haloAbgr;
     float haloWidthPixels;
+    float occlusionUv[2];
+    float anchorDepth;
+    float occlusionMode;
 };
 
 struct SceneTextConstants {
     float surface[4]; // xy = inverse surface, zw = inverse atlas
-    float atlas[4];   // x = distance range in atlas pixels
+    float atlas[4];   // distance range, near clip, far clip, perspective flag
 };
 
 constexpr const char* kSceneTextVS = R"hlsl(
 cbuffer SceneTextConstants { float4 g_surface; float4 g_atlasParams; };
 struct VSInput { float2 position : ATTRIB0; float2 uv : ATTRIB1; float4 fillColor : ATTRIB2;
-                 float4 haloColor : ATTRIB3; float haloWidth : ATTRIB4; };
+                  float4 haloColor : ATTRIB3; float haloWidth : ATTRIB4;
+                  float2 occlusionUv : ATTRIB5; float anchorDepth : ATTRIB6; float occlusionMode : ATTRIB7; };
 struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 fillColor : COLOR0;
-                 float4 haloColor : COLOR1; float haloWidth : TEX_COORD1; };
+                  float4 haloColor : COLOR1; float haloWidth : TEX_COORD1;
+                  float2 occlusionUv : TEX_COORD2; float anchorDepth : TEX_COORD3; float occlusionMode : TEX_COORD4; };
 void main (in VSInput input, out PSInput output)
 {
     output.position = float4(input.position.x*g_surface.x*2.0-1.0,
@@ -73,6 +81,9 @@ void main (in VSInput input, out PSInput output)
     output.fillColor = input.fillColor;
     output.haloColor = input.haloColor;
     output.haloWidth = input.haloWidth;
+    output.occlusionUv = input.occlusionUv;
+    output.anchorDepth = input.anchorDepth;
+    output.occlusionMode = input.occlusionMode;
 }
 )hlsl";
 
@@ -80,13 +91,36 @@ constexpr const char* kSceneTextPS = R"hlsl(
 cbuffer SceneTextConstants { float4 g_surface; float4 g_atlasParams; };
 Texture2D g_atlas;
 SamplerState g_atlas_sampler;
+Texture2D<float> g_depth;
+SamplerState g_depth_sampler;
 struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 fillColor : COLOR0;
-                 float4 haloColor : COLOR1; float haloWidth : TEX_COORD1; };
+                  float4 haloColor : COLOR1; float haloWidth : TEX_COORD1;
+                  float2 occlusionUv : TEX_COORD2; float anchorDepth : TEX_COORD3; float occlusionMode : TEX_COORD4; };
 float Median(float3 value) { return max(min(value.r, value.g), min(max(value.r, value.g), value.b)); }
+float LinearDepth(float depth)
+{
+    if (g_atlasParams.w > 0.5)
+        return g_atlasParams.y*g_atlasParams.z/
+               max(g_atlasParams.z-depth*(g_atlasParams.z-g_atlasParams.y), 1e-6);
+    return lerp(g_atlasParams.y, g_atlasParams.z, depth);
+}
 float4 main (PSInput input) : SV_TARGET
 {
+    float visibility = 1.0;
+    if (input.occlusionMode > 0.5) {
+        float farthestDepth = 0.0;
+        [unroll] for (int y = -1; y <= 1; ++y)
+            [unroll] for (int x = -1; x <= 1; ++x)
+                farthestDepth = max(farthestDepth, g_depth.SampleLevel(
+                    g_depth_sampler, input.occlusionUv+float2(x, y)*g_surface.xy, 0));
+        float anchorDistance = LinearDepth(input.anchorDepth);
+        float sampledDistance = LinearDepth(farthestDepth);
+        float depthTolerance = max(0.01, anchorDistance*1e-4);
+        bool occluded = anchorDistance > sampledDistance+depthTolerance;
+        visibility = occluded ? (input.occlusionMode < 1.5 ? 0.0 : 0.25) : 1.0;
+    }
     if (input.uv.x < 0.0)
-        return float4(input.fillColor.rgb*input.fillColor.a, input.fillColor.a);
+        return float4(input.fillColor.rgb*input.fillColor.a, input.fillColor.a)*visibility;
     float4 distance = g_atlas.Sample(g_atlas_sampler, input.uv);
     float2 unitRange = g_atlasParams.x*g_surface.zw;
     float2 screenTexelRange = 1.0/max(fwidth(input.uv), float2(1e-6, 1e-6));
@@ -95,7 +129,7 @@ float4 main (PSInput input) : SV_TARGET
     float haloCoverage = saturate(screenRange*(distance.a-0.5)+0.5+max(input.haloWidth, 0.0));
     float fillAlpha = fillCoverage*input.fillColor.a;
     float haloAlpha = haloCoverage*input.haloColor.a*(1.0-fillAlpha);
-    return float4(input.fillColor.rgb*fillAlpha+input.haloColor.rgb*haloAlpha, fillAlpha+haloAlpha);
+    return float4(input.fillColor.rgb*fillAlpha+input.haloColor.rgb*haloAlpha, fillAlpha+haloAlpha)*visibility;
 }
 )hlsl";
 
@@ -155,17 +189,75 @@ bool ProjectAnchor (const SceneTextLabel& label, const float viewProj[16], uint3
     return std::isfinite (x) && std::isfinite (y);
 }
 
-void AddQuad (std::vector<SceneTextVertex>& vertices, float left, float top, float right, float bottom, float u0,
-              float v0, float u1, float v1, uint32_t fillColor, uint32_t haloColor = 0,
-              float haloWidthPixels = 0.0f)
+bool ProjectOcclusionAnchor (const SceneTextLabel& label, const float viewProj[16], float uv[2], float& depth)
 {
+    const float input[4] = { float (label.anchor[0]), float (label.anchor[1]), float (label.anchor[2]), 1.0f };
+    float clip[4];
+    TransformPoint (clip, input, viewProj);
+    if (!std::isfinite (clip[0]) || !std::isfinite (clip[1]) || !std::isfinite (clip[2]) || !std::isfinite (clip[3]) ||
+        clip[3] <= 1e-6f)
+        return false;
+    uv[0] = std::clamp (clip[0] / clip[3] * 0.5f + 0.5f, 0.0f, 1.0f);
+    uv[1] = std::clamp (0.5f - clip[1] / clip[3] * 0.5f, 0.0f, 1.0f);
+    depth = clip[2] / clip[3];
+    return std::isfinite (depth) && depth >= 0.0f && depth <= 1.0f;
+}
+
+void AddQuad (std::vector<SceneTextVertex>& vertices, float left, float top, float right, float bottom, float u0,
+              float v0, float u1, float v1, uint32_t fillColor, uint32_t haloColor = 0, float haloWidthPixels = 0.0f,
+              const float occlusionUv[2] = nullptr, float anchorDepth = 0.0f, float occlusionMode = 0.0f)
+{
+    const float depthU = occlusionUv != nullptr ? occlusionUv[0] : 0.0f;
+    const float depthV = occlusionUv != nullptr ? occlusionUv[1] : 0.0f;
     const SceneTextVertex quad[6] = {
-        { { left, top }, { u0, v1 }, fillColor, haloColor, haloWidthPixels },
-        { { right, top }, { u1, v1 }, fillColor, haloColor, haloWidthPixels },
-        { { right, bottom }, { u1, v0 }, fillColor, haloColor, haloWidthPixels },
-        { { left, top }, { u0, v1 }, fillColor, haloColor, haloWidthPixels },
-        { { right, bottom }, { u1, v0 }, fillColor, haloColor, haloWidthPixels },
-        { { left, bottom }, { u0, v0 }, fillColor, haloColor, haloWidthPixels },
+        { { left, top },
+          { u0, v1 },
+          fillColor,
+          haloColor,
+          haloWidthPixels,
+          { depthU, depthV },
+          anchorDepth,
+          occlusionMode },
+        { { right, top },
+          { u1, v1 },
+          fillColor,
+          haloColor,
+          haloWidthPixels,
+          { depthU, depthV },
+          anchorDepth,
+          occlusionMode },
+        { { right, bottom },
+          { u1, v0 },
+          fillColor,
+          haloColor,
+          haloWidthPixels,
+          { depthU, depthV },
+          anchorDepth,
+          occlusionMode },
+        { { left, top },
+          { u0, v1 },
+          fillColor,
+          haloColor,
+          haloWidthPixels,
+          { depthU, depthV },
+          anchorDepth,
+          occlusionMode },
+        { { right, bottom },
+          { u1, v0 },
+          fillColor,
+          haloColor,
+          haloWidthPixels,
+          { depthU, depthV },
+          anchorDepth,
+          occlusionMode },
+        { { left, bottom },
+          { u0, v0 },
+          fillColor,
+          haloColor,
+          haloWidthPixels,
+          { depthU, depthV },
+          anchorDepth,
+          occlusionMode },
     };
     vertices.insert (vertices.end (), std::begin (quad), std::end (quad));
 }
@@ -188,6 +280,7 @@ struct SceneTextLayer::Impl {
     Diligent::RefCntAutoPtr<Diligent::IBuffer> constants;
     Diligent::RefCntAutoPtr<Diligent::IBuffer> vertices;
     Diligent::RefCntAutoPtr<Diligent::ITexture> texture;
+    Diligent::RefCntAutoPtr<Diligent::ITexture> depthFallback;
     std::vector<DynamicPage> dynamicPages;
     std::unordered_set<uint32_t> suppressedGlyphs;
     size_t vertexCapacity = 0;
@@ -198,7 +291,8 @@ struct SceneTextLayer::Impl {
     const SceneTextGlyph* FindGlyphExact (uint32_t glyphIndex, size_t& pageIndex);
     bool DrawPrepared (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                        const std::vector<PreparedSceneTextLabel>& labels, uint32_t surfaceWidth, uint32_t surfaceHeight,
-                        bool requireAllReady);
+                       Diligent::ITextureView* depthView, float nearClip, float farClip, bool perspective,
+                       bool requireAllReady);
 };
 
 void SceneTextLayer::Impl::UploadReadyPages (Diligent::IRenderDevice* device)
@@ -229,20 +323,24 @@ void SceneTextLayer::Impl::UploadReadyPages (Diligent::IRenderDevice* device)
             continue;
         }
         pso->CreateShaderResourceBinding (&uploaded.srb, true);
-        auto* variable = uploaded.srb != nullptr
-                             ? uploaded.srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_atlas")
-                             : nullptr;
-        if (variable == nullptr) {
+        auto* atlasVariable = uploaded.srb != nullptr
+                                  ? uploaded.srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_atlas")
+                                  : nullptr;
+        auto* depthVariable = uploaded.srb != nullptr
+                                  ? uploaded.srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depth")
+                                  : nullptr;
+        if (atlasVariable == nullptr || depthVariable == nullptr) {
             suppressedGlyphs.insert (uploaded.atlas->GlyphIds ().begin (), uploaded.atlas->GlyphIds ().end ());
             ++stats.atlasUploadFailures;
             continue;
         }
-        variable->Set (uploaded.texture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        atlasVariable->Set (uploaded.texture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+        depthVariable->Set (depthFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
         if (dynamicPages.size () >= kMaximumDynamicPages) {
-            const auto victim = std::min_element (dynamicPages.begin (), dynamicPages.end (), [] (const auto& left,
-                                                                                                  const auto& right) {
-                return left.lastAccess < right.lastAccess;
-            });
+            const auto victim =
+                std::min_element (dynamicPages.begin (), dynamicPages.end (), [] (const auto& left, const auto& right) {
+                    return left.lastAccess < right.lastAccess;
+                });
             suppressedGlyphs.insert (victim->atlas->GlyphIds ().begin (), victim->atlas->GlyphIds ().end ());
             stats.atlasBytes -= victim->atlas->Pixels ().size ();
             dynamicPages.erase (victim);
@@ -283,8 +381,7 @@ SceneTextLayer::~SceneTextLayer ()
     Shutdown ();
 }
 
-bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
-                           std::string& error)
+bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, std::string& error)
 {
     if (device == nullptr) {
         error = "SceneTextLayer::Init got no render device";
@@ -314,6 +411,25 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     device->CreateTexture (textureDesc, &initial, &impl_->texture);
     if (impl_->texture == nullptr) {
         error = "Diligent could not create the linear MTSDF atlas texture";
+        return false;
+    }
+    const float clearDepth = 1.0f;
+    Diligent::TextureDesc depthFallbackDesc;
+    depthFallbackDesc.Name = "Scene text clear-depth fallback";
+    depthFallbackDesc.Type = Diligent::RESOURCE_DIM_TEX_2D;
+    depthFallbackDesc.Width = depthFallbackDesc.Height = 1;
+    depthFallbackDesc.Format = Diligent::TEX_FORMAT_R32_FLOAT;
+    depthFallbackDesc.Usage = Diligent::USAGE_IMMUTABLE;
+    depthFallbackDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+    Diligent::TextureSubResData depthFallbackLevel;
+    depthFallbackLevel.pData = &clearDepth;
+    depthFallbackLevel.Stride = sizeof (clearDepth);
+    Diligent::TextureData depthFallbackInitial;
+    depthFallbackInitial.pSubResources = &depthFallbackLevel;
+    depthFallbackInitial.NumSubresources = 1;
+    device->CreateTexture (depthFallbackDesc, &depthFallbackInitial, &impl_->depthFallback);
+    if (impl_->depthFallback == nullptr) {
+        error = "Diligent could not create the scene-text clear-depth fallback";
         return false;
     }
 
@@ -349,18 +465,17 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     }
 
     const Diligent::LayoutElement layout[] = {
-        { 0, 0, 2, Diligent::VT_FLOAT32, Diligent::False },
-        { 1, 0, 2, Diligent::VT_FLOAT32, Diligent::False },
-        { 2, 0, 4, Diligent::VT_UINT8, Diligent::True },
-        { 3, 0, 4, Diligent::VT_UINT8, Diligent::True },
-        { 4, 0, 1, Diligent::VT_FLOAT32, Diligent::False },
+        { 0, 0, 2, Diligent::VT_FLOAT32, Diligent::False }, { 1, 0, 2, Diligent::VT_FLOAT32, Diligent::False },
+        { 2, 0, 4, Diligent::VT_UINT8, Diligent::True },    { 3, 0, 4, Diligent::VT_UINT8, Diligent::True },
+        { 4, 0, 1, Diligent::VT_FLOAT32, Diligent::False }, { 5, 0, 2, Diligent::VT_FLOAT32, Diligent::False },
+        { 6, 0, 1, Diligent::VT_FLOAT32, Diligent::False }, { 7, 0, 1, Diligent::VT_FLOAT32, Diligent::False },
     };
     Diligent::GraphicsPipelineStateCreateInfo pipeline;
     pipeline.PSODesc.Name = "Scene text MTSDF PSO";
     auto& graphics = pipeline.GraphicsPipeline;
     graphics.NumRenderTargets = 1;
     graphics.RTVFormats[0] = static_cast<Diligent::TEXTURE_FORMAT> (colorBufferFormat);
-    graphics.DSVFormat = static_cast<Diligent::TEXTURE_FORMAT> (depthBufferFormat);
+    graphics.DSVFormat = Diligent::TEX_FORMAT_UNKNOWN;
     graphics.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     graphics.RasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
     graphics.DepthStencilDesc.DepthEnable = Diligent::False;
@@ -376,19 +491,30 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
     pipeline.pVS = vertexShader;
     pipeline.pPS = pixelShader;
     pipeline.PSODesc.ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_STATIC;
-    Diligent::ShaderResourceVariableDesc variable { Diligent::SHADER_TYPE_PIXEL, "g_atlas",
-                                                    Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE };
-    pipeline.PSODesc.ResourceLayout.Variables = &variable;
-    pipeline.PSODesc.ResourceLayout.NumVariables = 1;
-    Diligent::SamplerDesc samplerDesc;
-    samplerDesc.MinFilter = Diligent::FILTER_TYPE_LINEAR;
-    samplerDesc.MagFilter = Diligent::FILTER_TYPE_LINEAR;
-    samplerDesc.MipFilter = Diligent::FILTER_TYPE_LINEAR;
-    samplerDesc.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
-    samplerDesc.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
-    const Diligent::ImmutableSamplerDesc sampler { Diligent::SHADER_TYPE_PIXEL, "g_atlas_sampler", samplerDesc };
-    pipeline.PSODesc.ResourceLayout.ImmutableSamplers = &sampler;
-    pipeline.PSODesc.ResourceLayout.NumImmutableSamplers = 1;
+    const Diligent::ShaderResourceVariableDesc variables[] = {
+        { Diligent::SHADER_TYPE_PIXEL, "g_atlas", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE },
+        { Diligent::SHADER_TYPE_PIXEL, "g_depth", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE },
+    };
+    pipeline.PSODesc.ResourceLayout.Variables = variables;
+    pipeline.PSODesc.ResourceLayout.NumVariables = _countof (variables);
+    Diligent::SamplerDesc atlasSamplerDesc;
+    atlasSamplerDesc.MinFilter = Diligent::FILTER_TYPE_LINEAR;
+    atlasSamplerDesc.MagFilter = Diligent::FILTER_TYPE_LINEAR;
+    atlasSamplerDesc.MipFilter = Diligent::FILTER_TYPE_LINEAR;
+    atlasSamplerDesc.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
+    atlasSamplerDesc.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
+    Diligent::SamplerDesc depthSamplerDesc;
+    depthSamplerDesc.MinFilter = Diligent::FILTER_TYPE_POINT;
+    depthSamplerDesc.MagFilter = Diligent::FILTER_TYPE_POINT;
+    depthSamplerDesc.MipFilter = Diligent::FILTER_TYPE_POINT;
+    depthSamplerDesc.AddressU = Diligent::TEXTURE_ADDRESS_CLAMP;
+    depthSamplerDesc.AddressV = Diligent::TEXTURE_ADDRESS_CLAMP;
+    const Diligent::ImmutableSamplerDesc samplers[] = {
+        { Diligent::SHADER_TYPE_PIXEL, "g_atlas_sampler", atlasSamplerDesc },
+        { Diligent::SHADER_TYPE_PIXEL, "g_depth_sampler", depthSamplerDesc },
+    };
+    pipeline.PSODesc.ResourceLayout.ImmutableSamplers = samplers;
+    pipeline.PSODesc.ResourceLayout.NumImmutableSamplers = _countof (samplers);
     device->CreateGraphicsPipelineState (pipeline, &impl_->pso);
     if (impl_->pso == nullptr) {
         error = "Diligent could not create the scene-text pipeline";
@@ -409,6 +535,12 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return false;
     }
     atlasVariable->Set (impl_->texture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
+    auto* depthVariable = impl_->srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depth");
+    if (depthVariable == nullptr) {
+        error = "the scene-text depth shader variable is missing";
+        return false;
+    }
+    depthVariable->Set (impl_->depthFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE));
     if (!impl_->atlasCache.Start (fontBytes.data (), fontBytes.size (), error))
         return false;
     impl_->stats.ready = true;
@@ -431,6 +563,7 @@ void SceneTextLayer::Shutdown ()
     impl_->constants.Release ();
     impl_->srb.Release ();
     impl_->pso.Release ();
+    impl_->depthFallback.Release ();
     impl_->texture.Release ();
     impl_->vertexCapacity = 0;
     impl_->pageAccessSequence = 0;
@@ -438,8 +571,10 @@ void SceneTextLayer::Shutdown ()
 }
 
 bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                           const std::vector<SceneTextLabel>& labels, const float viewProj[16], uint32_t surfaceWidth,
-                           uint32_t surfaceHeight, float dpiScale, bool requireAllReady)
+                           Diligent::ITextureView* depthView, const std::vector<SceneTextLabel>& labels,
+                           const float placementViewProj[16], const float depthViewProj[16], uint32_t surfaceWidth,
+                           uint32_t surfaceHeight, float dpiScale, float nearClip, float farClip, bool perspective,
+                           bool requireAllReady)
 {
     impl_->stats.labels = impl_->stats.glyphs = impl_->stats.drawCalls = 0;
     impl_->stats.unavailableGlyphs = 0;
@@ -453,13 +588,19 @@ bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
     for (size_t labelIndex = 0; labelIndex < (std::min) (labels.size (), kMaximumLabels); ++labelIndex) {
         const SceneTextLabel& label = labels[labelIndex];
         float anchorX = 0.0f, anchorY = 0.0f;
-        if (label.text.empty () || !ProjectAnchor (label, viewProj, surfaceWidth, surfaceHeight, anchorX, anchorY))
+        if (label.text.empty () ||
+            !ProjectAnchor (label, placementViewProj, surfaceWidth, surfaceHeight, anchorX, anchorY))
             continue;
         prepared.push_back ({ anchorX, anchorY, &label.text, std::clamp (label.sizePixels, 6.0f, 192.0f) * dpiScale,
-                               label.rgba, label.alignment, VerticalAnchor::Baseline, label.haloRgba,
-                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale });
+                              label.rgba, label.alignment, VerticalAnchor::Baseline, label.haloRgba,
+                              std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale });
+        PreparedSceneTextLabel& output = prepared.back ();
+        if (label.occlusion != SceneTextOcclusion::Always &&
+            ProjectOcclusionAnchor (label, depthViewProj, output.occlusionUv, output.anchorDepth))
+            output.occlusionMode = label.occlusion == SceneTextOcclusion::Hide ? 1.0f : 2.0f;
     }
-    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, requireAllReady);
+    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, depthView, nearClip, farClip,
+                                perspective, requireAllReady);
 }
 
 bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
@@ -481,16 +622,18 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
         const float horizontalOffset = label.centered ? 0.0f : 4.0f * dpiScale;
         prepared.push_back ({ label.anchor.x + horizontalOffset, label.anchor.y, &label.text,
                               std::clamp (pixelSize, 6.0f, 192.0f), label.rgba,
-                               label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
-                               label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
+                              label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
+                              label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
     }
-    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, true);
+    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, nullptr, 0.05f, 20000.0f, true,
+                                true);
 }
 
 bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                                          const std::vector<PreparedSceneTextLabel>& labels, uint32_t surfaceWidth,
-                                          uint32_t surfaceHeight, bool requireAllReady)
+                                         const std::vector<PreparedSceneTextLabel>& labels, uint32_t surfaceWidth,
+                                         uint32_t surfaceHeight, Diligent::ITextureView* depthView, float nearClip,
+                                         float farClip, bool perspective, bool requireAllReady)
 {
     stats.labels = stats.glyphs = stats.drawCalls = 0;
     stats.unavailableGlyphs = 0;
@@ -601,10 +744,10 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             const SceneTextGlyph* glyph = resolveGlyph (positioned.glyphIndex, pageIndex);
             if (glyph == nullptr)
                 continue;
-            const float atlasWidth = pageIndex == 0 ? float (atlas.Width ())
-                                                    : float (dynamicPages[pageIndex - 1].atlas->Width ());
-            const float atlasHeight = pageIndex == 0 ? float (atlas.Height ())
-                                                     : float (dynamicPages[pageIndex - 1].atlas->Height ());
+            const float atlasWidth =
+                pageIndex == 0 ? float (atlas.Width ()) : float (dynamicPages[pageIndex - 1].atlas->Width ());
+            const float atlasHeight =
+                pageIndex == 0 ? float (atlas.Height ()) : float (dynamicPages[pageIndex - 1].atlas->Height ());
             const float left = pen + (positioned.xOffset + glyph->planeLeft) * pixelSize;
             const float right = pen + (positioned.xOffset + glyph->planeRight) * pixelSize;
             const float top = baseline - (positioned.yOffset + glyph->planeTop) * pixelSize;
@@ -613,8 +756,9 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                 if (labelBatches.empty () || labelBatches.back ().pageIndex != pageIndex)
                     labelBatches.push_back ({ pageIndex, {} });
                 AddQuad (labelBatches.back ().vertices, left, top, right, bottom, glyph->atlasLeft / atlasWidth,
-                          glyph->atlasBottom / atlasHeight, glyph->atlasRight / atlasWidth,
-                          glyph->atlasTop / atlasHeight, color, haloColor, label.haloWidthPixels);
+                         glyph->atlasBottom / atlasHeight, glyph->atlasRight / atlasWidth,
+                         glyph->atlasTop / atlasHeight, color, haloColor, label.haloWidthPixels, label.occlusionUv,
+                         label.anchorDepth, label.occlusionMode);
                 if (emitted == 0) {
                     boundsLeft = left;
                     boundsTop = top;
@@ -636,14 +780,14 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                 const float scale = pixelSize / 18.0f;
                 VertexBatch panel;
                 AddQuad (panel.vertices, boundsLeft - 3.0f * scale, boundsTop - 2.0f * scale,
-                         boundsRight + 3.0f * scale,
-                         boundsBottom + 2.0f * scale, -1.0f, -1.0f, -1.0f, -1.0f, LinearAbgr (0xFFFFFFE0u));
+                         boundsRight + 3.0f * scale, boundsBottom + 2.0f * scale, -1.0f, -1.0f, -1.0f, -1.0f,
+                         LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.occlusionUv, label.anchorDepth, label.occlusionMode);
                 batches.push_back (std::move (panel));
             }
             for (VertexBatch& batch : labelBatches) {
                 if (!batches.empty () && batches.back ().pageIndex == batch.pageIndex)
                     batches.back ().vertices.insert (batches.back ().vertices.end (), batch.vertices.begin (),
-                                                      batch.vertices.end ());
+                                                     batch.vertices.end ());
                 else
                     batches.push_back (std::move (batch));
             }
@@ -688,16 +832,16 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
     Diligent::IBuffer* buffers[] = { this->vertices };
     const Diligent::Uint64 offsets[] = { 0 };
     context->SetVertexBuffers (0, 1, buffers, offsets, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
-                                Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
+                               Diligent::SET_VERTEX_BUFFERS_FLAG_RESET);
     context->SetPipelineState (pso);
     Diligent::Uint32 startVertex = 0;
     const auto drawBatch = [&] (const std::vector<SceneTextVertex>& batch, size_t pageIndex) {
         if (batch.empty ())
             return true;
-        const float atlasWidth = pageIndex == 0 ? float (atlas.Width ())
-                                                : float (dynamicPages[pageIndex - 1].atlas->Width ());
-        const float atlasHeight = pageIndex == 0 ? float (atlas.Height ())
-                                                 : float (dynamicPages[pageIndex - 1].atlas->Height ());
+        const float atlasWidth =
+            pageIndex == 0 ? float (atlas.Width ()) : float (dynamicPages[pageIndex - 1].atlas->Width ());
+        const float atlasHeight =
+            pageIndex == 0 ? float (atlas.Height ()) : float (dynamicPages[pageIndex - 1].atlas->Height ());
         context->MapBuffer (constants, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, mapped);
         if (mapped == nullptr)
             return false;
@@ -707,15 +851,25 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
         values->surface[2] = 1.0f / atlasWidth;
         values->surface[3] = 1.0f / atlasHeight;
         values->atlas[0] = SceneTextAtlas::kDistanceRangePixels;
-        values->atlas[1] = values->atlas[2] = values->atlas[3] = 0.0f;
+        values->atlas[1] = nearClip;
+        values->atlas[2] = farClip;
+        values->atlas[3] = perspective ? 1.0f : 0.0f;
         context->UnmapBuffer (constants, Diligent::MAP_WRITE);
-        context->CommitShaderResources (pageIndex == 0 ? srb : dynamicPages[pageIndex - 1].srb,
-                                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        auto* binding = pageIndex == 0 ? srb.RawPtr () : dynamicPages[pageIndex - 1].srb.RawPtr ();
+        auto* depthVariable = binding->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_depth");
+        if (depthVariable == nullptr)
+            return false;
+        auto* fallbackView = depthFallback->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+        depthVariable->Set (depthView != nullptr ? depthView : fallbackView,
+                            Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+        context->CommitShaderResources (binding, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         Diligent::DrawAttribs draw;
         draw.NumVertices = static_cast<Diligent::Uint32> (batch.size ());
         draw.StartVertexLocation = startVertex;
         draw.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
         context->Draw (draw);
+        depthVariable->Set (fallbackView, Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+        context->CommitShaderResources (binding, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
         startVertex += draw.NumVertices;
         ++stats.drawCalls;
         return true;

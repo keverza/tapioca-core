@@ -20055,6 +20055,14 @@
                     "center",
                     "right"
                   ]
+                },
+                "occlusion": {
+                  "type": "string",
+                  "enum": [
+                    "always",
+                    "hide",
+                    "fade"
+                  ]
                 }
               },
               "additionalProperties": false,

@@ -75,7 +75,11 @@ struct DiligentViewportTarget::Impl {
     std::atomic<uint64_t> presentFailures { 0 };
 
     Diligent::IRenderDevice* device = nullptr; // borrowed; the caller owns it
+    Diligent::IDeviceContext* context = nullptr;
+    Diligent::IEngineFactoryD3D11* factory = nullptr;
+    HWND hwnd = nullptr;
     RefCntAutoPtr<Diligent::IRenderDeviceD3D11> deviceD3D11;
+    RefCntAutoPtr<Diligent::ITexture> depthTexture;
 
     // ---- the palette-child path -------------------------------------------
     RefCntAutoPtr<Diligent::ISwapChain> swapChain;
@@ -94,7 +98,6 @@ struct DiligentViewportTarget::Impl {
     IDCompositionDevice* dcompDevice = nullptr;
     IDCompositionTarget* dcompTarget = nullptr;
     IDCompositionVisual* dcompVisual = nullptr;
-    RefCntAutoPtr<Diligent::ITexture> depthTexture;
 
     // ⚠️ ONE Diligent ITexture PER NATIVE BACK BUFFER, CACHED BY POINTER. The
     // flip chain rotates its buffers, so GetBuffer(0) returns a different
@@ -111,34 +114,50 @@ struct DiligentViewportTarget::Impl {
     uint32_t colorFormat = 0;
     uint32_t depthFormat = 0;
 
-    bool CreateOverlayDepth (std::string& error);
+    bool CreateDepth (uint32_t requestedWidth, uint32_t requestedHeight, RefCntAutoPtr<Diligent::ITexture>& destination,
+                      std::string& error);
+    bool CreatePaletteSwapChain (uint32_t requestedWidth, uint32_t requestedHeight, std::string& error);
     void ReleaseOverlay ();
 };
 
-bool DiligentViewportTarget::Impl::CreateOverlayDepth (std::string& error)
+bool DiligentViewportTarget::Impl::CreatePaletteSwapChain (uint32_t requestedWidth, uint32_t requestedHeight,
+                                                           std::string& error)
 {
-    depthTexture.Release ();
-    Diligent::TextureDesc dd;
-    dd.Name = "ArchViz overlay depth";
-    dd.Type = Diligent::RESOURCE_DIM_TEX_2D;
-    dd.Width = width;
-    dd.Height = height;
-    dd.MipLevels = 1;
-    dd.Format = static_cast<Diligent::TEXTURE_FORMAT> (depthFormat);
-    dd.BindFlags = Diligent::BIND_DEPTH_STENCIL;
-    dd.Usage = Diligent::USAGE_DEFAULT;
-    device->CreateTexture (dd, nullptr, &depthTexture);
-    if (depthTexture == nullptr) {
-        // ⚠️ THE OVERLAY CANNOT RUN WITHOUT ITS OWN DEPTH BUFFER, and that is the
-        // one structural difference from the palette path. A composition swap
-        // chain has NO depth buffer -- `ISwapChain::GetDepthBufferDSV` has no
-        // analogue here -- so if this fails there is nothing to fall back on and
-        // the scene would draw with a depth-enabled pipeline and no DSV bound,
-        // which is a validation error rather than a picture.
-        error = "could not create the overlay's depth buffer (" + std::to_string (width) + "x" +
-                std::to_string (height) + ")";
+    swapChain.Release ();
+    Diligent::SwapChainDesc desc;
+    desc.Width = requestedWidth;
+    desc.Height = requestedHeight;
+    desc.DepthBufferFormat = Diligent::TEX_FORMAT_UNKNOWN;
+    const Diligent::Win32NativeWindow window { hwnd };
+    factory->CreateSwapChainD3D11 (device, context, desc, Diligent::FullScreenModeDesc {}, window, &swapChain);
+    if (swapChain == nullptr) {
+        error = "CreateSwapChainD3D11 returned no swap chain";
         return false;
     }
+    colorFormat = uint32_t (swapChain->GetDesc ().ColorBufferFormat);
+    return true;
+}
+
+bool DiligentViewportTarget::Impl::CreateDepth (uint32_t requestedWidth, uint32_t requestedHeight,
+                                                RefCntAutoPtr<Diligent::ITexture>& destination, std::string& error)
+{
+    RefCntAutoPtr<Diligent::ITexture> candidate;
+    Diligent::TextureDesc dd;
+    dd.Name = "ArchViz viewport depth";
+    dd.Type = Diligent::RESOURCE_DIM_TEX_2D;
+    dd.Width = requestedWidth;
+    dd.Height = requestedHeight;
+    dd.MipLevels = 1;
+    dd.Format = static_cast<Diligent::TEXTURE_FORMAT> (depthFormat);
+    dd.BindFlags = Diligent::BIND_DEPTH_STENCIL | Diligent::BIND_SHADER_RESOURCE;
+    dd.Usage = Diligent::USAGE_DEFAULT;
+    device->CreateTexture (dd, nullptr, &candidate);
+    if (candidate == nullptr) {
+        error = "could not create the viewport depth buffer (" + std::to_string (requestedWidth) + "x" +
+                std::to_string (requestedHeight) + ")";
+        return false;
+    }
+    destination = std::move (candidate);
     return true;
 }
 
@@ -154,7 +173,6 @@ void DiligentViewportTarget::Impl::ReleaseOverlay ()
         dcompDevice->WaitForCommitCompletion ();
     }
     wrapped.clear ();
-    depthTexture.Release ();
     if (dcompVisual != nullptr) {
         dcompVisual->Release ();
         dcompVisual = nullptr;
@@ -193,25 +211,20 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
     }
 
     impl_->device = device;
+    impl_->context = context;
+    impl_->factory = factory;
+    impl_->hwnd = static_cast<HWND> (hwnd);
     impl_->deviceD3D11 = RefCntAutoPtr<Diligent::IRenderDeviceD3D11> (device, Diligent::IID_RenderDeviceD3D11);
     impl_->mode = mode;
     impl_->width = width;
     impl_->height = height;
 
     if (mode == SurfaceMode::PaletteChild) {
-        Diligent::SwapChainDesc desc;
-        desc.Width = width;
-        desc.Height = height;
-        const Diligent::Win32NativeWindow window { static_cast<HWND> (hwnd) };
-        factory->CreateSwapChainD3D11 (device, context, desc, Diligent::FullScreenModeDesc {}, window,
-                                       &impl_->swapChain);
-        if (impl_->swapChain == nullptr) {
-            error = "CreateSwapChainD3D11 returned no swap chain";
+        if (!impl_->CreatePaletteSwapChain (width, height, error))
             return false;
-        }
-        const Diligent::SwapChainDesc& actual = impl_->swapChain->GetDesc ();
-        impl_->colorFormat = uint32_t (actual.ColorBufferFormat);
-        impl_->depthFormat = uint32_t (actual.DepthBufferFormat);
+        impl_->depthFormat = uint32_t (Diligent::TEX_FORMAT_D32_FLOAT);
+        if (!impl_->CreateDepth (width, height, impl_->depthTexture, error))
+            return false;
         return true;
     }
 
@@ -237,7 +250,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
         sd.CPUAccessFlags = Diligent::CPU_ACCESS_READ;
         device->CreateTexture (sd, nullptr, &impl_->offscreenStaging);
 
-        if (!impl_->CreateOverlayDepth (error) || impl_->offscreenColor == nullptr ||
+        if (!impl_->CreateDepth (width, height, impl_->depthTexture, error) || impl_->offscreenColor == nullptr ||
             impl_->offscreenStaging == nullptr) {
             if (error.empty ())
                 error = "could not create the offscreen colour or staging texture";
@@ -351,7 +364,7 @@ bool DiligentViewportTarget::Create (Diligent::IRenderDevice* device, Diligent::
 
     impl_->colorFormat = uint32_t (Diligent::TEX_FORMAT_BGRA8_UNORM);
     impl_->depthFormat = uint32_t (Diligent::TEX_FORMAT_D32_FLOAT);
-    if (!impl_->CreateOverlayDepth (error)) {
+    if (!impl_->CreateDepth (width, height, impl_->depthTexture, error)) {
         impl_->ReleaseOverlay ();
         return false;
     }
@@ -400,8 +413,12 @@ void DiligentViewportTarget::Destroy (Diligent::IDeviceContext* context)
     impl_->swapChain.Release ();
     impl_->offscreenStaging.Release ();
     impl_->offscreenColor.Release ();
+    impl_->depthTexture.Release ();
     impl_->deviceD3D11.Release ();
     impl_->device = nullptr;
+    impl_->context = nullptr;
+    impl_->factory = nullptr;
+    impl_->hwnd = nullptr;
 }
 
 bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent::ITextureView*& dsv)
@@ -415,7 +432,8 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
         impl_->resizePending = false;
         const uint32_t w = impl_->pendingWidth;
         const uint32_t h = impl_->pendingHeight;
-        if (w > 0 && h > 0 && (w != impl_->width || h != impl_->height)) {
+        const bool sizeChanged = w != impl_->width || h != impl_->height;
+        if (w > 0 && h > 0 && (sizeChanged || impl_->depthTexture == nullptr)) {
             // ⚠️ THE NEW SIZE IS NOT COMMITTED UNTIL THE RESIZE SUCCEEDS. It used
             // to be recorded here, before the call -- so a failed ResizeBuffers
             // left `width`/`height` claiming the size it had NOT reached, the
@@ -423,12 +441,39 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
             // the overlay presented at the old size for the rest of the session
             // with nothing ever retrying. A failure that disables its own retry
             // is indistinguishable from the resize tracker not working.
-            bool committed = true;
-            if (impl_->mode == SurfaceMode::PaletteChild) {
-                if (impl_->swapChain != nullptr)
-                    impl_->swapChain->Resize (w, h);
+            RefCntAutoPtr<Diligent::ITexture> resizedDepth;
+            std::string depthError;
+            bool resized = impl_->CreateDepth (w, h, resizedDepth, depthError);
+            bool retryable = true;
+            if (!resized) {
+                if (!impl_->resizeFailed)
+                    ArchVizLog ("ArchViz target: " + depthError + " -- retrying on the next frame");
+                impl_->resizeFailed = true;
+                impl_->resizePending = true;
             }
-            else if (impl_->mode == SurfaceMode::Overlay && impl_->compositionSwapChain != nullptr) {
+            else if (sizeChanged && impl_->mode == SurfaceMode::PaletteChild) {
+                if (impl_->swapChain != nullptr) {
+                    impl_->swapChain->Resize (w, h);
+                    auto* resizedRtv = impl_->swapChain->GetCurrentBackBufferRTV ();
+                    auto* resizedTexture = resizedRtv != nullptr ? resizedRtv->GetTexture () : nullptr;
+                    const auto* resizedDesc = resizedTexture != nullptr ? &resizedTexture->GetDesc () : nullptr;
+                    resized = resizedDesc != nullptr && resizedDesc->Width == w && resizedDesc->Height == h;
+                    if (!resized) {
+                        std::string recreateError;
+                        ArchVizLog ("ArchViz palette: swap-chain resize failed -- recreating the target");
+                        resized = impl_->CreatePaletteSwapChain (w, h, recreateError);
+                        retryable = resized;
+                        if (!resized)
+                            ArchVizLog ("ArchViz palette: " + recreateError);
+                    }
+                    impl_->resizeFailed = !resized;
+                }
+                else {
+                    resized = false;
+                    retryable = false;
+                }
+            }
+            else if (sizeChanged && impl_->mode == SurfaceMode::Overlay && impl_->compositionSwapChain != nullptr) {
                 // ⚠️ THE WRAPPED VIEWS GO FIRST. ResizeBuffers refuses while any
                 // outstanding reference to a back buffer exists, and every entry
                 // in this map is one -- it fails with DXGI_ERROR_INVALID_CALL and
@@ -437,7 +482,7 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
                 impl_->wrapped.clear ();
                 const HRESULT hr = impl_->compositionSwapChain->ResizeBuffers (0, w, h, DXGI_FORMAT_UNKNOWN, 0);
                 if (FAILED (hr)) {
-                    committed = false;
+                    resized = false;
                     // Logged once per run of failures, not once per frame: a
                     // resize that cannot succeed would otherwise fill the log
                     // faster than anything else in it.
@@ -445,30 +490,28 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
                         ArchVizLog ("ArchViz overlay: ResizeBuffers " + HrText (hr) + " -- retrying on the next frame");
                     impl_->resizeFailed = true;
                 }
-                else {
-                    impl_->resizeFailed = false;
-                }
-                std::string depthError;
-                if (!impl_->CreateOverlayDepth (depthError))
-                    ArchVizLog ("ArchViz overlay: " + depthError);
             }
-            if (committed) {
-                impl_->width = w;
-                impl_->height = h;
+            if (resized) {
+                impl_->depthTexture = std::move (resizedDepth);
+                if (sizeChanged) {
+                    impl_->width = w;
+                    impl_->height = h;
+                }
+                impl_->resizeFailed = false;
             }
             else {
-                // Try again next frame rather than settling at the wrong size.
-                impl_->resizePending = true;
+                // Allocation and overlay failures retain a valid old target.
+                impl_->resizePending = retryable;
             }
         }
     }
 
     if (impl_->mode == SurfaceMode::PaletteChild) {
-        if (impl_->swapChain == nullptr)
+        if (impl_->swapChain == nullptr || impl_->depthTexture == nullptr)
             return false;
         rtv = impl_->swapChain->GetCurrentBackBufferRTV ();
-        dsv = impl_->swapChain->GetDepthBufferDSV ();
-        return rtv != nullptr;
+        dsv = impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
+        return rtv != nullptr && dsv != nullptr;
     }
 
     if (impl_->mode == SurfaceMode::Offscreen) {
@@ -516,6 +559,13 @@ bool DiligentViewportTarget::BeginFrame (Diligent::ITextureView*& rtv, Diligent:
     rtv = it->second.view;
     dsv = impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_DEPTH_STENCIL);
     return rtv != nullptr && dsv != nullptr;
+}
+
+Diligent::ITextureView* DiligentViewportTarget::DepthShaderView () const
+{
+    if (impl_ == nullptr || impl_->depthTexture == nullptr)
+        return nullptr;
+    return impl_->depthTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
 }
 
 void DiligentViewportTarget::Present ()
@@ -663,7 +713,7 @@ uint64_t DiligentViewportTarget::PresentFailures () const
 
 void DiligentViewportTarget::RequestResize (uint32_t width, uint32_t height)
 {
-    if (impl_ == nullptr || width == 0 || height == 0)
+    if (impl_ == nullptr || impl_->mode == SurfaceMode::Offscreen || width == 0 || height == 0)
         return;
     impl_->pendingWidth = width;
     impl_->pendingHeight = height;

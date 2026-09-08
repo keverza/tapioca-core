@@ -167,13 +167,18 @@ void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats&
 bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                              std::mutex& mutex, const std::vector<SceneTextLabel>& pendingLabels,
                              uint64_t publishedSequence, uint64_t& adoptedSequence, std::vector<SceneTextLabel>& labels,
-                             bool blanked, bool offscreen, void* nativeWindow, const float viewProj[16], uint32_t width,
-                             uint32_t height, float captureDpi);
+                             bool blanked, bool offscreen, void* nativeWindow, Diligent::ITextureView* colorTarget,
+                             Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView,
+                             const float placementViewProj[16], const float depthViewProj[16], uint32_t width,
+                             uint32_t height, float captureDpi, float nearClip, float farClip, bool perspective,
+                             HudState& hudState);
 
 ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                                                  Diligent::IDeviceContext* context, bool blanked, bool offscreen,
-                                                  bool annotationsOnly, void* nativeWindow, const float viewProj[16],
-                                                  uint32_t width, uint32_t height, HudState& hudState);
+                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
+                                                 bool annotationsOnly, void* nativeWindow,
+                                                 Diligent::ITextureView* colorTarget,
+                                                 Diligent::ITextureView* depthTarget, const float viewProj[16],
+                                                 uint32_t width, uint32_t height, HudState& hudState);
 
 void CopyOverlayStatsInto (DiligentViewportStats& stats, bool planAnchorsOn, const PlanAnchorLayer& planAnchors,
                            float planAnchorWidthPixels, const SceneTextLayer& textLayer, const Camera& camera,

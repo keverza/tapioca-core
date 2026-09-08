@@ -11,11 +11,13 @@
 namespace Diligent {
 struct IDeviceContext;
 struct IRenderDevice;
+struct ITextureView;
 } // namespace Diligent
 
 namespace geomsrv::archviz {
 
 enum class SceneTextAlignment : uint8_t { Left, Center, Right };
+enum class SceneTextOcclusion : uint8_t { Always, Hide, Fade };
 
 struct SceneTextLabel {
     double anchor[3] = {};
@@ -25,6 +27,7 @@ struct SceneTextLabel {
     SceneTextAlignment alignment = SceneTextAlignment::Center;
     uint32_t haloRgba = 0x000000C0u;
     float haloWidthPixels = 1.25f;
+    SceneTextOcclusion occlusion = SceneTextOcclusion::Always;
 };
 
 struct SceneTextLayerStats {
@@ -56,12 +59,12 @@ class SceneTextLayer final {
     SceneTextLayer (const SceneTextLayer&) = delete;
     SceneTextLayer& operator= (const SceneTextLayer&) = delete;
 
-    bool Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, uint32_t depthBufferFormat,
-               std::string& error);
+    bool Init (Diligent::IRenderDevice* device, uint32_t colorBufferFormat, std::string& error);
     void Shutdown ();
-    bool Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-               const std::vector<SceneTextLabel>& labels, const float viewProj[16], uint32_t surfaceWidth,
-               uint32_t surfaceHeight, float dpiScale, bool requireAllReady = false);
+    bool Draw (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, Diligent::ITextureView* depthView,
+               const std::vector<SceneTextLabel>& labels, const float placementViewProj[16],
+               const float depthViewProj[16], uint32_t surfaceWidth, uint32_t surfaceHeight, float dpiScale,
+               float nearClip, float farClip, bool perspective, bool requireAllReady = false);
     bool DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                         const std::vector<ScreenLabel>& labels, uint32_t surfaceWidth, uint32_t surfaceHeight,
                         float dpiScale);

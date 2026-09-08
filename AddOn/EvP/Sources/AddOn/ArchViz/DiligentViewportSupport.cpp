@@ -356,8 +356,11 @@ void DiligentViewport::ApplyCaptureSettings (HudState& hudState) const
 bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                              std::mutex& mutex, const std::vector<SceneTextLabel>& pendingLabels,
                              uint64_t publishedSequence, uint64_t& adoptedSequence, std::vector<SceneTextLabel>& labels,
-                             bool blanked, bool offscreen, void* nativeWindow, const float viewProj[16], uint32_t width,
-                             uint32_t height, float captureDpi)
+                             bool blanked, bool offscreen, void* nativeWindow, Diligent::ITextureView* colorTarget,
+                             Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView,
+                             const float placementViewProj[16], const float depthViewProj[16], uint32_t width,
+                             uint32_t height, float captureDpi, float nearClip, float farClip, bool perspective,
+                             HudState& hudState)
 {
     if (publishedSequence != adoptedSequence) {
         std::lock_guard<std::mutex> lock (mutex);
@@ -373,7 +376,21 @@ bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
     }
     if (blanked)
         return labels.empty ();
-    const bool ready = layer.Draw (device, context, labels, viewProj, width, height, dpiScale, offscreen);
+    const bool usesDepth = std::any_of (labels.begin (), labels.end (), [] (const SceneTextLabel& label) {
+        return label.occlusion != SceneTextOcclusion::Always;
+    });
+    if (!labels.empty ())
+        context->SetRenderTargets (1, &colorTarget, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    const bool ready = layer.Draw (device, context, usesDepth ? depthView : nullptr, labels, placementViewProj,
+                                   depthViewProj, width, height, dpiScale, nearClip, farClip, perspective, offscreen);
+    if (!labels.empty ())
+        context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    if (!offscreen && hudState.showSceneTextOcclusionCheck && !hudState.readOnly && layer.IsReady ()) {
+        context->SetRenderTargets (1, &colorTarget, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+        DrawSceneTextOcclusionLiveCheck (layer, device, context, depthView, hudState, placementViewProj, depthViewProj,
+                                         width, height, dpiScale, nearClip, farClip, perspective);
+        context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    }
     if (offscreen && !ready) {
         const SceneTextLayerStats stats = layer.Stats ();
         if (stats.unavailableGlyphs != 0 || stats.atlasGenerationFailures != 0 || stats.atlasUploadFailures != 0 ||
@@ -384,13 +401,17 @@ bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
 }
 
 ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                                                  Diligent::IDeviceContext* context, bool blanked, bool offscreen,
-                                                  bool annotationsOnly, void* nativeWindow, const float viewProj[16],
-                                                  uint32_t width, uint32_t height, HudState& hudState)
+                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
+                                                 bool annotationsOnly, void* nativeWindow,
+                                                 Diligent::ITextureView* colorTarget,
+                                                 Diligent::ITextureView* depthTarget, const float viewProj[16],
+                                                 uint32_t width, uint32_t height, HudState& hudState)
 {
     ProjectedDrawList annotations;
     if (offscreen)
         return annotations;
+
+    context->SetRenderTargets (1, &colorTarget, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
     float dpiScale = 1.0f;
     if (nativeWindow != nullptr) {
@@ -411,6 +432,7 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
     }
     if (!annotationsOnly)
         DrawSceneTextLiveCheck (layer, device, context, hudState, width, height, dpiScale);
+    context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
     return annotations;
 }
 

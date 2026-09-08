@@ -40,6 +40,7 @@ POINT_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/DiligentPointCloudLayer.cp
 # compiles fine, ships fine, and shows up as an overlay that silently never draws.
 PLAN_ANCHOR_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/PlanAnchorLayer.cpp"
 STORY_SLICE_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/StorySliceLayer.cpp"
+SCENE_TEXT_LAYER = REPO / "AddOn/EvP/Sources/AddOn/ArchViz/SceneTextLayer.cpp"
 
 # Stage -> shader model. ps_5_0/vs_5_0 is what the D3D11 backend targets at
 # feature level 11; a stage compiled here under a different model would prove
@@ -77,6 +78,8 @@ STAGES = {
     "kStorySliceFillPS": "ps_5_0",
     "kPointCloudVS": "vs_5_0",
     "kPointCloudPS": "ps_5_0",
+    "kSceneTextVS": "vs_5_0",
+    "kSceneTextPS": "ps_5_0",
 }
 
 # Stages whose source is more than one literal, in concatenation order.
@@ -136,6 +139,8 @@ SELF_CONTAINED = {
     "kStorySlicePS",
     "kStorySliceFillVS",
     "kStorySliceFillPS",
+    "kSceneTextVS",
+    "kSceneTextPS",
 }
 
 
@@ -163,6 +168,7 @@ def main():
         + POINT_LAYER.read_text(encoding="utf-8")
         + PLAN_ANCHOR_LAYER.read_text(encoding="utf-8")
         + STORY_SLICE_LAYER.read_text(encoding="utf-8")
+        + SCENE_TEXT_LAYER.read_text(encoding="utf-8")
     )
     blocks = dict(re.findall(r'(\w+)\s*=\s*R"hlsl\((.*?)\)hlsl";', source, re.S))
     if "kArchVizCBuffer" not in blocks:

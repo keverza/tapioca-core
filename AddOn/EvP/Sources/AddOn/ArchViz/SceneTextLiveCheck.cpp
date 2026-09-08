@@ -11,27 +11,45 @@
 
 namespace geomsrv::archviz {
 
+namespace {
+
+float LiveCheckHalo (float size)
+{
+    if (size <= 16.0f)
+        return 0.0f;
+    if (size <= 24.0f)
+        return (size - 16.0f) / 16.0f;
+    return 0.5f + (size - 24.0f) / 32.0f;
+}
+
+} // namespace
+
 void DrawSceneTextLiveCheckControls (HudState& state)
 {
     if (!ImGui::CollapsingHeader ("scene text"))
         return;
 
     ImGui::Checkbox ("show production text sample", &state.showSceneTextLiveCheck);
+    ImGui::Checkbox ("show always / hide / fade lines", &state.showSceneTextOcclusionCheck);
     ImGui::TextDisabled ("HarfBuzz shaping + linear MTSDF, not ImGui text");
-    if (state.showSceneTextLiveCheck) {
+    if (state.showSceneTextLiveCheck || state.showSceneTextOcclusionCheck) {
         ImGui::SetNextItemWidth (-1.0f);
         ImGui::SliderFloat ("##scenetextsize", &state.sceneTextCheckSizePixels, 12.0f, 72.0f, "%.0f px");
         ImGui::TextDisabled ("sample size");
         const float size = std::clamp (state.sceneTextCheckSizePixels, 12.0f, 72.0f);
-        const float whiteHalo = size <= 24.0f ? size / 48.0f : 0.5f + (size - 24.0f) / 32.0f;
+        const float whiteHalo = LiveCheckHalo (size);
         ImGui::TextDisabled ("white halo %.2f px; coloured halo 0 px", whiteHalo);
+    }
+    if (state.showSceneTextOcclusionCheck) {
+        ImGui::DragFloat3 ("anchor XYZ", state.sceneTextOcclusionAnchor, 0.1f, -100000.0f, 100000.0f, "%.2f m");
+        ImGui::SliderFloat ("line spacing", &state.sceneTextOcclusionSpacingMetres, 0.05f, 5.0f, "%.2f m");
+        ImGui::TextDisabled ("move the three world anchors behind solid geometry");
     }
     ImGui::TextDisabled ("atlas %ux%u, %llu bytes", state.sceneTextAtlasWidth, state.sceneTextAtlasHeight,
                          (unsigned long long) state.sceneTextAtlasBytes);
     ImGui::TextDisabled ("pages %u | pending %u | staging %llu bytes", state.sceneTextAtlasPages,
                          state.sceneTextPendingGlyphs, (unsigned long long) state.sceneTextStagingBytes);
-    ImGui::TextDisabled ("misses %llu | uploads %llu | evictions %llu",
-                         (unsigned long long) state.sceneTextAtlasMisses,
+    ImGui::TextDisabled ("misses %llu | uploads %llu | evictions %llu", (unsigned long long) state.sceneTextAtlasMisses,
                          (unsigned long long) state.sceneTextAtlasUploads,
                          (unsigned long long) state.sceneTextAtlasEvictions);
     ImGui::TextDisabled ("rejected %llu | generation/upload failures %llu/%llu",
@@ -45,14 +63,47 @@ void DrawSceneTextLiveCheckControls (HudState& state)
                          (unsigned long long) state.sceneTextDrawCalls);
 }
 
-void DrawSceneTextLiveCheck (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                             Diligent::IDeviceContext* context, HudState& state, uint32_t width,
-                             uint32_t height, float dpiScale)
+void DrawSceneTextOcclusionLiveCheck (SceneTextLayer& layer, Diligent::IRenderDevice* device,
+                                      Diligent::IDeviceContext* context, Diligent::ITextureView* depthView,
+                                      HudState& state, const float placementViewProj[16], const float depthViewProj[16],
+                                      uint32_t width, uint32_t height, float dpiScale, float nearClip, float farClip,
+                                      bool perspective)
+{
+    if (!state.showSceneTextOcclusionCheck || state.readOnly || !layer.IsReady ())
+        return;
+    const float size = std::clamp (state.sceneTextCheckSizePixels, 12.0f, 72.0f);
+    const float spacing = std::clamp (state.sceneTextOcclusionSpacingMetres, 0.05f, 5.0f);
+    const float halo = LiveCheckHalo (size);
+    std::vector<SceneTextLabel> labels;
+    labels.reserve (3);
+    const auto add = [&] (float zOffset, const char* text, uint32_t rgba, SceneTextOcclusion occlusion) {
+        SceneTextLabel label;
+        label.anchor[0] = state.sceneTextOcclusionAnchor[0];
+        label.anchor[1] = state.sceneTextOcclusionAnchor[1];
+        label.anchor[2] = state.sceneTextOcclusionAnchor[2] + zOffset;
+        label.text = text;
+        label.sizePixels = size;
+        label.rgba = rgba;
+        label.alignment = SceneTextAlignment::Center;
+        label.haloRgba = halo > 0.0f ? 0x000000D8u : 0u;
+        label.haloWidthPixels = halo;
+        label.occlusion = occlusion;
+        labels.push_back (std::move (label));
+    };
+    add (spacing, "ALWAYS | fully visible", 0xFFE08AFFu, SceneTextOcclusion::Always);
+    add (0.0f, "HIDE | disappears behind depth", 0x8FE8FFFFu, SceneTextOcclusion::Hide);
+    add (-spacing, "FADE | 25% behind depth", 0xB7F7A8FFu, SceneTextOcclusion::Fade);
+    layer.Draw (device, context, depthView, labels, placementViewProj, depthViewProj, width, height, dpiScale, nearClip,
+                farClip, perspective);
+}
+
+void DrawSceneTextLiveCheck (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
+                             HudState& state, uint32_t width, uint32_t height, float dpiScale)
 {
     if (state.showSceneTextLiveCheck && !state.readOnly && layer.IsReady ()) {
         const float x = width >= 720 ? float (width) * 0.48f : 16.0f;
         const float size = std::clamp (state.sceneTextCheckSizePixels, 12.0f, 72.0f);
-        const float whiteHalo = size <= 24.0f ? size / 48.0f : 0.5f + (size - 24.0f) / 32.0f;
+        const float whiteHalo = LiveCheckHalo (size);
         std::vector<ScreenLabel> labels;
         labels.reserve (5);
         const auto add = [&] (float y, const char* text, uint32_t rgba, float halo) {
@@ -73,7 +124,6 @@ void DrawSceneTextLiveCheck (SceneTextLayer& layer, Diligent::IRenderDevice* dev
         add (64.0f + size * 5.40f, "Łódź | ősz | fațadă", 0xB7F7A8FFu, 0.0f);
         layer.DrawProjected (device, context, labels, width, height, dpiScale);
     }
-
     const SceneTextLayerStats stats = layer.Stats ();
     state.sceneTextLabels = stats.labels;
     state.sceneTextGlyphs = stats.glyphs;
