@@ -243,8 +243,9 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
     assert "if (!labels.empty ())" in support
     assert "graphics.DepthStencilDesc.DepthWriteEnable = Diligent::False" in layer
     assert "Texture2D<float> g_depth" in layer
-    assert "for (int y = -1; y <= 1; ++y)" in layer
-    assert "for (int x = -1; x <= 1; ++x)" in layer
+    assert "input.position.xy*g_surface.xy+input.depthUvOffset" in layer
+    assert "output.depthUvOffset[0] -= anchorX / float (surfaceWidth)" in layer
+    assert "output.depthUvOffset[1] -= anchorY / float (surfaceHeight)" in layer
     assert "float LinearDepth(float depth)" in layer
     assert "max(0.01, anchorDistance*1e-4)" in layer
     assert "anchorDistance > sampledDistance+depthTolerance" in layer

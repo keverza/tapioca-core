@@ -44,7 +44,7 @@ struct PreparedSceneTextLabel {
     uint32_t haloRgba = 0;
     float haloWidthPixels = 0.0f;
     bool backgroundPanel = false;
-    float occlusionUv[2] = {};
+    float depthUvOffset[2] = {};
     float anchorDepth = 0.0f;
     float occlusionMode = 0.0f;
 };
@@ -55,7 +55,7 @@ struct SceneTextVertex {
     uint32_t fillAbgr;
     uint32_t haloAbgr;
     float haloWidthPixels;
-    float occlusionUv[2];
+    float depthUvOffset[2];
     float anchorDepth;
     float occlusionMode;
 };
@@ -69,10 +69,10 @@ constexpr const char* kSceneTextVS = R"hlsl(
 cbuffer SceneTextConstants { float4 g_surface; float4 g_atlasParams; };
 struct VSInput { float2 position : ATTRIB0; float2 uv : ATTRIB1; float4 fillColor : ATTRIB2;
                   float4 haloColor : ATTRIB3; float haloWidth : ATTRIB4;
-                  float2 occlusionUv : ATTRIB5; float anchorDepth : ATTRIB6; float occlusionMode : ATTRIB7; };
+                  float2 depthUvOffset : ATTRIB5; float anchorDepth : ATTRIB6; float occlusionMode : ATTRIB7; };
 struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 fillColor : COLOR0;
                   float4 haloColor : COLOR1; float haloWidth : TEX_COORD1;
-                  float2 occlusionUv : TEX_COORD2; float anchorDepth : TEX_COORD3; float occlusionMode : TEX_COORD4; };
+                  float2 depthUvOffset : TEX_COORD2; float anchorDepth : TEX_COORD3; float occlusionMode : TEX_COORD4; };
 void main (in VSInput input, out PSInput output)
 {
     output.position = float4(input.position.x*g_surface.x*2.0-1.0,
@@ -81,7 +81,7 @@ void main (in VSInput input, out PSInput output)
     output.fillColor = input.fillColor;
     output.haloColor = input.haloColor;
     output.haloWidth = input.haloWidth;
-    output.occlusionUv = input.occlusionUv;
+    output.depthUvOffset = input.depthUvOffset;
     output.anchorDepth = input.anchorDepth;
     output.occlusionMode = input.occlusionMode;
 }
@@ -95,7 +95,7 @@ Texture2D<float> g_depth;
 SamplerState g_depth_sampler;
 struct PSInput { float4 position : SV_POSITION; float2 uv : TEX_COORD; float4 fillColor : COLOR0;
                   float4 haloColor : COLOR1; float haloWidth : TEX_COORD1;
-                  float2 occlusionUv : TEX_COORD2; float anchorDepth : TEX_COORD3; float occlusionMode : TEX_COORD4; };
+                  float2 depthUvOffset : TEX_COORD2; float anchorDepth : TEX_COORD3; float occlusionMode : TEX_COORD4; };
 float Median(float3 value) { return max(min(value.r, value.g), min(max(value.r, value.g), value.b)); }
 float LinearDepth(float depth)
 {
@@ -108,13 +108,10 @@ float4 main (PSInput input) : SV_TARGET
 {
     float visibility = 1.0;
     if (input.occlusionMode > 0.5) {
-        float farthestDepth = 0.0;
-        [unroll] for (int y = -1; y <= 1; ++y)
-            [unroll] for (int x = -1; x <= 1; ++x)
-                farthestDepth = max(farthestDepth, g_depth.SampleLevel(
-                    g_depth_sampler, input.occlusionUv+float2(x, y)*g_surface.xy, 0));
+        float2 depthUv = input.position.xy*g_surface.xy+input.depthUvOffset;
+        float sampledDepth = g_depth.SampleLevel(g_depth_sampler, depthUv, 0);
         float anchorDistance = LinearDepth(input.anchorDepth);
-        float sampledDistance = LinearDepth(farthestDepth);
+        float sampledDistance = LinearDepth(sampledDepth);
         float depthTolerance = max(0.01, anchorDistance*1e-4);
         bool occluded = anchorDistance > sampledDistance+depthTolerance;
         visibility = occluded ? (input.occlusionMode < 1.5 ? 0.0 : 0.25) : 1.0;
@@ -205,10 +202,10 @@ bool ProjectOcclusionAnchor (const SceneTextLabel& label, const float viewProj[1
 
 void AddQuad (std::vector<SceneTextVertex>& vertices, float left, float top, float right, float bottom, float u0,
               float v0, float u1, float v1, uint32_t fillColor, uint32_t haloColor = 0, float haloWidthPixels = 0.0f,
-              const float occlusionUv[2] = nullptr, float anchorDepth = 0.0f, float occlusionMode = 0.0f)
+              const float depthUvOffset[2] = nullptr, float anchorDepth = 0.0f, float occlusionMode = 0.0f)
 {
-    const float depthU = occlusionUv != nullptr ? occlusionUv[0] : 0.0f;
-    const float depthV = occlusionUv != nullptr ? occlusionUv[1] : 0.0f;
+    const float depthU = depthUvOffset != nullptr ? depthUvOffset[0] : 0.0f;
+    const float depthV = depthUvOffset != nullptr ? depthUvOffset[1] : 0.0f;
     const SceneTextVertex quad[6] = {
         { { left, top },
           { u0, v1 },
@@ -596,8 +593,11 @@ bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale });
         PreparedSceneTextLabel& output = prepared.back ();
         if (label.occlusion != SceneTextOcclusion::Always &&
-            ProjectOcclusionAnchor (label, depthViewProj, output.occlusionUv, output.anchorDepth))
+            ProjectOcclusionAnchor (label, depthViewProj, output.depthUvOffset, output.anchorDepth)) {
+            output.depthUvOffset[0] -= anchorX / float (surfaceWidth);
+            output.depthUvOffset[1] -= anchorY / float (surfaceHeight);
             output.occlusionMode = label.occlusion == SceneTextOcclusion::Hide ? 1.0f : 2.0f;
+        }
     }
     return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, depthView, nearClip, farClip,
                                 perspective, requireAllReady);
@@ -757,7 +757,7 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                     labelBatches.push_back ({ pageIndex, {} });
                 AddQuad (labelBatches.back ().vertices, left, top, right, bottom, glyph->atlasLeft / atlasWidth,
                          glyph->atlasBottom / atlasHeight, glyph->atlasRight / atlasWidth,
-                         glyph->atlasTop / atlasHeight, color, haloColor, label.haloWidthPixels, label.occlusionUv,
+                         glyph->atlasTop / atlasHeight, color, haloColor, label.haloWidthPixels, label.depthUvOffset,
                          label.anchorDepth, label.occlusionMode);
                 if (emitted == 0) {
                     boundsLeft = left;
@@ -781,7 +781,8 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                 VertexBatch panel;
                 AddQuad (panel.vertices, boundsLeft - 3.0f * scale, boundsTop - 2.0f * scale,
                          boundsRight + 3.0f * scale, boundsBottom + 2.0f * scale, -1.0f, -1.0f, -1.0f, -1.0f,
-                         LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.occlusionUv, label.anchorDepth, label.occlusionMode);
+                         LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.depthUvOffset, label.anchorDepth,
+                         label.occlusionMode);
                 batches.push_back (std::move (panel));
             }
             for (VertexBatch& batch : labelBatches) {
