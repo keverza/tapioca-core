@@ -80,6 +80,7 @@ struct HudState {
     // Production scene-text visual acceptance, controlled in the main-menu
     // viewer and drawn by SceneTextLayer rather than ImGui's font atlas.
     bool showSceneTextLiveCheck = false;
+    bool showSceneTextPlacementCheck = false;
     float sceneTextCheckSizePixels = 24.0f;
     bool showSceneTextOcclusionCheck = false;
     float sceneTextOcclusionAnchor[3] = { 0.0f, 0.0f, 1.0f };

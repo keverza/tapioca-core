@@ -287,12 +287,14 @@ set (EVP_SCENE_TEXT_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextAtlasCache.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayout.cpp"
-    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayoutCache.cpp")
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextLayoutCache.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneTextPlacement.cpp")
 set (EVP_SCENE_TEXT_TESTS
     test_scenetextatlas.cpp
     test_scenetextatlascache.cpp
     test_scenetextlayout.cpp
-    test_scenetextlayoutcache.cpp)
+    test_scenetextlayoutcache.cpp
+    test_scenetextplacement.cpp)
 set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"

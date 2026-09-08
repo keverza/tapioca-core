@@ -68,6 +68,7 @@ def test_scene_text_live_check_uses_the_production_text_layer() -> None:
 
     assert "DrawSceneTextLiveCheckControls (state)" in hud
     assert 'ImGui::Checkbox ("show production text sample"' in live_check
+    assert 'ImGui::Checkbox ("show edge / overlap placement"' in live_check
     assert 'ImGui::Checkbox ("show always / hide / fade lines"' in live_check
     assert 'ImGui::DragFloat3 ("anchor XYZ"' in live_check
     assert 'ImGui::SliderFloat ("line spacing"' in live_check
@@ -79,6 +80,10 @@ def test_scene_text_live_check_uses_the_production_text_layer() -> None:
     assert "SceneTextOcclusion::Hide" in live_check
     assert "SceneTextOcclusion::Fade" in live_check
     assert '"FADE | 25% behind depth"' in live_check
+    assert '"LEFT EDGE"' in live_check
+    assert '"RIGHT EDGE"' in live_check
+    assert '"FIRST LABEL WINS"' in live_check
+    assert '"ERROR: OVERLAP VISIBLE"' in live_check
     assert "layer.Draw (device, context, depthView" in live_check
     assert "DrawSceneTextOcclusionLiveCheck" in live_check
     assert "if (size <= 16.0f)" in live_check

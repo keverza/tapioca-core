@@ -30,9 +30,10 @@ void DrawSceneTextLiveCheckControls (HudState& state)
         return;
 
     ImGui::Checkbox ("show production text sample", &state.showSceneTextLiveCheck);
+    ImGui::Checkbox ("show edge / overlap placement", &state.showSceneTextPlacementCheck);
     ImGui::Checkbox ("show always / hide / fade lines", &state.showSceneTextOcclusionCheck);
     ImGui::TextDisabled ("HarfBuzz shaping + linear MTSDF, not ImGui text");
-    if (state.showSceneTextLiveCheck || state.showSceneTextOcclusionCheck) {
+    if (state.showSceneTextLiveCheck || state.showSceneTextPlacementCheck || state.showSceneTextOcclusionCheck) {
         ImGui::SetNextItemWidth (-1.0f);
         ImGui::SliderFloat ("##scenetextsize", &state.sceneTextCheckSizePixels, 12.0f, 72.0f, "%.0f px");
         ImGui::TextDisabled ("sample size");
@@ -45,6 +46,8 @@ void DrawSceneTextLiveCheckControls (HudState& state)
         ImGui::SliderFloat ("line spacing", &state.sceneTextOcclusionSpacingMetres, 0.05f, 5.0f, "%.2f m");
         ImGui::TextDisabled ("move the three world anchors behind solid geometry");
     }
+    if (state.showSceneTextPlacementCheck)
+        ImGui::TextDisabled ("edge labels stay inset; the red overlap label stays hidden");
     ImGui::TextDisabled ("atlas %ux%u, %llu bytes", state.sceneTextAtlasWidth, state.sceneTextAtlasHeight,
                          (unsigned long long) state.sceneTextAtlasBytes);
     ImGui::TextDisabled ("pages %u | pending %u | staging %llu bytes", state.sceneTextAtlasPages,
@@ -100,28 +103,40 @@ void DrawSceneTextOcclusionLiveCheck (SceneTextLayer& layer, Diligent::IRenderDe
 void DrawSceneTextLiveCheck (SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
                              HudState& state, uint32_t width, uint32_t height, float dpiScale)
 {
-    if (state.showSceneTextLiveCheck && !state.readOnly && layer.IsReady ()) {
+    if ((state.showSceneTextLiveCheck || state.showSceneTextPlacementCheck) && !state.readOnly && layer.IsReady ()) {
         const float x = width >= 720 ? float (width) * 0.48f : 16.0f;
         const float size = std::clamp (state.sceneTextCheckSizePixels, 12.0f, 72.0f);
         const float whiteHalo = LiveCheckHalo (size);
         std::vector<ScreenLabel> labels;
-        labels.reserve (5);
-        const auto add = [&] (float y, const char* text, uint32_t rgba, float halo) {
+        labels.reserve (9);
+        const auto add = [&] (float labelX, float y, const char* text, uint32_t rgba, float halo,
+                              bool centered = false) {
             ScreenLabel label;
-            label.anchor = { x, y };
+            label.anchor = { labelX, y };
             label.text = text;
             label.rgba = rgba;
             label.fontSize = size;
             label.haloRgba = halo > 0.0f ? 0x000000D8u : 0u;
             label.haloWidthPixels = halo;
             label.backgroundPanel = false;
+            label.centered = centered;
             labels.push_back (std::move (label));
         };
-        add (64.0f, "Tapioca HarfBuzz + MTSDF", 0xFFFFFFFFu, whiteHalo);
-        add (64.0f + size * 1.35f, "Ąžuolų plotas 42 m² | 18° | Ø250", 0xFFE08AFFu, 0.0f);
-        add (64.0f + size * 2.70f, "office affine AV To Wa", 0x9FE8FFFFu, 0.0f);
-        add (64.0f + size * 4.05f, "Café = Café", 0xFFFFFFFFu, whiteHalo);
-        add (64.0f + size * 5.40f, "Łódź | ősz | fațadă", 0xB7F7A8FFu, 0.0f);
+        if (state.showSceneTextLiveCheck) {
+            add (x, 64.0f, "Tapioca HarfBuzz + MTSDF", 0xFFFFFFFFu, whiteHalo);
+            add (x, 64.0f + size * 1.35f, "Ąžuolų plotas 42 m² | 18° | Ø250", 0xFFE08AFFu, 0.0f);
+            add (x, 64.0f + size * 2.70f, "office affine AV To Wa", 0x9FE8FFFFu, 0.0f);
+            add (x, 64.0f + size * 4.05f, "Café = Café", 0xFFFFFFFFu, whiteHalo);
+            add (x, 64.0f + size * 5.40f, "Łódź | ősz | fațadă", 0xB7F7A8FFu, 0.0f);
+        }
+        if (state.showSceneTextPlacementCheck) {
+            const float edgeY = float (height) * 0.55f;
+            const float overlapY = float (height) * 0.72f;
+            add (0.0f, edgeY, "LEFT EDGE", 0xFFE08AFFu, 0.0f, true);
+            add (float (width), edgeY, "RIGHT EDGE", 0x9FE8FFFFu, 0.0f, true);
+            add (float (width) * 0.5f, overlapY, "FIRST LABEL WINS", 0xB7F7A8FFu, 0.0f, true);
+            add (float (width) * 0.5f, overlapY, "ERROR: OVERLAP VISIBLE", 0xFF6767FFu, 0.0f, true);
+        }
         layer.DrawProjected (device, context, labels, width, height, dpiScale);
     }
     const SceneTextLayerStats stats = layer.Stats ();

@@ -164,7 +164,7 @@ def test_projected_annotation_text_keeps_its_translucent_background_panel():
     assert "bool backgroundPanel = true" in projected
     assert "if (label.backgroundPanel)" in layer
     assert "LinearAbgr (0xFFFFFFE0u)" in layer
-    assert layer.index("AddQuad (panel.vertices, boundsLeft") < layer.index(
+    assert layer.index("AddQuad (panel.vertices, glyphBounds.left") < layer.index(
         "for (VertexBatch& batch : labelBatches)"
     )
 
@@ -243,6 +243,8 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
     assert "if (!labels.empty ())" in support
     assert "graphics.DepthStencilDesc.DepthWriteEnable = Diligent::False" in layer
     assert "Texture2D<float> g_depth" in layer
+    assert "ResolveSceneTextPlacement" in layer
+    assert "occupiedBounds.push_back (placement.bounds)" in layer
     assert "input.position.xy*g_surface.xy+input.depthUvOffset" in layer
     assert "output.depthUvOffset[0] -= anchorX / float (surfaceWidth)" in layer
     assert "output.depthUvOffset[1] -= anchorY / float (surfaceHeight)" in layer

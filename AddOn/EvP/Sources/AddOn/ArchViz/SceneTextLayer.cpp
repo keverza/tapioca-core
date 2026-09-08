@@ -4,6 +4,7 @@
 #include "ArchViz/SceneTextAtlas.hpp"
 #include "ArchViz/SceneTextAtlasCache.hpp"
 #include "ArchViz/SceneTextLayoutCache.hpp"
+#include "ArchViz/SceneTextPlacement.hpp"
 
 #include <windows.h>
 #include <Buffer.h>
@@ -44,6 +45,7 @@ struct PreparedSceneTextLabel {
     uint32_t haloRgba = 0;
     float haloWidthPixels = 0.0f;
     bool backgroundPanel = false;
+    float edgeInsetPixels = 4.0f;
     float depthUvOffset[2] = {};
     float anchorDepth = 0.0f;
     float occlusionMode = 0.0f;
@@ -592,6 +594,7 @@ bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
                               label.rgba, label.alignment, VerticalAnchor::Baseline, label.haloRgba,
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale });
         PreparedSceneTextLabel& output = prepared.back ();
+        output.edgeInsetPixels = 4.0f * dpiScale;
         if (label.occlusion != SceneTextOcclusion::Always &&
             ProjectOcclusionAnchor (label, depthViewProj, output.depthUvOffset, output.anchorDepth)) {
             output.depthUvOffset[0] -= anchorX / float (surfaceWidth);
@@ -625,6 +628,7 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
                               label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
                               label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
+        prepared.back ().edgeInsetPixels = 4.0f * dpiScale;
     }
     return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, nullptr, 0.05f, 20000.0f, true,
                                 true);
@@ -658,6 +662,8 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
     UploadReadyPages (device);
     std::vector<uint32_t> missingGlyphs;
     std::vector<uint32_t> requestedGlyphs;
+    std::vector<SceneTextBounds> occupiedBounds;
+    occupiedBounds.reserve (resolved.size ());
     for (const ResolvedLabel& resolvedLabel : resolved) {
         for (const SceneTextPositionedGlyph& positioned : resolvedLabel.run->glyphs) {
             size_t pageIndex = 0;
@@ -733,11 +739,57 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                     baseline -= 3.0f * (pixelSize / 18.0f);
             }
         }
+        SceneTextBounds glyphBounds;
+        bool hasBounds = false;
+        float measurePen = pen;
+        for (size_t index = 0; index < glyphCount; ++index) {
+            const SceneTextPositionedGlyph& positioned = run.glyphs[index];
+            size_t pageIndex = 0;
+            const SceneTextGlyph* glyph = resolveGlyph (positioned.glyphIndex, pageIndex);
+            if (glyph != nullptr) {
+                const SceneTextBounds bounds = { measurePen + (positioned.xOffset + glyph->planeLeft) * pixelSize,
+                                                 baseline - (positioned.yOffset + glyph->planeTop) * pixelSize,
+                                                 measurePen + (positioned.xOffset + glyph->planeRight) * pixelSize,
+                                                 baseline - (positioned.yOffset + glyph->planeBottom) * pixelSize };
+                if (bounds.right > bounds.left && bounds.bottom > bounds.top) {
+                    if (!hasBounds)
+                        glyphBounds = bounds;
+                    else {
+                        glyphBounds.left = (std::min) (glyphBounds.left, bounds.left);
+                        glyphBounds.top = (std::min) (glyphBounds.top, bounds.top);
+                        glyphBounds.right = (std::max) (glyphBounds.right, bounds.right);
+                        glyphBounds.bottom = (std::max) (glyphBounds.bottom, bounds.bottom);
+                    }
+                    hasBounds = true;
+                }
+            }
+            measurePen += positioned.xAdvance * pixelSize;
+        }
+        if (!hasBounds)
+            continue;
+        SceneTextBounds placementBounds = glyphBounds;
+        if (label.backgroundPanel) {
+            const float scale = pixelSize / 18.0f;
+            placementBounds.left -= 3.0f * scale;
+            placementBounds.right += 3.0f * scale;
+            placementBounds.top -= 2.0f * scale;
+            placementBounds.bottom += 2.0f * scale;
+        }
+        const SceneTextPlacement placement =
+            ResolveSceneTextPlacement (placementBounds, float (surfaceWidth), float (surfaceHeight),
+                                       label.edgeInsetPixels, label.edgeInsetPixels * 0.5f, occupiedBounds);
+        if (!placement.accepted)
+            continue;
+        pen += placement.offsetX;
+        baseline += placement.offsetY;
+        glyphBounds.left += placement.offsetX;
+        glyphBounds.right += placement.offsetX;
+        glyphBounds.top += placement.offsetY;
+        glyphBounds.bottom += placement.offsetY;
         const uint32_t color = LinearAbgr (label.rgba);
         const uint32_t haloColor = LinearAbgr (label.haloRgba);
         std::vector<VertexBatch> labelBatches;
         size_t emitted = 0;
-        float boundsLeft = 0.0f, boundsTop = 0.0f, boundsRight = 0.0f, boundsBottom = 0.0f;
         for (size_t index = 0; index < glyphCount; ++index) {
             const SceneTextPositionedGlyph& positioned = run.glyphs[index];
             size_t pageIndex = 0;
@@ -759,18 +811,6 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                          glyph->atlasBottom / atlasHeight, glyph->atlasRight / atlasWidth,
                          glyph->atlasTop / atlasHeight, color, haloColor, label.haloWidthPixels, label.depthUvOffset,
                          label.anchorDepth, label.occlusionMode);
-                if (emitted == 0) {
-                    boundsLeft = left;
-                    boundsTop = top;
-                    boundsRight = right;
-                    boundsBottom = bottom;
-                }
-                else {
-                    boundsLeft = (std::min) (boundsLeft, left);
-                    boundsTop = (std::min) (boundsTop, top);
-                    boundsRight = (std::max) (boundsRight, right);
-                    boundsBottom = (std::max) (boundsBottom, bottom);
-                }
                 ++emitted;
             }
             pen += positioned.xAdvance * pixelSize;
@@ -779,9 +819,9 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             if (label.backgroundPanel) {
                 const float scale = pixelSize / 18.0f;
                 VertexBatch panel;
-                AddQuad (panel.vertices, boundsLeft - 3.0f * scale, boundsTop - 2.0f * scale,
-                         boundsRight + 3.0f * scale, boundsBottom + 2.0f * scale, -1.0f, -1.0f, -1.0f, -1.0f,
-                         LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.depthUvOffset, label.anchorDepth,
+                AddQuad (panel.vertices, glyphBounds.left - 3.0f * scale, glyphBounds.top - 2.0f * scale,
+                         glyphBounds.right + 3.0f * scale, glyphBounds.bottom + 2.0f * scale, -1.0f, -1.0f, -1.0f,
+                         -1.0f, LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.depthUvOffset, label.anchorDepth,
                          label.occlusionMode);
                 batches.push_back (std::move (panel));
             }
@@ -794,6 +834,7 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             }
             ++stats.labels;
             stats.glyphs += emitted;
+            occupiedBounds.push_back (placement.bounds);
         }
     }
     size_t vertexCount = 0;
