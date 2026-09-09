@@ -8,6 +8,7 @@
 // The sub-objects this shell delegates to. evp::ParamControl lives with the panel
 // that builds it (Palette/ParamPanel.hpp), not here.
 #include "Palette/ParamPanel.hpp"
+#include "Palette/WorkflowPanel.hpp"
 #include "Palette/DescriptionPanel.hpp"
 #include "Palette/ResultsTable.hpp"
 #include "Palette/PreviewPanel.hpp"
@@ -202,6 +203,23 @@ class ControlPalette final : public DG::Palette,
     bool LaunchDynamoRun (const GS::UniString& paramsJson, uint64_t generation, const GS::UniString& title,
                           GS::UniString& error);
 
+    // ---- the Grasshopper band (ControlPaletteGrasshopper.cpp) -------------
+    // The band's own items. Built at runtime like the Continue button, so they
+    // need no .grc entry.
+    void CreateWorkflowBand ();
+    // Places the status line, the three buttons and the generated rows, and
+    // reports the height used -- 0 while no worker is running, so the band costs
+    // the layout nothing on a machine with no Rhino.
+    short PlaceWorkflowBand (short top, short left, short right, const evp::PaletteScroll& clip);
+    void ShowWorkflowControls ();
+    // The idle tick's share: notice a new schema, feed the settle window, drive
+    // the debounce, and keep the status line and the button gates current.
+    void RefreshWorkflowBand ();
+    // True when the press belonged to this band, so ButtonClicked can stop.
+    bool HandleWorkflowButton (const DG::ButtonClickEvent& ev);
+    void ChooseWorkflowDefinition ();
+    void SolveWorkflowNow ();
+
     const evp::CommandInfo* SelectedCommand () const
     {
         return commandsPanel.Selected ();
@@ -390,6 +408,14 @@ class ControlPalette final : public DG::Palette,
     // under a folded band would drag nothing.
     std::unique_ptr<DG::Splitter> descriptionSplitter;
 
+    // The Grasshopper band's own items, built at runtime like the Continue
+    // button. They borrow nothing and are borrowed by nothing, so their position
+    // among these members carries no destruction-order meaning.
+    std::unique_ptr<DG::LeftText> workflowStatusText;
+    std::unique_ptr<DG::Button> workflowLoadButton;
+    std::unique_ptr<DG::Button> workflowSolveButton;
+    std::unique_ptr<DG::Button> workflowCancelButton;
+
     // F4 — the virtual scroll for everything below the status line: it owns the bar,
     // the offset and the clamp, and every scrolled item goes on the panel through
     // it. Layout hands it to each band's PlaceAt rather than the band keeping a
@@ -398,6 +424,13 @@ class ControlPalette final : public DG::Palette,
 
     GS::UniString lastGateMessage; // so the status line is not rewritten every idle
     GS::UniString lastDynamoStatus;
+    GS::UniString lastWorkflowStatus;
+    // The schema the workflow band was last built from, and the values last sent.
+    // Both are COMPARISON keys rather than state: rebuilding on every idle would
+    // discard what the user typed, and re-sending an unchanged snapshot would
+    // restart the settle window forever.
+    std::string lastWorkflowSchema;
+    std::vector<std::string> lastWorkflowValues;
     UInt32 idleTicks = 0;
 
     // What RegisterHotKey handed back for Esc — the id the hot-key event reports, so
@@ -418,6 +451,11 @@ class ControlPalette final : public DG::Palette,
 
     // The generated parameter block. Declared last — see penPool above.
     evp::ParamPanel params;
+
+    // The Grasshopper workflow's generated rows. Its own sub-object rather than a
+    // second source for `params`: see WorkflowPanel.hpp for why one panel cannot
+    // serve both a Python command's eighteen control kinds and a workflow's five.
+    evp::WorkflowPanel workflow;
 };
 
 #endif

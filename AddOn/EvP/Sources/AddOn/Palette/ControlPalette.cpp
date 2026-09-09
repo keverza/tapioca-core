@@ -43,7 +43,7 @@ ControlPalette::ControlPalette ()
       // header.
       serverBand (runToggle, urlText), results (*this, *this), preview (*this, *this, *this, *this, *this, *this),
       actionBar (*this, *this), selectionSets (*this, *this), description (*this, *this), scroll (*this, *this),
-      commandsPanel (*this, *this, commandList), params (*this, *this, penPool)
+      commandsPanel (*this, *this, commandList), params (*this, *this, penPool), workflow (*this, *this)
 {
     evp::StartupTrace ("ControlPalette: constructor entered");
 }
@@ -74,6 +74,7 @@ void ControlPalette::Initialize ()
     scroll.Create ();
 
     params.Create ();
+    CreateWorkflowBand ();
 
     // Bind the .grc pen swatches once and hide them. Unlike a generated control, a
     // .grc item starts VISIBLE, so an unclaimed swatch would sit on the panel doing
@@ -228,6 +229,7 @@ void ControlPalette::PanelIdle (const DG::PanelIdleEvent&)
         return;
 
     RefreshDynamoStatus ();
+    RefreshWorkflowBand ();
     RefreshRunGate ();
 
     RefreshSearchFilter ();
@@ -377,43 +379,6 @@ void ControlPalette::PanelMoved (const DG::PanelMoveEvent& /*ev*/)
 
 // The file itself — schema, validation, IO — is Palette/PalettePlacement. These
 // two only translate between it and the live panel.
-void ControlPalette::SavePlacement () const
-{
-    const DG::NativePoint position = GetClientPosition ();
-    evp::PalettePlacement p;
-    p.left = (short) position.GetX ().GetValue ();
-    p.top = (short) position.GetY ().GetValue ();
-    p.width = GetWidth ();
-    p.height = GetHeight ();
-    p.listHeight = commandsPanel.Height ();
-    p.resultsHeight = results.Height ();
-    p.descriptionHeight = description.Height ();
-    p.descriptionCollapsed = description.IsCollapsed ();
-    p.previewsEnabled = preview.IsEnabled ();
-    evp::SavePalettePlacement (p);
-}
-
-void ControlPalette::RestorePlacement ()
-{
-    // 0 means the file had nothing usable for that field, so each default survives.
-    const evp::PalettePlacement p = evp::LoadPalettePlacement (
-        evp::CommandListPanel::MinHeight, evp::ResultsTable::MinHeight, evp::DescriptionPanel::MinHeight);
-
-    if (p.width > 0)
-        SetClientSize (p.width, p.height);
-    if (p.listHeight > 0)
-        commandsPanel.SetHeight (p.listHeight);
-    if (p.resultsHeight > 0)
-        results.SetHeight (p.resultsHeight);
-    if (p.descriptionHeight > 0)
-        description.SetHeight (p.descriptionHeight);
-    // No `> 0` guard: false is a real saved value, not "unset".
-    description.SetCollapsed (p.descriptionCollapsed);
-    preview.SetEnabled (p.previewsEnabled);
-    if (p.hasPosition)
-        SetClientPosition (DG::NativeUnit (p.left), DG::NativeUnit (p.top));
-}
-
 // The scan and the rows it produces belong to the command-list band; this only
 // clears what the previous command left behind and shows the band's answer.
 void ControlPalette::Rescan ()
@@ -598,6 +563,8 @@ void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
     // A generated row's Browse button (evp.FilePath). Refreshing the gate on any
     // such press, rather than only when a file was chosen, costs nothing — the same
     // check runs on idle — and a required FilePath may have just been satisfied.
+    if (HandleWorkflowButton (ev))
+        return;
     GS::UniString chosenPath;
     if (params.HandleButtonClicked (ev, &chosenPath))
         DynamoGraphChosen (chosenPath); // a .dyn also carries the rows below it; re-gates Run

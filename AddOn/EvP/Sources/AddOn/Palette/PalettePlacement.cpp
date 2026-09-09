@@ -1,3 +1,18 @@
+// The palette's placement: the file it is persisted in, and the shell's two
+// methods that read and write its own geometry.
+//
+// ⚠️ BOTH HALVES OF ONE CONCERN, DELIBERATELY. The struct and its JSON were
+// always here; ControlPalette::SavePlacement and RestorePlacement lived in the
+// shell and were the only callers, so the shell carried thirty-five lines of
+// "which band height goes in which field" that nothing else could read without
+// opening this file anyway. Moving them here is the same trade every earlier
+// extraction made (check_cpp.py records the list), and it is what paid for the
+// Grasshopper band: the shell's line budget only ever goes down.
+//
+// The definitions stay ControlPalette::* so the header and every caller are
+// unchanged; only the file they live in moved.
+
+#include "Palette/ControlPalette.hpp"
 #include "Palette/PalettePlacement.hpp"
 #include "Python/PathUtils.hpp" // EvpDataDir, ReadTextFile, WriteTextFile
 
@@ -76,3 +91,40 @@ PalettePlacement LoadPalettePlacement (short minListHeight, short minResultsHeig
 }
 
 } // namespace evp
+
+void ControlPalette::SavePlacement () const
+{
+    const DG::NativePoint position = GetClientPosition ();
+    evp::PalettePlacement p;
+    p.left = (short) position.GetX ().GetValue ();
+    p.top = (short) position.GetY ().GetValue ();
+    p.width = GetWidth ();
+    p.height = GetHeight ();
+    p.listHeight = commandsPanel.Height ();
+    p.resultsHeight = results.Height ();
+    p.descriptionHeight = description.Height ();
+    p.descriptionCollapsed = description.IsCollapsed ();
+    p.previewsEnabled = preview.IsEnabled ();
+    evp::SavePalettePlacement (p);
+}
+
+void ControlPalette::RestorePlacement ()
+{
+    // 0 means the file had nothing usable for that field, so each default survives.
+    const evp::PalettePlacement p = evp::LoadPalettePlacement (
+        evp::CommandListPanel::MinHeight, evp::ResultsTable::MinHeight, evp::DescriptionPanel::MinHeight);
+
+    if (p.width > 0)
+        SetClientSize (p.width, p.height);
+    if (p.listHeight > 0)
+        commandsPanel.SetHeight (p.listHeight);
+    if (p.resultsHeight > 0)
+        results.SetHeight (p.resultsHeight);
+    if (p.descriptionHeight > 0)
+        description.SetHeight (p.descriptionHeight);
+    // No `> 0` guard: false is a real saved value, not "unset".
+    description.SetCollapsed (p.descriptionCollapsed);
+    preview.SetEnabled (p.previewsEnabled);
+    if (p.hasPosition)
+        SetClientPosition (DG::NativeUnit (p.left), DG::NativeUnit (p.top));
+}

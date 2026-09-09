@@ -62,7 +62,7 @@ OVERSIZED = {
         "the ordered call site, which is irreducible for anything that draws in the frame",
     ),
     "Palette/ControlPalette.cpp": (
-        675,
+        640,
         "the palette shell - one concern; splitting it would cut the DG event "
         "routing in two (cpp-architecture-plan.md section 4 predicted ~1,100). "
         "Room has come from moving work to its own home each time, and the "
@@ -75,10 +75,14 @@ OVERSIZED = {
         "ControlPaletteRun.cpp, which the previous entry here named as the one "
         "owed next. That took the file from 890 to 659, and the action bar spent 16 "
         "of the 231 it freed, which is what an extraction is FOR. What remains is "
-        "the DG event routing, the splitters, the placement and the command block, "
-        "and CLAUDE.md names all of them as the shell's own. Nothing obvious is "
-        "left to extract, so the next feature that needs a lot of lines needs a "
-        "sub-object, not another shell file",
+        "the DG event routing, the splitters and the command block, and CLAUDE.md "
+        "names all of them as the shell's own. The GRASSHOPPER BAND then cost the "
+        "shell three lines (a Create, an idle call, a routing branch), which is the "
+        "irreducible price of any new band, and it paid for them by sending "
+        "SavePlacement/RestorePlacement to PalettePlacement.cpp - the file that "
+        "already owned the struct and the JSON, and their only caller. 677 -> 640. "
+        "Nothing obvious is left to extract, so the next feature that needs a lot "
+        "of lines needs a sub-object, not another shell file",
     ),
     "ArchViz/DiligentScene.cpp": (
         1185,
@@ -664,7 +668,7 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
     palette = ADDON_SRC / "Palette"
     # The shell is deliberately more than one .cpp: ControlPaletteParams.cpp set
     # that precedent; ControlPaletteLayout.cpp, ControlPaletteRun.cpp and
-    # ControlPaletteDynamo.cpp follow it. These files DEFINE
+    # ControlPaletteDynamo.cpp and ControlPaletteGrasshopper.cpp follow it. These files DEFINE
     # ControlPalette methods, so the "never call into the shell" rule below
     # cannot apply to them — they are the shell.
     shell_implementation_files = {
@@ -672,11 +676,13 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
         "ControlPalette.hpp",
         "ControlPaletteAutoPreview.cpp",
         "ControlPaletteDynamo.cpp",
+        "ControlPaletteGrasshopper.cpp",
         "ControlPaletteLayout.cpp",
         "ControlPaletteMenu.cpp",
         "ControlPaletteParams.cpp",
         "ControlPaletteRun.cpp",
         "PaletteRegistration.cpp",
+        "PalettePlacement.cpp",
     }
     for path in sorted(palette.iterdir()):
         if path.name in shell_implementation_files:

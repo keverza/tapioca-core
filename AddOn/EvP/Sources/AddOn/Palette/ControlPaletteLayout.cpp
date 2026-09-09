@@ -135,6 +135,8 @@ void ControlPalette::Layout ()
     // The command block places itself in the band starting at y — the generated
     // rows, required, section rule, optional — and reports the height used.
     y += params.PlaceAt (y, Margin, right, scroll);
+    // 0 while no worker is running; see ControlPaletteGrasshopper.cpp.
+    y += PlaceWorkflowBand (y, Margin, right, scroll);
     // The action bar sits directly under the results it acts on. It reports 0
     // when the command declares no actions, so it costs the layout nothing.
     // ABOVE the results rather than below: the results table is the tallest
