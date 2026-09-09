@@ -422,8 +422,12 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
     if (!blanked) {
         const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
         if (selected.has_value ()) {
-            annotations =
-                BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly);
+            const ScreenTextMeasure measureText = [&layer] (std::string_view text, float fontSize,
+                                                             ScreenTextExtent& extent) {
+                return layer.MeasureProjectedText (text, fontSize, extent);
+            };
+            annotations = BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale,
+                                                  annotationsOnly, measureText);
             if (!annotations.labels.empty () && layer.IsReady () &&
                 layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale)) {
                 annotations.labels.clear ();

@@ -50,6 +50,7 @@ struct PreparedSceneTextLabel {
     float depthUvOffset[2] = {};
     float anchorDepth = 0.0f;
     float occlusionMode = 0.0f;
+    float rotationRadians = 0.0f;
 };
 
 struct SceneTextVertex {
@@ -628,12 +629,25 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
         prepared.push_back ({ label.anchor.x + horizontalOffset, label.anchor.y, &label.text,
                               std::clamp (pixelSize, 6.0f, 192.0f), label.rgba,
                               label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
-                              label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
-                              std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
+                               label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
+                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
         prepared.back ().edgeInsetPixels = 4.0f * dpiScale;
+        prepared.back ().rotationRadians = label.rotationRadians;
     }
     return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, nullptr, 0.05f, 20000.0f, true,
-                                true);
+                                 true);
+}
+
+bool SceneTextLayer::MeasureProjectedText (std::string_view text, float fontSize, ScreenTextExtent& extent)
+{
+    if (!impl_->stats.ready || text.empty () || !std::isfinite (fontSize) || fontSize <= 0.0f)
+        return false;
+    const auto run = impl_->layoutCache.FindOrRequest (std::string (text), SceneTextDirection::Auto);
+    if (run == nullptr)
+        return false;
+    extent.width = std::fabs (run->advance) * fontSize;
+    extent.height = fontSize;
+    return std::isfinite (extent.width) && extent.width >= 0.0f;
 }
 
 bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
@@ -778,6 +792,18 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             placementBounds.top -= 2.0f * scale;
             placementBounds.bottom += 2.0f * scale;
         }
+        if (label.rotationRadians != 0.0f) {
+            const float centerX = (placementBounds.left + placementBounds.right) * 0.5f;
+            const float centerY = (placementBounds.top + placementBounds.bottom) * 0.5f;
+            const float halfWidth = (placementBounds.right - placementBounds.left) * 0.5f;
+            const float halfHeight = (placementBounds.bottom - placementBounds.top) * 0.5f;
+            const float cosine = std::fabs (std::cos (label.rotationRadians));
+            const float sine = std::fabs (std::sin (label.rotationRadians));
+            const float rotatedHalfWidth = cosine * halfWidth + sine * halfHeight;
+            const float rotatedHalfHeight = sine * halfWidth + cosine * halfHeight;
+            placementBounds = { centerX - rotatedHalfWidth, centerY - rotatedHalfHeight,
+                                centerX + rotatedHalfWidth, centerY + rotatedHalfHeight };
+        }
         const SceneTextPlacement placement = ResolveSceneTextPlacement (
             placementBounds, float (surfaceWidth), float (surfaceHeight), label.edgeInsetPixels,
             label.edgeInsetPixels * 0.5f, label.allowOverlap ? noOccupiedBounds : occupiedBounds);
@@ -817,6 +843,20 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
                 ++emitted;
             }
             pen += positioned.xAdvance * pixelSize;
+        }
+        if (label.rotationRadians != 0.0f) {
+            const float pivotX = (glyphBounds.left + glyphBounds.right) * 0.5f;
+            const float pivotY = (glyphBounds.top + glyphBounds.bottom) * 0.5f;
+            const float cosine = std::cos (label.rotationRadians);
+            const float sine = std::sin (label.rotationRadians);
+            for (VertexBatch& batch : labelBatches) {
+                for (SceneTextVertex& vertex : batch.vertices) {
+                    const float x = vertex.position[0] - pivotX;
+                    const float y = vertex.position[1] - pivotY;
+                    vertex.position[0] = pivotX + x * cosine - y * sine;
+                    vertex.position[1] = pivotY + x * sine + y * cosine;
+                }
+            }
         }
         if (emitted > 0) {
             if (label.backgroundPanel) {

@@ -273,9 +273,11 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         const ImVec2 extent = ImGui::GetFont ()->CalcTextSizeA (fontSize, FLT_MAX, 0.0f, label.text.c_str ());
         const ImVec2 position = label.centered ? ImVec2 { label.anchor.x - extent.x * 0.5f, label.anchor.y }
                                                : ImVec2 { label.anchor.x + 4.0f, label.anchor.y - extent.y - 3.0f };
-        annotationDrawList->AddRectFilled ({ position.x - 3.0f, position.y - 2.0f },
-                                           { position.x + extent.x + 3.0f, position.y + extent.y + 2.0f },
-                                           IM_COL32 (255, 255, 255, 224), 2.0f);
+        if (label.backgroundPanel) {
+            annotationDrawList->AddRectFilled ({ position.x - 3.0f, position.y - 2.0f },
+                                               { position.x + extent.x + 3.0f, position.y + extent.y + 2.0f },
+                                               IM_COL32 (255, 255, 255, 224), 2.0f);
+        }
         annotationDrawList->AddText (
             ImGui::GetFont (), fontSize, position,
             IM_COL32 ((rgba >> 24) & 0xFFu, (rgba >> 16) & 0xFFu, (rgba >> 8) & 0xFFu, rgba & 0xFFu),

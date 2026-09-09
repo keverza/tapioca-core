@@ -4,7 +4,9 @@
 #include "Annotation/DrawList.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -13,6 +15,13 @@ struct ScreenPoint {
     float x = 0.0f;
     float y = 0.0f;
 };
+
+struct ScreenTextExtent {
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+using ScreenTextMeasure = std::function<bool (std::string_view text, float fontSize, ScreenTextExtent& extent)>;
 
 struct ScreenLine {
     ScreenPoint from;
@@ -35,6 +44,7 @@ struct ScreenLabel {
     uint32_t haloRgba = 0;
     float haloWidthPixels = 0.0f;
     bool backgroundPanel = true;
+    float rotationRadians = 0.0f;
 };
 
 struct ProjectedDrawList {
@@ -51,7 +61,8 @@ bool FitFrameProjection (const annotation::Frame& frame, const float viewProj[16
 // Projects one retained watch frame using ArchViz's row-vector view-projection.
 // D3D clip depth is [0,w], and returned screen y grows down from the top edge.
 ProjectedDrawList BuildTraceAnnotations (const annotation::Frame& frame, const float viewProj[16], uint32_t width,
-                                         uint32_t height, float dpiScale = 1.0f, bool fitSelectedFrame = false);
+                                         uint32_t height, float dpiScale = 1.0f, bool fitSelectedFrame = false,
+                                         const ScreenTextMeasure& measureText = {});
 
 } // namespace geomsrv::archviz
 
