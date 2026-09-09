@@ -53,15 +53,7 @@ namespace Tapioca.GhWorker
         private const int ConnectTimeoutMs = 30000;
 
         private static BridgeClient _bridge;
-        private static Control _marshaller;
-
-        /// <summary>
-        /// A canvas was asked for before Rhino was ready. Read and written only
-        /// on the UI thread -- the bridge marshals every request through
-        /// <see cref="OnUiThread"/>, and the payout in <c>Run</c> is on that same
-        /// thread.
-        /// </summary>
-        private static bool _editorRequested;
+        private static GhEngineThread _engine;
 
         /// <summary>
         /// The counting proxy in front of Archicad's JSON port, or null when it
@@ -95,6 +87,7 @@ namespace Tapioca.GhWorker
             WorkerLog.Write(
                 "Tapioca.GhWorker starting: generation " + arguments.Generation
                 + ", pipe " + arguments.PipeName
+                + ", mode " + (arguments.Headless ? "headless" : "authoring")
                 + ", Archicad JSON port " + arguments.ArchicadJsonPort);
 
             if (arguments.ProtocolVersion != BridgeProtocol.Version)
@@ -144,13 +137,7 @@ namespace Tapioca.GhWorker
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            // Created BEFORE anything can raise an event: the bridge's reader
-            // thread is not the UI thread, and Grasshopper's editor may only be
-            // touched from the thread that owns it. This control's handle is what
-            // every worker-side event marshals through.
-            _marshaller = new Control();
-            _marshaller.CreateControl();
-
+            _engine = new GhEngineThread();
             _bridge = new BridgeClient();
 
             // ⚠️ SUBSCRIBED BEFORE Connect, NOT AFTER, AND THIS IS NOT TIDINESS.
@@ -163,10 +150,10 @@ namespace Tapioca.GhWorker
             // arriving minutes on) works perfectly. That asymmetry is exactly
             // what the symptom looked like, and there is nothing in the log to
             // see, because a dropped event writes nothing.
-            _bridge.EditorShowRequested += () => OnUiThread(ShowEditor);
-            _bridge.EditorHideRequested += () => OnUiThread(HideEditor);
-            _bridge.ShutdownRequested += () => OnUiThread(BeginShutdown);
-            _bridge.RunRequested += () => OnUiThread(RunDefinition);
+            _bridge.EditorShowRequested += () => _engine.Post(ShowEditor);
+            _bridge.EditorHideRequested += () => _engine.Post(HideEditor);
+            _bridge.ShutdownRequested += BeginShutdown;
+            _bridge.RunRequested += () => _engine.Post(RunDefinition);
             // ⚠️ CANCEL IS NOT MARSHALLED, AND THAT IS THE ONLY WAY IT CAN WORK.
             // Every other request is queued to the UI thread; a cancel queued
             // behind the very solution it is meant to interrupt would be
@@ -174,6 +161,7 @@ namespace Tapioca.GhWorker
             // useful. RequestAbortSolution is documented safe to call from
             // another thread for exactly this reason.
             _bridge.CancelRequested += CancelRun;
+            _bridge.Disconnected += BeginShutdown;
 
             string error;
             if (!_bridge.Connect(arguments.PipeName, ConnectTimeoutMs, out error))
@@ -191,7 +179,8 @@ namespace Tapioca.GhWorker
             WorkerLog.Write("bridge connected");
 
             uint tapirPort = StartTapirProxy(arguments.ArchicadJsonPort);
-            StartOutcome outcome = WorkerSession.Start(arguments.ArchicadJsonPort, tapirPort);
+            StartOutcome outcome = _engine.Start(
+                () => WorkerSession.Start(arguments.ArchicadJsonPort, tapirPort, arguments.Headless));
             // Acknowledged, not also logged: the add-on writes every Ack into
             // grasshopper.log itself, so doing both prints this paragraph twice.
             _bridge.Acknowledge(
@@ -199,6 +188,7 @@ namespace Tapioca.GhWorker
                     ? BridgeProtocol.AckStatus.Ok
                     : BridgeProtocol.AckStatus.Failed,
                 outcome.Message);
+            _engine.Release();
 
             if (outcome.Kind != StartOutcomeKind.Started)
             {
@@ -215,12 +205,9 @@ namespace Tapioca.GhWorker
             // than the exception -- the add-on spawns and asks in one gesture,
             // and RhinoCore takes seconds. ShowEditor latches it; this is where
             // the latch is paid out, once there is a Grasshopper to show.
-            ShowEditorIfRequested();
-
-            // Grasshopper's editor is WinForms and needs a message loop. Running
-            // it HERE, on the process's own STA thread, is the thing the whole
-            // boundary buys: this loop is ours to block, and Archicad's is not.
-            Application.Run();
+            // The process thread owns orchestration only. RhinoCore, Grasshopper,
+            // the optional editor and their WinForms loop all live on the engine.
+            _engine.Join();
             return ExitOk;
         }
 
@@ -271,27 +258,6 @@ namespace Tapioca.GhWorker
                 + ", effective " + Application.HighDpiMode + ".");
         }
 
-        private static void OnUiThread(Action action)
-        {
-            Control marshaller = _marshaller;
-            if (marshaller == null || marshaller.IsDisposed)
-            {
-                return;
-            }
-
-            try
-            {
-                // BeginInvoke, not Invoke: the caller is the bridge's reader
-                // thread, and a reader that waited on the UI thread would stop
-                // reading exactly when a wedged solve made reading matter most.
-                marshaller.BeginInvoke(action);
-            }
-            catch (Exception exception)
-            {
-                WorkerLog.Write("could not marshal to the UI thread: " + WorkerLog.Describe(exception));
-            }
-        }
-
         /// <summary>
         /// Shows the canvas, or remembers that one was asked for when Rhino is
         /// not up yet.
@@ -307,14 +273,6 @@ namespace Tapioca.GhWorker
         /// </remarks>
         private static void ShowEditor()
         {
-            if (!WorkerSession.IsRunning)
-            {
-                _editorRequested = true;
-                WorkerLog.Write("editor requested while Rhino was still starting; it will be shown when it is up");
-                return;
-            }
-
-            _editorRequested = false;
             string failure;
             bool shown = WorkerSession.SetEditorVisible(true, out failure);
             _bridge.Acknowledge(
@@ -322,19 +280,8 @@ namespace Tapioca.GhWorker
                 shown ? "Grasshopper editor shown. " + TapirConnectionCheck.Report : failure);
         }
 
-        private static void ShowEditorIfRequested()
-        {
-            if (_editorRequested)
-            {
-                ShowEditor();
-            }
-        }
-
         private static void HideEditor()
         {
-            // Clears the latch too: "hide it" after "show it" and before Rhino is
-            // up means the user changed their mind, not that a canvas is owed.
-            _editorRequested = false;
             string failure;
             bool hidden = WorkerSession.SetEditorVisible(false, out failure);
             _bridge.Acknowledge(
@@ -428,7 +375,11 @@ namespace Tapioca.GhWorker
         private static void BeginShutdown()
         {
             WorkerLog.Write("shutdown requested by the add-on");
-            Application.ExitThread();
+            GhEngineThread engine = _engine;
+            if (engine != null)
+            {
+                engine.RequestStop();
+            }
         }
 
         private static void Shutdown()
@@ -437,13 +388,11 @@ namespace Tapioca.GhWorker
             // guarantee and needs nothing from here; this exists so that an
             // orderly quit releases Rhino's licence lease and temporary files
             // rather than leaving them to a kill.
-            try
+            GhEngineThread engine = _engine;
+            _engine = null;
+            if (engine != null)
             {
-                WorkerLog.Write(WorkerSession.Stop());
-            }
-            catch (Exception exception)
-            {
-                WorkerLog.Write("the session did not stop cleanly: " + WorkerLog.Describe(exception));
+                engine.Dispose();
             }
 
             // Dropped before the pipe closes, so a component that is still
@@ -478,6 +427,10 @@ namespace Tapioca.GhWorker
             internal uint ArchicadJsonPort { get; private set; }
 
             internal string BootLogPath { get; private set; }
+
+            internal bool Headless { get; private set; }
+
+            private bool ModeSpecified { get; set; }
 
             internal static bool TryParse(string[] args, out Arguments arguments, out string failure)
             {
@@ -515,6 +468,19 @@ namespace Tapioca.GhWorker
                             arguments.BootLogPath = value;
                             index++;
                             break;
+                        case "--mode":
+                            arguments.ModeSpecified = true;
+                            if (string.Equals(value, "headless", StringComparison.OrdinalIgnoreCase))
+                            {
+                                arguments.Headless = true;
+                            }
+                            else if (!string.Equals(value, "authoring", StringComparison.OrdinalIgnoreCase))
+                            {
+                                failure = "--mode must be 'headless' or 'authoring'.";
+                                return false;
+                            }
+                            index++;
+                            break;
                         default:
                             failure = "Unrecognised argument '" + name + "'.";
                             return false;
@@ -529,6 +495,12 @@ namespace Tapioca.GhWorker
                     // Tapioca components all report that they are unavailable.
                     failure = "Tapioca.GhWorker.exe is started by the Tapioca Archicad add-on and needs "
                               + "--pipe <name>. Open Tapioca > Grasshopper Editor from Archicad instead.";
+                    return false;
+                }
+
+                if (!arguments.ModeSpecified)
+                {
+                    failure = "Tapioca.GhWorker.exe needs --mode <authoring|headless>.";
                     return false;
                 }
 

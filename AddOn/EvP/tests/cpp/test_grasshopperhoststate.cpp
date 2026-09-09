@@ -40,7 +40,7 @@ TEST (GrasshopperHostState, StartsFromNotStarted)
     // recording what it owns.
     EXPECT_FALSE (lifecycle.AcceptsMessages ());
 
-    lifecycle.CompleteStart ();
+    ASSERT_TRUE (lifecycle.CompleteStart (1));
     EXPECT_EQ (HostState::Running, lifecycle.State ());
     EXPECT_TRUE (lifecycle.IsRunning ());
     EXPECT_TRUE (lifecycle.AcceptsMessages ());
@@ -59,7 +59,7 @@ TEST (GrasshopperHostState, StartIsIdempotentOnceRunning)
 {
     HostLifecycle lifecycle;
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
-    lifecycle.CompleteStart ();
+    ASSERT_TRUE (lifecycle.CompleteStart (1));
 
     // The menu command's ordinary second click. It must be told "already
     // running" and NOT be handed the right to spawn another worker.
@@ -71,7 +71,7 @@ TEST (GrasshopperHostState, FailedStartIsNotRunningAndMayBeRetried)
 {
     HostLifecycle lifecycle;
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
-    lifecycle.FailStart ("no Rhino installation");
+    ASSERT_TRUE (lifecycle.Fail (1, "no Rhino installation"));
 
     EXPECT_EQ (HostState::Failed, lifecycle.State ());
     EXPECT_FALSE (lifecycle.IsRunning ());
@@ -88,7 +88,7 @@ TEST (GrasshopperHostState, WorkerMessagesAreRefusedFromTheMomentAStopBegins)
 {
     HostLifecycle lifecycle;
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
-    lifecycle.CompleteStart ();
+    ASSERT_TRUE (lifecycle.CompleteStart (1));
     ASSERT_TRUE (lifecycle.AcceptsMessages ());
 
     ASSERT_TRUE (lifecycle.BeginStop ());
@@ -111,7 +111,7 @@ TEST (GrasshopperHostState, StopIsSafeWhenNothingIsRunning)
     EXPECT_EQ (HostState::NotStarted, lifecycle.State ());
 
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
-    lifecycle.FailStart ("runtime missing");
+    ASSERT_TRUE (lifecycle.Fail (1, "runtime missing"));
     EXPECT_FALSE (lifecycle.BeginStop ());
     EXPECT_EQ (HostState::Failed, lifecycle.State ());
 }
@@ -120,7 +120,7 @@ TEST (GrasshopperHostState, RestartAfterStopIsAllowed)
 {
     HostLifecycle lifecycle;
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
-    lifecycle.CompleteStart ();
+    ASSERT_TRUE (lifecycle.CompleteStart (1));
     ASSERT_TRUE (lifecycle.BeginStop ());
     lifecycle.CompleteStop ();
 
@@ -143,7 +143,7 @@ TEST (GrasshopperHostState, EachStartGetsItsOwnGeneration)
 
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
     EXPECT_EQ (1u, lifecycle.Generation ());
-    lifecycle.CompleteStart ();
+    ASSERT_TRUE (lifecycle.CompleteStart (1));
 
     // A start that is refused must NOT consume a generation: a second menu click
     // on a running worker is not a new worker.
@@ -157,7 +157,7 @@ TEST (GrasshopperHostState, EachStartGetsItsOwnGeneration)
 
     // Including a start that fails: a worker that died on its way up still owns
     // a distinct generation, or its log lines merge with its successor's.
-    lifecycle.FailStart ("worker exited during startup");
+    ASSERT_TRUE (lifecycle.Fail (2, "worker exited during startup"));
     ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
     EXPECT_EQ (3u, lifecycle.Generation ());
 }
@@ -181,6 +181,54 @@ TEST (GrasshopperHostState, ExactlyOneOfManyConcurrentStartsProceeds)
 
     EXPECT_EQ (1, proceeds.load ());
     EXPECT_EQ (HostState::Starting, lifecycle.State ());
+}
+
+TEST (GrasshopperHostState, StopDuringStartRevokesLateReadyCallback)
+{
+    HostLifecycle lifecycle;
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    const uint32_t generation = lifecycle.Generation ();
+
+    ASSERT_TRUE (lifecycle.BeginStop ());
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
+    EXPECT_FALSE (lifecycle.CompleteStart (generation));
+    lifecycle.CompleteStop ();
+    EXPECT_EQ (HostState::Stopped, lifecycle.State ());
+}
+
+TEST (GrasshopperHostState, WorkerDeathAfterReadyIsARecoverableFailure)
+{
+    HostLifecycle lifecycle;
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    const uint32_t generation = lifecycle.Generation ();
+    ASSERT_TRUE (lifecycle.CompleteStart (generation));
+
+    ASSERT_TRUE (lifecycle.Fail (generation, "worker exited"));
+    EXPECT_EQ (HostState::Failed, lifecycle.State ());
+    EXPECT_FALSE (lifecycle.AcceptsMessages ());
+    EXPECT_EQ ("worker exited", lifecycle.LastError ());
+
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    EXPECT_EQ (generation + 1, lifecycle.Generation ());
+}
+
+TEST (GrasshopperHostState, OldGenerationCannotAffectReplacement)
+{
+    HostLifecycle lifecycle;
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    const uint32_t oldGeneration = lifecycle.Generation ();
+    ASSERT_TRUE (lifecycle.Fail (oldGeneration, "first worker exited"));
+
+    ASSERT_EQ (StartDecision::Proceed, lifecycle.BeginStart ());
+    const uint32_t newGeneration = lifecycle.Generation ();
+    ASSERT_NE (oldGeneration, newGeneration);
+
+    EXPECT_FALSE (lifecycle.CompleteStart (oldGeneration));
+    EXPECT_FALSE (lifecycle.Fail (oldGeneration, "late disconnect"));
+    EXPECT_EQ (HostState::Starting, lifecycle.State ());
+    EXPECT_TRUE (lifecycle.LastError ().empty ());
+    EXPECT_TRUE (lifecycle.CompleteStart (newGeneration));
+    EXPECT_EQ (HostState::Running, lifecycle.State ());
 }
 
 TEST (GrasshopperHostState, EveryStateHasAName)

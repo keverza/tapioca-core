@@ -63,25 +63,29 @@ StartDecision HostLifecycle::BeginStart ()
     return StartDecision::Proceed;
 }
 
-void HostLifecycle::CompleteStart ()
+bool HostLifecycle::CompleteStart (uint32_t startGeneration)
 {
     std::lock_guard<std::mutex> lock (mutex);
-    if (state == HostState::Starting)
-        state = HostState::Running;
+    if (state != HostState::Starting || generation != startGeneration)
+        return false;
+    state = HostState::Running;
+    return true;
 }
 
-void HostLifecycle::FailStart (const std::string& reason)
+bool HostLifecycle::Fail (uint32_t failedGeneration, const std::string& reason)
 {
     std::lock_guard<std::mutex> lock (mutex);
-    if (state == HostState::Starting)
-        state = HostState::Failed;
+    if (generation != failedGeneration || (state != HostState::Starting && state != HostState::Running))
+        return false;
+    state = HostState::Failed;
     lastError = reason;
+    return true;
 }
 
 bool HostLifecycle::BeginStop ()
 {
     std::lock_guard<std::mutex> lock (mutex);
-    if (state != HostState::Running)
+    if (state != HostState::Starting && state != HostState::Running)
         return false;
     state = HostState::Stopping;
     return true;

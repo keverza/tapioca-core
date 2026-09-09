@@ -49,7 +49,7 @@ namespace Tapioca.GhWorker
     internal static class WorkerSession
     {
         private static IDisposable _core;
-        private static bool _running;
+        private static volatile bool _running;
 
         /// <summary>
         /// The Archicad JSON port the add-on told this worker about.
@@ -76,7 +76,7 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static StartOutcome Start(uint archicadJsonPort, uint tapirPort)
+        internal static StartOutcome Start(uint archicadJsonPort, uint tapirPort, bool headless)
         {
             ArchicadJsonPort = archicadJsonPort;
             TapirPort = tapirPort == 0 ? archicadJsonPort : tapirPort;
@@ -120,7 +120,7 @@ namespace Tapioca.GhWorker
                 // nothing has to be disabled, and Archicad keeps its 3DM support.
                 try
                 {
-                    _core = RhinoBoot.CreateHiddenCore();
+                    _core = RhinoBoot.CreateCore(headless);
                 }
                 catch (Exception exception)
                 {
@@ -138,7 +138,7 @@ namespace Tapioca.GhWorker
                 // 3. Only now Grasshopper, which depends on the core existing.
                 string tapirReport;
                 string failure;
-                if (!RhinoBoot.LoadGrasshopper(ArchicadJsonPort, TapirPort, out tapirReport, out failure))
+                if (!RhinoBoot.LoadGrasshopper(ArchicadJsonPort, TapirPort, headless, out tapirReport, out failure))
                 {
                     // The core stays up: it started cleanly, and tearing it down
                     // here would destroy the evidence of what stopped Grasshopper.

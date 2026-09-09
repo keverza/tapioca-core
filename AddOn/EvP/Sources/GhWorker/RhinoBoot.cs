@@ -57,14 +57,17 @@ namespace Tapioca.GhWorker
         /// <see cref="IDisposable"/> so the caller never names the type.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static IDisposable CreateHiddenCore()
+        internal static IDisposable CreateCore(bool headless)
         {
             // /nosplash and /notemplate: this is an embedded core with no user
             // in front of it, and either dialog would appear over Archicad and
             // block the main thread waiting for a click that no one expects to
             // have to make.
             string[] arguments = new string[] { "/nosplash", "/notemplate" };
-            return new Rhino.Runtime.InProcess.RhinoCore(arguments, Rhino.Runtime.InProcess.WindowStyle.Hidden);
+            Rhino.Runtime.InProcess.WindowStyle style = headless
+                ? Rhino.Runtime.InProcess.WindowStyle.NoWindow
+                : Rhino.Runtime.InProcess.WindowStyle.Hidden;
+            return new Rhino.Runtime.InProcess.RhinoCore(arguments, style);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -97,6 +100,7 @@ namespace Tapioca.GhWorker
         internal static bool LoadGrasshopper(
             uint archicadJsonPort,
             uint tapirPort,
+            bool headless,
             out string tapirReport,
             out string failure)
         {
@@ -110,32 +114,42 @@ namespace Tapioca.GhWorker
                 return false;
             }
 
-            Grasshopper.Plugin.GH_RhinoScriptInterface grasshopper =
-                plugInObject as Grasshopper.Plugin.GH_RhinoScriptInterface;
-            if (grasshopper == null)
-            {
-                failure = "The Grasshopper plug-in object was of an unexpected type ("
-                          + plugInObject.GetType().FullName + ").";
-                return false;
-            }
-
             // Both folders before the editor loads, for the same reason:
             // Grasshopper scans its assembly folders exactly once, on the way up.
             string preparedTapioca = TapiocaPackage.Prepare();
             string prepared = TapirPackage.Prepare();
 
-            // LoadEditor returns nothing, so "did it work" has to be asked
-            // separately — and asking afterwards is the honest check anyway.
-            if (!grasshopper.IsEditorLoaded())
+            if (headless)
             {
-                grasshopper.LoadEditor();
+                System.Reflection.MethodInfo runHeadless = plugInObject.GetType().GetMethod("RunHeadless");
+                if (runHeadless == null)
+                {
+                    failure = "The Grasshopper plug-in object does not expose RunHeadless ("
+                              + plugInObject.GetType().FullName + ").";
+                    return false;
+                }
+                runHeadless.Invoke(plugInObject, null);
             }
-
-            if (!grasshopper.IsEditorLoaded())
+            else
             {
-                tapirReport = preparedTapioca + " " + prepared;
-                failure = "Grasshopper's editor would not load.";
-                return false;
+                Grasshopper.Plugin.GH_RhinoScriptInterface grasshopper =
+                    plugInObject as Grasshopper.Plugin.GH_RhinoScriptInterface;
+                if (grasshopper == null)
+                {
+                    failure = "The Grasshopper plug-in object was of an unexpected type ("
+                              + plugInObject.GetType().FullName + ").";
+                    return false;
+                }
+                if (!grasshopper.IsEditorLoaded())
+                {
+                    grasshopper.LoadEditor();
+                }
+                if (!grasshopper.IsEditorLoaded())
+                {
+                    failure = "Grasshopper's editor would not load.";
+                    return false;
+                }
+                grasshopper.HideEditor();
             }
 
             tapirReport = preparedTapioca + " " + TapiocaPackage.Verify()

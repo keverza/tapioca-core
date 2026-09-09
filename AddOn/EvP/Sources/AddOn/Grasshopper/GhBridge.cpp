@@ -143,6 +143,7 @@ bool GhBridge::Start (uint32_t startGeneration, GS::UniString& error)
     }
 
     generation.store (startGeneration);
+    startupAcknowledged.store (false);
     connected.store (false);
     workerProcessId.store (0);
     lastHeartbeatTick.store (0);
@@ -254,15 +255,27 @@ bool GhBridge::Send (protocol::MessageType type, GS::UniString& error)
     return true;
 }
 
-void GhBridge::SetConnectedHandler (std::function<void ()> handler)
+void GhBridge::SetConnectedHandler (std::function<void (uint32_t)> handler)
 {
     std::lock_guard<std::mutex> lock (messageMutex);
     connectedHandler = std::move (handler);
 }
 
+void GhBridge::SetStartupHandler (std::function<void (uint32_t, protocol::AckStatus, const GS::UniString&)> handler)
+{
+    std::lock_guard<std::mutex> lock (messageMutex);
+    startupHandler = std::move (handler);
+}
+
+void GhBridge::SetDisconnectedHandler (std::function<void (uint32_t)> handler)
+{
+    std::lock_guard<std::mutex> lock (messageMutex);
+    disconnectedHandler = std::move (handler);
+}
+
 void GhBridge::NotifyConnected ()
 {
-    std::function<void ()> handler;
+    std::function<void (uint32_t)> handler;
     {
         // Copied out and called OUTSIDE the lock: the handler talks to the host,
         // which talks back to this bridge, and holding a lock across that is how
@@ -271,7 +284,7 @@ void GhBridge::NotifyConnected ()
         handler = connectedHandler;
     }
     if (handler)
-        handler ();
+        handler (generation.load ());
 }
 
 void GhBridge::SetRunResultHandler (std::function<void (const protocol::RunReportPayload&)> handler)
@@ -453,11 +466,21 @@ void GhBridge::Run ()
                 protocol::AckPayload ack;
                 if (!protocol::DecodeAckPayload (payload.data (), payload.size (), ack, protocolError))
                     break;
+                const GS::UniString message = FromUtf8 (ack.message);
                 {
                     std::lock_guard<std::mutex> lock (messageMutex);
-                    lastWorkerMessage = FromUtf8 (ack.message);
+                    lastWorkerMessage = message;
                 }
-                LogWorkerLine (gen, hello.processId, FromUtf8 (ack.message));
+                LogWorkerLine (gen, hello.processId, message);
+                if (!startupAcknowledged.exchange (true)) {
+                    std::function<void (uint32_t, protocol::AckStatus, const GS::UniString&)> handler;
+                    {
+                        std::lock_guard<std::mutex> lock (messageMutex);
+                        handler = startupHandler;
+                    }
+                    if (handler)
+                        handler (gen, ack.status, message);
+                }
                 break;
             }
 
@@ -586,6 +609,13 @@ void GhBridge::Run ()
     // explain is worse than no preview at all.
     previewIngest.OnWorkerGone ("the worker disconnected from the bridge");
     LogLine (gen, hello.processId, "worker disconnected from the bridge");
+    std::function<void (uint32_t)> handler;
+    {
+        std::lock_guard<std::mutex> lock (messageMutex);
+        handler = disconnectedHandler;
+    }
+    if (handler)
+        handler (gen);
 }
 
 } // namespace grasshopper

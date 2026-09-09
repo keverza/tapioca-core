@@ -268,8 +268,8 @@ void PollLoop (uint32_t generation, uint32_t pid)
             {
                 std::lock_guard<std::mutex> lock (controlMutex);
                 if (lifecycle.State () == grasshopper::HostState::Starting)
-                    lifecycle.FailStart ("compute.geometry.exe exited during startup (code " +
-                                         std::to_string (exitCode) + ").");
+                    lifecycle.Fail (generation, "compute.geometry.exe exited during startup (code " +
+                                                    std::to_string (exitCode) + ").");
             }
 
             LogLine (generation, pid,
@@ -284,7 +284,7 @@ void PollLoop (uint32_t generation, uint32_t pid)
                 ready.store (true);
                 {
                     std::lock_guard<std::mutex> lock (controlMutex);
-                    lifecycle.CompleteStart ();
+                    lifecycle.CompleteStart (generation);
                 }
 
                 LogLine (generation, pid, GS::UniString::Printf ("compute ready: %s", version.c_str ()));
@@ -293,7 +293,7 @@ void PollLoop (uint32_t generation, uint32_t pid)
             else if (clock::now () > deadline) {
                 {
                     std::lock_guard<std::mutex> lock (controlMutex);
-                    lifecycle.FailStart ("compute.geometry.exe did not answer /version in time.");
+                    lifecycle.Fail (generation, "compute.geometry.exe did not answer /version in time.");
                     KillWorker ();
                 }
 
@@ -452,7 +452,7 @@ bool RhinoComputeManager::Start (GS::UniString& message)
         // exactly how it was first reported.
         LogLine (generation, 0, GS::UniString ("start refused: ") + message);
         std::lock_guard<std::mutex> lock (controlMutex);
-        lifecycle.FailStart (message.ToCStr ().Get ());
+        lifecycle.Fail (generation, message.ToCStr ().Get ());
         return false;
     }
 
@@ -543,7 +543,7 @@ bool RhinoComputeManager::Start (GS::UniString& message)
             GS::UniString::Printf ("Could not start compute.geometry.exe (Win32 error %u).", (unsigned int) win32Error);
         LogLine (generation, 0, message);
         std::lock_guard<std::mutex> lock (controlMutex);
-        lifecycle.FailStart (message.ToCStr ().Get ());
+        lifecycle.Fail (generation, message.ToCStr ().Get ());
         return false;
     }
 
@@ -564,7 +564,7 @@ bool RhinoComputeManager::Start (GS::UniString& message)
             (unsigned int) exitCode);
         LogLine (generation, 0, message);
         std::lock_guard<std::mutex> lock (controlMutex);
-        lifecycle.FailStart (message.ToCStr ().Get ());
+        lifecycle.Fail (generation, message.ToCStr ().Get ());
         return false;
     }
 

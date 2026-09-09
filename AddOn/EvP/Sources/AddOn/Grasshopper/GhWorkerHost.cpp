@@ -68,10 +68,12 @@ HostLifecycle lifecycle;
 
 std::mutex controlMutex;
 HANDLE workerProcess = nullptr;
+HANDLE workerJob = nullptr;
 DWORD workerProcessId = 0;
 std::thread supervisor;
 std::atomic<bool> supervisorStopping { false };
 std::atomic<bool> showEditorOnConnect { false };
+std::atomic<uint32_t> disconnectedGeneration { 0 };
 
 GS::UniString lastMessage;
 GS::UniString workerPath;
@@ -222,7 +224,7 @@ void ReportToUser (const GS::UniString& report)
 // closes the bridge and the process handles; it does not touch `supervisor`,
 // because the supervisor thread itself calls this and a thread cannot join
 // itself.
-void TearDownLocked (bool killWorker, const GS::UniString& reason)
+void TearDownLocked (bool killWorker, const GS::UniString& reason, bool failed = false)
 {
     if (killWorker && workerProcess != nullptr) {
         // ⚠️ THE GUARANTEE, AND THE WHOLE REASON THE WORKER IS A SEPARATE
@@ -240,11 +242,22 @@ void TearDownLocked (bool killWorker, const GS::UniString& reason)
         CloseHandle (workerProcess);
         workerProcess = nullptr;
     }
+    if (workerJob != nullptr) {
+        CloseHandle (workerJob);
+        workerJob = nullptr;
+    }
     workerProcessId = 0;
     showEditorOnConnect.store (false);
 
-    if (lifecycle.BeginStop ())
+    if (failed) {
+        const std::string failure =
+            reason.IsEmpty () ? std::string ("Grasshopper worker failed") : std::string (reason.ToCStr ().Get ());
+        lifecycle.Fail (lifecycle.Generation (), failure);
+    }
+    else {
+        lifecycle.BeginStop ();
         lifecycle.CompleteStop ();
+    }
     if (!reason.IsEmpty ()) {
         lastMessage = reason;
         Log (reason);
@@ -277,7 +290,7 @@ void SupervisorLoop ()
                     "The Grasshopper worker process exited (code %u). Archicad is unaffected; open "
                     "Tapioca > Grasshopper Editor again to start a new one.",
                     (unsigned int) exitCode);
-                TearDownLocked (false, report);
+                TearDownLocked (false, report, true);
             }
             // ⚠️ A WORKER CRASH IS A RECOVERABLE EVENT WITH A UI, NOT A CRASH
             // REPORT. HANDOFF §"Supervision is the point".
@@ -287,6 +300,19 @@ void SupervisorLoop ()
 
         if (supervisorStopping.load ())
             return;
+
+        const uint32_t lostGeneration = disconnectedGeneration.exchange (0);
+        if (lostGeneration == lifecycle.Generation ()) {
+            GS::UniString report;
+            {
+                std::lock_guard<std::mutex> lock (controlMutex);
+                report = "The Grasshopper worker disconnected from its bridge and was stopped. Archicad is "
+                         "unaffected; open Tapioca > Grasshopper Editor again to start a new one.";
+                TearDownLocked (true, report, true);
+            }
+            ReportToUser (report);
+            return;
+        }
 
         GhBridge& bridge = GhBridge::Get ();
         if (!bridge.IsConnected ())
@@ -304,7 +330,7 @@ void SupervisorLoop ()
                 "definition that will not return is the usual cause. Archicad and your project are "
                 "unaffected; anything the definition had already written to the project is still written.",
                 (unsigned int) silence);
-            TearDownLocked (true, report);
+            TearDownLocked (true, report, true);
         }
         ReportToUser (report);
         return;
@@ -314,6 +340,8 @@ void SupervisorLoop ()
 // ⚠️ CALLED WITH controlMutex HELD.
 bool StartWorkerLocked (GS::UniString& message)
 {
+    disconnectedGeneration.store (0);
+
     std::wstring executable;
     std::wstring workingDirectory;
     if (!ResolveWorker (executable, workingDirectory)) {
@@ -339,7 +367,7 @@ bool StartWorkerLocked (GS::UniString& message)
     std::wstring commandLine = L"\"" + executable + L"\" --pipe " + pipeName + L" --protocol " +
                                std::to_wstring (protocol::Version) + L" --generation " +
                                std::to_wstring (lifecycle.Generation ()) + L" --archicad-port " +
-                               std::to_wstring (archicadPort);
+                               std::to_wstring (archicadPort) + L" --mode authoring";
 
     GS::UniString bootLog = LogPath ();
     if (!bootLog.IsEmpty ()) {
@@ -355,17 +383,63 @@ bool StartWorkerLocked (GS::UniString& message)
     std::vector<wchar_t> mutableCommandLine (commandLine.begin (), commandLine.end ());
     mutableCommandLine.push_back (L'\0');
 
+    HANDLE job = CreateJobObjectW (nullptr, nullptr);
+    if (job == nullptr) {
+        const DWORD win32Error = GetLastError ();
+        bridge.Stop ();
+        message = GS::UniString::Printf ("Could not create the Grasshopper worker Job Object (Win32 error %u).",
+                                         (unsigned int) win32Error);
+        return false;
+    }
+
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits {};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (SetInformationJobObject (job, JobObjectExtendedLimitInformation, &limits, sizeof (limits)) == 0) {
+        const DWORD win32Error = GetLastError ();
+        CloseHandle (job);
+        bridge.Stop ();
+        message = GS::UniString::Printf ("Could not configure the Grasshopper worker Job Object (Win32 error %u).",
+                                         (unsigned int) win32Error);
+        return false;
+    }
+
     STARTUPINFOW startup {};
     startup.cb = sizeof (startup);
     PROCESS_INFORMATION process {};
-    const BOOL created =
-        CreateProcessW ((LPCWSTR) executable.c_str (), mutableCommandLine.data (), nullptr, nullptr, FALSE,
-                        CREATE_NO_WINDOW, nullptr, (LPCWSTR) workingDirectory.c_str (), &startup, &process);
+    const BOOL created = CreateProcessW ((LPCWSTR) executable.c_str (), mutableCommandLine.data (), nullptr, nullptr,
+                                         FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
+                                         (LPCWSTR) workingDirectory.c_str (), &startup, &process);
     if (created == 0) {
         const DWORD win32Error = GetLastError ();
+        CloseHandle (job);
         bridge.Stop ();
         message = GS::UniString::Printf ("Could not start Tapioca.GhWorker.exe (Win32 error %u). Verify the .NET 8 "
                                          "Windows Desktop Runtime is installed.",
+                                         (unsigned int) win32Error);
+        return false;
+    }
+    if (AssignProcessToJobObject (job, process.hProcess) == 0) {
+        const DWORD win32Error = GetLastError ();
+        TerminateProcess (process.hProcess, 1);
+        WaitForSingleObject (process.hProcess, 2000);
+        CloseHandle (process.hThread);
+        CloseHandle (process.hProcess);
+        CloseHandle (job);
+        bridge.Stop ();
+        message = GS::UniString::Printf (
+            "Could not place the Grasshopper worker in its Job Object (Win32 error %u). The worker was stopped.",
+            (unsigned int) win32Error);
+        return false;
+    }
+    if (ResumeThread (process.hThread) == DWORD (-1)) {
+        const DWORD win32Error = GetLastError ();
+        TerminateProcess (process.hProcess, 1);
+        WaitForSingleObject (process.hProcess, 2000);
+        CloseHandle (process.hThread);
+        CloseHandle (process.hProcess);
+        CloseHandle (job);
+        bridge.Stop ();
+        message = GS::UniString::Printf ("Could not resume the Grasshopper worker (Win32 error %u).",
                                          (unsigned int) win32Error);
         return false;
     }
@@ -378,6 +452,7 @@ bool StartWorkerLocked (GS::UniString& message)
         DWORD exitCode = 0;
         GetExitCodeProcess (process.hProcess, &exitCode);
         CloseHandle (process.hProcess);
+        CloseHandle (job);
         bridge.Stop ();
         message = GS::UniString::Printf (
             "Tapioca.GhWorker.exe exited during startup (code %u). Verify the .NET 8 Windows Desktop Runtime "
@@ -387,6 +462,7 @@ bool StartWorkerLocked (GS::UniString& message)
     }
 
     workerProcess = process.hProcess;
+    workerJob = job;
     workerProcessId = process.dwProcessId;
 
     // A supervisor from a previous generation has returned by now (its worker
@@ -429,15 +505,12 @@ bool EnsureRunningLocked (GS::UniString& message)
 
     Log (GS::UniString ("===== Grasshopper worker start ====="));
     if (!StartWorkerLocked (message)) {
-        lifecycle.FailStart (std::string ("worker start failed"));
+        lifecycle.Fail (lifecycle.Generation (), std::string ("worker start failed"));
         lastMessage = message;
         Log (message);
         return false;
     }
 
-    // Running means "spawned and supervised", not "connected". The handshake is
-    // the bridge's, and the connected handler below is what finishes the job.
-    lifecycle.CompleteStart ();
     lastMessage = message;
     Log (message);
     return true;
@@ -462,14 +535,25 @@ void OnRunResult (const protocol::RunReportPayload& report)
     ReportToUser (GS::UniString ("Grasshopper run\n\n") + text);
 }
 
-void OnWorkerConnected ()
+void OnWorkerDisconnected (uint32_t generation)
 {
-    if (!showEditorOnConnect.exchange (false))
-        return;
+    disconnectedGeneration.store (generation);
+}
 
-    GS::UniString error;
-    if (!GhBridge::Get ().Send (protocol::MessageType::ShowEditor, error))
-        LogLine (lifecycle.Generation (), GhBridge::Get ().WorkerProcessId (), error);
+void OnWorkerStarted (uint32_t generation, protocol::AckStatus status, const GS::UniString& message)
+{
+    if (status == protocol::AckStatus::Ok) {
+        if (!lifecycle.CompleteStart (generation))
+            return;
+        if (showEditorOnConnect.exchange (false)) {
+            GS::UniString error;
+            if (!GhBridge::Get ().Send (protocol::MessageType::ShowEditor, error))
+                LogLine (generation, GhBridge::Get ().WorkerProcessId (), error);
+        }
+        return;
+    }
+
+    lifecycle.Fail (generation, std::string (message.ToCStr ().Get ()));
 }
 
 } // namespace
@@ -488,7 +572,8 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
     }
 
     GhBridge& bridge = GhBridge::Get ();
-    bridge.SetConnectedHandler (&OnWorkerConnected);
+    bridge.SetStartupHandler (&OnWorkerStarted);
+    bridge.SetDisconnectedHandler (&OnWorkerDisconnected);
     bridge.SetRunResultHandler (&OnRunResult);
 
     std::lock_guard<std::mutex> lock (controlMutex);
@@ -500,13 +585,18 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
     // whichever of the two paths gets there first clears it.
     showEditorOnConnect.store (true);
 
-    if (bridge.IsConnected ()) {
+    if (bridge.IsConnected () && lifecycle.AcceptsMessages ()) {
         if (!showEditorOnConnect.exchange (false))
             return true; // the handler beat us to it
         if (!bridge.Send (protocol::MessageType::ShowEditor, message))
             return false;
         message = "Asked the Grasshopper worker for its canvas.";
         lastMessage = message;
+        return true;
+    }
+
+    if (lifecycle.State () == HostState::Starting) {
+        message = "The Grasshopper worker is starting and will show its canvas when it is ready.";
         return true;
     }
 
@@ -524,7 +614,7 @@ bool GhWorkerHost::HideEditor (GS::UniString& message)
     // see less of it would be absurd.
     std::lock_guard<std::mutex> lock (controlMutex);
     showEditorOnConnect.store (false);
-    if (!GhBridge::Get ().IsConnected ()) {
+    if (!lifecycle.AcceptsMessages () || !GhBridge::Get ().IsConnected ()) {
         message = "The Grasshopper worker is not running.";
         return true;
     }
@@ -536,6 +626,7 @@ void GhWorkerHost::Stop ()
     // ⚠️ ORDER. supervisorStopping FIRST and OUTSIDE the mutex, then the join,
     // then the mutex. The supervisor takes controlMutex during its own teardown,
     // so taking it before the join would deadlock this thread against that one.
+    lifecycle.BeginStop ();
     supervisorStopping.store (true);
     if (supervisor.joinable ())
         supervisor.join ();
@@ -543,6 +634,7 @@ void GhWorkerHost::Stop ()
     std::lock_guard<std::mutex> lock (controlMutex);
     if (workerProcess == nullptr) {
         GhBridge::Get ().Stop ();
+        lifecycle.CompleteStop ();
         return;
     }
 
@@ -638,7 +730,7 @@ GS::UniString GhWorkerHost::Describe () const
 bool GhWorkerHost::RunDefinition (GS::UniString& message)
 {
     std::lock_guard<std::mutex> lock (controlMutex);
-    if (!GhBridge::Get ().IsConnected ()) {
+    if (!lifecycle.AcceptsMessages () || !GhBridge::Get ().IsConnected ()) {
         // Deliberately does NOT spawn a worker. A Run solves the definition on
         // the canvas, and a worker that has just started has no canvas and no
         // definition -- so starting one here would answer a request to run
@@ -660,7 +752,7 @@ bool GhWorkerHost::RunDefinition (GS::UniString& message)
 bool GhWorkerHost::CancelRun (GS::UniString& message)
 {
     std::lock_guard<std::mutex> lock (controlMutex);
-    if (!GhBridge::Get ().IsConnected ()) {
+    if (!lifecycle.AcceptsMessages () || !GhBridge::Get ().IsConnected ()) {
         message = "Grasshopper is not running, so there is nothing to cancel.";
         return true;
     }
@@ -684,7 +776,9 @@ void GhWorkerHost::RunFromMenu ()
 void GhWorkerHost::CloseFromMenu ()
 {
     GhWorkerHost& host = Get ();
-    if (!host.IsRunning () && !GhBridge::Get ().IsConnected ()) {
+    const HostState state = host.State ();
+    if ((state == HostState::NotStarted || state == HostState::Stopped || state == HostState::Failed) &&
+        !GhBridge::Get ().IsConnected ()) {
         ACAPI_WriteReport ("%T", true, GS::UniString ("Grasshopper is not running.").ToPrintf ());
         return;
     }

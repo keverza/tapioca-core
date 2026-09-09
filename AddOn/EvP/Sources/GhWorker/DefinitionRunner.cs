@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace Tapioca.GhWorker
 {
@@ -49,7 +50,9 @@ namespace Tapioca.GhWorker
         /// <summary>How many component messages a report will carry.</summary>
         private const int MaxReportedMessages = 12;
 
-        private static bool _running;
+        private static volatile bool _running;
+        private static volatile Grasshopper.Kernel.GH_Document _runningDocument;
+        private static int _cancelRequested;
 
         internal static bool IsRunning
         {
@@ -77,6 +80,7 @@ namespace Tapioca.GhWorker
             }
 
             _running = true;
+            Interlocked.Exchange(ref _cancelRequested, 0);
             Stopwatch clock = Stopwatch.StartNew();
             try
             {
@@ -90,6 +94,7 @@ namespace Tapioca.GhWorker
             finally
             {
                 _running = false;
+                Interlocked.Exchange(ref _cancelRequested, 0);
             }
         }
 
@@ -113,10 +118,11 @@ namespace Tapioca.GhWorker
 
             try
             {
-                Grasshopper.Kernel.GH_Document document = ActiveDocument();
+                Grasshopper.Kernel.GH_Document document = _runningDocument;
                 if (document == null)
                 {
-                    return "There is no Grasshopper document to cancel.";
+                    Interlocked.Exchange(ref _cancelRequested, 1);
+                    return "Cancellation requested before the Grasshopper solution started.";
                 }
 
                 document.RequestAbortSolution();
@@ -169,10 +175,16 @@ namespace Tapioca.GhWorker
             try
             {
                 Grasshopper.Kernel.GH_Document.EnableSolutions = true;
+                _runningDocument = document;
+                if (Interlocked.Exchange(ref _cancelRequested, 0) != 0)
+                {
+                    return RunReport.Failed("The solution was cancelled before it started.", clock.ElapsedMilliseconds);
+                }
                 document.NewSolution(true);
             }
             finally
             {
+                _runningDocument = null;
                 Grasshopper.Kernel.GH_Document.EnableSolutions = previouslyEnabled;
             }
 

@@ -65,11 +65,14 @@ class HostLifecycle {
 
     // Exactly one caller can get Proceed. Everyone else is told why not.
     StartDecision BeginStart ();
-    void CompleteStart ();
-    void FailStart (const std::string& reason);
+    // Generation-aware because bridge and process callbacks are asynchronous. A
+    // callback from a worker that has already been stopped must not complete or
+    // fail its replacement's start.
+    bool CompleteStart (uint32_t startGeneration);
+    bool Fail (uint32_t failedGeneration, const std::string& reason);
 
-    // True when this call owns the stop. False when there is nothing to stop, so
-    // a shutdown path can call it unconditionally.
+    // Starting is stoppable: quitting Archicad while Rhino is booting must revoke
+    // late bridge callbacks immediately rather than waiting for a handshake.
     bool BeginStop ();
     void CompleteStop ();
 

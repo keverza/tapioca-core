@@ -98,7 +98,13 @@ class GhBridge {
     // long as the thing the process boundary exists to stop freezing it.
     // GhWorkerHost therefore spawns, returns, and leaves the follow-up here.
     // The handler must be self-contained and must not touch ACAPI directly.
-    void SetConnectedHandler (std::function<void ()> handler);
+    void SetConnectedHandler (std::function<void (uint32_t)> handler);
+
+    // The first ordinary Ack is the worker's runtime-start result. Connection
+    // alone only proves the protocol; this callback proves Rhino and headless GH.
+    void SetStartupHandler (std::function<void (uint32_t, protocol::AckStatus, const GS::UniString&)> handler);
+
+    void SetDisconnectedHandler (std::function<void (uint32_t)> handler);
 
     // Run once, on the IO thread, when a worker answers a RunDefinition.
     //
@@ -124,6 +130,7 @@ class GhBridge {
     std::atomic<uint32_t> workerProcessId { 0 };
     std::atomic<uint64_t> lastHeartbeatTick { 0 };
     std::atomic<uint32_t> generation { 0 };
+    std::atomic<bool> startupAcknowledged { false };
     std::thread io;
     void* pipe = nullptr; // HANDLE, kept opaque so <windows.h> stays out of this header
     mutable std::mutex writeMutex;
@@ -138,7 +145,9 @@ class GhBridge {
     evp::preview::GhPreviewSegmentView previewSegment;
     evp::preview::GhPreviewIngest previewIngest { evp::preview::GhPreviewCache::Get (), previewSegment };
 
-    std::function<void ()> connectedHandler;
+    std::function<void (uint32_t)> connectedHandler;
+    std::function<void (uint32_t, protocol::AckStatus, const GS::UniString&)> startupHandler;
+    std::function<void (uint32_t)> disconnectedHandler;
     std::function<void (const protocol::RunReportPayload&)> runResultHandler;
     GS::UniString lastWorkerMessage;
     GS::UniString pipeName;

@@ -77,6 +77,8 @@ namespace Tapioca.GhWorker
         /// </summary>
         internal event Action CancelRequested;
 
+        internal event Action Disconnected;
+
         /// <summary>
         /// Archicad cannot trust its preview mirror any more and the next batch
         /// must be a FULL one rather than a delta against it. Raised on the
@@ -470,6 +472,7 @@ namespace Tapioca.GhWorker
 
         private void ReadLoop()
         {
+            bool disconnected = false;
             try
             {
                 while (!_stopping)
@@ -509,7 +512,12 @@ namespace Tapioca.GhWorker
             }
             finally
             {
+                disconnected = !_stopping;
                 Dispose();
+                if (disconnected)
+                {
+                    Raise(Disconnected);
+                }
             }
         }
 
