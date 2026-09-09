@@ -20063,6 +20063,9 @@
                     "hide",
                     "fade"
                   ]
+                },
+                "allowOverlap": {
+                  "type": "boolean"
                 }
               },
               "additionalProperties": false,

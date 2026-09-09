@@ -46,6 +46,7 @@ struct PreparedSceneTextLabel {
     float haloWidthPixels = 0.0f;
     bool backgroundPanel = false;
     float edgeInsetPixels = 4.0f;
+    bool allowOverlap = false;
     float depthUvOffset[2] = {};
     float anchorDepth = 0.0f;
     float occlusionMode = 0.0f;
@@ -595,6 +596,7 @@ bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f) * dpiScale });
         PreparedSceneTextLabel& output = prepared.back ();
         output.edgeInsetPixels = 4.0f * dpiScale;
+        output.allowOverlap = label.allowOverlap;
         if (label.occlusion != SceneTextOcclusion::Always &&
             ProjectOcclusionAnchor (label, depthViewProj, output.depthUvOffset, output.anchorDepth)) {
             output.depthUvOffset[0] -= anchorX / float (surfaceWidth);
@@ -664,6 +666,7 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
     std::vector<uint32_t> requestedGlyphs;
     std::vector<SceneTextBounds> occupiedBounds;
     occupiedBounds.reserve (resolved.size ());
+    const std::vector<SceneTextBounds> noOccupiedBounds;
     for (const ResolvedLabel& resolvedLabel : resolved) {
         for (const SceneTextPositionedGlyph& positioned : resolvedLabel.run->glyphs) {
             size_t pageIndex = 0;
@@ -775,9 +778,9 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             placementBounds.top -= 2.0f * scale;
             placementBounds.bottom += 2.0f * scale;
         }
-        const SceneTextPlacement placement =
-            ResolveSceneTextPlacement (placementBounds, float (surfaceWidth), float (surfaceHeight),
-                                       label.edgeInsetPixels, label.edgeInsetPixels * 0.5f, occupiedBounds);
+        const SceneTextPlacement placement = ResolveSceneTextPlacement (
+            placementBounds, float (surfaceWidth), float (surfaceHeight), label.edgeInsetPixels,
+            label.edgeInsetPixels * 0.5f, label.allowOverlap ? noOccupiedBounds : occupiedBounds);
         if (!placement.accepted)
             continue;
         pen += placement.offsetX;
@@ -834,7 +837,8 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             }
             ++stats.labels;
             stats.glyphs += emitted;
-            occupiedBounds.push_back (placement.bounds);
+            if (!label.allowOverlap)
+                occupiedBounds.push_back (placement.bounds);
         }
     }
     size_t vertexCount = 0;

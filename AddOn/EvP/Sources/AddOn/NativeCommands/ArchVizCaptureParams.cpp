@@ -7,33 +7,42 @@
 
 namespace geomsrv {
 
-archviz::CameraStart ReadCaptureCamera (const GS::ObjectState& params)
+namespace {
+
+archviz::CameraStart ReadCaptureCameraObject (const GS::ObjectState& cameraParams)
 {
-    GS::ObjectState p;
-    params.Get ("camera", p);
     archviz::CameraStart camera;
     double value = 0.0;
-    p.Get ("eyeX", value);
+    cameraParams.Get ("eyeX", value);
     camera.eye[0] = float (value);
-    p.Get ("eyeY", value);
+    cameraParams.Get ("eyeY", value);
     camera.eye[1] = float (value);
-    p.Get ("eyeZ", value);
+    cameraParams.Get ("eyeZ", value);
     camera.eye[2] = float (value);
-    p.Get ("targetX", value);
+    cameraParams.Get ("targetX", value);
     camera.target[0] = float (value);
-    p.Get ("targetY", value);
+    cameraParams.Get ("targetY", value);
     camera.target[1] = float (value);
-    p.Get ("targetZ", value);
+    cameraParams.Get ("targetZ", value);
     camera.target[2] = float (value);
-    p.Get ("viewConeDegreesHorizontal", value);
+    cameraParams.Get ("viewConeDegreesHorizontal", value);
     camera.viewConeDegreesHorizontal = float (value);
     GS::UniString source;
-    p.Get ("source", source);
+    cameraParams.Get ("source", source);
     camera.source = source.ToCStr ().Get ();
-    p.Get ("valid", camera.valid);
-    p.Get ("orthographic", camera.orthographic);
-    p.Get ("viewMoving", camera.viewMoving);
+    cameraParams.Get ("valid", camera.valid);
+    cameraParams.Get ("orthographic", camera.orthographic);
+    cameraParams.Get ("viewMoving", camera.viewMoving);
     return camera;
+}
+
+} // namespace
+
+archviz::CameraStart ReadCaptureCamera (const GS::ObjectState& params)
+{
+    GS::ObjectState cameraParams;
+    params.Get ("camera", cameraParams);
+    return ReadCaptureCameraObject (cameraParams);
 }
 
 // The storey section overlay, as capture parameters.
@@ -77,7 +86,9 @@ archviz::DiligentViewport::CaptureOverlays ReadCaptureOverlays (const GS::Object
 archviz::CaptureFrame ReadCaptureFrame (const GS::ObjectState& params)
 {
     archviz::CaptureFrame frame;
-    frame.camera = ReadCaptureCamera (params);
+    // Batch schema items ARE cameras; unlike StartDiligentCapture there is no
+    // second nested `camera` property inside each `cameras[]` item.
+    frame.camera = ReadCaptureCameraObject (params);
 
     // The sun is a nested object so a caller can omit it entirely, which is the
     // ordinary case for a camera captured before the graph stored one.

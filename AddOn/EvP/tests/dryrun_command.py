@@ -115,7 +115,7 @@ _diligent = {"open": False, "polls": 0, "deviceAttempts": 0, "devicePolls": 0,
 # PLAT-RE52 capture state is separate from the visible viewer, matching the real
 # one-consumer lifecycle: each start expires the previous capture URL.
 _diligent_capture = {"id": 0, "polls": 0, "width": 0, "height": 0,
-                     "cancelled": False, "png": b""}
+                      "cancelled": False, "png": b"", "paths": []}
 
 
 def _png_chunk(kind, data):
@@ -2181,6 +2181,12 @@ def _one(command, params):
         _diligent["polls"] = 0
         return _ok({"posted": True})
 
+    if command == "EvP.SetDiligentTextLabels":
+        return _v2({"count": len(params.get("labels", []))})
+
+    if command == "EvP.ClearDiligentTextLabels":
+        return _v2({"cleared": True})
+
     if command == "EvP.StartDiligentCapture":
         _diligent_capture["id"] += 1
         _diligent_capture["polls"] = 0
@@ -2189,7 +2195,22 @@ def _one(command, params):
         _diligent_capture["cancelled"] = False
         _diligent_capture["png"] = _fake_capture_png(
             _diligent_capture["width"], _diligent_capture["height"])
+        _diligent_capture["paths"] = []
         return _v2({"id": _diligent_capture["id"], "status": "running"})
+
+    if command == "EvP.StartDiligentCaptureBatch":
+        _diligent_capture["id"] += 1
+        _diligent_capture["polls"] = 0
+        _diligent_capture["width"] = int(params.get("width", 0))
+        _diligent_capture["height"] = int(params.get("height", 0))
+        _diligent_capture["cancelled"] = False
+        output_dir = params.get("outputDirectory", "")
+        frame_count = len(params.get("cameras", []))
+        _diligent_capture["paths"] = [
+            os.path.join(output_dir, "%02d.png" % index) for index in range(frame_count)
+        ]
+        return _v2({"id": _diligent_capture["id"], "status": "running",
+                    "frameCount": frame_count})
 
     if command == "EvP.DiligentCaptureState":
         capture_id = int(params.get("id", 0))
@@ -2211,6 +2232,9 @@ def _one(command, params):
             "bytes": len(_diligent_capture["png"]) if status == "completed" else 0,
             "url": url if status == "completed" else "pending",
             "failureMessage": "",
+            "frameCount": len(_diligent_capture["paths"]),
+            "framesDone": len(_diligent_capture["paths"]) if status == "completed" else 0,
+            "paths": _diligent_capture["paths"] if status == "completed" else [],
         })
 
     if command == "EvP.CancelDiligentCapture":

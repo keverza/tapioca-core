@@ -235,6 +235,8 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
     assert "enum class SceneTextOcclusion : uint8_t { Always, Hide, Fade }" in header
     assert "SceneTextOcclusion::Always" in header
     assert 'item.Get ("occlusion", occlusion)' in commands
+    assert 'item.Get ("allowOverlap", allowOverlap)' in commands
+    assert '"allowOverlap":{"type":"boolean"}' in commands
     assert '\"enum\":[\"always\",\"hide\",\"fade\"]' in commands
     assert "dsv, target.DepthShaderView (), motionViewProj" in renderer
     assert "label.occlusion != SceneTextOcclusion::Always" in support
@@ -245,6 +247,7 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
     assert "Texture2D<float> g_depth" in layer
     assert "ResolveSceneTextPlacement" in layer
     assert "occupiedBounds.push_back (placement.bounds)" in layer
+    assert "label.allowOverlap ? noOccupiedBounds : occupiedBounds" in layer
     assert "input.position.xy*g_surface.xy+input.depthUvOffset" in layer
     assert "output.depthUvOffset[0] -= anchorX / float (surfaceWidth)" in layer
     assert "output.depthUvOffset[1] -= anchorY / float (surfaceHeight)" in layer

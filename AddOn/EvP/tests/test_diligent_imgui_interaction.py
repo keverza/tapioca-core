@@ -79,6 +79,7 @@ def test_scene_text_live_check_uses_the_production_text_layer() -> None:
     assert "SceneTextOcclusion::Always" in live_check
     assert "SceneTextOcclusion::Hide" in live_check
     assert "SceneTextOcclusion::Fade" in live_check
+    assert "label.allowOverlap = true" in live_check
     assert '"FADE | 25% behind depth"' in live_check
     assert '"LEFT EDGE"' in live_check
     assert '"RIGHT EDGE"' in live_check

@@ -28,6 +28,7 @@ struct SceneTextLabel {
     uint32_t haloRgba = 0x000000C0u;
     float haloWidthPixels = 1.25f;
     SceneTextOcclusion occlusion = SceneTextOcclusion::Always;
+    bool allowOverlap = false;
 };
 
 struct SceneTextLayerStats {

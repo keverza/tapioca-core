@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,15 @@ if _PACKAGE not in sys.path:
     sys.path.insert(0, _PACKAGE)
 
 from evp import api, diligent, outputs  # noqa: E402
+
+
+_CAPTURE_PARAMS = (
+    Path(__file__).resolve().parents[1]
+    / "Sources"
+    / "AddOn"
+    / "NativeCommands"
+    / "ArchVizCaptureParams.cpp"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -177,6 +187,14 @@ def test_capture_batch_sends_every_camera_once_and_returns_the_written_paths(mon
     assert "sun" not in starts[0]["cameras"][1]
     assert starts[0]["outputDirectory"] == str(tmp_path)
     assert starts[0]["dpi"] == 96.0
+
+
+def test_native_batch_reads_each_camera_item_without_an_extra_nested_camera():
+    source = _CAPTURE_PARAMS.read_text(encoding="utf-8")
+    frame_reader = source[source.index("archviz::CaptureFrame ReadCaptureFrame") :]
+
+    assert "frame.camera = ReadCaptureCameraObject (params);" in frame_reader
+    assert "frame.camera = ReadCaptureCamera (params);" not in frame_reader
 
 
 def test_capture_forwards_explicit_target_dpi(monkeypatch):

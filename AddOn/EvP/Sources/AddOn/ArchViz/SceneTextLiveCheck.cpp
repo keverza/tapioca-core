@@ -91,6 +91,7 @@ void DrawSceneTextOcclusionLiveCheck (SceneTextLayer& layer, Diligent::IRenderDe
         label.haloRgba = halo > 0.0f ? 0x000000D8u : 0u;
         label.haloWidthPixels = halo;
         label.occlusion = occlusion;
+        label.allowOverlap = true;
         labels.push_back (std::move (label));
     };
     add (spacing, "ALWAYS | fully visible", 0xFFE08AFFu, SceneTextOcclusion::Always);

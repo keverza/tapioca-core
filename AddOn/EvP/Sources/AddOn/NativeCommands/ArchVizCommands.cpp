@@ -811,6 +811,7 @@ class SetDiligentTextLabelsCommand : public MainThreadCommand {
             GS::UniString occlusion = "always";
             double sizePixels = 18.0;
             double haloWidthPixels = 1.25;
+            bool allowOverlap = false;
             GS::Int64 rgba = 0xFFFFFFFFll;
             GS::Int64 haloRgba = 0x000000C0ll;
             item.Get ("x", label.anchor[0]);
@@ -823,6 +824,7 @@ class SetDiligentTextLabelsCommand : public MainThreadCommand {
             item.Get ("haloWidthPixels", haloWidthPixels);
             item.Get ("alignment", alignment);
             item.Get ("occlusion", occlusion);
+            item.Get ("allowOverlap", allowOverlap);
             const auto utf8 = text.ToCStr (0, GS::MaxUSize, CC_UTF8);
             label.text = utf8.Get ();
             label.sizePixels = static_cast<float> (sizePixels);
@@ -833,6 +835,7 @@ class SetDiligentTextLabelsCommand : public MainThreadCommand {
             label.rgba = static_cast<uint32_t> (rgba);
             label.haloRgba = static_cast<uint32_t> (haloRgba);
             label.haloWidthPixels = static_cast<float> (haloWidthPixels);
+            label.allowOverlap = allowOverlap;
             if (alignment == "left")
                 label.alignment = av::SceneTextAlignment::Left;
             else if (alignment == "right")
@@ -917,13 +920,13 @@ const NativeCommandRegistration
               R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json",
               R"json({"type":"object","properties":{"enabled":{"type":"boolean"}},"additionalProperties":false,"required":["enabled"]})json" },
             { "SetDiligentTextLabels", &MakeRegisteredNativeCommand<SetDiligentTextLabelsCommand>, false,
-              R"json({"type":"object","properties":{"labels":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"x":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"y":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"z":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"text":{"type":"string","minLength":1,"maxLength":512},"sizePixels":{"type":"number","minimum":6,"maximum":192},"rgba":{"type":"integer","minimum":0,"maximum":4294967295},"haloRgba":{"type":"integer","minimum":0,"maximum":4294967295},"haloWidthPixels":{"type":"number","minimum":0,"maximum":8},"alignment":{"type":"string","enum":["left","center","right"]},"occlusion":{"type":"string","enum":["always","hide","fade"]}},"additionalProperties":false,"required":["x","y","z","text"]}}},"additionalProperties":false,"required":["labels"]})json",
-              R"json({"type":"object","properties":{"count":{"type":"integer","minimum":0,"maximum":256}},"additionalProperties":false,"required":["count"]})json" },
+              R"json({"type":"object","properties":{"labels":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"x":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"y":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"z":{"type":"number","minimum":-1000000000000000,"maximum":1000000000000000},"text":{"type":"string","minLength":1,"maxLength":512},"sizePixels":{"type":"number","minimum":6,"maximum":192},"rgba":{"type":"integer","minimum":0,"maximum":4294967295},"haloRgba":{"type":"integer","minimum":0,"maximum":4294967295},"haloWidthPixels":{"type":"number","minimum":0,"maximum":8},"alignment":{"type":"string","enum":["left","center","right"]},"occlusion":{"type":"string","enum":["always","hide","fade"]},"allowOverlap":{"type":"boolean"}},"additionalProperties":false,"required":["x","y","z","text"]}}},"additionalProperties":false,"required":["labels"]})json", R"json({"type":"object","properties":{"count":{"type":"integer","minimum":0,"maximum":256}},"additionalProperties":false,"required":["count"]})json" },
             { "ClearDiligentTextLabels", &MakeRegisteredNativeCommand<ClearDiligentTextLabelsCommand>, false,
               R"json({"type":"object","properties":{},"additionalProperties":false})json",
               R"json({"type":"object","properties":{"cleared":{"type":"boolean","const":true}},"additionalProperties":false,"required":["cleared"]})json" },
-            { "SetDiligentSun",
-              &MakeRegisteredNativeCommand<SetDiligentSunCommand>, false, R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]})json", R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number"},"altitudeDegrees":{"type":"number"}},"additionalProperties":false,"required":["enabled","azimuthDegrees","altitudeDegrees"]})json" },
+            { "SetDiligentSun", &MakeRegisteredNativeCommand<SetDiligentSunCommand>, false,
+              R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number","minimum":-360,"maximum":360},"altitudeDegrees":{"type":"number","minimum":-90,"maximum":90}},"additionalProperties":false,"required":["enabled"]})json",
+              R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"azimuthDegrees":{"type":"number"},"altitudeDegrees":{"type":"number"}},"additionalProperties":false,"required":["enabled","azimuthDegrees","altitudeDegrees"]})json" },
             { "SetDiligentDebugView", &MakeRegisteredNativeCommand<SetDiligentDebugViewCommand>, false,
               R"json({"type":"object","properties":{"view":{"type":"integer","minimum":0,"maximum":12}},"additionalProperties":false,"required":["view"]})json",
               R"json({"type":"object","properties":{"view":{"type":"integer","minimum":0,"maximum":12}},"additionalProperties":false,"required":["view"]})json" },
