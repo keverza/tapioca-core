@@ -37,7 +37,7 @@ def test_decoded_watch_wire_is_strict_flat_xyz():
     counts = {
         "kPointSchema": (3, 3),
         "kArrowSchema": (6, 6),
-        "kDimensionSchema": (6, 6),
+        "kDimensionSchema": (6, None),
         "kAngleSchema": (9, 9),
         "kLabelSchema": (3, 3),
     }
@@ -48,7 +48,10 @@ def test_decoded_watch_wire_is_strict_flat_xyz():
         assert set(schema["properties"]) == allowed
         assert schema["required"] == ["kind", "points"]
         assert schema["properties"]["points"]["minItems"] == minimum
-        assert schema["properties"]["points"]["maxItems"] == maximum
+        if maximum is None:
+            assert "maxItems" not in schema["properties"]["points"]
+        else:
+            assert schema["properties"]["points"]["maxItems"] == maximum
         assert schema["properties"]["points"]["items"] == {"type": "number"}
 
     polyline = schemas["kPolylineSchema"]

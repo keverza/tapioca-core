@@ -629,13 +629,13 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
         prepared.push_back ({ label.anchor.x + horizontalOffset, label.anchor.y, &label.text,
                               std::clamp (pixelSize, 6.0f, 192.0f), label.rgba,
                               label.centered ? SceneTextAlignment::Center : SceneTextAlignment::Left,
-                               label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
-                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
+                              label.centered ? VerticalAnchor::Top : VerticalAnchor::Bottom, label.haloRgba,
+                              std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
         prepared.back ().edgeInsetPixels = 4.0f * dpiScale;
         prepared.back ().rotationRadians = label.rotationRadians;
     }
     return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, nullptr, 0.05f, 20000.0f, true,
-                                 true);
+                                true);
 }
 
 bool SceneTextLayer::MeasureProjectedText (std::string_view text, float fontSize, ScreenTextExtent& extent)
@@ -801,8 +801,8 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             const float sine = std::fabs (std::sin (label.rotationRadians));
             const float rotatedHalfWidth = cosine * halfWidth + sine * halfHeight;
             const float rotatedHalfHeight = sine * halfWidth + cosine * halfHeight;
-            placementBounds = { centerX - rotatedHalfWidth, centerY - rotatedHalfHeight,
-                                centerX + rotatedHalfWidth, centerY + rotatedHalfHeight };
+            placementBounds = { centerX - rotatedHalfWidth, centerY - rotatedHalfHeight, centerX + rotatedHalfWidth,
+                                centerY + rotatedHalfHeight };
         }
         const SceneTextPlacement placement = ResolveSceneTextPlacement (
             placementBounds, float (surfaceWidth), float (surfaceHeight), label.edgeInsetPixels,
@@ -844,6 +844,14 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             }
             pen += positioned.xAdvance * pixelSize;
         }
+        if (emitted > 0 && label.backgroundPanel) {
+            const float scale = pixelSize / 18.0f;
+            VertexBatch panel;
+            AddQuad (panel.vertices, glyphBounds.left - 3.0f * scale, glyphBounds.top - 2.0f * scale,
+                     glyphBounds.right + 3.0f * scale, glyphBounds.bottom + 2.0f * scale, -1.0f, -1.0f, -1.0f, -1.0f,
+                     LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.depthUvOffset, label.anchorDepth, label.occlusionMode);
+            labelBatches.insert (labelBatches.begin (), std::move (panel));
+        }
         if (label.rotationRadians != 0.0f) {
             const float pivotX = (glyphBounds.left + glyphBounds.right) * 0.5f;
             const float pivotY = (glyphBounds.top + glyphBounds.bottom) * 0.5f;
@@ -859,15 +867,6 @@ bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Dilige
             }
         }
         if (emitted > 0) {
-            if (label.backgroundPanel) {
-                const float scale = pixelSize / 18.0f;
-                VertexBatch panel;
-                AddQuad (panel.vertices, glyphBounds.left - 3.0f * scale, glyphBounds.top - 2.0f * scale,
-                         glyphBounds.right + 3.0f * scale, glyphBounds.bottom + 2.0f * scale, -1.0f, -1.0f, -1.0f,
-                         -1.0f, LinearAbgr (0xFFFFFFE0u), 0, 0.0f, label.depthUvOffset, label.anchorDepth,
-                         label.occlusionMode);
-                batches.push_back (std::move (panel));
-            }
             for (VertexBatch& batch : labelBatches) {
                 if (!batches.empty () && batches.back ().pageIndex == batch.pageIndex)
                     batches.back ().vertices.insert (batches.back ().vertices.end (), batch.vertices.begin (),

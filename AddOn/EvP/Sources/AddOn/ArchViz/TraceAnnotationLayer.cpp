@@ -79,15 +79,13 @@ void AddText (ProjectedDrawList& out, const Primitive& primitive, const ScreenPo
 {
     const std::string text = primitive.text.empty () ? fallback : primitive.text;
     if (!text.empty ())
-        out.labels.push_back (
-            { anchor, text, color, fontSize, centered, haloRgba, haloWidthPixels, backgroundPanel });
+        out.labels.push_back ({ anchor, text, color, fontSize, centered, haloRgba, haloWidthPixels, backgroundPanel });
 }
 
 std::size_t Utf8CodepointCount (std::string_view text)
 {
-    return std::count_if (text.begin (), text.end (), [] (char value) {
-        return (static_cast<unsigned char> (value) & 0xC0u) != 0x80u;
-    });
+    return std::count_if (text.begin (), text.end (),
+                          [] (char value) { return (static_cast<unsigned char> (value) & 0xC0u) != 0x80u; });
 }
 
 ScreenTextExtent MeasureText (std::string_view text, float fontSize, const ScreenTextMeasure& measureText)
@@ -102,9 +100,8 @@ ScreenTextExtent MeasureText (std::string_view text, float fontSize, const Scree
 float EdgeClearance (const ScreenPoint& first, const ScreenPoint& second, const ScreenPoint& labelCenter,
                      const ScreenTextExtent& label, uint32_t width, uint32_t height)
 {
-    return std::min ({ first.x, second.x, labelCenter.x - label.width * 0.5f,
-                       float (width) - first.x, float (width) - second.x,
-                       float (width) - labelCenter.x - label.width * 0.5f, first.y, second.y,
+    return std::min ({ first.x, second.x, labelCenter.x - label.width * 0.5f, float (width) - first.x,
+                       float (width) - second.x, float (width) - labelCenter.x - label.width * 0.5f, first.y, second.y,
                        labelCenter.y - label.height * 0.5f, float (height) - first.y, float (height) - second.y,
                        float (height) - labelCenter.y - label.height * 0.5f });
 }
@@ -120,6 +117,21 @@ float LabelOverflow (const ScreenPoint& center, const ScreenTextExtent& extent, 
            std::max (0.0f, inset - top) + std::max (0.0f, bottom - (float (height) - inset));
 }
 
+float ReadableRotation (float radians)
+{
+    constexpr float halfPi = 1.57079632679489661923f;
+    constexpr float pi = 3.14159265358979323846f;
+    while (radians > pi)
+        radians -= 2.0f * pi;
+    while (radians <= -pi)
+        radians += 2.0f * pi;
+    if (radians > halfPi)
+        radians -= pi;
+    else if (radians < -halfPi)
+        radians += pi;
+    return radians;
+}
+
 void AddLineTrimmedAgainstLabel (ProjectedDrawList& out, const ScreenPoint& from, const ScreenPoint& to,
                                  const ScreenPoint& labelCenter, const ScreenTextExtent& label, float padding,
                                  uint32_t color, float lineWidth)
@@ -132,8 +144,8 @@ void AddLineTrimmedAgainstLabel (ProjectedDrawList& out, const ScreenPoint& from
     const float ux = dx / length;
     const float uy = dy / length;
     const float centerDistance = (labelCenter.x - from.x) * ux + (labelCenter.y - from.y) * uy;
-    const float halfGap = std::fabs (ux) * (label.width * 0.5f + padding) +
-                          std::fabs (uy) * (label.height * 0.5f + padding);
+    const float halfGap =
+        std::fabs (ux) * (label.width * 0.5f + padding) + std::fabs (uy) * (label.height * 0.5f + padding);
     const float before = std::clamp (centerDistance - halfGap, 0.0f, length);
     const float after = std::clamp (centerDistance + halfGap, 0.0f, length);
     if (before > 1.0e-3f)
@@ -142,84 +154,332 @@ void AddLineTrimmedAgainstLabel (ProjectedDrawList& out, const ScreenPoint& from
         AddLine (out, { from.x + ux * after, from.y + uy * after }, to, color, lineWidth);
 }
 
-struct LabelBounds {
-    float left;
-    float top;
-    float right;
-    float bottom;
+struct LabelBox {
+    ScreenPoint center;
+    float halfWidth;
+    float halfHeight;
+    float rotationRadians;
 };
 
-bool Overlaps (const LabelBounds& left, const LabelBounds& right, float gap)
+float ProjectionRadius (const LabelBox& box, const ScreenPoint& axis)
 {
-    return left.left < right.right + gap && left.right + gap > right.left && left.top < right.bottom + gap &&
-           left.bottom + gap > right.top;
+    const float cosine = std::cos (box.rotationRadians);
+    const float sine = std::sin (box.rotationRadians);
+    const ScreenPoint along { cosine, sine };
+    const ScreenPoint across { -sine, cosine };
+    return box.halfWidth * std::fabs (along.x * axis.x + along.y * axis.y) +
+           box.halfHeight * std::fabs (across.x * axis.x + across.y * axis.y);
+}
+
+bool Overlaps (const LabelBox& left, const LabelBox& right, float gap)
+{
+    const ScreenPoint delta { right.center.x - left.center.x, right.center.y - left.center.y };
+    const float leftCosine = std::cos (left.rotationRadians);
+    const float leftSine = std::sin (left.rotationRadians);
+    const float rightCosine = std::cos (right.rotationRadians);
+    const float rightSine = std::sin (right.rotationRadians);
+    const ScreenPoint axes[] = {
+        { leftCosine, leftSine },
+        { -leftSine, leftCosine },
+        { rightCosine, rightSine },
+        { -rightSine, rightCosine },
+    };
+    return std::all_of (std::begin (axes), std::end (axes), [&] (const ScreenPoint& axis) {
+        const float distance = std::fabs (delta.x * axis.x + delta.y * axis.y);
+        return distance < ProjectionRadius (left, axis) + ProjectionRadius (right, axis) + gap;
+    });
+}
+
+bool Intersects (const ScreenLine& line, const LabelBox& box, float gap)
+{
+    const float cosine = std::cos (box.rotationRadians);
+    const float sine = std::sin (box.rotationRadians);
+    const auto local = [&] (const ScreenPoint& point) {
+        const float x = point.x - box.center.x;
+        const float y = point.y - box.center.y;
+        return ScreenPoint { x * cosine + y * sine, -x * sine + y * cosine };
+    };
+    const ScreenPoint from = local (line.from);
+    const ScreenPoint to = local (line.to);
+    const float dx = to.x - from.x;
+    const float dy = to.y - from.y;
+    const float halfWidth = box.halfWidth + gap;
+    const float halfHeight = box.halfHeight + gap;
+    float minimum = 0.0f;
+    float maximum = 1.0f;
+    const auto clip = [&] (float start, float delta, float extent) {
+        if (std::fabs (delta) <= 1.0e-6f)
+            return std::fabs (start) <= extent;
+        float first = (-extent - start) / delta;
+        float second = (extent - start) / delta;
+        if (first > second)
+            std::swap (first, second);
+        minimum = std::max (minimum, first);
+        maximum = std::min (maximum, second);
+        return minimum <= maximum;
+    };
+    return clip (from.x, dx, halfWidth) && clip (from.y, dy, halfHeight);
 }
 
 void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t height, float dpiScale,
                            const ScreenTextMeasure& measureText)
 {
-    std::vector<LabelBounds> occupied;
+    std::vector<LabelBox> occupied;
     occupied.reserve (out.labels.size ());
     const float inset = 4.0f * dpiScale;
     const float gap = 5.0f * dpiScale;
     for (ScreenLabel& label : out.labels) {
         const float fontSize = label.fontSize > 0.0f ? label.fontSize : 18.0f * dpiScale;
         const ScreenTextExtent extent = MeasureText (label.text, fontSize, measureText);
-        const float cosine = std::fabs (std::cos (label.rotationRadians));
-        const float sine = std::fabs (std::sin (label.rotationRadians));
-        const ScreenTextExtent collisionExtent { cosine * extent.width + sine * extent.height,
-                                                 sine * extent.width + cosine * extent.height };
         const ScreenPoint original = label.anchor;
-        const float stepX = collisionExtent.width + 7.0f * dpiScale;
-        const float stepY = collisionExtent.height + 7.0f * dpiScale;
+        const ScreenPoint originalCenter { label.centered ? original.x : original.x + extent.width * 0.5f,
+                                           label.centered ? original.y + extent.height * 0.5f
+                                                          : original.y - extent.height * 0.5f };
+        const float cosine = std::cos (label.rotationRadians);
+        const float sine = std::sin (label.rotationRadians);
+        const ScreenPoint along { cosine, sine };
+        const ScreenPoint across { -sine, cosine };
+        const float stepAlong = extent.width + 7.0f * dpiScale;
+        const float stepAcross = extent.height + 7.0f * dpiScale;
         const ScreenPoint offsets[] = {
-            { 0.0f, 0.0f },       { 0.0f, -stepY },     { 0.0f, stepY },
-            { -stepX, 0.0f },     { stepX, 0.0f },      { -stepX, -stepY },
-            { stepX, -stepY },    { -stepX, stepY },    { stepX, stepY },
-            { 0.0f, -2.0f * stepY }, { 0.0f, 2.0f * stepY },
+            { 0.0f, 0.0f },
+            { across.x * stepAcross, across.y * stepAcross },
+            { -across.x * stepAcross, -across.y * stepAcross },
+            { along.x * stepAlong, along.y * stepAlong },
+            { -along.x * stepAlong, -along.y * stepAlong },
+            { across.x * stepAcross + along.x * stepAlong, across.y * stepAcross + along.y * stepAlong },
+            { across.x * stepAcross - along.x * stepAlong, across.y * stepAcross - along.y * stepAlong },
+            { -across.x * stepAcross + along.x * stepAlong, -across.y * stepAcross + along.y * stepAlong },
+            { -across.x * stepAcross - along.x * stepAlong, -across.y * stepAcross - along.y * stepAlong },
+            { across.x * 2.0f * stepAcross, across.y * 2.0f * stepAcross },
+            { -across.x * 2.0f * stepAcross, -across.y * 2.0f * stepAcross },
         };
         bool placed = false;
-        for (const ScreenPoint& offset : offsets) {
-            const ScreenPoint anchor { original.x + offset.x, original.y + offset.y };
-            const ScreenPoint center { label.centered ? anchor.x : anchor.x + extent.width * 0.5f,
-                                       label.centered ? anchor.y + extent.height * 0.5f
-                                                      : anchor.y - extent.height * 0.5f };
-            const float left = center.x - collisionExtent.width * 0.5f;
-            const float top = center.y - collisionExtent.height * 0.5f;
-            const LabelBounds candidate { left, top, left + collisionExtent.width,
-                                          top + collisionExtent.height };
-            if (candidate.left < inset || candidate.top < inset || candidate.right > float (width) - inset ||
-                candidate.bottom > float (height) - inset)
-                continue;
-            if (std::any_of (occupied.begin (), occupied.end (), [&] (const LabelBounds& item) {
-                    return Overlaps (candidate, item, gap);
-                }))
-                continue;
-            label.anchor = anchor;
-            occupied.push_back (candidate);
-            placed = true;
-            if (offset.x != 0.0f || offset.y != 0.0f) {
-                const ScreenPoint movedCenter { candidate.left + collisionExtent.width * 0.5f,
-                                                candidate.top + collisionExtent.height * 0.5f };
-                AddLine (out, original, movedCenter, label.rgba, std::max (1.0f, dpiScale));
+        for (int pass = 0; pass < 2 && !placed; ++pass) {
+            for (const ScreenPoint& offset : offsets) {
+                const ScreenPoint anchor { original.x + offset.x, original.y + offset.y };
+                const ScreenPoint center { originalCenter.x + offset.x, originalCenter.y + offset.y };
+                const LabelBox candidate { center, extent.width * 0.5f, extent.height * 0.5f, label.rotationRadians };
+                const float aabbHalfWidth =
+                    std::fabs (cosine) * candidate.halfWidth + std::fabs (sine) * candidate.halfHeight;
+                const float aabbHalfHeight =
+                    std::fabs (sine) * candidate.halfWidth + std::fabs (cosine) * candidate.halfHeight;
+                if (center.x - aabbHalfWidth < inset || center.y - aabbHalfHeight < inset ||
+                    center.x + aabbHalfWidth > float (width) - inset ||
+                    center.y + aabbHalfHeight > float (height) - inset)
+                    continue;
+                if (std::any_of (occupied.begin (), occupied.end (),
+                                 [&] (const LabelBox& item) { return Overlaps (candidate, item, gap); }))
+                    continue;
+                if (pass == 0 && !label.backgroundPanel) {
+                    bool intersectsGeometry = false;
+                    for (std::size_t lineIndex = 0; lineIndex < out.lines.size (); ++lineIndex) {
+                        if (lineIndex >= label.ownLineBegin && lineIndex < label.ownLineEnd)
+                            continue;
+                        if (Intersects (out.lines[lineIndex], candidate, 2.0f * dpiScale)) {
+                            intersectsGeometry = true;
+                            break;
+                        }
+                    }
+                    if (intersectsGeometry)
+                        continue;
+                }
+                label.anchor = anchor;
+                occupied.push_back (candidate);
+                placed = true;
+                if (offset.x != 0.0f || offset.y != 0.0f)
+                    AddLine (out, originalCenter, center, label.rgba, std::max (1.0f, dpiScale));
+                break;
             }
-            break;
         }
         if (!placed) {
-            const ScreenPoint center { label.centered ? original.x : original.x + extent.width * 0.5f,
-                                       label.centered ? original.y + extent.height * 0.5f
-                                                      : original.y - extent.height * 0.5f };
-            occupied.push_back ({ center.x - collisionExtent.width * 0.5f,
-                                  center.y - collisionExtent.height * 0.5f,
-                                  center.x + collisionExtent.width * 0.5f,
-                                  center.y + collisionExtent.height * 0.5f });
+            occupied.push_back ({ originalCenter, extent.width * 0.5f, extent.height * 0.5f, label.rotationRadians });
         }
     }
 }
 
-void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-                    uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
+bool ArcPathGeometry (const Primitive& primitive, annotation::Point3& center, double& radius, double& direction)
 {
+    if (primitive.points.size () < 3)
+        return false;
+    const annotation::Point3& first = primitive.points.front ();
+    const annotation::Point3& middle = primitive.points[primitive.points.size () / 2];
+    const annotation::Point3& last = primitive.points.back ();
+    const double determinant =
+        2.0 * (first.x * (middle.y - last.y) + middle.x * (last.y - first.y) + last.x * (first.y - middle.y));
+    if (std::fabs (determinant) <= 1.0e-12)
+        return false;
+    const double firstSquared = first.x * first.x + first.y * first.y;
+    const double middleSquared = middle.x * middle.x + middle.y * middle.y;
+    const double lastSquared = last.x * last.x + last.y * last.y;
+    center.x =
+        (firstSquared * (middle.y - last.y) + middleSquared * (last.y - first.y) + lastSquared * (first.y - middle.y)) /
+        determinant;
+    center.y =
+        (firstSquared * (last.x - middle.x) + middleSquared * (first.x - last.x) + lastSquared * (middle.x - first.x)) /
+        determinant;
+    center.z = first.z;
+    radius = std::hypot (first.x - center.x, first.y - center.y);
+    direction = determinant > 0.0 ? 1.0 : -1.0;
+    return std::isfinite (radius) && radius > 1.0e-12;
+}
+
+void AddTrimmedPath (ProjectedDrawList& out, const std::vector<ScreenPoint>& path, const std::vector<float>& distances,
+                     float gapStart, float gapEnd, uint32_t color, float lineWidth)
+{
+    for (std::size_t index = 1; index < path.size (); ++index) {
+        const float start = distances[index - 1];
+        const float end = distances[index];
+        if (end <= gapStart || start >= gapEnd) {
+            AddLine (out, path[index - 1], path[index], color, lineWidth);
+            continue;
+        }
+        const float length = end - start;
+        if (length <= 1.0e-3f)
+            continue;
+        const auto pointAt = [&] (float distance) {
+            const float parameter = std::clamp ((distance - start) / length, 0.0f, 1.0f);
+            return ScreenPoint { path[index - 1].x + (path[index].x - path[index - 1].x) * parameter,
+                                 path[index - 1].y + (path[index].y - path[index - 1].y) * parameter };
+        };
+        if (start < gapStart)
+            AddLine (out, path[index - 1], pointAt (gapStart), color, lineWidth);
+        if (end > gapEnd)
+            AddLine (out, pointAt (gapEnd), path[index], color, lineWidth);
+    }
+}
+
+void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
+                      uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
+{
+    const std::size_t ownLineBegin = out.lines.size ();
+    annotation::Point3 center;
+    double radius = 0.0;
+    double direction = 0.0;
+    if (!ArcPathGeometry (primitive, center, radius, direction))
+        return;
+    const double dimensionRadius = radius - direction * primitive.offset;
+    if (dimensionRadius <= 1.0e-12)
+        return;
+    std::vector<ScreenPoint> sourcePath;
+    std::vector<ScreenPoint> dimensionPath;
+    sourcePath.reserve (primitive.points.size ());
+    dimensionPath.reserve (primitive.points.size ());
+    for (const annotation::Point3& point : primitive.points) {
+        const double source[3] = { point.x, point.y, point.z };
+        const double radialX = point.x - center.x;
+        const double radialY = point.y - center.y;
+        const double dimension[3] = { center.x + radialX * dimensionRadius / radius,
+                                      center.y + radialY * dimensionRadius / radius, point.z };
+        ScreenPoint projectedSource;
+        ScreenPoint projectedDimension;
+        if (!Project (source, viewProj, width, height, projectedSource) ||
+            !Project (dimension, viewProj, width, height, projectedDimension))
+            return;
+        sourcePath.push_back (projectedSource);
+        dimensionPath.push_back (projectedDimension);
+    }
+    if (primitive.offset == 0.0) {
+        const std::vector<ScreenPoint> unoffset = dimensionPath;
+        for (std::size_t index = 0; index < dimensionPath.size (); ++index) {
+            const std::size_t before = index == 0 ? 0 : index - 1;
+            const std::size_t after = index + 1 < dimensionPath.size () ? index + 1 : index;
+            const float tangentX = unoffset[after].x - unoffset[before].x;
+            const float tangentY = unoffset[after].y - unoffset[before].y;
+            const float tangentLength = std::hypot (tangentX, tangentY);
+            if (tangentLength <= 1.0e-3f)
+                return;
+            dimensionPath[index].x -= tangentY / tangentLength * kDimensionOffset * dpiScale;
+            dimensionPath[index].y += tangentX / tangentLength * kDimensionOffset * dpiScale;
+        }
+    }
+    std::vector<float> distances (dimensionPath.size (), 0.0f);
+    for (std::size_t index = 1; index < dimensionPath.size (); ++index)
+        distances[index] = distances[index - 1] + std::hypot (dimensionPath[index].x - dimensionPath[index - 1].x,
+                                                              dimensionPath[index].y - dimensionPath[index - 1].y);
+    const float screenLength = distances.back ();
+    if (screenLength <= 1.0e-3f)
+        return;
+    const float midpoint = screenLength * 0.5f;
+    const auto upper = std::upper_bound (distances.begin (), distances.end (), midpoint);
+    const std::size_t segment =
+        std::clamp<std::size_t> (std::size_t (upper - distances.begin ()), 1, dimensionPath.size () - 1);
+    const float segmentLength = distances[segment] - distances[segment - 1];
+    const float parameter = segmentLength > 1.0e-3f ? (midpoint - distances[segment - 1]) / segmentLength : 0.0f;
+    ScreenPoint labelCenter {
+        dimensionPath[segment - 1].x + (dimensionPath[segment].x - dimensionPath[segment - 1].x) * parameter,
+        dimensionPath[segment - 1].y + (dimensionPath[segment].y - dimensionPath[segment - 1].y) * parameter,
+    };
+    float tangentX = dimensionPath[segment].x - dimensionPath[segment - 1].x;
+    float tangentY = dimensionPath[segment].y - dimensionPath[segment - 1].y;
+    float tangentLength = std::hypot (tangentX, tangentY);
+    if (tangentLength <= 1.0e-3f)
+        return;
+    const float fontSize = kDimensionTextSize * dpiScale;
+    const std::string text = primitive.text;
+    const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
+    const float padding = 4.0f * dpiScale;
+    const bool fitsInside = screenLength >= textExtent.width + 2.0f * (kArrowLength + 3.0f) * dpiScale;
+    if (!fitsInside) {
+        const ScreenPoint startTangent { dimensionPath[1].x - dimensionPath[0].x,
+                                         dimensionPath[1].y - dimensionPath[0].y };
+        const ScreenPoint endTangent { dimensionPath.back ().x - dimensionPath[dimensionPath.size () - 2].x,
+                                       dimensionPath.back ().y - dimensionPath[dimensionPath.size () - 2].y };
+        const float startLength = std::hypot (startTangent.x, startTangent.y);
+        const float endLength = std::hypot (endTangent.x, endTangent.y);
+        if (startLength <= 1.0e-3f || endLength <= 1.0e-3f)
+            return;
+        const float labelDistance = (kArrowLength + 2.0f) * dpiScale + textExtent.width * 0.5f + padding;
+        const ScreenPoint before { dimensionPath.front ().x - startTangent.x / startLength * labelDistance,
+                                   dimensionPath.front ().y - startTangent.y / startLength * labelDistance };
+        const ScreenPoint after { dimensionPath.back ().x + endTangent.x / endLength * labelDistance,
+                                  dimensionPath.back ().y + endTangent.y / endLength * labelDistance };
+        if (LabelOverflow (before, textExtent, width, height, padding) <=
+            LabelOverflow (after, textExtent, width, height, padding)) {
+            labelCenter = before;
+            tangentX = startTangent.x;
+            tangentY = startTangent.y;
+            tangentLength = startLength;
+        }
+        else {
+            labelCenter = after;
+            tangentX = endTangent.x;
+            tangentY = endTangent.y;
+            tangentLength = endLength;
+        }
+    }
+    AddLine (out, sourcePath.front (), dimensionPath.front (), color, 2.0f * dpiScale);
+    AddLine (out, sourcePath.back (), dimensionPath.back (), color, 2.0f * dpiScale);
+    if (fitsInside)
+        AddTrimmedPath (out, dimensionPath, distances, midpoint - textExtent.width * 0.5f - padding,
+                        midpoint + textExtent.width * 0.5f + padding, color, 2.0f * dpiScale);
+    else
+        AddTrimmedPath (out, dimensionPath, distances, -1.0f, -1.0f, color, 2.0f * dpiScale);
+    AddArrowhead (out, dimensionPath[1], dimensionPath.front (), color, dpiScale);
+    AddArrowhead (out, dimensionPath[dimensionPath.size () - 2], dimensionPath.back (), color, dpiScale);
+    if (!text.empty ()) {
+        out.labels.push_back ({ { labelCenter.x, labelCenter.y - textExtent.height * 0.5f },
+                                text,
+                                color,
+                                fontSize,
+                                true,
+                                0xFFFFFFC0u,
+                                1.25f * dpiScale,
+                                false });
+        out.labels.back ().rotationRadians = ReadableRotation (std::atan2 (tangentY, tangentX));
+        out.labels.back ().ownLineBegin = ownLineBegin;
+        out.labels.back ().ownLineEnd = out.lines.size ();
+    }
+}
+
+void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
+                   uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
+{
+    if (primitive.points.size () > 2) {
+        AddArcDimension (out, primitive, viewProj, width, height, color, dpiScale, measureText);
+        return;
+    }
+    const std::size_t ownLineBegin = out.lines.size ();
     ScreenPoint a, b;
     double worldA[3], worldB[3];
     if (!PointAt (primitive, 0, worldA) || !PointAt (primitive, 1, worldB) ||
@@ -258,10 +518,8 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
         const ScreenPoint positiveB { b.x + normal.x, b.y + normal.y };
         const ScreenPoint negativeA { a.x - normal.x, a.y - normal.y };
         const ScreenPoint negativeB { b.x - normal.x, b.y - normal.y };
-        const ScreenPoint positiveCenter { (positiveA.x + positiveB.x) * 0.5f,
-                                           (positiveA.y + positiveB.y) * 0.5f };
-        const ScreenPoint negativeCenter { (negativeA.x + negativeB.x) * 0.5f,
-                                           (negativeA.y + negativeB.y) * 0.5f };
+        const ScreenPoint positiveCenter { (positiveA.x + positiveB.x) * 0.5f, (positiveA.y + positiveB.y) * 0.5f };
+        const ScreenPoint negativeCenter { (negativeA.x + negativeB.x) * 0.5f, (negativeA.y + negativeB.y) * 0.5f };
         if (EdgeClearance (positiveA, positiveB, positiveCenter, textExtent, width, height) >=
             EdgeClearance (negativeA, negativeB, negativeCenter, textExtent, width, height)) {
             da = positiveA;
@@ -281,7 +539,7 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
         return;
     const ScreenPoint unit { dimensionDx / dimensionLength, dimensionDy / dimensionLength };
     const float panelPadding = 4.0f * dpiScale;
-    const float textAlongLine = std::fabs (unit.x) * textExtent.width + std::fabs (unit.y) * textExtent.height;
+    const float textAlongLine = textExtent.width;
     const bool fitsInside = dimensionLength >= textAlongLine + 2.0f * (kArrowLength + 3.0f) * dpiScale;
     ScreenPoint labelCenter;
     ScreenPoint lineFrom = da;
@@ -306,11 +564,21 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
         AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, dpiScale);
         AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, dpiScale);
     }
-    AddLineTrimmedAgainstLabel (out, lineFrom, lineTo, labelCenter, textExtent, panelPadding, color,
-                                2.0f * dpiScale);
+    AddLineTrimmedAgainstLabel (out, lineFrom, lineTo, labelCenter, textExtent, panelPadding, color, 2.0f * dpiScale);
     if (!text.empty ())
-        out.labels.push_back ({ { labelCenter.x, labelCenter.y - textExtent.height * 0.5f }, text, color, fontSize,
-                                true, 0xFFFFFFC0u, 1.25f * dpiScale, false });
+        out.labels.push_back ({ { labelCenter.x, labelCenter.y - textExtent.height * 0.5f },
+                                text,
+                                color,
+                                fontSize,
+                                true,
+                                0xFFFFFFC0u,
+                                1.25f * dpiScale,
+                                false });
+    if (!text.empty ()) {
+        out.labels.back ().rotationRadians = ReadableRotation (std::atan2 (dimensionDy, dimensionDx));
+        out.labels.back ().ownLineBegin = ownLineBegin;
+        out.labels.back ().ownLineEnd = out.lines.size ();
+    }
 }
 
 double ModelAngleDegrees (const Primitive& primitive)
@@ -331,8 +599,9 @@ double ModelAngleDegrees (const Primitive& primitive)
 }
 
 void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-               uint32_t height, uint32_t color, float dpiScale)
+               uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
 {
+    const std::size_t ownLineBegin = out.lines.size ();
     ScreenPoint center, first, second;
     if (!ProjectPoint (primitive, 0, viewProj, width, height, center) ||
         !ProjectPoint (primitive, 1, viewProj, width, height, first) ||
@@ -354,16 +623,25 @@ void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float v
                                    color });
     char measured[64];
     std::snprintf (measured, sizeof (measured), "%.1f\xC2\xB0", ModelAngleDegrees (primitive));
-    AddText (out, primitive, { float (glyph.labelAnchor.x), float (glyph.labelAnchor.y) }, color, measured,
-             float (glyph.fontSizePixels), true, false, 0xFFFFFFC0u, 1.25f * dpiScale);
+    const std::string text = primitive.text.empty () ? measured : primitive.text;
+    const float fontSize = float (glyph.fontSizePixels);
+    const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
+    const float radialX = float (glyph.labelAnchor.x) - center.x;
+    const float radialY = float (glyph.labelAnchor.y) - center.y;
+    const float radialLength = std::hypot (radialX, radialY);
+    if (radialLength <= 1.0e-3f)
+        return;
+    const float arcRadius =
+        std::hypot (float (glyph.arc.front ().x) - center.x, float (glyph.arc.front ().y) - center.y);
+    const float labelRadius = std::max (radialLength, arcRadius + textExtent.width * 0.5f + 5.0f * dpiScale);
+    const ScreenPoint labelCenter { center.x + radialX / radialLength * labelRadius,
+                                    center.y + radialY / radialLength * labelRadius };
+    AddText (out, primitive, { labelCenter.x, labelCenter.y - textExtent.height * 0.5f }, color, measured, fontSize,
+             true, false, 0xFFFFFFC0u, 1.25f * dpiScale);
     ScreenLabel& label = out.labels.back ();
-    label.rotationRadians = std::atan2 (label.anchor.y - center.y, label.anchor.x - center.x);
-    constexpr float halfPi = 1.57079632679489661923f;
-    constexpr float pi = 3.14159265358979323846f;
-    if (label.rotationRadians > halfPi)
-        label.rotationRadians -= pi;
-    else if (label.rotationRadians < -halfPi)
-        label.rotationRadians += pi;
+    label.rotationRadians = ReadableRotation (std::atan2 (radialY, radialX));
+    label.ownLineBegin = ownLineBegin;
+    label.ownLineEnd = out.lines.size ();
 }
 
 } // namespace
@@ -434,7 +712,7 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
             continue;
         }
         if (primitive.kind == PrimitiveKind::Angle) {
-            AddAngle (out, primitive, projection, width, height, color, dpiScale);
+            AddAngle (out, primitive, projection, width, height, color, dpiScale, measureText);
             continue;
         }
         ScreenPoint first;

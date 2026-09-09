@@ -88,6 +88,20 @@ def test_a_list_of_primitive_records_is_one_frame():
     assert frame["primitives"][1] == {"kind": "element", "text": "wall", "guid": "abc"}
 
 
+def test_dimension_record_accepts_sampled_curved_path():
+    record = {
+        "kind": "dimension",
+        "points": [(1, 0, 0), (0.707, 0.707, 0), (0, 1, 0)],
+        "text": "1.571 m",
+        "offset": -0.3,
+    }
+
+    frame = _decode(_capture(lambda: watch_api("arc", [record])))[0]["frames"][0]
+
+    assert frame["primitives"][0]["points"] == [
+        1.0, 0.0, 0.0, 0.707, 0.707, 0.0, 0.0, 1.0, 0.0]
+
+
 def test_explicit_constructors_need_no_name_and_emit_flat_points():
     def build():
         watch_api.dimension((0, 0, 0), (2, 0, 0), text="2m", offset=0.2)

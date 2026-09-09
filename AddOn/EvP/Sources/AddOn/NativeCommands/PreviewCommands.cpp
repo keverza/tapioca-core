@@ -51,7 +51,7 @@ constexpr const char kPolylineSchema[] =
 constexpr const char kArrowSchema[] =
     R"json({"type":"object","properties":{"kind":{"type":"string","const":"arrow"},"points":{"type":"array","minItems":6,"maxItems":6,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
 constexpr const char kDimensionSchema[] =
-    R"json({"type":"object","properties":{"kind":{"type":"string","const":"dimension"},"points":{"type":"array","minItems":6,"maxItems":6,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
+    R"json({"type":"object","properties":{"kind":{"type":"string","const":"dimension"},"points":{"type":"array","minItems":6,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
 constexpr const char kAngleSchema[] =
     R"json({"type":"object","properties":{"kind":{"type":"string","const":"angle"},"points":{"type":"array","minItems":9,"maxItems":9,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
 constexpr const char kLabelSchema[] =

@@ -3,6 +3,7 @@
 
 #include "Annotation/DrawList.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -45,6 +46,8 @@ struct ScreenLabel {
     float haloWidthPixels = 0.0f;
     bool backgroundPanel = true;
     float rotationRadians = 0.0f;
+    std::size_t ownLineBegin = 0;
+    std::size_t ownLineEnd = 0;
 };
 
 struct ProjectedDrawList {

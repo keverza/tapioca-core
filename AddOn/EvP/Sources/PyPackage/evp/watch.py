@@ -21,7 +21,7 @@ MAX_POINTS = 20000
 _KINDS = {"point", "polyline", "arrow", "dimension", "angle", "label", "element"}
 _OPTIONAL = {"text", "role", "closed", "direction", "guid", "offset"}
 _REQUIRED_POINTS = {
-    "point": 1, "arrow": 2, "dimension": 2, "angle": 3, "label": 1,
+    "point": 1, "arrow": 2, "angle": 3, "label": 1,
 }
 _current = contextvars.ContextVar("evp_watch_trace", default=None)
 
@@ -153,6 +153,8 @@ def _primitive(record):
     count = len(result.get("points", ())) // 3
     if required is not None and count != required:
         raise ValueError("watch %s needs %d point(s), got %d" % (kind, required, count))
+    if kind == "dimension" and count < 2:
+        raise ValueError("watch dimension needs at least two points, got %d" % count)
     if kind == "polyline" and count < 2:
         raise ValueError("watch polyline needs at least two points")
     if kind == "element" and not record.get("guid"):

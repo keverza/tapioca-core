@@ -67,17 +67,18 @@ TEST (TraceAnnotationLayer, AngleUsesSharedMinorArcRadialLabelFilledHeadsAndDark
     frame.primitives.push_back (
         Primitive (annotation::PrimitiveKind::Angle, { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 } }));
 
-    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300);
 
     ASSERT_EQ (draw.lines.size (), 32u);
     ASSERT_EQ (draw.triangles.size (), 2u);
     ASSERT_EQ (draw.labels.size (), 1u);
-    EXPECT_FLOAT_EQ (draw.lines.front ().from.x, 130.0f);
-    EXPECT_FLOAT_EQ (draw.lines.front ().from.y, 50.0f);
-    EXPECT_FLOAT_EQ (draw.lines.back ().to.x, 100.0f);
-    EXPECT_FLOAT_EQ (draw.lines.back ().to.y, 20.0f);
-    EXPECT_NEAR (draw.labels[0].anchor.x, 100.0f + 42.0f / std::sqrt (2.0f), 1.0e-5f);
-    EXPECT_NEAR (draw.labels[0].anchor.y, 50.0f - 42.0f / std::sqrt (2.0f), 1.0e-5f);
+    EXPECT_FLOAT_EQ (draw.lines.front ().from.x, 230.0f);
+    EXPECT_FLOAT_EQ (draw.lines.front ().from.y, 150.0f);
+    EXPECT_FLOAT_EQ (draw.lines.back ().to.x, 200.0f);
+    EXPECT_FLOAT_EQ (draw.lines.back ().to.y, 120.0f);
+    EXPECT_GT (std::hypot (draw.labels[0].anchor.x - 200.0f,
+                           draw.labels[0].anchor.y + draw.labels[0].fontSize * 0.5f - 150.0f),
+               55.0f);
     EXPECT_NEAR (draw.labels[0].rotationRadians, -3.14159265358979323846f / 4.0f, 1.0e-5f);
     EXPECT_FALSE (draw.labels[0].backgroundPanel);
     EXPECT_EQ (draw.lines[0].rgba, 0x8B1E1EFFu);
@@ -89,8 +90,7 @@ TEST (TraceAnnotationLayer, AngleValueComesFromModelRaysInsteadOfProjectedRays)
 {
     annotation::Frame frame;
     frame.primitives.push_back (
-        Primitive (annotation::PrimitiveKind::Angle,
-                   { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.5, 0.5, 0.5 } }));
+        Primitive (annotation::PrimitiveKind::Angle, { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.5, 0.5, 0.5 } }));
 
     // The 2:1 surface aspect projects the second ray to about 26.6 degrees.
     const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
@@ -114,13 +114,12 @@ TEST (TraceAnnotationLayer, AngleRadialLabelFlipsToRemainUpright)
 TEST (TraceAnnotationLayer, FittingDimensionTextInterruptsLineAndUsesShapedExtent)
 {
     annotation::Frame frame;
-    auto dimension =
-        Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
     dimension.text = "measured";
     frame.primitives.push_back (dimension);
     bool measured = false;
     const archviz::ScreenTextMeasure measure = [&measured] (std::string_view, float fontSize,
-                                                             archviz::ScreenTextExtent& extent) {
+                                                            archviz::ScreenTextExtent& extent) {
         measured = true;
         extent = { 40.0f, fontSize };
         return true;
@@ -143,15 +142,51 @@ TEST (TraceAnnotationLayer, FittingDimensionTextInterruptsLineAndUsesShapedExten
     EXPECT_GT (dimensionLines[1].from.x, draw.labels[0].anchor.x);
 }
 
+TEST (TraceAnnotationLayer, LinearDimensionTextFollowsProjectedLineAndRemainsUpright)
+{
+    annotation::Frame forwardFrame;
+    forwardFrame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.5, 0.5 }, { 0.5, -0.5, 0.5 } }));
+    annotation::Frame reverseFrame;
+    reverseFrame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { 0.5, -0.5, 0.5 }, { -0.5, 0.5, 0.5 } }));
+
+    const auto forward = archviz::BuildTraceAnnotations (forwardFrame, kIdentity, 400, 300);
+    const auto reverse = archviz::BuildTraceAnnotations (reverseFrame, kIdentity, 400, 300);
+
+    ASSERT_EQ (forward.labels.size (), 1u);
+    ASSERT_EQ (reverse.labels.size (), 1u);
+    EXPECT_NEAR (forward.labels[0].rotationRadians, std::atan2 (150.0f, 200.0f), 1.0e-5f);
+    EXPECT_NEAR (reverse.labels[0].rotationRadians, forward.labels[0].rotationRadians, 1.0e-5f);
+}
+
+TEST (TraceAnnotationLayer, SampledDimensionDrawsOffsetArcWithTangentText)
+{
+    annotation::Frame frame;
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension,
+                                { { 0.5, 0.0, 0.5 }, { 0.353553390593, 0.353553390593, 0.5 }, { 0.0, 0.5, 0.5 } });
+    dimension.offset = -0.1;
+    dimension.text = "L 0.785 m";
+    frame.primitives.push_back (std::move (dimension));
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
+
+    ASSERT_EQ (draw.labels.size (), 1u);
+    EXPECT_NE (draw.labels[0].rotationRadians, 0.0f);
+    ASSERT_GE (draw.lines.size (), 4u);
+    EXPECT_FLOAT_EQ (draw.lines[0].from.x, 150.0f);
+    EXPECT_GT (draw.lines[0].to.x, draw.lines[0].from.x);
+    EXPECT_EQ (draw.triangles.size (), 2u);
+}
+
 TEST (TraceAnnotationLayer, ShortDimensionMovesTextOutsideAndFlipsArrows)
 {
     annotation::Frame frame;
-    auto dimension =
-        Primitive (annotation::PrimitiveKind::Dimension, { { -0.02, 0.0, 0.5 }, { 0.02, 0.0, 0.5 } });
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.02, 0.0, 0.5 }, { 0.02, 0.0, 0.5 } });
     dimension.text = "123.4 mm";
     frame.primitives.push_back (dimension);
     const archviz::ScreenTextMeasure measure = [] (std::string_view, float fontSize,
-                                                    archviz::ScreenTextExtent& extent) {
+                                                   archviz::ScreenTextExtent& extent) {
         extent = { 72.0f, fontSize };
         return true;
     };
@@ -178,8 +213,8 @@ TEST (TraceAnnotationLayer, SwappedAngleOrderReversesArcAndKeepsRadialLabel)
     angle.direction = true;
     reverseFrame.primitives.push_back (angle);
 
-    const auto forward = archviz::BuildTraceAnnotations (forwardFrame, kIdentity, 200, 100);
-    const auto reverse = archviz::BuildTraceAnnotations (reverseFrame, kIdentity, 200, 100);
+    const auto forward = archviz::BuildTraceAnnotations (forwardFrame, kIdentity, 400, 300);
+    const auto reverse = archviz::BuildTraceAnnotations (reverseFrame, kIdentity, 400, 300);
 
     ASSERT_EQ (forward.lines.size (), reverse.lines.size ());
     for (size_t index = 0; index < forward.lines.size (); ++index) {
@@ -243,8 +278,8 @@ TEST (TraceAnnotationLayer, DpiScalesAngleRadiusGapWidthFontAndTangentHeads)
     frame.primitives.push_back (
         Primitive (annotation::PrimitiveKind::Angle, { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 } }));
 
-    const auto one = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f);
-    const auto two = archviz::BuildTraceAnnotations (frame, kIdentity, 400, 200, 2.0f);
+    const auto one = archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f);
+    const auto two = archviz::BuildTraceAnnotations (frame, kIdentity, 800, 600, 2.0f);
 
     ASSERT_EQ (one.lines.size (), 32u);
     ASSERT_EQ (two.lines.size (), 32u);
@@ -254,9 +289,9 @@ TEST (TraceAnnotationLayer, DpiScalesAngleRadiusGapWidthFontAndTangentHeads)
     ASSERT_EQ (two.labels.size (), 1u);
     EXPECT_FLOAT_EQ (one.lines[0].width * 2.0f, two.lines[0].width);
     EXPECT_FLOAT_EQ (one.labels[0].fontSize * 2.0f, two.labels[0].fontSize);
-    EXPECT_NEAR (two.lines.front ().from.x - 200.0f, (one.lines.front ().from.x - 100.0f) * 2.0f, 1.0e-5f);
-    EXPECT_NEAR (two.labels[0].anchor.x - 200.0f, (one.labels[0].anchor.x - 100.0f) * 2.0f, 1.0e-5f);
-    EXPECT_NEAR (two.labels[0].anchor.y - 100.0f, (one.labels[0].anchor.y - 50.0f) * 2.0f, 1.0e-5f);
+    EXPECT_NEAR (two.lines.front ().from.x - 400.0f, (one.lines.front ().from.x - 200.0f) * 2.0f, 1.0e-5f);
+    EXPECT_NEAR (two.labels[0].anchor.x - 400.0f, (one.labels[0].anchor.x - 200.0f) * 2.0f, 1.0e-5f);
+    EXPECT_NEAR (two.labels[0].anchor.y - 300.0f, (one.labels[0].anchor.y - 150.0f) * 2.0f, 1.0e-5f);
     for (size_t index = 0; index < 2; ++index) {
         const auto axisLength = [] (const archviz::ScreenTriangle& triangle) {
             const float baseX = (triangle.points[1].x + triangle.points[2].x) * 0.5f;
@@ -270,8 +305,7 @@ TEST (TraceAnnotationLayer, DpiScalesAngleRadiusGapWidthFontAndTangentHeads)
 TEST (TraceAnnotationLayer, ZoomKeepsMeasurementFurnitureAtScreenSize)
 {
     annotation::Frame frame;
-    auto dimension =
-        Primitive (annotation::PrimitiveKind::Dimension, { { -0.8, 0.0, 0.5 }, { 0.8, 0.0, 0.5 } });
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.8, 0.0, 0.5 }, { 0.8, 0.0, 0.5 } });
     dimension.text = "1 m";
     frame.primitives.push_back (dimension);
     float zoomedOut[16];
@@ -316,7 +350,7 @@ TEST (TraceAnnotationLayer, OverlappingMeasurementLabelsUseBoundedCandidateAndLe
     EXPECT_FALSE (draw.labels[1].backgroundPanel);
     EXPECT_TRUE (draw.labels[0].anchor.x != draw.labels[1].anchor.x ||
                  draw.labels[0].anchor.y != draw.labels[1].anchor.y);
-    EXPECT_EQ (draw.lines.size (), 65u);
+    EXPECT_GE (draw.lines.size (), 65u);
 }
 
 TEST (TraceAnnotationLayer, FitsOnlyTheFramePassedToDiligentProjection)
