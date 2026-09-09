@@ -55,6 +55,22 @@ bool KnownMessageType (uint32_t value)
         case MessageType::PreviewResyncRequest:
         case MessageType::PreviewBatchAck:
         case MessageType::PreviewPicked:
+        case MessageType::OpenSession:
+        case MessageType::CloseSession:
+        case MessageType::SetSessionMode:
+        case MessageType::LoadDefinition:
+        case MessageType::ReloadDefinition:
+        case MessageType::GetSchema:
+        case MessageType::SchemaResult:
+        case MessageType::SetInputs:
+        case MessageType::Solve:
+        case MessageType::CancelSolve:
+        case MessageType::SolutionStarted:
+        case MessageType::SolutionResult:
+        case MessageType::SolutionFailed:
+        case MessageType::GetDiagnostics:
+        case MessageType::DiagnosticsResult:
+        case MessageType::SessionEvent:
             return true;
     }
     return false;
@@ -480,6 +496,38 @@ const char* DescribeMessageType (MessageType type)
             return "preview-batch-ack";
         case MessageType::PreviewPicked:
             return "preview-picked";
+        case MessageType::OpenSession:
+            return "open-session";
+        case MessageType::CloseSession:
+            return "close-session";
+        case MessageType::SetSessionMode:
+            return "set-session-mode";
+        case MessageType::LoadDefinition:
+            return "load-definition";
+        case MessageType::ReloadDefinition:
+            return "reload-definition";
+        case MessageType::GetSchema:
+            return "get-schema";
+        case MessageType::SchemaResult:
+            return "schema-result";
+        case MessageType::SetInputs:
+            return "set-inputs";
+        case MessageType::Solve:
+            return "solve";
+        case MessageType::CancelSolve:
+            return "cancel-solve";
+        case MessageType::SolutionStarted:
+            return "solution-started";
+        case MessageType::SolutionResult:
+            return "solution-result";
+        case MessageType::SolutionFailed:
+            return "solution-failed";
+        case MessageType::GetDiagnostics:
+            return "get-diagnostics";
+        case MessageType::DiagnosticsResult:
+            return "diagnostics-result";
+        case MessageType::SessionEvent:
+            return "session-event";
     }
     return "unknown";
 }

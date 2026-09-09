@@ -322,6 +322,41 @@ namespace Tapioca.GhWorker
         }
 
         /// <summary>
+        /// Sends one session answer: a session event, a schema, a solution or a
+        /// diagnostics block.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <paramref name="correlationId"/> is the request's own id, so a host
+        /// with several requests outstanding can tell which one an answer belongs
+        /// to. A message the worker sends unprompted — an Authoring-mode
+        /// re-solve, say — passes 0, which is what makes "nothing asked for this"
+        /// readable at the far end rather than guessed at.
+        /// </para>
+        /// <para>
+        /// Never throws: every caller is either the reader thread or the engine
+        /// thread, and losing one of those to a closed pipe would cost far more
+        /// than the answer that could not be sent.
+        /// </para>
+        /// </remarks>
+        internal void SendSession(BridgeProtocol.MessageType type, uint correlationId, byte[] payload)
+        {
+            if (!IsConnected)
+            {
+                return;
+            }
+
+            try
+            {
+                WriteMessage(type, 0, correlationId, payload);
+            }
+            catch (Exception exception)
+            {
+                WorkerLog.Write("a " + type + " message could not be sent: " + Describe(exception));
+            }
+        }
+
+        /// <summary>
         /// Sends one preview batch: the segment first, then the frames the GHA
         /// framed. Returns an empty string on success and a reason otherwise;
         /// never throws, because the caller is a Grasshopper solve.
@@ -619,6 +654,26 @@ namespace Tapioca.GhWorker
                     RaiseWith(PreviewPicked, primitiveId);
                     break;
                 }
+
+                // ⚠️ THE SESSION MESSAGES ARE NOT DECODED HERE, DELIBERATELY.
+                // This class owns the TRANSPORT; the session vocabulary — what a
+                // revision means, which requests need the engine, when a solve is
+                // stale — lives in one place, and splitting half of it into the
+                // reader's switch would put the rules two files apart from the
+                // state they are about. The preview cases above are the
+                // exception because their ack RELEASES memory this class owns.
+                case BridgeProtocol.MessageType.OpenSession:
+                case BridgeProtocol.MessageType.CloseSession:
+                case BridgeProtocol.MessageType.SetSessionMode:
+                case BridgeProtocol.MessageType.LoadDefinition:
+                case BridgeProtocol.MessageType.ReloadDefinition:
+                case BridgeProtocol.MessageType.GetSchema:
+                case BridgeProtocol.MessageType.SetInputs:
+                case BridgeProtocol.MessageType.Solve:
+                case BridgeProtocol.MessageType.CancelSolve:
+                case BridgeProtocol.MessageType.GetDiagnostics:
+                    SessionRouter.Handle(header, payload ?? new byte[0]);
+                    break;
 
                 default:
                     // Worker-to-host messages arriving the wrong way. The

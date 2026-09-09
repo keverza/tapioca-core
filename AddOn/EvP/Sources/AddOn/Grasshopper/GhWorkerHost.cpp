@@ -4,6 +4,8 @@
 #include "GhBridge.hpp"
 #include "GhLog.hpp"
 #include "GhWorkerHost.hpp"
+
+#include "GhWorkflowController.hpp"
 #include "HostState.hpp"
 
 #include "Python/MainThreadGate.hpp"
@@ -65,6 +67,12 @@ constexpr DWORD StartupExitWindowMs = 250;
 constexpr DWORD CooperativeShutdownMs = 15000;
 
 HostLifecycle lifecycle;
+
+// The one workflow controller. Beside the lifecycle rather than inside it: the
+// lifecycle owns whether a WORKER is up, and this owns what one SESSION on that
+// worker is doing. Conflating them is how a restart ends up silently reusing a
+// session id.
+GhWorkflowController workflow;
 
 std::mutex controlMutex;
 HANDLE workerProcess = nullptr;
@@ -538,6 +546,75 @@ void OnRunResult (const protocol::RunReportPayload& report)
 void OnWorkerDisconnected (uint32_t generation)
 {
     disconnectedGeneration.store (generation);
+    // Told immediately rather than when the supervisor gets round to the
+    // teardown: the controller's job on this event is to stop anything from
+    // being applied out of a session whose worker is gone, and that has to be
+    // true from the moment the pipe drops.
+    workflow.OnHostGone ("The Grasshopper worker disconnected from its bridge.");
+}
+
+// Decodes one session message and hands it to the controller.
+//
+// ⚠️ A PAYLOAD THAT WILL NOT DECODE IS LOGGED AND DROPPED, NEVER GUESSED AT.
+// Every one of these carries a routing envelope that decides whether a solution
+// may be published; a partially-read one would be a publication decision made on
+// bytes nobody could vouch for.
+void OnSessionMessage (protocol::MessageType type, const std::vector<uint8_t>& payload)
+{
+    const uint32_t gen = lifecycle.Generation ();
+    const uint32_t pid = GhBridge::Get ().WorkerProcessId ();
+    std::string error;
+
+    switch (type) {
+        case protocol::MessageType::SessionEvent: {
+            protocol::SessionAckPayload event;
+            if (!protocol::DecodeSessionAckPayload (payload.data (), payload.size (), event, error))
+                break;
+            workflow.OnSessionEvent (event);
+            return;
+        }
+        case protocol::MessageType::SchemaResult: {
+            protocol::SchemaResultPayload schema;
+            if (!protocol::DecodeSchemaResultPayload (payload.data (), payload.size (), schema, error))
+                break;
+            workflow.OnSchemaResult (schema);
+            return;
+        }
+        case protocol::MessageType::SolutionStarted: {
+            protocol::SolutionStartedPayload started;
+            if (!protocol::DecodeSolutionStartedPayload (payload.data (), payload.size (), started, error))
+                break;
+            workflow.OnSolutionStarted (started);
+            return;
+        }
+        case protocol::MessageType::SolutionResult: {
+            protocol::SolutionResultPayload result;
+            if (!protocol::DecodeSolutionResultPayload (payload.data (), payload.size (), result, error))
+                break;
+            workflow.OnSolutionResult (result);
+            return;
+        }
+        case protocol::MessageType::SolutionFailed: {
+            protocol::SolutionFailedPayload failed;
+            if (!protocol::DecodeSolutionFailedPayload (payload.data (), payload.size (), failed, error))
+                break;
+            workflow.OnSolutionFailed (failed);
+            return;
+        }
+        case protocol::MessageType::DiagnosticsResult: {
+            protocol::DiagnosticsResultPayload diagnostics;
+            if (!protocol::DecodeDiagnosticsResultPayload (payload.data (), payload.size (), diagnostics, error))
+                break;
+            LogWorkerLine (gen, pid, GS::UniString ("diagnostics: ") + FromUtf8Std (diagnostics.report));
+            return;
+        }
+        default:
+            return;
+    }
+
+    LogLine (gen, pid,
+             GS::UniString ("bridge could not read a \"") + GS::UniString (protocol::DescribeMessageType (type)) +
+                 GS::UniString ("\" message: ") + FromUtf8Std (error));
 }
 
 void OnWorkerStarted (uint32_t generation, protocol::AckStatus status, const GS::UniString& message)
@@ -545,6 +622,13 @@ void OnWorkerStarted (uint32_t generation, protocol::AckStatus status, const GS:
     if (status == protocol::AckStatus::Ok) {
         if (!lifecycle.CompleteStart (generation))
             return;
+
+        // ⚠️ THE GENERATION REACHES THE CONTROLLER ONLY AFTER THE RUNTIME
+        // ACKNOWLEDGEMENT, NOT AT CONNECT. A connected pipe proves the protocol;
+        // it does not prove there is a Rhino behind it, and a session opened
+        // against a worker whose RhinoCore never came up would be a session
+        // every request refuses.
+        workflow.OnHostGeneration (generation);
         if (showEditorOnConnect.exchange (false)) {
             GS::UniString error;
             if (!GhBridge::Get ().Send (protocol::MessageType::ShowEditor, error))
@@ -575,6 +659,14 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
     bridge.SetStartupHandler (&OnWorkerStarted);
     bridge.SetDisconnectedHandler (&OnWorkerDisconnected);
     bridge.SetRunResultHandler (&OnRunResult);
+    bridge.SetSessionHandler (&OnSessionMessage);
+    workflow.SetSender ([] (protocol::MessageType type, const std::vector<uint8_t>& payload, std::string& error) {
+        GS::UniString failure;
+        if (GhBridge::Get ().SendPayload (type, payload, failure))
+            return true;
+        error = failure.ToCStr ().Get ();
+        return false;
+    });
 
     std::lock_guard<std::mutex> lock (controlMutex);
 
@@ -662,6 +754,11 @@ void GhWorkerHost::Stop ()
     const bool exited = GetExitCodeProcess (workerProcess, &exitCode) != 0 && exitCode != STILL_ACTIVE;
     TearDownLocked (!exited, exited ? GS::UniString ("Grasshopper worker stopped.")
                                     : GS::UniString ("Grasshopper worker did not shut down and was terminated."));
+}
+
+GhWorkflowController& GhWorkerHost::Workflow ()
+{
+    return workflow;
 }
 
 bool GhWorkerHost::IsRunning () const

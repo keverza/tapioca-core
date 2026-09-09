@@ -156,6 +156,19 @@ namespace Tapioca.GhWorker
             {
                 try
                 {
+                    // ⚠️ BEFORE THE CORE GOES, AND ON THIS THREAD. A session's
+                    // document is a Grasshopper object owned by this thread, and
+                    // disposing RhinoCore first would leave the removal and
+                    // disposal below running against a runtime that has gone.
+                    SessionRouter.CloseAll();
+                }
+                catch (Exception exception)
+                {
+                    WorkerLog.Write("the workflow sessions did not close cleanly: " + WorkerLog.Describe(exception));
+                }
+
+                try
+                {
                     WorkerLog.Write(WorkerSession.Stop());
                 }
                 catch (Exception exception)

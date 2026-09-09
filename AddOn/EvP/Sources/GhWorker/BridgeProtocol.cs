@@ -32,8 +32,12 @@ namespace Tapioca.GhWorker
         /// gates them. Their payload codec lives in the GHA
         /// (Sources/GrasshopperComponents/PreviewChannel.cs), not here: capture
         /// is the .gha's job and the worker only relays the frames.
+        /// v5 added the session messages -- open/close a session, load a
+        /// definition into it, read its schema, set inputs, solve, cancel, and
+        /// report. Their payload codec lives in <see cref="SessionProtocol"/>,
+        /// mirroring GhSessionProtocol.hpp.
         /// </summary>
-        internal const uint Version = 4;
+        internal const uint Version = 5;
 
         /// <summary>protocolVersion, messageType, requestId, correlationId, payloadBytes.</summary>
         internal const int HeaderSize = 20;
@@ -74,6 +78,32 @@ namespace Tapioca.GhWorker
             PreviewResyncRequest = 22,
             PreviewBatchAck = 23,
             PreviewPicked = 24,
+
+            // ---- session, host -> worker unless noted --------------------
+            // Mirrors GhProtocol.hpp. Every payload begins with the same
+            // {hostGeneration, sessionId, requestRevision} envelope, decoded by
+            // SessionProtocol.
+            //
+            // ⚠️ THESE DO NOT REPLACE RunDefinition. That one means "solve
+            // whatever is on the canvas" and is the Authoring gesture; Solve
+            // names a SESSION whose document the host loaded and whose inputs
+            // the host set, and its result is addressable afterwards.
+            OpenSession = 25,
+            CloseSession = 26,
+            SetSessionMode = 27,
+            LoadDefinition = 28,
+            ReloadDefinition = 29,
+            GetSchema = 30,
+            SchemaResult = 31,
+            SetInputs = 32,
+            Solve = 33,
+            CancelSolve = 34,
+            SolutionStarted = 35,
+            SolutionResult = 36,
+            SolutionFailed = 37,
+            GetDiagnostics = 38,
+            DiagnosticsResult = 39,
+            SessionEvent = 40,
         }
 
         /// <summary>

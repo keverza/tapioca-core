@@ -84,6 +84,8 @@ set (EVP_PALETTE_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Palette/AutomaticPreviewState.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/CommandFilter.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamLayout.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/InputModel.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/WorkflowRows.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamVisibility.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPlanCamera.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPanelState.cpp")
@@ -120,9 +122,18 @@ set (EVP_COMMAND_SOURCES
 # out-of-bounds read in the host, reachable from any definition a user opens.
 # A malformed producer cannot be exercised live either: the producer Tapioca
 # ships is the one that behaves.
+#
+# Grasshopper/GhSessionProtocol.cpp is the SESSION half of that wire: load a
+# definition, set its inputs, solve it, publish the result. Its failures are the
+# quiet kind too, and one of them is worse than a misread message -- the routing
+# envelope is what decides whether a result may be PUBLISHED, so a generation or
+# a revision read wrongly puts stale geometry on screen and makes it Applyable.
+# Nothing about that looks like an error live; it looks like the wrong answer.
 set (EVP_GRASSHOPPER_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhProtocol.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhPreviewProtocol.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhSessionProtocol.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhWorkflowController.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/GhUndoBudget.cpp"
     "${EVP_ROOT}/Sources/AddOn/Grasshopper/HostState.cpp")
 
@@ -540,6 +551,10 @@ set (EVP_TEST_SOURCES
     test_sunstudyatlas.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
+    test_ghsessionprotocol.cpp
+    test_ghworkflowcontroller.cpp
+    test_ghinputmodel.cpp
+    test_workflowrows.cpp
     test_rhinocomputeprotocol.cpp
     test_ghpreviewprotocol.cpp
     test_ghpreviewcache.cpp

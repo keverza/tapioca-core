@@ -255,6 +255,45 @@ bool GhBridge::Send (protocol::MessageType type, GS::UniString& error)
     return true;
 }
 
+bool GhBridge::SendPayload (protocol::MessageType type, const std::vector<uint8_t>& payload, GS::UniString& error)
+{
+    if (payload.size () > protocol::MaxPayloadBytes) {
+        // Refused before the header is written rather than after: a header
+        // announcing a length the writer then cannot honour desynchronises the
+        // pipe for every message after it.
+        error = GS::UniString ("A Grasshopper \"") + GS::UniString (protocol::DescribeMessageType (type)) +
+                GS::UniString ("\" message was too large to send.");
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock (writeMutex);
+    if (pipe == nullptr || !connected.load ()) {
+        error = "No Grasshopper worker is connected, so there was nothing to send the "
+                "\"" +
+                GS::UniString (protocol::DescribeMessageType (type)) + "\" message to.";
+        return false;
+    }
+
+    // ⚠️ HEADER AND PAYLOAD UNDER ONE LOCK. Two writers interleaving a header
+    // with another message's body is a framing error the reader cannot recover
+    // from -- the same rule BridgeClient.WriteMessage keeps on the other end.
+    const std::vector<uint8_t> header = protocol::EncodeHeader (type, 0, 0, (uint32_t) payload.size ());
+    if (!WriteExact ((HANDLE) pipe, header.data (), (DWORD) header.size (), stopping) ||
+        (!payload.empty () && !WriteExact ((HANDLE) pipe, payload.data (), (DWORD) payload.size (), stopping))) {
+        error = GS::UniString ("The Grasshopper worker did not accept the \"") +
+                GS::UniString (protocol::DescribeMessageType (type)) +
+                GS::UniString ("\" message. It may be wedged; restarting the worker is the recovery.");
+        return false;
+    }
+    return true;
+}
+
+void GhBridge::SetSessionHandler (std::function<void (protocol::MessageType, const std::vector<uint8_t>&)> handler)
+{
+    std::lock_guard<std::mutex> lock (messageMutex);
+    sessionHandler = std::move (handler);
+}
+
 void GhBridge::SetConnectedHandler (std::function<void (uint32_t)> handler)
 {
     std::lock_guard<std::mutex> lock (messageMutex);
@@ -579,6 +618,30 @@ void GhBridge::Run ()
                 break;
             }
 
+            // ---- session, worker -> host ------------------------------
+            // Decoded here and handed to the controller, which owns every rule
+            // about what a revision means. This arm is transport only: it
+            // refuses a payload that will not decode and passes on one that
+            // does.
+            case protocol::MessageType::SessionEvent:
+            case protocol::MessageType::SchemaResult:
+            case protocol::MessageType::SolutionStarted:
+            case protocol::MessageType::SolutionResult:
+            case protocol::MessageType::SolutionFailed:
+            case protocol::MessageType::DiagnosticsResult: {
+                std::function<void (protocol::MessageType, const std::vector<uint8_t>&)> handler;
+                {
+                    // Copied out and called OUTSIDE the lock, like every other
+                    // handler here: it talks to the controller, which talks back
+                    // to this bridge to send the next request.
+                    std::lock_guard<std::mutex> lock (messageMutex);
+                    handler = sessionHandler;
+                }
+                if (handler)
+                    handler (header.messageType, payload);
+                break;
+            }
+
             case protocol::MessageType::Hello:
             case protocol::MessageType::HelloAck:
             case protocol::MessageType::ApiResponse:
@@ -590,6 +653,16 @@ void GhBridge::Run ()
             case protocol::MessageType::PreviewResyncRequest:
             case protocol::MessageType::PreviewBatchAck:
             case protocol::MessageType::PreviewPicked:
+            case protocol::MessageType::OpenSession:
+            case protocol::MessageType::CloseSession:
+            case protocol::MessageType::SetSessionMode:
+            case protocol::MessageType::LoadDefinition:
+            case protocol::MessageType::ReloadDefinition:
+            case protocol::MessageType::GetSchema:
+            case protocol::MessageType::SetInputs:
+            case protocol::MessageType::Solve:
+            case protocol::MessageType::CancelSolve:
+            case protocol::MessageType::GetDiagnostics:
                 // Host-to-worker messages, arriving the wrong way. Recorded and
                 // ignored rather than acted on: the direction is part of the
                 // contract, and a worker that gets it wrong is a worker whose

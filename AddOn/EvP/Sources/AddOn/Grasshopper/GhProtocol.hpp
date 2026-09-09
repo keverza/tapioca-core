@@ -45,7 +45,11 @@ using evp::grasshopper::UndoLedgerEntry;
 // them. Their payload codec lives in GhPreviewProtocol.hpp; it is the same
 // protocol, not a second one, which is why the version moved rather than a new
 // header being invented.
-constexpr uint32_t Version = 4;
+// v5 added the session messages below -- open/close a session, load a
+// definition into it, read its schema, set inputs, solve, cancel, and be told
+// what happened. Their payload codec lives in GhSessionProtocol.hpp, for the
+// same reason preview's lives in its own file.
+constexpr uint32_t Version = 5;
 
 // 5 x uint32, little-endian: protocolVersion, messageType, requestId,
 // correlationId, payloadBytes.
@@ -146,6 +150,51 @@ enum class MessageType : uint32_t {
     PreviewBatchAck = 23,
     // host -> worker. A viewport pick resolved to a primitive id.
     PreviewPicked = 24,
+
+    // ---- session, host -> worker unless noted ---------------------------
+    // The workflow half of the bridge (HANDOFF-GHHost.md §10). Payload codecs
+    // are in GhSessionProtocol.hpp; every one of them begins with the same
+    // {hostGeneration, sessionId, requestRevision} envelope, so a message from
+    // a dead worker generation can be dropped before it is parsed any further.
+    //
+    // ⚠️ THESE DO NOT REPLACE RunDefinition, AND THE TWO ARE NOT ALTERNATIVES
+    // FOR THE SAME JOB. RunDefinition means "solve whatever is on the canvas",
+    // which is the Authoring gesture and is deliberately the worker's business.
+    // Solve below names a SESSION, whose document the host loaded and whose
+    // inputs the host set, and its result is addressable afterwards. A Player
+    // that used RunDefinition would have no revision to Apply.
+    OpenSession = 25,
+    CloseSession = 26,
+    SetSessionMode = 27,
+    LoadDefinition = 28,
+    ReloadDefinition = 29,
+    GetSchema = 30,
+    // worker -> host, the answer to GetSchema and to a load that produced one.
+    SchemaResult = 31,
+    SetInputs = 32,
+    Solve = 33,
+    // host -> worker, the COOPERATIVE half of solve cancellation, and the same
+    // request-not-guarantee that CancelRun is. The guarantee is still killing
+    // the worker.
+    CancelSolve = 34,
+    // worker -> host. Sent BEFORE the solve begins rather than inferred from
+    // the eventual result: a panel that only learns a solve started when it
+    // finished cannot show that anything is happening, which is the whole
+    // difference between a slow definition and a hung one on screen.
+    SolutionStarted = 35,
+    // worker -> host, one accepted solution. The host decides whether to
+    // PUBLISH it: an older requestRevision than the newest requested is
+    // collected for diagnostics and dropped (§7).
+    SolutionResult = 36,
+    SolutionFailed = 37,
+    GetDiagnostics = 38,
+    // worker -> host, the developer diagnostics block.
+    DiagnosticsResult = 39,
+    // worker -> host, unsolicited. The session changed state without the host
+    // asking -- an Authoring-mode edit re-solved, or the worker invalidated a
+    // session. Same payload as a SessionAck; the difference is that nothing
+    // correlates to it.
+    SessionEvent = 40,
 };
 
 // Mirrors TapiocaGhStatus's surviving cases. The transport carries them; it does

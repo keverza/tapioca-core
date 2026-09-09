@@ -176,6 +176,10 @@ namespace Tapioca.GhWorker
             // The generation IS the preview epoch: it changes on every restart,
             // and the add-on drops preview from any other one without complaint.
             TapiocaBridgeApi.Bind(_bridge, arguments.Generation);
+            // The same generation, for the same reason, one layer up: it is what
+            // makes a session request addressed to a worker that has since been
+            // replaced refusable rather than servable.
+            SessionRouter.Bind(_bridge, _engine, arguments.Generation);
             WorkerLog.Write("bridge connected");
 
             uint tapirPort = StartTapirProxy(arguments.ArchicadJsonPort);
@@ -399,6 +403,7 @@ namespace Tapioca.GhWorker
             // mid-solve gets an unavailable bridge rather than one that is going
             // away underneath it.
             TapiocaBridgeApi.Unbind();
+            SessionRouter.Unbind();
 
             TapirProxy proxy = _tapirProxy;
             _tapirProxy = null;

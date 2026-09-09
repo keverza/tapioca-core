@@ -49,6 +49,7 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 namespace evp {
 namespace grasshopper {
@@ -85,6 +86,17 @@ class GhBridge {
     // with a reason when there is no connected worker to send to. Never blocks
     // on a reply: the answer, if there is one, arrives later as an Ack.
     bool Send (protocol::MessageType type, GS::UniString& error);
+
+    // Host -> worker, with a payload: every session message. Same rules as
+    // Send above -- never blocks on a reply, and the answer arrives later on the
+    // IO thread as one of the session results.
+    bool SendPayload (protocol::MessageType type, const std::vector<uint8_t>& payload, GS::UniString& error);
+
+    // Run on the IO thread for every session message the worker sends. The
+    // handler decodes; this class only routes, because every rule about what a
+    // revision MEANS lives in GhWorkflowController and splitting half of it into
+    // the transport would put those rules two files from the state they govern.
+    void SetSessionHandler (std::function<void (protocol::MessageType, const std::vector<uint8_t>&)> handler);
 
     // The worker's last Ack or refusal, for the status report. Never merged with
     // the native side's own account of the state.
@@ -149,6 +161,7 @@ class GhBridge {
     std::function<void (uint32_t, protocol::AckStatus, const GS::UniString&)> startupHandler;
     std::function<void (uint32_t)> disconnectedHandler;
     std::function<void (const protocol::RunReportPayload&)> runResultHandler;
+    std::function<void (protocol::MessageType, const std::vector<uint8_t>&)> sessionHandler;
     GS::UniString lastWorkerMessage;
     GS::UniString pipeName;
 };

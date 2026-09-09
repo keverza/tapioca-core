@@ -40,6 +40,7 @@ namespace evp {
 namespace grasshopper {
 
 enum class HostState;
+class GhWorkflowController;
 
 class GhWorkerHost {
   public:
@@ -93,6 +94,17 @@ class GhWorkerHost {
 
     bool IsRunning () const;
     HostState State () const;
+
+    // The one workflow controller, for the panel that drives a session.
+    //
+    // ⚠️ EXPOSED, NOT PROXIED, AND DELIBERATELY. Wrapping every one of the
+    // controller's calls in a matching method here would double the surface and
+    // put the supervisor in the path of decisions it has no part in -- the host
+    // owns whether a WORKER is up; the controller owns what a SESSION on it is
+    // doing. The controller is safe to call from any thread and refuses
+    // everything while no worker is up, which is what makes handing it out
+    // reasonable rather than a shortcut.
+    GhWorkflowController& Workflow ();
 
     // A multi-line report: state, worker pid and restart generation, pipe name,
     // heartbeat age, the Archicad JSON port a Tapir ConnectArchicad component
