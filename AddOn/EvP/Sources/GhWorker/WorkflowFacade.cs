@@ -52,6 +52,7 @@ namespace Tapioca.GhWorker
 
         private static MethodInfo _describeSchema;
         private static MethodInfo _applyInputs;
+        private static MethodInfo _describeInputs;
         private static MethodInfo _collectOutputs;
         private static MethodInfo _collectDiagnostics;
         private static MethodInfo _describeDependencies;
@@ -95,6 +96,22 @@ namespace Tapioca.GhWorker
 
             object result = Invoke(method, new object[] { document, ids, values });
             return result as string ?? NoPackageMessage();
+        }
+
+        /// <summary>
+        /// One line per input saying what it is and what it holds, for the
+        /// panel's transcript. Empty rather than null.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static string[] DescribeInputs(Grasshopper.Kernel.GH_Document document)
+        {
+            MethodInfo method = Bind(ref _describeInputs, "DescribeInputs");
+            if (method == null)
+            {
+                return new string[0];
+            }
+
+            return Invoke(method, new object[] { document }) as string[] ?? new string[0];
         }
 
         /// <summary>

@@ -352,20 +352,6 @@ void ControlPalette::PanelHotkeyPressed (const DG::PanelHotKeyEvent& ev, bool* p
 }
 
 // The bar was released on a new value.
-void ControlPalette::ScrollBarChanged (const DG::ScrollBarChangeEvent& ev)
-{
-    if (!preview.HandleScrollBarChanged (ev) && scroll.IsSource (ev.GetSource ()) && scroll.FollowBar ())
-        Layout ();
-}
-
-// ...and while the thumb is still held. Both are needed: a column that only moved
-// when the thumb was let go would not read as a scroll bar at all.
-void ControlPalette::ScrollBarTracked (const DG::ScrollBarTrackEvent& ev)
-{
-    if (!preview.HandleScrollBarTracked (ev) && scroll.IsSource (ev.GetSource ()) && scroll.FollowBar ())
-        Layout ();
-}
-
 void ControlPalette::PanelResized (const DG::PanelResizeEvent& /*ev*/)
 {
     Layout ();

@@ -3,9 +3,9 @@
 
 #include "NativeCommands/PlanGeometryCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
-#include "NativeCommands/CommandUtils.hpp"   // WalkPolygonRings -- the one polygon walk
+#include "NativeCommands/CommandUtils.hpp" // WalkPolygonRings -- the one polygon walk
 
-#include "ArchViz/DiligentViewport.hpp"      // SetPlanAnchors -- the drawing half
+#include "ArchViz/DiligentViewport.hpp" // SetPlanAnchors -- the drawing half
 
 #include <vector>
 
@@ -23,8 +23,7 @@ GS::ObjectState Coord2D (double x, double y)
 
 // One ring out of WalkPolygonRings' flat {x,y,x,y,…} + one-arc-angle-per-vertex
 // output, from vertex `firstVertex` for `vertexCount` vertices.
-void FillRing (const GS::Array<double>& flatCoords, const GS::Array<double>& arcs,
-               USize firstVertex, USize vertexCount,
+void FillRing (const GS::Array<double>& flatCoords, const GS::Array<double>& arcs, USize firstVertex, USize vertexCount,
                GS::Array<GS::ObjectState>& outline, GS::Array<double>& outlineArcs)
 {
     for (USize v = 0; v < vertexCount; ++v) {
@@ -36,15 +35,15 @@ void FillRing (const GS::Array<double>& flatCoords, const GS::Array<double>& arc
 
 // A hole ring carries the SAME two keys as the contour, deliberately, so one
 // piece of caller code reads both.
-GS::ObjectState RingRecord (const GS::Array<double>& flatCoords, const GS::Array<double>& arcs,
-                            USize firstVertex, USize vertexCount)
+GS::ObjectState RingRecord (const GS::Array<double>& flatCoords, const GS::Array<double>& arcs, USize firstVertex,
+                            USize vertexCount)
 {
     GS::Array<GS::ObjectState> outline;
-    GS::Array<double>          outlineArcs;
+    GS::Array<double> outlineArcs;
     FillRing (flatCoords, arcs, firstVertex, vertexCount, outline, outlineArcs);
 
     GS::ObjectState ring;
-    ring.Add ("outline",     outline);
+    ring.Add ("outline", outline);
     ring.Add ("outlineArcs", outlineArcs);
     return ring;
 }
@@ -56,21 +55,20 @@ GS::ObjectState RingRecord (const GS::Array<double>& flatCoords, const GS::Array
 // SetPlanAnchors hands the same coordinates straight to the viewer. Formatting
 // it here would make the viewer parse a JSON shape it never needed.
 struct WallConnectionPolygon {
-    bool                 ok = false;
-    GSErrCode            err = NoError;
-    GS::Array<double>    flatOuter;      // x,y,x,y… world metres, no closing repeat
-    GS::Array<double>    outerArcs;      // one signed angle per vertex, 0 = straight
-    GS::Array<double>    flatHoles;
-    GS::Array<double>    holeArcs;
+    bool ok = false;
+    GSErrCode err = NoError;
+    GS::Array<double> flatOuter; // x,y,x,y… world metres, no closing repeat
+    GS::Array<double> outerArcs; // one signed angle per vertex, 0 = straight
+    GS::Array<double> flatHoles;
+    GS::Array<double> holeArcs;
     GS::Array<GS::Int32> holeCounts;
-    GS::Int32            nHoles = 0;
-    GS::Int32            conBeg = 0, conEnd = 0, conRef = 0, con = 0, conX = 0;
+    GS::Int32 nHoles = 0;
+    GS::Int32 conBeg = 0, conEnd = 0, conRef = 0, con = 0, conX = 0;
 };
 
 // ⚠️ ROUTE B, AND THE ONLY PLACE IT IS CALLED. See the command comment below for
 // why the connection polygon rather than the element's own.
-WallConnectionPolygon ReadWallConnectionPolygon (const API_Guid& guid,
-                                                 const GS::UniString& guidString)
+WallConnectionPolygon ReadWallConnectionPolygon (const API_Guid& guid, const GS::UniString& guidString)
 {
     WallConnectionPolygon result;
 
@@ -85,19 +83,17 @@ WallConnectionPolygon ReadWallConnectionPolygon (const API_Guid& guid,
     GS::Int32 outerCount = 0;
     PolygonHandles polygon;
     polygon.coords = wallInfo.coords;
-    polygon.pends  = wallInfo.pends;
-    polygon.parcs  = wallInfo.parcs;
+    polygon.pends = wallInfo.pends;
+    polygon.parcs = wallInfo.parcs;
 
-    result.ok = WalkPolygonRings (polygon, nullptr,
-                                  result.flatOuter, result.outerArcs, outerCount,
-                                  result.flatHoles, result.holeArcs, result.holeCounts,
-                                  result.nHoles);
+    result.ok = WalkPolygonRings (polygon, nullptr, result.flatOuter, result.outerArcs, outerCount, result.flatHoles,
+                                  result.holeArcs, result.holeCounts, result.nHoles);
 
     result.conBeg = wallInfo.nConBeg;
     result.conEnd = wallInfo.nConEnd;
     result.conRef = wallInfo.nConRef;
-    result.con    = wallInfo.nCon;
-    result.conX   = wallInfo.nConX;
+    result.con = wallInfo.nCon;
+    result.conX = wallInfo.nConX;
 
     // ⚠️ THE HANDLES ARE OURS TO FREE AND THIS IS THE SANCTIONED WAY. ACAPinc.h
     // calls it the recommended disposal "for compatibility reasons, as in a
@@ -112,9 +108,12 @@ WallConnectionPolygon ReadWallConnectionPolygon (const API_Guid& guid,
 const char* WallShapeName (API_WallTypeID type)
 {
     switch (type) {
-        case APIWtyp_Normal: return "straight";
-        case APIWtyp_Trapez: return "trapezoid";
-        case APIWtyp_Poly:   return "polygon";
+        case APIWtyp_Normal:
+            return "straight";
+        case APIWtyp_Trapez:
+            return "trapezoid";
+        case APIWtyp_Poly:
+            return "polygon";
     }
     return "unknown";
 }
@@ -152,13 +151,16 @@ const char* WallShapeName (API_WallTypeID type)
 // and a reason in `error`, so a caller can index the list blindly.
 // ---------------------------------------------------------------------------
 class GetWallPlanOutlinesCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetWallPlanOutlines"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetWallPlanOutlines";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Array<GS::ObjectState> elements;
-        params.Get ("elements", elements);   // the schema already requires this field
+        params.Get ("elements", elements); // the schema already requires this field
 
         GS::Array<GS::ObjectState> outlines;
 
@@ -169,15 +171,15 @@ public:
             GS::ObjectState rec;
             rec.Add ("elementId", elementId);
             rec.Add ("succeeded", false);
-            rec.Add ("error",     why);
+            rec.Add ("error", why);
             return rec;
         };
 
         for (const GS::ObjectState& item : elements) {
             GS::ObjectState elementIdIn;
-            GS::UniString   guidString;
-            if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString)
-                || guidString.IsEmpty ()) {
+            GS::UniString guidString;
+            if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString) ||
+                guidString.IsEmpty ()) {
                 return NativeCommandResult::Failure ("every element needs elementId.guid");
             }
 
@@ -185,18 +187,16 @@ public:
             wallElement.header.guid = APIGuidFromString (guidString.ToCStr ().Get ());
 
             if (const GSErrCode err = ACAPI_Element_Get (&wallElement); err != NoError) {
-                outlines.Push (missRecord (guidString,
-                    EVP_ACAPI_FAIL ("ACAPI_Element_Get", err,
-                                    GS::UniString ("reading wall ") + guidString
-                                    + " for its plan outline")));
+                outlines.Push (missRecord (guidString, EVP_ACAPI_FAIL ("ACAPI_Element_Get", err,
+                                                                       GS::UniString ("reading wall ") + guidString +
+                                                                           " for its plan outline")));
                 continue;
             }
             if (wallElement.header.type.typeID != API_WallID) {
                 GS::UniString typeName;
                 ACAPI_Element_GetElemTypeName (wallElement.header.type, typeName);
-                outlines.Push (missRecord (guidString,
-                    EVP_FAIL (GS::UniString ("not a wall: ") + typeName,
-                              "reading a wall's plan outline")));
+                outlines.Push (missRecord (
+                    guidString, EVP_FAIL (GS::UniString ("not a wall: ") + typeName, "reading a wall's plan outline")));
                 continue;
             }
 
@@ -207,6 +207,7 @@ public:
             rec.Add ("elementId", elementId);
             rec.Add ("succeeded", true);
             rec.Add ("wallShape", GS::UniString (WallShapeName (wallElement.wall.type)));
+            rec.Add ("flipped", wallElement.wall.flipped);
 
             AddConnectionPolygon (wallElement.header.guid, guidString, rec);
             AddMemoPolygon (wallElement.header.guid, rec);
@@ -220,24 +221,22 @@ public:
         return os;
     }
 
-private:
+  private:
     // Route B, formatted for the wire. The READ is ReadWallConnectionPolygon
     // above; this only turns its arrays into records. The connection counts ride
     // along because they come out of the SAME call -- asking twice would trim
     // twice -- and because they are what makes a surprising outline explainable
     // instead of merely wrong.
-    static void AddConnectionPolygon (const API_Guid& guid, const GS::UniString& guidString,
-                                      GS::ObjectState& rec)
+    static void AddConnectionPolygon (const API_Guid& guid, const GS::UniString& guidString, GS::ObjectState& rec)
     {
         const WallConnectionPolygon polygon = ReadWallConnectionPolygon (guid, guidString);
 
         GS::Array<GS::ObjectState> outline, holes;
-        GS::Array<double>          outlineArcs;
-        GS::UniString              source ("none");
+        GS::Array<double> outlineArcs;
+        GS::UniString source ("none");
 
         if (polygon.ok) {
-            FillRing (polygon.flatOuter, polygon.outerArcs, 0,
-                      polygon.flatOuter.GetSize () / 2, outline, outlineArcs);
+            FillRing (polygon.flatOuter, polygon.outerArcs, 0, polygon.flatOuter.GetSize () / 2, outline, outlineArcs);
 
             USize cursor = 0;
             for (GS::Int32 h = 0; h < polygon.nHoles; ++h) {
@@ -249,16 +248,16 @@ private:
         }
 
         GS::ObjectState connected;
-        connected.Add ("atBegin",         (GS::Int32) polygon.conBeg);
-        connected.Add ("atEnd",           (GS::Int32) polygon.conEnd);
+        connected.Add ("atBegin", (GS::Int32) polygon.conBeg);
+        connected.Add ("atEnd", (GS::Int32) polygon.conEnd);
         connected.Add ("toReferenceLine", (GS::Int32) polygon.conRef);
         connected.Add ("onReferenceLine", (GS::Int32) polygon.con);
-        connected.Add ("crossing",        (GS::Int32) polygon.conX);
+        connected.Add ("crossing", (GS::Int32) polygon.conX);
         rec.Add ("connectedWalls", connected);
 
-        rec.Add ("outline",       outline);
-        rec.Add ("outlineArcs",   outlineArcs);
-        rec.Add ("holes",         holes);
+        rec.Add ("outline", outline);
+        rec.Add ("outlineArcs", outlineArcs);
+        rec.Add ("holes", holes);
         rec.Add ("outlineSource", source);
     }
 
@@ -266,33 +265,31 @@ private:
     static void AddMemoPolygon (const API_Guid& guid, GS::ObjectState& rec)
     {
         GS::Array<GS::ObjectState> memoOutline;
-        GS::Array<double>          memoOutlineArcs;
-        bool                       present = false;
+        GS::Array<double> memoOutlineArcs;
+        bool present = false;
 
         API_ElementMemo memo = {};
         if (ACAPI_Element_GetMemo (guid, &memo, APIMemoMask_Polygon) == NoError) {
-            GS::Array<double>    flatOuter, flatOuterArcs, flatHole, flatHoleArcs;
+            GS::Array<double> flatOuter, flatOuterArcs, flatHole, flatHoleArcs;
             GS::Array<GS::Int32> holeCounts;
-            GS::Int32            outerCount = 0, nHoles = 0;
+            GS::Int32 outerCount = 0, nHoles = 0;
 
             PolygonHandles polygon;
             polygon.coords = memo.coords;
-            polygon.pends  = memo.pends;
-            polygon.parcs  = memo.parcs;
+            polygon.pends = memo.pends;
+            polygon.parcs = memo.parcs;
 
-            if (WalkPolygonRings (polygon, nullptr,
-                                  flatOuter, flatOuterArcs, outerCount,
-                                  flatHole, flatHoleArcs, holeCounts, nHoles)) {
-                FillRing (flatOuter, flatOuterArcs, 0, (USize) outerCount,
-                          memoOutline, memoOutlineArcs);
+            if (WalkPolygonRings (polygon, nullptr, flatOuter, flatOuterArcs, outerCount, flatHole, flatHoleArcs,
+                                  holeCounts, nHoles)) {
+                FillRing (flatOuter, flatOuterArcs, 0, (USize) outerCount, memoOutline, memoOutlineArcs);
                 present = true;
             }
         }
         ACAPI_DisposeElemMemoHdls (&memo);
 
         rec.Add ("memoPolygonPresent", present);
-        rec.Add ("memoOutline",        memoOutline);
-        rec.Add ("memoOutlineArcs",    memoOutlineArcs);
+        rec.Add ("memoOutline", memoOutline);
+        rec.Add ("memoOutlineArcs", memoOutlineArcs);
     }
 };
 
@@ -333,13 +330,16 @@ private:
 // planZ cannot hide them, but it can put them behind the eye.
 // ---------------------------------------------------------------------------
 class SetPlanAnchorsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SetPlanAnchors"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetPlanAnchors";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::Array<GS::ObjectState> elements;
-        params.Get ("elements", elements);   // the schema already requires this field
+        params.Get ("elements", elements); // the schema already requires this field
 
         bool enabled = true;
         params.Get ("enabled", enabled);
@@ -362,9 +362,9 @@ public:
             bool valid = upper.GetLength () == 8;
             for (UIndex i = 0; valid && i < upper.GetLength (); ++i) {
                 const GS::UniChar::Layout c = upper[i];
-                const int digit = (c >= '0' && c <= '9') ? int (c - '0')
-                                : (c >= 'A' && c <= 'F') ? int (c - 'A') + 10
-                                                         : -1;
+                const int digit = (c >= '0' && c <= '9')   ? int (c - '0')
+                                  : (c >= 'A' && c <= 'F') ? int (c - 'A') + 10
+                                                           : -1;
                 if (digit < 0)
                     valid = false;
                 else
@@ -372,8 +372,8 @@ public:
             }
             if (!valid)
                 return NativeCommandResult::Failure (
-                    EVP_FAIL (GS::UniString ("color must be 8 hex digits RRGGBBAA, got \"")
-                              + colorString + "\"", "setting the plan anchor colour"));
+                    EVP_FAIL (GS::UniString ("color must be 8 hex digits RRGGBBAA, got \"") + colorString + "\"",
+                              "setting the plan anchor colour"));
             rgba = parsed;
         }
 
@@ -383,9 +383,9 @@ public:
 
         for (const GS::ObjectState& item : elements) {
             GS::ObjectState elementIdIn;
-            GS::UniString   guidString;
-            if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString)
-                || guidString.IsEmpty ()) {
+            GS::UniString guidString;
+            if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString) ||
+                guidString.IsEmpty ()) {
                 return NativeCommandResult::Failure ("every element needs elementId.guid");
             }
 
@@ -400,14 +400,13 @@ public:
             if (wallElement.header.type.typeID != API_WallID)
                 continue;
 
-            const WallConnectionPolygon polygon =
-                ReadWallConnectionPolygon (wallElement.header.guid, guidString);
+            const WallConnectionPolygon polygon = ReadWallConnectionPolygon (wallElement.header.guid, guidString);
             if (!polygon.ok)
                 continue;
             ++walls;
 
-            auto pushRing = [&] (const GS::Array<double>& flat, const GS::Array<double>& arcs,
-                                 USize first, USize count) {
+            auto pushRing = [&] (const GS::Array<double>& flat, const GS::Array<double>& arcs, USize first,
+                                 USize count) {
                 std::vector<float> xy, angles;
                 xy.reserve (count * 2);
                 angles.reserve (count);
@@ -433,16 +432,16 @@ public:
             }
         }
 
-        archviz::DiligentViewport::Get ().SetPlanAnchors (
-            rings, ringArcs, enabled, float (widthPixels), rgba, float (arcSign), float (planZ));
+        archviz::DiligentViewport::Get ().SetPlanAnchors (rings, ringArcs, enabled, float (widthPixels), rgba,
+                                                          float (arcSign), float (planZ));
 
         size_t vertices = 0;
         for (const std::vector<float>& ring : rings)
-            vertices += (ring.size () / 2) * 6;   // 6 vertices per closing segment
+            vertices += (ring.size () / 2) * 6; // 6 vertices per closing segment
 
         GS::ObjectState os;
-        os.Add ("count",    walls);
-        os.Add ("rings",    (GS::Int32) rings.size ());
+        os.Add ("count", walls);
+        os.Add ("rings", (GS::Int32) rings.size ());
         os.Add ("vertices", (GS::Int32) vertices);
         // ⚠️ NOT "it is on screen". The viewport may not be running at all, and
         // this command deliberately does not start one: `accepted` says the
@@ -475,6 +474,7 @@ constexpr const char kGetWallPlanOutlinesOutput[] = R"json({
                 "succeeded":{"type":"boolean"},
                 "error":{"type":"string"},
                 "wallShape":{"type":"string","enum":["straight","trapezoid","polygon","unknown"]},
+                "flipped":{"type":"boolean"},
                 "outline":{"type":"array","items":{"$ref":"#Point2D"}},
                 "outlineArcs":{"type":"array","items":{"type":"number"}},
                 "holes":{"type":"array","items":{
@@ -539,17 +539,17 @@ constexpr const char kSetPlanAnchorsOutput[] = R"json({
 })json";
 
 const NativeCommandRegistration kPlanGeometryCommandRegistrations[] = {
-    { "GetWallPlanOutlines", &MakeRegisteredNativeCommand<GetWallPlanOutlinesCommand>, false,
-      kGetWallPlanOutlinesInput, kGetWallPlanOutlinesOutput },
-    { "SetPlanAnchors", &MakeRegisteredNativeCommand<SetPlanAnchorsCommand>, false,
-      kSetPlanAnchorsInput, kSetPlanAnchorsOutput },
+    { "GetWallPlanOutlines", &MakeRegisteredNativeCommand<GetWallPlanOutlinesCommand>, false, kGetWallPlanOutlinesInput,
+      kGetWallPlanOutlinesOutput },
+    { "SetPlanAnchors", &MakeRegisteredNativeCommand<SetPlanAnchorsCommand>, false, kSetPlanAnchorsInput,
+      kSetPlanAnchorsOutput },
 };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetPlanGeometryCommandRegistrations ()
 {
     return MakeRegistrationView (kPlanGeometryCommandRegistrations);
 }
 
-}   // namespace geomsrv
+} // namespace geomsrv

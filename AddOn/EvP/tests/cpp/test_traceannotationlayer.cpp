@@ -59,6 +59,12 @@ TEST (TraceAnnotationLayer, BuildsArrowDimensionAngleAndProjectedLabels)
     EXPECT_TRUE (draw.labels[2].centered);
     EXPECT_FLOAT_EQ (draw.labels[2].fontSize, 18.0f);
     EXPECT_EQ (draw.labels[3].text, "anchor");
+    EXPECT_TRUE (draw.labels[0].fadeWhenOccluded);
+    EXPECT_TRUE (draw.labels[1].fadeWhenOccluded);
+    EXPECT_TRUE (draw.labels[2].fadeWhenOccluded);
+    EXPECT_TRUE (draw.labels[3].fadeWhenOccluded);
+    EXPECT_EQ (draw.labels[1].haloRgba, 0xFFFFFF48u);
+    EXPECT_FLOAT_EQ (draw.labels[1].haloWidthPixels, 0.25f);
 }
 
 TEST (TraceAnnotationLayer, AngleUsesSharedMinorArcRadialLabelFilledHeadsAndDarkRedStyle)
@@ -72,10 +78,10 @@ TEST (TraceAnnotationLayer, AngleUsesSharedMinorArcRadialLabelFilledHeadsAndDark
     ASSERT_EQ (draw.lines.size (), 32u);
     ASSERT_EQ (draw.triangles.size (), 2u);
     ASSERT_EQ (draw.labels.size (), 1u);
-    EXPECT_FLOAT_EQ (draw.lines.front ().from.x, 230.0f);
+    EXPECT_FLOAT_EQ (draw.lines.front ().from.x, 260.0f);
     EXPECT_FLOAT_EQ (draw.lines.front ().from.y, 150.0f);
     EXPECT_FLOAT_EQ (draw.lines.back ().to.x, 200.0f);
-    EXPECT_FLOAT_EQ (draw.lines.back ().to.y, 120.0f);
+    EXPECT_FLOAT_EQ (draw.lines.back ().to.y, 90.0f);
     EXPECT_GT (std::hypot (draw.labels[0].anchor.x - 200.0f,
                            draw.labels[0].anchor.y + draw.labels[0].fontSize * 0.5f - 150.0f),
                55.0f);
@@ -249,7 +255,7 @@ TEST (TraceAnnotationLayer, UsesRoleColourForLinesTrianglesAndText)
     EXPECT_EQ (draw.labels[0].rgba, 0x8B1E1EFFu);
 }
 
-TEST (TraceAnnotationLayer, DpiScalesFurnitureWithoutMovingProjectedGeometry)
+TEST (TraceAnnotationLayer, DpiDoesNotRescaleModelFurnitureAtFixedPixelResolution)
 {
     annotation::Frame frame;
     frame.primitives.push_back (
@@ -269,17 +275,19 @@ TEST (TraceAnnotationLayer, DpiScalesFurnitureWithoutMovingProjectedGeometry)
         const float baseY = (triangle.points[1].y + triangle.points[2].y) * 0.5f;
         return std::hypot (triangle.points[0].x - baseX, triangle.points[0].y - baseY);
     };
-    EXPECT_NEAR (baseDistance (two.triangles[0]), baseDistance (one.triangles[0]) * 2.0f, 1.0e-5f);
+    EXPECT_NEAR (baseDistance (two.triangles[0]), baseDistance (one.triangles[0]), 1.0e-5f);
 }
 
-TEST (TraceAnnotationLayer, DpiScalesAngleRadiusGapWidthFontAndTangentHeads)
+TEST (TraceAnnotationLayer, PixelResolutionScalesAngleFurnitureBeforeCap)
 {
     annotation::Frame frame;
     frame.primitives.push_back (
         Primitive (annotation::PrimitiveKind::Angle, { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 } }));
 
-    const auto one = archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f);
-    const auto two = archviz::BuildTraceAnnotations (frame, kIdentity, 800, 600, 2.0f);
+    const auto one =
+        archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f, false, {}, nullptr, 0.09f, 0.0f, 100.0f);
+    const auto two =
+        archviz::BuildTraceAnnotations (frame, kIdentity, 800, 600, 2.0f, false, {}, nullptr, 0.09f, 0.0f, 100.0f);
 
     ASSERT_EQ (one.lines.size (), 32u);
     ASSERT_EQ (two.lines.size (), 32u);
@@ -302,7 +310,7 @@ TEST (TraceAnnotationLayer, DpiScalesAngleRadiusGapWidthFontAndTangentHeads)
     }
 }
 
-TEST (TraceAnnotationLayer, ZoomKeepsMeasurementFurnitureAtScreenSize)
+TEST (TraceAnnotationLayer, ZoomScalesMeasurementFurnitureLikeModelGeometry)
 {
     annotation::Frame frame;
     auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.8, 0.0, 0.5 }, { 0.8, 0.0, 0.5 } });
@@ -312,8 +320,10 @@ TEST (TraceAnnotationLayer, ZoomKeepsMeasurementFurnitureAtScreenSize)
     std::copy (kIdentity, kIdentity + 16, zoomedOut);
     zoomedOut[0] = zoomedOut[5] = 0.5f;
 
-    const auto near = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
-    const auto far = archviz::BuildTraceAnnotations (frame, zoomedOut, 200, 100);
+    const auto near =
+        archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, nullptr, 0.18f, 0.0f, 100.0f);
+    const auto far =
+        archviz::BuildTraceAnnotations (frame, zoomedOut, 200, 100, 1.0f, false, {}, nullptr, 0.18f, 0.0f, 100.0f);
 
     ASSERT_GE (near.lines.size (), 2u);
     ASSERT_GE (far.lines.size (), 2u);
@@ -329,14 +339,14 @@ TEST (TraceAnnotationLayer, ZoomKeepsMeasurementFurnitureAtScreenSize)
         const float baseY = (triangle.points[1].y + triangle.points[2].y) * 0.5f;
         return std::hypot (triangle.points[0].x - baseX, triangle.points[0].y - baseY);
     };
-    EXPECT_FLOAT_EQ (lineLength (near.lines[0]), lineLength (far.lines[0]));
-    EXPECT_FLOAT_EQ (near.labels[0].fontSize, far.labels[0].fontSize);
-    EXPECT_FLOAT_EQ (arrowLength (near.triangles[0]), arrowLength (far.triangles[0]));
+    EXPECT_NEAR (lineLength (near.lines[0]), lineLength (far.lines[0]) * 2.0f, 1.0e-5f);
+    EXPECT_NEAR (near.labels[0].fontSize, far.labels[0].fontSize * 2.0f, 1.0e-5f);
+    EXPECT_NEAR (arrowLength (near.triangles[0]), arrowLength (far.triangles[0]) * 2.0f, 1.0e-5f);
     EXPECT_FALSE (near.labels[0].backgroundPanel);
     EXPECT_FALSE (far.labels[0].backgroundPanel);
 }
 
-TEST (TraceAnnotationLayer, OverlappingMeasurementLabelsUseBoundedCandidateAndLeader)
+TEST (TraceAnnotationLayer, OverlappingMeasurementLabelsUseBoundedCandidatesWithoutLeaderClutter)
 {
     annotation::Frame frame;
     const auto angle =
@@ -350,7 +360,157 @@ TEST (TraceAnnotationLayer, OverlappingMeasurementLabelsUseBoundedCandidateAndLe
     EXPECT_FALSE (draw.labels[1].backgroundPanel);
     EXPECT_TRUE (draw.labels[0].anchor.x != draw.labels[1].anchor.x ||
                  draw.labels[0].anchor.y != draw.labels[1].anchor.y);
-    EXPECT_GE (draw.lines.size (), 65u);
+    EXPECT_EQ (draw.lines.size (), 64u);
+}
+
+TEST (TraceAnnotationLayer, SmallLabelRelocationDoesNotAddLeaderNoise)
+{
+    annotation::Frame frame;
+    auto label = Primitive (annotation::PrimitiveKind::Label, { { 0.0, 0.0, 0.5 } });
+    label.text = "x";
+    frame.primitives = { label, label };
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
+
+    ASSERT_EQ (draw.labels.size (), 2u);
+    EXPECT_NE (draw.labels[0].anchor.y, draw.labels[1].anchor.y);
+    EXPECT_TRUE (draw.lines.empty ());
+}
+
+TEST (TraceAnnotationLayer, ModelTextHeightScalesAllRetainedLabels)
+{
+    annotation::Frame frame;
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    dimension.text = "1.000";
+    auto label = Primitive (annotation::PrimitiveKind::Label, { { 0.0, 0.5, 0.5 } });
+    label.text = "note";
+    frame.primitives = { dimension, label };
+
+    const auto draw =
+        archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f, false, {}, nullptr, 0.13f, 0.0f, 100.0f);
+
+    ASSERT_EQ (draw.labels.size (), 2u);
+    EXPECT_NEAR (draw.labels[0].fontSize, 26.0f, 1.0e-3f);
+    EXPECT_NEAR (draw.labels[1].fontSize, 26.0f, 1.0e-3f);
+}
+
+TEST (TraceAnnotationLayer, ModelTextScaleIsInvariantToCameraRoll)
+{
+    annotation::Frame frame;
+    auto label = Primitive (annotation::PrimitiveKind::Label, { { 0.0, 0.0, 0.5 } });
+    label.text = "note";
+    frame.primitives.push_back (label);
+    constexpr float cosine = 0.7071067811865475f;
+    float rolled[16];
+    std::copy (kIdentity, kIdentity + 16, rolled);
+    rolled[0] = cosine;
+    rolled[1] = cosine;
+    rolled[4] = -cosine;
+    rolled[5] = cosine;
+
+    const auto unrolled = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
+    const auto rotated = archviz::BuildTraceAnnotations (frame, rolled, 200, 100);
+
+    ASSERT_EQ (unrolled.labels.size (), 1u);
+    ASSERT_EQ (rotated.labels.size (), 1u);
+    EXPECT_NEAR (unrolled.labels[0].fontSize, rotated.labels[0].fontSize, 1.0e-3f);
+}
+
+TEST (TraceAnnotationLayer, HideThresholdCullsCompleteAnnotationsButKeepsContextGeometry)
+{
+    annotation::Frame frame;
+    auto context = Primitive (annotation::PrimitiveKind::Polyline, { { -0.8, -0.8, 0.5 }, { 0.8, -0.8, 0.5 } });
+    context.role = annotation::SemanticRole::Context;
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    dimension.text = "dimension";
+    auto angle =
+        Primitive (annotation::PrimitiveKind::Angle, { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 } });
+    auto point = Primitive (annotation::PrimitiveKind::Point, { { 0.0, 0.0, 0.5 } });
+    point.text = "point";
+    auto label = Primitive (annotation::PrimitiveKind::Label, { { 0.0, 0.0, 0.5 } });
+    label.text = "label";
+    auto arrow = Primitive (annotation::PrimitiveKind::Arrow, { { -0.5, 0.5, 0.5 }, { 0.5, 0.5, 0.5 } });
+    arrow.text = "arrow";
+    frame.primitives = { context, dimension, angle, point, label, arrow };
+    float zoomedOut[16];
+    std::copy (kIdentity, kIdentity + 16, zoomedOut);
+    zoomedOut[0] = zoomedOut[5] = 0.5f;
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, zoomedOut, 200, 100);
+
+    ASSERT_EQ (draw.lines.size (), 1u);
+    EXPECT_FALSE (draw.lines[0].collisionObstacle);
+    EXPECT_TRUE (draw.triangles.empty ());
+    EXPECT_TRUE (draw.labels.empty ());
+}
+
+TEST (TraceAnnotationLayer, NearCapLimitsTextLinesHalosAndArrowheadsTogether)
+{
+    annotation::Frame frame;
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    dimension.text = "1 m";
+    frame.primitives.push_back (dimension);
+    float zoomedIn[16];
+    std::copy (kIdentity, kIdentity + 16, zoomedIn);
+    zoomedIn[0] = zoomedIn[5] = 4.0f;
+
+    const auto draw =
+        archviz::BuildTraceAnnotations (frame, zoomedIn, 200, 100, 1.0f, false, {}, nullptr, 0.18f, 0.0f, 24.0f);
+
+    ASSERT_EQ (draw.labels.size (), 1u);
+    ASSERT_EQ (draw.triangles.size (), 2u);
+    ASSERT_GE (draw.lines.size (), 2u);
+    EXPECT_FLOAT_EQ (draw.labels[0].fontSize, 24.0f);
+    EXPECT_NEAR (draw.labels[0].haloWidthPixels, 1.0f / 3.0f, 1.0e-5f);
+    EXPECT_NEAR (draw.lines[0].width, 8.0f / 3.0f, 1.0e-5f);
+    const float baseX = (draw.triangles[0].points[1].x + draw.triangles[0].points[2].x) * 0.5f;
+    const float baseY = (draw.triangles[0].points[1].y + draw.triangles[0].points[2].y) * 0.5f;
+    EXPECT_NEAR (std::hypot (draw.triangles[0].points[0].x - baseX, draw.triangles[0].points[0].y - baseY),
+                 40.0f / 3.0f, 1.0e-5f);
+}
+
+TEST (TraceAnnotationLayer, KeepsPreviousValidCandidateAcrossCameraFrames)
+{
+    annotation::Frame frame;
+    auto nearLabel = Primitive (annotation::PrimitiveKind::Label, { { 0.0, 0.0, 0.2 } });
+    nearLabel.text = "x";
+    auto farLabel = Primitive (annotation::PrimitiveKind::Label, { { 0.0, 0.0, 0.8 } });
+    farLabel.text = "x";
+    frame.primitives = { nearLabel, farLabel };
+    archviz::AnnotationPlacementHistory history;
+
+    const auto overlapping = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history);
+    ASSERT_EQ (overlapping.labels.size (), 2u);
+    ASSERT_NE (overlapping.labels[0].anchor.y, overlapping.labels[1].anchor.y);
+    ASSERT_NE (history.candidateByPrimitive.find (1u), history.candidateByPrimitive.end ());
+    const uint8_t previousCandidate = history.candidateByPrimitive.at (1u);
+
+    float separatedProjection[16];
+    std::copy (kIdentity, kIdentity + 16, separatedProjection);
+    separatedProjection[8] = 0.5f;
+    const auto separated =
+        archviz::BuildTraceAnnotations (frame, separatedProjection, 200, 100, 1.0f, false, {}, &history);
+
+    ASSERT_EQ (separated.labels.size (), 2u);
+    EXPECT_EQ (history.candidateByPrimitive.at (1u), previousCandidate);
+}
+
+TEST (TraceAnnotationLayer, ContextWireframeDoesNotRepelDimensionText)
+{
+    annotation::Frame frame;
+    auto context = Primitive (annotation::PrimitiveKind::Polyline, { { -0.8, -0.28, 0.5 }, { 0.8, -0.28, 0.5 } });
+    context.role = annotation::SemanticRole::Context;
+    frame.primitives.push_back (context);
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    dimension.text = "x";
+    frame.primitives.push_back (dimension);
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
+
+    ASSERT_EQ (draw.labels.size (), 1u);
+    EXPECT_FLOAT_EQ (draw.labels[0].anchor.x, 100.0f);
+    EXPECT_FLOAT_EQ (draw.labels[0].anchor.y, 55.0f);
+    EXPECT_FALSE (draw.lines[0].collisionObstacle);
 }
 
 TEST (TraceAnnotationLayer, FitsOnlyTheFramePassedToDiligentProjection)

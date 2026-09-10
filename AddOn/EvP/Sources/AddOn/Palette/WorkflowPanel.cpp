@@ -29,6 +29,10 @@ std::string ToStdString (const GS::UniString& text)
 
 } // namespace
 
+// The field's width when a slider shares the row with it. Wide enough for a
+// number and a sign, narrow enough to leave the bar something to drag.
+constexpr short SliderFieldWidth = 62;
+
 DG::Item* WorkflowControl::Widget () const
 {
     if (checkBox)
@@ -104,6 +108,11 @@ const std::string& WorkflowPanel::WorkflowName () const
     return model.name;
 }
 
+const std::string& WorkflowPanel::WorkflowDescription () const
+{
+    return model.description;
+}
+
 void WorkflowPanel::Rebuild (const std::string& schemaJson)
 {
     Clear ();
@@ -130,7 +139,9 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
             continue;
         }
 
-        if (!row.domainHint.empty ()) {
+        // Not on a slider row: the bar's two ends already say the domain, and a
+        // caption repeating it would only be taking width off the bar.
+        if (!row.domainHint.empty () && !UsesSlider (row)) {
             control.domainHint = std::make_unique<DG::LeftText> (panel, seed);
             control.domainHint->SetText (ToUniString (row.domainHint));
         }
@@ -214,6 +225,23 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
             }
         }
 
+        // The slider, for a row whose author declared both ends. Built AFTER
+        // the field so it can be set from what the field ended up holding --
+        // which is the coerced value, not the raw text.
+        if (UsesSlider (row)) {
+            auto bar = std::make_unique<DG::ScrollBar> (panel, seed, DG::ScrollBar::Normal, DG::ScrollBar::Focusable,
+                                                        DG::ScrollBar::NoAutoScroll);
+            bar->SetMin (0);
+            bar->SetMax (WorkflowSliderSteps);
+            // A page is a twentieth of the domain: clicking the trough should
+            // move a useful amount, and a page of one step makes the trough
+            // behave like the arrows.
+            bar->SetPageSize (WorkflowSliderSteps / 20);
+            bar->SetValue (SliderPositionFor (row, row.initialValue));
+            bar->Attach (observer);
+            control.slider = std::move (bar);
+        }
+
         // An unsupported input is shown, captioned with the type it asks for,
         // and locked. A row that vanished would look like a definition with
         // fewer inputs.
@@ -236,8 +264,26 @@ void WorkflowPanel::ShowControls ()
             control.label->Show ();
         if (control.domainHint)
             control.domainHint->Show ();
+        if (control.slider)
+            control.slider->Show ();
         if (DG::Item* widget = control.Widget ())
             widget->Show ();
+    }
+}
+
+void WorkflowPanel::HideControls ()
+{
+    for (WorkflowControl& control : controls) {
+        if (control.label && control.label->IsVisible ())
+            control.label->Hide ();
+        if (control.domainHint && control.domainHint->IsVisible ())
+            control.domainHint->Hide ();
+        if (control.slider && control.slider->IsVisible ())
+            control.slider->Hide ();
+        if (DG::Item* widget = control.Widget ()) {
+            if (widget->IsVisible ())
+                widget->Hide ();
+        }
     }
 }
 
@@ -264,6 +310,21 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
         clip.Place (control.label.get (), DG::Rect (left, y, hintLeft, (short) (y + RowHeight)));
         if (control.domainHint)
             clip.Place (control.domainHint.get (), DG::Rect (hintLeft, y, inputLeft, (short) (y + RowHeight)));
+
+        if (control.slider) {
+            // The bar takes the domain column AND the field's own width, less
+            // the narrow field it writes into: a slider the width of a spinner
+            // would be worse than the spinner. The domain hint is null on these
+            // rows -- the two ends of the bar say the same thing.
+            const short fieldLeft = (short) (right - SliderFieldWidth);
+            clip.Place (control.slider.get (),
+                        DG::Rect (hintLeft, y, (short) (fieldLeft - 4), (short) (y + RowHeight)));
+            if (DG::Item* widget = control.Widget ())
+                clip.Place (widget, DG::Rect (fieldLeft, y, right, (short) (y + RowHeight)));
+            y = (short) (y + RowHeight + RowGap);
+            continue;
+        }
+
         if (DG::Item* widget = control.Widget ())
             clip.Place (widget, DG::Rect (inputLeft, y, right, (short) (y + RowHeight)));
 
@@ -304,13 +365,34 @@ void WorkflowPanel::MarkRefused (const std::vector<bool>& refused)
     }
 }
 
+bool WorkflowPanel::FollowSlider (const DG::Item* item)
+{
+    if (item == nullptr)
+        return false;
+
+    for (WorkflowControl& control : controls) {
+        if (control.slider.get () != item)
+            continue;
+
+        const std::string value = SliderValueAt (control.row, (int) control.slider->GetValue ());
+        if (control.realEdit)
+            control.realEdit->SetValue (std::atof (value.c_str ()));
+        else if (control.intEdit)
+            control.intEdit->SetValue ((Int32) std::atol (value.c_str ()));
+        return true;
+    }
+
+    return false;
+}
+
 bool WorkflowPanel::OwnsItem (const DG::Item* item) const
 {
     if (item == nullptr)
         return false;
 
     for (const WorkflowControl& control : controls) {
-        if (control.Widget () == item || control.label.get () == item || control.domainHint.get () == item)
+        if (control.Widget () == item || control.label.get () == item || control.domainHint.get () == item ||
+            control.slider.get () == item)
             return true;
     }
     return false;

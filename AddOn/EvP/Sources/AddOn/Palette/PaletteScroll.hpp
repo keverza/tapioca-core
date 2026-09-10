@@ -33,7 +33,7 @@ namespace evp {
 // asks it what moved. The scroll bar is attached to the shell, which is the sole
 // registered DG observer, like every other item a sub-object builds.
 class PaletteScroll {
-public:
+  public:
     PaletteScroll (const DG::Panel& panel, DG::ScrollBarObserver& observer);
 
     // Builds the bar. Called from the shell's constructor BODY, after
@@ -56,16 +56,30 @@ public:
 
     // Put `item` at `virtualRect`: offset it, and show or hide it. Null-tolerant so
     // a caller with a unique_ptr member does not need its own guard.
+    // Where the viewport ends, in virtual coordinates. A band that fills the
+    // rest of the column needs it and cannot derive it: the offset is this
+    // object's and the panel height is the shell's.
+    short ViewBottom () const
+    {
+        return viewBottom;
+    }
+
     void Place (DG::Item* item, const DG::Rect& virtualRect) const;
     // As Place, but the rect is CLIPPED to the viewport instead of the item being
     // hidden — for an item that carries its own scrollbar and stays usable at any
     // height. Hidden only once less than MinClampedHeight of it would be left.
     void PlaceClamped (DG::Item* item, const DG::Rect& virtualRect) const;
 
-    short Offset () const { return offset; }
+    short Offset () const
+    {
+        return offset;
+    }
     // A DG event reports a dialog-relative y; splitter maths works in the virtual
     // coordinates Layout placed things in, so it has to be converted back.
-    short ToVirtual (short dialogY) const { return (short) (dialogY + offset); }
+    short ToVirtual (short dialogY) const
+    {
+        return (short) (dialogY + offset);
+    }
 
     bool IsSource (const DG::Item* item) const;
     // The bar was dragged — adopt its value. True when the offset moved.
@@ -76,20 +90,20 @@ public:
     // Below this, a clamped item is not worth showing — it would be a sliver.
     static constexpr short MinClampedHeight = 48;
 
-private:
+  private:
     short MaxOffset () const;
     short ClampOffset (short value) const;
 
-    const DG::Panel&               panel;
-    DG::ScrollBarObserver&         observer;
+    const DG::Panel& panel;
+    DG::ScrollBarObserver& observer;
     std::unique_ptr<DG::ScrollBar> bar;
 
-    short offset        = 0;
-    short viewTop       = 0;
-    short viewBottom    = 0;
+    short offset = 0;
+    short viewTop = 0;
+    short viewBottom = 0;
     short contentHeight = 0;
 };
 
-}   // namespace evp
+} // namespace evp
 
 #endif

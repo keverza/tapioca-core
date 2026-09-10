@@ -85,6 +85,14 @@ class Mesh:
         """(m,) int32 material index per triangle. Read-only view."""
         return self._view("triMaterial")
 
+    def triangle_wire_edges(self):
+        """(m,) uint8 visible-edge mask per triangle. Read-only view.
+
+        Bits follow triangle-local order: bit 0 is v1-v2, bit 1 is v2-v0,
+        and bit 2 is v0-v1. Internal triangulation edges are unset.
+        """
+        return self._view("triWireEdges")
+
     def __repr__(self):
         return "<evp.Mesh %s type=%d verts=%d tris=%d>" % (
             self.guid, self.elem_type, self.vertex_count, self.triangle_count

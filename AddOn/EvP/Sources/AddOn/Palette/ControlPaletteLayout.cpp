@@ -11,12 +11,11 @@
 // because "where does everything sit" is exactly the question a reader opens
 // this file to answer.
 //
-// The command combo's drop arrow rides along at the bottom: it is a drawn cell
-// rather than a button, so DG delivers its press and its paint as user-item
-// events, and both are band geometry — the press is a reflow of this very
-// sequence, the paint is twenty pixels of the band's own row. The shell's line
-// budget only ever goes down, so they land here rather than beside the button
-// routing they replaced.
+// The command combo's drop-arrow events USED to ride along at the bottom of this
+// file. They left for ControlPaletteUserItems.cpp when the Grasshopper PAGE
+// needed one line here to take the layout over: the shell's budget only ever
+// goes down, so a new line is paid for by moving something out, and event
+// routing was never band geometry to begin with.
 
 #include "ControlPalette.hpp"
 #include "Palette/PaletteMetrics.hpp" // Margin / BottomMargin / ActionButtonHeight / …
@@ -43,6 +42,7 @@ void ControlPalette::Layout ()
     // The server's address, on its own line above the row that starts it.
     y += serverBand.PlaceAt (y, Margin, right);
     y += PlaceDynamoStatus (y, Margin, right);
+    y += PlaceWorkflowStatusLine (y, Margin, right); // see ControlPalette.hpp for why it is here and not in the band
 
     // ---- action row: Start/Stop server | Rescan | Run, all one line -----
     // Three equal thirds so they stay balanced at any panel width.
@@ -136,7 +136,7 @@ void ControlPalette::Layout ()
     // rows, required, section rule, optional — and reports the height used.
     y += params.PlaceAt (y, Margin, right, scroll);
     // 0 while no worker is running; see ControlPaletteGrasshopper.cpp.
-    y += PlaceWorkflowBand (y, Margin, right, scroll);
+    y += PlaceWorkflowBand (y, Margin, right, scroll, scroll.ViewBottom ());
     // The action bar sits directly under the results it acts on. It reports 0
     // when the command declares no actions, so it costs the layout nothing.
     // ABOVE the results rather than below: the results table is the tallest
@@ -179,81 +179,4 @@ void ControlPalette::Layout ()
     // does not always invalidate the area a control VACATED — so text below a shrunk
     // table could keep its old position on screen until the next unrelated redraw.
     RedrawItems ();
-}
-
-// Opening or closing the command combo reflows the column, including rows the
-// list vacates and DG does not redraw itself.
-void ControlPalette::UserItemMouseDown (const DG::UserItemMouseDownEvent& ev, bool* processed)
-{
-    if (preview.HandleUserItemMouseDown (ev)) {
-        if (processed != nullptr)
-            *processed = true;
-        return;
-    }
-    if (!commandsPanel.HandleUserItemMouseDown (ev))
-        return;
-
-    Layout ();
-    Redraw ();
-    if (processed != nullptr)
-        *processed = true;
-}
-
-void ControlPalette::UserItemMouseUp (const DG::UserItemMouseUpEvent& ev, bool* processed)
-{
-    if (preview.HandleUserItemMouseUp (ev) && processed != nullptr)
-        *processed = true;
-}
-
-void ControlPalette::UserItemDoubleClicked (const DG::UserItemDoubleClickEvent& ev)
-{
-    preview.HandleUserItemDoubleClicked (ev);
-}
-
-// The preview canvas owns its wheel; elsewhere the wheel scrolls the column.
-void ControlPalette::PanelWheelTracked (const DG::PanelWheelTrackEvent& ev, bool* processed)
-{
-    if (preview.HandleWheelTracked (ev)) {
-        if (processed != nullptr)
-            *processed = true;
-        return;
-    }
-    const DG::Item* const over = ev.GetItem ();
-    if (commandsPanel.IsSource (over) || results.IsSource (over) || !scroll.Wheel (ev.GetYTrackValue ()))
-        return;
-    Layout ();
-    if (processed != nullptr)
-        *processed = true;
-}
-
-// ...and the same cell's paint: the field's background colour, then the chevron.
-// The band draws it; this only routes the event.
-void ControlPalette::UserItemUpdate (const DG::UserItemUpdateEvent& ev)
-{
-    if (!preview.HandleUserItemUpdate (ev))
-        commandsPanel.HandleUserItemUpdate (ev);
-}
-
-void ControlPalette::UserItemMouseEntered (const DG::UserItemMouseEnteredEvent& ev)
-{
-    if (!preview.HandleUserItemMouseEntered (ev))
-        commandsPanel.HandleUserItemHover (ev.GetSource (), true);
-}
-
-// The preview's business alone: the command combo's arrow highlights on entering
-// and leaving, which says everything a cell that size has to say.
-void ControlPalette::UserItemMouseMoved (const DG::UserItemMouseMoveEvent& ev, bool* /*noDefaultCursor*/)
-{
-    preview.HandleUserItemMouseMoved (ev);
-}
-
-void ControlPalette::UserItemMouseExited (const DG::UserItemMouseExitedEvent& ev)
-{
-    if (!preview.HandleUserItemMouseExited (ev))
-        commandsPanel.HandleUserItemHover (ev.GetSource (), false);
-}
-
-void ControlPalette::ItemResolutionFactorChanged (const DG::ItemResolutionFactorChangeEvent& ev)
-{
-    commandsPanel.HandleResolutionChanged (ev.GetSource ());
 }

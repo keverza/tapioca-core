@@ -86,6 +86,7 @@ set (EVP_PALETTE_SOURCES
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamLayout.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/InputModel.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/WorkflowRows.cpp"
+    "${EVP_ROOT}/Sources/AddOn/Palette/WorkflowLog.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/ParamVisibility.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPlanCamera.cpp"
     "${EVP_ROOT}/Sources/AddOn/Palette/PreviewPanelState.cpp")
@@ -555,6 +556,7 @@ set (EVP_TEST_SOURCES
     test_ghworkflowcontroller.cpp
     test_ghinputmodel.cpp
     test_workflowrows.cpp
+    test_workflowlog.cpp
     test_rhinocomputeprotocol.cpp
     test_ghpreviewprotocol.cpp
     test_ghpreviewcache.cpp

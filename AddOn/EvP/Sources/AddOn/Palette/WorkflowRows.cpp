@@ -8,6 +8,71 @@ namespace evp {
 // makes a user doubt both.
 using evp::FormatInputNumber;
 
+bool UsesSlider (const WorkflowRow& row)
+{
+    if (row.isHeading || !row.enabled)
+        return false;
+    if (row.kind != InputKind::Number && row.kind != InputKind::Integer)
+        return false;
+    // Both ends, and a domain with width. A min equal to its max is a constant,
+    // and a slider whose two ends are the same place is a decoration.
+    return row.hasMinimum && row.hasMaximum && row.maximum > row.minimum;
+}
+
+int SliderPositionFor (const WorkflowRow& row, const std::string& value)
+{
+    if (!UsesSlider (row))
+        return 0;
+
+    // ⚠️ PARSED WITHOUT THE BOUNDS, WHICH IS THE OPPOSITE OF WHAT THE FIELD
+    // DOES, AND BOTH ARE RIGHT. Coerce REFUSES a value outside the domain --
+    // that refusal is what shows the user a definition saved with a number its
+    // author later narrowed out. But a refusal has no slider position, and
+    // parking at the minimum would put a too-LARGE value at the bottom of the
+    // bar. So the number is read on its own and then clamped to the end it is
+    // past: the bar says "beyond here", the field says what it really is.
+    InputControl lenient = ControlOf (row);
+    lenient.hasMinimum = false;
+    lenient.hasMaximum = false;
+
+    const CoerceResult parsed = Coerce (lenient, value);
+    if (!parsed.ok)
+        return 0;
+
+    const double number = std::atof (parsed.value.c_str ());
+    const double span = row.maximum - row.minimum;
+    const double fraction = (number - row.minimum) / span;
+
+    // Clamped rather than refused: a definition saved with a value outside
+    // bounds its author narrowed afterwards is the ordinary cause, and the field
+    // beside the slider still shows -- and refuses -- the real number. The
+    // slider parks at the end it is past.
+    if (fraction <= 0.0)
+        return 0;
+    if (fraction >= 1.0)
+        return WorkflowSliderSteps;
+    return (int) (fraction * WorkflowSliderSteps + 0.5);
+}
+
+std::string SliderValueAt (const WorkflowRow& row, int position)
+{
+    if (!UsesSlider (row))
+        return std::string ();
+
+    const int clamped = position < 0 ? 0 : (position > WorkflowSliderSteps ? WorkflowSliderSteps : position);
+    const double span = row.maximum - row.minimum;
+    double number = row.minimum + span * ((double) clamped / (double) WorkflowSliderSteps);
+
+    if (row.kind == InputKind::Integer) {
+        // Rounded, not truncated: half a step short of an integer is the value
+        // the user was aiming at, and truncation would make the top of the
+        // domain unreachable.
+        number = (double) (long long) (number < 0.0 ? number - 0.5 : number + 0.5);
+    }
+
+    return FormatInputNumber (number);
+}
+
 InputControl ControlOf (const WorkflowRow& row)
 {
     InputControl control;

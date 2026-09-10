@@ -59,6 +59,10 @@ struct WorkflowControl {
     std::unique_ptr<DG::RealEdit> realEdit; // Number
     std::unique_ptr<DG::IntEdit> intEdit;   // Integer
 
+    // A bounded number's slider, beside its field rather than instead of it.
+    // Null on every other row. The FIELD is the value; this only writes into it.
+    std::unique_ptr<DG::ScrollBar> slider;
+
     // The live item, whichever kind it turned out to be, or null for a heading.
     DG::Item* Widget () const;
 
@@ -86,6 +90,18 @@ class WorkflowPanel {
     void Rebuild (const std::string& schemaJson);
 
     void ShowControls ();
+
+    // Takes every generated row off the panel, KEEPING them and their values.
+    //
+    // ⚠️ THIS IS NOT Clear, AND THE DIFFERENCE IS THE BUG IT FIXES. The rows
+    // are placed through the shell's virtual scroll, which hides whatever falls
+    // outside the viewport -- but only for items it is GIVEN. Selecting another
+    // command stops the band being placed at all, so nothing was ever handed to
+    // the scroll and every row kept its pixels: a Grasshopper input sitting on
+    // top of a Python command's parameters. Clear would have worked and would
+    // also have thrown away the schema and everything typed into it, so coming
+    // back to the command would have shown an empty panel until the next solve.
+    void HideControls ();
     void Clear ();
 
     // Position the block in the band starting at virtual `top`, returning the
@@ -109,6 +125,10 @@ class WorkflowPanel {
 
     const std::string& WorkflowName () const;
 
+    // What the definition says about itself, for the description band. Empty
+    // when it carries no Tapioca Description component.
+    const std::string& WorkflowDescription () const;
+
     // Marks the rows a snapshot refused, so a failed read-back shows WHERE. The
     // vector is the snapshot's own `refused`, parallel to the rows.
     void MarkRefused (const std::vector<bool>& refused);
@@ -117,6 +137,15 @@ class WorkflowPanel {
     // controls, so the shell's handler can stop there. Sub-objects never Attach
     // themselves -- the shell is the observer these were attached to.
     bool OwnsItem (const DG::Item* item) const;
+
+    // A slider moved: writes its position into the field beside it and answers
+    // true. False means the bar was not one of these -- the shell's own scroll,
+    // or the preview band's opacity.
+    //
+    // ⚠️ IT DOES NOT SOLVE, AND NOTHING HERE DOES. Solve is a button. A slider
+    // that solved on every position would be the per-keystroke solve again,
+    // sixty times a second instead of five times a word.
+    bool FollowSlider (const DG::Item* item);
 
   private:
     const DG::Panel& panel;

@@ -30,7 +30,16 @@
 
 namespace evp {
 
-// One thing the panel draws, in the order it is drawn.
+// How many positions a slider has between its two ends.
+//
+// ⚠️ THE SLIDER IS NOT THE VALUE, IT IS A COARSE WAY TO REACH ONE. DG's bar
+// controls carry an Int32, so a 0..1 domain has to be quantised to something --
+// and a thousand steps is finer than the pixels a palette-width bar has, so the
+// quantisation is invisible while the number beside it stays exact. The EDIT is
+// authoritative: anything the slider cannot express is still typeable.
+constexpr int WorkflowSliderSteps = 1000;
+
+// One row of the workflow band
 struct WorkflowRow {
     // A heading carries only `label` and is not a control. Rows and headings are
     // one list rather than two, because their ORDER is the thing being
@@ -87,6 +96,25 @@ struct WorkflowRow {
 
     bool required = false;
 };
+
+// Whether this row is drawn with a slider beside its field.
+//
+// A bounded number is a RANGE, and a range with both ends known is the one case
+// a slider is better at than a field: the author has already said what the
+// sensible values are, so dragging cannot leave them. An unbounded number gets
+// no slider, because a slider with an invented end would be inventing the
+// author's intent.
+bool UsesSlider (const WorkflowRow& row);
+
+// The slider position that stands for `value`, clamped into the row's domain.
+// A value that does not parse answers with the minimum's position rather than
+// with nothing: a slider has to be somewhere.
+int SliderPositionFor (const WorkflowRow& row, const std::string& value);
+
+// The value at a slider position, spelled as the field would hold it -- an
+// integer row lands on whole numbers, and both go through FormatInputNumber so
+// the text has exactly one spelling per number.
+std::string SliderValueAt (const WorkflowRow& row, int position);
 
 // Turns one parsed schema into the panel's row list.
 //

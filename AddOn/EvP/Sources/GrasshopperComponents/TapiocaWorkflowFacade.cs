@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 
 using Grasshopper.Kernel;
@@ -42,6 +43,189 @@ namespace Tapioca.Grasshopper
     /// </remarks>
     public static class TapiocaWorkflowFacade
     {
+        /// <summary>
+        /// What the last <see cref="ApplyInputs"/> did to each input, by id.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ STATE ON A STATIC, WHICH IS ALLOWED HERE FOR EXACTLY ONE REASON:
+        /// both methods run on the worker's single engine thread, one
+        /// immediately after the other, on one document. It is a hand-off
+        /// between two halves of one operation, not a cache -- ApplyInputs
+        /// clears it and DescribeInputs reads it. The alternative was widening
+        /// the reflected signature of one of them, and every signature here is
+        /// a breaking change for the worker.
+        /// </remarks>
+        private static readonly Dictionary<string, string> s_outcome =
+            new Dictionary<string, string> (StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Writes one value into one contextual parameter, the way compute does.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ THE TREE PATH IS THE ONE THAT WORKS, AND THE INTERFACE IS THE ONE
+        /// THAT DOES NOT. Measured in Archicad on BoxToMesh.gh and
+        /// GetWidthMultiplication.gh: a stock Grasshopper Player "Get Number"
+        /// (class GetNumberParameter) given a value through
+        /// <c>IGH_ContextualParameter.AssignContextualData</c> reported
+        /// afterwards, through DescribeInputs, "sources=0 volatile=0
+        /// persistent=n/a holds=(nothing)" -- the value went nowhere, the solve
+        /// succeeded on the definition's own defaults, and nothing said so.
+        /// </para>
+        /// <para>
+        /// TWO reasons, and this fixes both. The parameter is not a
+        /// <c>GH_PersistentParam&lt;T&gt;</c> at all (hence "persistent=n/a"),
+        /// so there was no store for the interface method to fill; and it wants
+        /// its own goo type, not the panel's text. compute never calls the
+        /// interface either: it reflects a method literally named
+        /// <c>AssignContextualDataTree</c> and hands it a
+        /// <c>Grasshopper.DataTree&lt;T&gt;</c> whose T is chosen from the
+        /// parameter's own TypeName -- GrasshopperDefinition.cs,
+        /// BuildAndAssignContextualTree. That is the path Hops has always used,
+        /// and it is why compute drives these components and we did not.
+        /// </para>
+        /// <para>
+        /// The interface call remains as the FALLBACK, with a typed value rather
+        /// than text: a parameter that declares no AssignContextualDataTree is
+        /// skipped in silence by compute, and silence is the one outcome this
+        /// whole trace exists to prevent.
+        /// </para>
+        /// </remarks>
+        private static string Assign (IGH_Param param, IGH_ContextualParameter contextual, string text)
+        {
+            if (param == null)
+            {
+                contextual.AssignContextualData (new object[] { text });
+                return "assigned by interface (no parameter behind it)";
+            }
+
+            // The goo type the parameter's own TypeName asks for. The same
+            // switch compute makes, on the same strings.
+            switch (param.TypeName)
+            {
+                case "Number":
+                {
+                    double number;
+                    if (!double.TryParse (text, NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+                    {
+                        return "REFUSED: '" + text + "' is not a number";
+                    }
+
+                    return AssignTree (param, contextual, new GH_Number (number), number);
+                }
+
+                case "Integer":
+                {
+                    int whole;
+                    if (!int.TryParse (text, NumberStyles.Integer, CultureInfo.InvariantCulture, out whole))
+                    {
+                        double loose;
+                        if (!double.TryParse (text, NumberStyles.Float, CultureInfo.InvariantCulture, out loose))
+                        {
+                            return "REFUSED: '" + text + "' is not a whole number";
+                        }
+
+                        whole = (int) Math.Round (loose);
+                    }
+
+                    return AssignTree (param, contextual, new GH_Integer (whole), whole);
+                }
+
+                case "Boolean":
+                {
+                    // The panel's own spelling, which FormatInputNumber and
+                    // WorkflowRows both settle on: "true"/"false", lower case.
+                    bool flag = string.Equals (text, "true", StringComparison.OrdinalIgnoreCase)
+                        || text == "1";
+                    return AssignTree (param, contextual, new GH_Boolean (flag), flag);
+                }
+
+                case "Text":
+                    return AssignTree (param, contextual, new GH_String (text), text);
+
+                default:
+                    // A type this side has no goo for -- Point, Plane, Geometry.
+                    // The panel already draws these rows disabled and captioned
+                    // with the type; saying it again here is what makes the
+                    // transcript agree with the panel.
+                    return "not assigned: " + (param.TypeName ?? "unknown") + " inputs are not supported yet";
+            }
+        }
+
+        /// <summary>
+        /// Reflects AssignContextualDataTree, falling back to the interface.
+        /// </summary>
+        private static string AssignTree<T> (
+            IGH_Param param, IGH_ContextualParameter contextual, T goo, object plain) where T : IGH_Goo
+        {
+            try
+            {
+                global::Grasshopper.DataTree<T> tree = new global::Grasshopper.DataTree<T> ();
+                tree.Add (goo, new GH_Path (0));
+
+                MethodInfo method = param.GetType ().GetMethod ("AssignContextualDataTree");
+                if (method != null)
+                {
+                    method.Invoke (param, new object[] { tree });
+                    return "assigned " + plain + " by data tree";
+                }
+            }
+            catch (Exception exception)
+            {
+                return "REFUSED by data tree: " + Describe (exception);
+            }
+
+            try
+            {
+                // Typed, not text: the interface hands the value straight to a
+                // converter that has no reason to accept a string for a number.
+                contextual.AssignContextualData (new object[] { plain });
+                return "assigned " + plain + " by interface (no data-tree method)";
+            }
+            catch (Exception exception)
+            {
+                return "REFUSED by interface: " + Describe (exception);
+            }
+        }
+
+        /// <summary>
+        /// Empties a parameter so an assignment REPLACES rather than adds to it.
+        /// </summary>
+        /// <remarks>
+        /// Both stores, because a contextual parameter may use either: volatile
+        /// data through <c>ClearData</c>, and persistent data through the
+        /// <c>PersistentData</c> property, which is declared on the generic
+        /// <c>GH_PersistentParam&lt;T&gt;</c> and so cannot be named here without
+        /// knowing T. <c>IGH_Structure</c> is what the property exposes and it is
+        /// enough to clear.
+        ///
+        /// Failure is silent on purpose: a parameter that has neither store is
+        /// one this could not have corrupted, and an exception here would fail a
+        /// whole snapshot over an input that needed no clearing.
+        /// </remarks>
+        private static void Clear (IGH_Param param)
+        {
+            if (param == null)
+            {
+                return;
+            }
+
+            try
+            {
+                param.ClearData ();
+
+                System.Reflection.PropertyInfo info = param.GetType ().GetProperty ("PersistentData");
+                IGH_Structure persistent = info == null ? null : info.GetValue (param, null) as IGH_Structure;
+                if (persistent != null)
+                {
+                    persistent.Clear ();
+                }
+            }
+            catch (Exception)
+            {
+            }
+        }
+
         /// <summary>How many quadruple fields <see cref="CollectOutputs"/> emits.</summary>
         private const int OutputStride = 4;
 
@@ -62,9 +246,16 @@ namespace Tapioca.Grasshopper
             {
                 List<string> errors = new List<string> ();
                 IList<TapiocaInputSchema.Entry> entries = TapiocaInputSchema.Discover (document, errors);
+                // The description is discovered with the inputs and reported
+                // through the same errors array, so an authoring mistake in it
+                // (two Description components) reaches the panel the way a
+                // duplicate input id does.
+                string description = TapiocaDescriptionComponent.Describe (document, errors);
+
                 return TapiocaInputSchema.ToJson (
                     workflowId ?? string.Empty,
                     string.IsNullOrEmpty (workflowName) ? DocumentName (document) : workflowName,
+                    description,
                     entries,
                     errors);
             }
@@ -74,7 +265,7 @@ namespace Tapioca.Grasshopper
                 // the reason in the errors array the panel already renders. The
                 // alternative -- no answer at all -- would leave the panel
                 // showing the previous definition's controls.
-                return "{\"workflowId\":\"\",\"name\":\"\",\"version\":1,\"inputs\":[],\"errors\":[\""
+                return "{\"workflowId\":\"\",\"name\":\"\",\"description\":\"\",\"version\":1,\"inputs\":[],\"errors\":[\""
                     + Escape (Describe (exception)) + "\"]}";
             }
         }
@@ -111,12 +302,14 @@ namespace Tapioca.Grasshopper
                     return "The input snapshot's ids and values did not pair up.";
                 }
 
+                s_outcome.Clear ();
+
                 Dictionary<string, IGH_ContextualParameter> byId =
                     new Dictionary<string, IGH_ContextualParameter> (StringComparer.OrdinalIgnoreCase);
                 List<string> discovery = new List<string> ();
                 foreach (TapiocaInputSchema.Entry entry in TapiocaInputSchema.Discover (document, discovery))
                 {
-                    IGH_ContextualParameter contextual = entry.Input as IGH_ContextualParameter;
+                    IGH_ContextualParameter contextual = entry.Contextual;
                     string id = entry.Input.TapiocaId;
                     if (contextual == null || string.IsNullOrEmpty (id) || byId.ContainsKey (id))
                     {
@@ -141,12 +334,23 @@ namespace Tapioca.Grasshopper
                         continue;
                     }
 
-                    // The published interface, not compute's reflected
-                    // AssignContextualDataTree: one value per input is what the
-                    // panel produces, the concrete parameters convert the text
-                    // themselves, and each one refuses a driven parameter with a
-                    // warning the author can see.
-                    target.AssignContextualData (new object[] { values[index] ?? string.Empty });
+                    // ⚠️ EMPTIED BEFORE IT IS FILLED, AND THE MEASUREMENT IS WHY.
+                    // A stock Params > Util "Get ..." parameter APPENDS what
+                    // AssignContextualData hands it. Measured on BoxToMesh.gh in
+                    // Archicad: a session solved four times reported 3, then 6,
+                    // then 9, then 12 outputs, the extra ones being every value
+                    // the panel had ever sent -- "la", then "la"+"lab", then
+                    // "la"+"lab"+"labwl". The definition was not wrong and the
+                    // panel was not wrong; the input had quietly become a list.
+                    // Downstream that reads as a real error from a real
+                    // component ("Filter component can only operate on a single
+                    // Filter Index value"), which points at the definition and
+                    // not at the injection that caused it. A Tapioca input never
+                    // showed this because its own AssignContextualData REPLACES
+                    // its persistent data; the stock ones are not ours to change.
+                    IGH_Param param = target as IGH_Param;
+                    Clear (param);
+                    s_outcome[id] = Assign (param, target, values[index] ?? string.Empty);
                 }
 
                 return rejected.ToString ();
@@ -155,6 +359,175 @@ namespace Tapioca.Grasshopper
             {
                 return Describe (exception);
             }
+        }
+
+        /// <summary>
+        /// One line per discovered input saying what it IS and what it now
+        /// HOLDS, for the panel's transcript.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ THIS IS A DIAGNOSTIC, AND IT EXISTS BECAUSE THE FAILURE IT
+        /// DESCRIBES IS INVISIBLE. An input that is discovered, shown in the
+        /// panel, sent a value and then contributes nothing to the solve looks
+        /// exactly like an input that was never wired: the definition solves,
+        /// the outputs are the defaults, and nothing anywhere says the value was
+        /// dropped. There are at least four ways for that to happen and they are
+        /// indistinguishable from Archicad -- the parameter has a SOURCE (so
+        /// Grasshopper ignores persistent data entirely), it is LOCKED, its
+        /// contextual assignment silently refused the text, or the id the panel
+        /// keyed it by is not the id discovery found.
+        /// </para>
+        /// <para>
+        /// So each line carries the parameter's own account of itself: the class
+        /// that implements it, its Grasshopper type, how many sources it has,
+        /// what it holds in each store, and the first value it would hand
+        /// downstream. Read against the value the panel sent, that says which of
+        /// the four it was -- from the panel, without a debugger, without
+        /// Grasshopper's canvas open.
+        /// </para>
+        /// <para>
+        /// Called AFTER ApplyInputs and BEFORE the solve, so "what it holds" is
+        /// what the solve is about to read. Reading it after would report what
+        /// the solution left behind, which is a different and less useful thing.
+        /// </para>
+        /// </remarks>
+        public static string[] DescribeInputs (GH_Document document)
+        {
+            List<string> lines = new List<string> ();
+            try
+            {
+                if (document == null)
+                {
+                    return lines.ToArray ();
+                }
+
+                List<string> discovery = new List<string> ();
+                foreach (TapiocaInputSchema.Entry entry in TapiocaInputSchema.Discover (document, discovery))
+                {
+                    IGH_Param param = entry.Contextual as IGH_Param;
+                    StringBuilder line = new StringBuilder ();
+                    line.Append (entry.Input.TapiocaId).Append (": ");
+
+                    if (param == null)
+                    {
+                        // Discovered, and not injectable. The panel is showing a
+                        // control that can never do anything, which is worth one
+                        // line rather than a silent no-op.
+                        line.Append ("NOT a contextual parameter - nothing can be assigned to it");
+                        lines.Add (line.ToString ());
+                        continue;
+                    }
+
+                    line.Append (param.GetType ().Name);
+                    line.Append (" type=").Append (param.TypeName ?? "?");
+                    line.Append (" sources=").Append (param.SourceCount.ToString (CultureInfo.InvariantCulture));
+                    if (param.SourceCount > 0)
+                    {
+                        // The quiet one. Grasshopper reads persistent data only
+                        // on a parameter with NO source, so everything Tapioca
+                        // sends this input is discarded while the solve still
+                        // succeeds on the wired value.
+                        line.Append (" (WIRED - injected values are ignored)");
+                    }
+
+                    if (param.Locked)
+                    {
+                        line.Append (" LOCKED");
+                    }
+
+                    line.Append (" volatile=")
+                        .Append (param.VolatileDataCount.ToString (CultureInfo.InvariantCulture));
+                    line.Append (" persistent=").Append (PersistentCount (param));
+                    line.Append (" holds=").Append (Held (param));
+
+                    // ⚠️ THE OUTCOME IS THE PART THAT CANNOT BE INFERRED FROM
+                    // THE REST OF THE LINE. A Player parameter keeps an assigned
+                    // value somewhere none of the counts above can see, so
+                    // "volatile=0 persistent=n/a holds=(nothing)" is what a
+                    // SUCCESSFUL assignment looks like on one -- and what a
+                    // silent failure looks like too. Only the writer knows
+                    // which, so the writer says.
+                    string outcome;
+                    if (s_outcome.TryGetValue (entry.Input.TapiocaId ?? string.Empty, out outcome))
+                    {
+                        line.Append (" <- ").Append (outcome);
+                    }
+
+                    lines.Add (line.ToString ());
+                }
+
+                foreach (string problem in discovery)
+                {
+                    lines.Add ("discovery: " + problem);
+                }
+            }
+            catch (Exception exception)
+            {
+                lines.Add ("input trace failed: " + Describe (exception));
+            }
+
+            return lines.ToArray ();
+        }
+
+        /// <summary>How many items the parameter's persistent store holds.</summary>
+        private static string PersistentCount (IGH_Param param)
+        {
+            try
+            {
+                System.Reflection.PropertyInfo info = param.GetType ().GetProperty ("PersistentData");
+                IGH_Structure persistent = info == null ? null : info.GetValue (param, null) as IGH_Structure;
+                if (persistent == null)
+                {
+                    return "n/a";
+                }
+
+                return persistent.DataCount.ToString (CultureInfo.InvariantCulture);
+            }
+            catch (Exception)
+            {
+                return "?";
+            }
+        }
+
+        /// <summary>
+        /// The first value the parameter would hand downstream, volatile first.
+        /// </summary>
+        private static string Held (IGH_Param param)
+        {
+            try
+            {
+                if (param.VolatileDataCount > 0)
+                {
+                    foreach (GH_Path path in param.VolatileData.Paths)
+                    {
+                        IList branch = param.VolatileData.get_Branch (path);
+                        if (branch != null)
+                        {
+                            foreach (object item in branch)
+                            {
+                                return TextOf (item);
+                            }
+                        }
+                    }
+                }
+
+                System.Reflection.PropertyInfo info = param.GetType ().GetProperty ("PersistentData");
+                IGH_Structure persistent = info == null ? null : info.GetValue (param, null) as IGH_Structure;
+                if (persistent != null && !persistent.IsEmpty)
+                {
+                    foreach (IGH_Goo goo in persistent.AllData (true))
+                    {
+                        return TextOf (goo);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                return "?";
+            }
+
+            return "(nothing)";
         }
 
         /// <summary>
@@ -184,14 +557,28 @@ namespace Tapioca.Grasshopper
                     return flat.ToArray ();
                 }
 
+                // Both contracts, one pass. The named path first, so a
+                // definition that publishes a value BOTH ways -- a Tapioca Data
+                // Output inside an RH_OUT group, which is a reasonable thing to
+                // do while porting one -- reports the named id ahead of the
+                // group's, in the order the panel will list them.
+                List<ITapiocaOutput> outputs = new List<ITapiocaOutput> ();
                 foreach (IGH_DocumentObject candidate in document.Objects)
                 {
-                    ITapiocaOutput output = candidate as ITapiocaOutput;
-                    if (output == null)
+                    ITapiocaOutput named = candidate as ITapiocaOutput;
+                    if (named != null)
                     {
-                        continue;
+                        outputs.Add (named);
                     }
+                }
 
+                foreach (ITapiocaOutput generic in TapiocaContextualDiscovery.Outputs (document))
+                {
+                    outputs.Add (generic);
+                }
+
+                foreach (ITapiocaOutput output in outputs)
+                {
                     IGH_Param param = output.TapiocaOutputParam;
                     if (param == null || param.VolatileData == null)
                     {

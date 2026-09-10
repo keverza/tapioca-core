@@ -55,6 +55,20 @@ class GhWorkerHost {
     // canvas is on screen". Rule 4: the difference is the whole reason this does
     // not block.
     bool OpenEditor (GS::UniString& message);
+
+    // The same worker, WITHOUT the canvas: the panel's own start.
+    //
+    // ⚠️ THE CANVAS IS THE ONLY DIFFERENCE, AND IT IS ONE MESSAGE. The worker
+    // process is identical either way -- one RhinoCore, one Grasshopper, one
+    // engine thread -- and the editor appears because something SENT ShowEditor.
+    // So a headless start is this method not sending it, rather than a second
+    // kind of worker. Which also means the panel and the editor share one
+    // process: opening the canvas later does not restart anything.
+    //
+    // Idempotent, and it never HIDES a canvas that is already up: a definition
+    // being loaded from the panel is no reason to take the editor away from
+    // someone who asked for it.
+    bool EnsureHeadless (GS::UniString& message);
     bool HideEditor (GS::UniString& message);
 
     static void OpenEditorFromMenu ();

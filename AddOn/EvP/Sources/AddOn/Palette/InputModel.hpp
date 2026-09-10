@@ -90,6 +90,11 @@ struct InputModel {
     std::string workflowId;
     std::string name;
 
+    // What the definition's author says it does, from a Tapioca Description
+    // component. Empty when the definition carries none -- which is the
+    // ordinary case and not an error.
+    std::string description;
+
     std::vector<InputControl> controls;
 
     // What discovery refused, verbatim from the worker. These are the author's

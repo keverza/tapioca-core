@@ -1023,6 +1023,10 @@ class _FakeBridge:
         if kind == "triMaterial":
             return array.array("i", tri_material).tobytes(), json.dumps(
                 {"dtype": "int32", "shape": [len(tri_material), 1]})
+        if kind == "triWireEdges":
+            masks = [7] * (len(triangles) // 3)
+            return array.array("B", masks).tobytes(), json.dumps(
+                {"dtype": "uint8", "shape": [len(masks), 1]})
         raise KeyError("dryrun bridge has no array kind %r" % kind)
 
 
@@ -1523,6 +1527,7 @@ def _one(command, params):
                 "elementId": {"guid": guid},
                 "succeeded": True,
                 "wallShape": "straight",
+                "flipped": False,
                 "outline": [{"x": x, "y": y} for x, y in wall["outline"]],
                 "outlineArcs": [0.0] * len(wall["outline"]),
                 "holes": [],

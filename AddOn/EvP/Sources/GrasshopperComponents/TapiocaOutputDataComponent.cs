@@ -115,9 +115,33 @@ namespace Tapioca.Grasshopper
             DA.SetData (0, m_id);
         }
 
+        /// <summary>
+        /// The id Archicad keys this output by.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ THE NICKNAME IS THE FALLBACK HERE AND NOT ONLY IN SolveInstance,
+        /// AND THAT IS THE FIX FOR AN OUTPUT THAT NEEDED A PANEL TO HAVE A
+        /// NAME. m_id is only filled while solving, so before the first
+        /// solution this answered with an empty string -- which made the panel
+        /// key the value by the component's LABEL, or by nothing. Renaming the
+        /// component on the canvas is how a Grasshopper author names anything;
+        /// requiring a text panel wired into Id as well was asking for the same
+        /// word twice.
+        ///
+        /// The Id input still WINS when it has something in it: an author who
+        /// wants an id that is not the nickname has said so explicitly.
+        /// </remarks>
         public string TapiocaOutputId
         {
-            get { return m_id; }
+            get
+            {
+                if (!string.IsNullOrWhiteSpace (m_id))
+                {
+                    return m_id;
+                }
+
+                return (NickName ?? string.Empty).Trim ();
+            }
         }
 
         public string TapiocaOutputLabel

@@ -9,6 +9,7 @@
 // that builds it (Palette/ParamPanel.hpp), not here.
 #include "Palette/ParamPanel.hpp"
 #include "Palette/WorkflowPanel.hpp"
+#include "Palette/WorkflowLog.hpp"
 #include "Palette/DescriptionPanel.hpp"
 #include "Palette/ResultsTable.hpp"
 #include "Palette/PreviewPanel.hpp"
@@ -207,10 +208,28 @@ class ControlPalette final : public DG::Palette,
     // The band's own items. Built at runtime like the Continue button, so they
     // need no .grc entry.
     void CreateWorkflowBand ();
-    // Places the status line, the three buttons and the generated rows, and
+    // The Grasshopper state, on its own line in the FIXED head beside the other
+    // background runner's. It is the one part of this band that shows with no
+    // worker running, because "not running" is the state a user most needs to
+    // read -- inside the scrolled band it would only ever appear once the thing
+    // it reports on already existed.
+    short PlaceWorkflowStatusLine (short top, short left, short right);
+    // The one place that decides whether the band belongs to this selection.
+    //
+    // ⚠️ THE BAND IS ONE COMMAND'S PANEL, WHICH IS WHY THERE IS NO PAGE. A
+    // Grasshopper page was built here and thrown away: a command that declares
+    // no parameters ALREADY gives an empty panel, with the command list, the
+    // Run button, the status line and the results table all in place and all
+    // free. A separate page reimplemented the empty panel and a switch to reach
+    // it -- two things nobody asked for -- to arrive somewhere the command
+    // system was already going to put us.
+    bool IsWorkflowCommand (const evp::CommandInfo* command) const;
+    // Places the three buttons, the generated rows and the transcript, and
     // reports the height used -- 0 while no worker is running, so the band costs
     // the layout nothing on a machine with no Rhino.
-    short PlaceWorkflowBand (short top, short left, short right, const evp::PaletteScroll& clip);
+    // `bottom` is the scrolled viewport's floor: the transcript runs to it,
+    // because on this command's panel there is nothing below it to push off.
+    short PlaceWorkflowBand (short top, short left, short right, const evp::PaletteScroll& clip, short bottom);
     void ShowWorkflowControls ();
     // The idle tick's share: notice a new schema, feed the settle window, drive
     // the debounce, and keep the status line and the button gates current.
@@ -218,6 +237,17 @@ class ControlPalette final : public DG::Palette,
     // True when the press belonged to this band, so ButtonClicked can stop.
     bool HandleWorkflowButton (const DG::ButtonClickEvent& ev);
     void ChooseWorkflowDefinition ();
+    // Opens the session if there is none, then loads the file. Split from the
+    // picker because a definition chosen before the worker existed is loaded by
+    // the idle tick instead, and two copies of "open then load" would drift.
+    void LoadWorkflowDefinition (const std::string& path);
+    // One transcript line, unless it repeats the line already at the bottom.
+    void NoteWorkflowLine (const std::string& line);
+    // The last definition this session loaded, for Reload. Held here because
+    // the controller keeps a definition IDENTITY (a hash, for staleness) and
+    // not a path -- a path is a UI convenience and would be state the protocol
+    // does not need.
+    std::string loadedWorkflowPath;
     void SolveWorkflowNow ();
 
     const evp::CommandInfo* SelectedCommand () const
@@ -412,9 +442,22 @@ class ControlPalette final : public DG::Palette,
     // button. They borrow nothing and are borrowed by nothing, so their position
     // among these members carries no destruction-order meaning.
     std::unique_ptr<DG::LeftText> workflowStatusText;
+    // ⚠️ DG::Button, NOT DG::IconButton, BECAUSE THESE CARRY BOTH AN ICON AND A
+    // WORD. DGButton.hpp: a Button is an ItemIconProperty and an
+    // ItemTextProperty; an IconButton is only the first, and six unlabelled
+    // icons in a row is a guessing game. The art is the Iconoir set the rest of
+    // this palette already uses (RFIX/PaletteIcons.grc).
+    std::unique_ptr<DG::Button> workflowPowerButton;
     std::unique_ptr<DG::Button> workflowLoadButton;
+    std::unique_ptr<DG::Button> workflowReloadButton;
     std::unique_ptr<DG::Button> workflowSolveButton;
     std::unique_ptr<DG::Button> workflowCancelButton;
+    std::unique_ptr<DG::Button> workflowPreviewButton;
+    std::unique_ptr<DG::Button> workflowClearButton;
+    // The transcript. Read-only, and a MultiLineEdit rather than a LeftText
+    // because the text has to be SELECTABLE: a printed value the author wants to
+    // paste elsewhere is most of the reason a transcript beats a status line.
+    std::unique_ptr<DG::MultiLineEdit> workflowLogText;
 
     // F4 — the virtual scroll for everything below the status line: it owns the bar,
     // the offset and the clamp, and every scrolled item goes on the panel through
@@ -431,6 +474,16 @@ class ControlPalette final : public DG::Palette,
     // restart the settle window forever.
     std::string lastWorkflowSchema;
     std::vector<std::string> lastWorkflowValues;
+    // Whether a worker was up on the previous idle. The band's height depends on
+    // it -- PlaceWorkflowBand returns 0 with no worker -- so the transition is
+    // the moment the whole column has to be laid out again. Nothing else in this
+    // palette would notice: a worker starts from the menu, not from an event
+    // this panel receives.
+    bool lastWorkflowHasHost = false;
+    // A definition the user picked before there was a worker to load it into.
+    // Held rather than refused: starting Rhino takes seconds, and "pick the file
+    // again once it is up" is a worse answer than remembering.
+    std::string pendingWorkflowPath;
     UInt32 idleTicks = 0;
 
     // What RegisterHotKey handed back for Esc — the id the hot-key event reports, so
@@ -456,6 +509,12 @@ class ControlPalette final : public DG::Palette,
     // second source for `params`: see WorkflowPanel.hpp for why one panel cannot
     // serve both a Python command's eighteen control kinds and a workflow's five.
     evp::WorkflowPanel workflow;
+
+    // What the band has seen happen, and the revision of it last written into
+    // the box. DevKit-free and covered by tests/cpp/test_workflowlog.cpp -- the
+    // shell owns the widget, never the wording.
+    evp::WorkflowLog workflowLog;
+    size_t lastWorkflowLogRevision = 0;
 };
 
 #endif

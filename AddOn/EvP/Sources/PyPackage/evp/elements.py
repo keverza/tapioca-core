@@ -412,7 +412,7 @@ def wall_plan_outlines(guids):
     polygon — is what the plan shows. It is the anchor geometry for the plan overlay:
     the thing our drawing can be checked against, because Archicad already drew it.
 
-    Each dict carries {guid, succeeded, error, wall_shape, outline, outline_arcs,
+    Each dict carries {guid, succeeded, error, wall_shape, flipped, outline, outline_arcs,
     holes, hole_arcs, outline_source, memo_present, memo_outline, memo_outline_arcs,
     connected_walls}:
       - `outline` = [(x, y), ...] in meters, distinct vertices, no closing repeat;
@@ -447,6 +447,7 @@ def wall_plan_outlines(guids):
             "succeeded": bool(entry.get("succeeded", False)),
             "error": entry.get("error", ""),
             "wall_shape": entry.get("wallShape", ""),
+            "flipped": bool(entry.get("flipped", False)),
             "outline": _ring(entry.get("outline")),
             "outline_arcs": list(entry.get("outlineArcs") or []),
             "holes": [_ring(h.get("outline")) for h in (entry.get("holes") or [])],

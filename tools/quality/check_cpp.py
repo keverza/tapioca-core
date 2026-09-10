@@ -62,7 +62,7 @@ OVERSIZED = {
         "the ordered call site, which is irreducible for anything that draws in the frame",
     ),
     "Palette/ControlPalette.cpp": (
-        640,
+        626,
         "the palette shell - one concern; splitting it would cut the DG event "
         "routing in two (cpp-architecture-plan.md section 4 predicted ~1,100). "
         "Room has come from moving work to its own home each time, and the "
@@ -106,11 +106,16 @@ OVERSIZED = {
         "in flight reads in one place",
     ),
     "Palette/ControlPaletteLayout.cpp": (
-        260,
+        182,
         "the band layout, extracted from the shell. One top-to-bottom pass over "
         "the bands is exactly what a reader opens this file for, so it is not "
         "split further; a band that needs real logic gets its own sub-object "
-        "instead, the way DescriptionPanel and ResultsTable did",
+        "instead, the way DescriptionPanel and ResultsTable did. The Grasshopper "
+        "PAGE then needed one line here to take the whole pass over, and paid "
+        "for it by sending the command combo's drawn-cell events to "
+        "ControlPaletteUserItems.cpp - which is where routing belonged anyway; "
+        "this file's own header had called them band geometry, and a press that "
+        "CAUSES a reflow is not the same as being one",
     ),
 }
 
@@ -677,6 +682,7 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
         "ControlPaletteAutoPreview.cpp",
         "ControlPaletteDynamo.cpp",
         "ControlPaletteGrasshopper.cpp",
+        "ControlPaletteUserItems.cpp",
         "ControlPaletteLayout.cpp",
         "ControlPaletteMenu.cpp",
         "ControlPaletteParams.cpp",

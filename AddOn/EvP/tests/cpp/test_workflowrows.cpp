@@ -286,3 +286,103 @@ TEST (WorkflowRows, ARowWithNoLabelFallsBackToItsId)
     ASSERT_EQ (1u, rows.size ());
     EXPECT_EQ ("h", rows[0].label) << "a control with no caption is worse than one captioned by its id";
 }
+
+// ---------------------------------------------------------------------------
+// The slider. A bounded number is a range, and the mapping between a bar
+// position and a value is exactly the kind of arithmetic that is wrong by one
+// step forever if nobody states it.
+
+TEST (WorkflowRows, OnlyABoundedNumberGetsASlider)
+{
+    evp::WorkflowRow row;
+    row.kind = evp::InputKind::Number;
+    row.enabled = true;
+
+    EXPECT_FALSE (evp::UsesSlider (row)) << "no bounds at all";
+
+    row.hasMinimum = true;
+    row.minimum = 0.0;
+    EXPECT_FALSE (evp::UsesSlider (row)) << "one end is not a range";
+
+    row.hasMaximum = true;
+    row.maximum = 0.0;
+    EXPECT_FALSE (evp::UsesSlider (row)) << "a domain with no width is a constant";
+
+    row.maximum = 10.0;
+    EXPECT_TRUE (evp::UsesSlider (row));
+
+    row.kind = evp::InputKind::Text;
+    EXPECT_FALSE (evp::UsesSlider (row)) << "text has no positions between two ends";
+
+    row.kind = evp::InputKind::Integer;
+    EXPECT_TRUE (evp::UsesSlider (row));
+
+    row.enabled = false;
+    EXPECT_FALSE (evp::UsesSlider (row)) << "an unsupported row is locked, slider included";
+}
+
+TEST (WorkflowRows, ASliderPositionRoundTripsThroughItsValue)
+{
+    evp::WorkflowRow row;
+    row.kind = evp::InputKind::Number;
+    row.enabled = true;
+    row.hasMinimum = true;
+    row.minimum = 2.0;
+    row.hasMaximum = true;
+    row.maximum = 12.0;
+
+    EXPECT_EQ (evp::SliderValueAt (row, 0), "2");
+    EXPECT_EQ (evp::SliderValueAt (row, evp::WorkflowSliderSteps), "12");
+    EXPECT_EQ (evp::SliderValueAt (row, evp::WorkflowSliderSteps / 2), "7");
+
+    EXPECT_EQ (evp::SliderPositionFor (row, "2"), 0);
+    EXPECT_EQ (evp::SliderPositionFor (row, "12"), evp::WorkflowSliderSteps);
+    EXPECT_EQ (evp::SliderPositionFor (row, "7"), evp::WorkflowSliderSteps / 2);
+}
+
+TEST (WorkflowRows, AValueOutsideTheDomainParksTheSliderAtTheEnd)
+{
+    // A definition saved with a value outside bounds its author narrowed
+    // afterwards is the ordinary cause. The FIELD still shows the real number
+    // and still refuses it; the slider has to be somewhere.
+    evp::WorkflowRow row;
+    row.kind = evp::InputKind::Number;
+    row.enabled = true;
+    row.hasMinimum = true;
+    row.minimum = 0.0;
+    row.hasMaximum = true;
+    row.maximum = 1.0;
+
+    EXPECT_EQ (evp::SliderPositionFor (row, "-5"), 0);
+    EXPECT_EQ (evp::SliderPositionFor (row, "17"), evp::WorkflowSliderSteps);
+    EXPECT_EQ (evp::SliderPositionFor (row, "not a number"), 0);
+}
+
+TEST (WorkflowRows, AnIntegerSliderLandsOnWholeNumbersAndCanReachTheTop)
+{
+    // Truncation instead of rounding would make the top of the domain
+    // unreachable and every position land one below what it looks like.
+    evp::WorkflowRow row;
+    row.kind = evp::InputKind::Integer;
+    row.enabled = true;
+    row.hasMinimum = true;
+    row.minimum = 1.0;
+    row.hasMaximum = true;
+    row.maximum = 4.0;
+
+    EXPECT_EQ (evp::SliderValueAt (row, evp::WorkflowSliderSteps), "4");
+    EXPECT_EQ (evp::SliderValueAt (row, 0), "1");
+    // Two thirds along: 1 + 3*0.667 = 3.0
+    const std::string middle = evp::SliderValueAt (row, (evp::WorkflowSliderSteps * 2) / 3);
+    EXPECT_EQ (middle.find ('.'), std::string::npos) << "an integer row must not offer a fraction";
+    EXPECT_EQ (middle, "3");
+}
+
+TEST (WorkflowRows, ANonSliderRowAnswersNothingRatherThanGuessing)
+{
+    evp::WorkflowRow row;
+    row.kind = evp::InputKind::Text;
+    row.enabled = true;
+    EXPECT_EQ (evp::SliderValueAt (row, 500), "");
+    EXPECT_EQ (evp::SliderPositionFor (row, "anything"), 0);
+}

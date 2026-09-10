@@ -33,13 +33,27 @@ namespace Tapioca.Grasshopper
         /// </summary>
         public sealed class Entry
         {
-            internal Entry (ITapiocaInput input, int order)
+            internal Entry (ITapiocaInput input, IGH_ContextualParameter contextual, int order)
             {
                 Input = input;
+                Contextual = contextual;
                 ResolvedOrder = order;
             }
 
             internal ITapiocaInput Input { get; private set; }
+
+            /// <summary>
+            /// The parameter a snapshot is written into.
+            /// </summary>
+            /// <remarks>
+            /// ⚠️ CARRIED, NOT CAST BACK OUT OF <see cref="Input"/>. A Tapioca
+            /// input IS its parameter and the cast would work; a stock "Get
+            /// Number" reaches the schema through a wrapper that is not the
+            /// parameter, and the same cast would quietly find nothing to write
+            /// to -- a solve that succeeds with the definition's own defaults
+            /// and never says the panel's values were dropped.
+            /// </remarks>
+            internal IGH_ContextualParameter Contextual { get; private set; }
 
             internal int ResolvedOrder { get; private set; }
         }
@@ -81,14 +95,17 @@ namespace Tapioca.Grasshopper
                 return ay.CompareTo (by);
             });
 
+            // The generic half of the contract -- stock Params > Util "Get ..."
+            // parameters, which is what Grasshopper Player and rhino.compute
+            // read. Keyed by the object it wraps so the ONE canvas-order loop
+            // below places both kinds; a second pass appended afterwards would
+            // put every stock input below every Tapioca one no matter where the
+            // author put them.
+            IDictionary<IGH_DocumentObject, TapiocaContextualDiscovery.ContextualInput> contextual =
+                TapiocaContextualDiscovery.Inputs (document);
+
             for (int i = 0; i < objects.Count; i++)
             {
-                ITapiocaInput input = objects[i] as ITapiocaInput;
-                if (input == null)
-                {
-                    continue;
-                }
-
                 IGH_Param param = objects[i] as IGH_Param;
                 if (param != null && param.Locked)
                 {
@@ -98,8 +115,23 @@ namespace Tapioca.Grasshopper
                     continue;
                 }
 
+                ITapiocaInput input = objects[i] as ITapiocaInput;
+                IGH_ContextualParameter parameter = objects[i] as IGH_ContextualParameter;
+
+                if (input == null)
+                {
+                    TapiocaContextualDiscovery.ContextualInput generic;
+                    if (!contextual.TryGetValue (objects[i], out generic))
+                    {
+                        continue;
+                    }
+
+                    input = generic;
+                    parameter = generic.Contextual;
+                }
+
                 int order = input.TapiocaOrder >= 0 ? input.TapiocaOrder : i;
-                found.Add (new Entry (input, order));
+                found.Add (new Entry (input, parameter, order));
             }
 
             found.Sort (delegate (Entry a, Entry b)
@@ -168,11 +200,17 @@ namespace Tapioca.Grasshopper
         /// <summary>
         /// Emits the WorkflowSchema the Archicad panel consumes.
         /// </summary>
-        public static string ToJson (string workflowId, string workflowName, IList<Entry> entries, IList<string> errors)
+        public static string ToJson (
+            string workflowId, string workflowName, string description, IList<Entry> entries, IList<string> errors)
         {
             StringBuilder sb = new StringBuilder ();
             sb.Append ("{\"workflowId\":").Append (Quote (workflowId));
             sb.Append (",\"name\":").Append (Quote (workflowName));
+            // The definition's own words, for the palette's description band.
+            // Always present, empty when the definition carries no Tapioca
+            // Description component -- an absent field and an empty one would be
+            // the same thing to the reader, and one of them needs no rule.
+            sb.Append (",\"description\":").Append (Quote (description ?? string.Empty));
             sb.Append (",\"version\":1,\"inputs\":[");
 
             for (int i = 0; i < entries.Count; i++)

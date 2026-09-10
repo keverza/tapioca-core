@@ -395,6 +395,15 @@ namespace Tapioca.GhWorker
             session.SnapshotFor(out ids, out values, out hash);
 
             string rejected = WorkflowFacade.ApplyInputs(session.Definition.Document, ids, values);
+
+            // ⚠️ TAKEN WHETHER OR NOT THE ASSIGNMENT COMPLAINED, AND THE
+            // SILENT CASE IS THE ONE IT IS FOR. An input that is discovered,
+            // shown, sent a value and then contributes nothing produces no
+            // rejection at all: the solve succeeds on the definition's own
+            // defaults. This is the only account of what actually reached the
+            // parameters, and it costs one reflected call per snapshot.
+            session.InputTrace = WorkflowFacade.DescribeInputs(session.Definition.Document);
+
             if (string.IsNullOrEmpty(rejected))
             {
                 Answer(header, envelope, session.State, SessionProtocol.FailureCode.None, string.Empty);
@@ -451,6 +460,22 @@ namespace Tapioca.GhWorker
             string[] values;
             string hash;
             session.SnapshotFor(out ids, out values, out hash);
+
+            // ⚠️ THE INPUT TRACE RIDES OUT AS REMARKS, RATHER THAN ON A CHANNEL
+            // OF ITS OWN. It is a diagnostic about this solution, the panel
+            // already renders remarks under their own heading, and a new message
+            // type would be a protocol version for something that is already
+            // shaped exactly like a remark. It goes FIRST so it sits above the
+            // definition's own messages, which is the order they happened in.
+            if (session.InputTrace != null && session.InputTrace.Length > 0)
+            {
+                int at = 0;
+                foreach (string line in session.InputTrace)
+                {
+                    collected.Diagnostics.Insert(
+                        at++, new SessionProtocol.Diagnostic(SessionProtocol.DiagnosticLevel.Remark, "input", line));
+                }
+            }
 
             uint solutionRevision = session.NextSolutionRevision();
             session.SetState(stale ? SessionProtocol.SessionState.Loaded : SessionProtocol.SessionState.Published);

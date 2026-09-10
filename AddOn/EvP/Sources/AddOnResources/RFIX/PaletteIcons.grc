@@ -20,3 +20,34 @@
 'GICN' 32605 "Clear selection" {
 	"TapiocaSquareDashed"
 }
+/* The workflow band's row. Iconoir names, kept as the source art's own:
+   play, xmark, cube-scan, erase, restart. */
+'GICN' 32606 "Solve" {
+	"TapiocaPlay"
+}
+'GICN' 32607 "Cancel" {
+	"TapiocaXmark"
+}
+'GICN' 32608 "Preview" {
+	"TapiocaCubeScan"
+}
+'GICN' 32609 "Clear the transcript" {
+	"TapiocaErase"
+}
+'GICN' 32610 "Reload the definition" {
+	"TapiocaRestart"
+}
+/* Start and stop the worker, and reach one that is not ours to start.
+   Filled play and a filled square, because that is what a transport control
+   has meant since tape decks; iconoir has the solid play and no solid square,
+   so the square is its own regular glyph FILLED rather than a different shape
+   borrowed from elsewhere. */
+'GICN' 32611 "Start the worker" {
+	"TapiocaPlaySolid"
+}
+'GICN' 32612 "Stop the worker" {
+	"TapiocaStopSolid"
+}
+'GICN' 32613 "Connect to a worker by address" {
+	"TapiocaIpAddressTag"
+}

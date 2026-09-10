@@ -99,13 +99,13 @@ void ControlPalette::EndSelectionPrompt ()
 // button can never sit there enabled waiting to fail.
 GS::UniString ControlPalette::WhatIsMissing () const
 {
-    // FIRST INSTRUCTION, before anything command-specific: the two things that have
-    // to be true before any command can run, named in the order they are done. The
-    // server is how external commands reach Archicad at all.
-    // A Dynamo command reaches Archicad through the owned runner, so the bus it
-    // does not use cannot be what is missing.
+    // FIRST INSTRUCTION, before anything command-specific: the two things that have to be true before
+    // any command can run, in the order they are done. The server is how external commands reach
+    // Archicad at all.
+    // A Grasshopper command is the Dynamo case again: it reaches nothing through the bus, so the bus
+    // cannot be what is missing.
     const evp::CommandInfo* const info = SelectedCommand ();
-    if (!IsDynamoCommand (info) && !serverBand.IsRunning ())
+    if (!IsDynamoCommand (info) && !IsWorkflowCommand (info) && !serverBand.IsRunning ())
         return "Start server, pick command.";
 
     if (info == nullptr)
@@ -215,6 +215,9 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     // keeps the run's status line and results from opening below a list that is
     // still standing between them and the parameters they belong to.
     commandsPanel.CloseList ();
+
+    if (IsWorkflowCommand (info))   // Run IS Solve here, and starting Python for a run() with nothing in it
+        return SolveWorkflowNow (); // would be seconds spent on a no-op; see ControlPaletteGrasshopper.cpp
 
     const bool dynamo = IsDynamoCommand (info);
     GS::UniString error;

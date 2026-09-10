@@ -699,6 +699,47 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
     return true;
 }
 
+bool GhWorkerHost::EnsureHeadless (GS::UniString& message)
+{
+    if (!MainThreadGate::Get ().IsMainThread ()) {
+        message = "The Grasshopper worker can only be started from Archicad's main thread.";
+        return false;
+    }
+
+    // ⚠️ THE SAME HANDLER WIRING AS OpenEditor, AND IT HAS TO BE. These are not
+    // the editor's handlers -- they are the bridge's, and the session path needs
+    // every one of them: the startup acknowledgement to know the runtime is up,
+    // the disconnect to fail an in-flight request, the session router, and the
+    // sender the controller writes through. A headless start that skipped them
+    // would open a session against a bridge whose replies reached nobody.
+    GhBridge& bridge = GhBridge::Get ();
+    bridge.SetStartupHandler (&OnWorkerStarted);
+    bridge.SetDisconnectedHandler (&OnWorkerDisconnected);
+    bridge.SetRunResultHandler (&OnRunResult);
+    bridge.SetSessionHandler (&OnSessionMessage);
+    workflow.SetSender ([] (protocol::MessageType type, const std::vector<uint8_t>& payload, std::string& error) {
+        GS::UniString failure;
+        if (GhBridge::Get ().SendPayload (type, payload, failure))
+            return true;
+        error = failure.ToCStr ().Get ();
+        return false;
+    });
+
+    std::lock_guard<std::mutex> lock (controlMutex);
+
+    if (bridge.IsConnected () && lifecycle.AcceptsMessages ()) {
+        message = "The Grasshopper worker is running.";
+        return true;
+    }
+
+    if (lifecycle.State () == HostState::Starting) {
+        message = "The Grasshopper worker is starting.";
+        return true;
+    }
+
+    return EnsureRunningLocked (message);
+}
+
 bool GhWorkerHost::HideEditor (GS::UniString& message)
 {
     // Deliberately does NOT start anything: "no canvas on screen" is already

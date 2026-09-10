@@ -6,6 +6,7 @@ using GH_IO.Serialization;
 using Grasshopper.Kernel;
 using Grasshopper.Kernel.Data;
 using Grasshopper.Kernel.Parameters;
+using Grasshopper.Kernel.Special;
 using Grasshopper.Kernel.Types;
 
 namespace Tapioca.Grasshopper
@@ -109,7 +110,99 @@ namespace Tapioca.Grasshopper
             }
         }
 
-        internal static bool WarnIfDriven (IGH_Param param)
+        /// <summary>
+        /// Notes that a wired input is DOCUMENTED by its wire and DRIVEN by the
+        /// panel. Returns whether there was a wire at all.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ THIS USED TO REFUSE THE ASSIGNMENT, AND REFUSING WAS THE WRONG
+        /// ANSWER. Grasshopper reads a parameter's persistent data only when it
+        /// has NO source, so a wired input genuinely could not be injected --
+        /// which is where the old warning came from ("disconnect what feeds
+        /// it"). But an author who wires a number slider into a workflow input
+        /// is saying something useful: this input is a number between these two
+        /// bounds, and here is a sensible one. Throwing that away to protect a
+        /// rule about persistent data is refusing the author's own
+        /// specification.
+        /// </para>
+        /// <para>
+        /// So the wire is now a SPECIFICATION and the panel is the VALUE. The
+        /// domain comes off the wired slider (or the choices off a wired value
+        /// list) when the author set none explicitly, and the panel's value
+        /// wins at solve time through <see cref="ApplyOverride"/> -- which is
+        /// only possible because these are OUR parameter classes and can
+        /// override their own collection. A stock Get-parameter cannot do this,
+        /// and that difference is now the reason to prefer a Tapioca input.
+        /// </para>
+        /// </remarks>
+        /// <summary>
+        /// The bounds a single wired number slider states, or null.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ ONE SOURCE, AND ONLY A SLIDER. Two sources have no single domain,
+        /// and anything else wired in -- an expression, another parameter, a
+        /// series -- states no bounds at all, so guessing from it would invent
+        /// a limit the author never set. compute reads a wired slider the same
+        /// way for the same reason (GrasshopperDefinition.cs,
+        /// InputGroup.GetMinimum).
+        /// </remarks>
+        internal static double? WiredMinimum (IGH_Param param)
+        {
+            GH_NumberSlider slider = WiredSlider (param);
+            return slider == null ? (double?) null : (double) slider.Slider.Minimum;
+        }
+
+        internal static double? WiredMaximum (IGH_Param param)
+        {
+            GH_NumberSlider slider = WiredSlider (param);
+            return slider == null ? (double?) null : (double) slider.Slider.Maximum;
+        }
+
+        private static GH_NumberSlider WiredSlider (IGH_Param param)
+        {
+            if (param.SourceCount != 1)
+            {
+                return null;
+            }
+
+            return param.Sources[0] as GH_NumberSlider;
+        }
+
+        /// <summary>
+        /// The choices a single wired value list states, in its own order.
+        /// </summary>
+        /// <remarks>
+        /// The enum equivalent of a wired slider: an author who plugs a value
+        /// list into a Tapioca enum has already written the pick list, and
+        /// making them type it twice is friction with no benefit.
+        /// </remarks>
+        internal static List<string> WiredChoices (IGH_Param param)
+        {
+            List<string> choices = new List<string> ();
+            if (param.SourceCount != 1)
+            {
+                return choices;
+            }
+
+            GH_ValueList list = param.Sources[0] as GH_ValueList;
+            if (list == null)
+            {
+                return choices;
+            }
+
+            foreach (GH_ValueListItem item in list.ListItems)
+            {
+                if (item != null && !string.IsNullOrWhiteSpace (item.Name))
+                {
+                    choices.Add (item.Name);
+                }
+            }
+
+            return choices;
+        }
+
+        internal static bool NoteIfDriven (IGH_Param param)
         {
             if (param.SourceCount == 0)
             {
@@ -117,12 +210,66 @@ namespace Tapioca.Grasshopper
             }
 
             param.AddRuntimeMessage (
-                GH_RuntimeMessageLevel.Warning,
-                "This input has something wired into it, so Tapioca's value was ignored and the "
-                    + "wired value was used instead. A workflow input must have no source - it IS "
-                    + "the slider or panel, so disconnect what feeds it.");
+                GH_RuntimeMessageLevel.Remark,
+                "Tapioca drives this input. What is wired into it defines its domain and its "
+                    + "starting value; the value used in a solve is the one the Archicad panel sends.");
 
             return true;
+        }
+
+        /// <summary>
+        /// Replaces whatever was collected from sources with the panel's value.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ CALLED FROM CollectVolatileData_FromSources, WHICH IS THE ONLY
+        /// PLACE IT CAN WORK. Grasshopper collects from sources on every
+        /// solution; anything written before that -- persistent data, volatile
+        /// data, either -- is overwritten by the collection when a source
+        /// exists. Overriding the collection itself is what lets a wired input
+        /// still take a value from outside the document, and it is available
+        /// because these are our own parameter classes.
+        ///
+        /// A null or empty override leaves the collected data alone: no
+        /// assignment has been made, so the wire is the only opinion there is.
+        /// </remarks>
+        /// <summary>
+        /// One flat list out of a contextual data tree.
+        /// </summary>
+        /// <remarks>
+        /// The panel sends one value per input (AtMost is 1 on every one of
+        /// these), so a tree is the transport's shape and not the data's.
+        /// Flattening it here keeps the override a plain list, which is what the
+        /// collection override writes back at path {0}.
+        /// </remarks>
+        internal static List<T> Flatten<T> (global::Grasshopper.DataTree<T> tree)
+        {
+            List<T> flat = new List<T> ();
+            if (tree == null)
+            {
+                return flat;
+            }
+
+            foreach (GH_Path path in tree.Paths)
+            {
+                List<T> branch = tree.Branch (path);
+                if (branch != null)
+                {
+                    flat.AddRange (branch);
+                }
+            }
+
+            return flat;
+        }
+
+        internal static void ApplyOverride<T> (IGH_Param param, List<T> values) where T : IGH_Goo
+        {
+            if (values == null || values.Count == 0 || param.SourceCount == 0)
+            {
+                return;
+            }
+
+            param.VolatileData.Clear ();
+            param.AddVolatileDataList (new GH_Path (0), values);
         }
     }
 
@@ -189,9 +336,18 @@ namespace Tapioca.Grasshopper
 
         public bool TapiocaRequired { get { return m_core.Required; } }
 
-        public double? TapiocaMinimum { get { return m_core.Minimum; } }
+        // ⚠️ THE WIRE IS READ ONLY WHERE THE AUTHOR TYPED NOTHING. An explicit
+        // bound is a decision and must win over one inferred from whatever
+        // happens to be plugged in; an absent bound is an opportunity.
+        public double? TapiocaMinimum
+        {
+            get { return m_core.Minimum ?? TapiocaInputGuard.WiredMinimum (this); }
+        }
 
-        public double? TapiocaMaximum { get { return m_core.Maximum; } }
+        public double? TapiocaMaximum
+        {
+            get { return m_core.Maximum ?? TapiocaInputGuard.WiredMaximum (this); }
+        }
 
         public IList<string> TapiocaChoices { get { return m_core.Choices; } }
 
@@ -247,10 +403,7 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
             List<GH_Number> values = new List<GH_Number> ();
 
@@ -266,6 +419,7 @@ namespace Tapioca.Grasshopper
                 }
             }
 
+            m_fromPanel = values;
             SetPersistentData (values);
             ExpireSolution (false);
         }
@@ -274,16 +428,15 @@ namespace Tapioca.Grasshopper
         // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
         public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_Number> tree)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
+            m_fromPanel = TapiocaInputGuard.Flatten (tree);
             TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
         {
+            m_fromPanel = null;
             PersistentData.Clear ();
             ExpireSolution (false);
         }
@@ -297,6 +450,24 @@ namespace Tapioca.Grasshopper
         }
 
         // ── persistence ──────────────────────────────────────────────────────
+
+        // the panel's value, over a wire ------------------------------------
+
+        /// <summary>What the panel last sent, or null.</summary>
+        /// <remarks>
+        /// Kept BESIDE the persistent data rather than instead of it: with no
+        /// source, persistent data is what Grasshopper reads and that proven
+        /// path stays untouched. This is consulted only when a source exists --
+        /// see TapiocaInputGuard.ApplyOverride for why a parameter's own
+        /// collection is the one place it can be applied.
+        /// </remarks>
+        private List<GH_Number> m_fromPanel;
+
+        protected override void CollectVolatileData_FromSources ()
+        {
+            base.CollectVolatileData_FromSources ();
+            TapiocaInputGuard.ApplyOverride (this, m_fromPanel);
+        }
 
         public override bool Write (GH_IWriter writer)
         {
@@ -364,9 +535,18 @@ namespace Tapioca.Grasshopper
 
         public bool TapiocaRequired { get { return m_core.Required; } }
 
-        public double? TapiocaMinimum { get { return m_core.Minimum; } }
+        // ⚠️ THE WIRE IS READ ONLY WHERE THE AUTHOR TYPED NOTHING. An explicit
+        // bound is a decision and must win over one inferred from whatever
+        // happens to be plugged in; an absent bound is an opportunity.
+        public double? TapiocaMinimum
+        {
+            get { return m_core.Minimum ?? TapiocaInputGuard.WiredMinimum (this); }
+        }
 
-        public double? TapiocaMaximum { get { return m_core.Maximum; } }
+        public double? TapiocaMaximum
+        {
+            get { return m_core.Maximum ?? TapiocaInputGuard.WiredMaximum (this); }
+        }
 
         public IList<string> TapiocaChoices { get { return m_core.Choices; } }
 
@@ -420,10 +600,7 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
             List<GH_Integer> values = new List<GH_Integer> ();
 
@@ -439,6 +616,7 @@ namespace Tapioca.Grasshopper
                 }
             }
 
+            m_fromPanel = values;
             SetPersistentData (values);
             ExpireSolution (false);
         }
@@ -447,16 +625,15 @@ namespace Tapioca.Grasshopper
         // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
         public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_Integer> tree)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
+            m_fromPanel = TapiocaInputGuard.Flatten (tree);
             TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
         {
+            m_fromPanel = null;
             PersistentData.Clear ();
             ExpireSolution (false);
         }
@@ -464,6 +641,24 @@ namespace Tapioca.Grasshopper
         public bool AutoAssignContextualData (GH_ParameterContext context)
         {
             return true;
+        }
+
+        // the panel's value, over a wire ------------------------------------
+
+        /// <summary>What the panel last sent, or null.</summary>
+        /// <remarks>
+        /// Kept BESIDE the persistent data rather than instead of it: with no
+        /// source, persistent data is what Grasshopper reads and that proven
+        /// path stays untouched. This is consulted only when a source exists --
+        /// see TapiocaInputGuard.ApplyOverride for why a parameter's own
+        /// collection is the one place it can be applied.
+        /// </remarks>
+        private List<GH_Integer> m_fromPanel;
+
+        protected override void CollectVolatileData_FromSources ()
+        {
+            base.CollectVolatileData_FromSources ();
+            TapiocaInputGuard.ApplyOverride (this, m_fromPanel);
         }
 
         public override bool Write (GH_IWriter writer)
@@ -589,10 +784,7 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
             List<GH_Boolean> values = new List<GH_Boolean> ();
 
@@ -608,6 +800,7 @@ namespace Tapioca.Grasshopper
                 }
             }
 
+            m_fromPanel = values;
             SetPersistentData (values);
             ExpireSolution (false);
         }
@@ -616,16 +809,15 @@ namespace Tapioca.Grasshopper
         // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
         public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_Boolean> tree)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
+            m_fromPanel = TapiocaInputGuard.Flatten (tree);
             TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
         {
+            m_fromPanel = null;
             PersistentData.Clear ();
             ExpireSolution (false);
         }
@@ -633,6 +825,24 @@ namespace Tapioca.Grasshopper
         public bool AutoAssignContextualData (GH_ParameterContext context)
         {
             return true;
+        }
+
+        // the panel's value, over a wire ------------------------------------
+
+        /// <summary>What the panel last sent, or null.</summary>
+        /// <remarks>
+        /// Kept BESIDE the persistent data rather than instead of it: with no
+        /// source, persistent data is what Grasshopper reads and that proven
+        /// path stays untouched. This is consulted only when a source exists --
+        /// see TapiocaInputGuard.ApplyOverride for why a parameter's own
+        /// collection is the one place it can be applied.
+        /// </remarks>
+        private List<GH_Boolean> m_fromPanel;
+
+        protected override void CollectVolatileData_FromSources ()
+        {
+            base.CollectVolatileData_FromSources ();
+            TapiocaInputGuard.ApplyOverride (this, m_fromPanel);
         }
 
         public override bool Write (GH_IWriter writer)
@@ -756,10 +966,7 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
             List<GH_String> values = new List<GH_String> ();
 
@@ -775,6 +982,7 @@ namespace Tapioca.Grasshopper
                 }
             }
 
+            m_fromPanel = values;
             SetPersistentData (values);
             ExpireSolution (false);
         }
@@ -783,16 +991,15 @@ namespace Tapioca.Grasshopper
         // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
         public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_String> tree)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
+            m_fromPanel = TapiocaInputGuard.Flatten (tree);
             TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
         {
+            m_fromPanel = null;
             PersistentData.Clear ();
             ExpireSolution (false);
         }
@@ -800,6 +1007,24 @@ namespace Tapioca.Grasshopper
         public bool AutoAssignContextualData (GH_ParameterContext context)
         {
             return true;
+        }
+
+        // the panel's value, over a wire ------------------------------------
+
+        /// <summary>What the panel last sent, or null.</summary>
+        /// <remarks>
+        /// Kept BESIDE the persistent data rather than instead of it: with no
+        /// source, persistent data is what Grasshopper reads and that proven
+        /// path stays untouched. This is consulted only when a source exists --
+        /// see TapiocaInputGuard.ApplyOverride for why a parameter's own
+        /// collection is the one place it can be applied.
+        /// </remarks>
+        private List<GH_String> m_fromPanel;
+
+        protected override void CollectVolatileData_FromSources ()
+        {
+            base.CollectVolatileData_FromSources ();
+            TapiocaInputGuard.ApplyOverride (this, m_fromPanel);
         }
 
         public override bool Write (GH_IWriter writer)
@@ -880,7 +1105,21 @@ namespace Tapioca.Grasshopper
 
         public double? TapiocaMaximum { get { return null; } }
 
-        public IList<string> TapiocaChoices { get { return m_core.Choices; } }
+        public IList<string> TapiocaChoices
+        {
+            get
+            {
+                // The author's own list wins; a wired value list fills in for
+                // an enum that declares none, which is otherwise a row the
+                // panel has to refuse.
+                if (m_core.Choices.Count > 0)
+                {
+                    return m_core.Choices;
+                }
+
+                return TapiocaInputGuard.WiredChoices (this);
+            }
+        }
 
         public string TapiocaCurrentValue
         {
@@ -931,10 +1170,7 @@ namespace Tapioca.Grasshopper
 
         public void AssignContextualData (IEnumerable data)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
             List<GH_String> values = new List<GH_String> ();
             List<string> rejected = new List<string> ();
@@ -960,6 +1196,7 @@ namespace Tapioca.Grasshopper
                 }
             }
 
+            m_fromPanel = values;
             SetPersistentData (values);
 
             if (rejected.Count > 0)
@@ -977,16 +1214,15 @@ namespace Tapioca.Grasshopper
         // TapiocaInputGuard.AssignTree for why the interface alone is not enough.
         public void AssignContextualDataTree (global::Grasshopper.DataTree<GH_String> tree)
         {
-            if (TapiocaInputGuard.WarnIfDriven (this))
-            {
-                return;
-            }
+            TapiocaInputGuard.NoteIfDriven (this);
 
+            m_fromPanel = TapiocaInputGuard.Flatten (tree);
             TapiocaInputGuard.AssignTree (this, tree);
         }
 
         public void ClearContextualData ()
         {
+            m_fromPanel = null;
             PersistentData.Clear ();
             ExpireSolution (false);
         }
@@ -994,6 +1230,24 @@ namespace Tapioca.Grasshopper
         public bool AutoAssignContextualData (GH_ParameterContext context)
         {
             return true;
+        }
+
+        // the panel's value, over a wire ------------------------------------
+
+        /// <summary>What the panel last sent, or null.</summary>
+        /// <remarks>
+        /// Kept BESIDE the persistent data rather than instead of it: with no
+        /// source, persistent data is what Grasshopper reads and that proven
+        /// path stays untouched. This is consulted only when a source exists --
+        /// see TapiocaInputGuard.ApplyOverride for why a parameter's own
+        /// collection is the one place it can be applied.
+        /// </remarks>
+        private List<GH_String> m_fromPanel;
+
+        protected override void CollectVolatileData_FromSources ()
+        {
+            base.CollectVolatileData_FromSources ();
+            TapiocaInputGuard.ApplyOverride (this, m_fromPanel);
         }
 
         public override bool Write (GH_IWriter writer)

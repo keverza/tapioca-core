@@ -250,6 +250,7 @@ InputModel ParseInputModel (const std::string& schemaJson)
 
     ReadString (parsed.value, "workflowId", model.workflowId);
     ReadString (parsed.value, "name", model.name);
+    ReadString (parsed.value, "description", model.description);
 
     // The schema's own errors come across first, so that a model which also
     // fails to yield controls still shows the reason the author can act on.

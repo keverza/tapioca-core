@@ -6,7 +6,21 @@
 
 using geomsrv::BuildTriangleWireEdgeMask;
 using geomsrv::MakeWireEdgeKey;
+using geomsrv::ResolvePolygonEdgeIndex;
 using geomsrv::WireEdgeKey;
+
+TEST (WireframeEdges, ResolvesSignedIndicesAndRejectsContourSeparators)
+{
+    int32_t edgeIndex = 99;
+    EXPECT_FALSE (ResolvePolygonEdgeIndex (0, 8, edgeIndex));
+    EXPECT_EQ (edgeIndex, 99);
+    EXPECT_TRUE (ResolvePolygonEdgeIndex (3, 8, edgeIndex));
+    EXPECT_EQ (edgeIndex, 3);
+    EXPECT_TRUE (ResolvePolygonEdgeIndex (-7, 8, edgeIndex));
+    EXPECT_EQ (edgeIndex, 7);
+    EXPECT_FALSE (ResolvePolygonEdgeIndex (9, 8, edgeIndex));
+    EXPECT_FALSE (ResolvePolygonEdgeIndex (INT32_MIN, 8, edgeIndex));
+}
 
 TEST (WireframeEdges, HidesFanDiagonalAndKeepsFaceBoundary)
 {

@@ -228,6 +228,21 @@ namespace Tapioca.GhWorker
         }
 
         /// <summary>
+        /// What the inputs looked like after the last snapshot was applied.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ CAPTURED AT ASSIGNMENT AND REPORTED AT THE SOLVE, WHICH IS NOT
+        /// THE SAME MOMENT. SetInputs and Solve are two messages, and the
+        /// interesting state is what the parameters held when the solve STARTED
+        /// reading them. Recomputing it at solve time would report what the
+        /// solution left behind instead, which is a different thing and answers
+        /// a question nobody asked.
+        ///
+        /// Engine thread only, like the document it describes.
+        /// </remarks>
+        internal string[] InputTrace { get; set; }
+
+        /// <summary>
         /// Disposes the document this session owns. Engine thread only.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]

@@ -194,8 +194,15 @@ int AcquireBufferCallback (const char* requestJson, const void** dataOut, int64_
         rows = (int64_t) mesh.triMaterial.size ();
         cols = 1;
     }
+    else if (kind == "triWireEdges") {
+        data = mesh.triWireEdges.data ();
+        bytes = (int64_t) (mesh.triWireEdges.size () * sizeof (uint8_t));
+        dtype = "uint8";
+        rows = (int64_t) mesh.triWireEdges.size ();
+        cols = 1;
+    }
     else {
-        return fail ("unknown buffer kind (want vertices|normals|triangles|triMaterial)");
+        return fail ("unknown buffer kind (want vertices|normals|triangles|triMaterial|triWireEdges)");
     }
 
     if (bytes == 0)

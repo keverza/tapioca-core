@@ -135,6 +135,15 @@ constexpr short PaletteIconMinusSquareId = 32602;
 constexpr short PaletteIconRefreshId = 32603;
 constexpr short PaletteIconSelectFace3dId = 32604;
 constexpr short PaletteIconClearId = 32605;
+// The workflow band's row (Iconoir: play, xmark, cube-scan, erase, restart).
+constexpr short PaletteIconPlayId = 32606;
+constexpr short PaletteIconXmarkId = 32607;
+constexpr short PaletteIconCubeScanId = 32608;
+constexpr short PaletteIconEraseId = 32609;
+constexpr short PaletteIconRestartId = 32610;
+constexpr short PaletteIconPlaySolidId = 32611;
+constexpr short PaletteIconStopSolidId = 32612;
+constexpr short PaletteIconIpAddressId = 32613;
 
 // The Tapioca palette ('GDLG' 32510).
 // ⚠️ These ids are POSITIONAL: ResConv numbers .grc items by their ORDER, and the
