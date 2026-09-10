@@ -404,8 +404,10 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
                                                  Diligent::IDeviceContext* context, bool blanked, bool offscreen,
                                                  bool annotationsOnly, void* nativeWindow,
                                                  Diligent::ITextureView* colorTarget,
-                                                 Diligent::ITextureView* depthTarget, const float viewProj[16],
-                                                 uint32_t width, uint32_t height, HudState& hudState)
+                                                 Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView,
+                                                 const float viewProj[16], uint32_t width, uint32_t height,
+                                                 float nearClip, float farClip, bool perspective, HudState& hudState,
+                                                 AnnotationPlacementHistory& placementHistory)
 {
     ProjectedDrawList annotations;
     if (offscreen)
@@ -422,14 +424,24 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
     if (!blanked) {
         const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
         if (selected.has_value ()) {
+            if (placementHistory.source != selected->drawList || placementHistory.nodeIndex != selected->nodeIndex ||
+                placementHistory.frameIndex != selected->frameIndex) {
+                placementHistory.source = selected->drawList;
+                placementHistory.nodeIndex = selected->nodeIndex;
+                placementHistory.frameIndex = selected->frameIndex;
+                placementHistory.candidateByPrimitive.clear ();
+            }
             const ScreenTextMeasure measureText = [&layer] (std::string_view text, float fontSize,
-                                                             ScreenTextExtent& extent) {
+                                                            ScreenTextExtent& extent) {
                 return layer.MeasureProjectedText (text, fontSize, extent);
             };
-            annotations = BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale,
-                                                  annotationsOnly, measureText);
+            annotations =
+                BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly,
+                                       measureText, &placementHistory, hudState.annotationTextHeightMetres,
+                                       hudState.annotationHideBelowPixels, hudState.annotationCapAbovePixels);
             if (!annotations.labels.empty () && layer.IsReady () &&
-                layer.DrawProjected (device, context, annotations.labels, width, height, dpiScale)) {
+                layer.DrawProjected (device, context, depthView, annotations.labels, width, height, dpiScale, nearClip,
+                                     farClip, perspective)) {
                 annotations.labels.clear ();
             }
         }

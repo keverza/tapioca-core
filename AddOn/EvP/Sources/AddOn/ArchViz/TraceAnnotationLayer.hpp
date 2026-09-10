@@ -6,8 +6,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace geomsrv::archviz {
@@ -29,6 +31,7 @@ struct ScreenLine {
     ScreenPoint to;
     uint32_t rgba = 0xFFFFFFFFu;
     float width = 2.0f;
+    bool collisionObstacle = true;
 };
 
 struct ScreenTriangle {
@@ -48,12 +51,23 @@ struct ScreenLabel {
     float rotationRadians = 0.0f;
     std::size_t ownLineBegin = 0;
     std::size_t ownLineEnd = 0;
+    std::size_t sourcePrimitive = 0;
+    ScreenPoint depthAnchor;
+    float anchorDepth = 1.0f;
+    bool fadeWhenOccluded = false;
 };
 
 struct ProjectedDrawList {
     std::vector<ScreenLine> lines;
     std::vector<ScreenTriangle> triangles;
     std::vector<ScreenLabel> labels;
+};
+
+struct AnnotationPlacementHistory {
+    std::shared_ptr<const annotation::DrawList> source;
+    std::size_t nodeIndex = 0;
+    std::size_t frameIndex = 0;
+    std::unordered_map<std::size_t, uint8_t> candidateByPrimitive;
 };
 
 // Adds a uniform screen-space fit to a world projection using this frame only.
@@ -63,9 +77,14 @@ bool FitFrameProjection (const annotation::Frame& frame, const float viewProj[16
 
 // Projects one retained watch frame using ArchViz's row-vector view-projection.
 // D3D clip depth is [0,w], and returned screen y grows down from the top edge.
+// Annotation furniture follows textHeightMetres in model space, disappears below
+// hideBelowPixels, and stops growing above capAbovePixels.
 ProjectedDrawList BuildTraceAnnotations (const annotation::Frame& frame, const float viewProj[16], uint32_t width,
                                          uint32_t height, float dpiScale = 1.0f, bool fitSelectedFrame = false,
-                                         const ScreenTextMeasure& measureText = {});
+                                         const ScreenTextMeasure& measureText = {},
+                                         AnnotationPlacementHistory* placementHistory = nullptr,
+                                         float textHeightMetres = 0.18f, float hideBelowPixels = 10.0f,
+                                         float capAbovePixels = 36.0f);
 
 } // namespace geomsrv::archviz
 

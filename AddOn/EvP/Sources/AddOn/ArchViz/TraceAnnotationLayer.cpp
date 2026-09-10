@@ -3,8 +3,11 @@
 #include "ArchViz/MatrixMath.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <iterator>
+#include <numeric>
 
 namespace geomsrv::archviz {
 namespace {
@@ -17,7 +20,7 @@ using annotation::SemanticRole;
 constexpr float kArrowLength = 10.0f;
 constexpr float kArrowWidth = 5.0f;
 constexpr float kDimensionOffset = 14.0f;
-constexpr float kDimensionTextSize = 18.0f;
+constexpr float kBaseFontPixels = 18.0f;
 
 bool PointAt (const Primitive& primitive, std::size_t index, double out[3])
 {
@@ -29,7 +32,8 @@ bool PointAt (const Primitive& primitive, std::size_t index, double out[3])
     return std::isfinite (out[0]) && std::isfinite (out[1]) && std::isfinite (out[2]);
 }
 
-bool Project (const double point[3], const float viewProj[16], uint32_t width, uint32_t height, ScreenPoint& screen)
+bool Project (const double point[3], const float viewProj[16], uint32_t width, uint32_t height, ScreenPoint& screen,
+              float* depth = nullptr)
 {
     const float input[4] = { float (point[0]), float (point[1]), float (point[2]), 1.0f };
     float clip[4];
@@ -40,13 +44,15 @@ bool Project (const double point[3], const float viewProj[16], uint32_t width, u
     const float ndcX = clip[0] / clip[3];
     const float ndcY = clip[1] / clip[3];
     screen = { (ndcX * 0.5f + 0.5f) * float (width), (0.5f - ndcY * 0.5f) * float (height) };
+    if (depth != nullptr)
+        *depth = clip[2] / clip[3];
     return std::isfinite (screen.x) && std::isfinite (screen.y);
 }
 
 void AddLine (ProjectedDrawList& out, const ScreenPoint& from, const ScreenPoint& to, uint32_t color,
-              float width = 2.0f)
+              float width = 2.0f, bool collisionObstacle = true)
 {
-    out.lines.push_back ({ from, to, color, width });
+    out.lines.push_back ({ from, to, color, width, collisionObstacle });
 }
 
 void AddArrowhead (ProjectedDrawList& out, const ScreenPoint& tail, const ScreenPoint& tip, uint32_t color,
@@ -67,10 +73,66 @@ void AddArrowhead (ProjectedDrawList& out, const ScreenPoint& tail, const Screen
 }
 
 bool ProjectPoint (const Primitive& primitive, std::size_t index, const float viewProj[16], uint32_t width,
-                   uint32_t height, ScreenPoint& screen)
+                   uint32_t height, ScreenPoint& screen, float* depth = nullptr)
 {
     double point[3];
-    return PointAt (primitive, index, point) && Project (point, viewProj, width, height, screen);
+    return PointAt (primitive, index, point) && Project (point, viewProj, width, height, screen, depth);
+}
+
+bool ModelAnnotationScale (const Primitive& primitive, const float viewProj[16], uint32_t width, uint32_t height,
+                           float textHeightMetres, float hideBelowPixels, float capAbovePixels, float& fontPixels,
+                           float& furnitureScale)
+{
+    if (primitive.points.empty ())
+        return false;
+    double anchor[3] = {};
+    for (const annotation::Point3& point : primitive.points) {
+        anchor[0] += point.x;
+        anchor[1] += point.y;
+        anchor[2] += point.z;
+    }
+    const double pointCount = double (primitive.points.size ());
+    anchor[0] /= pointCount;
+    anchor[1] /= pointCount;
+    anchor[2] /= pointCount;
+
+    ScreenPoint projectedAnchor;
+    if (!Project (anchor, viewProj, width, height, projectedAnchor))
+        return false;
+    constexpr double modelStep = 0.01;
+    float horizontalSquared = 0.0f;
+    float crossProduct = 0.0f;
+    float verticalSquared = 0.0f;
+    for (int axis = 0; axis < 3; ++axis) {
+        double displaced[3] = { anchor[0], anchor[1], anchor[2] };
+        displaced[axis] += modelStep;
+        ScreenPoint projectedDisplaced;
+        if (Project (displaced, viewProj, width, height, projectedDisplaced)) {
+            const float horizontal = (projectedDisplaced.x - projectedAnchor.x) / float (modelStep);
+            const float vertical = (projectedDisplaced.y - projectedAnchor.y) / float (modelStep);
+            horizontalSquared += horizontal * horizontal;
+            crossProduct += horizontal * vertical;
+            verticalSquared += vertical * vertical;
+        }
+    }
+    const float trace = horizontalSquared + verticalSquared;
+    const float discriminant = std::hypot (horizontalSquared - verticalSquared, 2.0f * crossProduct);
+    // The largest singular value of the local projection Jacobian is the projected
+    // size of one model metre without making the result depend on camera roll.
+    const float pixelsPerMetre = std::sqrt (std::max (0.0f, 0.5f * (trace + discriminant)));
+    const float projectedPixels = textHeightMetres * pixelsPerMetre;
+    if (!std::isfinite (projectedPixels) || projectedPixels < hideBelowPixels)
+        return false;
+    fontPixels = std::min (projectedPixels, capAbovePixels);
+    furnitureScale = fontPixels / kBaseFontPixels;
+    return fontPixels > 0.0f;
+}
+
+void FadeLabelWhenOccluded (ScreenLabel& label, float depth)
+{
+    label.depthAnchor = label.anchor;
+    label.anchorDepth = depth;
+    label.fadeWhenOccluded = true;
 }
 
 void AddText (ProjectedDrawList& out, const Primitive& primitive, const ScreenPoint& anchor, uint32_t color,
@@ -222,14 +284,15 @@ bool Intersects (const ScreenLine& line, const LabelBox& box, float gap)
 }
 
 void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t height, float dpiScale,
-                           const ScreenTextMeasure& measureText)
+                           const ScreenTextMeasure& measureText, AnnotationPlacementHistory* placementHistory)
 {
     std::vector<LabelBox> occupied;
     occupied.reserve (out.labels.size ());
     const float inset = 4.0f * dpiScale;
-    const float gap = 5.0f * dpiScale;
     for (ScreenLabel& label : out.labels) {
         const float fontSize = label.fontSize > 0.0f ? label.fontSize : 18.0f * dpiScale;
+        const float labelScale = fontSize / kBaseFontPixels;
+        const float gap = 5.0f * labelScale;
         const ScreenTextExtent extent = MeasureText (label.text, fontSize, measureText);
         const ScreenPoint original = label.anchor;
         const ScreenPoint originalCenter { label.centered ? original.x : original.x + extent.width * 0.5f,
@@ -239,8 +302,8 @@ void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t heig
         const float sine = std::sin (label.rotationRadians);
         const ScreenPoint along { cosine, sine };
         const ScreenPoint across { -sine, cosine };
-        const float stepAlong = extent.width + 7.0f * dpiScale;
-        const float stepAcross = extent.height + 7.0f * dpiScale;
+        const float stepAlong = extent.width + 7.0f * labelScale;
+        const float stepAcross = extent.height + 7.0f * labelScale;
         const ScreenPoint offsets[] = {
             { 0.0f, 0.0f },
             { across.x * stepAcross, across.y * stepAcross },
@@ -254,9 +317,17 @@ void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t heig
             { across.x * 2.0f * stepAcross, across.y * 2.0f * stepAcross },
             { -across.x * 2.0f * stepAcross, -across.y * 2.0f * stepAcross },
         };
+        std::array<std::size_t, std::size (offsets)> candidateOrder;
+        std::iota (candidateOrder.begin (), candidateOrder.end (), 0);
+        if (placementHistory != nullptr) {
+            const auto previous = placementHistory->candidateByPrimitive.find (label.sourcePrimitive);
+            if (previous != placementHistory->candidateByPrimitive.end () && previous->second < candidateOrder.size ())
+                std::swap (candidateOrder[0], candidateOrder[previous->second]);
+        }
         bool placed = false;
         for (int pass = 0; pass < 2 && !placed; ++pass) {
-            for (const ScreenPoint& offset : offsets) {
+            for (const std::size_t candidateIndex : candidateOrder) {
+                const ScreenPoint& offset = offsets[candidateIndex];
                 const ScreenPoint anchor { original.x + offset.x, original.y + offset.y };
                 const ScreenPoint center { originalCenter.x + offset.x, originalCenter.y + offset.y };
                 const LabelBox candidate { center, extent.width * 0.5f, extent.height * 0.5f, label.rotationRadians };
@@ -276,7 +347,8 @@ void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t heig
                     for (std::size_t lineIndex = 0; lineIndex < out.lines.size (); ++lineIndex) {
                         if (lineIndex >= label.ownLineBegin && lineIndex < label.ownLineEnd)
                             continue;
-                        if (Intersects (out.lines[lineIndex], candidate, 2.0f * dpiScale)) {
+                        if (out.lines[lineIndex].collisionObstacle &&
+                            Intersects (out.lines[lineIndex], candidate, 2.0f * labelScale)) {
                             intersectsGeometry = true;
                             break;
                         }
@@ -287,8 +359,9 @@ void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t heig
                 label.anchor = anchor;
                 occupied.push_back (candidate);
                 placed = true;
-                if (offset.x != 0.0f || offset.y != 0.0f)
-                    AddLine (out, originalCenter, center, label.rgba, std::max (1.0f, dpiScale));
+                if (placementHistory != nullptr)
+                    placementHistory->candidateByPrimitive[label.sourcePrimitive] =
+                        static_cast<uint8_t> (candidateIndex);
                 break;
             }
         }
@@ -350,7 +423,8 @@ void AddTrimmedPath (ProjectedDrawList& out, const std::vector<ScreenPoint>& pat
 }
 
 void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-                      uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
+                      uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
+                      float fontSizePixels)
 {
     const std::size_t ownLineBegin = out.lines.size ();
     annotation::Point3 center;
@@ -363,8 +437,10 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
         return;
     std::vector<ScreenPoint> sourcePath;
     std::vector<ScreenPoint> dimensionPath;
+    std::vector<float> dimensionDepths;
     sourcePath.reserve (primitive.points.size ());
     dimensionPath.reserve (primitive.points.size ());
+    dimensionDepths.reserve (primitive.points.size ());
     for (const annotation::Point3& point : primitive.points) {
         const double source[3] = { point.x, point.y, point.z };
         const double radialX = point.x - center.x;
@@ -373,11 +449,13 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
                                       center.y + radialY * dimensionRadius / radius, point.z };
         ScreenPoint projectedSource;
         ScreenPoint projectedDimension;
+        float dimensionDepth = 1.0f;
         if (!Project (source, viewProj, width, height, projectedSource) ||
-            !Project (dimension, viewProj, width, height, projectedDimension))
+            !Project (dimension, viewProj, width, height, projectedDimension, &dimensionDepth))
             return;
         sourcePath.push_back (projectedSource);
         dimensionPath.push_back (projectedDimension);
+        dimensionDepths.push_back (dimensionDepth);
     }
     if (primitive.offset == 0.0) {
         const std::vector<ScreenPoint> unoffset = dimensionPath;
@@ -389,8 +467,8 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
             const float tangentLength = std::hypot (tangentX, tangentY);
             if (tangentLength <= 1.0e-3f)
                 return;
-            dimensionPath[index].x -= tangentY / tangentLength * kDimensionOffset * dpiScale;
-            dimensionPath[index].y += tangentX / tangentLength * kDimensionOffset * dpiScale;
+            dimensionPath[index].x -= tangentY / tangentLength * kDimensionOffset * furnitureScale;
+            dimensionPath[index].y += tangentX / tangentLength * kDimensionOffset * furnitureScale;
         }
     }
     std::vector<float> distances (dimensionPath.size (), 0.0f);
@@ -415,11 +493,11 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
     float tangentLength = std::hypot (tangentX, tangentY);
     if (tangentLength <= 1.0e-3f)
         return;
-    const float fontSize = kDimensionTextSize * dpiScale;
+    const float fontSize = fontSizePixels;
     const std::string text = primitive.text;
     const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
-    const float padding = 4.0f * dpiScale;
-    const bool fitsInside = screenLength >= textExtent.width + 2.0f * (kArrowLength + 3.0f) * dpiScale;
+    const float padding = 4.0f * furnitureScale;
+    const bool fitsInside = screenLength >= textExtent.width + 2.0f * (kArrowLength + 3.0f) * furnitureScale;
     if (!fitsInside) {
         const ScreenPoint startTangent { dimensionPath[1].x - dimensionPath[0].x,
                                          dimensionPath[1].y - dimensionPath[0].y };
@@ -429,7 +507,7 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
         const float endLength = std::hypot (endTangent.x, endTangent.y);
         if (startLength <= 1.0e-3f || endLength <= 1.0e-3f)
             return;
-        const float labelDistance = (kArrowLength + 2.0f) * dpiScale + textExtent.width * 0.5f + padding;
+        const float labelDistance = (kArrowLength + 2.0f) * furnitureScale + textExtent.width * 0.5f + padding;
         const ScreenPoint before { dimensionPath.front ().x - startTangent.x / startLength * labelDistance,
                                    dimensionPath.front ().y - startTangent.y / startLength * labelDistance };
         const ScreenPoint after { dimensionPath.back ().x + endTangent.x / endLength * labelDistance,
@@ -448,35 +526,39 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
             tangentLength = endLength;
         }
     }
-    AddLine (out, sourcePath.front (), dimensionPath.front (), color, 2.0f * dpiScale);
-    AddLine (out, sourcePath.back (), dimensionPath.back (), color, 2.0f * dpiScale);
+    AddLine (out, sourcePath.front (), dimensionPath.front (), color, 2.0f * furnitureScale);
+    AddLine (out, sourcePath.back (), dimensionPath.back (), color, 2.0f * furnitureScale);
     if (fitsInside)
         AddTrimmedPath (out, dimensionPath, distances, midpoint - textExtent.width * 0.5f - padding,
-                        midpoint + textExtent.width * 0.5f + padding, color, 2.0f * dpiScale);
+                        midpoint + textExtent.width * 0.5f + padding, color, 2.0f * furnitureScale);
     else
-        AddTrimmedPath (out, dimensionPath, distances, -1.0f, -1.0f, color, 2.0f * dpiScale);
-    AddArrowhead (out, dimensionPath[1], dimensionPath.front (), color, dpiScale);
-    AddArrowhead (out, dimensionPath[dimensionPath.size () - 2], dimensionPath.back (), color, dpiScale);
+        AddTrimmedPath (out, dimensionPath, distances, -1.0f, -1.0f, color, 2.0f * furnitureScale);
+    AddArrowhead (out, dimensionPath[1], dimensionPath.front (), color, furnitureScale);
+    AddArrowhead (out, dimensionPath[dimensionPath.size () - 2], dimensionPath.back (), color, furnitureScale);
     if (!text.empty ()) {
         out.labels.push_back ({ { labelCenter.x, labelCenter.y - textExtent.height * 0.5f },
                                 text,
                                 color,
                                 fontSize,
                                 true,
-                                0xFFFFFFC0u,
-                                1.25f * dpiScale,
+                                0xFFFFFF48u,
+                                0.25f * furnitureScale,
                                 false });
         out.labels.back ().rotationRadians = ReadableRotation (std::atan2 (tangentY, tangentX));
         out.labels.back ().ownLineBegin = ownLineBegin;
         out.labels.back ().ownLineEnd = out.lines.size ();
+        FadeLabelWhenOccluded (out.labels.back (),
+                               dimensionDepths[segment - 1] +
+                                   (dimensionDepths[segment] - dimensionDepths[segment - 1]) * parameter);
     }
 }
 
 void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-                   uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
+                   uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
+                   float fontSizePixels)
 {
     if (primitive.points.size () > 2) {
-        AddArcDimension (out, primitive, viewProj, width, height, color, dpiScale, measureText);
+        AddArcDimension (out, primitive, viewProj, width, height, color, furnitureScale, measureText, fontSizePixels);
         return;
     }
     const std::size_t ownLineBegin = out.lines.size ();
@@ -495,10 +577,12 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
     const double wx = worldB[0] - worldA[0], wy = worldB[1] - worldA[1], wz = worldB[2] - worldA[2];
     std::snprintf (measured, sizeof (measured), "%.3f m", std::sqrt (wx * wx + wy * wy + wz * wz));
     const std::string text = primitive.text.empty () ? measured : primitive.text;
-    const float fontSize = kDimensionTextSize * dpiScale;
+    const float fontSize = fontSizePixels;
     const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
     ScreenPoint da;
     ScreenPoint db;
+    double depthWorld[3] = { (worldA[0] + worldB[0]) * 0.5, (worldA[1] + worldB[1]) * 0.5,
+                             (worldA[2] + worldB[2]) * 0.5 };
     if (primitive.offset != 0.0) {
         const double planX = worldB[0] - worldA[0], planY = worldB[1] - worldA[1];
         const double planLength = std::sqrt (planX * planX + planY * planY);
@@ -508,12 +592,14 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
         const double oy = planX / planLength * primitive.offset;
         const double dimensionA[3] = { worldA[0] + ox, worldA[1] + oy, worldA[2] };
         const double dimensionB[3] = { worldB[0] + ox, worldB[1] + oy, worldB[2] };
+        depthWorld[0] += ox;
+        depthWorld[1] += oy;
         if (!Project (dimensionA, viewProj, width, height, da) || !Project (dimensionB, viewProj, width, height, db))
             return;
     }
     else {
-        const ScreenPoint normal { -projectedUnit.y * kDimensionOffset * dpiScale,
-                                   projectedUnit.x * kDimensionOffset * dpiScale };
+        const ScreenPoint normal { -projectedUnit.y * kDimensionOffset * furnitureScale,
+                                   projectedUnit.x * kDimensionOffset * furnitureScale };
         const ScreenPoint positiveA { a.x + normal.x, a.y + normal.y };
         const ScreenPoint positiveB { b.x + normal.x, b.y + normal.y };
         const ScreenPoint negativeA { a.x - normal.x, a.y - normal.y };
@@ -530,54 +616,59 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
             db = negativeB;
         }
     }
-    AddLine (out, a, da, color, 2.0f * dpiScale);
-    AddLine (out, b, db, color, 2.0f * dpiScale);
+    AddLine (out, a, da, color, 2.0f * furnitureScale);
+    AddLine (out, b, db, color, 2.0f * furnitureScale);
     const float dimensionDx = db.x - da.x;
     const float dimensionDy = db.y - da.y;
     const float dimensionLength = std::hypot (dimensionDx, dimensionDy);
     if (dimensionLength <= 1.0e-3f)
         return;
     const ScreenPoint unit { dimensionDx / dimensionLength, dimensionDy / dimensionLength };
-    const float panelPadding = 4.0f * dpiScale;
+    const float panelPadding = 4.0f * furnitureScale;
     const float textAlongLine = textExtent.width;
-    const bool fitsInside = dimensionLength >= textAlongLine + 2.0f * (kArrowLength + 3.0f) * dpiScale;
+    const bool fitsInside = dimensionLength >= textAlongLine + 2.0f * (kArrowLength + 3.0f) * furnitureScale;
     ScreenPoint labelCenter;
     ScreenPoint lineFrom = da;
     ScreenPoint lineTo = db;
     if (fitsInside) {
         labelCenter = { (da.x + db.x) * 0.5f, (da.y + db.y) * 0.5f };
-        AddArrowhead (out, db, da, color, dpiScale);
-        AddArrowhead (out, da, db, color, dpiScale);
+        AddArrowhead (out, db, da, color, furnitureScale);
+        AddArrowhead (out, da, db, color, furnitureScale);
     }
     else {
-        const float labelDistance = (kArrowLength + 2.0f) * dpiScale + textAlongLine * 0.5f + panelPadding;
+        const float labelDistance = (kArrowLength + 2.0f) * furnitureScale + textAlongLine * 0.5f + panelPadding;
         const ScreenPoint before { da.x - unit.x * labelDistance, da.y - unit.y * labelDistance };
         const ScreenPoint after { db.x + unit.x * labelDistance, db.y + unit.y * labelDistance };
         const bool useBefore = LabelOverflow (before, textExtent, width, height, panelPadding) <=
                                LabelOverflow (after, textExtent, width, height, panelPadding);
         labelCenter = useBefore ? before : after;
-        const float overhang = (kArrowLength + 4.0f) * dpiScale + textAlongLine + panelPadding * 2.0f;
+        const float overhang = (kArrowLength + 4.0f) * furnitureScale + textAlongLine + panelPadding * 2.0f;
         if (useBefore)
             lineFrom = { da.x - unit.x * overhang, da.y - unit.y * overhang };
         else
             lineTo = { db.x + unit.x * overhang, db.y + unit.y * overhang };
-        AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, dpiScale);
-        AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, dpiScale);
+        AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, furnitureScale);
+        AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, furnitureScale);
     }
-    AddLineTrimmedAgainstLabel (out, lineFrom, lineTo, labelCenter, textExtent, panelPadding, color, 2.0f * dpiScale);
+    AddLineTrimmedAgainstLabel (out, lineFrom, lineTo, labelCenter, textExtent, panelPadding, color,
+                                2.0f * furnitureScale);
     if (!text.empty ())
         out.labels.push_back ({ { labelCenter.x, labelCenter.y - textExtent.height * 0.5f },
                                 text,
                                 color,
                                 fontSize,
                                 true,
-                                0xFFFFFFC0u,
-                                1.25f * dpiScale,
+                                0xFFFFFF48u,
+                                0.25f * furnitureScale,
                                 false });
     if (!text.empty ()) {
         out.labels.back ().rotationRadians = ReadableRotation (std::atan2 (dimensionDy, dimensionDx));
         out.labels.back ().ownLineBegin = ownLineBegin;
         out.labels.back ().ownLineEnd = out.lines.size ();
+        ScreenPoint unused;
+        float depth = 1.0f;
+        if (Project (depthWorld, viewProj, width, height, unused, &depth))
+            FadeLabelWhenOccluded (out.labels.back (), depth);
     }
 }
 
@@ -599,11 +690,13 @@ double ModelAngleDegrees (const Primitive& primitive)
 }
 
 void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-               uint32_t height, uint32_t color, float dpiScale, const ScreenTextMeasure& measureText)
+               uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
+               float fontSizePixels)
 {
     const std::size_t ownLineBegin = out.lines.size ();
     ScreenPoint center, first, second;
-    if (!ProjectPoint (primitive, 0, viewProj, width, height, center) ||
+    float centerDepth = 1.0f;
+    if (!ProjectPoint (primitive, 0, viewProj, width, height, center, &centerDepth) ||
         !ProjectPoint (primitive, 1, viewProj, width, height, first) ||
         !ProjectPoint (primitive, 2, viewProj, width, height, second))
         return;
@@ -611,7 +704,7 @@ void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float v
         std::swap (first, second);
     annotation::ArchitecturalAngleGlyph glyph;
     if (!annotation::BuildArchitecturalAngleGlyph ({ center.x, center.y }, { first.x, first.y }, { second.x, second.y },
-                                                   dpiScale, glyph))
+                                                   furnitureScale, glyph))
         return;
     for (std::size_t index = 1; index < glyph.arc.size (); ++index)
         AddLine (out, { float (glyph.arc[index - 1].x), float (glyph.arc[index - 1].y) },
@@ -624,7 +717,7 @@ void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float v
     char measured[64];
     std::snprintf (measured, sizeof (measured), "%.1f\xC2\xB0", ModelAngleDegrees (primitive));
     const std::string text = primitive.text.empty () ? measured : primitive.text;
-    const float fontSize = float (glyph.fontSizePixels);
+    const float fontSize = fontSizePixels;
     const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
     const float radialX = float (glyph.labelAnchor.x) - center.x;
     const float radialY = float (glyph.labelAnchor.y) - center.y;
@@ -633,15 +726,16 @@ void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float v
         return;
     const float arcRadius =
         std::hypot (float (glyph.arc.front ().x) - center.x, float (glyph.arc.front ().y) - center.y);
-    const float labelRadius = std::max (radialLength, arcRadius + textExtent.width * 0.5f + 5.0f * dpiScale);
+    const float labelRadius = std::max (radialLength, arcRadius + textExtent.width * 0.5f + 5.0f * furnitureScale);
     const ScreenPoint labelCenter { center.x + radialX / radialLength * labelRadius,
                                     center.y + radialY / radialLength * labelRadius };
     AddText (out, primitive, { labelCenter.x, labelCenter.y - textExtent.height * 0.5f }, color, measured, fontSize,
-             true, false, 0xFFFFFFC0u, 1.25f * dpiScale);
+             true, false, 0xFFFFFF48u, 0.25f * furnitureScale);
     ScreenLabel& label = out.labels.back ();
     label.rotationRadians = ReadableRotation (std::atan2 (radialY, radialX));
     label.ownLineBegin = ownLineBegin;
     label.ownLineEnd = out.lines.size ();
+    FadeLabelWhenOccluded (label, centerDepth);
 }
 
 } // namespace
@@ -694,59 +788,96 @@ bool FitFrameProjection (const Frame& frame, const float viewProj[16], uint32_t 
 }
 
 ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewProj[16], uint32_t width, uint32_t height,
-                                         float dpiScale, bool fitSelectedFrame, const ScreenTextMeasure& measureText)
+                                         float dpiScale, bool fitSelectedFrame, const ScreenTextMeasure& measureText,
+                                         AnnotationPlacementHistory* placementHistory, float textHeightMetres,
+                                         float hideBelowPixels, float capAbovePixels)
 {
     ProjectedDrawList out;
-    if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f)
+    if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f ||
+        !std::isfinite (textHeightMetres) || textHeightMetres <= 0.0f || !std::isfinite (hideBelowPixels) ||
+        hideBelowPixels < 0.0f || !std::isfinite (capAbovePixels) || capAbovePixels < hideBelowPixels)
         return out;
     float fitted[16];
     const float* projection = viewProj;
     if (fitSelectedFrame && FitFrameProjection (frame, viewProj, width, height, 24.0f * dpiScale, fitted))
         projection = fitted;
-    for (const Primitive& primitive : frame.primitives) {
+    for (std::size_t primitiveIndex = 0; primitiveIndex < frame.primitives.size (); ++primitiveIndex) {
+        const Primitive& primitive = frame.primitives[primitiveIndex];
+        const std::size_t firstLabel = out.labels.size ();
+        const auto markLabels = [&] {
+            for (std::size_t labelIndex = firstLabel; labelIndex < out.labels.size (); ++labelIndex)
+                out.labels[labelIndex].sourcePrimitive = primitiveIndex;
+        };
         const uint32_t color = annotation::PackRgba (annotation::RoleColour (primitive.role));
         if (primitive.kind == PrimitiveKind::Element)
             continue;
+        const bool scaledAnnotation = primitive.kind == PrimitiveKind::Dimension ||
+                                      primitive.kind == PrimitiveKind::Angle ||
+                                      primitive.kind == PrimitiveKind::Point ||
+                                      primitive.kind == PrimitiveKind::Label || primitive.kind == PrimitiveKind::Arrow;
+        float fontSizePixels = 0.0f;
+        float furnitureScale = 0.0f;
+        if (scaledAnnotation && !ModelAnnotationScale (primitive, projection, width, height, textHeightMetres,
+                                                       hideBelowPixels, capAbovePixels, fontSizePixels, furnitureScale))
+            continue;
         if (primitive.kind == PrimitiveKind::Dimension) {
-            AddDimension (out, primitive, projection, width, height, color, dpiScale, measureText);
+            AddDimension (out, primitive, projection, width, height, color, furnitureScale, measureText,
+                          fontSizePixels);
+            markLabels ();
             continue;
         }
         if (primitive.kind == PrimitiveKind::Angle) {
-            AddAngle (out, primitive, projection, width, height, color, dpiScale, measureText);
+            AddAngle (out, primitive, projection, width, height, color, furnitureScale, measureText, fontSizePixels);
+            markLabels ();
             continue;
         }
         ScreenPoint first;
-        if (!ProjectPoint (primitive, 0, projection, width, height, first))
+        float firstDepth = 1.0f;
+        if (!ProjectPoint (primitive, 0, projection, width, height, first, &firstDepth))
             continue;
         if (primitive.kind == PrimitiveKind::Point) {
-            AddLine (out, { first.x - 4.0f * dpiScale, first.y }, { first.x + 4.0f * dpiScale, first.y }, color,
-                     2.0f * dpiScale);
-            AddLine (out, { first.x, first.y - 4.0f * dpiScale }, { first.x, first.y + 4.0f * dpiScale }, color,
-                     2.0f * dpiScale);
-            AddText (out, primitive, { first.x + 6.0f * dpiScale, first.y + 6.0f * dpiScale }, color);
+            AddLine (out, { first.x - 4.0f * furnitureScale, first.y }, { first.x + 4.0f * furnitureScale, first.y },
+                     color, 2.0f * furnitureScale);
+            AddLine (out, { first.x, first.y - 4.0f * furnitureScale }, { first.x, first.y + 4.0f * furnitureScale },
+                     color, 2.0f * furnitureScale);
+            AddText (out, primitive, { first.x + 6.0f * furnitureScale, first.y + 6.0f * furnitureScale }, color, {},
+                     fontSizePixels);
+            markLabels ();
+            if (out.labels.size () > firstLabel)
+                FadeLabelWhenOccluded (out.labels.back (), firstDepth);
             continue;
         }
         if (primitive.kind == PrimitiveKind::Label) {
-            AddText (out, primitive, first, color);
+            AddText (out, primitive, first, color, {}, fontSizePixels);
+            markLabels ();
+            if (out.labels.size () > firstLabel)
+                FadeLabelWhenOccluded (out.labels.back (), firstDepth);
             continue;
         }
         ScreenPoint previous = first;
         const std::size_t pointCount = primitive.points.size ();
+        const bool collisionObstacle = primitive.role != SemanticRole::Context;
+        const float lineWidth = primitive.kind == PrimitiveKind::Arrow ? 2.0f * furnitureScale
+                                                                       : (collisionObstacle ? 2.0f : 1.0f) * dpiScale;
         for (std::size_t index = 1; index < pointCount; ++index) {
             ScreenPoint next;
             if (ProjectPoint (primitive, index, projection, width, height, next)) {
-                AddLine (out, previous, next, color, 2.0f * dpiScale);
+                AddLine (out, previous, next, color, lineWidth, collisionObstacle);
                 previous = next;
             }
         }
         if (primitive.kind == PrimitiveKind::Polyline && primitive.closed && pointCount > 2)
-            AddLine (out, previous, first, color, 2.0f * dpiScale);
+            AddLine (out, previous, first, color, lineWidth, collisionObstacle);
         if (primitive.kind == PrimitiveKind::Arrow) {
-            AddArrowhead (out, first, previous, color, dpiScale);
-            AddText (out, primitive, { (first.x + previous.x) * 0.5f, (first.y + previous.y) * 0.5f }, color);
+            AddArrowhead (out, first, previous, color, furnitureScale);
+            AddText (out, primitive, { (first.x + previous.x) * 0.5f, (first.y + previous.y) * 0.5f }, color, {},
+                     fontSizePixels);
+            markLabels ();
+            if (out.labels.size () > firstLabel)
+                FadeLabelWhenOccluded (out.labels.back (), firstDepth);
         }
     }
-    ResolveLabelOverlaps (out, width, height, dpiScale, measureText);
+    ResolveLabelOverlaps (out, width, height, dpiScale, measureText, placementHistory);
     return out;
 }
 

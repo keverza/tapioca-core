@@ -610,8 +610,9 @@ bool SceneTextLayer::Draw (Diligent::IRenderDevice* device, Diligent::IDeviceCon
 }
 
 bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                                    const std::vector<ScreenLabel>& labels, uint32_t surfaceWidth,
-                                    uint32_t surfaceHeight, float dpiScale)
+                                    Diligent::ITextureView* depthView, const std::vector<ScreenLabel>& labels,
+                                    uint32_t surfaceWidth, uint32_t surfaceHeight, float dpiScale, float nearClip,
+                                    float farClip, bool perspective)
 {
     impl_->stats.labels = impl_->stats.glyphs = impl_->stats.drawCalls = 0;
     impl_->stats.unavailableGlyphs = 0;
@@ -633,9 +634,15 @@ bool SceneTextLayer::DrawProjected (Diligent::IRenderDevice* device, Diligent::I
                               std::clamp (label.haloWidthPixels, 0.0f, 8.0f), label.backgroundPanel });
         prepared.back ().edgeInsetPixels = 4.0f * dpiScale;
         prepared.back ().rotationRadians = label.rotationRadians;
+        if (label.fadeWhenOccluded) {
+            prepared.back ().depthUvOffset[0] = (label.depthAnchor.x - label.anchor.x) / float (surfaceWidth);
+            prepared.back ().depthUvOffset[1] = (label.depthAnchor.y - label.anchor.y) / float (surfaceHeight);
+            prepared.back ().anchorDepth = label.anchorDepth;
+            prepared.back ().occlusionMode = 2.0f;
+        }
     }
-    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, nullptr, 0.05f, 20000.0f, true,
-                                true);
+    return impl_->DrawPrepared (device, context, prepared, surfaceWidth, surfaceHeight, depthView, nearClip, farClip,
+                                perspective, true);
 }
 
 bool SceneTextLayer::MeasureProjectedText (std::string_view text, float fontSize, ScreenTextExtent& extent)

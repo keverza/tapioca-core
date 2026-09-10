@@ -138,7 +138,7 @@ void DrawSceneTextLiveCheck (SceneTextLayer& layer, Diligent::IRenderDevice* dev
             add (float (width) * 0.5f, overlapY, "FIRST LABEL WINS", 0xB7F7A8FFu, 0.0f, true);
             add (float (width) * 0.5f, overlapY, "ERROR: OVERLAP VISIBLE", 0xFF6767FFu, 0.0f, true);
         }
-        layer.DrawProjected (device, context, labels, width, height, dpiScale);
+        layer.DrawProjected (device, context, nullptr, labels, width, height, dpiScale, 0.05f, 20000.0f, true);
     }
     const SceneTextLayerStats stats = layer.Stats ();
     state.sceneTextLabels = stats.labels;

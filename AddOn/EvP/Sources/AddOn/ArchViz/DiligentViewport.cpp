@@ -331,6 +331,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // captureFrames_ is written before this thread starts and is read-only
         // afterwards.
         size_t captureIndex = 0;
+        AnnotationPlacementHistory annotationPlacementHistory;
 
         while (!stopRequested_.load ()) {
             bool captureThisFrame = false;
@@ -900,9 +901,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                           planAnchorRgba_.load ());
             if (!offscreen && !annotationsOnly && !blanked && !ShouldIsolateGraphInteraction (hudState, input))
                 DrawCornerGnomon (context, scene, rtv, dsv, camera, width, height);
-            ProjectedDrawList annotations =
-                UpdateAndDrawTraceAnnotations (textLayer, device, context, blanked, offscreen, annotationsOnly,
-                                               surface.nwh, rtv, dsv, viewProj, width, height, hudState);
+            ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
+                textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
+                target.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),
+                camera.IsPerspective (), hudState, annotationPlacementHistory);
 
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be

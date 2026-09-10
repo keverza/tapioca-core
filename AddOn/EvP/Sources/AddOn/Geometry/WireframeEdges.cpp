@@ -11,6 +11,15 @@ WireEdgeKey MakeWireEdgeKey (uint32_t vertexA, uint32_t vertexB)
     return (uint64_t (lo) << 32u) | uint64_t (hi);
 }
 
+bool ResolvePolygonEdgeIndex (int32_t signedIndex, int32_t edgeCount, int32_t& edgeIndex)
+{
+    const int64_t magnitude = signedIndex < 0 ? -int64_t (signedIndex) : int64_t (signedIndex);
+    if (magnitude < 1 || magnitude > edgeCount)
+        return false;
+    edgeIndex = static_cast<int32_t> (magnitude);
+    return true;
+}
+
 uint8_t BuildTriangleWireEdgeMask (const uint32_t vertices[3], const std::vector<WireEdgeKey>& visibleEdges)
 {
     const WireEdgeKey edges[3] = {

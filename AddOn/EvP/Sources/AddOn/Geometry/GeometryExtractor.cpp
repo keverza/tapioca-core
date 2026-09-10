@@ -83,33 +83,37 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
         welder.Reset (); // source indices below are body-local
 
         for (Int32 iPoly = 1; iPoly <= nPoly; ++iPoly) {
-            ModelerAPI::Polygon polygon;
-            body.GetPolygon (iPoly, &polygon);
+            try {
+                ModelerAPI::Polygon polygon;
+                body.GetPolygon (iPoly, &polygon);
 
-            // Preserve only the source polygon's visible boundary. Convex
-            // decomposition seams and fan diagonals are absent from this set.
-            std::vector<WireEdgeKey> visibleEdges;
-            visibleEdges.reserve (static_cast<size_t> (std::max<Int32> (polygon.GetEdgeCount (), 0)));
-            for (Int32 iEdge = 1; iEdge <= polygon.GetEdgeCount (); ++iEdge) {
-                ModelerAPI::Edge edge;
-                body.GetEdge (polygon.GetEdgeIndex (iEdge), &edge);
-                if (edge.IsInvisible () && !edge.IsVisibleIfContour ())
-                    continue;
-                const Int32 v1 = edge.GetVertexIndex1 () - 1;
-                const Int32 v2 = edge.GetVertexIndex2 () - 1;
-                if (v1 >= 0 && v2 >= 0)
-                    visibleEdges.push_back (MakeWireEdgeKey (uint32_t (v1), uint32_t (v2)));
-            }
-            std::sort (visibleEdges.begin (), visibleEdges.end ());
-            visibleEdges.erase (std::unique (visibleEdges.begin (), visibleEdges.end ()), visibleEdges.end ());
+                // Preserve only the source polygon's visible boundary. Zero is
+                // a contour separator and a negative index reverses traversal;
+                // neither may be passed directly to the 1-based edge accessor.
+                std::vector<WireEdgeKey> visibleEdges;
+                visibleEdges.reserve (static_cast<size_t> (std::max<Int32> (polygon.GetEdgeCount (), 0)));
+                for (Int32 iEdge = 1; iEdge <= polygon.GetEdgeCount (); ++iEdge) {
+                    Int32 edgeIndex = 0;
+                    if (!ResolvePolygonEdgeIndex (polygon.GetEdgeIndex (iEdge), body.GetEdgeCount (), edgeIndex))
+                        continue;
+                    ModelerAPI::Edge edge;
+                    body.GetEdge (edgeIndex, &edge);
+                    if (edge.IsInvisible () && !edge.IsVisibleIfContour ())
+                        continue;
+                    const Int32 v1 = edge.GetVertexIndex1 () - 1;
+                    const Int32 v2 = edge.GetVertexIndex2 () - 1;
+                    if (v1 >= 0 && v2 >= 0)
+                        visibleEdges.push_back (MakeWireEdgeKey (uint32_t (v1), uint32_t (v2)));
+                }
+                std::sort (visibleEdges.begin (), visibleEdges.end ());
+                visibleEdges.erase (std::unique (visibleEdges.begin (), visibleEdges.end ()), visibleEdges.end ());
 
-            ModelerAPI::AttributeIndex matIdx;
-            polygon.GetMaterialIndex (matIdx);
-            const int32_t material = matIdx.GetIndex ();
+                ModelerAPI::AttributeIndex matIdx;
+                polygon.GetMaterialIndex (matIdx);
+                const int32_t material = matIdx.GetIndex ();
 
-            const Int32 nConvex = polygon.GetConvexPolygonCount ();
-            for (Int32 iConvex = 1; iConvex <= nConvex; ++iConvex) {
-                try {
+                const Int32 nConvex = polygon.GetConvexPolygonCount ();
+                for (Int32 iConvex = 1; iConvex <= nConvex; ++iConvex) {
                     ModelerAPI::ConvexPolygon convex;
                     polygon.GetConvexPolygon (iConvex, &convex);
 
@@ -172,9 +176,9 @@ bool ExtractElement (const ModelerAPI::Element& elem, Mesh& mesh)
                         mesh.triWireEdges.push_back (BuildTriangleWireEdgeMask (sourceVertices, visibleEdges));
                     }
                 }
-                catch (const GS::Exception&) {
-                    continue; // skip degenerate / self-intersecting polygon
-                }
+            }
+            catch (const GS::Exception&) {
+                continue; // skip malformed / self-intersecting polygon
             }
         }
     }

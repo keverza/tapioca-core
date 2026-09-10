@@ -67,8 +67,9 @@ class SceneTextLayer final {
                const float depthViewProj[16], uint32_t surfaceWidth, uint32_t surfaceHeight, float dpiScale,
                float nearClip, float farClip, bool perspective, bool requireAllReady = false);
     bool DrawProjected (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,
-                         const std::vector<ScreenLabel>& labels, uint32_t surfaceWidth, uint32_t surfaceHeight,
-                         float dpiScale);
+                        Diligent::ITextureView* depthView, const std::vector<ScreenLabel>& labels,
+                        uint32_t surfaceWidth, uint32_t surfaceHeight, float dpiScale, float nearClip, float farClip,
+                        bool perspective);
     bool MeasureProjectedText (std::string_view text, float fontSize, ScreenTextExtent& extent);
     bool IsReady () const;
     SceneTextLayerStats Stats () const;

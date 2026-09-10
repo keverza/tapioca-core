@@ -1,5 +1,5 @@
 #include "ArchViz/DiligentHud.hpp"
-
+#include "ArchViz/AnnotationHudControls.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/DiligentShaders.hpp"
 #include "ArchViz/InputRingBuffer.hpp"
@@ -369,6 +369,7 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
                 ImGui::SliderInt ("wire subdivisions", &state.wireTessellation, 1, 16);
                 ImGui::SliderFloat ("wire width", &state.wireLineWidth, 0.5f, 3.0f, "%.2f px");
             }
+            DrawAnnotationHudControls (state);
 
             // ⚠️ A SEPARATE COMBO FROM THE ONE ABOVE, not more entries in it.
             // Quality and surfaces are independent axes and every pairing is

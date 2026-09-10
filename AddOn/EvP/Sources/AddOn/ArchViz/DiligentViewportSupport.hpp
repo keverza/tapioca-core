@@ -21,6 +21,7 @@
 #include "ArchViz/DiligentPickBuffer.hpp"     // PublishCompletedPick
 #include "ArchViz/DiligentViewportTarget.hpp" // ApplyRequestedFrameLatency
 #include "ArchViz/InputRingBuffer.hpp"        // InputSnapshot, for ServicePick
+#include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -40,7 +41,6 @@ class Camera;
 class DiligentScene;
 class PlanAnchorLayer;
 struct HudState;
-struct ProjectedDrawList;
 
 void ApplyShadowSettings (DiligentScene& scene, const HudState& hud);
 bool ShouldIsolateGraphInteraction (const HudState& hud, const InputSnapshot& input);
@@ -177,8 +177,10 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent
                                                  Diligent::IDeviceContext* context, bool blanked, bool offscreen,
                                                  bool annotationsOnly, void* nativeWindow,
                                                  Diligent::ITextureView* colorTarget,
-                                                 Diligent::ITextureView* depthTarget, const float viewProj[16],
-                                                 uint32_t width, uint32_t height, HudState& hudState);
+                                                 Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView,
+                                                 const float viewProj[16], uint32_t width, uint32_t height,
+                                                 float nearClip, float farClip, bool perspective, HudState& hudState,
+                                                 AnnotationPlacementHistory& placementHistory);
 
 void CopyOverlayStatsInto (DiligentViewportStats& stats, bool planAnchorsOn, const PlanAnchorLayer& planAnchors,
                            float planAnchorWidthPixels, const SceneTextLayer& textLayer, const Camera& camera,
