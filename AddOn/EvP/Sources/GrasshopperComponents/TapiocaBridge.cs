@@ -34,6 +34,15 @@ namespace Tapioca.Grasshopper
     {
         private const string HostAssembly = "Tapioca.GhWorker";
         private const string HostType = "Tapioca.GhWorker.TapiocaBridgeApi";
+        // ⚠️ AND THIS ASSEMBLY, SECOND, BECAUSE IT MAY BE THE HOST ITSELF. The
+        // session half is compiled into this package as well (see the .csproj),
+        // so when Grasshopper is the ATTACHED PEER the bound bridge lives here
+        // rather than in a worker process. Worker first and peer second is the
+        // order that matters: inside Tapioca.GhWorker.exe both types exist, only
+        // the worker's is bound, and preferring our own copy there would report
+        // "not connected to Archicad" on a machine where it plainly is.
+        private const string PeerAssembly = "Tapioca.Grasshopper";
+
         private const string CallMethod = "Call";
 
         private static MethodInfo _call;
@@ -81,29 +90,33 @@ namespace Tapioca.Grasshopper
             try
             {
                 Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
-                for (int index = 0; index < loaded.Length; index++)
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    AssemblyName name = loaded[index].GetName();
-                    if (!string.Equals(name.Name, HostAssembly, StringComparison.OrdinalIgnoreCase))
+                    string wanted = pass == 0 ? HostAssembly : PeerAssembly;
+                    for (int index = 0; index < loaded.Length; index++)
                     {
-                        continue;
-                    }
+                        AssemblyName name = loaded[index].GetName();
+                        if (!string.Equals(name.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
 
-                    Type type = loaded[index].GetType(HostType, false, false);
-                    if (type == null)
-                    {
-                        continue;
-                    }
+                        Type type = loaded[index].GetType(HostType, false, false);
+                        if (type == null)
+                        {
+                            continue;
+                        }
 
-                    MethodInfo method = type.GetMethod(
-                        CallMethod,
-                        BindingFlags.Public | BindingFlags.Static,
-                        null,
-                        new Type[] { typeof(string), typeof(string) },
-                        null);
-                    if (method != null)
-                    {
-                        return method;
+                        MethodInfo method = type.GetMethod(
+                            CallMethod,
+                            BindingFlags.Public | BindingFlags.Static,
+                            null,
+                            new Type[] { typeof(string), typeof(string) },
+                            null);
+                        if (method != null)
+                        {
+                            return method;
+                        }
                     }
                 }
             }

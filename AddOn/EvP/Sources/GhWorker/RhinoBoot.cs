@@ -33,6 +33,12 @@ namespace Tapioca.GhWorker
         // it in a diagnostic; the plug-in itself is reached by name below.
         private const string GrasshopperPlugInName = "Grasshopper";
 
+        // The editor form already guarded, by identity rather than in a typed
+        // field: Grasshopper builds a NEW form if the editor is unloaded and
+        // loaded again, and a stale subscription would guard a window that no
+        // longer exists while the live one closed the worker freely.
+        private static object _guardedEditor;
+
         /// <summary>
         /// Installs the Rhino.Inside assembly resolver and returns the Rhino
         /// system directory it settled on. Throws when no Rhino 8 is found.
@@ -150,6 +156,7 @@ namespace Tapioca.GhWorker
                     return false;
                 }
                 grasshopper.HideEditor();
+                GuardEditorClose();
             }
 
             tapirReport = preparedTapioca + " " + TapiocaPackage.Verify()
@@ -216,6 +223,11 @@ namespace Tapioca.GhWorker
                 }
 
                 grasshopper.ShowEditor();
+
+                // After the show, not before: a first ShowEditor is what loads
+                // the editor on a headless start, so this is the earliest point
+                // at which there is a form to guard.
+                GuardEditorClose();
             }
             else
             {
@@ -228,6 +240,77 @@ namespace Tapioca.GhWorker
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Makes the canvas's close button HIDE the canvas instead of ending
+        /// this worker. Idempotent; call it whenever the editor may be new.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ THE CANVAS IS A WINDOW OVER A RUNTIME THAT OUTLIVES IT, AND
+        /// WITHOUT THIS IT IS NOT. The editor is the only real top-level window
+        /// on the engine thread, so closing it ends that thread's message loop:
+        /// <c>Application.Run</c> returns, GhEngineThread's finally block closes
+        /// every workflow session and disposes RhinoCore, and the worker exits.
+        /// A user who closed a canvas they were finished with lost the Player,
+        /// the loaded definition and the session with it -- and, on the report
+        /// this fixes, apparently more than that.
+        /// </para>
+        /// <para>
+        /// This is what Rhino itself does with Grasshopper's editor: the close
+        /// button hides the window and Grasshopper keeps running. In Rhino that
+        /// behaviour comes from Rhino owning the message loop; here the loop is
+        /// ours, so the same promise has to be made explicitly.
+        /// </para>
+        /// <para>
+        /// ⚠️ ONLY <c>UserClosing</c> IS CANCELLED. Our own teardown closes
+        /// this window too, and a guard that refused every reason would refuse
+        /// the shutdown the add-on asked for.
+        /// </para>
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void GuardEditorClose()
+        {
+            try
+            {
+                System.Windows.Forms.Form editor = Grasshopper.Instances.DocumentEditor;
+                if (editor == null || ReferenceEquals(editor, _guardedEditor))
+                {
+                    return;
+                }
+
+                editor.FormClosing += OnEditorFormClosing;
+                _guardedEditor = editor;
+                WorkerLog.Write("the Grasshopper canvas close button hides the canvas; it no longer ends this worker.");
+            }
+            catch (Exception exception)
+            {
+                // Worth recording and not worth failing a start over: an
+                // unguarded canvas still works, it just takes the worker with it
+                // when it closes, which is what the log line is for.
+                WorkerLog.Write("could not guard the Grasshopper canvas close button: " + WorkerLog.Describe(exception));
+            }
+        }
+
+        private static void OnEditorFormClosing(object sender, System.Windows.Forms.FormClosingEventArgs e)
+        {
+            if (e.CloseReason != System.Windows.Forms.CloseReason.UserClosing)
+            {
+                return;
+            }
+
+            e.Cancel = true;
+            string failure;
+            if (!SetEditorVisible(false, out failure))
+            {
+                WorkerLog.Write("the Grasshopper canvas was closed and would not hide: " + failure);
+                return;
+            }
+
+            WorkerLog.Write(
+                "the Grasshopper canvas was closed; it was hidden and the worker kept running. "
+                + "Use Stop in the Tapioca panel to end it.");
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

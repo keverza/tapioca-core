@@ -48,7 +48,11 @@ namespace Tapioca.Grasshopper
             bool refresh = true;
             DA.GetData(0, ref refresh);
 
-            string response = TapiocaBridge.Call("GetStatus", string.Empty);
+            // ⚠️ NAMESPACED, AND IT HAS TO BE. The dispatcher splits a command
+            // into <Backend>.<Name> and answers BadCommand for anything without a
+            // dot -- so the bare "GetStatus" this used to send could never have
+            // reached the command it names.
+            string response = TapiocaBridge.Call("Tapioca.GetStatus", string.Empty);
             bool ok = Envelope.IsOk(response);
 
             DA.SetData(0, ok);

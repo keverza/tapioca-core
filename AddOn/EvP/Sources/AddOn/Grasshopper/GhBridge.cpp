@@ -537,8 +537,24 @@ void GhBridge::Run ()
                     // are admitted only once execution gating proves one Run
                     // produces one deliberate executor pass. A gate on the
                     // worker's side would be a gate the worker could lose.
+                    // ⚠️ THE GATE ASKED THE WRONG QUESTION AND SO NEVER FIRED
+                    // ONCE. Commands arrive NAMESPACED -- "Tapioca.SetElementIds",
+                    // because the dispatcher requires <Backend>.<Name> and refuses
+                    // anything else -- while IsWriteCommand looks a command up by
+                    // its BARE name and reports "no such command" for the
+                    // namespaced form. The caller reads that as "not a write", so
+                    // every write walked through the read-only gate below. The
+                    // prefix is stripped before asking, which is the whole fix.
+                    //
+                    // An unknown bare name still answers false and still reaches
+                    // the dispatcher, deliberately: refusing it here would report
+                    // "read-only" for a command that is simply misspelled, and the
+                    // dispatcher's BadCommand says what is actually wrong.
                     bool isWrite = false;
-                    const GS::String commandKey (request.command.c_str ());
+                    const std::string& fullCommand = request.command;
+                    const size_t dot = fullCommand.find ('.');
+                    const GS::String commandKey (dot == std::string::npos ? fullCommand.c_str ()
+                                                                          : fullCommand.c_str () + dot + 1);
                     if (geomsrv::IsWriteCommand (commandKey, isWrite) && isWrite) {
                         envelope = ErrorEnvelope (FromUtf8 (request.command) +
                                                   GS::UniString (" modifies the project, and the Grasshopper "

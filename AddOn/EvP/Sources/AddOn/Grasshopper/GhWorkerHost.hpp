@@ -69,6 +69,26 @@ class GhWorkerHost {
     // being loaded from the panel is no reason to take the editor away from
     // someone who asked for it.
     bool EnsureHeadless (GS::UniString& message);
+
+    // Listens for a peer this add-on does NOT start, and reports the pipe to
+    // connect to.
+    //
+    // ⚠️ IT NEEDS NO NEW TRANSPORT, WHICH IS THE WHOLE REASON IT IS CHEAP. The
+    // bridge is a named-pipe SERVER and the worker has always been the client
+    // (GhBridge::Start, "the worker connects to a name it is given"), so a
+    // Grasshopper already running in the user's own Rhino can complete the same
+    // handshake on the same pipe with the same protocol version. Attaching is
+    // therefore this method not spawning anything -- no CreateProcess, no Job
+    // Object -- rather than a second kind of bridge.
+    //
+    // ⚠️ AND IT IS WHAT MAKES THE SECOND RhinoCore GO AWAY. A spawned worker
+    // starts its own embedded Rhino, which is what conflicts with the user's
+    // standalone Rhino for a seat; a peer INSIDE that Rhino starts nothing.
+    //
+    // Returns true when the bridge is listening -- not when a peer has arrived.
+    // The peer answers when it answers, over the same startup acknowledgement
+    // every worker sends, and the panel notices it on its next idle.
+    bool AttachLocal (GS::UniString& message);
     bool HideEditor (GS::UniString& message);
 
     static void OpenEditorFromMenu ();
@@ -107,6 +127,10 @@ class GhWorkerHost {
     void Stop ();
 
     bool IsRunning () const;
+
+    // True when whatever is up is a peer this add-on did not start. What Stop
+    // MEANS depends on it, so the panel asks before it says so.
+    bool IsAttachedPeer () const;
     HostState State () const;
 
     // The one workflow controller, for the panel that drives a session.

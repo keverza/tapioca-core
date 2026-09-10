@@ -36,6 +36,12 @@ namespace Tapioca.Grasshopper
         private const string HostAssembly = "Tapioca.GhWorker";
         private const string HostType = "Tapioca.GhWorker.TapiocaBridgeApi";
 
+        // Second, and only second. See the same pair in TapiocaBridge: this
+        // package carries the session half too, so when Grasshopper is the
+        // ATTACHED PEER the bound surface is our own -- but inside the worker
+        // both exist and only the worker's is bound.
+        private const string PeerAssembly = "Tapioca.Grasshopper";
+
         private static MethodInfo _submitBatch;
         private static MethodInfo _submitDropAll;
         private static PropertyInfo _available;
@@ -176,46 +182,54 @@ namespace Tapioca.Grasshopper
             try
             {
                 Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
-                for (int index = 0; index < loaded.Length; index++)
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    AssemblyName name = loaded[index].GetName();
-                    if (!string.Equals(name.Name, HostAssembly, StringComparison.OrdinalIgnoreCase))
+                    string wanted = pass == 0 ? HostAssembly : PeerAssembly;
+                    for (int index = 0; index < loaded.Length; index++)
                     {
-                        continue;
-                    }
+                        AssemblyName name = loaded[index].GetName();
+                        if (!string.Equals(name.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
 
-                    Type type = loaded[index].GetType(HostType, false, false);
-                    if (type == null)
-                    {
-                        continue;
-                    }
+                        Type type = loaded[index].GetType(HostType, false, false);
+                        if (type == null)
+                        {
+                            continue;
+                        }
 
-                    MethodInfo submit = type.GetMethod(
-                        "SubmitPreviewBatch",
-                        BindingFlags.Public | BindingFlags.Static,
-                        null,
-                        new Type[] { typeof(uint), typeof(uint[]), typeof(byte[][]), typeof(byte[]), typeof(string) },
-                        null);
-                    if (submit == null)
-                    {
-                        continue;
-                    }
+                        MethodInfo submit = type.GetMethod(
+                            "SubmitPreviewBatch",
+                            BindingFlags.Public | BindingFlags.Static,
+                            null,
+                            new Type[]
+                            {
+                                typeof(uint), typeof(uint[]), typeof(byte[][]), typeof(byte[]), typeof(string)
+                            },
+                            null);
+                        if (submit == null)
+                        {
+                            continue;
+                        }
 
-                    _submitBatch = submit;
-                    _submitDropAll = type.GetMethod(
-                        "SubmitPreviewDropAll",
-                        BindingFlags.Public | BindingFlags.Static,
-                        null,
-                        new Type[] { typeof(byte[]) },
-                        null);
-                    _available = type.GetProperty("PreviewAvailable", BindingFlags.Public | BindingFlags.Static);
-                    _epoch = type.GetProperty("PreviewEpoch", BindingFlags.Public | BindingFlags.Static);
-                    // ⚠️ MARKED RESOLVED ONLY ONCE THE SURFACE WAS ACTUALLY
-                    // FOUND. Caching a failure would make a package that loaded
-                    // fractionally before the bridge connected stay broken for
-                    // the whole session.
-                    Volatile.Write(ref _resolved, true);
-                    return true;
+                        _submitBatch = submit;
+                        _submitDropAll = type.GetMethod(
+                            "SubmitPreviewDropAll",
+                            BindingFlags.Public | BindingFlags.Static,
+                            null,
+                            new Type[] { typeof(byte[]) },
+                            null);
+                        _available = type.GetProperty("PreviewAvailable", BindingFlags.Public | BindingFlags.Static);
+                        _epoch = type.GetProperty("PreviewEpoch", BindingFlags.Public | BindingFlags.Static);
+
+                        // ⚠️ MARKED RESOLVED ONLY ONCE THE SURFACE WAS ACTUALLY
+                        // FOUND. Caching a failure would make a package that loaded
+                        // fractionally before the bridge connected stay broken for
+                        // the whole session.
+                        Volatile.Write(ref _resolved, true);
+                        return true;
+                    }
                 }
             }
             catch (Exception)

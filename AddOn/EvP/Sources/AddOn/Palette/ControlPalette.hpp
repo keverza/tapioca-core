@@ -448,6 +448,10 @@ class ControlPalette final : public DG::Palette,
     // icons in a row is a guessing game. The art is the Iconoir set the rest of
     // this palette already uses (RFIX/PaletteIcons.grc).
     std::unique_ptr<DG::Button> workflowPowerButton;
+    std::unique_ptr<DG::Button> workflowAttachButton;
+    // The Attach button's last face, as an AttachFace. Kept as a short because
+    // the enum is private to the band's own translation unit.
+    short lastWorkflowAttachFace = -1;
     std::unique_ptr<DG::Button> workflowLoadButton;
     std::unique_ptr<DG::Button> workflowReloadButton;
     std::unique_ptr<DG::Button> workflowSolveButton;

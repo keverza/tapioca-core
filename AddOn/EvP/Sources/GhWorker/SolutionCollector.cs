@@ -1,3 +1,12 @@
+// ⚠️ global::Grasshopper THROUGHOUT, AND IT IS LOAD-BEARING RATHER THAN
+// FUSSY. This file is compiled into Tapioca.Grasshopper.gha as well as into the
+// worker (see the .gha's .csproj: one set of files, so the two ends of the
+// bridge cannot skew). That assembly declares the namespace Tapioca.Grasshopper,
+// and from inside namespace Tapioca.GhWorker the compiler walks outward and
+// finds Tapioca.Grasshopper before it ever considers the global one -- so a bare
+// "Grasshopper.Kernel" resolves to Tapioca.Grasshopper.Kernel, which does not
+// exist. The qualification says which Grasshopper is meant.
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -58,7 +67,7 @@ namespace Tapioca.GhWorker
     /// </remarks>
     internal static class SolutionCollector
     {
-        private static volatile Grasshopper.Kernel.GH_Document _solving;
+        private static volatile global::Grasshopper.Kernel.GH_Document _solving;
 
         /// <summary>
         /// The document a solution is running on, or null. Read by the cancel
@@ -73,7 +82,7 @@ namespace Tapioca.GhWorker
         /// Solves once and collects. Never throws.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static SolutionCollection Solve(Grasshopper.Kernel.GH_Document document, uint wants)
+        internal static SolutionCollection Solve(global::Grasshopper.Kernel.GH_Document document, uint wants)
         {
             SolutionCollection collection = new SolutionCollection();
             collection.Message = string.Empty;
@@ -104,7 +113,7 @@ namespace Tapioca.GhWorker
                 // re-run components whose data has not changed -- which is the
                 // difference between a slider drag that re-solves one branch and
                 // one that re-solves the definition.
-                document.NewSolution(false, Grasshopper.Kernel.GH_SolutionMode.CommandLine);
+                document.NewSolution(false, global::Grasshopper.Kernel.GH_SolutionMode.CommandLine);
                 clock.Stop();
                 collection.ElapsedMs = Clamp(clock.ElapsedMilliseconds);
 
@@ -158,7 +167,7 @@ namespace Tapioca.GhWorker
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static string RequestCancel()
         {
-            Grasshopper.Kernel.GH_Document document = _solving;
+            global::Grasshopper.Kernel.GH_Document document = _solving;
             if (document == null)
             {
                 return "No session solution is running.";
@@ -178,7 +187,7 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void CollectOutputs(Grasshopper.Kernel.GH_Document document, SolutionCollection collection)
+        private static void CollectOutputs(global::Grasshopper.Kernel.GH_Document document, SolutionCollection collection)
         {
             string[] flat = WorkflowFacade.CollectOutputs(document);
             for (int index = 0; index + 3 < flat.Length; index += 4)
@@ -189,7 +198,7 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static void CollectDiagnostics(Grasshopper.Kernel.GH_Document document, SolutionCollection collection)
+        private static void CollectDiagnostics(global::Grasshopper.Kernel.GH_Document document, SolutionCollection collection)
         {
             collection.Diagnostics.Clear();
             collection.ErrorCount = 0;

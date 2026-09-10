@@ -39,6 +39,10 @@ namespace Tapioca.GhWorker
     {
         // Exit codes. The add-on reports these verbatim when a worker dies during
         // startup, so each one has to mean exactly one thing.
+        // Whether the message loop is ending because somebody asked. See the
+        // check after the engine join.
+        private static volatile bool _shutdownRequested;
+
         private const int ExitOk = 0;
         private const int ExitBadArguments = 2;
         private const int ExitProtocolMismatch = 3;
@@ -212,6 +216,22 @@ namespace Tapioca.GhWorker
             // The process thread owns orchestration only. RhinoCore, Grasshopper,
             // the optional editor and their WinForms loop all live on the engine.
             _engine.Join();
+
+            // ⚠️ A LOOP THAT ENDED ON ITS OWN IS A BUG, AND IT USED TO LEAVE
+            // NOTHING BEHIND. Every intended end to the message loop comes
+            // through BeginShutdown -- the add-on's Shutdown, or the bridge
+            // disconnecting. Anything else means something inside Rhino or
+            // Grasshopper posted WM_QUIT, and the symptom the user sees is a
+            // worker that vanished with no explanation anywhere. Closing the
+            // canvas was exactly that (see RhinoBoot.GuardEditorClose); this
+            // line is what makes the next such cause legible instead of silent.
+            if (!_shutdownRequested)
+            {
+                WorkerLog.Write(
+                    "the Grasshopper message loop ended without a shutdown request: something in Rhino or "
+                    + "Grasshopper ended it. The worker is exiting and the session is gone.");
+            }
+
             return ExitOk;
         }
 
@@ -378,6 +398,7 @@ namespace Tapioca.GhWorker
 
         private static void BeginShutdown()
         {
+            _shutdownRequested = true;
             WorkerLog.Write("shutdown requested by the add-on");
             GhEngineThread engine = _engine;
             if (engine != null)

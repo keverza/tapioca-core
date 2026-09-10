@@ -1,3 +1,12 @@
+// ⚠️ global::Grasshopper THROUGHOUT, AND IT IS LOAD-BEARING RATHER THAN
+// FUSSY. This file is compiled into Tapioca.Grasshopper.gha as well as into the
+// worker (see the .gha's .csproj: one set of files, so the two ends of the
+// bridge cannot skew). That assembly declares the namespace Tapioca.Grasshopper,
+// and from inside namespace Tapioca.GhWorker the compiler walks outward and
+// finds Tapioca.Grasshopper before it ever considers the global one -- so a bare
+// "Grasshopper.Kernel" resolves to Tapioca.Grasshopper.Kernel, which does not
+// exist. The qualification says which Grasshopper is meant.
+
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -69,7 +78,7 @@ namespace Tapioca.GhWorker
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal static string DescribeSchema(
-            Grasshopper.Kernel.GH_Document document, string workflowId, string workflowName)
+            global::Grasshopper.Kernel.GH_Document document, string workflowId, string workflowName)
         {
             MethodInfo method = Bind(ref _describeSchema, "DescribeSchema");
             if (method == null)
@@ -86,7 +95,7 @@ namespace Tapioca.GhWorker
         /// when every value landed and one line per rejection otherwise.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static string ApplyInputs(Grasshopper.Kernel.GH_Document document, string[] ids, string[] values)
+        internal static string ApplyInputs(global::Grasshopper.Kernel.GH_Document document, string[] ids, string[] values)
         {
             MethodInfo method = Bind(ref _applyInputs, "ApplyInputs");
             if (method == null)
@@ -103,7 +112,7 @@ namespace Tapioca.GhWorker
         /// panel's transcript. Empty rather than null.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static string[] DescribeInputs(Grasshopper.Kernel.GH_Document document)
+        internal static string[] DescribeInputs(global::Grasshopper.Kernel.GH_Document document)
         {
             MethodInfo method = Bind(ref _describeInputs, "DescribeInputs");
             if (method == null)
@@ -119,7 +128,7 @@ namespace Tapioca.GhWorker
         /// quadruples. Empty rather than null.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static string[] CollectOutputs(Grasshopper.Kernel.GH_Document document)
+        internal static string[] CollectOutputs(global::Grasshopper.Kernel.GH_Document document)
         {
             MethodInfo method = Bind(ref _collectOutputs, "CollectOutputs");
             if (method == null)
@@ -135,7 +144,7 @@ namespace Tapioca.GhWorker
         /// triples.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static string[] CollectDiagnostics(Grasshopper.Kernel.GH_Document document)
+        internal static string[] CollectDiagnostics(global::Grasshopper.Kernel.GH_Document document)
         {
             MethodInfo method = Bind(ref _collectDiagnostics, "CollectDiagnostics");
             if (method == null)
@@ -151,7 +160,7 @@ namespace Tapioca.GhWorker
         /// "name version" lines.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static string[] DescribeDependencies(Grasshopper.Kernel.GH_Document document)
+        internal static string[] DescribeDependencies(global::Grasshopper.Kernel.GH_Document document)
         {
             MethodInfo method = Bind(ref _describeDependencies, "DescribeDependencies");
             if (method == null)

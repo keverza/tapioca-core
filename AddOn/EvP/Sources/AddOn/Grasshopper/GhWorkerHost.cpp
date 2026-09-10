@@ -5,6 +5,8 @@
 #include "GhLog.hpp"
 #include "GhWorkerHost.hpp"
 
+#include "GhWorkerLocate.hpp"
+
 #include "GhWorkflowController.hpp"
 #include "HostState.hpp"
 
@@ -45,14 +47,18 @@ namespace grasshopper {
 
 namespace {
 
-constexpr const wchar_t* WorkerFolderName = L"GhWorker";
-constexpr const wchar_t* WorkerExecutableName = L"Tapioca.GhWorker.exe";
+// The state-free half of the host: finding the worker, reading the heartbeat
+// deadline, and the two string conversions everything here needs. Named so the
+// call sites below read exactly as they did before the split.
+using locate::FromUtf8Std;
+using locate::FromWide;
+using locate::HeartbeatDeadlineMs;
+using locate::ResolveWorker;
 
 // How long a worker may go without a heartbeat before the supervisor stops
 // believing in it. Generous enough to cover a long solve — the worker heartbeats
 // from its own IO thread, so a busy solver still answers — and short enough that
 // a wedged one is noticed in the same minute.
-constexpr uint64_t DefaultHeartbeatDeadlineMs = 15000;
 
 // How long the supervisor waits between checks. One second: this is a liveness
 // poll, not a latency path.
@@ -87,101 +93,9 @@ GS::UniString lastMessage;
 GS::UniString workerPath;
 uint32_t archicadPort = 0;
 
-GS::UniString FromWide (const std::wstring& text)
-{
-    if (text.empty ())
-        return GS::UniString ();
-    return GS::UniString (text.c_str ());
-}
-
-GS::UniString FromUtf8Std (const std::string& text)
-{
-    return GS::UniString (text.c_str (), CC_UTF8);
-}
-
 void Log (const GS::UniString& line)
 {
     LogLine (lifecycle.Generation (), workerProcessId, line);
-}
-
-std::wstring ParentDirectory (const std::wstring& path)
-{
-    const size_t separator = path.find_last_of (L"\\/");
-    if (separator == std::wstring::npos)
-        return {};
-    return path.substr (0, separator);
-}
-
-// The .apx's own directory. The worker is staged beside it by the build, so this
-// is where it is looked for — never the process directory, which is Archicad's.
-bool OwnDirectory (std::wstring& directory)
-{
-    HMODULE self = nullptr;
-    if (GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            (LPCWSTR) &OwnDirectory, &self) == 0)
-        return false;
-
-    std::vector<wchar_t> buffer (MAX_PATH);
-    for (;;) {
-        const DWORD written = GetModuleFileNameW (self, (LPWSTR) buffer.data (), (DWORD) buffer.size ());
-        if (written == 0)
-            return false;
-        if (written < buffer.size () - 1)
-            break;
-        buffer.resize (buffer.size () * 2);
-    }
-
-    directory = ParentDirectory (buffer.data ());
-    return !directory.empty ();
-}
-
-bool FileExists (const std::wstring& path)
-{
-    const DWORD attributes = GetFileAttributesW ((LPCWSTR) path.c_str ());
-    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-}
-
-// TAPIOCA_GH_WORKER_DIR first, so a developer can point Archicad at a worker
-// built somewhere else without reinstalling the add-on. Then the staged folder
-// beside the .apx, which is what a shipped installation has.
-bool ResolveWorker (std::wstring& executable, std::wstring& workingDirectory)
-{
-    std::vector<std::wstring> directories;
-
-    GS::UniString configured;
-    if (evp::ReadEnv (L"TAPIOCA_GH_WORKER_DIR", configured))
-        directories.emplace_back ((const wchar_t*) configured.ToUStr ().Get ());
-
-    std::wstring own;
-    if (OwnDirectory (own)) {
-        directories.push_back (own + L"\\" + std::wstring (WorkerFolderName));
-        directories.push_back (own);
-    }
-
-    for (const std::wstring& directory : directories) {
-        if (directory.empty ())
-            continue;
-        const std::wstring candidate = directory + L"\\" + std::wstring (WorkerExecutableName);
-        if (!FileExists (candidate))
-            continue;
-        executable = candidate;
-        workingDirectory = directory;
-        return true;
-    }
-    return false;
-}
-
-uint64_t HeartbeatDeadlineMs ()
-{
-    GS::UniString configured;
-    if (!evp::ReadEnv (L"TAPIOCA_GH_HEARTBEAT_MS", configured) || configured.IsEmpty ())
-        return DefaultHeartbeatDeadlineMs;
-
-    const auto text = configured.ToCStr ();
-    const long parsed = strtol (text.Get (), nullptr, 10);
-    // A nonsense value silently becoming "never time out" is worse than
-    // ignoring it: this deadline is the only thing that notices a wedged worker.
-    return parsed > 0 ? (uint64_t) parsed : DefaultHeartbeatDeadlineMs;
 }
 
 // THIS Archicad instance's JSON port — what a Tapir ConnectArchicad component in
@@ -282,10 +196,22 @@ void SupervisorLoop ()
             std::lock_guard<std::mutex> lock (controlMutex);
             process = workerProcess;
         }
-        if (process == nullptr)
-            return;
 
-        if (WaitForSingleObject (process, SupervisorIntervalMs) == WAIT_OBJECT_0) {
+        // ⚠️ AN ATTACHED PEER HAS NO PROCESS HANDLE AND STILL HAS TO BE
+        // SUPERVISED. There is nothing to wait on -- the peer belongs to
+        // somebody else, and asking Windows for a handle to it would be asking
+        // for the right to kill it -- so this sleeps the same interval and falls
+        // through to the disconnect check below, which is the only failure an
+        // attached peer HAS. Returning here (as the spawned path does, where a
+        // null handle means the teardown already ran) would leave a lost peer
+        // looking connected forever.
+        if (process == nullptr && !lifecycle.OwnsPeerProcess ()) {
+            Sleep (SupervisorIntervalMs);
+        }
+        else if (process == nullptr) {
+            return;
+        }
+        else if (WaitForSingleObject (process, SupervisorIntervalMs) == WAIT_OBJECT_0) {
             if (supervisorStopping.load ())
                 return;
 
@@ -642,6 +568,28 @@ void OnWorkerStarted (uint32_t generation, protocol::AckStatus status, const GS:
 
 } // namespace
 
+// ⚠️ THE BRIDGE'S HANDLERS, NOT THE EDITOR'S, AND EVERY START PATH NEEDS ALL
+// FOUR. The startup acknowledgement is how the host learns a runtime is up, the
+// disconnect fails an in-flight request, the session handler routes six message
+// types, and the sender is what the controller writes through. A start that
+// skipped them would open a session against a bridge whose replies reached
+// nobody. Three paths wanted them and two copies had already drifted apart.
+void WireBridgeLocked ()
+{
+    GhBridge& bridge = GhBridge::Get ();
+    bridge.SetStartupHandler (&OnWorkerStarted);
+    bridge.SetDisconnectedHandler (&OnWorkerDisconnected);
+    bridge.SetRunResultHandler (&OnRunResult);
+    bridge.SetSessionHandler (&OnSessionMessage);
+    workflow.SetSender ([] (protocol::MessageType type, const std::vector<uint8_t>& payload, std::string& error) {
+        GS::UniString failure;
+        if (GhBridge::Get ().SendPayload (type, payload, failure))
+            return true;
+        error = failure.ToCStr ().Get ();
+        return false;
+    });
+}
+
 GhWorkerHost& GhWorkerHost::Get ()
 {
     static GhWorkerHost instance;
@@ -655,19 +603,9 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
         return false;
     }
 
-    GhBridge& bridge = GhBridge::Get ();
-    bridge.SetStartupHandler (&OnWorkerStarted);
-    bridge.SetDisconnectedHandler (&OnWorkerDisconnected);
-    bridge.SetRunResultHandler (&OnRunResult);
-    bridge.SetSessionHandler (&OnSessionMessage);
-    workflow.SetSender ([] (protocol::MessageType type, const std::vector<uint8_t>& payload, std::string& error) {
-        GS::UniString failure;
-        if (GhBridge::Get ().SendPayload (type, payload, failure))
-            return true;
-        error = failure.ToCStr ().Get ();
-        return false;
-    });
+    WireBridgeLocked ();
 
+    GhBridge& bridge = GhBridge::Get ();
     std::lock_guard<std::mutex> lock (controlMutex);
 
     // ⚠️ THE FLAG IS SET BEFORE THE CONNECTED CHECK, NOT AFTER. The handshake
@@ -706,25 +644,9 @@ bool GhWorkerHost::EnsureHeadless (GS::UniString& message)
         return false;
     }
 
-    // ⚠️ THE SAME HANDLER WIRING AS OpenEditor, AND IT HAS TO BE. These are not
-    // the editor's handlers -- they are the bridge's, and the session path needs
-    // every one of them: the startup acknowledgement to know the runtime is up,
-    // the disconnect to fail an in-flight request, the session router, and the
-    // sender the controller writes through. A headless start that skipped them
-    // would open a session against a bridge whose replies reached nobody.
-    GhBridge& bridge = GhBridge::Get ();
-    bridge.SetStartupHandler (&OnWorkerStarted);
-    bridge.SetDisconnectedHandler (&OnWorkerDisconnected);
-    bridge.SetRunResultHandler (&OnRunResult);
-    bridge.SetSessionHandler (&OnSessionMessage);
-    workflow.SetSender ([] (protocol::MessageType type, const std::vector<uint8_t>& payload, std::string& error) {
-        GS::UniString failure;
-        if (GhBridge::Get ().SendPayload (type, payload, failure))
-            return true;
-        error = failure.ToCStr ().Get ();
-        return false;
-    });
+    WireBridgeLocked ();
 
+    GhBridge& bridge = GhBridge::Get ();
     std::lock_guard<std::mutex> lock (controlMutex);
 
     if (bridge.IsConnected () && lifecycle.AcceptsMessages ()) {
@@ -738,6 +660,68 @@ bool GhWorkerHost::EnsureHeadless (GS::UniString& message)
     }
 
     return EnsureRunningLocked (message);
+}
+
+bool GhWorkerHost::AttachLocal (GS::UniString& message)
+{
+    if (!MainThreadGate::Get ().IsMainThread ()) {
+        message = "The Grasshopper bridge can only be opened from Archicad's main thread.";
+        return false;
+    }
+
+    WireBridgeLocked ();
+
+    GhBridge& bridge = GhBridge::Get ();
+    std::lock_guard<std::mutex> lock (controlMutex);
+
+    if (bridge.IsConnected () && lifecycle.AcceptsMessages ()) {
+        message = GS::UniString ("A Grasshopper peer is already connected (") +
+                  GS::UniString (DescribePeerOwnership (lifecycle.Ownership ())) + ").";
+        return true;
+    }
+
+    switch (lifecycle.BeginStart (PeerOwnership::Attached)) {
+        case StartDecision::AlreadyRunning:
+            message = "A Grasshopper peer is already connected.";
+            return true;
+        case StartDecision::InProgress:
+            message = "The Grasshopper bridge is already opening.";
+            return false;
+        case StartDecision::Proceed:
+            break;
+    }
+
+    Log (GS::UniString ("===== Grasshopper bridge open for an attached peer ====="));
+
+    GS::UniString bridgeError;
+    if (!bridge.Start (lifecycle.Generation (), bridgeError)) {
+        lifecycle.Fail (lifecycle.Generation (), std::string ("bridge start failed"));
+        message = bridgeError;
+        lastMessage = message;
+        Log (message);
+        return false;
+    }
+
+    // ⚠️ THE SUPERVISOR IS STARTED FOR AN ATTACHED PEER TOO. It has no process
+    // to wait on, but the disconnect is the failure an attached peer HAS, and
+    // the disconnect is handled in the supervisor loop -- see the null-handle
+    // branch there. A peer with nothing supervising it is exactly what this
+    // design exists to avoid.
+    supervisorStopping.store (false);
+    try {
+        supervisor = std::thread (SupervisorLoop);
+    }
+    catch (...) {
+        TearDownLocked (false, GS::UniString ());
+        message = "Could not create the Grasshopper supervisor thread; the bridge was closed.";
+        return false;
+    }
+
+    message = GS::UniString ("Waiting for a Grasshopper peer on \\\\.\\pipe\\") + bridge.PipeName () +
+              GS::UniString (". Nothing was started: connect from a Rhino that is already running.");
+    lastMessage = message;
+    Log (message);
+    return true;
 }
 
 bool GhWorkerHost::HideEditor (GS::UniString& message)
@@ -807,6 +791,11 @@ bool GhWorkerHost::IsRunning () const
     return lifecycle.IsRunning ();
 }
 
+bool GhWorkerHost::IsAttachedPeer () const
+{
+    return lifecycle.Ownership () == PeerOwnership::Attached;
+}
+
 HostState GhWorkerHost::State () const
 {
     return lifecycle.State ();
@@ -817,6 +806,7 @@ GS::UniString GhWorkerHost::Describe () const
     const GhBridge& bridge = GhBridge::Get ();
     GS::UniString text = GS::UniString::Printf ("Grasshopper worker: %s", DescribeHostState (lifecycle.State ()));
     text += GS::UniString::Printf ("\nRestart generation: %u", (unsigned int) lifecycle.Generation ());
+    text += GS::UniString ("\nPeer: ") + GS::UniString (DescribePeerOwnership (lifecycle.Ownership ()));
 
     const uint32_t pid = bridge.WorkerProcessId ();
     if (pid != 0)

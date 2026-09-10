@@ -3,6 +3,19 @@
 namespace evp {
 namespace grasshopper {
 
+const char* DescribePeerOwnership (PeerOwnership ownership)
+{
+    switch (ownership) {
+        case PeerOwnership::None:
+            return "none";
+        case PeerOwnership::Spawned:
+            return "spawned by Tapioca";
+        case PeerOwnership::Attached:
+            return "attached to a peer Tapioca did not start";
+    }
+    return "unknown";
+}
+
 const char* DescribeHostState (HostState state)
 {
     switch (state) {
@@ -38,7 +51,7 @@ bool HostLifecycle::AcceptsMessages () const
     return State () == HostState::Running;
 }
 
-StartDecision HostLifecycle::BeginStart ()
+StartDecision HostLifecycle::BeginStart (PeerOwnership claim)
 {
     std::lock_guard<std::mutex> lock (mutex);
     switch (state) {
@@ -56,6 +69,10 @@ StartDecision HostLifecycle::BeginStart ()
             break;
     }
     state = HostState::Starting;
+    // ⚠️ RECORDED AT THE START AND NOT AT THE HANDSHAKE. A start that fails half
+    // way still has to be torn down the right way, and "was this ours to kill"
+    // is a question the failure path asks before any peer has said hello.
+    ownership = claim;
     // Incremented here rather than on success, so a worker that dies during its
     // own start still owns a distinct generation in the log.
     ++generation;
@@ -79,6 +96,9 @@ bool HostLifecycle::Fail (uint32_t failedGeneration, const std::string& reason)
         return false;
     state = HostState::Failed;
     lastError = reason;
+    // Nothing is up, so nothing is owned. Leaving Spawned here would let a
+    // later stop go looking for a process this generation never had.
+    ownership = PeerOwnership::None;
     return true;
 }
 
@@ -94,8 +114,22 @@ bool HostLifecycle::BeginStop ()
 void HostLifecycle::CompleteStop ()
 {
     std::lock_guard<std::mutex> lock (mutex);
-    if (state == HostState::Stopping)
+    if (state == HostState::Stopping) {
         state = HostState::Stopped;
+        ownership = PeerOwnership::None;
+    }
+}
+
+PeerOwnership HostLifecycle::Ownership () const
+{
+    std::lock_guard<std::mutex> lock (mutex);
+    return ownership;
+}
+
+bool HostLifecycle::OwnsPeerProcess () const
+{
+    std::lock_guard<std::mutex> lock (mutex);
+    return ownership == PeerOwnership::Spawned;
 }
 
 uint32_t HostLifecycle::Generation () const

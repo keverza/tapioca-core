@@ -46,6 +46,67 @@
          from the installed Rhino. Copying them beside the .gha would give the
          process two RhinoCommons and fail with a type-identity error. -->
     <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+    <!-- Named explicitly rather than taken transitively: the peer marshals onto
+         Rhino's UI thread (RhinoApp.InvokeOnUiThread), which is a RhinoCommon
+         call this package now makes on its own account. -->
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <!--
+    ⚠️ THE SESSION HALF IS COMPILED FROM THE WORKER'S SOURCES, NOT REFERENCED,
+    AND SHARED SOURCE IS THE POINT RATHER THAN A SHORTCUT.
+
+    Both hosts have to speak the identical wire format: the .apx compares its
+    protocol version against the peer's at the handshake and refuses a mismatch,
+    so two hand-maintained copies of this code would be a version skew waiting
+    to happen inside the one mechanism designed to catch version skew. One set of
+    files, compiled twice, cannot skew.
+
+    A project reference was the alternative and is the thing the header of this
+    file forbids: Tapioca.GhWorker is an ENTRY assembly, and a reference to it
+    would let Grasshopper's loader resolve a second copy from disk into another
+    load context — statics of its own, no bound bridge, failing as "not connected
+    to Archicad" on a machine where it plainly is.
+
+    WHAT IS NOT HERE IS AS DELIBERATE:
+      * Program.cs      — owns the process, the DPI mode and the exit codes. A
+                          peer owns none of those; Rhino does.
+      * GhEngineThread  — creates an STA thread and runs a WinForms loop on it.
+                          In a Grasshopper that is already running, that thread
+                          exists, belongs to Rhino and must never be ended by us.
+                          TapiocaPeer supplies IEngineDispatcher instead.
+      * WorkerSession /
+        RhinoBoot       — construct and DISPOSE RhinoCore. In a peer the core is
+                          the user's Rhino: not ours to make, and above all not
+                          ours to dispose.
+      * DefinitionRunner  — the AUTHORING gesture ("solve whatever is on the canvas",
+                          from the old menu path). It asks WorkerSession whether
+                          Rhino is up — a core the peer does not own — and presses
+                          Tapir's capsule buttons through TapirExecutor, which
+                          belongs to the worker's staged package. The panel's
+                          session path does not use it; TapiocaPeer logs the
+                          request and declines it.
+      * TapirPackage /
+        TapiocaPackage  — stage assembly folders for a Grasshopper that has not
+                          started scanning yet. A running Grasshopper has already
+                          scanned; that is the user's install to manage.
+  -->
+  <ItemGroup>
+    <Compile Include="..\GhWorker\IEngineDispatcher.cs" Link="Session\IEngineDispatcher.cs" />
+    <Compile Include="..\GhWorker\BridgeProtocol.cs" Link="Session\BridgeProtocol.cs" />
+    <Compile Include="..\GhWorker\BridgeClient.cs" Link="Session\BridgeClient.cs" />
+    <Compile Include="..\GhWorker\PreviewSegments.cs" Link="Session\PreviewSegments.cs" />
+    <Compile Include="..\GhWorker\SessionProtocol.cs" Link="Session\SessionProtocol.cs" />
+    <Compile Include="..\GhWorker\SessionRouter.cs" Link="Session\SessionRouter.cs" />
+    <Compile Include="..\GhWorker\WorkflowSession.cs" Link="Session\WorkflowSession.cs" />
+    <Compile Include="..\GhWorker\DefinitionHost.cs" Link="Session\DefinitionHost.cs" />
+    <Compile Include="..\GhWorker\SolutionCollector.cs" Link="Session\SolutionCollector.cs" />
+    <Compile Include="..\GhWorker\WorkflowFacade.cs" Link="Session\WorkflowFacade.cs" />
+    <!-- The run report is a plain DTO the framing itself names, so it comes
+         along even though the runner that produces one does not. -->
+    <Compile Include="..\GhWorker\RunReport.cs" Link="Session\RunReport.cs" />
+    <Compile Include="..\GhWorker\TapiocaBridgeApi.cs" Link="Session\TapiocaBridgeApi.cs" />
+    <Compile Include="..\GhWorker\WorkerLog.cs" Link="Session\WorkerLog.cs" />
   </ItemGroup>
 
 </Project>

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -239,4 +240,84 @@ TEST (GrasshopperHostState, EveryStateHasAName)
                                  HostState::Stopping,   HostState::Stopped,  HostState::Failed };
     for (size_t index = 0; index < sizeof (states) / sizeof (states[0]); ++index)
         EXPECT_STRNE ("unknown", evp::grasshopper::DescribeHostState (states[index]));
+}
+
+// ---------------------------------------------------------------------------
+// Peer ownership. The host used to conflate "the peer" with "the process I
+// started", and every mode past spawn-and-kill needs them apart: the bridge is
+// a named-pipe SERVER, so a Grasshopper already running in the user's own Rhino
+// can complete the same handshake -- and answering a stop by terminating a
+// process would then be killing their Rhino.
+
+TEST (GrasshopperHostState, AStartClaimsSpawnedUnlessItSaysOtherwise)
+{
+    // Every existing caller passes nothing, and every existing caller spawns.
+    evp::grasshopper::HostLifecycle lifecycle;
+    ASSERT_EQ (lifecycle.BeginStart (), evp::grasshopper::StartDecision::Proceed);
+    EXPECT_EQ (lifecycle.Ownership (), evp::grasshopper::PeerOwnership::Spawned);
+    EXPECT_TRUE (lifecycle.OwnsPeerProcess ());
+}
+
+TEST (GrasshopperHostState, AnAttachedPeerIsNeverOursToKill)
+{
+    evp::grasshopper::HostLifecycle lifecycle;
+    ASSERT_EQ (lifecycle.BeginStart (evp::grasshopper::PeerOwnership::Attached),
+               evp::grasshopper::StartDecision::Proceed);
+    EXPECT_EQ (lifecycle.Ownership (), evp::grasshopper::PeerOwnership::Attached);
+    // The whole point: the one question the teardown asks.
+    EXPECT_FALSE (lifecycle.OwnsPeerProcess ());
+
+    ASSERT_TRUE (lifecycle.CompleteStart (lifecycle.Generation ()));
+    EXPECT_FALSE (lifecycle.OwnsPeerProcess ()) << "a handshake does not transfer ownership";
+}
+
+TEST (GrasshopperHostState, AttachingAdvancesTheGenerationLikeAnyOtherStart)
+{
+    // Staleness is about which conversation a message belongs to, not about who
+    // started the peer -- so an attached generation must be distinct too.
+    evp::grasshopper::HostLifecycle lifecycle;
+    ASSERT_EQ (lifecycle.BeginStart (), evp::grasshopper::StartDecision::Proceed);
+    const uint32_t spawned = lifecycle.Generation ();
+    ASSERT_TRUE (lifecycle.CompleteStart (spawned));
+    ASSERT_TRUE (lifecycle.BeginStop ());
+    lifecycle.CompleteStop ();
+
+    ASSERT_EQ (lifecycle.BeginStart (evp::grasshopper::PeerOwnership::Attached),
+               evp::grasshopper::StartDecision::Proceed);
+    EXPECT_NE (lifecycle.Generation (), spawned);
+}
+
+TEST (GrasshopperHostState, AStoppedHostOwnsNothing)
+{
+    evp::grasshopper::HostLifecycle lifecycle;
+    ASSERT_EQ (lifecycle.BeginStart (), evp::grasshopper::StartDecision::Proceed);
+    ASSERT_TRUE (lifecycle.CompleteStart (lifecycle.Generation ()));
+    ASSERT_TRUE (lifecycle.BeginStop ());
+    lifecycle.CompleteStop ();
+
+    // Leaving Spawned behind would let a later stop go looking for a process
+    // this generation no longer has.
+    EXPECT_EQ (lifecycle.Ownership (), evp::grasshopper::PeerOwnership::None);
+    EXPECT_FALSE (lifecycle.OwnsPeerProcess ());
+}
+
+TEST (GrasshopperHostState, AFailedStartOwnsNothing)
+{
+    evp::grasshopper::HostLifecycle lifecycle;
+    ASSERT_EQ (lifecycle.BeginStart (evp::grasshopper::PeerOwnership::Attached),
+               evp::grasshopper::StartDecision::Proceed);
+    ASSERT_TRUE (lifecycle.Fail (lifecycle.Generation (), "the bridge would not listen"));
+
+    EXPECT_EQ (lifecycle.Ownership (), evp::grasshopper::PeerOwnership::None);
+    EXPECT_FALSE (lifecycle.OwnsPeerProcess ());
+}
+
+TEST (GrasshopperHostState, OwnershipIsReadableForAReport)
+{
+    using evp::grasshopper::DescribePeerOwnership;
+    using evp::grasshopper::PeerOwnership;
+
+    EXPECT_STREQ (DescribePeerOwnership (PeerOwnership::None), "none");
+    EXPECT_NE (std::string (DescribePeerOwnership (PeerOwnership::Spawned)).find ("spawned"), std::string::npos);
+    EXPECT_NE (std::string (DescribePeerOwnership (PeerOwnership::Attached)).find ("attached"), std::string::npos);
 }

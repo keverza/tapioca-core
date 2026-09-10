@@ -1,3 +1,12 @@
+// ⚠️ global::Grasshopper THROUGHOUT, AND IT IS LOAD-BEARING RATHER THAN
+// FUSSY. This file is compiled into Tapioca.Grasshopper.gha as well as into the
+// worker (see the .gha's .csproj: one set of files, so the two ends of the
+// bridge cannot skew). That assembly declares the namespace Tapioca.Grasshopper,
+// and from inside namespace Tapioca.GhWorker the compiler walks outward and
+// finds Tapioca.Grasshopper before it ever considers the global one -- so a bare
+// "Grasshopper.Kernel" resolves to Tapioca.Grasshopper.Kernel, which does not
+// exist. The qualification says which Grasshopper is meant.
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -51,7 +60,7 @@ namespace Tapioca.GhWorker
         private const int MaxReportedMessages = 12;
 
         private static volatile bool _running;
-        private static volatile Grasshopper.Kernel.GH_Document _runningDocument;
+        private static volatile global::Grasshopper.Kernel.GH_Document _runningDocument;
         private static int _cancelRequested;
 
         internal static bool IsRunning
@@ -118,7 +127,7 @@ namespace Tapioca.GhWorker
 
             try
             {
-                Grasshopper.Kernel.GH_Document document = _runningDocument;
+                global::Grasshopper.Kernel.GH_Document document = _runningDocument;
                 if (document == null)
                 {
                     Interlocked.Exchange(ref _cancelRequested, 1);
@@ -137,15 +146,15 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static Grasshopper.Kernel.GH_Document ActiveDocument()
+        private static global::Grasshopper.Kernel.GH_Document ActiveDocument()
         {
-            return Grasshopper.Instances.ActiveCanvas == null ? null : Grasshopper.Instances.ActiveCanvas.Document;
+            return global::Grasshopper.Instances.ActiveCanvas == null ? null : global::Grasshopper.Instances.ActiveCanvas.Document;
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static RunReport Solve(Stopwatch clock)
         {
-            Grasshopper.Kernel.GH_Document document = ActiveDocument();
+            global::Grasshopper.Kernel.GH_Document document = ActiveDocument();
             if (document == null)
             {
                 return RunReport.Failed(
@@ -171,10 +180,10 @@ namespace Tapioca.GhWorker
             // be proved; doing it now would freeze the canvas of a user who is
             // sitting in the editor editing, which is the only way anyone uses
             // this today.
-            bool previouslyEnabled = Grasshopper.Kernel.GH_Document.EnableSolutions;
+            bool previouslyEnabled = global::Grasshopper.Kernel.GH_Document.EnableSolutions;
             try
             {
-                Grasshopper.Kernel.GH_Document.EnableSolutions = true;
+                global::Grasshopper.Kernel.GH_Document.EnableSolutions = true;
                 _runningDocument = document;
                 if (Interlocked.Exchange(ref _cancelRequested, 0) != 0)
                 {
@@ -185,7 +194,7 @@ namespace Tapioca.GhWorker
             finally
             {
                 _runningDocument = null;
-                Grasshopper.Kernel.GH_Document.EnableSolutions = previouslyEnabled;
+                global::Grasshopper.Kernel.GH_Document.EnableSolutions = previouslyEnabled;
             }
 
             // ⚠️ AFTER THE SOLVE, AND INSIDE THE TIMED REGION ON PURPOSE. Tapir's
@@ -216,20 +225,20 @@ namespace Tapioca.GhWorker
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void Collect(
-            Grasshopper.Kernel.GH_Document document,
+            global::Grasshopper.Kernel.GH_Document document,
             List<string> errors,
             List<string> warnings)
         {
-            foreach (Grasshopper.Kernel.IGH_DocumentObject candidate in document.Objects)
+            foreach (global::Grasshopper.Kernel.IGH_DocumentObject candidate in document.Objects)
             {
-                Grasshopper.Kernel.IGH_ActiveObject active = candidate as Grasshopper.Kernel.IGH_ActiveObject;
+                global::Grasshopper.Kernel.IGH_ActiveObject active = candidate as global::Grasshopper.Kernel.IGH_ActiveObject;
                 if (active == null)
                 {
                     continue;
                 }
 
-                Append(errors, active, Grasshopper.Kernel.GH_RuntimeMessageLevel.Error);
-                Append(warnings, active, Grasshopper.Kernel.GH_RuntimeMessageLevel.Warning);
+                Append(errors, active, global::Grasshopper.Kernel.GH_RuntimeMessageLevel.Error);
+                Append(warnings, active, global::Grasshopper.Kernel.GH_RuntimeMessageLevel.Warning);
             }
         }
 
@@ -257,8 +266,8 @@ namespace Tapioca.GhWorker
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void Append(
             List<string> into,
-            Grasshopper.Kernel.IGH_ActiveObject active,
-            Grasshopper.Kernel.GH_RuntimeMessageLevel level)
+            global::Grasshopper.Kernel.IGH_ActiveObject active,
+            global::Grasshopper.Kernel.GH_RuntimeMessageLevel level)
         {
             foreach (string message in active.RuntimeMessages(level))
             {

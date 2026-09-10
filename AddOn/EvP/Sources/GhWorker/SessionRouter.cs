@@ -44,10 +44,13 @@ namespace Tapioca.GhWorker
         private static readonly Dictionary<uint, WorkflowSession> _sessions = new Dictionary<uint, WorkflowSession>();
 
         private static BridgeClient _bridge;
-        private static GhEngineThread _engine;
+        // The Grasshopper thread, as a capability rather than a thread we own: in
+        // the worker it is a GhEngineThread we made, in an attached peer it is
+        // Rhino's own UI thread. See IEngineDispatcher.
+        private static IEngineDispatcher _engine;
         private static uint _generation;
 
-        internal static void Bind(BridgeClient bridge, GhEngineThread engine, uint generation)
+        internal static void Bind(BridgeClient bridge, IEngineDispatcher engine, uint generation)
         {
             _bridge = bridge;
             _engine = engine;
@@ -660,7 +663,7 @@ namespace Tapioca.GhWorker
 
         private static void Post(Action action)
         {
-            GhEngineThread engine = _engine;
+            IEngineDispatcher engine = _engine;
             if (engine == null || !engine.Post(action))
             {
                 WorkerLog.Write("a session request arrived after the Grasshopper engine stopped accepting work.");

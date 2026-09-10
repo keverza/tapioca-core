@@ -31,6 +31,7 @@
 
 #include "Grasshopper/GhWorkerHost.hpp"
 #include "Grasshopper/GhWorkflowController.hpp"
+#include "Grasshopper/HostState.hpp" // HostState; GhWorkerHost only forward-declares it
 #include "PaletteMetrics.hpp"
 #include "PaletteScroll.hpp"
 #include "ResourceIds.hpp" // the band's Iconoir button art
@@ -50,7 +51,7 @@ namespace {
 // The band's own buttons, left to right: Definition, Reload, Solve, Cancel,
 // Preview, Clear. Square icon cells rather than a share of the width -- six
 // labelled buttons want about 560 pixels and a docked palette is often 320.
-constexpr short WorkflowButtonCount = 7;
+constexpr short WorkflowButtonCount = 8;
 constexpr short WorkflowButtonGap = 4;
 // Icon plus one word. Six of these want about 480 pixels, so the row WRAPS
 // rather than overflowing -- see PlaceWorkflowBand.
@@ -102,6 +103,64 @@ std::string ClockText ()
 }
 
 // One line the user can act on, from the controller's status.
+// Which of its three jobs the Attach button is doing right now.
+//
+// ⚠️ ATTACHING HAS A WAIT IN THE MIDDLE, WHICH IS WHY ONE WORD IS NOT
+// ENOUGH. Start spawns a worker and the worker connects within seconds; attach
+// opens a pipe and then waits for a human to connect a Rhino to it, which may be
+// a minute or never. A button that still said "Attach" during that wait would
+// leave the user with nothing that means "never mind" -- and the same button
+// once a peer is on the line has to mean disconnect, because the attached peer
+// is the one thing the power button must not claim to own.
+enum class AttachFace {
+    Connect,     // nothing is up: open the pipe and wait
+    Cancel,      // waiting for a peer: close the pipe, having started nothing
+    Disconnect,  // a peer is connected: drop it, and leave it running
+    Unavailable, // a worker WE spawned owns the host; attaching is not a choice
+};
+
+AttachFace WorkflowAttachFace (const evp::grasshopper::GhWorkerHost& host)
+{
+    if (!host.IsAttachedPeer ()) {
+        const evp::grasshopper::HostState state = host.State ();
+        const bool idle = state == evp::grasshopper::HostState::NotStarted ||
+                          state == evp::grasshopper::HostState::Stopped || state == evp::grasshopper::HostState::Failed;
+        return idle ? AttachFace::Connect : AttachFace::Unavailable;
+    }
+
+    // Attached and Running means the handshake completed -- a peer answered.
+    // Attached and anything else means the pipe is open and nobody has.
+    return host.IsRunning () ? AttachFace::Disconnect : AttachFace::Cancel;
+}
+
+short AttachFaceIcon (AttachFace face)
+{
+    switch (face) {
+        case AttachFace::Cancel:
+            return PaletteIconXmarkId;
+        case AttachFace::Disconnect:
+            return PaletteIconStopSolidId;
+        case AttachFace::Connect:
+        case AttachFace::Unavailable:
+            break;
+    }
+    return PaletteIconIpAddressId;
+}
+
+const char* AttachFaceText (AttachFace face)
+{
+    switch (face) {
+        case AttachFace::Cancel:
+            return "Cancel";
+        case AttachFace::Disconnect:
+            return "Detach";
+        case AttachFace::Connect:
+        case AttachFace::Unavailable:
+            break;
+    }
+    return "Connect";
+}
+
 GS::UniString DescribeStatus (const evp::grasshopper::WorkflowStatus& status, bool hasHost)
 {
     if (!hasHost)
@@ -121,12 +180,21 @@ GS::UniString DescribeStatus (const evp::grasshopper::WorkflowStatus& status, bo
     if (status.busy)
         return "Grasshopper: solving...";
 
+    // ⚠️ WHOSE PROCESS IT IS BELONGS IN THE STATUS LINE. "Grasshopper: loaded"
+    // means something different when the peer is the user's own Rhino: Stop
+    // will disconnect rather than close it, and a crash there is theirs to
+    // notice. One word, and it is the word that makes Stop predictable.
+    const bool attached = evp::grasshopper::GhWorkerHost::Get ().IsAttachedPeer ();
+
+    const GS::UniString peer = attached ? GS::UniString (" (attached peer)") : GS::UniString ();
+
     if (status.hasCurrentSolution)
         return GS::UniString::Printf ("Grasshopper: solution %u is current.",
-                                      (unsigned int) status.currentSolutionRevision);
+                                      (unsigned int) status.currentSolutionRevision) +
+               peer;
 
     return GS::UniString ("Grasshopper: ") +
-           GS::UniString (evp::grasshopper::protocol::DescribeSessionState (status.state)) + ".";
+           GS::UniString (evp::grasshopper::protocol::DescribeSessionState (status.state)) + "." + peer;
 }
 
 } // namespace
@@ -188,6 +256,20 @@ void ControlPalette::CreateWorkflowBand ()
     workflowPreviewButton = iconButton (PaletteIconCubeScanId, "View");
     workflowClearButton = iconButton (PaletteIconEraseId, "Clear");
 
+    // ⚠️ ATTACH STARTS NOTHING, AND THAT IS THE POINT OF IT. Start spawns a
+    // worker, which starts an embedded Rhino of its own; this only opens the
+    // bridge and waits, so a Grasshopper already running in the user's own
+    // Rhino can connect to it. No second RhinoCore, no seat taken from the
+    // Rhino they are working in.
+    //
+    // The ip-address icon rather than a plug or an arrow: the address is what
+    // this is about, and the same button grows a field when the transport
+    // reaches beyond this machine.
+    // Its icon and word are swapped in RefreshWorkflowBand, like the power
+    // button's and for the same reason: which of the four jobs above it is doing
+    // is not knowable at construction.
+    workflowAttachButton = iconButton (PaletteIconIpAddressId, "Connect");
+
     // ReadOnly and framed, like the results box: it is a transcript, not a
     // field.
     //
@@ -238,10 +320,11 @@ short ControlPalette::PlaceWorkflowBand (short top, short left, short right, con
         // HIDDEN, not placed at zero height. PaletteScroll::Place SHOWS whatever
         // it places, so an empty rect would leave five items visible at one
         // pixel -- and the buttons among them would still take clicks.
-        DG::Item* const band[] = { workflowPowerButton.get (),  workflowLoadButton.get (),
-                                   workflowReloadButton.get (), workflowSolveButton.get (),
-                                   workflowCancelButton.get (), workflowPreviewButton.get (),
-                                   workflowClearButton.get (),  workflowLogText.get () };
+        DG::Item* const band[] = { workflowPowerButton.get (),   workflowAttachButton.get (),
+                                   workflowLoadButton.get (),    workflowReloadButton.get (),
+                                   workflowSolveButton.get (),   workflowCancelButton.get (),
+                                   workflowPreviewButton.get (), workflowClearButton.get (),
+                                   workflowLogText.get () };
         for (DG::Item* item : band) {
             if (item != nullptr && item->IsVisible ())
                 item->Hide ();
@@ -259,9 +342,9 @@ short ControlPalette::PlaceWorkflowBand (short top, short left, short right, con
 
     short y = top;
     short x = left;
-    DG::Item* const row[] = { workflowPowerButton.get (), workflowLoadButton.get (),   workflowReloadButton.get (),
-                              workflowSolveButton.get (), workflowCancelButton.get (), workflowPreviewButton.get (),
-                              workflowClearButton.get () };
+    DG::Item* const row[] = { workflowPowerButton.get (),   workflowAttachButton.get (), workflowLoadButton.get (),
+                              workflowReloadButton.get (),  workflowSolveButton.get (),  workflowCancelButton.get (),
+                              workflowPreviewButton.get (), workflowClearButton.get () };
     for (DG::Item* button : row) {
         // ⚠️ THE ROW WRAPS, IT DOES NOT SHRINK. Six captioned buttons want more
         // width than a docked palette has, and dividing what there is by six
@@ -330,6 +413,11 @@ void ControlPalette::RefreshWorkflowBand ()
         if (workflowPowerButton) {
             workflowPowerButton->SetIcon (
                 DG::Icon (ACAPI_GetOwnResModule (), hasHost ? PaletteIconStopSolidId : PaletteIconPlaySolidId));
+            // ⚠️ ONE OWNER PER MODE. The attach button carries the whole
+            // attached lifecycle (connect / cancel / detach), so this one speaks
+            // only for a worker we spawned; it is disabled below while a peer we
+            // did not start is on the line, rather than offering a second word
+            // for the same act.
             workflowPowerButton->SetText (hasHost ? "Stop" : "Start");
         }
         if (!hasHost) {
@@ -459,6 +547,31 @@ void ControlPalette::RefreshWorkflowBand ()
     // the canvas this panel exists to avoid opening.
     if (workflowLoadButton)
         workflowLoadButton->Enable ();
+    if (workflowPowerButton) {
+        // Stopping an attached peer is the attach button's job, and Start would
+        // be a second Rhino on top of the one already answering.
+        if (evp::grasshopper::GhWorkerHost::Get ().IsAttachedPeer ())
+            workflowPowerButton->Disable ();
+        else
+            workflowPowerButton->Enable ();
+    }
+    if (workflowAttachButton) {
+        // ⚠️ COMPARED, NOT ASSIGNED EVERY IDLE. SetIcon and SetText
+        // invalidate the item even when the value is unchanged, and this runs on
+        // every idle tick: assigning unconditionally is a repaint sixty times a
+        // second. The face is derived from the host, so the previous face is the
+        // only thing worth remembering.
+        const AttachFace face = WorkflowAttachFace (evp::grasshopper::GhWorkerHost::Get ());
+        if ((short) face != lastWorkflowAttachFace) {
+            lastWorkflowAttachFace = (short) face;
+            workflowAttachButton->SetIcon (DG::Icon (ACAPI_GetOwnResModule (), AttachFaceIcon (face)));
+            workflowAttachButton->SetText (AttachFaceText (face));
+        }
+        if (face == AttachFace::Unavailable)
+            workflowAttachButton->Disable ();
+        else
+            workflowAttachButton->Enable ();
+    }
     if (workflowReloadButton) {
         if (hasHost && !loadedWorkflowPath.empty ())
             workflowReloadButton->Enable ();
@@ -472,12 +585,15 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
     if (workflowPowerButton && ev.GetSource () == workflowPowerButton.get ()) {
         evp::grasshopper::GhWorkerHost& host = evp::grasshopper::GhWorkerHost::Get ();
         if (host.IsRunning ()) {
-            // Stop takes the SESSION down with the worker, and the transcript
-            // says so rather than the panel quietly emptying: a stopped worker
-            // is a decision, and the block above it is still the last thing it
-            // produced.
+            // ⚠️ THE SAME BUTTON MEANS TWO THINGS, AND THE HOST DECIDES WHICH.
+            // A worker we spawned is shut down cooperatively and then
+            // terminated if it will not go; a peer we attached to is only
+            // DISCONNECTED, because it is somebody's Rhino and taking it down
+            // is not ours to do. Said in the transcript either way, since which
+            // one happened matters to whoever presses it.
+            const bool owned = !host.IsAttachedPeer ();
             host.Stop ();
-            workflowLog.Note ("--- stop requested ---");
+            workflowLog.Note (owned ? "--- stop requested ---" : "--- detached; the peer was left running ---");
         }
         else {
             GS::UniString message;
@@ -487,6 +603,33 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
                 workflowLog.Note ("Starting Grasshopper, headless ...");
             SetCommandStatus (message);
         }
+        return true;
+    }
+
+    if (workflowAttachButton && ev.GetSource () == workflowAttachButton.get ()) {
+        evp::grasshopper::GhWorkerHost& attachHost = evp::grasshopper::GhWorkerHost::Get ();
+        const AttachFace face = WorkflowAttachFace (attachHost);
+
+        // ⚠️ THE FACE DECIDES, NOT A SECOND READ OF THE STATE. Whatever the
+        // button says is what the user asked for, and deriving it once means the
+        // word on screen and the act cannot disagree.
+        if (face == AttachFace::Cancel || face == AttachFace::Disconnect) {
+            const bool waiting = face == AttachFace::Cancel;
+            attachHost.Stop ();
+            workflowLog.Note (waiting ? "--- stopped waiting for a peer; nothing was started ---"
+                                      : "--- detached; the peer was left running ---");
+            SetCommandStatus (
+                GS::UniString (waiting ? "Grasshopper: not waiting for a peer." : "Grasshopper: detached."));
+            return true;
+        }
+
+        GS::UniString message;
+        const bool opened = attachHost.AttachLocal (message);
+        // The pipe name is IN the message, and it is the one thing the peer
+        // needs. Said in the transcript rather than a dialog: a modal that has
+        // to be dismissed before the name can be copied is a modal in the way.
+        NoteWorkflowLine ((opened ? "" : "! ") + ToStd (message));
+        SetCommandStatus (message);
         return true;
     }
 

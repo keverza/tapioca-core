@@ -1,3 +1,12 @@
+// ⚠️ global::Grasshopper THROUGHOUT, AND IT IS LOAD-BEARING RATHER THAN
+// FUSSY. This file is compiled into Tapioca.Grasshopper.gha as well as into the
+// worker (see the .gha's .csproj: one set of files, so the two ends of the
+// bridge cannot skew). That assembly declares the namespace Tapioca.Grasshopper,
+// and from inside namespace Tapioca.GhWorker the compiler walks outward and
+// finds Tapioca.Grasshopper before it ever considers the global one -- so a bare
+// "Grasshopper.Kernel" resolves to Tapioca.Grasshopper.Kernel, which does not
+// exist. The qualification says which Grasshopper is meant.
+
 using System;
 using System.Globalization;
 using System.IO;
@@ -49,13 +58,13 @@ namespace Tapioca.GhWorker
         /// </summary>
         private const string DefinitionKey = "Definition";
 
-        private Grasshopper.Kernel.GH_Document _document;
+        private global::Grasshopper.Kernel.GH_Document _document;
         private string _path = string.Empty;
         private string _identity = string.Empty;
         private string _contentHash = string.Empty;
 
         /// <summary>The loaded document, or null when there is none.</summary>
-        internal Grasshopper.Kernel.GH_Document Document
+        internal global::Grasshopper.Kernel.GH_Document Document
         {
             get { return _document; }
         }
@@ -150,7 +159,7 @@ namespace Tapioca.GhWorker
                     return SessionProtocol.FailureCode.DefinitionInvalid;
                 }
 
-                Grasshopper.Kernel.GH_Document document = new Grasshopper.Kernel.GH_Document();
+                global::Grasshopper.Kernel.GH_Document document = new global::Grasshopper.Kernel.GH_Document();
                 if (!archive.ExtractObject(document, DefinitionKey))
                 {
                     message = full + " does not contain a Grasshopper definition.";
@@ -163,7 +172,7 @@ namespace Tapioca.GhWorker
                 // components never received their document-added notifications,
                 // and several packages do their per-document setup there. It is
                 // also what makes the removal in Dispose meaningful.
-                Grasshopper.Instances.DocumentServer.AddDocument(document);
+                global::Grasshopper.Instances.DocumentServer.AddDocument(document);
 
                 _document = document;
                 _path = full;
@@ -211,7 +220,7 @@ namespace Tapioca.GhWorker
         [MethodImpl(MethodImplOptions.NoInlining)]
         internal void Dispose()
         {
-            Grasshopper.Kernel.GH_Document document = _document;
+            global::Grasshopper.Kernel.GH_Document document = _document;
             _document = null;
             _path = string.Empty;
             _identity = string.Empty;
@@ -223,9 +232,9 @@ namespace Tapioca.GhWorker
 
             try
             {
-                if (Grasshopper.Instances.DocumentServer != null)
+                if (global::Grasshopper.Instances.DocumentServer != null)
                 {
-                    Grasshopper.Instances.DocumentServer.RemoveDocument(document);
+                    global::Grasshopper.Instances.DocumentServer.RemoveDocument(document);
                 }
             }
             catch (Exception exception)
@@ -282,7 +291,7 @@ namespace Tapioca.GhWorker
 
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static string BuildIdentity(
-            Grasshopper.Kernel.GH_Document document, string path, string contentHash)
+            global::Grasshopper.Kernel.GH_Document document, string path, string contentHash)
         {
             StringBuilder text = new StringBuilder();
             text.Append(path);

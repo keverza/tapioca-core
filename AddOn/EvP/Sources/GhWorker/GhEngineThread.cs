@@ -6,7 +6,7 @@ using System.Windows.Forms;
 namespace Tapioca.GhWorker
 {
     /// <summary>Owns every Rhino and Grasshopper operation on one STA thread.</summary>
-    internal sealed class GhEngineThread : IDisposable
+    internal sealed class GhEngineThread : IEngineDispatcher, IDisposable
     {
         private readonly object _sync = new object();
         private readonly Queue<Action> _pending = new Queue<Action>();
@@ -40,7 +40,9 @@ namespace Tapioca.GhWorker
             return _outcome;
         }
 
-        internal bool Post(Action action)
+        // Public because it implements IEngineDispatcher; the class is internal,
+        // so this widens nothing outside the assembly.
+        public bool Post(Action action)
         {
             if (action == null)
             {

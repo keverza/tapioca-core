@@ -43,6 +43,32 @@ enum class HostState {
 
 const char* DescribeHostState (HostState state);
 
+// Who owns the peer on the other end of the bridge.
+//
+// ⚠️ THE HOST HAS ALWAYS CONFLATED "THE PEER" WITH "THE PROCESS I STARTED", AND
+// EVERY MODE BEYOND spawn-and-kill NEEDS THEM APART. The bridge is a named-pipe
+// SERVER: the add-on listens and the peer connects. Nothing in that arrangement
+// requires the peer to have been spawned here -- a Grasshopper already running
+// in the user's own Rhino can complete the identical handshake -- but the host
+// answered a stop by terminating a process and closing a Job Object, which for a
+// peer it does not own would be killing the user's Rhino.
+//
+// So ownership is recorded per start and the rules follow from it:
+//   * Spawned  -- ours: cooperative Shutdown, then TerminateProcess, then the
+//                 Job Object closes over anything the worker itself started.
+//   * Attached -- someone else's: a stop DISCONNECTS. No signal, no kill; the
+//                 peer sees its pipe close and decides for itself what that
+//                 means.
+// A generation still advances either way, because staleness is about which
+// conversation a message belongs to and not about who started it.
+enum class PeerOwnership {
+    None = 0, // nothing is up
+    Spawned = 1,
+    Attached = 2,
+};
+
+const char* DescribePeerOwnership (PeerOwnership ownership);
+
 // Why a BeginStart was refused. The caller needs to tell these apart: Running is
 // success for a menu command that only wants a worker up, while InProgress is a
 // message for the user.
@@ -64,11 +90,18 @@ class HostLifecycle {
     bool AcceptsMessages () const;
 
     // Exactly one caller can get Proceed. Everyone else is told why not.
-    StartDecision BeginStart ();
+    StartDecision BeginStart (PeerOwnership claim = PeerOwnership::Spawned);
     // Generation-aware because bridge and process callbacks are asynchronous. A
     // callback from a worker that has already been stopped must not complete or
     // fail its replacement's start.
     bool CompleteStart (uint32_t startGeneration);
+
+    // Who owns whatever is up. None once a stop or a failure has completed.
+    PeerOwnership Ownership () const;
+
+    // Whether a stop may terminate a process. FALSE for an attached peer, which
+    // is the one question the whole distinction exists to answer.
+    bool OwnsPeerProcess () const;
     bool Fail (uint32_t failedGeneration, const std::string& reason);
 
     // Starting is stoppable: quitting Archicad while Rhino is booting must revoke
@@ -88,6 +121,7 @@ class HostLifecycle {
     mutable std::mutex mutex;
     HostState state = HostState::NotStarted;
     uint32_t generation = 0;
+    PeerOwnership ownership = PeerOwnership::None;
     std::string lastError;
 };
 
