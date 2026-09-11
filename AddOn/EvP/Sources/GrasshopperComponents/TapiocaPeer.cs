@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 
 using Tapioca.GhWorker;
 
@@ -529,7 +530,14 @@ namespace Tapioca.Grasshopper
             BridgeClient bridge = _bridge;
             _bridge = null;
 
-            RhinoUi.Instance.Post(SessionRouter.CloseAll);
+            // ⚠️ NARRATED, BECAUSE "EXITING ARCHICAD CLOSED RHINO" CANNOT BE
+            // DIAGNOSED FROM A SILENT TEARDOWN. Every step below is something
+            // that touches Rhino, Grasshopper or another project's plug-in while
+            // the process at the other end of the pipe is usually already gone.
+            // Whether this Rhino survives to the end of the sequence is exactly
+            // the question, so the log has to record where it got to.
+            WorkerLog.Write("peer teardown: closing Tapioca's own sessions.");
+            CloseSessionsAndWait();
             SessionRouter.Unbind();
             TapiocaBridgeApi.Unbind();
             WorkerLog.AttachBridge(null);
@@ -545,11 +553,98 @@ namespace Tapioca.Grasshopper
                 bridge.Dispose();
             }
 
+            // We connected it; we disconnect it. See
+            // ArchicadConnectionPackage.ReleaseConnection for why a live
+            // connection to a port whose Archicad has quit is worth undoing
+            // rather than leaving.
+            WorkerLog.Write("peer teardown: " + ArchicadConnectionPackage.ReleaseConnection());
+            WorkerLog.Write("peer teardown: complete; this Rhino is still running.");
+
             _status = "Disconnected from " + (_pipeName.Length == 0 ? "Archicad" : _pipeName)
                       + (string.IsNullOrEmpty(reason) ? "." : ": " + reason + ".")
                       + " This Rhino kept running.";
             _pipeName = string.Empty;
             _generation = 0;
+        }
+
+        /// <summary>
+        /// How long the teardown waits for Rhino's UI thread to finish closing
+        /// Tapioca's sessions.
+        /// </summary>
+        /// <remarks>
+        /// Generous, because the wait is what makes the closing HAPPEN AT THE
+        /// RIGHT TIME rather than what makes it fast, and it is bounded so that a
+        /// UI thread busy inside a modal dialog cannot hold the reader thread
+        /// forever.
+        ///
+        /// ⚠️ ARCHICAD'S OWN WAIT MUST OUTLAST THIS ONE, AND THE FIRST ATTEMPT
+        /// HAD IT THE WRONG WAY ROUND. Archicad asks a peer to detach and waits
+        /// for the pipe to drop (GhWorkerPeerDetach.cpp, PeerDetachMs); if that
+        /// wait is the shorter of the two, Archicad carries on exiting while this
+        /// disposal is still running, which is the situation the handshake exists
+        /// to prevent. Six seconds there against four here.
+        /// </remarks>
+        private const int SessionCloseWaitMs = 4000;
+
+        /// <summary>
+        /// Closes Tapioca's sessions on Rhino's UI thread and waits for it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ A POST AND A WAIT, NOT JUST A POST, AND THE WAIT IS THE FIX. This
+        /// runs on the bridge reader thread, so posting alone returned at once and
+        /// the documents were disposed some time later -- by which point the
+        /// bridge was gone, and, on the ordinary path where the peer is
+        /// disconnected because ARCHICAD IS QUITTING, by which point Archicad was
+        /// gone too. Disposing a Grasshopper document runs its components'
+        /// teardown, and an Archicad-facing component calling a loopback port
+        /// whose process is halfway through exiting blocks until something times
+        /// out: that is a Rhino frozen for the rest of Archicad's shutdown.
+        /// </para>
+        /// <para>
+        /// Waiting here puts the disposal BEFORE the bridge closes, which is what
+        /// lets Archicad's own detach wait cover it while it is still answering.
+        /// </para>
+        /// <para>
+        /// Safe from either thread: RhinoApp.InvokeOnUiThread runs the action
+        /// inline when it is already on the UI thread, so the event is set before
+        /// the wait begins.
+        /// </para>
+        /// </remarks>
+        private static void CloseSessionsAndWait()
+        {
+            using (ManualResetEventSlim done = new ManualResetEventSlim(false))
+            {
+                bool posted = RhinoUi.Instance.Post(delegate
+                {
+                    try
+                    {
+                        SessionRouter.CloseAll();
+                    }
+                    catch (Exception exception)
+                    {
+                        WorkerLog.Write("peer teardown: a session would not close: "
+                                        + WorkerLog.Describe(exception));
+                    }
+                    finally
+                    {
+                        done.Set();
+                    }
+                });
+
+                if (!posted)
+                {
+                    // Post already said why in the log. Nothing is waiting for.
+                    return;
+                }
+
+                if (!done.Wait(SessionCloseWaitMs))
+                {
+                    WorkerLog.Write("peer teardown: Rhino's UI thread did not finish closing the sessions within "
+                                    + SessionCloseWaitMs.ToString(CultureInfo.InvariantCulture)
+                                    + " ms; carrying on without it.");
+                }
+            }
         }
 
         private static void ShowEditor()

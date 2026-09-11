@@ -280,7 +280,7 @@ void ControlPalette::CreateWorkflowBand ()
     // The plus glyph, which is already the palette's "add" icon: what a commit
     // does is add to the model, and inventing a ninth piece of art for it would
     // say less.
-    workflowCommitButton = iconButton (PaletteIconPlusId, "Commit");
+    workflowCommitButton = iconButton (PaletteIconPlusId, "Not Commit"); // face set on refresh
 
     // ⚠️ ATTACH STARTS NOTHING, AND THAT IS THE POINT OF IT. Start spawns a
     // worker, which starts an embedded Rhino of its own; this only opens the
@@ -627,7 +627,11 @@ void ControlPalette::RefreshWorkflowBand ()
     if (workflowCommitButton) {
         // The word carries the state, because there is no checkbox here and a
         // button that looked identical armed and unarmed would be a trap.
-        workflowCommitButton->SetText (workflowCommit ? "Commit ON" : "Commit");
+        // ⚠️ BOTH FACES NAMED: "Commit" alone read as an action and was
+        // pressed as one, but it is a LATCH and the Solve after it writes.
+        workflowCommitButton->SetText (workflowCommit ? "Commit" : "Not Commit");
+        workflowCommitButton->SetIcon (
+            DG::Icon (ACAPI_GetOwnResModule (), workflowCommit ? PaletteIconPlusCircleSolidId : PaletteIconPlusId));
         if (hasHost && !loadedWorkflowPath.empty ())
             workflowCommitButton->Enable ();
         else
@@ -707,9 +711,9 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
         // ⚠️ ARMING DOES NOT SOLVE. Toggling this into a solve would make one
         // click both "I mean it" and "do it now", and the whole point of a latch
         // is that the user reads the state before pressing Solve.
-        NoteWorkflowLine (workflowCommit
-                              ? "Commit ARMED. The next solve will write to Archicad through Tapir's Execute buttons."
-                              : "Commit disarmed. Solves are reads again.");
+        NoteWorkflowLine (workflowCommit ? "Commit ARMED - a latch, not an action: press Solve to write, and that "
+                                           "solve presses the definition's Tapir Execute buttons."
+                                         : "Not Commit. Solves are reads again.");
         RefreshWorkflowBand ();
         Redraw ();
         return true;

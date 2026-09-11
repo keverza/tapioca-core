@@ -26,6 +26,10 @@ namespace {
 // field's width. Same reasoning as ParamPanel's.
 constexpr short DomainWidth = 66;
 
+// A selection row's title line. Shorter than RowHeight because it is text rather
+// than a control, and the same 16 SelectionSetPanel uses for the same line.
+constexpr short SelectionTitleHeight = 16;
+
 GS::UniString ToUniString (const std::string& text)
 {
     return GS::UniString (text.c_str (), CC_UTF8);
@@ -349,10 +353,6 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                 control.selectionReselect = button ("Reselect");
                 control.selectionClear = button ("Clear");
 
-                // In the domain column, which a selection row never uses: the
-                // count belongs beside the buttons that change it.
-                control.selectionCount = std::make_unique<DG::LeftText> (panel, seed);
-                control.selectionCount->SetText (SelectionCount (row.id));
                 break;
             }
 
@@ -427,7 +427,16 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                                                                ToUniString (subtype).ToPrintf ()));
                     }
 
+                    // ⚠️ ATTACHED, OR THE CLICK REACHES NOBODY. This is the
+                    // whole reason the picker behaved as a label: creating it
+                    // and handing over on a click are two separate obligations,
+                    // and the hand-off (HandleAttributePicker) cannot run if the
+                    // PushCheck was never attached to the palette. ParamPanel
+                    // does exactly this, one line, at the end of its own build
+                    // -- "Pen swatches are pool items, attached once in the
+                    // shell's constructor" is the comment right above it.
                     control.attributeHost = std::move (host);
+                    control.attributeHost->Attach (observer);
                     break;
                 }
 
@@ -512,31 +521,17 @@ void WorkflowPanel::ShowControls ()
     // ⚠️ A DYNAMICALLY CREATED DG ITEM STARTS HIDDEN. Each one must be Show()n
     // or it exists and holds its value while being invisible -- the same trap
     // ParamPanel documents, and the reason Rebuild only BUILDS.
-    for (WorkflowControl& control : controls) {
-        if (control.label)
-            control.label->Show ();
-        if (control.domainHint)
-            control.domainHint->Show ();
-        if (control.slider)
-            control.slider->Show ();
-        if (DG::Item* widget = control.Widget ())
-            widget->Show ();
-    }
+    for (WorkflowControl& control : controls)
+        control.ForEachItem ([] (DG::Item* item) { item->Show (); });
 }
 
 void WorkflowPanel::HideControls ()
 {
     for (WorkflowControl& control : controls) {
-        if (control.label && control.label->IsVisible ())
-            control.label->Hide ();
-        if (control.domainHint && control.domainHint->IsVisible ())
-            control.domainHint->Hide ();
-        if (control.slider && control.slider->IsVisible ())
-            control.slider->Hide ();
-        if (DG::Item* widget = control.Widget ()) {
-            if (widget->IsVisible ())
-                widget->Hide ();
-        }
+        control.ForEachItem ([] (DG::Item* item) {
+            if (item->IsVisible ())
+                item->Hide ();
+        });
     }
 }
 
@@ -567,6 +562,38 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
             continue;
         }
 
+        // ⚠️ A SELECTION ROW IS A BLOCK, AND IT IS PLACED BEFORE THE GRID
+        // BECAUSE IT DOES NOT USE IT. Two lines of full width, which is
+        // SelectionSetPanel's shape rather than this band's label/field columns:
+        // five captioned buttons do not fit the input column at any palette
+        // size, and the first attempt squeezing them into it had "Reselect" as
+        // the proof. A Python command's selection_sets has drawn exactly this
+        // block since it existed.
+        //
+        // The count goes in the TITLE rather than beside the buttons because it
+        // is a fact about the set, not a sixth control -- a number floating at
+        // the end of a button row reads as a label for the button next to it.
+        if (control.selectionUpdate) {
+            control.label->SetText (GS::UniString::Printf ("%T (%T)", ToUniString (control.row.label).ToPrintf (),
+                                                           SelectionCount (control.row.id).ToPrintf ()));
+            clip.Place (control.label.get (), DG::Rect (left, y, right, (short) (y + SelectionTitleHeight)));
+            y = (short) (y + SelectionTitleHeight + 2);
+
+            DG::Item* const verbs[] = { control.selectionUpdate.get (), control.selectionAdd.get (),
+                                        control.selectionRemove.get (), control.selectionReselect.get (),
+                                        control.selectionClear.get () };
+            constexpr short VerbCount = 5;
+            constexpr short VerbGap = 4;
+            const short span = (short) ((contentWidth - (VerbCount - 1) * VerbGap) / VerbCount);
+            for (short index = 0; index < VerbCount; ++index) {
+                const short x = (short) (left + index * (span + VerbGap));
+                clip.Place (verbs[index], DG::Rect (x, y, (short) (x + span), (short) (y + RowHeight)));
+            }
+
+            y = (short) (y + RowHeight + RowGap);
+            continue;
+        }
+
         const short inputLeft = (short) (right - inputWidth);
         const short hintLeft = (short) (inputLeft - DomainWidth);
         clip.Place (control.label.get (), DG::Rect (left, y, hintLeft, (short) (y + RowHeight)));
@@ -583,42 +610,6 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
                         DG::Rect (hintLeft, y, (short) (fieldLeft - 4), (short) (y + RowHeight)));
             if (DG::Item* widget = control.Widget ())
                 clip.Place (widget, DG::Rect (fieldLeft, y, right, (short) (y + RowHeight)));
-            y = (short) (y + RowHeight + RowGap);
-            continue;
-        }
-
-        if (control.selectionUpdate) {
-            // ⚠️ TWO LINES, AND ACROSS THE WHOLE WIDTH RATHER THAN THE
-            // FIELD COLUMN. A captioned button needs room for its word, and
-            // "Reselect" does not fit a fifth of one input field. So the verbs
-            // take the domain column as well -- the only thing that column held
-            // on a selection row was the count, which moves to the end of the
-            // second line where it sits beside the buttons that change it.
-            DG::Item* const verbs[] = { control.selectionUpdate.get (), control.selectionAdd.get (),
-                                        control.selectionRemove.get (), control.selectionReselect.get (),
-                                        control.selectionClear.get () };
-
-            const short verbsLeft = hintLeft;
-            const short lineWidth = (short) (right - verbsLeft);
-
-            // Three then two, because Update / Add / Remove are the three that
-            // change what is held and Reselect / Clear are the two that do not.
-            const short firstSpan = (short) (lineWidth / 3);
-            for (short index = 0; index < 3; ++index) {
-                const short left = (short) (verbsLeft + index * firstSpan);
-                const short edge = index == 2 ? right : (short) (left + firstSpan);
-                clip.Place (verbs[index], DG::Rect (left, y, edge, (short) (y + RowHeight)));
-            }
-
-            y = (short) (y + RowHeight + RowGap);
-
-            const short secondSpan = (short) (lineWidth / 3);
-            clip.Place (verbs[3], DG::Rect (verbsLeft, y, (short) (verbsLeft + secondSpan), (short) (y + RowHeight)));
-            clip.Place (verbs[4], DG::Rect ((short) (verbsLeft + secondSpan), y, (short) (verbsLeft + 2 * secondSpan),
-                                            (short) (y + RowHeight)));
-            clip.Place (control.selectionCount.get (),
-                        DG::Rect ((short) (verbsLeft + 2 * secondSpan + 6), y, right, (short) (y + RowHeight)));
-
             y = (short) (y + RowHeight + RowGap);
             continue;
         }
@@ -645,6 +636,30 @@ WorkflowSnapshot WorkflowPanel::Collect () const
     }
 
     return ReadWorkflowRows (rows, texts);
+}
+
+bool WorkflowPanel::HandleAttributePicker (const DG::CheckItemChangeEvent& ev)
+{
+    for (WorkflowControl& control : controls) {
+        if (!control.attributeHost || ev.GetSource () != control.attributeHost.get ())
+            continue;
+
+        // ⚠️ Invoke() IS WHAT OPENS THE CHOOSER. The picker builds the control
+        // and keeps its text current, but it is not an event handler -- nothing
+        // happens on a click until the host dialog hands over. Without this the
+        // row showed an attribute name and could not be changed, which looked
+        // like a picker with no list behind it. ParamPanel has handed over since
+        // it grew its first layer parameter; this band never did.
+        if (control.picker != nullptr)
+            control.picker->Invoke ();
+
+        // A PushCheck LATCHES when clicked and the picker is not a toggle, so the
+        // pressed look has to be undone or the row stays visibly held down.
+        control.attributeHost->Uncheck ();
+        return true;
+    }
+
+    return false;
 }
 
 bool WorkflowPanel::HandleSelectionButton (const DG::Item* item)
@@ -678,8 +693,7 @@ bool WorkflowPanel::HandleSelectionButton (const DG::Item* item)
         // Read back rather than assumed: the command may have selected fewer
         // elements than were asked for, and the count is the only thing on
         // screen that says so.
-        if (control.selectionCount)
-            control.selectionCount->SetText (SelectionCount (control.row.id));
+        RefreshSelections ();
         return true;
     }
 
@@ -689,14 +703,15 @@ bool WorkflowPanel::HandleSelectionButton (const DG::Item* item)
 void WorkflowPanel::RefreshSelections ()
 {
     for (WorkflowControl& control : controls) {
-        if (!control.selectionCount)
+        if (control.row.kind != InputKind::Selection || !control.label)
             continue;
 
         // Compared before assigning: SetText invalidates the item even when the
         // text is unchanged, and this runs on the palette's idle tick.
-        const GS::UniString count = SelectionCount (control.row.id);
-        if (control.selectionCount->GetText () != count)
-            control.selectionCount->SetText (count);
+        const GS::UniString title = GS::UniString::Printf ("%T (%T)", ToUniString (control.row.label).ToPrintf (),
+                                                           SelectionCount (control.row.id).ToPrintf ());
+        if (control.label->GetText () != title)
+            control.label->SetText (title);
     }
 }
 

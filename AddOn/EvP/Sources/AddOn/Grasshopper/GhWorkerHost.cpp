@@ -6,6 +6,7 @@
 #include "GhWorkerHost.hpp"
 
 #include "GhWorkerLocate.hpp"
+#include "GhWorkerPeerDetach.hpp"
 
 #include "GhWorkflowController.hpp"
 #include "HostState.hpp"
@@ -424,6 +425,39 @@ bool StartWorkerLocked (GS::UniString& message)
 }
 
 // ⚠️ CALLED WITH controlMutex HELD.
+// An Attach that is still waiting: the bridge is open, no peer has said hello,
+// and the lifecycle is therefore Starting.
+//
+// ⚠️ THIS STATE USED TO SWALLOW EVERY REQUEST TO START GRASSHOPPER. Attach
+// leaves the host in Starting deliberately -- a peer may connect at any moment --
+// but both Ensure entry points answered a Starting host with "the worker is
+// starting" and did nothing. So a user who pressed Attach with no Rhino running
+// could not then ask Tapioca for one: Load, Solve and the power button all
+// reported that something was on its way, forever, and the only escape was to
+// know that Detach had to be pressed first.
+//
+// Being HONEST about it is not enough, because the honest answer is a dead end.
+// A request to start Grasshopper now TAKES OVER the waiting bridge; see the two
+// call sites.
+bool WaitingForAbsentPeer ()
+{
+    return lifecycle.State () == HostState::Starting && lifecycle.Ownership () == PeerOwnership::Attached &&
+           !GhBridge::Get ().IsConnected ();
+}
+
+// Closes a bridge nobody came to, so an ordinary start can proceed. A no-op in
+// every other state, and logged when it does something: a user who pressed
+// Attach is owed the news that Tapioca started its own Rhino instead.
+void TakeOverFromAbsentPeer ()
+{
+    if (!WaitingForAbsentPeer ())
+        return;
+
+    Log (GS::UniString ("No Grasshopper peer connected to the open bridge, and Grasshopper was asked for: closing "
+                        "the bridge and starting Tapioca's own worker instead."));
+    GhWorkerHost::Get ().Stop ();
+}
+
 bool EnsureRunningLocked (GS::UniString& message)
 {
     switch (lifecycle.BeginStart ()) {
@@ -605,6 +639,11 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
 
     WireBridgeLocked ();
 
+    // A bridge nobody came to does not block a request for the canvas either.
+    // See TakeOverFromAbsentPeer; before the lock, for the reason Stop ()
+    // documents.
+    TakeOverFromAbsentPeer ();
+
     GhBridge& bridge = GhBridge::Get ();
     std::lock_guard<std::mutex> lock (controlMutex);
 
@@ -645,6 +684,10 @@ bool GhWorkerHost::EnsureHeadless (GS::UniString& message)
     }
 
     WireBridgeLocked ();
+
+    // ⚠️ BEFORE THE LOCK, BECAUSE Stop () JOINS THE SUPERVISOR AND THE
+    // SUPERVISOR TAKES controlMutex. Same ordering hazard Stop () documents.
+    TakeOverFromAbsentPeer ();
 
     GhBridge& bridge = GhBridge::Get ();
     std::lock_guard<std::mutex> lock (controlMutex);
@@ -750,6 +793,16 @@ void GhWorkerHost::Stop ()
 
     std::lock_guard<std::mutex> lock (controlMutex);
     if (workerProcess == nullptr) {
+        // ⚠️ AN ATTACHED PEER IS TOLD, AND GIVEN A MOMENT, RATHER THAN
+        // HAVING THE PIPE PULLED OUT FROM UNDER IT. Why the order matters more
+        // than the message -- and why a frozen Rhino was the price of getting it
+        // wrong -- is written out in GhWorkerPeerDetach.hpp.
+        if (lifecycle.Ownership () == PeerOwnership::Attached) {
+            GS::UniString note;
+            RequestPeerDetach (note);
+            Log (note);
+        }
+
         GhBridge::Get ().Stop ();
         lifecycle.CompleteStop ();
         return;

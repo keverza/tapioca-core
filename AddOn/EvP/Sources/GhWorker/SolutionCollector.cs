@@ -108,12 +108,24 @@ namespace Tapioca.GhWorker
                 // session actually owns. Compute sets exactly this.
                 document.Enabled = true;
 
-                // `false`: the inputs the host set were expired by the
+                // ⚠️ A COMMITTING SOLVE EXPIRES EVERYTHING; A READ DOES NOT.
+                // Tapir's executor returns from SolveInstance with "Waiting for
+                // manual execution" unless its ManualExecuteRequested flag is
+                // set, and the flag is only set for the duration of the press.
+                // So the press has to be able to re-solve that component, which
+                // means the component must be part of this pass -- and a
+                // component wired to nothing this panel assigned is not expired
+                // by the input assignment, so a partial solve leaves it holding
+                // nothing to write. A read stays partial for the reason below;
+                // it has nothing to write either way.
+                bool committing = (wants & (uint)SessionProtocol.SolveWants.Commit) != 0;
+
+                // `false` for a read: the inputs the host set were expired by the
                 // assignment that set them, and expiring everything else would
                 // re-run components whose data has not changed -- which is the
                 // difference between a slider drag that re-solves one branch and
                 // one that re-solves the definition.
-                document.NewSolution(false, global::Grasshopper.Kernel.GH_SolutionMode.CommandLine);
+                document.NewSolution(committing, global::Grasshopper.Kernel.GH_SolutionMode.CommandLine);
 
                 // ⚠️ TAPIR WRITES NOTHING DURING A SOLVE, WHICH IS WHY THIS
                 // EXISTS AT ALL. Its element-creation components put their write
@@ -137,9 +149,29 @@ namespace Tapioca.GhWorker
                 // where it does the same: the press is part of what a commit
                 // costs, so it is part of what a commit reports.
                 string committed = string.Empty;
-                if ((wants & (uint)SessionProtocol.SolveWants.Commit) != 0)
+                if (committing)
                 {
-                    committed = TapirExecutor.PressExecuteButtons(document);
+                    // ⚠️ SOLUTIONS MUST BE ENABLED ACROSS THE PRESS, NOT JUST
+                    // ACROSS THE SOLVE. Pressing a Tapir button calls its
+                    // ManualExecute, which calls ExpireSolution(true), which the
+                    // document turns into a NESTED NewSolution -- and NewSolution
+                    // returns immediately when GH_Document.EnableSolutions is
+                    // false and the document is in the document server, which
+                    // every session document is. The authoring path sets this
+                    // flag around its own solve (DefinitionRunner.Run) and a
+                    // headless host is exactly where it is off by default, so
+                    // without this the press expires the component and nothing
+                    // re-solves it: no write, no error, no diagnostic.
+                    bool enabled = global::Grasshopper.Kernel.GH_Document.EnableSolutions;
+                    try
+                    {
+                        global::Grasshopper.Kernel.GH_Document.EnableSolutions = true;
+                        committed = TapirExecutor.PressExecuteButtons(document);
+                    }
+                    finally
+                    {
+                        global::Grasshopper.Kernel.GH_Document.EnableSolutions = enabled;
+                    }
                 }
 
                 clock.Stop();

@@ -59,6 +59,71 @@ namespace Tapioca.GhWorker
         private const string PortPropertyName = "Port";
         private const string StartMethodName = "StartConnection";
         private const string IsConnectedPropertyName = "IsConnected";
+        private const string BreakMethodName = "BreakConnection";
+
+        /// <summary>
+        /// Breaks the Live Connection this peer told to start. Returns one line
+        /// for the log; never throws.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ SYMMETRY, AND IT IS NOT MERELY TIDINESS. Attaching points this
+        /// plug-in at an Archicad and calls its own StartConnection; when the
+        /// bridge drops, that Archicad is usually GONE -- Archicad quitting is
+        /// the ordinary way a peer is disconnected. What is left is another
+        /// project's connection manager holding a live connection to a dead
+        /// loopback port inside the user's Rhino, and whatever it does about that
+        /// is not ours to predict. So the peer undoes exactly what it did.
+        /// </para>
+        /// <para>
+        /// BreakConnection is its OWN public method -- the one its Connection
+        /// dialog's disconnect calls -- so this asks for the same teardown a user
+        /// would, rather than reaching into its state.
+        /// </para>
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static string ReleaseConnection()
+        {
+            try
+            {
+                Assembly connection = FindLoaded();
+                if (connection == null)
+                {
+                    return "Archicad Live Connection: not loaded, so nothing to release.";
+                }
+
+                Type manager = connection.GetType(ManagerTypeName, false, false);
+                PropertyInfo instanceProperty = manager == null
+                    ? null
+                    : manager.GetProperty(InstancePropertyName, BindingFlags.Public | BindingFlags.Static);
+                object instance = instanceProperty == null ? null : instanceProperty.GetValue(null, null);
+                if (instance == null)
+                {
+                    return "Archicad Live Connection: loaded, but its connection manager was not reachable, so its "
+                           + "connection was left as it is.";
+                }
+
+                MethodInfo breakConnection = manager.GetMethod(
+                    BreakMethodName,
+                    BindingFlags.Public | BindingFlags.Instance,
+                    null,
+                    Type.EmptyTypes,
+                    null);
+                if (breakConnection == null)
+                {
+                    return "Archicad Live Connection: this version has no public " + BreakMethodName + "(), so its "
+                           + "connection was left pointing at an Archicad that may be gone. Disconnect it in its "
+                           + "Connection dialog.";
+                }
+
+                breakConnection.Invoke(instance, null);
+                return "Archicad Live Connection: disconnected, because Tapioca is what connected it.";
+            }
+            catch (Exception exception)
+            {
+                return "Archicad Live Connection could not be disconnected: " + WorkerLog.Describe(exception);
+            }
+        }
 
         /// <summary>
         /// Points the Live Connection at <paramref name="port"/>. Returns one

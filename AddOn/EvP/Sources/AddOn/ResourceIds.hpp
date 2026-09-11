@@ -144,6 +144,9 @@ constexpr short PaletteIconRestartId = 32610;
 constexpr short PaletteIconPlaySolidId = 32611;
 constexpr short PaletteIconStopSolidId = 32612;
 constexpr short PaletteIconIpAddressId = 32613;
+// The commit latch ARMED. Disarmed is PaletteIconPlusId, the plain plus: same
+// glyph family so the button stays recognisable, filled when it will write.
+constexpr short PaletteIconPlusCircleSolidId = 32614;
 
 // The Tapioca palette ('GDLG' 32510).
 // ⚠️ These ids are POSITIONAL: ResConv numbers .grc items by their ORDER, and the

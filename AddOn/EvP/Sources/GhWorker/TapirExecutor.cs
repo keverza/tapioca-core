@@ -87,10 +87,29 @@ namespace Tapioca.GhWorker
 
             try
             {
-                List<Candidate> candidates = FindButtons(document);
+                // ⚠️ "NOTHING WAS PRESSED" USED TO BE INDISTINGUISHABLE FROM
+                // "NOTHING NEEDED PRESSING", AND THAT IS WHY A DEFINITION THAT
+                // CREATED NO ELEMENTS LOOKED LIKE A CLEAN COMMIT. There are
+                // three separate ways to press nothing -- no component
+                // implementing the button interface, a component whose button
+                // labels cannot be read, and labels that do not say "Execute" --
+                // and each has a different cause and a different fix. An empty
+                // return told the user none of them.
+                int buttonComponents;
+                List<Candidate> candidates = FindButtons(document, out buttonComponents);
                 if (candidates.Count == 0)
                 {
-                    return string.Empty;
+                    if (buttonComponents == 0)
+                    {
+                        return "Commit pressed nothing: this definition has no component implementing Tapir's "
+                               + ButtonInterface + ". If it creates elements through Tapir, check that Tapir is "
+                               + "loaded in this Grasshopper.";
+                    }
+
+                    return "Commit pressed nothing: "
+                           + buttonComponents.ToString(CultureInfo.InvariantCulture)
+                           + " component(s) implement " + ButtonInterface + " but none offered a readable "
+                           + ButtonTextsProperty + ", so pressing them blind was refused.";
                 }
 
                 // "Execute All" first, and alone. See the class remarks.
@@ -119,7 +138,15 @@ namespace Tapioca.GhWorker
 
                 if (pressed.Count == 0)
                 {
-                    return string.Empty;
+                    List<string> labels = new List<string>();
+                    foreach (Candidate candidate in candidates)
+                    {
+                        labels.Add("\"" + (candidate.Text ?? "(unnamed)") + "\" on " + candidate.Name);
+                    }
+
+                    return "Commit pressed nothing: none of this definition's "
+                           + candidates.Count.ToString(CultureInfo.InvariantCulture)
+                           + " Tapir button(s) is an Execute button -- " + string.Join(", ", labels) + ".";
                 }
 
                 return "Pressed " + pressed.Count.ToString(CultureInfo.InvariantCulture)
@@ -156,8 +183,10 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static List<Candidate> FindButtons(global::Grasshopper.Kernel.GH_Document document)
+        private static List<Candidate> FindButtons(
+            global::Grasshopper.Kernel.GH_Document document, out int buttonComponents)
         {
+            buttonComponents = 0;
             List<Candidate> found = new List<Candidate>();
             foreach (global::Grasshopper.Kernel.IGH_DocumentObject item in document.Objects)
             {
@@ -171,6 +200,8 @@ namespace Tapioca.GhWorker
                 {
                     continue;
                 }
+
+                buttonComponents++;
 
                 MethodInfo press = type.GetMethod(
                     PressMethod,

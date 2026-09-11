@@ -467,9 +467,8 @@ void ControlPalette::CheckItemChanged (const DG::CheckItemChangeEvent& ev)
         return;
     }
 
-    // The server toggle — the band owns what starting and stopping one means.
-    if (serverBand.HandleCheckItemChanged (ev))
-        RefreshRunGate (); // starting the server can unblock Run immediately
+    if (workflow.HandleAttributePicker (ev) || serverBand.HandleCheckItemChanged (ev))
+        RefreshRunGate (); // a picked layer, or a started server, can satisfy Run
 }
 
 void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)

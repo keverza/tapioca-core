@@ -59,16 +59,23 @@ struct WorkflowControl {
     std::unique_ptr<DG::RealEdit> realEdit; // Number
     std::unique_ptr<DG::IntEdit> intEdit;   // Integer
 
-    // Selection: five icon buttons and a count, because a selection is picked in
-    // Archicad rather than typed. The same five verbs, the same five icons and
-    // the same two native commands as SelectionSetPanel -- ON THIS ROW, so the
-    // input keeps the position the definition's author gave it on the canvas.
+    // Selection: five captioned buttons, because a selection is picked in
+    // Archicad rather than typed. The same five verbs and the same two native
+    // commands as SelectionSetPanel -- ON THIS ROW, so the input keeps the
+    // position the definition's author gave it on the canvas.
+    //
+    // ⚠️ A BLOCK, NOT A FIELD, AND SelectionSetPanel ALREADY HAD THE SHAPE.
+    // These do not fit the label/field grid every other row uses: five captions
+    // in one field's width were unreadable at any palette size. So a selection
+    // row is two lines of FULL WIDTH -- "<label> (<count>)" above, the five
+    // buttons spread beneath it -- which is exactly what a Python command's
+    // selection_sets draws, and the count belongs in the title for the same
+    // reason it does there.
     std::unique_ptr<DG::Button> selectionUpdate;
     std::unique_ptr<DG::Button> selectionAdd;
     std::unique_ptr<DG::Button> selectionRemove;
     std::unique_ptr<DG::Button> selectionReselect;
     std::unique_ptr<DG::Button> selectionClear;
-    std::unique_ptr<DG::LeftText> selectionCount;
 
     // Attribute: ARCHICAD'S OWN PICKER, hosted on a PushCheck, exactly as
     // ParamPanel hosts one. It lists what the project actually contains and
@@ -86,7 +93,33 @@ struct WorkflowControl {
     std::unique_ptr<DG::ScrollBar> slider;
 
     // The live item, whichever kind it turned out to be, or null for a heading.
+    //
+    // ⚠️ THIS IS THE ROW'S *FIELD*, NOT EVERY ITEM IT OWNS -- see ForEachItem.
+    // A selection row has no field at all and five buttons instead, and showing
+    // and hiding by Widget() alone left them on screen over the next command's
+    // parameters.
     DG::Item* Widget () const;
+
+    // Every DG item this row owns, in no particular order, skipping the nulls.
+    //
+    // ⚠️ ONE ENUMERATION SO SHOW, HIDE AND DISABLE CANNOT DISAGREE. The band
+    // hides the definition's rows itself when the palette switches to a command
+    // that is not this one -- the scroll hides only what it is HANDED, and that
+    // branch hands it nothing. Three separate loops each testing a different
+    // subset of the members is how five selection buttons came to survive a
+    // command change, drawn over whatever the next command put there.
+    template <typename Fn> void ForEachItem (Fn fn) const
+    {
+        DG::Item* const items[] = { label.get (),           domainHint.get (),
+                                    slider.get (),          Widget (),
+                                    selectionUpdate.get (), selectionAdd.get (),
+                                    selectionRemove.get (), selectionReselect.get (),
+                                    selectionClear.get () };
+        for (DG::Item* item : items) {
+            if (item != nullptr)
+                fn (item);
+        }
+    }
 
     // What the control currently holds, as the text WorkflowRows validates.
     GS::UniString CurrentText () const;
@@ -164,6 +197,17 @@ class WorkflowPanel {
     // says whether the item was one of them at all. The palette routes every
     // button click here before deciding it was not ours.
     bool HandleSelectionButton (const DG::Item* item);
+
+    // An attribute row's PushCheck was clicked: hand over to Archicad's own
+    // chooser.
+    //
+    // ⚠️ WITHOUT THIS THE PICKER IS A LABEL. ACAPI_Dialog_CreateAttributePicker
+    // builds the control and shows the current attribute, but it opens NOTHING on
+    // its own -- the host dialog must call Invoke() when the PushCheck is
+    // clicked. ParamPanel has done this since it grew its first layer parameter
+    // (HandleCheckItemChanged); this band showed a picker that displayed a name
+    // and refused to change it.
+    bool HandleAttributePicker (const DG::CheckItemChangeEvent& ev);
 
     // Re-reads every selection row's count. The buttons change the store, and a
     // count that only changed when something else redrew would be a stale number

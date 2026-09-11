@@ -51,3 +51,10 @@
 'GICN' 32613 "Connect to a worker by address" {
 	"TapiocaIpAddressTag"
 }
+/* The commit latch's two faces. A filled plus-in-a-circle for ARMED and the
+   plain plus for disarmed: the same glyph family, so the button is recognisable
+   either way, and the fill is what says which state it is in -- the same
+   regular/solid pairing the start-stop control uses one entry up. */
+'GICN' 32614 "Commit is armed" {
+	"TapiocaPlusCircleSolid"
+}

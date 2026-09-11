@@ -174,6 +174,12 @@ namespace Tapioca.GhWorker
                 // also what makes the removal in Dispose meaningful.
                 global::Grasshopper.Instances.DocumentServer.AddDocument(document);
 
+                // After the server knows about it, because that is when
+                // Grasshopper repairs parameter links -- and before anything
+                // solves, because the first read of a parameter's Kind is what
+                // raises the assertion. See GiveObjectsTheirAttributes.
+                GiveObjectsTheirAttributes(document);
+
                 _document = document;
                 _path = full;
                 _contentHash = HashFile(full);
@@ -204,6 +210,100 @@ namespace Tapioca.GhWorker
             }
 
             return Load(path, out message);
+        }
+
+        /// <summary>
+        /// Gives every object in a freshly loaded definition the attributes that
+        /// opening it on a canvas would have given it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ A DEFINITION THIS HOST LOADS IS NEVER DRAWN, AND GRASSHOPPER
+        /// ASSERTS ABOUT IT. A document added to the document server without
+        /// being opened in the editor has objects whose Attributes are still
+        /// null, because nothing has laid them out. When Grasshopper then repairs
+        /// a component's parameter links
+        /// (GH_ComponentParamServer.RepairParamAttributes) it writes
+        /// `param.Attributes.Parent = Owner.Attributes` -- and a null owner
+        /// attributes leaves that parameter with LINKED attributes and NO parent.
+        /// </para>
+        /// <para>
+        /// Grasshopper notices, twice, in two Tracing.Assert dialogs: "Constructor
+        /// called with a Null parent reference" from the linked-attributes
+        /// constructor, and "Attributes are both linked and top-level at the same
+        /// time" the next time anything reads that parameter's Kind. Two
+        /// breakpoint panels per change, in the user's own Rhino, for a state
+        /// that is nobody's fault but ours: we are the only thing that loads a
+        /// document and never shows it.
+        /// </para>
+        /// <para>
+        /// So the parents are supplied here, once, at load. CreateAttributes is
+        /// the object's own public method -- the same one the canvas calls -- and
+        /// the second pass only fills a parent that is missing, so a parameter
+        /// Grasshopper has already linked correctly is left alone.
+        /// </para>
+        /// </remarks>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void GiveObjectsTheirAttributes(global::Grasshopper.Kernel.GH_Document document)
+        {
+            if (document == null)
+            {
+                return;
+            }
+
+            try
+            {
+                foreach (global::Grasshopper.Kernel.IGH_DocumentObject item in document.Objects)
+                {
+                    if (item != null && item.Attributes == null)
+                    {
+                        item.CreateAttributes();
+                    }
+                }
+
+                foreach (global::Grasshopper.Kernel.IGH_DocumentObject item in document.Objects)
+                {
+                    global::Grasshopper.Kernel.IGH_Component component =
+                        item as global::Grasshopper.Kernel.IGH_Component;
+                    if (component == null || component.Attributes == null)
+                    {
+                        continue;
+                    }
+
+                    Adopt(component, component.Params.Input);
+                    Adopt(component, component.Params.Output);
+                }
+            }
+            catch (Exception exception)
+            {
+                // Recorded, never fatal: a definition that solves with a
+                // Grasshopper assertion behind it is worse than one that does
+                // not, but it still solves.
+                WorkerLog.Write("a definition's attributes could not be prepared: " + WorkerLog.Describe(exception));
+            }
+        }
+
+        private static void Adopt(
+            global::Grasshopper.Kernel.IGH_Component component,
+            System.Collections.Generic.List<global::Grasshopper.Kernel.IGH_Param> parameters)
+        {
+            foreach (global::Grasshopper.Kernel.IGH_Param parameter in parameters)
+            {
+                if (parameter == null)
+                {
+                    continue;
+                }
+
+                if (parameter.Attributes == null)
+                {
+                    parameter.Attributes = new global::Grasshopper.Kernel.Attributes.GH_LinkedParamAttributes(
+                        parameter, component.Attributes);
+                }
+                else if (parameter.Attributes.Parent == null)
+                {
+                    parameter.Attributes.Parent = component.Attributes;
+                }
+            }
         }
 
         /// <summary>
