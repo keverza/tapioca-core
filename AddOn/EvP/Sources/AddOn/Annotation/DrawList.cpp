@@ -98,6 +98,35 @@ uint32_t PackRgba (ColourRgba colour)
            uint32_t (colour.alpha);
 }
 
+bool FitCircularPath (const Primitive& primitive, Point3& center, double& radius, double& direction)
+{
+    if (primitive.points.size () < 3)
+        return false;
+    const Point3& first = primitive.points.front ();
+    const Point3& pathEnd = primitive.points.back ();
+    const bool closed =
+        primitive.points.size () >= 4 && std::hypot (first.x - pathEnd.x, first.y - pathEnd.y) <= 1.0e-9;
+    const Point3& middle = primitive.points[closed ? primitive.points.size () / 3 : primitive.points.size () / 2];
+    const Point3& last = primitive.points[closed ? primitive.points.size () * 2 / 3 : primitive.points.size () - 1];
+    const double determinant =
+        2.0 * (first.x * (middle.y - last.y) + middle.x * (last.y - first.y) + last.x * (first.y - middle.y));
+    if (std::fabs (determinant) <= kMinLength)
+        return false;
+    const double firstSquared = first.x * first.x + first.y * first.y;
+    const double middleSquared = middle.x * middle.x + middle.y * middle.y;
+    const double lastSquared = last.x * last.x + last.y * last.y;
+    center.x =
+        (firstSquared * (middle.y - last.y) + middleSquared * (last.y - first.y) + lastSquared * (first.y - middle.y)) /
+        determinant;
+    center.y =
+        (firstSquared * (last.x - middle.x) + middleSquared * (first.x - last.x) + lastSquared * (middle.x - first.x)) /
+        determinant;
+    center.z = first.z;
+    radius = std::hypot (first.x - center.x, first.y - center.y);
+    direction = determinant > 0.0 ? 1.0 : -1.0;
+    return std::isfinite (radius) && radius > kMinLength;
+}
+
 bool BuildArchitecturalAngleGlyph (const ScreenPoint& center, const ScreenPoint& firstRayPoint,
                                    const ScreenPoint& secondRayPoint, double dpiScale, ArchitecturalAngleGlyph& glyph)
 {

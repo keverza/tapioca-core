@@ -173,14 +173,12 @@ bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
                              uint32_t height, float captureDpi, float nearClip, float farClip, bool perspective,
                              HudState& hudState);
 
-ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
-                                                 bool annotationsOnly, void* nativeWindow,
-                                                 Diligent::ITextureView* colorTarget,
-                                                 Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView,
-                                                 const float viewProj[16], uint32_t width, uint32_t height,
-                                                 float nearClip, float farClip, bool perspective, HudState& hudState,
-                                                 AnnotationPlacementHistory& placementHistory);
+ProjectedDrawList UpdateAndDrawTraceAnnotations (
+    SceneTextLayer& layer, Diligent::IRenderDevice* device, Diligent::IDeviceContext* context, bool blanked,
+    bool offscreen, bool annotationsOnly, void* nativeWindow, Diligent::ITextureView* colorTarget,
+    Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView, const float viewProj[16], uint32_t width,
+    uint32_t height, float nearClip, float farClip, bool perspective, HudState& hudState, const InputSnapshot& input,
+    AnnotationPlacementHistory& placementHistory, DimensionHoverState& dimensionHoverState);
 
 void CopyOverlayStatsInto (DiligentViewportStats& stats, bool planAnchorsOn, const PlanAnchorLayer& planAnchors,
                            float planAnchorWidthPixels, const SceneTextLayer& textLayer, const Camera& camera,

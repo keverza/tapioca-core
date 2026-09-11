@@ -332,6 +332,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
         // afterwards.
         size_t captureIndex = 0;
         AnnotationPlacementHistory annotationPlacementHistory;
+        DimensionHoverState dimensionHoverState;
 
         while (!stopRequested_.load ()) {
             bool captureThisFrame = false;
@@ -904,7 +905,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             ProjectedDrawList annotations = UpdateAndDrawTraceAnnotations (
                 textLayer, device, context, blanked, offscreen, annotationsOnly, surface.nwh, rtv, dsv,
                 target.DepthShaderView (), viewProj, width, height, Camera::NearClip (), camera.FarClip (),
-                camera.IsPerspective (), hudState, annotationPlacementHistory);
+                camera.IsPerspective (), hudState, input, annotationPlacementHistory, dimensionHoverState);
 
             // ⚠️ NOT GATED ON `blanked`, ALONE AMONG THE LAYERS ABOVE. The blank
             // hides content drawn from a stale POSE; the panels have no pose to be

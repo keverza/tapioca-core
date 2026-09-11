@@ -4,7 +4,6 @@
 
 #include "ArchViz/DiligentViewportSupport.hpp"
 
-#include "Annotation/RetainedTraceSelection.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/SharedOverlaySurface.hpp"
@@ -25,7 +24,6 @@
 #include "ArchViz/SceneTextLiveCheck.hpp"
 #include "ArchViz/StorySliceLayer.hpp"
 #include "ArchViz/MatrixMath.hpp"
-#include "ArchViz/TraceAnnotationLayer.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -398,58 +396,6 @@ bool UpdateAndDrawSceneText (SceneTextLayer& layer, Diligent::IRenderDevice* dev
             throw std::runtime_error ("capture text could not generate or upload every required glyph");
     }
     return ready;
-}
-
-ProjectedDrawList UpdateAndDrawTraceAnnotations (SceneTextLayer& layer, Diligent::IRenderDevice* device,
-                                                 Diligent::IDeviceContext* context, bool blanked, bool offscreen,
-                                                 bool annotationsOnly, void* nativeWindow,
-                                                 Diligent::ITextureView* colorTarget,
-                                                 Diligent::ITextureView* depthTarget, Diligent::ITextureView* depthView,
-                                                 const float viewProj[16], uint32_t width, uint32_t height,
-                                                 float nearClip, float farClip, bool perspective, HudState& hudState,
-                                                 AnnotationPlacementHistory& placementHistory)
-{
-    ProjectedDrawList annotations;
-    if (offscreen)
-        return annotations;
-
-    context->SetRenderTargets (1, &colorTarget, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-
-    float dpiScale = 1.0f;
-    if (nativeWindow != nullptr) {
-        const UINT dpi = GetDpiForWindow (static_cast<HWND> (nativeWindow));
-        if (dpi != 0)
-            dpiScale = float (dpi) / 96.0f;
-    }
-    if (!blanked) {
-        const auto selected = annotation::SelectedRetainedFrameSnapshotCopy ();
-        if (selected.has_value ()) {
-            if (placementHistory.source != selected->drawList || placementHistory.nodeIndex != selected->nodeIndex ||
-                placementHistory.frameIndex != selected->frameIndex) {
-                placementHistory.source = selected->drawList;
-                placementHistory.nodeIndex = selected->nodeIndex;
-                placementHistory.frameIndex = selected->frameIndex;
-                placementHistory.candidateByPrimitive.clear ();
-            }
-            const ScreenTextMeasure measureText = [&layer] (std::string_view text, float fontSize,
-                                                            ScreenTextExtent& extent) {
-                return layer.MeasureProjectedText (text, fontSize, extent);
-            };
-            annotations =
-                BuildTraceAnnotations (selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly,
-                                       measureText, &placementHistory, hudState.annotationTextHeightMetres,
-                                       hudState.annotationHideBelowPixels, hudState.annotationCapAbovePixels);
-            if (!annotations.labels.empty () && layer.IsReady () &&
-                layer.DrawProjected (device, context, depthView, annotations.labels, width, height, dpiScale, nearClip,
-                                     farClip, perspective)) {
-                annotations.labels.clear ();
-            }
-        }
-    }
-    if (!annotationsOnly)
-        DrawSceneTextLiveCheck (layer, device, context, hudState, width, height, dpiScale);
-    context->SetRenderTargets (1, &colorTarget, depthTarget, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-    return annotations;
 }
 
 void UpdateAndDrawStorySlices (DiligentScene& scene, Diligent::IDeviceContext* context, HudState& hudState,

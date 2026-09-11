@@ -139,6 +139,7 @@ struct HudState {
     float annotationTextHeightMetres = 0.18f;
     float annotationHideBelowPixels = 10.0f;
     float annotationCapAbovePixels = 36.0f;
+    bool annotationDimensionsOnHover = true;
 
     // ---- READ-ONLY ON THE OVERLAY (the click-through rule) -----------------
     //

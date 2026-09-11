@@ -31,7 +31,21 @@ bool CursorIsOverUs (HWND hwnd, POINT screenPt, POINT clientPt)
     HWND const under = ::WindowFromPoint (screenPt);
     if (under == nullptr)
         return false;
-    return ::GetAncestor (under, GA_ROOT) == ::GetAncestor (hwnd, GA_ROOT);
+    const HWND underRoot = ::GetAncestor (under, GA_ROOT);
+    if (underRoot == ::GetAncestor (hwnd, GA_ROOT))
+        return true;
+
+    // A click-through top-level overlay is deliberately skipped by
+    // WindowFromPoint, so the window underneath belongs to its Archicad owner.
+    // Accept only that root; another application or an Archicad modal still
+    // fails the gate and resets passive hover.
+    const LONG_PTR style = ::GetWindowLongPtr (hwnd, GWL_STYLE);
+    const LONG_PTR exStyle = ::GetWindowLongPtr (hwnd, GWL_EXSTYLE);
+    if ((style & WS_POPUP) != 0 && (exStyle & WS_EX_TRANSPARENT) != 0) {
+        const HWND owner = ::GetWindow (hwnd, GW_OWNER);
+        return owner != nullptr && underRoot == ::GetAncestor (owner, GA_ROOT);
+    }
+    return false;
 }
 
 bool HardwareInputEnabled (void* nwh)

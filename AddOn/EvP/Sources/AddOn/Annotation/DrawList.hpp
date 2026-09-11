@@ -78,8 +78,13 @@ struct Primitive {
     std::string guid;
     bool closed = false;
     bool direction = false;
+    bool hoverOnly = false;
+    bool alwaysVisible = false;
     double offset = 0.0;
 };
+
+// Fits an open or closed sampled XY circle and reports its traversal direction.
+bool FitCircularPath (const Primitive& primitive, Point3& center, double& radius, double& direction);
 
 struct Frame {
     uint32_t index = 0;

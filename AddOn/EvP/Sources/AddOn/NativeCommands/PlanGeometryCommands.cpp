@@ -7,11 +7,150 @@
 
 #include "ArchViz/DiligentViewport.hpp" // SetPlanAnchors -- the drawing half
 
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace geomsrv {
 
 namespace {
+
+constexpr std::size_t kMaxPlanPrimitivePoints = 20000;
+constexpr double kPlanArcStep = 3.14159265358979323846 / 180.0;
+
+struct PlanPrimitiveCollector {
+    std::vector<std::vector<API_Coord>> paths;
+    std::size_t points = 0;
+    bool hatchLines = false;
+    bool truncated = false;
+};
+
+PlanPrimitiveCollector* s_planPrimitiveCollector = nullptr;
+
+void AddPlanPath (std::vector<API_Coord> path)
+{
+    if (s_planPrimitiveCollector == nullptr || path.size () < 2)
+        return;
+    if (s_planPrimitiveCollector->points + path.size () > kMaxPlanPrimitivePoints) {
+        s_planPrimitiveCollector->truncated = true;
+        return;
+    }
+    s_planPrimitiveCollector->points += path.size ();
+    s_planPrimitiveCollector->paths.push_back (std::move (path));
+}
+
+std::vector<API_Coord> SampleChordArc (const API_Coord& first, const API_Coord& second, double sweep)
+{
+    const double dx = second.x - first.x;
+    const double dy = second.y - first.y;
+    const double chord = std::hypot (dx, dy);
+    const double tangent = std::tan (sweep * 0.5);
+    if (chord <= 1.0e-12 || std::abs (tangent) <= 1.0e-12)
+        return { first, second };
+    const double middleX = (first.x + second.x) * 0.5;
+    const double middleY = (first.y + second.y) * 0.5;
+    const double centerDistance = chord / (2.0 * tangent);
+    const double centerX = middleX - dy / chord * centerDistance;
+    const double centerY = middleY + dx / chord * centerDistance;
+    const double radius = std::hypot (first.x - centerX, first.y - centerY);
+    const double start = std::atan2 (first.y - centerY, first.x - centerX);
+    const int segments = std::max (2, static_cast<int> (std::ceil (std::abs (sweep) / kPlanArcStep)));
+    std::vector<API_Coord> path;
+    path.reserve (static_cast<std::size_t> (segments) + 1);
+    for (int index = 0; index <= segments; ++index) {
+        const double angle = start + sweep * index / segments;
+        path.push_back ({ centerX + std::cos (angle) * radius, centerY + std::sin (angle) * radius });
+    }
+    path.front () = first;
+    path.back () = second;
+    return path;
+}
+
+std::vector<API_Coord> SamplePrimitiveArc (const API_PrimArc& arc)
+{
+    constexpr double twoPi = 2.0 * 3.14159265358979323846;
+    double sweep = arc.whole ? twoPi : arc.endAng - arc.begAng;
+    if (arc.reflected) {
+        while (sweep >= 0.0)
+            sweep -= twoPi;
+    }
+    else {
+        while (sweep <= 0.0)
+            sweep += twoPi;
+    }
+    const int segments = std::max (4, static_cast<int> (std::ceil (std::abs (sweep) / kPlanArcStep)));
+    const double minorRadius = std::abs (arc.ratio) > 1.0e-12 ? arc.r / arc.ratio : arc.r;
+    const double axisCos = std::cos (arc.angle);
+    const double axisSin = std::sin (arc.angle);
+    std::vector<API_Coord> path;
+    path.reserve (static_cast<std::size_t> (segments) + 1);
+    for (int index = 0; index <= segments; ++index) {
+        const double parameter = arc.begAng + sweep * index / segments;
+        const double localX = arc.r * std::cos (parameter);
+        const double localY = minorRadius * std::sin (parameter);
+        path.push_back (
+            { arc.orig.x + localX * axisCos - localY * axisSin, arc.orig.y + localX * axisSin + localY * axisCos });
+    }
+    return path;
+}
+
+double ArcSweepFor (const API_PolyArc* arcs, Int32 arcCount, Int32 firstIndex, Int32 secondIndex)
+{
+    for (Int32 index = 0; arcs != nullptr && index < arcCount; ++index) {
+        if (arcs[index].begIndex == firstIndex && arcs[index].endIndex == secondIndex)
+            return arcs[index].arcAngle;
+    }
+    return 0.0;
+}
+
+GSErrCode CollectPlanPrimitive (const API_PrimElement* primitive, const void* par1, const void* par2, const void* par3)
+{
+    if (primitive == nullptr || s_planPrimitiveCollector == nullptr)
+        return NoError;
+    if (primitive->header.typeID == API_PrimCtrl_HatchLinesBegID) {
+        s_planPrimitiveCollector->hatchLines = true;
+        return NoError;
+    }
+    if (primitive->header.typeID == API_PrimCtrl_HatchLinesEndID) {
+        s_planPrimitiveCollector->hatchLines = false;
+        return NoError;
+    }
+    if (s_planPrimitiveCollector->hatchLines)
+        return NoError;
+
+    if (primitive->header.typeID == API_PrimLineID) {
+        AddPlanPath ({ primitive->line.c1, primitive->line.c2 });
+    }
+    else if (primitive->header.typeID == API_PrimArcID) {
+        AddPlanPath (SamplePrimitiveArc (primitive->arc));
+    }
+    else if (primitive->header.typeID == API_PrimPLineID && par1 != nullptr) {
+        const auto* coordinates = static_cast<const API_Coord*> (par1);
+        const auto* arcs = static_cast<const API_PolyArc*> (par3);
+        for (Int32 index = 1; index < primitive->pline.nCoords; ++index) {
+            const double sweep = ArcSweepFor (arcs, primitive->pline.nArcs, index, index + 1);
+            AddPlanPath (std::abs (sweep) > 1.0e-12
+                             ? SampleChordArc (coordinates[index], coordinates[index + 1], sweep)
+                             : std::vector<API_Coord> { coordinates[index], coordinates[index + 1] });
+        }
+    }
+    else if (primitive->header.typeID == API_PrimPolyID && par1 != nullptr && par2 != nullptr) {
+        const auto* coordinates = static_cast<const API_Coord*> (par1);
+        const auto* ends = static_cast<const Int32*> (par2);
+        const auto* arcs = static_cast<const API_PolyArc*> (par3);
+        for (Int32 polygon = 1; polygon <= primitive->poly.nSubPolys; ++polygon) {
+            const Int32 first = ends[polygon - 1] + 1;
+            const Int32 last = ends[polygon];
+            for (Int32 index = first; index < last; ++index) {
+                const double sweep = ArcSweepFor (arcs, primitive->poly.nArcs, index, index + 1);
+                AddPlanPath (std::abs (sweep) > 1.0e-12
+                                 ? SampleChordArc (coordinates[index], coordinates[index + 1], sweep)
+                                 : std::vector<API_Coord> { coordinates[index], coordinates[index + 1] });
+            }
+        }
+    }
+    return NoError;
+}
 
 GS::ObjectState Coord2D (double x, double y)
 {
@@ -293,6 +432,83 @@ class GetWallPlanOutlinesCommand : public MainThreadCommand {
     }
 };
 
+// Returns the element's current 2D drawing rather than projecting its 3D body.
+// Hatch strokes are presentation detail, so only primitive boundaries survive.
+class GetPlanElementEdgesCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "GetPlanElementEdges";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Array<GS::ObjectState> elements;
+        params.Get ("elements", elements);
+        GS::Array<GS::ObjectState> records;
+
+        for (const GS::ObjectState& item : elements) {
+            GS::ObjectState elementIdIn;
+            GS::UniString guidString;
+            if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString) ||
+                guidString.IsEmpty ()) {
+                return NativeCommandResult::Failure ("every element needs elementId.guid");
+            }
+
+            GS::ObjectState elementId;
+            elementId.Add ("guid", guidString);
+            GS::ObjectState record;
+            record.Add ("elementId", elementId);
+
+            API_Element element = {};
+            element.header.guid = APIGuidFromString (guidString.ToCStr ().Get ());
+            const GSErrCode getError = ACAPI_Element_Get (&element);
+            if (getError != NoError) {
+                record.Add ("succeeded", false);
+                record.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Get", getError,
+                                                     GS::UniString ("reading plan element ") + guidString));
+                records.Push (record);
+                continue;
+            }
+
+            PlanPrimitiveCollector collector;
+            s_planPrimitiveCollector = &collector;
+            const GSErrCode primitiveError = ACAPI_DrawingPrimitive_ShapePrims (element.header, CollectPlanPrimitive);
+            s_planPrimitiveCollector = nullptr;
+            if (primitiveError != NoError) {
+                record.Add ("succeeded", false);
+                record.Add ("error", EVP_ACAPI_FAIL ("ACAPI_DrawingPrimitive_ShapePrims", primitiveError,
+                                                     GS::UniString ("reading floor-plan edges for ") + guidString));
+                records.Push (record);
+                continue;
+            }
+
+            GS::Array<GS::ObjectState> paths;
+            for (const std::vector<API_Coord>& path : collector.paths) {
+                GS::Array<GS::ObjectState> points;
+                for (const API_Coord& coordinate : path) {
+                    GS::ObjectState point;
+                    point.Add ("x", coordinate.x);
+                    point.Add ("y", coordinate.y);
+                    points.Push (point);
+                }
+                GS::ObjectState pathRecord;
+                pathRecord.Add ("points", points);
+                paths.Push (pathRecord);
+            }
+            record.Add ("succeeded", true);
+            record.Add ("paths", paths);
+            record.Add ("truncated", collector.truncated);
+            records.Push (record);
+        }
+
+        GS::ObjectState result;
+        result.Add ("elements", records);
+        result.Add ("count", static_cast<GS::Int32> (records.GetSize ()));
+        return result;
+    }
+};
+
 // ---------------------------------------------------------------------------
 // Tapioca.SetPlanAnchors { elements, enabled, widthPixels?, color?, arcSign?,
 //                          planZ? }
@@ -512,6 +728,39 @@ constexpr const char kGetWallPlanOutlinesOutput[] = R"json({
     "required":["outlines","count"]
 })json";
 
+constexpr const char kGetPlanElementEdgesInput[] = R"json({
+    "type":"object",
+    "properties":{"elements":{"$ref":"#Elements"}},
+    "additionalProperties":false,
+    "required":["elements"]
+})json";
+
+constexpr const char kGetPlanElementEdgesOutput[] = R"json({
+    "type":"object",
+    "properties":{
+        "elements":{"type":"array","items":{
+            "type":"object",
+            "properties":{
+                "elementId":{"$ref":"#ElementId"},
+                "succeeded":{"type":"boolean"},
+                "error":{"type":"string"},
+                "paths":{"type":"array","items":{
+                    "type":"object",
+                    "properties":{"points":{"type":"array","items":{"$ref":"#Point2D"}}},
+                    "additionalProperties":false,
+                    "required":["points"]
+                }},
+                "truncated":{"type":"boolean"}
+            },
+            "additionalProperties":false,
+            "required":["elementId","succeeded"]
+        }},
+        "count":{"type":"integer","minimum":0}
+    },
+    "additionalProperties":false,
+    "required":["elements","count"]
+})json";
+
 constexpr const char kSetPlanAnchorsInput[] = R"json({
     "type":"object",
     "properties":{
@@ -541,6 +790,8 @@ constexpr const char kSetPlanAnchorsOutput[] = R"json({
 const NativeCommandRegistration kPlanGeometryCommandRegistrations[] = {
     { "GetWallPlanOutlines", &MakeRegisteredNativeCommand<GetWallPlanOutlinesCommand>, false, kGetWallPlanOutlinesInput,
       kGetWallPlanOutlinesOutput },
+    { "GetPlanElementEdges", &MakeRegisteredNativeCommand<GetPlanElementEdgesCommand>, false, kGetPlanElementEdgesInput,
+      kGetPlanElementEdgesOutput },
     { "SetPlanAnchors", &MakeRegisteredNativeCommand<SetPlanAnchorsCommand>, false, kSetPlanAnchorsInput,
       kSetPlanAnchorsOutput },
 };

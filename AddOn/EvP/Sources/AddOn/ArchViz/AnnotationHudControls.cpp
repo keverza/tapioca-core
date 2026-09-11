@@ -10,6 +10,7 @@ namespace geomsrv::archviz {
 
 void DrawAnnotationHudControls (HudState& state)
 {
+    ImGui::Checkbox ("dimensions on edge hover (0.5 s)", &state.annotationDimensionsOnHover);
     ImGui::SliderFloat ("annotation model text height", &state.annotationTextHeightMetres, 0.02f, 0.50f, "%.2f m");
     ImGui::SliderFloat ("annotation hide below", &state.annotationHideBelowPixels, 2.0f, 24.0f, "%.0f px");
     ImGui::SliderFloat ("annotation cap above", &state.annotationCapAbovePixels, 12.0f, 96.0f, "%.0f px");

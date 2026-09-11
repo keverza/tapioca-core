@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <iterator>
+#include <limits>
 #include <numeric>
 
 namespace geomsrv::archviz {
@@ -283,6 +284,22 @@ bool Intersects (const ScreenLine& line, const LabelBox& box, float gap)
     return clip (from.x, dx, halfWidth) && clip (from.y, dy, halfHeight);
 }
 
+float PointSegmentDistanceSquared (const ScreenPoint& point, const ScreenPoint& first, const ScreenPoint& second)
+{
+    const float dx = second.x - first.x;
+    const float dy = second.y - first.y;
+    const float lengthSquared = dx * dx + dy * dy;
+    const float parameter =
+        lengthSquared > 1.0e-6f
+            ? std::clamp (((point.x - first.x) * dx + (point.y - first.y) * dy) / lengthSquared, 0.0f, 1.0f)
+            : 0.0f;
+    const float nearestX = first.x + parameter * dx;
+    const float nearestY = first.y + parameter * dy;
+    const float distanceX = point.x - nearestX;
+    const float distanceY = point.y - nearestY;
+    return distanceX * distanceX + distanceY * distanceY;
+}
+
 void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t height, float dpiScale,
                            const ScreenTextMeasure& measureText, AnnotationPlacementHistory* placementHistory)
 {
@@ -371,32 +388,6 @@ void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t heig
     }
 }
 
-bool ArcPathGeometry (const Primitive& primitive, annotation::Point3& center, double& radius, double& direction)
-{
-    if (primitive.points.size () < 3)
-        return false;
-    const annotation::Point3& first = primitive.points.front ();
-    const annotation::Point3& middle = primitive.points[primitive.points.size () / 2];
-    const annotation::Point3& last = primitive.points.back ();
-    const double determinant =
-        2.0 * (first.x * (middle.y - last.y) + middle.x * (last.y - first.y) + last.x * (first.y - middle.y));
-    if (std::fabs (determinant) <= 1.0e-12)
-        return false;
-    const double firstSquared = first.x * first.x + first.y * first.y;
-    const double middleSquared = middle.x * middle.x + middle.y * middle.y;
-    const double lastSquared = last.x * last.x + last.y * last.y;
-    center.x =
-        (firstSquared * (middle.y - last.y) + middleSquared * (last.y - first.y) + lastSquared * (first.y - middle.y)) /
-        determinant;
-    center.y =
-        (firstSquared * (last.x - middle.x) + middleSquared * (first.x - last.x) + lastSquared * (middle.x - first.x)) /
-        determinant;
-    center.z = first.z;
-    radius = std::hypot (first.x - center.x, first.y - center.y);
-    direction = determinant > 0.0 ? 1.0 : -1.0;
-    return std::isfinite (radius) && radius > 1.0e-12;
-}
-
 void AddTrimmedPath (ProjectedDrawList& out, const std::vector<ScreenPoint>& path, const std::vector<float>& distances,
                      float gapStart, float gapEnd, uint32_t color, float lineWidth)
 {
@@ -430,7 +421,7 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
     annotation::Point3 center;
     double radius = 0.0;
     double direction = 0.0;
-    if (!ArcPathGeometry (primitive, center, radius, direction))
+    if (!annotation::FitCircularPath (primitive, center, radius, direction))
         return;
     const double dimensionRadius = radius - direction * primitive.offset;
     if (dimensionRadius <= 1.0e-12)
@@ -787,10 +778,106 @@ bool FitFrameProjection (const Frame& frame, const float viewProj[16], uint32_t 
     return true;
 }
 
+std::optional<std::size_t> HitTestTraceDimension (const Frame& frame, const float viewProj[16], uint32_t width,
+                                                  uint32_t height, float dpiScale, bool fitSelectedFrame,
+                                                  const ScreenPoint& cursor, float textHeightMetres,
+                                                  float hideBelowPixels, float capAbovePixels)
+{
+    if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f || !std::isfinite (cursor.x) ||
+        !std::isfinite (cursor.y) || !std::isfinite (textHeightMetres) || textHeightMetres <= 0.0f ||
+        !std::isfinite (hideBelowPixels) || hideBelowPixels < 0.0f || !std::isfinite (capAbovePixels) ||
+        capAbovePixels < hideBelowPixels)
+        return std::nullopt;
+    float fitted[16];
+    const float* projection = viewProj;
+    if (fitSelectedFrame && FitFrameProjection (frame, viewProj, width, height, 24.0f * dpiScale, fitted))
+        projection = fitted;
+
+    const float hitRadiusSquared = 36.0f * dpiScale * dpiScale;
+    float bestDistanceSquared = std::numeric_limits<float>::infinity ();
+    float bestPathLength = std::numeric_limits<float>::infinity ();
+    std::optional<std::size_t> best;
+    for (std::size_t primitiveIndex = 0; primitiveIndex < frame.primitives.size (); ++primitiveIndex) {
+        const Primitive& primitive = frame.primitives[primitiveIndex];
+        if (primitive.kind != PrimitiveKind::Dimension || !annotation::IsDrawable (primitive))
+            continue;
+        float fontPixels = 0.0f;
+        float furnitureScale = 0.0f;
+        if (!ModelAnnotationScale (primitive, projection, width, height, textHeightMetres, hideBelowPixels,
+                                   capAbovePixels, fontPixels, furnitureScale))
+            continue;
+
+        std::vector<ScreenPoint> path;
+        path.reserve (primitive.points.size ());
+        bool projected = true;
+        for (std::size_t pointIndex = 0; pointIndex < primitive.points.size (); ++pointIndex) {
+            ScreenPoint point;
+            if (!ProjectPoint (primitive, pointIndex, projection, width, height, point)) {
+                projected = false;
+                break;
+            }
+            path.push_back (point);
+        }
+        if (!projected || path.size () < 2)
+            continue;
+
+        float distanceSquared = std::numeric_limits<float>::infinity ();
+        float pathLength = 0.0f;
+        for (std::size_t pointIndex = 1; pointIndex < path.size (); ++pointIndex) {
+            distanceSquared = std::min (distanceSquared,
+                                        PointSegmentDistanceSquared (cursor, path[pointIndex - 1], path[pointIndex]));
+            pathLength +=
+                std::hypot (path[pointIndex].x - path[pointIndex - 1].x, path[pointIndex].y - path[pointIndex - 1].y);
+        }
+        if (distanceSquared > hitRadiusSquared)
+            continue;
+        constexpr float tieToleranceSquared = 0.25f;
+        const bool nearer = distanceSquared < bestDistanceSquared - tieToleranceSquared;
+        const bool sameDistance = std::fabs (distanceSquared - bestDistanceSquared) <= tieToleranceSquared;
+        const bool shorter = pathLength < bestPathLength - 1.0e-3f;
+        if (!best.has_value () || nearer || (sameDistance && shorter)) {
+            best = primitiveIndex;
+            bestDistanceSquared = distanceSquared;
+            bestPathLength = pathLength;
+        }
+    }
+    return best;
+}
+
+std::optional<std::size_t>
+UpdateDimensionHover (DimensionHoverState& state, const std::shared_ptr<const annotation::DrawList>& source,
+                      std::size_t nodeIndex, std::size_t frameIndex, std::optional<std::size_t> hit, bool eligible,
+                      std::chrono::steady_clock::time_point now, std::chrono::milliseconds delay)
+{
+    const bool sourceChanged = state.source != source || state.nodeIndex != nodeIndex || state.frameIndex != frameIndex;
+    if (sourceChanged) {
+        state = {};
+        state.source = source;
+        state.nodeIndex = nodeIndex;
+        state.frameIndex = frameIndex;
+    }
+    if (!eligible || !hit.has_value ()) {
+        state.candidate.reset ();
+        state.visible.reset ();
+        state.startedAt = {};
+        return std::nullopt;
+    }
+    if (state.candidate != hit) {
+        state.candidate = hit;
+        state.visible.reset ();
+        state.startedAt = now;
+        return std::nullopt;
+    }
+    if (now - state.startedAt >= delay)
+        state.visible = hit;
+    return state.visible;
+}
+
 ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewProj[16], uint32_t width, uint32_t height,
                                          float dpiScale, bool fitSelectedFrame, const ScreenTextMeasure& measureText,
                                          AnnotationPlacementHistory* placementHistory, float textHeightMetres,
-                                         float hideBelowPixels, float capAbovePixels)
+                                         float hideBelowPixels, float capAbovePixels,
+                                         const AnnotationPrimitiveFilter& primitiveFilter)
 {
     ProjectedDrawList out;
     if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f ||
@@ -809,6 +896,8 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
                 out.labels[labelIndex].sourcePrimitive = primitiveIndex;
         };
         const uint32_t color = annotation::PackRgba (annotation::RoleColour (primitive.role));
+        if (primitiveFilter && !primitiveFilter (primitiveIndex, primitive))
+            continue;
         if (primitive.kind == PrimitiveKind::Element)
             continue;
         const bool scaledAnnotation = primitive.kind == PrimitiveKind::Dimension ||
