@@ -467,6 +467,38 @@ def wall_plan_outlines(guids):
     return result
 
 
+def plan_element_edges(guids):
+    """Return the boundary paths Archicad currently draws for each plan element.
+
+    Unlike a projected model mesh, these paths include symbolic floor-plan
+    representation and element subparts. Hatch strokes are intentionally omitted.
+    Each record is aligned to `guids` and contains {guid, succeeded, error, paths,
+    truncated}; every path is a list of (x, y) points in project coordinates.
+    """
+    guids = list(guids)
+    if not guids:
+        return []
+
+    elements = [{"elementId": {"guid": str(guid)}} for guid in guids]
+    data = call("Tapioca.GetPlanElementEdges", {"elements": elements}).data or {}
+    result = []
+    for entry in data.get("elements", []):
+        entry = entry or {}
+        result.append(
+            {
+                "guid": (entry.get("elementId") or {}).get("guid", ""),
+                "succeeded": bool(entry.get("succeeded", False)),
+                "error": entry.get("error", ""),
+                "paths": [
+                    [(point.get("x", 0.0), point.get("y", 0.0)) for point in (path.get("points") or [])]
+                    for path in (entry.get("paths") or [])
+                ],
+                "truncated": bool(entry.get("truncated", False)),
+            }
+        )
+    return result
+
+
 def set_plan_anchors(guids, enabled=True, width_pixels=2.0, color="FF3B30C0",
                      arc_sign=1, plan_z=0.0):
     """Draw those walls' plan outlines over the floor plan as ANCHORS (PLAT-RE65).

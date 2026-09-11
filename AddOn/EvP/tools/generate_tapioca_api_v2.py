@@ -166,9 +166,9 @@ from typing import Any
 # render thread - Stop() rather than a cancel, so the flags are provably clear
 # when it returns - and is a no-op when nothing is running, which is what makes it
 # a first move rather than a last resort. Touches no model data.
-EXPECTED_REGISTRY_COMMANDS = 195
+EXPECTED_REGISTRY_COMMANDS = 197
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 214
+EXPECTED_TOTAL_COMMANDS = 216
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

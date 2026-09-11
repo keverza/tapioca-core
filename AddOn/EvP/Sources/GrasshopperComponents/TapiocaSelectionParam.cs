@@ -51,7 +51,7 @@ namespace Tapioca.Grasshopper
     /// writer. Splitting one string is the whole cost, and it is paid here.
     /// </para>
     /// </remarks>
-    public class TapiocaSelectionParam : Param_String, IGH_ContextualParameter, ITapiocaInput
+    public class TapiocaSelectionParam : Param_String, IGH_ContextualParameter, ITapiocaInput, ITapiocaKindCaption
     {
         private readonly TapiocaInputCore m_core = new TapiocaInputCore("selection");
 
@@ -74,6 +74,31 @@ namespace Tapioca.Grasshopper
             Category = "Tapioca";
             SubCategory = "Inputs";
             Access = GH_ParamAccess.list;
+
+            // ⚠️ ALWAYS THE NAME, NOT AN ICON, AND SET PER OBJECT RATHER THAN
+            // LEFT TO THE CANVAS. GH_IconDisplayMode.application follows the
+            // global "draw icons / draw names" toggle, so the same definition
+            // read differently on two machines -- and a Tapioca input's whole
+            // job is to be identified by the nickname the panel shows as its
+            // label. Six nickname-shaped capsules are legible; six identical
+            // Tapioca glyphs are not.
+            IconDisplayMode = GH_IconDisplayMode.name;
+        }
+
+        /// <summary>
+        /// Its own attributes, so the kind caption has somewhere to be drawn.
+        /// </summary>
+        public override void CreateAttributes ()
+        {
+            // Grasshopper's own floating-parameter attributes plus the message
+            // tag a parameter has no other way to draw. See
+            // TapiocaInputAttributes.
+            Attributes = new TapiocaInputAttributes (this);
+        }
+
+        public string TapiocaKindCaption
+        {
+            get { return "Selection"; }
         }
 
         internal TapiocaInputCore Core

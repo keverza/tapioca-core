@@ -175,12 +175,26 @@ namespace Tapioca.Grasshopper
             param.RecordUndoEvent("Tapioca Archicad type");
             core.Flavour = flavour.TypeName;
 
-            // ⚠️ EXPIRED, BECAUSE THE SCHEMA CHANGED. The panel rebuilds its rows
-            // when the definition's schema differs from the last one it saw, and
-            // the schema is read off the parameters — so a flavour that did not
-            // expire anything would leave Archicad showing the previous control
-            // until something unrelated re-solved.
-            param.ExpireSolution(true);
+            // ⚠️ EXPIRED WITHOUT RECOMPUTING, AND THE false IS THE WHOLE POINT.
+            // ExpireSolution(true) schedules a new document solution, and in a
+            // definition that talks to Archicad that is not free: every
+            // Archicad-facing component in the document re-solves, and Archicad
+            // puts a progress dialog on screen. Choosing which picker a panel
+            // shows must not cost a round trip through the model.
+            //
+            // Nothing is lost by not solving, because THE SCHEMA IS NOT A SOLVE
+            // RESULT. TapiocaInputSchema.Discover walks the document's objects
+            // and reads this flavour straight off the parameter, so the panel
+            // sees the new type the next time it asks -- with no solution in
+            // between. Downstream is still marked dirty for whenever a real
+            // solve next happens.
+            param.ExpireSolution(false);
+
+            // The canvas, though, must redraw now: the kind caption under the
+            // capsule is the only on-canvas evidence that the choice took.
+            if (param.Attributes != null)
+                param.Attributes.ExpireLayout();
+            global::Grasshopper.Instances.RedrawCanvas();
         }
     }
 }

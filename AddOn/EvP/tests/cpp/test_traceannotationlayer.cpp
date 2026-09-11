@@ -185,6 +185,23 @@ TEST (TraceAnnotationLayer, SampledDimensionDrawsOffsetArcWithTangentText)
     EXPECT_EQ (draw.triangles.size (), 2u);
 }
 
+TEST (TraceAnnotationLayer, ClosedSampledDimensionDrawsCompleteCircularEdge)
+{
+    annotation::Frame frame;
+    auto dimension =
+        Primitive (annotation::PrimitiveKind::Dimension,
+                   { { 0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 }, { -0.5, 0.0, 0.5 }, { 0.0, -0.5, 0.5 }, { 0.5, 0.0, 0.5 } });
+    dimension.offset = -0.1;
+    dimension.text = "3.142";
+    frame.primitives.push_back (std::move (dimension));
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
+
+    ASSERT_EQ (draw.labels.size (), 1u);
+    EXPECT_GE (draw.lines.size (), 6u);
+    EXPECT_EQ (draw.triangles.size (), 2u);
+}
+
 TEST (TraceAnnotationLayer, ShortDimensionMovesTextOutsideAndFlipsArrows)
 {
     annotation::Frame frame;

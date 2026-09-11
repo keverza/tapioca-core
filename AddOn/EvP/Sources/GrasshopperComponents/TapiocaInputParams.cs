@@ -284,7 +284,7 @@ namespace Tapioca.Grasshopper
     /// IGH_ContextualParameter. Dropping the interface would leave a parameter
     /// that looks right on the canvas and is invisible to every backend.
     /// </remarks>
-    public class TapiocaNumberParam : Param_Number, IGH_ContextualParameter, ITapiocaInput
+    public class TapiocaNumberParam : Param_Number, IGH_ContextualParameter, ITapiocaInput, ITapiocaKindCaption
     {
         private readonly TapiocaInputCore m_core = new TapiocaInputCore ("number");
 
@@ -295,6 +295,31 @@ namespace Tapioca.Grasshopper
             Description = "A number Tapioca collects in Archicad and injects before the solve.";
             Category = "Tapioca";
             SubCategory = "Inputs";
+
+            // ⚠️ ALWAYS THE NAME, NOT AN ICON, AND SET PER OBJECT RATHER THAN
+            // LEFT TO THE CANVAS. GH_IconDisplayMode.application follows the
+            // global "draw icons / draw names" toggle, so the same definition
+            // read differently on two machines -- and a Tapioca input's whole
+            // job is to be identified by the nickname the panel shows as its
+            // label. Six nickname-shaped capsules are legible; six identical
+            // Tapioca glyphs are not.
+            IconDisplayMode = GH_IconDisplayMode.name;
+        }
+
+        /// <summary>
+        /// Its own attributes, so the kind caption has somewhere to be drawn.
+        /// </summary>
+        public override void CreateAttributes ()
+        {
+            // Grasshopper's own floating-parameter attributes plus the message
+            // tag a parameter has no other way to draw. See
+            // TapiocaInputAttributes.
+            Attributes = new TapiocaInputAttributes (this);
+        }
+
+        public string TapiocaKindCaption
+        {
+            get { return "Number"; }
         }
 
         internal TapiocaInputCore Core
@@ -486,7 +511,7 @@ namespace Tapioca.Grasshopper
     /// <summary>
     /// A whole-number input, exposed to Tapioca's panel as an integer.
     /// </summary>
-    public class TapiocaIntegerParam : Param_Integer, IGH_ContextualParameter, ITapiocaInput
+    public class TapiocaIntegerParam : Param_Integer, IGH_ContextualParameter, ITapiocaInput, ITapiocaKindCaption
     {
         private readonly TapiocaInputCore m_core = new TapiocaInputCore ("integer");
 
@@ -497,6 +522,31 @@ namespace Tapioca.Grasshopper
             Description = "A whole number Tapioca collects in Archicad and injects before the solve.";
             Category = "Tapioca";
             SubCategory = "Inputs";
+
+            // ⚠️ ALWAYS THE NAME, NOT AN ICON, AND SET PER OBJECT RATHER THAN
+            // LEFT TO THE CANVAS. GH_IconDisplayMode.application follows the
+            // global "draw icons / draw names" toggle, so the same definition
+            // read differently on two machines -- and a Tapioca input's whole
+            // job is to be identified by the nickname the panel shows as its
+            // label. Six nickname-shaped capsules are legible; six identical
+            // Tapioca glyphs are not.
+            IconDisplayMode = GH_IconDisplayMode.name;
+        }
+
+        /// <summary>
+        /// Its own attributes, so the kind caption has somewhere to be drawn.
+        /// </summary>
+        public override void CreateAttributes ()
+        {
+            // Grasshopper's own floating-parameter attributes plus the message
+            // tag a parameter has no other way to draw. See
+            // TapiocaInputAttributes.
+            Attributes = new TapiocaInputAttributes (this);
+        }
+
+        public string TapiocaKindCaption
+        {
+            get { return TapiocaInputFlavours.Caption (m_core, TapiocaInputFlavours.ForInteger ()); }
         }
 
         internal TapiocaInputCore Core
@@ -689,13 +739,14 @@ namespace Tapioca.Grasshopper
             TapiocaInputFlavours.Append (menu, this, m_core, TapiocaInputFlavours.ForInteger ());
         }
 
-        /// <summary>The flavour, written where the author can read it.</summary>
+        /// <summary>The flavour, spelled out in the tooltip.</summary>
         /// <remarks>
-        /// ⚠️ ON THE DESCRIPTION, NOT ON A Message. A Grasshopper PARAMETER
-        /// draws no message line -- that is a component's affordance -- so the
-        /// chosen type goes where a parameter does show text: its tooltip, which
-        /// is what hovering it already offers. The menu's own check mark is the
-        /// other half of the answer.
+        /// ⚠️ THE TOOLTIP IS THE THIRD PLACE THIS IS SAID, not the only one, and
+        /// each says it differently on purpose: the capsule's kind caption is
+        /// legible at a glance (TapiocaInputAttributes draws the message tag a
+        /// parameter has no <c>Message</c> property for), the right-click menu
+        /// check mark says what the alternatives were, and this sentence says it
+        /// in words when the author is already reading the description.
         /// </remarks>
         private void RefreshFlavourCaption ()
         {
@@ -709,7 +760,7 @@ namespace Tapioca.Grasshopper
     /// <summary>
     /// A true/false input, exposed to Tapioca's panel as a checkbox.
     /// </summary>
-    public class TapiocaBooleanParam : Param_Boolean, IGH_ContextualParameter, ITapiocaInput
+    public class TapiocaBooleanParam : Param_Boolean, IGH_ContextualParameter, ITapiocaInput, ITapiocaKindCaption
     {
         private readonly TapiocaInputCore m_core = new TapiocaInputCore ("boolean");
 
@@ -720,6 +771,31 @@ namespace Tapioca.Grasshopper
             Description = "A true/false switch Tapioca collects in Archicad and injects before the solve.";
             Category = "Tapioca";
             SubCategory = "Inputs";
+
+            // ⚠️ ALWAYS THE NAME, NOT AN ICON, AND SET PER OBJECT RATHER THAN
+            // LEFT TO THE CANVAS. GH_IconDisplayMode.application follows the
+            // global "draw icons / draw names" toggle, so the same definition
+            // read differently on two machines -- and a Tapioca input's whole
+            // job is to be identified by the nickname the panel shows as its
+            // label. Six nickname-shaped capsules are legible; six identical
+            // Tapioca glyphs are not.
+            IconDisplayMode = GH_IconDisplayMode.name;
+        }
+
+        /// <summary>
+        /// Its own attributes, so the kind caption has somewhere to be drawn.
+        /// </summary>
+        public override void CreateAttributes ()
+        {
+            // Grasshopper's own floating-parameter attributes plus the message
+            // tag a parameter has no other way to draw. See
+            // TapiocaInputAttributes.
+            Attributes = new TapiocaInputAttributes (this);
+        }
+
+        public string TapiocaKindCaption
+        {
+            get { return "Boolean"; }
         }
 
         internal TapiocaInputCore Core
@@ -893,7 +969,7 @@ namespace Tapioca.Grasshopper
     /// <summary>
     /// A free-text input, exposed to Tapioca's panel as a text edit.
     /// </summary>
-    public class TapiocaTextParam : Param_String, IGH_ContextualParameter, ITapiocaInput
+    public class TapiocaTextParam : Param_String, IGH_ContextualParameter, ITapiocaInput, ITapiocaKindCaption
     {
         private readonly TapiocaInputCore m_core = new TapiocaInputCore ("string");
 
@@ -904,6 +980,31 @@ namespace Tapioca.Grasshopper
             Description = "Text Tapioca collects in Archicad and injects before the solve.";
             Category = "Tapioca";
             SubCategory = "Inputs";
+
+            // ⚠️ ALWAYS THE NAME, NOT AN ICON, AND SET PER OBJECT RATHER THAN
+            // LEFT TO THE CANVAS. GH_IconDisplayMode.application follows the
+            // global "draw icons / draw names" toggle, so the same definition
+            // read differently on two machines -- and a Tapioca input's whole
+            // job is to be identified by the nickname the panel shows as its
+            // label. Six nickname-shaped capsules are legible; six identical
+            // Tapioca glyphs are not.
+            IconDisplayMode = GH_IconDisplayMode.name;
+        }
+
+        /// <summary>
+        /// Its own attributes, so the kind caption has somewhere to be drawn.
+        /// </summary>
+        public override void CreateAttributes ()
+        {
+            // Grasshopper's own floating-parameter attributes plus the message
+            // tag a parameter has no other way to draw. See
+            // TapiocaInputAttributes.
+            Attributes = new TapiocaInputAttributes (this);
+        }
+
+        public string TapiocaKindCaption
+        {
+            get { return TapiocaInputFlavours.Caption (m_core, TapiocaInputFlavours.ForText ()); }
         }
 
         internal TapiocaInputCore Core
@@ -1086,13 +1187,14 @@ namespace Tapioca.Grasshopper
             TapiocaInputFlavours.Append (menu, this, m_core, TapiocaInputFlavours.ForText ());
         }
 
-        /// <summary>The flavour, written where the author can read it.</summary>
+        /// <summary>The flavour, spelled out in the tooltip.</summary>
         /// <remarks>
-        /// ⚠️ ON THE DESCRIPTION, NOT ON A Message. A Grasshopper PARAMETER
-        /// draws no message line -- that is a component's affordance -- so the
-        /// chosen type goes where a parameter does show text: its tooltip, which
-        /// is what hovering it already offers. The menu's own check mark is the
-        /// other half of the answer.
+        /// ⚠️ THE TOOLTIP IS THE THIRD PLACE THIS IS SAID, not the only one, and
+        /// each says it differently on purpose: the capsule's kind caption is
+        /// legible at a glance (TapiocaInputAttributes draws the message tag a
+        /// parameter has no <c>Message</c> property for), the right-click menu
+        /// check mark says what the alternatives were, and this sentence says it
+        /// in words when the author is already reading the description.
         /// </remarks>
         private void RefreshFlavourCaption ()
         {
@@ -1113,7 +1215,7 @@ namespace Tapioca.Grasshopper
     /// Archicad side. A value that is no longer in the list is refused loudly
     /// rather than clamped to a neighbour.
     /// </remarks>
-    public class TapiocaEnumParam : Param_String, IGH_ContextualParameter, ITapiocaInput
+    public class TapiocaEnumParam : Param_String, IGH_ContextualParameter, ITapiocaInput, ITapiocaKindCaption
     {
         private readonly TapiocaInputCore m_core = new TapiocaInputCore ("enum");
 
@@ -1124,6 +1226,31 @@ namespace Tapioca.Grasshopper
             Description = "One of a fixed set of choices, presented in Archicad as a popup.";
             Category = "Tapioca";
             SubCategory = "Inputs";
+
+            // ⚠️ ALWAYS THE NAME, NOT AN ICON, AND SET PER OBJECT RATHER THAN
+            // LEFT TO THE CANVAS. GH_IconDisplayMode.application follows the
+            // global "draw icons / draw names" toggle, so the same definition
+            // read differently on two machines -- and a Tapioca input's whole
+            // job is to be identified by the nickname the panel shows as its
+            // label. Six nickname-shaped capsules are legible; six identical
+            // Tapioca glyphs are not.
+            IconDisplayMode = GH_IconDisplayMode.name;
+        }
+
+        /// <summary>
+        /// Its own attributes, so the kind caption has somewhere to be drawn.
+        /// </summary>
+        public override void CreateAttributes ()
+        {
+            // Grasshopper's own floating-parameter attributes plus the message
+            // tag a parameter has no other way to draw. See
+            // TapiocaInputAttributes.
+            Attributes = new TapiocaInputAttributes (this);
+        }
+
+        public string TapiocaKindCaption
+        {
+            get { return "Enum"; }
         }
 
         internal TapiocaInputCore Core

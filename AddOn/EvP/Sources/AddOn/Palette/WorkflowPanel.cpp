@@ -7,8 +7,8 @@
 
 #include "NativeCommands/SelectionSetStore.hpp" // a selection row's value lives here
 #include "AddOnCommands.hpp"                    // ExecuteNativeCommand, for the selection verbs
-#include "ResourceIds.hpp"                      // the five selection icons
 
+#include "Python/PathUtils.hpp"             // AppendTextLine / ScanLogPath - why a row fell back
 #include "Palette/AttributePickerTypes.hpp" // UserControlTypeFor - which Archicad picker lists a type
 #include "NativeCommands/CommandUtils.hpp"  // AttributeNameToIndex / AttributeIndexToName
 
@@ -70,6 +70,29 @@ namespace {
 // the SelectionSetPanel's and this band never hears them. Reading the store at
 // the moment a snapshot is taken is what makes "press Add, press Solve" mean
 // what it says.
+// The first attribute of a type, and its name.
+//
+// ⚠️ AN UNSET INDEX READS AS "Missing" IN ARCHICAD'S OWN PICKER. The picker is
+// handed an API_AttributeIndex and shows whatever that index resolves to; a
+// freshly placed input carries no default, the name lookup therefore fails, and
+// a picker nobody set opens on an index that resolves to nothing -- which
+// Archicad labels Missing. That looked like a broken row rather than an unset
+// one, and it is the whole reason this function exists: a picker with no
+// declared default opens on something the project actually contains.
+//
+// Not a guess at a good default -- the FIRST is chosen precisely because it
+// carries no opinion, and the log says the row opened on it.
+bool FirstAttributeOf (API_AttrTypeID type, API_AttributeIndex& index, GS::UniString& name)
+{
+    GS::Array<API_Attribute> attributes;
+    if (ACAPI_Attribute_GetAttributesByType (type, attributes) != NoError || attributes.IsEmpty ())
+        return false;
+
+    index = attributes[0].header.index;
+    name = GS::UniString (attributes[0].header.name);
+    return true;
+}
+
 GS::UniString SelectionValue (const std::string& role)
 {
     const GS::Array<GS::UniString> guids = geomsrv::SelectionSetStore::Get ().Values (ToUniString (role));
@@ -306,22 +329,25 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
             }
 
             case InputKind::Selection: {
-                // ⚠️ ICON-ONLY, BECAUSE FIVE CAPTIONED BUTTONS DO NOT FIT AN
-                // INPUT COLUMN. These are the palette's own selection icons --
-                // the ones drawn for exactly these five verbs (ResourceIds.hpp
-                // 32601-32605) and until now used by nothing in this band.
-                auto button = [&] (short icon) {
+                // ⚠️ CAPTIONED, NOT ICONS, AND THE ROW GAINED A SECOND LINE
+                // TO PAY FOR IT. Five glyphs in one input column were compact and
+                // unreadable: nothing distinguishes "add to the selection" from
+                // "take the current selection" pictorially, and getting it wrong
+                // silently changes what a headless run will read. The words say
+                // it. PlaceAt spreads them over two lines across the full width
+                // rather than squeezing five captions into one field's worth.
+                auto button = [&] (const char* caption) {
                     auto made = std::make_unique<DG::Button> (panel, seed);
-                    made->SetIcon (DG::Icon (ACAPI_GetOwnResModule (), icon));
+                    made->SetText (caption);
                     made->Attach (observer);
                     return made;
                 };
 
-                control.selectionUpdate = button (PaletteIconRefreshId);
-                control.selectionAdd = button (PaletteIconPlusId);
-                control.selectionRemove = button (PaletteIconMinusSquareId);
-                control.selectionReselect = button (PaletteIconSelectFace3dId);
-                control.selectionClear = button (PaletteIconClearId);
+                control.selectionUpdate = button ("Update");
+                control.selectionAdd = button ("Add");
+                control.selectionRemove = button ("Remove");
+                control.selectionReselect = button ("Reselect");
+                control.selectionClear = button ("Clear");
 
                 // In the domain column, which a selection row never uses: the
                 // count belongs beside the buttons that change it.
@@ -340,7 +366,15 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                     // The kind was decided by the same table, so this cannot
                     // happen -- and if the two ever disagree, a text field is a
                     // worse answer than an empty picker. Fall through to the
-                    // default row rather than pretend.
+                    // default row rather than pretend, and SAY SO: a silent
+                    // fallback here is indistinguishable from a panel that never
+                    // understood the input at all.
+                    AppendTextLine (ScanLogPath (),
+                                    GS::UniString::Printf ("  workflow input '%T': declared type '%T' has no entry in "
+                                                           "AttributePickerTypes, so the row is a plain text field. "
+                                                           "The spelling must match that table exactly.",
+                                                           ToUniString (row.id).ToPrintf (),
+                                                           ToUniString (row.declaredType).ToPrintf ()));
                     auto edit = std::make_unique<DG::TextEdit> (panel, seed);
                     edit->SetText (ToUniString (row.initialValue));
                     edit->Attach (observer);
@@ -359,9 +393,40 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                 const bool created =
                     ACAPI_Dialog_CreateAttributePicker (params, control.picker) == NoError && control.picker != nullptr;
                 if (created) {
+                    // ⚠️ THE PICKER IS ALWAYS GIVEN AN INDEX THAT RESOLVES, and
+                    // the declared default is only the first choice of three. An
+                    // input placed on the canvas a moment ago has no default at
+                    // all; a name typed against another project no longer
+                    // resolves in this one. Either way an unset picker shows
+                    // "Missing", which reads as a broken row -- so the fallback
+                    // is the project's first attribute of the type, and the log
+                    // says which of the three happened.
+                    const GS::UniString wanted = ToUniString (row.initialValue);
                     API_AttributeIndex index;
-                    if (geomsrv::AttributeNameToIndex (control.attrType, ToUniString (row.initialValue), index))
+                    GS::UniString opened;
+
+                    if (!wanted.IsEmpty () && geomsrv::AttributeNameToIndex (control.attrType, wanted, index)) {
                         control.picker->SetSelectedAttributeIndex (index);
+                    }
+                    else if (FirstAttributeOf (control.attrType, index, opened)) {
+                        control.picker->SetSelectedAttributeIndex (index);
+                        AppendTextLine (ScanLogPath (),
+                                        GS::UniString::Printf ("  workflow input '%T' (%T): opened on '%T' because "
+                                                               "the declared default '%T' does not name a %T in this "
+                                                               "project. An unset picker would have shown Missing.",
+                                                               ToUniString (row.id).ToPrintf (),
+                                                               ToUniString (subtype).ToPrintf (), opened.ToPrintf (),
+                                                               wanted.ToPrintf (), ToUniString (subtype).ToPrintf ()));
+                    }
+                    else {
+                        AppendTextLine (ScanLogPath (),
+                                        GS::UniString::Printf ("  workflow input '%T': this project contains no %T "
+                                                               "attributes at all, so its picker has nothing to open "
+                                                               "on and will read as Missing.",
+                                                               ToUniString (row.id).ToPrintf (),
+                                                               ToUniString (subtype).ToPrintf ()));
+                    }
+
                     control.attributeHost = std::move (host);
                     break;
                 }
@@ -389,6 +454,14 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                     popup->SetItemText (1, "(none in this project)");
                     popup->Disable ();
                 }
+                AppendTextLine (ScanLogPath (), GS::UniString::Printf (
+                                                    "  workflow input '%T' (%T): "
+                                                    "ACAPI_Dialog_CreateAttributePicker REFUSED the type, so the "
+                                                    "row lists %u project attribute(s) in a popup instead. The "
+                                                    "requested API_UserControlType is probably not on the "
+                                                    "supported list in API_AttributePickerParams.",
+                                                    ToUniString (row.id).ToPrintf (), ToUniString (subtype).ToPrintf (),
+                                                    (unsigned) control.attributeChoices.GetSize ()));
                 popup->Attach (observer);
                 control.attributePopUp = std::move (popup);
                 break;
@@ -515,22 +588,36 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
         }
 
         if (control.selectionUpdate) {
-            // ⚠️ LAID OUT FROM THE RIGHT, so the row ends flush with every
-            // other input's field no matter how the column is divided.
-            clip.Place (control.selectionCount.get (), DG::Rect (hintLeft, y, inputLeft, (short) (y + RowHeight)));
-
+            // ⚠️ TWO LINES, AND ACROSS THE WHOLE WIDTH RATHER THAN THE
+            // FIELD COLUMN. A captioned button needs room for its word, and
+            // "Reselect" does not fit a fifth of one input field. So the verbs
+            // take the domain column as well -- the only thing that column held
+            // on a selection row was the count, which moves to the end of the
+            // second line where it sits beside the buttons that change it.
             DG::Item* const verbs[] = { control.selectionUpdate.get (), control.selectionAdd.get (),
                                         control.selectionRemove.get (), control.selectionReselect.get (),
                                         control.selectionClear.get () };
-            constexpr short VerbCount = 5;
-            const short span = (short) (inputWidth / VerbCount);
-            for (short index = 0; index < VerbCount; ++index) {
-                const short left = (short) (inputLeft + index * span);
-                // The last button takes the remainder rather than leaving a gap
-                // an integer division would open.
-                const short edge = index == VerbCount - 1 ? right : (short) (left + span);
+
+            const short verbsLeft = hintLeft;
+            const short lineWidth = (short) (right - verbsLeft);
+
+            // Three then two, because Update / Add / Remove are the three that
+            // change what is held and Reselect / Clear are the two that do not.
+            const short firstSpan = (short) (lineWidth / 3);
+            for (short index = 0; index < 3; ++index) {
+                const short left = (short) (verbsLeft + index * firstSpan);
+                const short edge = index == 2 ? right : (short) (left + firstSpan);
                 clip.Place (verbs[index], DG::Rect (left, y, edge, (short) (y + RowHeight)));
             }
+
+            y = (short) (y + RowHeight + RowGap);
+
+            const short secondSpan = (short) (lineWidth / 3);
+            clip.Place (verbs[3], DG::Rect (verbsLeft, y, (short) (verbsLeft + secondSpan), (short) (y + RowHeight)));
+            clip.Place (verbs[4], DG::Rect ((short) (verbsLeft + secondSpan), y, (short) (verbsLeft + 2 * secondSpan),
+                                            (short) (y + RowHeight)));
+            clip.Place (control.selectionCount.get (),
+                        DG::Rect ((short) (verbsLeft + 2 * secondSpan + 6), y, right, (short) (y + RowHeight)));
 
             y = (short) (y + RowHeight + RowGap);
             continue;
