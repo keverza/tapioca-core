@@ -61,6 +61,27 @@ TEST (WatchDrawList, UnknownRoleFallsBackWithoutDroppingPrimitive)
     EXPECT_EQ (drawList.nodes[0].frames[0].primitives[0].role, SemanticRole::None);
 }
 
+TEST (WatchDrawList, PreservesHoverOnlyDimensionFlag)
+{
+    evp::preview::WatchPrimitive source;
+    source.kind = evp::preview::WatchPrimitiveKind::Dimension;
+    source.points = { 0.0, 0.0, 0.0, 2.0, 0.0, 0.0 };
+    source.hoverOnly = true;
+    source.alwaysVisible = true;
+    evp::preview::WatchFrame frame;
+    frame.primitives.push_back (source);
+    evp::preview::WatchNode node;
+    node.name = "edges";
+    node.frames.push_back (frame);
+    evp::preview::WatchTrace trace;
+    trace.nodes.push_back (node);
+
+    const auto drawList = evp::preview::ToDrawList (trace);
+
+    EXPECT_TRUE (drawList.nodes[0].frames[0].primitives[0].hoverOnly);
+    EXPECT_TRUE (drawList.nodes[0].frames[0].primitives[0].alwaysVisible);
+}
+
 TEST (WatchDrawList, FitsSelectedFrameWithUniformScaleAndYUpProjection)
 {
     geomsrv::annotation::Frame frame;

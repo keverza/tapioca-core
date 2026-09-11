@@ -332,7 +332,7 @@ namespace Tapioca.Grasshopper
                             + generation.ToString(CultureInfo.InvariantCulture) + ".");
 
             status = "Connected to Archicad on " + pipeName + ". This Rhino is serving as Tapioca's Grasshopper; "
-                     + "nothing was started and nothing will be shut down.";
+                     + "nothing was started and nothing will be shut down. " + PointPluginsAtThisArchicad();
             return Report(status);
         }
 
@@ -394,6 +394,66 @@ namespace Tapioca.Grasshopper
 
             return uint.TryParse(
                 parts[parts.Length - 1], NumberStyles.None, CultureInfo.InvariantCulture, out generation);
+        }
+
+        /// <summary>
+        /// Points this Rhino's Archicad plug-ins — Tapir, and GRAPHISOFT's own
+        /// Live Connection — at the Archicad we just connected to. Returns a
+        /// line for the status text; never throws.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// ⚠️ TAPIR CANNOT FIND ARCHICAD BY ITSELF, AND IN A PEER NOTHING
+        /// ELSE WAS DOING IT. Its ConnectionSettings.Port defaults to 19723 and
+        /// the plug-in has no instance discovery, so with two Archicads open a
+        /// definition silently drives whichever one holds the default -- which
+        /// may not be the model on screen. A spawned worker is told the right
+        /// port on its command line (GhWorkerHost::ArchicadJsonPort, which reads
+        /// ACAPI_Command_GetHttpConnectionPort, the only authority for it). A
+        /// peer was told nothing, so it ASKS, over the bridge it has just
+        /// finished the handshake on.
+        /// </para>
+        /// <para>
+        /// ⚠️ AND IT ONLY EVER NARROWS THE ANSWER. A port of 0 means
+        /// Archicad could not tell us, and writing 0 into Tapir would break a
+        /// setting that was working; the reading is left alone and the reason is
+        /// reported instead.
+        /// </para>
+        /// <para>
+        /// Tapir's absence is not a failure: a Rhino without it is a perfectly
+        /// good peer, and the line says so rather than warning.
+        /// </para>
+        /// </remarks>
+        private static string PointPluginsAtThisArchicad()
+        {
+            try
+            {
+                string reply = TapiocaBridgeApi.Call("Tapioca.GetStatus", string.Empty);
+                if (!Envelope.IsOk(reply))
+                {
+                    return "Plug-in ports were left alone: Archicad would not report its JSON port ("
+                           + Envelope.ErrorOf(reply) + ").";
+                }
+
+                int port = Reply.Count(Envelope.DataOf(reply), "jsonPort");
+                if (port <= 0)
+                {
+                    return "Plug-in ports were left alone: this Archicad did not report a JSON port, so Tapir "
+                           + "and Live Connection components need one set by hand.";
+                }
+
+                // ⚠️ BOTH PLUG-INS, BECAUSE BOTH HAVE THE SAME BUG-SHAPED
+                // DEFAULT. Tapir and GRAPHISOFT's Live Connection each post to
+                // 127.0.0.1:19723 with no way to discover which Archicad that
+                // is; each exposes a settable port; and in a peer nothing else
+                // was setting either. Neither is required to be installed.
+                return "Tapir: " + TapirPackage.BindPort((uint)port) + " "
+                       + ArchicadConnectionPackage.BindPort((uint)port);
+            }
+            catch (Exception exception)
+            {
+                return "Plug-in ports could not be set: " + WorkerLog.Describe(exception);
+            }
         }
 
         private static string Greeting()

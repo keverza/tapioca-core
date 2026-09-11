@@ -45,7 +45,9 @@ def test_decoded_watch_wire_is_strict_flat_xyz():
     for name, (minimum, maximum) in counts.items():
         schema = schemas[name]
         assert schema["additionalProperties"] is False
-        assert set(schema["properties"]) == allowed
+        expected = allowed | ({"hoverOnly", "alwaysVisible"}
+                              if name == "kDimensionSchema" else set())
+        assert set(schema["properties"]) == expected
         assert schema["required"] == ["kind", "points"]
         assert schema["properties"]["points"]["minItems"] == minimum
         if maximum is None:

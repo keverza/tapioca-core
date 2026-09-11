@@ -19,7 +19,10 @@ MAX_NODES = 64
 MAX_FRAMES_PER_NODE = 512
 MAX_POINTS = 20000
 _KINDS = {"point", "polyline", "arrow", "dimension", "angle", "label", "element"}
-_OPTIONAL = {"text", "role", "closed", "direction", "guid", "offset"}
+_OPTIONAL = {
+    "text", "role", "closed", "direction", "guid", "offset",
+    "hoverOnly", "alwaysVisible",
+}
 _REQUIRED_POINTS = {
     "point": 1, "arrow": 2, "angle": 3, "label": 1,
 }
@@ -141,6 +144,8 @@ def _primitive(record):
     if kind not in _KINDS:
         raise ValueError("unknown watch primitive kind %r" % kind)
     allowed = {"kind", "text", "role", "closed", "direction", "offset"}
+    if kind == "dimension":
+        allowed.update(("hoverOnly", "alwaysVisible"))
     allowed.add("guid" if kind == "element" else "points")
     unknown = set(record) - allowed
     if unknown:
@@ -164,7 +169,7 @@ def _primitive(record):
             value = record[field]
             if field in ("text", "role", "guid"):
                 value = str(value)
-            elif field in ("closed", "direction") and not isinstance(value, bool):
+            elif field in ("closed", "direction", "hoverOnly", "alwaysVisible") and not isinstance(value, bool):
                 raise ValueError("watch primitive %s must be a boolean" % field)
             elif field == "offset":
                 if isinstance(value, bool) or not isinstance(value, Real):

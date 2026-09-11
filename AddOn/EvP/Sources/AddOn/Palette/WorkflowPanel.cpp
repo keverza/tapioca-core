@@ -5,6 +5,12 @@
 #include "PaletteScroll.hpp"
 #include "ParamLayout.hpp"
 
+#include "NativeCommands/SelectionSetStore.hpp" // a selection row's value lives here
+#include "AddOnCommands.hpp"                    // ExecuteNativeCommand, for the selection verbs
+#include "ResourceIds.hpp"                      // the five selection icons
+
+#include <cstring>
+
 #include <cstdlib>
 
 namespace evp {
@@ -48,8 +54,72 @@ DG::Item* WorkflowControl::Widget () const
     return nullptr;
 }
 
+namespace {
+
+// Every guid the named selection set holds, newline-joined -- the wire format
+// TapiocaSelectionParam splits on the other side.
+//
+// ⚠️ READ LIVE RATHER THAN CACHED, because the buttons that change it are
+// the SelectionSetPanel's and this band never hears them. Reading the store at
+// the moment a snapshot is taken is what makes "press Add, press Solve" mean
+// what it says.
+GS::UniString SelectionValue (const std::string& role)
+{
+    const GS::Array<GS::UniString> guids = geomsrv::SelectionSetStore::Get ().Values (ToUniString (role));
+    GS::UniString joined;
+    for (UIndex index = 0; index < guids.GetSize (); ++index) {
+        if (index > 0)
+            joined += "\n";
+        joined += guids[index];
+    }
+    return joined;
+}
+
+} // namespace
+
+GS::UniString SelectionCount (const std::string& role)
+{
+    const GS::Array<GS::UniString> guids = geomsrv::SelectionSetStore::Get ().Values (ToUniString (role));
+    if (guids.IsEmpty ())
+        return GS::UniString ("none");
+    if (guids.GetSize () == 1)
+        return GS::UniString ("1 element");
+    return GS::UniString::Printf ("%u elements", (unsigned int) guids.GetSize ());
+}
+
+// ⚠️ THE SAME TWO COMMANDS SelectionSetPanel USES, and deliberately not a
+// reimplementation: ModifySelectionSet with current:true takes Archicad's live
+// selection, and ReselectSelectionSet puts a set back into it. The store is
+// Configured from this definition's own selection inputs, so a role that is not
+// one of them is refused there rather than invented here.
+bool RunSelectionVerb (const std::string& role, const char* op)
+{
+    GS::ObjectState params;
+    params.Add ("name", ToUniString (role));
+
+    GS::String command;
+    if (op == nullptr) {
+        command = "ReselectSelectionSet";
+    }
+    else {
+        command = "ModifySelectionSet";
+        params.Add ("op", GS::UniString (op));
+        // "current" is what makes update/add/remove read the live selection;
+        // clear needs no input and must not claim to have read one.
+        if (std::strcmp (op, "clear") != 0)
+            params.Add ("current", true);
+    }
+
+    return geomsrv::ExecuteNativeCommand (command, params).ok;
+}
+
 GS::UniString WorkflowControl::CurrentText () const
 {
+    // ⚠️ BEFORE THE WIDGET CHECKS, because a selection row HAS no widget
+    // holding its value -- the caption is a display and the store is the truth.
+    if (row.kind == InputKind::Selection)
+        return SelectionValue (row.id);
+
     if (checkBox)
         return checkBox->IsChecked () ? "true" : "false";
 
@@ -214,6 +284,31 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                 break;
             }
 
+            case InputKind::Selection: {
+                // ⚠️ ICON-ONLY, BECAUSE FIVE CAPTIONED BUTTONS DO NOT FIT AN
+                // INPUT COLUMN. These are the palette's own selection icons --
+                // the ones drawn for exactly these five verbs (ResourceIds.hpp
+                // 32601-32605) and until now used by nothing in this band.
+                auto button = [&] (short icon) {
+                    auto made = std::make_unique<DG::Button> (panel, seed);
+                    made->SetIcon (DG::Icon (ACAPI_GetOwnResModule (), icon));
+                    made->Attach (observer);
+                    return made;
+                };
+
+                control.selectionUpdate = button (PaletteIconRefreshId);
+                control.selectionAdd = button (PaletteIconPlusId);
+                control.selectionRemove = button (PaletteIconMinusSquareId);
+                control.selectionReselect = button (PaletteIconSelectFace3dId);
+                control.selectionClear = button (PaletteIconClearId);
+
+                // In the domain column, which a selection row never uses: the
+                // count belongs beside the buttons that change it.
+                control.selectionCount = std::make_unique<DG::LeftText> (panel, seed);
+                control.selectionCount->SetText (SelectionCount (row.id));
+                break;
+            }
+
             case InputKind::Text:
             case InputKind::Unsupported:
             default: {
@@ -294,6 +389,15 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
     const short inputWidth = (short) InputColumnWidth (contentWidth);
 
     for (WorkflowControl& control : controls) {
+        // ⚠️ A SELECTION INPUT HAS NO ROW HERE, AND STILL HAS A VALUE. Its
+        // controls are the Update / Add / Remove / Reselect row the palette
+        // builds above these inputs from this definition's own schema - the same
+        // SelectionSetPanel a Python command's selection_sets produces. A caption
+        // here as well would be the same number in two places, and the band's
+        // job is the definition's own inputs plus the solve controls, kept clean.
+        //
+        // Nothing is placed, so PaletteScroll leaves it hidden; the entry stays
+        // in `controls` because Collect reads the value off it.
         if (control.row.isHeading) {
             // A heading spans the whole content width and gets the gap above it
             // rather than below, so it reads as belonging to the rows it
@@ -325,6 +429,28 @@ short WorkflowPanel::PlaceAt (short top, short left, short right, const PaletteS
             continue;
         }
 
+        if (control.selectionUpdate) {
+            // ⚠️ LAID OUT FROM THE RIGHT, so the row ends flush with every
+            // other input's field no matter how the column is divided.
+            clip.Place (control.selectionCount.get (), DG::Rect (hintLeft, y, inputLeft, (short) (y + RowHeight)));
+
+            DG::Item* const verbs[] = { control.selectionUpdate.get (), control.selectionAdd.get (),
+                                        control.selectionRemove.get (), control.selectionReselect.get (),
+                                        control.selectionClear.get () };
+            constexpr short VerbCount = 5;
+            const short span = (short) (inputWidth / VerbCount);
+            for (short index = 0; index < VerbCount; ++index) {
+                const short left = (short) (inputLeft + index * span);
+                // The last button takes the remainder rather than leaving a gap
+                // an integer division would open.
+                const short edge = index == VerbCount - 1 ? right : (short) (left + span);
+                clip.Place (verbs[index], DG::Rect (left, y, edge, (short) (y + RowHeight)));
+            }
+
+            y = (short) (y + RowHeight + RowGap);
+            continue;
+        }
+
         if (DG::Item* widget = control.Widget ())
             clip.Place (widget, DG::Rect (inputLeft, y, right, (short) (y + RowHeight)));
 
@@ -347,6 +473,69 @@ WorkflowSnapshot WorkflowPanel::Collect () const
     }
 
     return ReadWorkflowRows (rows, texts);
+}
+
+bool WorkflowPanel::HandleSelectionButton (const DG::Item* item)
+{
+    if (item == nullptr)
+        return false;
+
+    for (WorkflowControl& control : controls) {
+        if (control.row.kind != InputKind::Selection)
+            continue;
+
+        const char* op = nullptr;
+        bool mine = true;
+        if (item == control.selectionUpdate.get ())
+            op = "update";
+        else if (item == control.selectionAdd.get ())
+            op = "add";
+        else if (item == control.selectionRemove.get ())
+            op = "remove";
+        else if (item == control.selectionClear.get ())
+            op = "clear";
+        else if (item == control.selectionReselect.get ())
+            op = nullptr; // Reselect: the one verb that writes TO Archicad.
+        else
+            mine = false;
+
+        if (!mine)
+            continue;
+
+        RunSelectionVerb (control.row.id, op);
+        // Read back rather than assumed: the command may have selected fewer
+        // elements than were asked for, and the count is the only thing on
+        // screen that says so.
+        if (control.selectionCount)
+            control.selectionCount->SetText (SelectionCount (control.row.id));
+        return true;
+    }
+
+    return false;
+}
+
+void WorkflowPanel::RefreshSelections ()
+{
+    for (WorkflowControl& control : controls) {
+        if (!control.selectionCount)
+            continue;
+
+        // Compared before assigning: SetText invalidates the item even when the
+        // text is unchanged, and this runs on the palette's idle tick.
+        const GS::UniString count = SelectionCount (control.row.id);
+        if (control.selectionCount->GetText () != count)
+            control.selectionCount->SetText (count);
+    }
+}
+
+std::vector<std::string> WorkflowPanel::SelectionRoles () const
+{
+    std::vector<std::string> roles;
+    for (const WorkflowControl& control : controls) {
+        if (control.row.kind == InputKind::Selection)
+            roles.push_back (control.row.label.empty () ? control.row.id : control.row.label);
+    }
+    return roles;
 }
 
 void WorkflowPanel::MarkRefused (const std::vector<bool>& refused)

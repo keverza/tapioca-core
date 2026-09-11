@@ -31,7 +31,8 @@
 
 #include "Grasshopper/GhWorkerHost.hpp"
 #include "Grasshopper/GhWorkflowController.hpp"
-#include "Grasshopper/HostState.hpp" // HostState; GhWorkerHost only forward-declares it
+#include "Grasshopper/HostState.hpp"            // HostState; GhWorkerHost only forward-declares it
+#include "NativeCommands/SelectionSetStore.hpp" // the definition's selection inputs are configured here
 #include "PaletteMetrics.hpp"
 #include "PaletteScroll.hpp"
 #include "ResourceIds.hpp" // the band's Iconoir button art
@@ -51,7 +52,7 @@ namespace {
 // The band's own buttons, left to right: Definition, Reload, Solve, Cancel,
 // Preview, Clear. Square icon cells rather than a share of the width -- six
 // labelled buttons want about 560 pixels and a docked palette is often 320.
-constexpr short WorkflowButtonCount = 8;
+constexpr short WorkflowButtonCount = 9;
 constexpr short WorkflowButtonGap = 4;
 // Icon plus one word. Six of these want about 480 pixels, so the row WRAPS
 // rather than overflowing -- see PlaceWorkflowBand.
@@ -161,6 +162,14 @@ const char* AttachFaceText (AttachFace face)
     return "Connect";
 }
 
+GS::Array<GS::UniString> ToUniStringArray (const std::vector<std::string>& names)
+{
+    GS::Array<GS::UniString> out;
+    for (const std::string& name : names)
+        out.Push (GS::UniString (name.c_str (), CC_UTF8));
+    return out;
+}
+
 GS::UniString DescribeStatus (const evp::grasshopper::WorkflowStatus& status, bool hasHost)
 {
     if (!hasHost)
@@ -256,6 +265,23 @@ void ControlPalette::CreateWorkflowBand ()
     workflowPreviewButton = iconButton (PaletteIconCubeScanId, "View");
     workflowClearButton = iconButton (PaletteIconEraseId, "Clear");
 
+    // ⚠️ THE ONE BUTTON HERE THAT CHANGES THE MODEL, AND IT IS A LATCH RATHER
+    // THAN AN ACTION FOR THAT REASON. Tapir's element-creation components write
+    // when their capsule button is pressed, not while they solve, so a
+    // committing solve is a different REQUEST -- SolveWants.Commit -- and not a
+    // different button to press afterwards. Off by default; every ordinary
+    // solve stays a read.
+    //
+    // ⚠️ AND THESE WRITES ARE NOT COVERED BY THE BRIDGE'S READ-ONLY GATE.
+    // Tapir talks straight to Archicad's JSON port, so nothing in Tapioca's
+    // transport sees the write, let alone refuses it. That is precisely why the
+    // user has to arm it and why the transcript says so on every solve.
+    //
+    // The plus glyph, which is already the palette's "add" icon: what a commit
+    // does is add to the model, and inventing a ninth piece of art for it would
+    // say less.
+    workflowCommitButton = iconButton (PaletteIconPlusId, "Commit");
+
     // ⚠️ ATTACH STARTS NOTHING, AND THAT IS THE POINT OF IT. Start spawns a
     // worker, which starts an embedded Rhino of its own; this only opens the
     // bridge and waits, so a Grasshopper already running in the user's own
@@ -320,11 +346,11 @@ short ControlPalette::PlaceWorkflowBand (short top, short left, short right, con
         // HIDDEN, not placed at zero height. PaletteScroll::Place SHOWS whatever
         // it places, so an empty rect would leave five items visible at one
         // pixel -- and the buttons among them would still take clicks.
-        DG::Item* const band[] = { workflowPowerButton.get (),   workflowAttachButton.get (),
-                                   workflowLoadButton.get (),    workflowReloadButton.get (),
-                                   workflowSolveButton.get (),   workflowCancelButton.get (),
-                                   workflowPreviewButton.get (), workflowClearButton.get (),
-                                   workflowLogText.get () };
+        DG::Item* const band[] = { workflowPowerButton.get (),  workflowAttachButton.get (),
+                                   workflowLoadButton.get (),   workflowReloadButton.get (),
+                                   workflowSolveButton.get (),  workflowCommitButton.get (),
+                                   workflowCancelButton.get (), workflowPreviewButton.get (),
+                                   workflowClearButton.get (),  workflowLogText.get () };
         for (DG::Item* item : band) {
             if (item != nullptr && item->IsVisible ())
                 item->Hide ();
@@ -342,9 +368,9 @@ short ControlPalette::PlaceWorkflowBand (short top, short left, short right, con
 
     short y = top;
     short x = left;
-    DG::Item* const row[] = { workflowPowerButton.get (),   workflowAttachButton.get (), workflowLoadButton.get (),
-                              workflowReloadButton.get (),  workflowSolveButton.get (),  workflowCancelButton.get (),
-                              workflowPreviewButton.get (), workflowClearButton.get () };
+    DG::Item* const row[] = { workflowPowerButton.get (),  workflowAttachButton.get (),  workflowCommitButton.get (),
+                              workflowLoadButton.get (),   workflowReloadButton.get (),  workflowSolveButton.get (),
+                              workflowCancelButton.get (), workflowPreviewButton.get (), workflowClearButton.get () };
     for (DG::Item* button : row) {
         // ⚠️ THE ROW WRAPS, IT DOES NOT SHRINK. Six captioned buttons want more
         // width than a docked palette has, and dividing what there is by six
@@ -424,6 +450,8 @@ void ControlPalette::RefreshWorkflowBand ()
             // The session died with the worker. Keeping its rows would offer
             // controls that write into a document no process holds any more.
             workflow.Clear ();
+            // The sets described a definition that is gone with the worker.
+            geomsrv::SelectionSetStore::Get ().Clear ();
             lastWorkflowSchema.clear ();
             lastWorkflowValues.clear ();
             // The transcript is NOT cleared: what the last session did is the
@@ -444,6 +472,27 @@ void ControlPalette::RefreshWorkflowBand ()
         lastWorkflowSchema = schema;
         if (!schema.empty ()) {
             workflow.Rebuild (schema);
+
+            // ⚠️ PER DEFINITION, NOT PER COMMAND, AND THAT IS THE WHOLE RULE.
+            // The Grasshopper command declares no selection sets: most
+            // definitions never touch an Archicad element, and a selection row
+            // that does nothing is worse than no row. This definition's own
+            // schema decides -- one row per "Tapioca Selection" input it
+            // declares, named after the input, built by the same
+            // SelectionSetPanel a Python command's selection_sets produces.
+            // An empty list rebuilds to nothing, which is how the row goes away
+            // again when the next definition does not ask for elements.
+            //
+            // Rebuild also Configures the store, so the roles a definition
+            // declares are exactly the roles that can be mutated.
+            // ⚠️ THE STORE, NOT A SECOND PANEL. The buttons live on the input's
+            // own row in this band, so the input keeps the position its author
+            // gave it on the canvas -- the same rule every other input follows.
+            // Configuring the store is all that is needed from outside: it is
+            // what makes a role this definition declares mutable and any other
+            // role refused.
+            geomsrv::SelectionSetStore::Get ().Configure (ToUniStringArray (workflow.SelectionRoles ()));
+
             // A new row set changes the height of everything below it, so the
             // whole column is placed again and then shown -- the same order the
             // command block uses, and the reason Rebuild only builds.
@@ -572,6 +621,18 @@ void ControlPalette::RefreshWorkflowBand ()
         else
             workflowAttachButton->Enable ();
     }
+    // The selection verbs change the store, and their counts sit beside them.
+    workflow.RefreshSelections ();
+
+    if (workflowCommitButton) {
+        // The word carries the state, because there is no checkbox here and a
+        // button that looked identical armed and unarmed would be a trap.
+        workflowCommitButton->SetText (workflowCommit ? "Commit ON" : "Commit");
+        if (hasHost && !loadedWorkflowPath.empty ())
+            workflowCommitButton->Enable ();
+        else
+            workflowCommitButton->Disable ();
+    }
     if (workflowReloadButton) {
         if (hasHost && !loadedWorkflowPath.empty ())
             workflowReloadButton->Enable ();
@@ -582,6 +643,14 @@ void ControlPalette::RefreshWorkflowBand ()
 
 bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
 {
+    // ⚠️ FIRST, BECAUSE THESE ARE ROWS RATHER THAN BAND CONTROLS. A selection
+    // input's five verbs are built by the band's own panel, one row per input, so
+    // the band asks it before testing any of its own buttons.
+    if (workflow.HandleSelectionButton (ev.GetSource ())) {
+        Redraw ();
+        return true;
+    }
+
     if (workflowPowerButton && ev.GetSource () == workflowPowerButton.get ()) {
         evp::grasshopper::GhWorkerHost& host = evp::grasshopper::GhWorkerHost::Get ();
         if (host.IsRunning ()) {
@@ -630,6 +699,19 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
         // to be dismissed before the name can be copied is a modal in the way.
         NoteWorkflowLine ((opened ? "" : "! ") + ToStd (message));
         SetCommandStatus (message);
+        return true;
+    }
+
+    if (workflowCommitButton && ev.GetSource () == workflowCommitButton.get ()) {
+        workflowCommit = !workflowCommit;
+        // ⚠️ ARMING DOES NOT SOLVE. Toggling this into a solve would make one
+        // click both "I mean it" and "do it now", and the whole point of a latch
+        // is that the user reads the state before pressing Solve.
+        NoteWorkflowLine (workflowCommit
+                              ? "Commit ARMED. The next solve will write to Archicad through Tapir's Execute buttons."
+                              : "Commit disarmed. Solves are reads again.");
+        RefreshWorkflowBand ();
+        Redraw ();
         return true;
     }
 
@@ -777,7 +859,15 @@ void ControlPalette::LoadWorkflowDefinition (const std::string& path)
     lastWorkflowSchema.clear ();
     lastWorkflowValues.clear ();
     workflow.Clear ();
+    // The next definition declares its own selection inputs, or none.
+    geomsrv::SelectionSetStore::Get ().Clear ();
     loadedWorkflowPath = path;
+
+    // ⚠️ A NEW DEFINITION DISARMS THE COMMIT, AND CARRYING IT OVER WOULD BE THE
+    // WORST DEFAULT IN THE PANEL. The user armed a commit for the definition
+    // they were reading; the next file's Execute buttons write something they
+    // have not looked at yet. Arming is per definition, on purpose.
+    workflowCommit = false;
     // ⚠️ FORGET, NOT CLEAR. The previous definition's solution block describes a
     // document that is about to be gone, and leaving it above the new one's
     // rows is the misleading state the Clear button was being asked to fix by
@@ -835,8 +925,21 @@ void ControlPalette::SolveWorkflowNow ()
     evp::grasshopper::GhWorkflowController& controller = evp::grasshopper::GhWorkerHost::Get ().Workflow ();
 
     lastWorkflowValues = sent;
-    controller.SetInputs (inputs,
-                          evp::grasshopper::protocol::SolveWantsPreview | evp::grasshopper::protocol::SolveWantsData);
+    // ⚠️ Preview|Data IS A READ; Commit IS WHAT MAKES A SOLVE WRITE. The bit
+    // has been in the protocol since the session messages were written and
+    // nothing asked for it, which is why a Tapir definition run from this panel
+    // solved cleanly and created nothing.
+    uint32_t wants = evp::grasshopper::protocol::SolveWantsPreview | evp::grasshopper::protocol::SolveWantsData;
+    if (workflowCommit) {
+        wants |= evp::grasshopper::protocol::SolveWantsCommit;
+        // Said on EVERY committing solve, not once when the button was armed: a
+        // latch the user set two minutes ago is a latch they have forgotten, and
+        // this is the line that stops a re-solve writing a second set of walls
+        // without warning.
+        NoteWorkflowLine ("Commit armed: this solve presses the definition's Tapir Execute buttons.");
+    }
+
+    controller.SetInputs (inputs, wants);
 
     std::string error;
     if (controller.SolveNow (error)) {

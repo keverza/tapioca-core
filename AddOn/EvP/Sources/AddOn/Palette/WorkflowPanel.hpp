@@ -59,6 +59,17 @@ struct WorkflowControl {
     std::unique_ptr<DG::RealEdit> realEdit; // Number
     std::unique_ptr<DG::IntEdit> intEdit;   // Integer
 
+    // Selection: five icon buttons and a count, because a selection is picked in
+    // Archicad rather than typed. The same five verbs, the same five icons and
+    // the same two native commands as SelectionSetPanel -- ON THIS ROW, so the
+    // input keeps the position the definition's author gave it on the canvas.
+    std::unique_ptr<DG::Button> selectionUpdate;
+    std::unique_ptr<DG::Button> selectionAdd;
+    std::unique_ptr<DG::Button> selectionRemove;
+    std::unique_ptr<DG::Button> selectionReselect;
+    std::unique_ptr<DG::Button> selectionClear;
+    std::unique_ptr<DG::LeftText> selectionCount;
+
     // A bounded number's slider, beside its field rather than instead of it.
     // Null on every other row. The FIELD is the value; this only writes into it.
     std::unique_ptr<DG::ScrollBar> slider;
@@ -132,6 +143,21 @@ class WorkflowPanel {
     // Marks the rows a snapshot refused, so a failed read-back shows WHERE. The
     // vector is the snapshot's own `refused`, parallel to the rows.
     void MarkRefused (const std::vector<bool>& refused);
+
+    // The names of this definition's selection inputs, in schema order. The
+    // palette builds a SelectionSetPanel row for each -- which is why this band
+    // draws none of them itself.
+    std::vector<std::string> SelectionRoles () const;
+
+    // Runs the selection verb one of a selection row's buttons stands for, and
+    // says whether the item was one of them at all. The palette routes every
+    // button click here before deciding it was not ours.
+    bool HandleSelectionButton (const DG::Item* item);
+
+    // Re-reads every selection row's count. The buttons change the store, and a
+    // count that only changed when something else redrew would be a stale number
+    // beside a control that had just been pressed.
+    void RefreshSelections ();
 
     // Event routing. Returns true when the item belonged to one of these
     // controls, so the shell's handler can stop there. Sub-objects never Attach

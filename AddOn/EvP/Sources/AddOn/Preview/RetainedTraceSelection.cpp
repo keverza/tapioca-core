@@ -68,6 +68,8 @@ geomsrv::annotation::DrawList ToDrawList (const WatchTrace& trace)
                 primitive.text = source.text.value_or ("");
                 primitive.closed = source.closed.value_or (false);
                 primitive.direction = source.direction.value_or (false);
+                primitive.hoverOnly = source.hoverOnly.value_or (false);
+                primitive.alwaysVisible = source.alwaysVisible.value_or (false);
                 primitive.offset = source.offset.value_or (0.0);
                 primitive.points.reserve (source.points.size () / 3);
                 for (std::size_t index = 0; index + 2 < source.points.size (); index += 3)

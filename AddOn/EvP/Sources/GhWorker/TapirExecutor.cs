@@ -1,3 +1,8 @@
+// ⚠️ global::Grasshopper THROUGHOUT: this file is compiled into
+// Tapioca.Grasshopper.gha as well as into the worker, and inside namespace
+// Tapioca.GhWorker the compiler finds the nearer Tapioca.Grasshopper first. See
+// DefinitionHost.cs, which carries the same note and the same reason.
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -73,7 +78,7 @@ namespace Tapioca.GhWorker
         /// solve.
         /// </summary>
         [MethodImpl(MethodImplOptions.NoInlining)]
-        internal static string PressExecuteButtons(Grasshopper.Kernel.GH_Document document)
+        internal static string PressExecuteButtons(global::Grasshopper.Kernel.GH_Document document)
         {
             if (document == null)
             {
@@ -151,10 +156,10 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static List<Candidate> FindButtons(Grasshopper.Kernel.GH_Document document)
+        private static List<Candidate> FindButtons(global::Grasshopper.Kernel.GH_Document document)
         {
             List<Candidate> found = new List<Candidate>();
-            foreach (Grasshopper.Kernel.IGH_DocumentObject item in document.Objects)
+            foreach (global::Grasshopper.Kernel.IGH_DocumentObject item in document.Objects)
             {
                 if (item == null)
                 {

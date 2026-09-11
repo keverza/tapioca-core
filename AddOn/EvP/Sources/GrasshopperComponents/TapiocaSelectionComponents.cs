@@ -30,7 +30,7 @@ namespace Tapioca.Grasshopper
         public TapiocaSelectionComponent()
             : base(
                 "Tapioca Selection",
-                "TapiocaSel",
+                "Tapioca Selection",
                 "The elements currently selected in Archicad, as GUIDs.",
                 "Tapioca",
                 "Archicad")
@@ -127,7 +127,7 @@ namespace Tapioca.Grasshopper
         public TapiocaSelectComponent()
             : base(
                 "Tapioca Select",
-                "TapiocaSelect",
+                "Tapioca Select",
                 "Selects elements in Archicad: add to, remove from, replace or clear the current selection.",
                 "Tapioca",
                 "Archicad")

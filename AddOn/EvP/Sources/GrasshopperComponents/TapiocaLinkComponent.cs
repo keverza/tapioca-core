@@ -36,7 +36,7 @@ namespace Tapioca.Grasshopper
         public TapiocaLinkComponent()
             : base(
                 "Tapioca Link",
-                "TapiocaLink",
+                "Tapioca Link",
                 "Connects this Grasshopper to an Archicad that is waiting for one, so Tapioca's panel drives this "
                 + "Rhino instead of starting its own.",
                 "Tapioca",

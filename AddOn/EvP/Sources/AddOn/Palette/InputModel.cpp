@@ -209,6 +209,8 @@ const char* DescribeInputKind (InputKind kind)
             return "text";
         case InputKind::Enum:
             return "enum";
+        case InputKind::Selection:
+            return "selection";
         case InputKind::Unsupported:
             return "unsupported";
     }
@@ -229,6 +231,8 @@ InputKind InputKindFromName (const std::string& name)
         return InputKind::Text;
     if (name == "enum")
         return InputKind::Enum;
+    if (name == "selection")
+        return InputKind::Selection;
     return InputKind::Unsupported;
 }
 
@@ -388,6 +392,17 @@ CoerceResult Coerce (const InputControl& control, const std::string& text)
             if (control.hasMaximum && value > control.maximum)
                 return Refuse (control, "must be at most " + FormatInputNumber (control.maximum) + ".");
             return Accept (FormatInputNumber (value));
+        }
+
+        case InputKind::Selection: {
+            // ⚠️ NOT TRIMMED PER LINE AND NOT VALIDATED AS GUIDS. What is in
+            // here came from Archicad's own selection through
+            // SelectionSetStore, so the add-on is both ends of the round trip;
+            // re-checking its own GUID spelling would be inventing a way to
+            // refuse a valid selection. An EMPTY selection is a legitimate value
+            // (nothing is selected), which is why it is accepted rather than
+            // refused as missing -- a definition is entitled to solve with none.
+            return Accept (text);
         }
 
         case InputKind::Enum: {

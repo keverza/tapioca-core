@@ -27,6 +27,22 @@
     <AssemblyName>Tapioca.Grasshopper</AssemblyName>
     <RootNamespace>Tapioca.Grasshopper</RootNamespace>
     <TargetExt>.gha</TargetExt>
+    <!--
+      ⚠️ NO REFERENCE ASSEMBLY, AND THIS IS A TRAP REMOVAL RATHER THAN AN
+      OPTIMISATION. The SDK emits one by default into
+      obj\<config>\<tfm>ef\ - metadata only, no method bodies, marked with
+      ReferenceAssemblyAttribute, and .NET REFUSES TO LOAD IT FOR EXECUTION. It
+      is written under the SAME FILE NAME as the real output and with the same
+      timestamp, so anything that searches the tree for "the newest
+      Tapioca.Grasshopper.gha" can find it instead of bin\, and installing it
+      makes Grasshopper drop the package with no component and no visible error.
+      That happened on 2026-09-11 (the file in Grasshopper's Libraries folder was
+      byte-identical to obj\...ef\).
+      Nothing references this project at compile time - it is a leaf that
+      Grasshopper loads - so the reference assembly has no purpose here at all.
+      Not producing one is the only fix that cannot be repeated by hand.
+    -->
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <UseWindowsForms>true</UseWindowsForms>
@@ -102,6 +118,18 @@
     <Compile Include="..\GhWorker\DefinitionHost.cs" Link="Session\DefinitionHost.cs" />
     <Compile Include="..\GhWorker\SolutionCollector.cs" Link="Session\SolutionCollector.cs" />
     <Compile Include="..\GhWorker\WorkflowFacade.cs" Link="Session\WorkflowFacade.cs" />
+    <!-- Presses Tapir's capsule buttons for a committing solve. Self-contained
+         (it reflects over the document it is handed and holds no state), so the
+         peer commits exactly the way the worker does. -->
+    <Compile Include="..\GhWorker\TapirExecutor.cs" Link="Session\TapirExecutor.cs" />
+    <!-- For BindPort alone: an attached peer's Tapir defaults to 19723 and has
+         no instance discovery, so it must be TOLD which Archicad this is. Prepare
+         (staging an assembly folder) is the worker's half and is simply not
+         called here - a running Grasshopper finished scanning long ago. -->
+    <Compile Include="..\GhWorker\TapirPackage.cs" Link="Session\TapirPackage.cs" />
+    <!-- GRAPHISOFT's own Live Connection has the same hard-coded 19723 and the
+         same settable port, so a peer points it at this Archicad too. -->
+    <Compile Include="..\GhWorker\ArchicadConnectionPackage.cs" Link="Session\ArchicadConnectionPackage.cs" />
     <!-- The run report is a plain DTO the framing itself names, so it comes
          along even though the runner that produces one does not. -->
     <Compile Include="..\GhWorker\RunReport.cs" Link="Session\RunReport.cs" />

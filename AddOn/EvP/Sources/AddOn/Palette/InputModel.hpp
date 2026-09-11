@@ -40,6 +40,13 @@ enum class InputKind {
     Boolean,
     Text,
     Enum,
+    // ⚠️ THE ONE INPUT THE PANEL DOES NOT EDIT IN ITS OWN ROW. A selection
+    // is many element GUIDs, picked in Archicad with the Update / Add / Remove /
+    // Reselect buttons a command's selection_sets already put above these rows
+    // (SelectionSetPanel). Its row therefore SHOWS what is held and edits
+    // nothing: a text field full of GUIDs would be unreadable, untypable, and a
+    // second place to change something that has a better one.
+    Selection,
     Unsupported,
 };
 

@@ -102,6 +102,21 @@ def test_dimension_record_accepts_sampled_curved_path():
         1.0, 0.0, 0.0, 0.707, 0.707, 0.0, 0.0, 1.0, 0.0]
 
 
+def test_dimension_record_accepts_hover_only_interaction_geometry():
+    record = {
+        "kind": "dimension",
+        "points": [(0, 0, 0), (2, 0, 0)],
+        "text": "2.000",
+        "hoverOnly": True,
+        "alwaysVisible": False,
+    }
+
+    frame = _decode(_capture(lambda: watch_api("edge", [record])))[0]["frames"][0]
+
+    assert frame["primitives"][0]["hoverOnly"] is True
+    assert frame["primitives"][0]["alwaysVisible"] is False
+
+
 def test_explicit_constructors_need_no_name_and_emit_flat_points():
     def build():
         watch_api.dimension((0, 0, 0), (2, 0, 0), text="2m", offset=0.2)
@@ -182,6 +197,12 @@ def test_constructor_options_cannot_replace_kind_or_flat_points():
      "boolean"),
     ({"kind": "point", "points": [0, 0, 0], "offset": "far"}, "finite number"),
     ({"kind": "label", "points": [0, 0, 0], "offset": object()}, "finite number"),
+    ({"kind": "polyline", "points": [0, 0, 0, 1, 0, 0], "hoverOnly": True},
+     "hoverOnly"),
+    ({"kind": "dimension", "points": [0, 0, 0, 1, 0, 0], "hoverOnly": 1},
+     "boolean"),
+    ({"kind": "dimension", "points": [0, 0, 0, 1, 0, 0], "alwaysVisible": 1},
+     "boolean"),
 ])
 def test_invalid_primitive_records_are_refused(record, match):
     with pytest.raises((TypeError, ValueError), match=match):

@@ -1,3 +1,7 @@
+// ⚠️ global::Grasshopper THROUGHOUT: compiled into Tapioca.Grasshopper.gha
+// as well as into the worker, where the nearer Tapioca.Grasshopper namespace
+// would otherwise win the lookup. See DefinitionHost.cs for the full reason.
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -151,13 +155,13 @@ namespace Tapioca.GhWorker
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static string AddAssemblyFolder(string folder)
         {
-            List<Grasshopper.Kernel.GH_AssemblyFolderInfo> folders = Grasshopper.Folders.AssemblyFolders;
+            List<global::Grasshopper.Kernel.GH_AssemblyFolderInfo> folders = global::Grasshopper.Folders.AssemblyFolders;
             if (folders == null)
             {
                 return "Tapir: Grasshopper exposed no assembly-folder list, so " + folder + " was not added.";
             }
 
-            foreach (Grasshopper.Kernel.GH_AssemblyFolderInfo existing in folders)
+            foreach (global::Grasshopper.Kernel.GH_AssemblyFolderInfo existing in folders)
             {
                 // GH_AssemblyFolderInfo is a value type, so there is no null to
                 // guard against here — only an empty Folder.
@@ -172,9 +176,9 @@ namespace Tapioca.GhWorker
             }
 
             folders.Add(
-                new Grasshopper.Kernel.GH_AssemblyFolderInfo(
+                new global::Grasshopper.Kernel.GH_AssemblyFolderInfo(
                     folder,
-                    Grasshopper.Kernel.GH_PluginFolderType.UserFolder));
+                    global::Grasshopper.Kernel.GH_PluginFolderType.UserFolder));
             return "Tapir: added " + folder + " to Grasshopper's assembly folders (" + OverrideVariable + ").";
         }
 
@@ -185,12 +189,12 @@ namespace Tapioca.GhWorker
             version = string.Empty;
             location = string.Empty;
 
-            if (!Grasshopper.Instances.IsComponentServer || Grasshopper.Instances.ComponentServer == null)
+            if (!global::Grasshopper.Instances.IsComponentServer || global::Grasshopper.Instances.ComponentServer == null)
             {
                 return "Tapir: Grasshopper's component server is not up, so no library list could be read.";
             }
 
-            foreach (Grasshopper.Kernel.GH_AssemblyInfo library in Grasshopper.Instances.ComponentServer.Libraries)
+            foreach (global::Grasshopper.Kernel.GH_AssemblyInfo library in global::Grasshopper.Instances.ComponentServer.Libraries)
             {
                 if (library == null || !IsTapir(library))
                 {
@@ -214,7 +218,7 @@ namespace Tapioca.GhWorker
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private static bool IsTapir(Grasshopper.Kernel.GH_AssemblyInfo library)
+        private static bool IsTapir(global::Grasshopper.Kernel.GH_AssemblyInfo library)
         {
             string location = library.Location ?? string.Empty;
             if (string.Equals(Path.GetFileName(location), AssemblyFileName, StringComparison.OrdinalIgnoreCase))
@@ -231,7 +235,7 @@ namespace Tapioca.GhWorker
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static string LibraryCount()
         {
-            return Grasshopper.Instances.ComponentServer.Libraries.Count.ToString(CultureInfo.InvariantCulture);
+            return global::Grasshopper.Instances.ComponentServer.Libraries.Count.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -244,8 +248,8 @@ namespace Tapioca.GhWorker
         {
             try
             {
-                List<Grasshopper.Kernel.GH_LoadingException> failures =
-                    Grasshopper.Instances.ComponentServer.LoadingExceptions;
+                List<global::Grasshopper.Kernel.GH_LoadingException> failures =
+                    global::Grasshopper.Instances.ComponentServer.LoadingExceptions;
                 if (failures == null || failures.Count == 0)
                 {
                     return " Grasshopper reported no loading errors, so it never saw the file.";
@@ -253,7 +257,7 @@ namespace Tapioca.GhWorker
 
                 StringBuilder text = new StringBuilder(" Grasshopper reported ");
                 text.Append(failures.Count.ToString(CultureInfo.InvariantCulture)).Append(" loading error(s):");
-                foreach (Grasshopper.Kernel.GH_LoadingException failure in failures)
+                foreach (global::Grasshopper.Kernel.GH_LoadingException failure in failures)
                 {
                     if (failure == null)
                     {

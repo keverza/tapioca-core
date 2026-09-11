@@ -114,10 +114,49 @@ namespace Tapioca.GhWorker
                 // difference between a slider drag that re-solves one branch and
                 // one that re-solves the definition.
                 document.NewSolution(false, global::Grasshopper.Kernel.GH_SolutionMode.CommandLine);
+
+                // ⚠️ TAPIR WRITES NOTHING DURING A SOLVE, WHICH IS WHY THIS
+                // EXISTS AT ALL. Its element-creation components put their write
+                // behind a CAPSULE BUTTON rather than in SolveInstance, so a
+                // definition that creates walls solves in milliseconds and
+                // changes nothing until something presses that button. The
+                // authoring path has always pressed it (DefinitionRunner.Run);
+                // the SESSION path -- the one the Tapioca panel drives -- never
+                // did, so a Tapir definition run from the panel appeared to
+                // succeed and produced no elements.
+                //
+                // ⚠️ GATED ON THE Commit BIT AND ON NOTHING ELSE. SolveWants
+                // has carried Commit since the session protocol was written and
+                // nothing read it; the host asks for Preview|Data by default, so
+                // an ordinary panel solve stays a read. A commit is a separate,
+                // deliberate request -- because these writes go straight out of
+                // this process to Archicad's JSON port and are NOT subject to the
+                // bridge's read-only gate, which can only refuse what it carries.
+                //
+                // INSIDE THE TIMED REGION, for the reason DefinitionRunner gives
+                // where it does the same: the press is part of what a commit
+                // costs, so it is part of what a commit reports.
+                string committed = string.Empty;
+                if ((wants & (uint)SessionProtocol.SolveWants.Commit) != 0)
+                {
+                    committed = TapirExecutor.PressExecuteButtons(document);
+                }
+
                 clock.Stop();
                 collection.ElapsedMs = Clamp(clock.ElapsedMilliseconds);
 
                 CollectDiagnostics(document, collection);
+
+                // Reported as a diagnostic rather than a return value: the panel
+                // already prints every diagnostic into its transcript, and what a
+                // commit pressed is exactly the sort of thing a user needs to
+                // read back afterwards. Empty when the definition has no Tapir
+                // buttons, in which case there is nothing to say.
+                if (committed.Length > 0)
+                {
+                    collection.Diagnostics.Add(new SessionProtocol.Diagnostic(
+                        SessionProtocol.DiagnosticLevel.Remark, "commit", committed));
+                }
                 if ((wants & (uint)SessionProtocol.SolveWants.Data) != 0)
                 {
                     CollectOutputs(document, collection);

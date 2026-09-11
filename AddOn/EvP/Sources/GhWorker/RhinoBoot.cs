@@ -160,7 +160,14 @@ namespace Tapioca.GhWorker
             }
 
             tapirReport = preparedTapioca + " " + TapiocaPackage.Verify()
-                        + " " + prepared + " " + TapirPackage.BindPort(tapirPort);
+                        + " " + prepared + " " + TapirPackage.BindPort(tapirPort)
+                        // ⚠️ THE REAL ARCHICAD PORT, NOT THE PROXY'S. Tapir is
+                        // pointed at the counting proxy when one is running,
+                        // because measuring Tapir's traffic is what that proxy
+                        // exists for; GRAPHISOFT's connection is not what is
+                        // being measured, and routing it through the proxy would
+                        // put its calls into Tapir's numbers.
+                        + " " + ArchicadConnectionPackage.BindPort(archicadJsonPort);
 
             // Fire and forget, off the main thread, for the reason spelled out
             // in TapirConnectionCheck: it makes the same loopback call a Tapir

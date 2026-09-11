@@ -49,6 +49,8 @@ struct WatchPrimitive {
     std::optional<std::string> role;
     std::optional<bool> closed;
     std::optional<bool> direction;
+    std::optional<bool> hoverOnly;
+    std::optional<bool> alwaysVisible;
     std::optional<double> offset;
 };
 

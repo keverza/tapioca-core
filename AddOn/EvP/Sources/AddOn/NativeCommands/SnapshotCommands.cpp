@@ -7,7 +7,7 @@
 
 #include "Geometry/GeometryExtractor.hpp"
 #include "Geometry/MeshStore.hpp"
-#include "Geometry/QueryEngine.hpp"      // QueryIndexCache — invalidated on release
+#include "Geometry/QueryEngine.hpp" // QueryIndexCache — invalidated on release
 #include "Metadata/MetadataExtractor.hpp"
 #include "Metadata/MetadataStore.hpp"
 #include "Screenshot/ScreenshotStore.hpp"
@@ -30,8 +30,10 @@ MetaLevel ParseMetaLevel (const GS::ObjectState& params)
 {
     GS::UniString s;
     if (params.Get ("meta", s)) {
-        if (s == "full")  return MetaLevel::Full;
-        if (s == "basic") return MetaLevel::Basic;
+        if (s == "full")
+            return MetaLevel::Full;
+        if (s == "basic")
+            return MetaLevel::Basic;
         return MetaLevel::None;
     }
     bool b = false;
@@ -47,13 +49,19 @@ MetaLevel ParseMetaLevel (const GS::ObjectState& params)
 // by far the most expensive part, so we do not pay for it unless asked.
 // ---------------------------------------------------------------------------
 class BuildSnapshotCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "BuildSnapshot"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "BuildSnapshot";
+    }
 
     // Long operation on a big model -> show Archicad's progress window, which also
     // gives the user a Cancel button. Silence is right for a fast command; a frozen
     // UI with no feedback and no way out is not.
-    bool IsProcessWindowVisible () const override { return true; }
+    bool IsProcessWindowVisible () const override
+    {
+        return true;
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl& pc) const override
     {
@@ -68,7 +76,8 @@ public:
         std::vector<int32_t> excludeTypes;
         GS::Array<GS::Int32> ex;
         if (params.Get ("excludeTypes", ex))
-            for (GS::Int32 v : ex) excludeTypes.push_back (static_cast<int32_t> (v));
+            for (GS::Int32 v : ex)
+                excludeTypes.push_back (static_cast<int32_t> (v));
 
         pc.SetProcessName ("EvP: extracting geometry");
 
@@ -111,36 +120,34 @@ public:
             for (const auto& m : snap->meshes)
                 guids.push_back (m.guid);
 
-            pc.SetProcessName (level == MetaLevel::Full
-                ? "EvP: metadata + properties"
-                : "EvP: metadata");
+            pc.SetProcessName (level == MetaLevel::Full ? "EvP: metadata + properties" : "EvP: metadata");
             pc.SetProcessPhaseNum (static_cast<Int32> (guids.size ()));
 
             auto meta = ExtractMetadataFor (
-                guids, level,
-                [&pc] { return pc.TestBreak (); },                                  // Cancel button
+                guids, level, [&pc] { return pc.TestBreak (); }, // Cancel button
                 [&pc] (size_t done, size_t) { pc.SetProcessPhaseValue (static_cast<Int32> (done)); });
 
             if (meta)
                 MetadataStore::Get ().Publish (meta);
             else
-                cancelled = true;          // user cancelled: geometry stands, metadata doesn't
+                cancelled = true; // user cancelled: geometry stands, metadata doesn't
         }
         if (level == MetaLevel::None || cancelled)
-            MetadataStore::Get ().Release ();   // stale metadata would lie about this snapshot
+            MetadataStore::Get ().Release (); // stale metadata would lie about this snapshot
 
-        os.Add ("snapshotId",    static_cast<GS::Int64> (snap->id));
-        os.Add ("scope",         GS::UniString (snap->scope.c_str ()));
-        os.Add ("elementCount",  static_cast<GS::Int64> (snap->meshes.size ()));
-        os.Add ("vertexCount",   static_cast<GS::Int64> (snap->TotalVertices ()));
+        os.Add ("snapshotId", static_cast<GS::Int64> (snap->id));
+        os.Add ("scope", GS::UniString (snap->scope.c_str ()));
+        os.Add ("elementCount", static_cast<GS::Int64> (snap->meshes.size ()));
+        os.Add ("vertexCount", static_cast<GS::Int64> (snap->TotalVertices ()));
         os.Add ("triangleCount", static_cast<GS::Int64> (snap->TotalTriangles ()));
-        os.Add ("hasMetadata",   level != MetaLevel::None && !cancelled);
-        os.Add ("metaLevel",     GS::UniString (cancelled ? "cancelled"
-                                              : level == MetaLevel::Full  ? "full"
-                                              : level == MetaLevel::Basic ? "basic" : "none"));
+        os.Add ("hasMetadata", level != MetaLevel::None && !cancelled);
+        os.Add ("metaLevel", GS::UniString (cancelled                   ? "cancelled"
+                                            : level == MetaLevel::Full  ? "full"
+                                            : level == MetaLevel::Basic ? "basic"
+                                                                        : "none"));
         os.Add ("metadataCancelled", cancelled);
         if (!excludeTypes.empty ()) {
-            os.Add ("droppedElements",  static_cast<GS::Int64> (droppedElems));
+            os.Add ("droppedElements", static_cast<GS::Int64> (droppedElems));
             os.Add ("droppedTriangles", static_cast<GS::Int64> (droppedTris));
         }
         AddMemory (os);
@@ -154,14 +161,17 @@ public:
 // ACAPI — but exposed here so Python drives the whole lifecycle from one channel.
 // ---------------------------------------------------------------------------
 class ReleaseSnapshotCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ReleaseSnapshot"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ReleaseSnapshot";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         const size_t before = RetainedBytes ();
 
-        QueryIndexCache::Get ().Release ();   // BVH first (it references the meshes)
+        QueryIndexCache::Get ().Release (); // BVH first (it references the meshes)
         MeshStore::Get ().Release ();
         MetadataStore::Get ().Release ();
         ScreenshotStore::Get ().Release ();
@@ -177,17 +187,42 @@ public:
 // EvP.GetStatus {} — cheap introspection (also proves the bridge).
 // ---------------------------------------------------------------------------
 class GetStatusCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetStatus"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetStatus";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         ServerState& st = ServerState::Get ();
         GS::ObjectState os;
         os.Add ("serverRunning", st.serverRunning.load ());
-        os.Add ("port",          static_cast<GS::Int64> (st.port.load ()));
-        os.Add ("modelOpen",     st.modelOpen.load ());
-        os.Add ("snapshotId",    static_cast<GS::Int64> (st.snapshotId.load ()));
+        os.Add ("port", static_cast<GS::Int64> (st.port.load ()));
+        os.Add ("modelOpen", st.modelOpen.load ());
+        os.Add ("snapshotId", static_cast<GS::Int64> (st.snapshotId.load ()));
+
+        // ⚠️ ARCHICAD'S OWN JSON PORT, WHICH IS NOT THE `port` ABOVE. That
+        // one is Tapioca's snapshot server; this is the loopback port Archicad's
+        // command connection listens on, and ACAPI_Command_GetHttpConnectionPort
+        // is its only authority.
+        //
+        // Reported here because SOMEBODY OUTSIDE THIS PROCESS NEEDS IT AND
+        // CANNOT DERIVE IT. A Grasshopper serving as an attached peer runs in the
+        // user's own Rhino: it never got a command line from the add-on, and the
+        // Tapir plug-in it hosts defaults to 19723 with no instance discovery at
+        // all -- so with two Archicads open a definition silently drives whichever
+        // one holds the default. The peer asks this over the bridge and points
+        // Tapir at the answer. A spawned worker is told on its command line and
+        // does not need this.
+        //
+        // 0 when the call fails, which the caller must treat as "unknown" rather
+        // than as a port: a status read is not the place to fail over it.
+        UShort jsonPort = 0;
+        if (ACAPI_Command_GetHttpConnectionPort (&jsonPort) != NoError)
+            jsonPort = 0;
+        os.Add ("jsonPort", static_cast<GS::Int64> (jsonPort));
+
         AddMemory (os);
         return os;
     }
@@ -206,8 +241,11 @@ public:
 // 2026-07-25. The flat shape here is now kept on its own merits, not on that claim.)
 // ---------------------------------------------------------------------------
 class GetSnapshotInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetSnapshotInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetSnapshotInfo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
@@ -218,7 +256,7 @@ public:
         GS::ObjectState os;
 
         GS::Array<GS::UniString> guids;
-        GS::Array<GS::Int32>     elemTypes, vertexCounts, triangleCounts;
+        GS::Array<GS::Int32> elemTypes, vertexCounts, triangleCounts;
         for (const Mesh& mesh : snapshot->meshes) {
             guids.Push (GS::UniString (mesh.guid.c_str (), CC_UTF8));
             elemTypes.Push ((GS::Int32) mesh.elemType);
@@ -302,16 +340,17 @@ const NativeCommandRegistration kSnapshotCommandRegistrations[] = {
             "properties":{
                 "serverRunning":{"type":"boolean"},
                 "port":{"type":"integer"},
+                "jsonPort":{"type":"integer"},
                 "modelOpen":{"type":"boolean"},
                 "snapshotId":{"type":"integer"},
                 "retainedBytes":{"type":"integer"}
             },
             "additionalProperties":false,
-            "required":["serverRunning","port","modelOpen","snapshotId","retainedBytes"]
+            "required":["serverRunning","port","jsonPort","modelOpen","snapshotId","retainedBytes"]
         })json" }
 };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetSnapshotCommandRegistrations ()
 {
@@ -322,11 +361,13 @@ GSErrCode InstallSnapshotJsonCommands ()
 {
     GSErrCode err = ACAPI_AddOnAddOnCommunication_InstallAddOnCommandHandler (
         GS::NewOwned<RegisteredNativeCommand<BuildSnapshotCommand>> (kSnapshotCommandRegistrations[0]));
-    if (err != NoError) return err;
+    if (err != NoError)
+        return err;
 
     err = ACAPI_AddOnAddOnCommunication_InstallAddOnCommandHandler (
         GS::NewOwned<RegisteredNativeCommand<ReleaseSnapshotCommand>> (kSnapshotCommandRegistrations[1]));
-    if (err != NoError) return err;
+    if (err != NoError)
+        return err;
 
     return ACAPI_AddOnAddOnCommunication_InstallAddOnCommandHandler (
         GS::NewOwned<RegisteredNativeCommand<GetStatusCommand>> (kSnapshotCommandRegistrations[3]));

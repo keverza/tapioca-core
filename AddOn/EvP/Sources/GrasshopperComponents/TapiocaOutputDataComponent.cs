@@ -43,110 +43,101 @@ namespace Tapioca.Grasshopper
     /// </remarks>
     public class TapiocaOutputDataComponent : GH_Component, ITapiocaOutput
     {
-        /// <summary>Where the id and the value live in Params.Input.</summary>
-        private const int IdIndex = 0;
+        /// <summary>Where the value lives in Params.Input.</summary>
+        private const int ValueIndex = 0;
 
-        private const int ValueIndex = 1;
-
-        private string m_id = string.Empty;
-
-        private string m_label = string.Empty;
+        /// <summary>
+        /// The nickname a component has before anybody renames it, and therefore
+        /// the one id that means "unnamed".
+        /// </summary>
+        private const string UnnamedNickName = "Tapioca Data Output";
 
         public TapiocaOutputDataComponent ()
             : base (
                 "Tapioca Data Output",
                 "TapiocaOut",
-                "Publishes one named value from this definition back to Archicad's workflow panel.",
+                "Publishes one named value from this definition back to Archicad's workflow panel. Rename it to "
+                    + "name the output.",
                 "Tapioca",
                 "Workflow")
         {
+            // ⚠️ THE FULL NAME ON THE CANVAS, DELIBERATELY, because the name IS
+            // the output's id now. A short nickname would publish a value into
+            // Archicad's panel under a word the author never chose and cannot see
+            // without clicking the component.
+            NickName = UnnamedNickName;
         }
 
+        /// <remarks>
+        /// ⚠️ ONE INPUT AND NO OUTPUT, LIKE ContextBake AND ContextPrint.
+        /// Those are the components Grasshopper Player and rhino.compute already
+        /// use to mean "this value leaves the definition", and they take a value
+        /// and give nothing back: there is nothing downstream of leaving. The Id
+        /// input and the Id output this component used to have were both
+        /// ceremony -- the id is the component's NAME, and echoing it back onto
+        /// the canvas invited a wire that could only loop information the author
+        /// had already typed.
+        /// </remarks>
         protected override void RegisterInputParams (GH_InputParamManager pManager)
         {
-            pManager.AddTextParameter (
-                "Id",
-                "Id",
-                "The stable id Archicad keys this output by. Must be unique in the definition.",
-                GH_ParamAccess.item,
-                string.Empty);
             pManager.AddGenericParameter (
                 "Value",
-                "V",
+                "Value",
                 "The value to publish. Its data tree is preserved.",
                 GH_ParamAccess.tree);
 
-            // Both optional so that an unwired component is a warning on the
-            // canvas rather than an error that fails the whole solution: a
-            // half-built definition is the normal state of one being authored.
-            pManager[IdIndex].Optional = true;
+            // Optional so that an unwired component is a warning on the canvas
+            // rather than an error that fails the whole solution: a half-built
+            // definition is the normal state of one being authored.
             pManager[ValueIndex].Optional = true;
         }
 
         protected override void RegisterOutputParams (GH_OutputParamManager pManager)
         {
-            pManager.AddTextParameter (
-                "Id",
-                "Id",
-                "The id this output resolved to, so a definition can label its own panel.",
-                GH_ParamAccess.item);
+            // Deliberately none. See RegisterInputParams.
         }
 
         protected override void SolveInstance (IGH_DataAccess DA)
         {
-            string id = string.Empty;
-            DA.GetData (IdIndex, ref id);
-
-            // The nickname is the fallback, exactly as it is for inputs: an
-            // author who renames the component on the canvas has named the
-            // output, and making them type the same word twice is friction with
-            // no benefit.
-            m_id = string.IsNullOrWhiteSpace (id) ? (NickName ?? string.Empty).Trim () : id.Trim ();
-            m_label = string.IsNullOrWhiteSpace (NickName) ? m_id : NickName;
-
-            if (string.IsNullOrEmpty (m_id))
+            // ⚠️ NOTHING IS READ AND NOTHING IS WRITTEN HERE. The worker reads
+            // the input parameter's VolatileData after the solution completes,
+            // tree intact; see the class remarks for why that cannot happen from
+            // inside SolveInstance. This override exists only to say when the
+            // component is not usable yet.
+            if (string.Equals (TapiocaOutputId, UnnamedNickName, StringComparison.Ordinal))
             {
                 AddRuntimeMessage (
                     GH_RuntimeMessageLevel.Warning,
-                    "This output has no id, so Archicad has nothing to key it by. Set Id, or rename the "
-                        + "component.");
+                    "Rename this component to name the output. Archicad keys the value by that name, and every "
+                        + "unrenamed output in one definition would claim the same one.");
             }
-
-            DA.SetData (0, m_id);
+            else if (string.IsNullOrWhiteSpace (TapiocaOutputId))
+            {
+                AddRuntimeMessage (
+                    GH_RuntimeMessageLevel.Warning,
+                    "This output has no name, so Archicad has nothing to key it by.");
+            }
         }
 
         /// <summary>
-        /// The id Archicad keys this output by.
+        /// The id Archicad keys this output by: the component's name.
         /// </summary>
         /// <remarks>
-        /// ⚠️ THE NICKNAME IS THE FALLBACK HERE AND NOT ONLY IN SolveInstance,
-        /// AND THAT IS THE FIX FOR AN OUTPUT THAT NEEDED A PANEL TO HAVE A
-        /// NAME. m_id is only filled while solving, so before the first
-        /// solution this answered with an empty string -- which made the panel
-        /// key the value by the component's LABEL, or by nothing. Renaming the
-        /// component on the canvas is how a Grasshopper author names anything;
-        /// requiring a text panel wired into Id as well was asking for the same
-        /// word twice.
-        ///
-        /// The Id input still WINS when it has something in it: an author who
-        /// wants an id that is not the nickname has said so explicitly.
+        /// ⚠️ THE NAME, WITH NOTHING ELSE CONSULTED, AND IT IS AVAILABLE
+        /// BEFORE THE FIRST SOLVE. The panel asks for the schema before anything
+        /// has solved, so an id that was only computed inside SolveInstance
+        /// answered with an empty string at exactly the moment it was needed.
+        /// Renaming a component is how a Grasshopper author names anything; there
+        /// is no second source of truth left to reconcile.
         /// </remarks>
         public string TapiocaOutputId
         {
-            get
-            {
-                if (!string.IsNullOrWhiteSpace (m_id))
-                {
-                    return m_id;
-                }
-
-                return (NickName ?? string.Empty).Trim ();
-            }
+            get { return (NickName ?? string.Empty).Trim (); }
         }
 
         public string TapiocaOutputLabel
         {
-            get { return string.IsNullOrEmpty (m_label) ? m_id : m_label; }
+            get { return TapiocaOutputId; }
         }
 
         /// <summary>
@@ -159,13 +150,25 @@ namespace Tapioca.Grasshopper
         /// with fewer parameters than this component registers, and an
         /// IndexOutOfRange inside collection would lose the whole solution's
         /// outputs over one broken component.
+        ///
+        /// ⚠️ A DEFINITION SAVED WITH THE OLD TWO-INPUT SHAPE STILL WORKS.
+        /// Its Value was the SECOND parameter, so the LAST input is taken rather
+        /// than the first: for this build's one-input component they are the same
+        /// parameter, and for an older document they are the one that held the
+        /// value. The stale Id parameter is left alone -- deleting an author's
+        /// wired parameter on load would be worse than ignoring it.
         /// </remarks>
         public IGH_Param TapiocaOutputParam
         {
             get
             {
                 IList<IGH_Param> inputs = Params.Input;
-                return inputs != null && inputs.Count > ValueIndex ? inputs[ValueIndex] : null;
+                if (inputs == null || inputs.Count == 0)
+                {
+                    return null;
+                }
+
+                return inputs[inputs.Count - 1];
             }
         }
 

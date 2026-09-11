@@ -20,6 +20,7 @@
 #include "NativeCommands/DrawingCommands.hpp"
 #include "NativeCommands/ElementModifyCommands.hpp"
 #include "NativeCommands/ElementReadCommands.hpp"
+#include "NativeCommands/ElementPropertyCommands.hpp"
 #include "NativeCommands/FavoriteCommands.hpp"
 #include "NativeCommands/GdlPreviewCommands.hpp"
 #include "NativeCommands/IdentityCommands.hpp"
@@ -84,6 +85,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetQueryCommandRegistrations,
     &GetSunStudyCommandRegistrations,
     &GetElementReadCommandRegistrations,
+    &GetElementPropertyCommandRegistrations,
     &GetElementModifyCommandRegistrations,
     &GetIdentityCommandRegistrations,
     &GetAttributeCommandRegistrations,

@@ -449,6 +449,11 @@ class ControlPalette final : public DG::Palette,
     // this palette already uses (RFIX/PaletteIcons.grc).
     std::unique_ptr<DG::Button> workflowPowerButton;
     std::unique_ptr<DG::Button> workflowAttachButton;
+    std::unique_ptr<DG::Button> workflowCommitButton;
+    // Whether the next solve asks for a COMMIT. Latched by the band's Commit
+    // button, and deliberately not remembered across a definition load: see
+    // where it is cleared.
+    bool workflowCommit = false;
     // The Attach button's last face, as an AttachFace. Kept as a short because
     // the enum is private to the band's own translation unit.
     short lastWorkflowAttachFace = -1;

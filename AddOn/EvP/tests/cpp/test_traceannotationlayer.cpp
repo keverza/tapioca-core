@@ -469,6 +469,106 @@ TEST (TraceAnnotationLayer, NearCapLimitsTextLinesHalosAndArrowheadsTogether)
                  40.0f / 3.0f, 1.0e-5f);
 }
 
+TEST (TraceAnnotationLayer, HitTestsDimensionSourcePathsAndClampedEndpoints)
+{
+    annotation::Frame frame;
+    frame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } }));
+    frame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Polyline, { { -0.5, 0.4, 0.5 }, { 0.5, 0.4, 0.5 } }));
+
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, false, { 100.0f, 54.0f }),
+               std::optional<std::size_t> (0u));
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, false, { 45.0f, 50.0f }),
+               std::optional<std::size_t> (0u));
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, false, { 43.0f, 50.0f }),
+               std::nullopt);
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, false, { 100.0f, 30.0f }),
+               std::nullopt);
+}
+
+TEST (TraceAnnotationLayer, HitTestPrefersShorterDimensionOnAnOverlappingSourcePath)
+{
+    annotation::Frame frame;
+    frame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.8, 0.0, 0.5 }, { 0.8, 0.0, 0.5 } }));
+    frame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.2, 0.0, 0.5 }, { 0.2, 0.0, 0.5 } }));
+
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, false, { 100.0f, 50.0f }),
+               std::optional<std::size_t> (1u));
+}
+
+TEST (TraceAnnotationLayer, HitTestFollowsTheCompleteSampledDimensionPath)
+{
+    annotation::Frame frame;
+    frame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 }, { 0.5, 0.0, 0.5 } }));
+
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, false, { 100.0f, 28.0f }),
+               std::optional<std::size_t> (0u));
+}
+
+TEST (TraceAnnotationLayer, HitTestUsesFittedProjectionAndIgnoresDistanceHiddenDimensions)
+{
+    annotation::Frame frame;
+    frame.primitives.push_back (
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.1, 0.0, 0.5 }, { 0.1, 0.0, 0.5 } }));
+
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, kIdentity, 200, 100, 1.0f, true, { 24.0f, 50.0f }),
+               std::optional<std::size_t> (0u));
+    float zoomedOut[16];
+    std::copy (kIdentity, kIdentity + 16, zoomedOut);
+    zoomedOut[0] = zoomedOut[5] = 0.5f;
+    EXPECT_EQ (archviz::HitTestTraceDimension (frame, zoomedOut, 200, 100, 1.0f, false, { 100.0f, 50.0f }),
+               std::nullopt);
+}
+
+TEST (TraceAnnotationLayer, PrimitiveFilterRemovesCompleteDimensionsBeforeLayout)
+{
+    annotation::Frame frame;
+    auto dimension = Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    dimension.text = "dimension";
+    auto context = Primitive (annotation::PrimitiveKind::Polyline, { { -0.5, 0.5, 0.5 }, { 0.5, 0.5, 0.5 } });
+    context.role = annotation::SemanticRole::Context;
+    frame.primitives = { dimension, context };
+    const archviz::AnnotationPrimitiveFilter hideDimensions = [] (std::size_t, const annotation::Primitive& primitive) {
+        return primitive.kind != annotation::PrimitiveKind::Dimension;
+    };
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, nullptr, 0.18f,
+                                                      10.0f, 36.0f, hideDimensions);
+
+    ASSERT_EQ (draw.lines.size (), 1u);
+    EXPECT_FALSE (draw.lines[0].collisionObstacle);
+    EXPECT_TRUE (draw.triangles.empty ());
+    EXPECT_TRUE (draw.labels.empty ());
+}
+
+TEST (TraceAnnotationLayer, DimensionHoverRequiresStableHalfSecondAndResetsImmediately)
+{
+    archviz::DimensionHoverState state;
+    const auto source = std::make_shared<annotation::DrawList> ();
+    const auto start = std::chrono::steady_clock::time_point {} + std::chrono::seconds (10);
+
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 2u, 4u, true, start), std::nullopt);
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 2u, 4u, true, start + std::chrono::milliseconds (499)),
+               std::nullopt);
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 2u, 4u, true, start + std::chrono::milliseconds (500)),
+               std::optional<std::size_t> (4u));
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 2u, 5u, true, start + std::chrono::seconds (1)),
+               std::nullopt);
+    EXPECT_EQ (
+        archviz::UpdateDimensionHover (state, source, 1u, 2u, 5u, true, start + std::chrono::milliseconds (1500)),
+        std::optional<std::size_t> (5u));
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 2u, 5u, false, start + std::chrono::seconds (2)),
+               std::nullopt);
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 2u, 5u, true, start + std::chrono::seconds (3)),
+               std::nullopt);
+    EXPECT_EQ (archviz::UpdateDimensionHover (state, source, 1u, 3u, 5u, true, start + std::chrono::seconds (4)),
+               std::nullopt);
+}
+
 TEST (TraceAnnotationLayer, KeepsPreviousValidCandidateAcrossCameraFrames)
 {
     annotation::Frame frame;
