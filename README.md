@@ -1,6 +1,7 @@
 # Tapioca
 ![Tapioca logo](./docs/static/Logo.jpg)
 
+The steamed potato sidecar for ArchiCAD needs.
 Tapioca is an UI for Python automation scripts.
 Tapioca exposes more AC29 C++ SDK calls and can call upon Tapir and ArchiCAD python API if installed. Check examples for possibilities.
 
