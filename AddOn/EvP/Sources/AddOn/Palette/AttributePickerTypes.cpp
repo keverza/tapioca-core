@@ -44,54 +44,68 @@ namespace evp {
 bool UserControlTypeFor (const GS::UniString& type, API_UserControlType& control, API_AttrTypeID& attrType)
 {
     if (type == "Layer") {
-        control  = APIUserControlType_Layer;
+        control = APIUserControlType_Layer;
         attrType = API_LayerID;
-    } else if (type == "Fill") {
-        control  = APIUserControlType_PolyFill;
+    }
+    else if (type == "Fill") {
+        control = APIUserControlType_PolyFill;
         attrType = API_FilltypeID;
-    } else if (type == "LineType") {
-        control  = APIUserControlType_SymbolLine;
+    }
+    else if (type == "LineType") {
+        control = APIUserControlType_SymbolLine;
         attrType = API_LinetypeID;
-    } else if (type == "Surface") {
+    }
+    else if (type == "Surface") {
         // Surfaces are "materials" in the API. APIUserControlType_Material is on the
         // picker's supported list (v26+, API_AttributePickerParams) — verified before
         // wiring, unlike AllFill which was not and fell back to a popup.
-        control  = APIUserControlType_Material;
+        control = APIUserControlType_Material;
         attrType = API_MaterialID;
-    } else if (type == "BuildingMaterial") {
-        control  = APIUserControlType_BuildingMaterial;
+    }
+    else if (type == "BuildingMaterial") {
+        control = APIUserControlType_BuildingMaterial;
         attrType = API_BuildingMaterialID;
-    } else if (type == "WallComposite") {
-        control  = APIUserControlType_WallComposites;
+    }
+    else if (type == "WallComposite") {
+        control = APIUserControlType_WallComposites;
         attrType = API_CompWallID;
-    } else if (type == "SlabComposite") {
-        control  = APIUserControlType_SlabComposites;
+    }
+    else if (type == "SlabComposite") {
+        control = APIUserControlType_SlabComposites;
         attrType = API_CompWallID;
-    } else if (type == "RoofComposite") {
-        control  = APIUserControlType_RoofComposites;
+    }
+    else if (type == "RoofComposite") {
+        control = APIUserControlType_RoofComposites;
         attrType = API_CompWallID;
-    } else if (type == "ShellComposite") {
-        control  = APIUserControlType_ShellComposites;
+    }
+    else if (type == "ShellComposite") {
+        control = APIUserControlType_ShellComposites;
         attrType = API_CompWallID;
-    } else if (type == "WallProfile") {
-        control  = APIUserControlType_WallProfile;
+    }
+    else if (type == "WallProfile") {
+        control = APIUserControlType_WallProfile;
         attrType = API_ProfileID;
-    } else if (type == "BeamProfile") {
-        control  = APIUserControlType_BeamProfile;
+    }
+    else if (type == "BeamProfile") {
+        control = APIUserControlType_BeamProfile;
         attrType = API_ProfileID;
-    } else if (type == "ColumnProfile") {
-        control  = APIUserControlType_ColumnProfile;
+    }
+    else if (type == "ColumnProfile") {
+        control = APIUserControlType_ColumnProfile;
         attrType = API_ProfileID;
-    } else if (type == "HandrailProfile") {
-        control  = APIUserControlType_HandrailProfile;
+    }
+    else if (type == "HandrailProfile") {
+        control = APIUserControlType_HandrailProfile;
         attrType = API_ProfileID;
-    } else if (type == "AllProfile") {
-        control  = APIUserControlType_AllProfile;
+    }
+    else if (type == "AllProfile") {
+        control = APIUserControlType_AllProfile;
         attrType = API_ProfileID;
-    } else {
+    }
+    else {
         return false;
     }
     return true;
 }
 
-}   // namespace evp
+} // namespace evp

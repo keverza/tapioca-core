@@ -2,8 +2,10 @@
 #define GEOMETRYSERVER_PALETTE_ATTRIBUTEPICKERTYPES_HPP
 
 #include "APIEnvir.h"
+
+#include <string>
 #include "ACAPinc.h"
-#include "APIdefs_Interface.h"   // API_UserControlType, API_AttributePickerParams
+#include "APIdefs_Interface.h" // API_UserControlType, API_AttributePickerParams
 
 namespace evp {
 
@@ -15,9 +17,8 @@ namespace evp {
 // Lives apart from ParamPanel because it is API KNOWLEDGE, not panel layout: every
 // entry here is a claim about the picker's supported-type list, and one of them was
 // already wrong once (see the .cpp).
-bool UserControlTypeFor (const GS::UniString& type, API_UserControlType& control,
-                         API_AttrTypeID& attrType);
+bool UserControlTypeFor (const GS::UniString& type, API_UserControlType& control, API_AttrTypeID& attrType);
 
-}   // namespace evp
+} // namespace evp
 
 #endif

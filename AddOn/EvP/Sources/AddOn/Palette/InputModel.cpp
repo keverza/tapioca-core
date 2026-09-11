@@ -1,5 +1,7 @@
 #include "InputModel.hpp"
 
+#include <cstring>
+
 #include "NodeGraph/Json.hpp"
 
 #include <algorithm>
@@ -211,14 +213,25 @@ const char* DescribeInputKind (InputKind kind)
             return "enum";
         case InputKind::Selection:
             return "selection";
+        case InputKind::Attribute:
+            return "attribute";
         case InputKind::Unsupported:
             return "unsupported";
     }
     return "unsupported";
 }
 
+std::string AttributeSubtypeOf (const std::string& declaredType)
+{
+    const size_t prefix = std::strlen (AttributeTypePrefix);
+    if (declaredType.compare (0, prefix, AttributeTypePrefix) != 0)
+        return declaredType;
+    return declaredType.substr (prefix);
+}
+
 InputKind InputKindFromName (const std::string& name)
 {
+
     if (name == "number")
         return InputKind::Number;
     if (name == "integer")
@@ -233,6 +246,22 @@ InputKind InputKindFromName (const std::string& name)
         return InputKind::Enum;
     if (name == "selection")
         return InputKind::Selection;
+
+    // ⚠️ STOREY AND PEN ARE INTEGERS UNTIL THEY EARN THEIR OWN CONTROLS,
+    // and mapping them here rather than leaving them Unsupported is the
+    // difference between a NUMBER FIELD and a TEXT BOX for a value that is a
+    // number. Both are genuinely integers -- a storey is an index, and a pen has
+    // no name at all, which is why AttributePickerTypes leaves pens out of the
+    // picker table. The declared type survives on the row, so the slice that
+    // gives them a storey list and a pen swatch changes only this line.
+    if (name == "story" || name == "pen")
+        return InputKind::Integer;
+
+    // Any "attribute:<Type>" is an attribute input; which Archicad control lists
+    // that subtype is AttributePickerTypes' business, not this file's.
+    if (name.compare (0, std::strlen (AttributeTypePrefix), AttributeTypePrefix) == 0)
+        return InputKind::Attribute;
+
     return InputKind::Unsupported;
 }
 
@@ -392,6 +421,16 @@ CoerceResult Coerce (const InputControl& control, const std::string& text)
             if (control.hasMaximum && value > control.maximum)
                 return Refuse (control, "must be at most " + FormatInputNumber (control.maximum) + ".");
             return Accept (FormatInputNumber (value));
+        }
+
+        case InputKind::Attribute: {
+            // ⚠️ TAKEN AS GIVEN, BECAUSE THE CONTROL CANNOT INVENT ONE. The
+            // value comes from Archicad's own attribute picker, which lists what
+            // the project contains and offers no typing -- ParamPanel's note is
+            // the reason a layer field must never be a text box, since a typo
+            // there would CREATE a layer. An empty value is legitimate: a
+            // definition may be solved before anybody has picked.
+            return Accept (trimmed);
         }
 
         case InputKind::Selection: {

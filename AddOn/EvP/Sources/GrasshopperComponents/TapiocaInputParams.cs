@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Windows.Forms;
 
 using GH_IO.Serialization;
 using Grasshopper.Kernel;
@@ -670,8 +671,39 @@ namespace Tapioca.Grasshopper
         public override bool Read (GH_IReader reader)
         {
             m_core.Read (reader);
+            RefreshFlavourCaption ();
             return base.Read (reader);
         }
+
+        /// <remarks>
+        /// ⚠️ THE FLAVOUR MENU, AND IT IS WHY THERE IS NO Tapioca Layer
+        /// COMPONENT. See TapiocaInputFlavours: one parameter per data type, and
+        /// a right-click choice of which Archicad control the panel offers for
+        /// it. The native pickers are unchanged -- the flavour is simply what the
+        /// schema declares the input's type to be.
+        /// </remarks>
+        public override void AppendAdditionalMenuItems (ToolStripDropDown menu)
+        {
+            base.AppendAdditionalMenuItems (menu);
+            Menu_AppendSeparator (menu);
+            TapiocaInputFlavours.Append (menu, this, m_core, TapiocaInputFlavours.ForInteger ());
+        }
+
+        /// <summary>The flavour, written where the author can read it.</summary>
+        /// <remarks>
+        /// ⚠️ ON THE DESCRIPTION, NOT ON A Message. A Grasshopper PARAMETER
+        /// draws no message line -- that is a component's affordance -- so the
+        /// chosen type goes where a parameter does show text: its tooltip, which
+        /// is what hovering it already offers. The menu's own check mark is the
+        /// other half of the answer.
+        /// </remarks>
+        private void RefreshFlavourCaption ()
+        {
+            const string Base = "A whole number Tapioca collects in Archicad and injects before the solve.";
+            string caption = TapiocaInputFlavours.Caption (m_core, TapiocaInputFlavours.ForInteger ());
+            Description = caption.Length == 0 ? Base : Base + "  [Archicad " + caption + "]";
+        }
+
     }
 
     /// <summary>
@@ -1036,7 +1068,37 @@ namespace Tapioca.Grasshopper
         public override bool Read (GH_IReader reader)
         {
             m_core.Read (reader);
+            RefreshFlavourCaption ();
             return base.Read (reader);
+        }
+
+        /// <remarks>
+        /// ⚠️ THE FLAVOUR MENU, AND IT IS WHY THERE IS NO Tapioca Layer
+        /// COMPONENT. See TapiocaInputFlavours: one parameter per data type, and
+        /// a right-click choice of which Archicad control the panel offers for
+        /// it. The native pickers are unchanged -- the flavour is simply what the
+        /// schema declares the input's type to be.
+        /// </remarks>
+        public override void AppendAdditionalMenuItems (ToolStripDropDown menu)
+        {
+            base.AppendAdditionalMenuItems (menu);
+            Menu_AppendSeparator (menu);
+            TapiocaInputFlavours.Append (menu, this, m_core, TapiocaInputFlavours.ForText ());
+        }
+
+        /// <summary>The flavour, written where the author can read it.</summary>
+        /// <remarks>
+        /// ⚠️ ON THE DESCRIPTION, NOT ON A Message. A Grasshopper PARAMETER
+        /// draws no message line -- that is a component's affordance -- so the
+        /// chosen type goes where a parameter does show text: its tooltip, which
+        /// is what hovering it already offers. The menu's own check mark is the
+        /// other half of the answer.
+        /// </remarks>
+        private void RefreshFlavourCaption ()
+        {
+            const string Base = "Text Tapioca collects in Archicad and injects before the solve.";
+            string caption = TapiocaInputFlavours.Caption (m_core, TapiocaInputFlavours.ForText ());
+            Description = caption.Length == 0 ? Base : Base + "  [Archicad " + caption + "]";
         }
     }
 

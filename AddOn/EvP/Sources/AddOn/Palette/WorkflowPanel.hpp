@@ -70,6 +70,17 @@ struct WorkflowControl {
     std::unique_ptr<DG::Button> selectionClear;
     std::unique_ptr<DG::LeftText> selectionCount;
 
+    // Attribute: ARCHICAD'S OWN PICKER, hosted on a PushCheck, exactly as
+    // ParamPanel hosts one. It lists what the project actually contains and
+    // offers no typing, which is the whole reason a layer input must not be a
+    // text box -- a typo in one would create a layer rather than choose one.
+    // `attributePopUp` is the fallback for a type the picker refuses.
+    std::unique_ptr<DG::PushCheck> attributeHost;
+    GS::Owner<API_AttributePicker> picker;
+    API_AttrTypeID attrType = API_ZombieAttrID;
+    std::unique_ptr<DG::PopUp> attributePopUp;
+    GS::Array<GS::UniString> attributeChoices;
+
     // A bounded number's slider, beside its field rather than instead of it.
     // Null on every other row. The FIELD is the value; this only writes into it.
     std::unique_ptr<DG::ScrollBar> slider;

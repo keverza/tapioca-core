@@ -61,6 +61,12 @@ struct WorkflowRow {
 
     InputKind kind = InputKind::Text;
 
+    // The schema's own spelling of the type, carried because one kind covers
+    // fourteen of them: an Attribute row needs its exact type name to ask
+    // AttributePickerTypes which Archicad control lists it. Empty for a heading,
+    // and unused by every other kind.
+    std::string declaredType;
+
     // The bounds the input declared, carried rather than re-derived from
     // `domainHint`.
     //

@@ -7,6 +7,7 @@ _PANEL = _ADDON / "Palette" / "PreviewPanel.cpp"
 _PANEL_SUPPORT = _ADDON / "Palette" / "PreviewPanelSupport.cpp"
 _VIEWPORT_CONTROL = _ADDON / "ArchViz" / "DiligentViewportControl.cpp"
 _VIEWPORT_SUPPORT = _ADDON / "ArchViz" / "DiligentViewportSupport.cpp"
+_TRACE_ANNOTATION_VIEWPORT = _ADDON / "ArchViz" / "TraceAnnotationViewport.cpp"
 _ARCHVIZ_PANEL = _ADDON / "ArchViz" / "ArchVizPanel.cpp"
 _PLAN_HOST = _ADDON / "PlanOverlay" / "PlanCanvasHost.cpp"
 _PLAN_OVERLAY = _ADDON / "PlanOverlay" / "OverlayWindow.cpp"
@@ -116,7 +117,7 @@ def test_renderer_consumes_only_retained_watch_selection_for_preview_annotations
     renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
         encoding="utf-8"
     )
-    support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
+    support = _TRACE_ANNOTATION_VIEWPORT.read_text(encoding="utf-8")
 
     assert "SelectedRetainedFrameSnapshotCopy" in support
     assert "BuildTraceAnnotations" in support
@@ -129,7 +130,7 @@ def test_renderer_routes_annotation_labels_through_scene_text_with_imgui_fallbac
     renderer = (_ADDON / "ArchViz" / "DiligentViewport.cpp").read_text(
         encoding="utf-8"
     )
-    support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
+    support = _TRACE_ANNOTATION_VIEWPORT.read_text(encoding="utf-8")
     projected = support.index("layer.DrawProjected")
     fallback_clear = support.index("annotations.labels.clear", projected)
 
@@ -222,6 +223,7 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
         encoding="utf-8"
     )
     support = _VIEWPORT_SUPPORT.read_text(encoding="utf-8")
+    trace_support = _TRACE_ANNOTATION_VIEWPORT.read_text(encoding="utf-8")
     header = (_ADDON / "ArchViz" / "SceneTextLayer.hpp").read_text(
         encoding="utf-8"
     )
@@ -259,7 +261,8 @@ def test_scene_text_occlusion_samples_raster_depth_without_writing_it():
     assert "Scene text clear-depth fallback" in layer
     assert "SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE" in layer
     assert "DrawSceneTextOcclusionLiveCheck" in support
-    assert support.index("DrawSceneTextOcclusionLiveCheck") < support.index("UpdateAndDrawTraceAnnotations")
+    assert renderer.index("UpdateAndDrawSceneText") < renderer.index("UpdateAndDrawTraceAnnotations")
+    assert "layer.DrawProjected" in trace_support
 
 
 def test_plan_overlay_opens_through_shared_native_host_without_a_bus_command():

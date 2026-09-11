@@ -133,6 +133,7 @@ std::vector<WorkflowRow> BuildWorkflowRows (const InputModel& model)
         row.id = control.id;
         row.label = control.label.empty () ? control.id : control.label;
         row.kind = control.kind;
+        row.declaredType = control.declaredType;
         row.choices = control.choices;
         row.required = control.required;
         row.hasMinimum = control.hasMinimum;

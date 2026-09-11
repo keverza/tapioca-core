@@ -738,9 +738,15 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
     }
 
     if (workflowPreviewButton && ev.GetSource () == workflowPreviewButton.get ()) {
-        // Opened whether or not this session has produced a preview yet: an
-        // empty viewer that says so beats a button that does nothing when
-        // pressed, and the viewer is where the preview WILL appear.
+        // ⚠️ IT SOLVES NOW, AND OPENING THE VIEWER ALONE WAS THE BUG. A
+        // preview is not a window, it is a RESULT: pressing this used to show an
+        // empty viewer and wait for somebody to press Solve, which is two presses
+        // for one intention and an empty window in between.
+        PreviewWorkflowNow ();
+
+        // After the request, not before: the viewer is where the preview will
+        // appear, and it is opened whether or not this session has produced one
+        // yet -- an empty viewer that says so beats a button that looks dead.
         ArchVizPanel::OpenViewer ();
         return true;
     }
@@ -880,6 +886,31 @@ void ControlPalette::LoadWorkflowDefinition (const std::string& path)
 
 void ControlPalette::SolveWorkflowNow ()
 {
+    uint32_t wants = evp::grasshopper::protocol::SolveWantsPreview | evp::grasshopper::protocol::SolveWantsData;
+    if (workflowCommit)
+        wants |= evp::grasshopper::protocol::SolveWantsCommit;
+
+    SendWorkflowSolve (wants, workflowCommit);
+}
+
+// ⚠️ PREVIEW ONLY, AND NEVER A COMMIT -- NOT EVEN WHILE COMMIT IS ARMED.
+// "Resolve the script but do not create geometry in Archicad" is exactly one bit
+// of difference from a solve: Commit is what presses Tapir's Execute buttons, so
+// leaving it out is what makes this safe to press while looking at something.
+// The arming is left alone rather than cleared: it belongs to the Solve button,
+// and silently disarming it here would make the next Solve do less than the user
+// had set up.
+//
+// SolveWantsData is left out too, because the user asked for the preview to
+// update and nothing else: a data pass would re-publish every output value into
+// the panel's table for a press that was about seeing the geometry.
+void ControlPalette::PreviewWorkflowNow ()
+{
+    SendWorkflowSolve (evp::grasshopper::protocol::SolveWantsPreview, false);
+}
+
+void ControlPalette::SendWorkflowSolve (uint32_t wants, bool committing)
+{
     const evp::WorkflowSnapshot snapshot = workflow.Collect ();
     workflow.MarkRefused (snapshot.refused);
 
@@ -929,9 +960,7 @@ void ControlPalette::SolveWorkflowNow ()
     // has been in the protocol since the session messages were written and
     // nothing asked for it, which is why a Tapir definition run from this panel
     // solved cleanly and created nothing.
-    uint32_t wants = evp::grasshopper::protocol::SolveWantsPreview | evp::grasshopper::protocol::SolveWantsData;
-    if (workflowCommit) {
-        wants |= evp::grasshopper::protocol::SolveWantsCommit;
+    if (committing) {
         // Said on EVERY committing solve, not once when the button was armed: a
         // latch the user set two minutes ago is a latch they have forgotten, and
         // this is the line that stops a re-solve writing a second set of walls
@@ -941,9 +970,12 @@ void ControlPalette::SolveWorkflowNow ()
 
     controller.SetInputs (inputs, wants);
 
+    const bool previewOnly = wants == (uint32_t) evp::grasshopper::protocol::SolveWantsPreview;
+
     std::string error;
     if (controller.SolveNow (error)) {
-        NoteWorkflowLine ("Solve requested.");
+        NoteWorkflowLine (previewOnly ? "Preview requested: solving without writing anything to Archicad."
+                                      : "Solve requested.");
     }
     else {
         SetCommandStatus (FromStd (error));

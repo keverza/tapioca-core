@@ -250,6 +250,15 @@ class ControlPalette final : public DG::Palette,
     std::string loadedWorkflowPath;
     void SolveWorkflowNow ();
 
+    // Solves for PREVIEW ONLY: no data collection, and never a commit even while
+    // Commit is armed. See the definition for why that exception is the point.
+    void PreviewWorkflowNow ();
+
+  private:
+    // The one path both take. `wants` is the only difference between them.
+    void SendWorkflowSolve (uint32_t wants, bool committing);
+
+  public:
     const evp::CommandInfo* SelectedCommand () const
     {
         return commandsPanel.Selected ();

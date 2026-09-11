@@ -46,6 +46,22 @@ namespace Tapioca.Grasshopper
         // report if it were asked.
         private readonly string m_typeName;
 
+        // The FLAVOUR: which Archicad control the panel should offer for this
+        // input, when its data type alone does not say.
+        //
+        // ⚠️ A SETTING, NOT A SUBCLASS, AND THAT REPLACED FOURTEEN CLASSES.
+        // A layer, a fill, a wall composite and a profile are all ONE TEXT VALUE
+        // travelling to Archicad; a storey and a pen are both ONE INTEGER. What
+        // differs is the picker the panel puts in front of the user, which is a
+        // property of the input and not of its type. Fourteen parameter classes
+        // said otherwise and made an author choose a component per attribute
+        // kind, when what they wanted was to say "this text is a layer".
+        //
+        // Empty means the plain type. The value is a type name the panel already
+        // understands (see TypeName), and it is PERSISTED, because a definition
+        // saved with a layer input must still be one tomorrow.
+        private string m_flavour = string.Empty;
+
         private string m_id = string.Empty;
         private string m_label = string.Empty;
         private string m_group = string.Empty;
@@ -67,9 +83,38 @@ namespace Tapioca.Grasshopper
             m_typeName = typeName;
         }
 
+        /// <summary>
+        /// What the schema declares this input's type to be: the flavour when one
+        /// is chosen, the parameter's own type otherwise.
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ THE FLAVOUR WINS, AND THE PANEL NEEDS NOTHING NEW TO
+        /// UNDERSTAND IT. The schema's type name is already the whole contract
+        /// with the panel -- "number", "string", "attribute:Layer" -- so an
+        /// input that declares "attribute:Layer" gets Archicad's layer picker
+        /// through exactly the path a dedicated layer parameter would have used.
+        /// A flavour the panel does not implement yet degrades to a text field
+        /// with its type written beside the label, which is what the panel
+        /// already does with any type it does not know.
+        /// </remarks>
         internal string TypeName
         {
+            get { return m_flavour.Length > 0 ? m_flavour : m_typeName; }
+        }
+
+        /// <summary>The parameter's own data type, ignoring any flavour.</summary>
+        internal string BaseTypeName
+        {
             get { return m_typeName; }
+        }
+
+        /// <summary>
+        /// The chosen flavour, or empty for the plain type.
+        /// </summary>
+        internal string Flavour
+        {
+            get { return m_flavour; }
+            set { m_flavour = value == null ? string.Empty : value.Trim (); }
         }
 
         /// <summary>
@@ -233,6 +278,8 @@ namespace Tapioca.Grasshopper
         // field existed is a normal thing to open, and GH_IReader throws rather
         // than returning a default for a chunk item that is not there.
 
+        private const string KeyFlavour = "TapiocaFlavour";
+
         private const string KeyId = "TapiocaInputId";
         private const string KeyLabel = "TapiocaInputLabel";
         private const string KeyGroup = "TapiocaInputGroup";
@@ -249,6 +296,7 @@ namespace Tapioca.Grasshopper
         internal void Write (GH_IWriter writer)
         {
             writer.SetString (KeyId, m_id);
+            writer.SetString (KeyFlavour, m_flavour);
             writer.SetString (KeyLabel, m_label);
             writer.SetString (KeyGroup, m_group);
             writer.SetString (KeyDescription, m_description);
@@ -279,6 +327,11 @@ namespace Tapioca.Grasshopper
             if (reader.ItemExists (KeyId))
             {
                 m_id = reader.GetString (KeyId);
+            }
+
+            if (reader.ItemExists (KeyFlavour))
+            {
+                m_flavour = reader.GetString (KeyFlavour);
             }
 
             if (reader.ItemExists (KeyLabel))

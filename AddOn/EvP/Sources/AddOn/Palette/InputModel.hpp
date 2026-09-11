@@ -47,10 +47,41 @@ enum class InputKind {
     // nothing: a text field full of GUIDs would be unreadable, untypable, and a
     // second place to change something that has a better one.
     Selection,
+    // ⚠️ ONE KIND FOR FOURTEEN ARCHICAD ATTRIBUTE TYPES, because the SUBTYPE
+    // IS ALREADY CARRIED. InputControl.declaredType holds the schema's own type
+    // name verbatim, and Palette/AttributePickerTypes.hpp turns that name into
+    // an API_UserControlType and an API_AttrTypeID -- so a layer, a wall
+    // composite and a beam profile differ by a string this model already has,
+    // not by fourteen enum values that every switch would have to grow.
+    //
+    // The header of this file predicted exactly this: "If a workflow ever needs
+    // a layer picker, the neutral InputModel grows a kind and BOTH panels learn
+    // it there."
+    Attribute,
     Unsupported,
 };
 
 const char* DescribeInputKind (InputKind kind);
+
+// The prefix an attribute input's declared type carries, and the reason this
+// file needs to know nothing else about Archicad's attributes.
+//
+// ⚠️ THE FIRST ATTEMPT ASKED AttributePickerTypes WHETHER A NAME WAS AN
+// ATTRIBUTE, AND THE OFFLINE SUITE REFUSED TO LINK -- correctly. This model is
+// DevKit-free and tested offline (tests/cpp/test_ghinputmodel.cpp compiles it
+// with no ACAPI at all); a call into the picker table dragged the whole DevKit
+// into that binary. The alternative -- a second list of the fourteen type names
+// here -- would be two vocabularies to keep in step.
+//
+// So the PACKAGE says which of its inputs is an attribute, in the type name
+// itself: "attribute:Layer", "attribute:WallComposite". One prefix to test for,
+// the subtype carried after it, and nothing in this file that can disagree with
+// the API.
+constexpr const char* AttributeTypePrefix = "attribute:";
+
+// The subtype of an attribute input -- "Layer" out of "attribute:Layer" -- or
+// the name unchanged when it carries no prefix.
+std::string AttributeSubtypeOf (const std::string& declaredType);
 
 // The schema's spelling of a type, as TapiocaInputSchema.ToJson writes it.
 // Unknown spellings become Unsupported.

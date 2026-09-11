@@ -9,6 +9,9 @@
 #include "AddOnCommands.hpp"                    // ExecuteNativeCommand, for the selection verbs
 #include "ResourceIds.hpp"                      // the five selection icons
 
+#include "Palette/AttributePickerTypes.hpp" // UserControlTypeFor - which Archicad picker lists a type
+#include "NativeCommands/CommandUtils.hpp"  // AttributeNameToIndex / AttributeIndexToName
+
 #include <cstring>
 
 #include <cstdlib>
@@ -51,6 +54,10 @@ DG::Item* WorkflowControl::Widget () const
         return realEdit.get ();
     if (intEdit)
         return intEdit.get ();
+    if (attributeHost)
+        return attributeHost.get ();
+    if (attributePopUp)
+        return attributePopUp.get ();
     return nullptr;
 }
 
@@ -119,6 +126,20 @@ GS::UniString WorkflowControl::CurrentText () const
     // holding its value -- the caption is a display and the store is the truth.
     if (row.kind == InputKind::Selection)
         return SelectionValue (row.id);
+
+    // ⚠️ THE NAME, NOT THE INDEX, for the reason ParamReadback gives for the same
+    // control: a name matches the declared default, reads well in a log and
+    // survives being written down, while an index means nothing in another
+    // project. A definition resolves name -> index when it needs to.
+    if (picker != nullptr)
+        return geomsrv::AttributeIndexToName (attrType, picker->GetSelectedAttributeIndex ());
+
+    if (attributePopUp) {
+        const short selected = attributePopUp->GetSelectedItem ();
+        if (selected < 1 || (USize) selected > attributeChoices.GetSize ())
+            return GS::UniString ();
+        return attributeChoices[(USize) (selected - 1)];
+    }
 
     if (checkBox)
         return checkBox->IsChecked () ? "true" : "false";
@@ -306,6 +327,70 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                 // count belongs beside the buttons that change it.
                 control.selectionCount = std::make_unique<DG::LeftText> (panel, seed);
                 control.selectionCount->SetText (SelectionCount (row.id));
+                break;
+            }
+
+            case InputKind::Attribute: {
+                API_UserControlType controlType = APIUserControlType_Layer;
+                // The subtype, not the whole declared name: the prefix is how the
+                // DevKit-free model recognised this row, and the table knows
+                // only Archicad's own type names.
+                const std::string subtype = AttributeSubtypeOf (row.declaredType);
+                if (!UserControlTypeFor (ToUniString (subtype), controlType, control.attrType)) {
+                    // The kind was decided by the same table, so this cannot
+                    // happen -- and if the two ever disagree, a text field is a
+                    // worse answer than an empty picker. Fall through to the
+                    // default row rather than pretend.
+                    auto edit = std::make_unique<DG::TextEdit> (panel, seed);
+                    edit->SetText (ToUniString (row.initialValue));
+                    edit->Attach (observer);
+                    control.editText = std::move (edit);
+                    break;
+                }
+
+                auto host = std::make_unique<DG::PushCheck> (panel, seed);
+
+                API_AttributePickerParams params;
+                params.type = controlType;
+                params.dialogID = panel.GetId ();
+                params.itemID = host->GetId ();
+                params.pushCheckAppearance = API_AttributePickerParams::PushCheckAppearance::ArrowIconAndText;
+
+                const bool created =
+                    ACAPI_Dialog_CreateAttributePicker (params, control.picker) == NoError && control.picker != nullptr;
+                if (created) {
+                    API_AttributeIndex index;
+                    if (geomsrv::AttributeNameToIndex (control.attrType, ToUniString (row.initialValue), index))
+                        control.picker->SetSelectedAttributeIndex (index);
+                    control.attributeHost = std::move (host);
+                    break;
+                }
+
+                // ⚠️ THE SAME FALLBACK ParamPanel HAS, AND FOR THE SAME REASON:
+                // a popup listing what the project ACTUALLY contains. Still no
+                // typing, so still no invented attribute -- just not Archicad's
+                // own widget. ParamPanel learned this the hard way by asking the
+                // picker for a type that is not on its supported list.
+                host.reset ();
+                auto popup = std::make_unique<DG::PopUp> (panel, seed, RowHeight, 0);
+                GS::Array<API_Attribute> attributes;
+                if (ACAPI_Attribute_GetAttributesByType (control.attrType, attributes) == NoError) {
+                    for (const API_Attribute& attribute : attributes)
+                        control.attributeChoices.Push (GS::UniString (attribute.header.name));
+                }
+                for (USize index = 0; index < control.attributeChoices.GetSize (); ++index) {
+                    popup->AppendItem ();
+                    popup->SetItemText ((short) (index + 1), control.attributeChoices[index]);
+                    if (control.attributeChoices[index] == ToUniString (row.initialValue))
+                        popup->SelectItem ((short) (index + 1));
+                }
+                if (control.attributeChoices.IsEmpty ()) {
+                    popup->AppendItem ();
+                    popup->SetItemText (1, "(none in this project)");
+                    popup->Disable ();
+                }
+                popup->Attach (observer);
+                control.attributePopUp = std::move (popup);
                 break;
             }
 
