@@ -20,10 +20,13 @@
 #include "ArchViz/CameraSyncMode.hpp"
 #include "ArchViz/CameraWake.hpp"
 #include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/SharedOverlaySurface.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
+#include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 #include "ArchViz/NavLog.hpp"
 #include "ArchViz/PlanCameraMath.hpp"   // PredictPlanCamera — the `predict` mode
 #include "ArchViz/PlanViewCamera.hpp"
@@ -424,6 +427,104 @@ geomsrv::archviz::CameraStart ApplyPrediction (const geomsrv::archviz::CameraSta
     return out;
 }
 
+// ---- the GPU-state discovery path (PLAT-RE153..RE155) ----------------------
+// MAIN THREAD, from the camera tick, because that is where the ACAPI reference
+// camera already is and where the frame-close ring can safely be drained.
+//
+// ⚠️ THE REFERENCE IS THE *OBSERVATION*, NEVER THE PREDICTION. The predictor
+// exists to guess where Archicad will be; scoring a captured matrix against a
+// guess would credit the candidate for agreeing with our extrapolation rather
+// than with Archicad. This is the same distinction the nav log's own rows learned
+// the hard way -- an instrument that reads its own output is worse than none,
+// because the number looks reasonable.
+//
+// ⚠️ CLASSIFICATION IS THROTTLED AND THE ORACLE ROW IS NOT. Scoring walks every
+// tracked buffer and inverts matrices; at the tick rate it would cost the main
+// thread more than the hooks cost the render thread. The oracle row is one
+// snprintf and it is what makes a run reconstructable, so it goes every tick a
+// log is open.
+void PollGpuStateOnce (const geomsrv::archviz::CameraStart& observed)
+{
+    namespace dxgi = geomsrv::archviz::dxgi;
+    if (!dxgi::ContextHookWanted ())
+        return;
+
+    // Which chain is Archicad's, without enabling the phase-3 marker -- see
+    // HookMarker.hpp for why those are two questions. It needs a second of
+    // frames to answer, so it is asked every tick until it does.
+    dxgi::NominateArchicadChain ();
+
+    // ⚠️ THE INSTALL HAPPENS HERE, NOT AT ARM, AND IT CANNOT HAPPEN EARLIER. The
+    // hook patches the vtable of ARCHICAD'S OWN immediate context, which is only
+    // reachable through the swap chain the present detour identifies -- about
+    // sixty of Archicad's frames after arming. The 2026-09-13 run installed at
+    // arm time against a throwaway device's vtable instead, self-tested it green
+    // and then recorded nothing at all for 724 frames, because D3D11 hands out
+    // different context implementations for different device flags and that
+    // table was one nobody dispatched through.
+    //
+    // It is safe to call every tick: it returns immediately once installed, and
+    // a refusal latches so a failed install is not retried sixty times a second.
+    if (!dxgi::ContextHookInstalled ()) {
+        std::string installError;
+        if (!dxgi::InstallContextHook (installError))
+            return;   // not yet, or refused -- the reason is in the stats
+    }
+
+    // ⚠️ AND PUT THE DETOURS BACK IF THE RUNTIME TOOK THEM OUT, WHICH IT DOES.
+    // Archicad's context vtable is inline in the object and D3D11 re-points its
+    // entries as device state changes, so a swap that is written once does not
+    // stay written -- unlike `IDXGISwapChain`'s table in .rdata, which is why the
+    // same technique has been stable there for months. The eighth live run
+    // (2026-09-13) found ZERO of twenty-seven slots still patched after a
+    // twelve-second orbit, and that single number retracted four runs' worth of
+    // conclusions about where Archicad draws. Everything those runs measured was
+    // one or two frames before the hook was quietly overwritten.
+    dxgi::RepairContextHook ();
+
+    const dxgi::renderstate::FrameState frame = dxgi::renderstate::LatestFrame ();
+    if (!frame.valid)
+        return;
+
+    // ⚠️ THE SCENE CANDIDATE FIRST, THE LARGEST AS THE FALLBACK. A frame whose
+    // depth was never cleared has no scene candidate at all -- the plan window
+    // is exactly that case -- and falling back to the largest viewport is a
+    // worse guess that is still better than scoring against a zero-sized
+    // rectangle, which would divide the pixel error by nothing.
+    const dxgi::renderstate::GpuViewport viewport =
+        (frame.sceneCandidate.width > 1.0f && frame.sceneCandidate.height > 1.0f)
+            ? frame.sceneCandidate : frame.largest;
+
+    // "Moved" is decided against the last observation this function saw, not
+    // against the renderer's camera: the renderer may be blanked, predicted or
+    // holding a pose, and none of those say whether ARCHICAD moved.
+    static geomsrv::archviz::CameraStart g_previous;
+    bool moved = true;
+    if (g_previous.valid && observed.valid) {
+        moved = false;
+        for (int axis = 0; axis < 3 && !moved; ++axis) {
+            moved = std::fabs (double (observed.eye[axis] - g_previous.eye[axis])) > 1e-4 ||
+                    std::fabs (double (observed.target[axis] - g_previous.target[axis])) > 1e-4;
+        }
+        moved = moved || std::fabs (double (observed.viewConeDegreesHorizontal -
+                                            g_previous.viewConeDegreesHorizontal)) > 1e-4;
+    }
+    g_previous = observed;
+
+    if (observed.valid && !observed.orthographic) {
+        dxgi::viewmatrix::SetReference (observed.eye, observed.target,
+                                        observed.viewConeDegreesHorizontal, viewport, moved);
+    }
+
+    // Every eighth tick, so a 33 ms timer scores about four times a second.
+    static uint32_t g_tick = 0;
+    if ((++g_tick % 8) == 0) {
+        dxgi::viewmatrix::Candidate best[4];
+        dxgi::viewmatrix::Classify (best, 4);
+    }
+    dxgi::viewmatrix::LogOracleRow (frame.frameId);
+}
+
 // One poll: read Archicad's camera, publish it, keep the log honest.
 //
 // ⚠️ SEPARATE FROM THE TIMER PROC ON PURPOSE. `wake` mode drives this from a
@@ -513,6 +614,12 @@ void PollCameraOnceImpl ()
         // main-thread heartbeat that is already running while a hookdiag run is
         // under way. No-op unless that hook is installed.
         geomsrv::archviz::dxgi::FlushPresentLogIfFilling ();
+        // ⚠️ AND THE CONTEXT RING, WHICH FILLS FAR FASTER. It holds one or two
+        // frames of a busy scene against the present ring's half-minute, so a
+        // run that drained only at teardown would record its own last few
+        // frames and nothing else -- the same failure the present hook's
+        // `IfFilling` variant exists to prevent, one order of magnitude worse.
+        geomsrv::archviz::dxgi::FlushContextLogIfFilling ();
     }
 
     // ⚠️ OUTSIDE THE NAV-LOG BLOCK, and it was inside it for one run. Which swap
@@ -529,6 +636,10 @@ void PollCameraOnceImpl ()
     // CANCELLED command cannot fix it -- after a Stop the bus refuses the very
     // calls its `finally` block would make. So the restore lives here.
     geomsrv::archviz::dxgi::WatchHostComposite ();
+
+    // ---- the GPU-state discovery path (PLAT-RE153..RE155) ------------------
+    // No-op unless `hookdiag` was armed with the gpuState switch.
+    PollGpuStateOnce (observed);
 }
 
 void CALLBACK CameraSyncTimerProc (HWND, UINT, UINT_PTR, DWORD)

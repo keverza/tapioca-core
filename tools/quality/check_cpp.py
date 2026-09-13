@@ -243,6 +243,30 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # main-thread gate stopped dispatching" is a sentence the extraction emits -
     # the two have to be legible in one reading or the person debugging is
     # correlating two logs by hand at the moment they can least afford to.
+    # The GPU-state camera-sync diagnostic (PLAT-RE153..RE155, 2026-09-13).
+    # CameraSyncModeState already reports the present hook, the marker and the
+    # compositor from this file, and these four are the same report continued:
+    # the context hook's counters, the captured GPU viewport, the best matrix
+    # candidate's pixel error and the patch profile that decides whether any of
+    # it installed. Splitting them across two commands would ask the person
+    # debugging to correlate two answers by hand at the moment the interesting
+    # fact is that ONE of them refused - most often the patch profile, whose
+    # refusal is the designed behaviour on an unpinned build and is the first
+    # thing to read when nothing is happening. PatchProfile.hpp in particular is
+    # a pure value-and-verdict header: it names no renderer type and exists so
+    # the refusal can be reported without the command knowing what a vtable is.
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/DeviceIdentity.hpp"),
+    # Same diagnostic again (2026-09-13). The render-stack question -- is the 3D
+    # canvas an OpenGL window? -- is answered from the window the overlay is
+    # covering, and only the overlay knows which window that is. The alternative
+    # is for the caller to pass an HWND it would have to get from a second
+    # command, which puts the two halves of one answer in two round trips and
+    # lets them disagree about which window was meant.
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/ViewportOverlayWindow.hpp"),
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/RenderStateCapture.hpp"),
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/ViewMatrixCandidates.hpp"),
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/PatchProfile.hpp"),
     ("NativeCommands/GateDiagnosticCommands.cpp", "ArchViz/ExtractionThread.hpp"),
     # Same diagnostic, same reason (2026-09-06): one stuck `running_` flag refuses
     # the 3D viewer, the 3D overlay AND a headless capture, so reporting the

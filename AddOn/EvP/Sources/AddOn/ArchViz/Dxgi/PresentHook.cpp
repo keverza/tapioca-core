@@ -4,8 +4,10 @@
 #include "ArchViz/Dxgi/PresentHook.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
+#include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/NavLog.hpp"
 
 // windows.h defines min/max as macros, which makes every std::min<T> below a
@@ -98,6 +100,13 @@ constexpr size_t kWindowCacheSize = 8;
 struct ChainWindow {
     std::atomic<uint64_t> chain {0};
     std::atomic<uint64_t> window {0};
+    // Cumulative since Install, unlike the ring's view, which wraps. A chain that
+    // presented busily for two seconds and then stopped is invisible in the ring
+    // and obvious here.
+    std::atomic<uint64_t> presents {0};
+    std::atomic<uint32_t> width {0};
+    std::atomic<uint32_t> height {0};
+    std::atomic<uint32_t> format {0};
 };
 ChainWindow g_windowCache[kWindowCacheSize];
 
@@ -108,8 +117,10 @@ void RememberChainWindow (IDXGISwapChain* swapChain)
     const uint64_t key = uint64_t (uintptr_t (swapChain));
     for (ChainWindow& entry : g_windowCache) {
         const uint64_t seen = entry.chain.load (std::memory_order_acquire);
-        if (seen == key)
+        if (seen == key) {
+            entry.presents.fetch_add (1, std::memory_order_relaxed);
             return;                      // already asked
+        }
         if (seen != 0)
             continue;
         DXGI_SWAP_CHAIN_DESC desc = {};
@@ -118,8 +129,12 @@ void RememberChainWindow (IDXGISwapChain* swapChain)
         // ⚠️ THE WINDOW IS PUBLISHED BEFORE THE KEY. A reader that saw the key
         // first could read a zero window and cache "this chain has no window"
         // for the rest of the session.
+        entry.width.store (desc.BufferDesc.Width, std::memory_order_relaxed);
+        entry.height.store (desc.BufferDesc.Height, std::memory_order_relaxed);
+        entry.format.store (uint32_t (desc.BufferDesc.Format), std::memory_order_relaxed);
         entry.window.store (uint64_t (uintptr_t (desc.OutputWindow)),
                             std::memory_order_release);
+        entry.presents.store (1, std::memory_order_relaxed);
         entry.chain.store (key, std::memory_order_release);
         return;
     }
@@ -149,6 +164,46 @@ void RecordPresent (IDXGISwapChain* swapChain, UINT syncInterval)
     g_ringPublished.fetch_add (1, std::memory_order_release);
 }
 
+// Archicad's own frames, counted. ⚠️ NOT `g_presentCalls`, WHICH COUNTS EVERY
+// CHAIN. The frame id has to name one presenter or a GPU-state row and a present
+// row cannot be joined, and joining them is the entire content of stage 4.
+std::atomic<uint64_t> g_archicadFrames {0};
+
+// RENDER THREAD. Close the frame for the GPU-state capture (PLAT-RE153/RE154).
+//
+// ⚠️ IT RUNS WHILE THE MODE WANTS THE HOOK, NOT WHILE THE HOOK IS UP, and the
+// order matters: the install reads its vtable off Archicad's own context, which
+// is discovered HERE, so gating this on `installed` was a deadlock -- the hook
+// could never go up because the thing it needed was only found once it was up.
+// Off, it is one relaxed atomic load on every Present of every chain, which is
+// the cost this path is allowed to add to Archicad while the mode is not armed.
+void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
+{
+    if (!ContextHookWanted ())
+        return;
+    // The nomination is the marker's, for the reason `CompositeOverlayIfTarget`
+    // gives: one identification of Archicad's chain serves every consumer, and
+    // having two would let them disagree about which window is being measured.
+    if (uint64_t (uintptr_t (swapChain)) != MarkerTarget ())
+        return;
+    NominateArchicadContextFrom (swapChain);
+
+    // ⚠️ PUT THE DETOURS BACK HERE, ONCE PER FRAME, AND NOT ONLY ON THE CAMERA
+    // TICK. D3D11 re-points the entries of Archicad's inline context vtable as
+    // device state changes, so a repair that ran every 15-33 ms would leave the
+    // hook down for two or three frames out of every few -- which is how the
+    // eighth run came to record about one frame's worth of calls and report that
+    // Archicad barely draws. Present is the one place that runs exactly once per
+    // Archicad frame, immediately before the next one starts.
+    //
+    // ⚠️ IT IS A COMPARE, NOT A WRITE, ON ALMOST EVERY FRAME. The repair only
+    // takes VirtualProtect when a slot has actually changed; the common path is
+    // twenty-seven pointer compares, which is nothing beside a frame.
+    RepairContextHook ();
+
+    renderstate::OnPresent (g_archicadFrames.fetch_add (1, std::memory_order_relaxed) + 1);
+}
+
 HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
@@ -171,6 +226,10 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
         CompositeOverlayIfTarget (swapChain);
+        // ⚠️ AFTER THE COMPOSITE, NOT BEFORE. The frame the capture is closing is
+        // the one Archicad is about to present, and the composite is part of it;
+        // closing first would attribute our own blit to the NEXT frame.
+        CaptureGpuStateIfTarget (swapChain);
     }
     // ⚠️ THE ORIGINAL IS READ INTO A LOCAL BEFORE THE CALL. Remove can null it
     // between the check and the call otherwise, and a null call here takes
@@ -191,6 +250,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
         CompositeOverlayIfTarget (swapChain);
+        CaptureGpuStateIfTarget (swapChain);
     }
     const Present1Fn original = g_originalPresent1;
     const HRESULT hr = (original != nullptr)
@@ -375,6 +435,7 @@ bool InstallPresentHook (std::string& error)
     for (ChainWindow& entry : g_windowCache) {
         entry.chain.store (0, std::memory_order_relaxed);
         entry.window.store (0, std::memory_order_relaxed);
+        entry.presents.store (0, std::memory_order_relaxed);
     }
     g_installed.store (true, std::memory_order_release);
     ArchVizLog ("present hook: installed (DIAGNOSTIC ONLY -- it records when frames go out "
@@ -493,6 +554,32 @@ PresentStats GetPresentStats ()
     stats.medianFrameUs = deltas[deltas.size () / 2];
     stats.p95FrameUs = deltas[std::min (deltas.size () - 1, size_t (deltas.size () * 95 / 100))];
     return stats;
+}
+
+size_t GetChainInventory (ChainInfo* out, size_t max)
+{
+    if (out == nullptr || max == 0)
+        return 0;
+    const uint64_t ownChain = g_ownSwapChain.load (std::memory_order_acquire);
+    const uint64_t nominated = MarkerTarget ();
+    size_t written = 0;
+    for (const ChainWindow& entry : g_windowCache) {
+        if (written >= max)
+            break;
+        const uint64_t chain = entry.chain.load (std::memory_order_acquire);
+        if (chain == 0)
+            continue;
+        ChainInfo& info = out[written++];
+        info.swapChain = chain;
+        info.window = entry.window.load (std::memory_order_acquire);
+        info.presents = entry.presents.load (std::memory_order_relaxed);
+        info.width = entry.width.load (std::memory_order_relaxed);
+        info.height = entry.height.load (std::memory_order_relaxed);
+        info.format = entry.format.load (std::memory_order_relaxed);
+        info.ours = (ownChain != 0 && chain == ownChain);
+        info.nominated = (nominated != 0 && chain == nominated);
+    }
+    return written;
 }
 
 void FlushPresentLog ()

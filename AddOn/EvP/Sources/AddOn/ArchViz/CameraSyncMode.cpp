@@ -6,9 +6,12 @@
 #include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/CameraWake.hpp"
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
+#include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
@@ -31,6 +34,10 @@ double         g_predictionScale = 1.0;
 // that vanishes while the user drags a selection box is worse than a slightly
 // stale one. `hideonnav` and the `hideOnNav` parameter both still reach it.
 bool           g_hideOnNav = false;
+// Whether `hookdiag` also installs the GPU-state discovery hooks. See the
+// header: a switch on hookdiag rather than a ninth mode, refused everywhere else
+// rather than ignored.
+bool           g_gpuState = false;
 
 // Does this mode install the wake hook? The hook is what lets `hideOnNav` blank
 // on the INPUT rather than on its consequence, and it is also what makes a mode
@@ -76,11 +83,26 @@ void TearDownCurrent ()
             break;
         case CameraSyncMode::HookDiag:
             ArchVizPanel::StopCameraSync ();
-            // ⚠️ THE RING IS FLUSHED BEFORE THE HOOK COMES OUT, not after. Once
-            // the detour is gone the ring stops being written but it is still
-            // the only copy of the frame clock this session recorded, and
-            // tearing down without flushing throws away the entire measurement
-            // the mode existed to take.
+            // ⚠️ THE RINGS ARE FLUSHED BEFORE THE HOOKS COME OUT, not after. Once
+            // a detour is gone its ring stops being written but it is still
+            // the only copy of what this session recorded, and tearing down
+            // without flushing throws away the entire measurement the mode
+            // existed to take.
+            //
+            // ⚠️ AND THE CONTEXT HOOK COMES OUT BEFORE THE PRESENT HOOK. The
+            // frame boundary the capture closes on is the Present detour, so
+            // removing Present first would leave the context hook recording
+            // into a frame that never ends -- and its own removal drains its
+            // detours, which is a wait that must not happen with a second
+            // detour still feeding it.
+            dxgi::renderstate::FlushFrameLog ();
+            dxgi::FlushContextLog ();
+            // ⚠️ THE WANT IS CLEARED BEFORE THE REMOVE. It is what lets the
+            // present detour discover, and leaving it set while the table is
+            // being restored would let a discovery land against a hook that is
+            // on its way out.
+            dxgi::SetContextHookWanted (false);
+            dxgi::RemoveContextHook ();
             dxgi::FlushPresentLog ();
             dxgi::RemovePresentHook ();
             break;
@@ -116,6 +138,10 @@ void TearDownCurrent ()
     if (IsExperimental (g_mode))
         experimentguard::Disarm ();
     g_mode = CameraSyncMode::Off;
+    // ⚠️ CLEARED WITH THE MECHANISM, like the breadcrumb above. A switch left
+    // set after the hooks it named have been removed makes the diagnostic report
+    // a capture that is not running.
+    g_gpuState = false;
 }
 
 // The step that will implement a mode, so the refusal says what is missing
@@ -175,7 +201,7 @@ bool IsExperimental (CameraSyncMode mode)
 }
 
 bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predictionScale,
-                        bool hideOnNav, std::string& error)
+                        bool hideOnNav, bool gpuState, std::string& error)
 {
     if (intervalMs < 10)
         intervalMs = 10;
@@ -193,6 +219,20 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
                 "') is unchanged";
         return false;
     }
+
+    // ⚠️ CLEARED FOR EVERY OTHER MODE, NEVER REFUSED HERE, AND THE FIRST LIVE RUN
+    // IS WHY. This used to refuse `gpuState` on any mode but `hookdiag`, and the
+    // bus command defaults the argument to whatever is currently set -- so once a
+    // `hookdiag` run had turned it on, `SetCameraSyncMode {mode: "legacy"}`
+    // inherited `gpuState: true` and was REFUSED. That is the teardown path. It
+    // made the mode undisarmable through the normal route and broke
+    // `CameraSyncReset`, which sends exactly that call, at the one moment either
+    // is needed. A switch that is meaningless for a mode is cleared by choosing
+    // that mode; refusing an EXPLICIT request is the command layer's job, where
+    // "the caller asked for this" can still be told from "the caller said
+    // nothing".
+    if (mode != CameraSyncMode::HookDiag)
+        gpuState = false;
 
     if (IsExperimental (mode) && experimentguard::Blocked ()) {
         error = experimentguard::WhyBlocked () + " -- the current mode ('" +
@@ -218,6 +258,7 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
     // `hideonnav` pins it rather than reading the argument: the name predates the
     // switch and every existing caller sends it meaning exactly "blank".
     g_hideOnNav = (mode == CameraSyncMode::HideOnNav) ? true : hideOnNav;
+    g_gpuState = gpuState;
 
     if (mode == CameraSyncMode::Off) {
         g_intervalMs = intervalMs;
@@ -301,10 +342,35 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             //
             // The hook goes first for the same reason as hideonnav's: a half-
             // built experimental mode is worse than a refused one.
-            armed = dxgi::InstallPresentHook (error) &&
-                    ArchVizPanel::StartCameraSync (intervalMs);
-            if (!armed)
+            //
+            // ⚠️ THE GPU-STATE HOOKS GO ON AFTER THE PRESENT HOOK AND BEFORE THE
+            // TIMER. They need the Present detour to exist -- it is what closes
+            // a frame and what identifies Archicad's chain and context -- and
+            // the timer is what feeds them the ACAPI reference to score
+            // against, so a failure between the two must unwind both rather
+            // than leave a mode that is recording with nothing to compare to.
+            armed = dxgi::InstallPresentHook (error);
+            if (armed && g_gpuState) {
+                dxgi::renderstate::Reset ();
+                dxgi::viewmatrix::Reset ();
+                // ⚠️ WANTED HERE, INSTALLED LATER, AND THE ARM DOES NOT WAIT FOR
+                // IT. The context hook reads its vtable off ARCHICAD'S OWN
+                // immediate context, and that is only reachable through the swap
+                // chain the present detour identifies -- which takes about sixty
+                // of Archicad's frames. Installing inside the arm would mean
+                // installing before the thing being hooked is known, which is
+                // what the 2026-09-13 run did with a throwaway's vtable and why
+                // it recorded nothing. The camera tick installs on the first tick
+                // where the context is known; until then the mode is armed and
+                // the hook is honestly reported as not up.
+                dxgi::SetContextHookWanted (true);
+            }
+            armed = armed && ArchVizPanel::StartCameraSync (intervalMs);
+            if (!armed) {
+                dxgi::SetContextHookWanted (false);
+                dxgi::RemoveContextHook ();
                 dxgi::RemovePresentHook ();
+            }
             break;
         case CameraSyncMode::HookDraw:
             // ⚠️ PHASE 3 IS A GATE, NOT A FEATURE. This mode draws ONE FIXED
@@ -380,8 +446,14 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
     g_intervalMs = intervalMs;
     ArchVizLog ("camera sync mode: " + std::string (CameraSyncModeName (mode)) + " at " +
                 std::to_string (intervalMs) + " ms, hideOnNav " +
-                (g_hideOnNav ? "on" : "off"));
+                (g_hideOnNav ? "on" : "off") + ", gpuState " +
+                (g_gpuState ? "on" : "off"));
     return true;
+}
+
+bool CurrentGpuState ()
+{
+    return g_gpuState;
 }
 
 CameraSyncMode CurrentCameraSyncMode ()

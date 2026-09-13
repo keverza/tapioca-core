@@ -1,4 +1,4 @@
-# Configure the AC29 Visual Studio project for EvP.
+﻿# Configure the AC29 Visual Studio project for EvP.
 # The generator is detected per machine (VS2022 on one dev box, VS18/2026 on the
 # other); the v143 toolset is fixed, because the Archicad DevKit checks
 # _MSC_VER 1930-1949 in Definitions.hpp and bx checks _MSC_VER >= 1935. The exact
@@ -46,11 +46,24 @@ if (Test-Path $cacheFile) {
     }
 }
 
-& $cmake -G $vs.Generator -T $toolset -A x64 `
-    -DCMAKE_GENERATOR_INSTANCE="$($vs.Instance)" `
-    -DAC_API_DEVKIT_DIR="$devkit" `
-    -DAC_ADDON_LANGUAGE="INT" `
-    -S "$root" -B "$build"
+# WARNING: `$ErrorActionPreference = "Stop"` at the top of this script applies to
+# NATIVE commands too, and Windows PowerShell 5.1 wraps every stderr line from an
+# .exe in an ErrorRecord. So a single CMake *warning* -- one of the vendored
+# reference trees emits one -- terminated the configure before it had generated
+# anything, and the only symptom was a NativeCommandError naming this line. For a
+# native tool the exit code is the truth and stderr is not, so the preference is
+# relaxed across the call and restored afterwards.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+try {
+    & $cmake -G $vs.Generator -T $toolset -A x64 `
+        -DCMAKE_GENERATOR_INSTANCE="$($vs.Instance)" `
+        -DAC_API_DEVKIT_DIR="$devkit" `
+        -DAC_ADDON_LANGUAGE="INT" `
+        -S "$root" -B "$build"
+} finally {
+    $ErrorActionPreference = $previousPreference
+}
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed (exit $LASTEXITCODE)." }
 
 Write-Host "Configured. Open build_29\EvP.sln or run Build-AddOn29.ps1." -ForegroundColor Green

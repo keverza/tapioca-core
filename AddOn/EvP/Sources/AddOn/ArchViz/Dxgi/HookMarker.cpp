@@ -187,8 +187,20 @@ uint64_t MarkerTarget ()
 
 void ChooseMarkerTargetIfUnset ()
 {
-    if (!g_enabled.load (std::memory_order_acquire) ||
-        g_target.load (std::memory_order_acquire) != 0)
+    // ⚠️ THE MARKER'S SWITCH GATES DRAWING, NOT IDENTIFICATION. `hookdiag` with
+    // the GPU-state hooks armed (PLAT-RE153) needs to know which chain is
+    // Archicad's and must NOT draw squares into it, so the two questions were
+    // separated. Leaving them fused would have forced that mode to enable the
+    // marker purely to learn the chain, and it would then have painted phase-3
+    // squares over the view for the whole run.
+    if (!g_enabled.load (std::memory_order_acquire))
+        return;
+    NominateArchicadChain ();
+}
+
+void NominateArchicadChain ()
+{
+    if (g_target.load (std::memory_order_acquire) != 0)
         return;
     const PresentStats stats = GetPresentStats ();
     // ⚠️ A HANDFUL OF FRAMES IS NOT AN IDENTIFICATION. The busiest chain over

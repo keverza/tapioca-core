@@ -76,8 +76,20 @@ uint64_t MarkerTarget ();
 // MAIN THREAD. Nominate the busiest chain that is not ours, if one is known and
 // none has been nominated yet. Called from the camera-sync tick because the
 // answer needs a second of frames to exist, and blocking the main thread that
-// long inside the arm call would stall Archicad's UI.
+// long inside the arm call would stall Archicad's UI. No-op unless the marker is
+// enabled.
 void ChooseMarkerTargetIfUnset ();
+
+// The same identification WITHOUT requiring the marker to be enabled.
+//
+// ⚠️ IT EXISTS BECAUSE THE SWITCH AND THE QUESTION ARE DIFFERENT THINGS. Which
+// swap chain is Archicad's is needed by anything that wants to be told when
+// Archicad presents -- the GPU-state capture (PLAT-RE153) does, and it must draw
+// nothing. Reaching that answer through `SetMarkerEnabled(true)` would paint
+// phase-3 squares over the view for the length of a discovery run, which is
+// exactly the kind of "harmless" side effect that ends up being reported as a
+// rendering bug.
+void NominateArchicadChain ();
 
 struct MarkerStats {
     bool        enabled = false;

@@ -140,6 +140,39 @@ void LogPresent (uint64_t sessionMs, uint64_t swapChain, uint64_t timestampUs,
 // exactly the comparison it was recorded for.
 uint64_t SessionNowMs ();
 
+// ---- what Archicad told the GPU (PLAT-RE153..RE155) ------------------------
+// MAIN THREAD, flushed from the context hook's ring and the frame capture's --
+// never from a detour, which must not touch a file. `timestampUs` is on the QPC
+// clock for the same reason, and with the same caveat, as `LogPresent`'s.
+
+// One recorded ID3D11DeviceContext call. `slot` names the method; `a`/`b`/`c`
+// are slot-specific and their meaning is documented at the `Record` call in
+// ContextHook.cpp rather than duplicated here.
+void LogContextEvent (uint64_t sessionMs, const char* slot, uint64_t handle,
+                      uint64_t timestampUs, uint32_t a, uint32_t b, uint32_t c);
+
+// One closed frame's GPU viewport state.
+//
+// ⚠️ TWO VIEWPORTS PER ROW, AND NEITHER IS LABELLED "the" VIEWPORT. `largest` and
+// `scene` are two candidates for the 3D view -- see RenderStateCapture.hpp for
+// why picking between them here would be the mistake. A reader that wants one
+// number has to say which candidate it trusted, which is the point.
+void LogGpuFrame (uint64_t sessionMs, uint64_t frameId,
+                  float largestX, float largestY, float largestW, float largestH,
+                  float sceneX, float sceneY, float sceneW, float sceneH,
+                  float sceneMinDepth, float sceneMaxDepth,
+                  uint64_t sceneColorTarget, uint64_t sceneDepthTarget,
+                  uint32_t viewportSets, uint32_t distinctViewports, uint32_t depthClears);
+
+// Stage 0a's cheap oracle: the best constant-buffer candidate scored against the
+// ACAPI camera, on one row, beside that camera. See ViewMatrixCandidates.hpp for
+// why this one row is enough to answer both discovery questions.
+void LogGpuOracle (uint64_t frameId, const float eye[3], const float target[3],
+                   float fovYDegrees, float viewportWidth, float viewportHeight,
+                   bool scored, uint64_t buffer, uint32_t byteOffset, uint32_t variant,
+                   double maxPixelError, double meanPixelError,
+                   uint32_t changesWhileMoving, uint32_t changesWhileStill);
+
 // Axono carries no eye/target at all — only a 3x4 model->projected matrix. It is
 // logged raw; reconstructing a camera from it is plan §24 block B's job, not
 // this file's, and inventing one here would fabricate the very numbers the probe

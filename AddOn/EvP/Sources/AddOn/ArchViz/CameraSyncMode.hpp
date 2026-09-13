@@ -54,7 +54,10 @@ enum class CameraSyncMode {
                 // below, and this mode is exactly `legacy` with that switch
                 // pinned true. Every probe and script that already sends
                 // `mode: "hideonnav"` keeps meaning what it meant.
-    HookDiag,   // DXGI Present detour, log only (PLAT-RE78)
+    HookDiag,   // DXGI Present detour, log only (PLAT-RE78). ⚠️ ALSO THE HOST OF
+                // THE GPU-STATE DISCOVERY HOOKS (PLAT-RE153..RE155), through the
+                // independent `gpuState` switch below -- see it for why that rides
+                // here rather than arriving as a ninth mode name.
     HookDraw    // DXGI Present detour, compositing (PLAT-RE79), on the SAME
                 // sampling and prediction as `wakepredict` -- see PLAT-RE116 and
                 // the arm switch in the .cpp for why it may not be anything else.
@@ -79,7 +82,34 @@ bool IsExperimental (CameraSyncMode mode);
 // `CurrentHideOnNav` below. `CameraSyncMode::HideOnNav` ignores the argument and
 // pins it true.
 bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predictionScale,
-                        bool hideOnNav, std::string& error);
+                        bool hideOnNav, bool gpuState, std::string& error);
+
+// Whether `hookdiag` also installs the GPU-state discovery hooks: the
+// ID3D11DeviceContext vtable swap, the per-frame viewport capture and the
+// constant-buffer classification (PLAT-RE153..RE155,
+// docs/architecture/api/HANDOFF-OverlayPatch.md stages 1-3).
+//
+// ⚠️ IT IS A SWITCH ON `hookdiag`, NOT A NINTH MODE, and that was a decision
+// rather than an economy. What these hooks change is WHERE THE CAMERA COMES
+// FROM; `hookdiag` already means "the Present detour is installed and the
+// overlay is drawn exactly as `legacy` draws it", which is precisely the
+// baseline a camera-source experiment wants underneath it. A new mode would have
+// had to restate all of that and would then have been a second thing to keep in
+// step -- the mistake PLAT-RE116 recorded when `hideonnav` was an enum member and
+// could only be had at the price of the starved legacy poll.
+//
+// ⚠️ IT IS REFUSED ON EVERY OTHER MODE RATHER THAN IGNORED. `hideOnNav`
+// DEGRADES on a mode without the wake hook -- it still blanks, a tick late -- so
+// composing it everywhere is honest. This one does not degrade: without the
+// Present detour there is no frame boundary, no chain identification and no
+// context to nominate, so it would install hooks that record nothing. A run of
+// zeroes that looks like "Archicad makes no context calls" is a worse answer
+// than a refusal that names the mode.
+//
+// ⚠️ AND IT IS REFUSED ON AN UNPINNED BUILD. See `PatchProfile.hpp`: these hooks
+// read Archicad's own GPU buffers, whose layout is build-specific, and the deal
+// accepted on 2026-09-07 was a patch that knows it is pinned.
+bool CurrentGpuState ();
 
 CameraSyncMode CurrentCameraSyncMode ();
 uint32_t       CurrentCameraSyncIntervalMs ();

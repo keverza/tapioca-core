@@ -110,6 +110,32 @@ struct PresentStats {
 };
 PresentStats GetPresentStats ();
 
+// Every swap chain the detour has seen, with the window it presents into and how
+// many frames it has put out.
+//
+// ⚠️ IT EXISTS TO FALSIFY "WE NOMINATED THE WRONG CHAIN". When the GPU-state hook
+// installed cleanly and then recorded almost nothing (2026-09-13), one live
+// hypothesis was that the busiest non-ours chain is not the one Archicad's 3D
+// view renders through -- a large process can have several. `busiestSwapChain`
+// alone cannot answer that; it reports the winner and hides the field. This
+// prints the field, so the hypothesis can be checked rather than argued about.
+struct ChainInfo {
+    uint64_t swapChain = 0;
+    uint64_t window = 0;
+    uint64_t presents = 0;
+    bool     ours = false;
+    bool     nominated = false;
+    // ⚠️ THE SIZE IS THE CHEAPEST WAY TO TELL A VIEWPORT FROM A WINDOW. A chain
+    // the size of Archicad's whole main window is its UI compositor; one the
+    // size of the document canvas is the view. Taken from the same one-time
+    // `GetDesc` that learns the HWND, so it costs nothing extra and still never
+    // touches COM on the hot path.
+    uint32_t width = 0;
+    uint32_t height = 0;
+    uint32_t format = 0;
+};
+size_t GetChainInventory (ChainInfo* out, size_t max);
+
 // Write the ring's contents to the nav log as `source=present` rows, then clear
 // it. MAIN THREAD -- it does file IO.
 void FlushPresentLog ();

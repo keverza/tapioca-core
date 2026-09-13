@@ -200,6 +200,22 @@ void Start (uint32_t intervalMs)
     WriteLocked ("#     reads the 3D settings whatever is front (plan G11), so a row");
     WriteLocked ("#     taken over the floor plan describes settings, not the view.");
     WriteLocked ("# mark rows (source=mark) delimit one matrix cell; `extra` names it.");
+    WriteLocked ("# source=present : Archicad's own frames, from the DXGI hook. qpc_us is");
+    WriteLocked ("#   the QPC clock, NOT t_ms; align by the first sample.");
+    WriteLocked ("# source=ctx : one ID3D11DeviceContext call Archicad made (PLAT-RE153).");
+    WriteLocked ("#   mode= names the method; a/b/c are per-method and documented at the");
+    WriteLocked ("#   Record call in ContextHook.cpp. h= is the resource or view.");
+    WriteLocked ("# source=gpuframe : one frame's GPU viewport state (PLAT-RE154).");
+    WriteLocked ("#   WARNING: TWO CANDIDATE RECTANGLES, NEITHER OF THEM 'the' VIEWPORT:");
+    WriteLocked ("#   eyeX/eyeY/eyeZ = the LARGEST viewport's x, y and WIDTH (its height");
+    WriteLocked ("#     is lh= in extra); tgtX/tgtY/tgtZ = the SCENE candidate's x, y and");
+    WriteLocked ("#     width, dist = its height, azimuth/roll = its min/max depth. The");
+    WriteLocked ("#     scene candidate is whatever was current at the last depth clear.");
+    WriteLocked ("# source=gpuoracle : the best constant-buffer candidate scored against");
+    WriteLocked ("#   the ACAPI camera on the same row (stage 0a). eye/tgt/cone are that");
+    WriteLocked ("#   reference camera; maxpx/meanpx are the candidate's pixel error;");
+    WriteLocked ("#   chmov/chstill are how often those 64 bytes changed with the view");
+    WriteLocked ("#   moving and still. mode=unscored means no settled view yet.");
     // ⚠️ THE THROTTLE IS RECORDED IN THE FILE, so a reader can tell a starved
     // poll from a decimated LOG. A run throttled at the poll interval drops every
     // sample that lands fractionally early and the resulting rate reads as a
@@ -397,6 +413,90 @@ void LogPresent (uint64_t sessionMs, uint64_t swapChain, uint64_t timestampUs,
                    (unsigned long long) sessionMs,
                    (unsigned long long) swapChain, (unsigned long long) timestampUs,
                    (unsigned) syncInterval, ours ? 1 : 0);
+    WriteLocked (buf);
+}
+
+void LogContextEvent (uint64_t sessionMs, const char* slot, uint64_t handle,
+                      uint64_t timestampUs, uint32_t a, uint32_t b, uint32_t c)
+{
+    if (!gRunning.load ())
+        return;
+
+    std::lock_guard<std::mutex> lock (gMutex);
+    // ⚠️ NOT THROTTLED, for the reason the present rows are not: the SHAPE of a
+    // frame -- how many viewport sets, in what order, around which clears -- is
+    // the content, and a decimated stream describes a frame Archicad never drew.
+    // The volume is controlled at the source instead, by the per-slot gates in
+    // ContextHook, which is where turning one off is a decision somebody made.
+    char buf[256] = {};
+    std::snprintf (buf, sizeof (buf),
+                   "%llu,0,ctx,-,%s,0,0,0,0,0,0,0,0,0,0,h=%llu;qpc_us=%llu;a=%u;b=%u;c=%u",
+                   (unsigned long long) sessionMs, slot, (unsigned long long) handle,
+                   (unsigned long long) timestampUs, (unsigned) a, (unsigned) b, (unsigned) c);
+    WriteLocked (buf);
+}
+
+void LogGpuFrame (uint64_t sessionMs, uint64_t frameId,
+                  float largestX, float largestY, float largestW, float largestH,
+                  float sceneX, float sceneY, float sceneW, float sceneH,
+                  float sceneMinDepth, float sceneMaxDepth,
+                  uint64_t sceneColorTarget, uint64_t sceneDepthTarget,
+                  uint32_t viewportSets, uint32_t distinctViewports, uint32_t depthClears)
+{
+    if (!gRunning.load ())
+        return;
+
+    std::lock_guard<std::mutex> lock (gMutex);
+    // The two candidate rectangles reuse the eye/target columns rather than
+    // adding six more to the schema: `eye` carries the largest viewport's origin
+    // and width, `tgt` the scene candidate's. ⚠️ THE HEADER BLOCK SAYS SO. A
+    // column whose meaning depends on `source` is only survivable when the file
+    // documents it, which is the same bargain `mode=plan` already makes.
+    char buf[384] = {};
+    std::snprintf (buf, sizeof (buf),
+                   "%llu,0,gpuframe,-,viewport,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,"
+                   "%.2f,%.4f,%.4f,0,frame=%llu;lh=%.2f;rtv=%llu;dsv=%llu;sets=%u;"
+                   "distinct=%u;depthclears=%u",
+                   (unsigned long long) sessionMs,
+                   double (largestX), double (largestY), double (largestW),
+                   double (sceneX), double (sceneY), double (sceneW),
+                   double (sceneH), double (sceneMinDepth), double (sceneMaxDepth),
+                   (unsigned long long) frameId, double (largestH),
+                   (unsigned long long) sceneColorTarget,
+                   (unsigned long long) sceneDepthTarget,
+                   (unsigned) viewportSets, (unsigned) distinctViewports,
+                   (unsigned) depthClears);
+    WriteLocked (buf);
+}
+
+void LogGpuOracle (uint64_t frameId, const float eye[3], const float target[3],
+                   float fovYDegrees, float viewportWidth, float viewportHeight,
+                   bool scored, uint64_t buffer, uint32_t byteOffset, uint32_t variant,
+                   double maxPixelError, double meanPixelError,
+                   uint32_t changesWhileMoving, uint32_t changesWhileStill)
+{
+    if (!gRunning.load ())
+        return;
+
+    const uint64_t now = NowMs ();
+    std::lock_guard<std::mutex> lock (gMutex);
+    // ⚠️ THE REFERENCE CAMERA AND THE CANDIDATE'S ERROR ARE ON ONE ROW, and that
+    // is the whole design of stage 0a. Two rows would have to be joined by
+    // timestamp offline, and the join is exactly what nothing in this log has
+    // ever been able to do reliably -- which is why `hookdraw` still has no
+    // numbers in the report.
+    char buf[384] = {};
+    std::snprintf (buf, sizeof (buf),
+                   "%llu,0,gpuoracle,3D,%s,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,0,0,0,%.4f,"
+                   "frame=%llu;vp=%.0fx%.0f;buf=%llu;off=%u;variant=%u;maxpx=%.4f;"
+                   "meanpx=%.4f;chmov=%u;chstill=%u",
+                   (unsigned long long) SessionMs (now), scored ? "scored" : "unscored",
+                   eye[0], eye[1], eye[2], target[0], target[1], target[2],
+                   double (fovYDegrees), (unsigned long long) frameId,
+                   double (viewportWidth), double (viewportHeight),
+                   (unsigned long long) buffer, (unsigned) byteOffset, (unsigned) variant,
+                   maxPixelError, meanPixelError,
+                   (unsigned) changesWhileMoving, (unsigned) changesWhileStill);
     WriteLocked (buf);
 }
 
