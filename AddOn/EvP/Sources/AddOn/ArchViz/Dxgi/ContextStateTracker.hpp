@@ -80,6 +80,107 @@ void OnVSConstantBuffers (uint32_t startSlot, uint32_t count, ID3D11Buffer* cons
 void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* depth);
 void OnViewport (const D3D11_VIEWPORT& viewport);
 
+// ---- the injection reentrancy guard ----------------------------------------
+// ⚠️ MANDATORY BEFORE ANYTHING INJECTS A DRAW, and object-pointer filtering
+// cannot replace it. The injected renderer deliberately uses ARCHICAD'S OWN
+// context -- that is the whole point -- so every `VSSetShader`,
+// `VSSetConstantBuffers1`, `OMSetRenderTargets` and `Draw*` it makes arrives at
+// the same detours, on the same object, indistinguishable from Archicad's by any
+// filter that looks at the pointer.
+//
+// Without this guard the first injected triangle would: overwrite the tracked
+// view and projection bindings with our own, count itself as a scene draw,
+// advance the scene-pass state, and feed its own constants to the classifier.
+// The instrument would be measuring itself, which is the failure this rung has
+// already spent a day on for a different reason.
+//
+// RENDER THREAD ONLY, and it must nest correctly: the injected draw runs INSIDE
+// a detour that is already forwarding one of Archicad's calls.
+class ScopedInjectionGuard {
+public:
+    ScopedInjectionGuard ();
+    ~ScopedInjectionGuard ();
+    ScopedInjectionGuard (const ScopedInjectionGuard&) = delete;
+    ScopedInjectionGuard& operator= (const ScopedInjectionGuard&) = delete;
+};
+
+// True while an injected draw is in flight. Every detour checks it and, when it
+// is set, forwards the call and records NOTHING.
+bool Injecting ();
+
+// ---- what the last verified Archicad scene draw consumed -------------------
+// ⚠️ A PASS-START SNAPSHOT IS NOT GOOD ENOUGH, AND THIS IS THE CORRECTION.
+// Between the final scene `DrawIndexed` and the `OMSetRenderTargets` that leaves
+// the scene target, Archicad may legally change its shader and its constant
+// buffers. A detour that reads the live state at the target switch would
+// therefore inject with state that did NOT render the model. The contract has to
+// be:
+//
+//     last Archicad scene draw
+//         -> capture exactly what THAT draw consumed
+//         -> candidate scene-completion boundary
+//         -> inject with THAT camera state
+//
+// So the bindings are latched at every draw that executes while the verified
+// scene RTV and DSV are bound, and the last one latched is what injection uses.
+struct SceneDrawState {
+    bool     valid = false;
+    // ⚠️ WHICH PRESENTED FRAME THIS BELONGS TO, AND IT IS NOT OPTIONAL. Run
+    // twenty-five injected 1051 times from only 858 camera-bearing draws, so
+    // roughly a fifth of the triangles were drawn with a camera latched in an
+    // EARLIER frame. A stale but geometrically valid camera is precisely the bug
+    // this whole rung exists to eliminate, and it is invisible in every counter
+    // that does not compare generations.
+    // The MODEL-SCENE generation this draw belonged to. See
+    // `RenderStateCapture::ModelSceneGeneration` for why this is not a Present
+    // counter: a camera outlives any number of Presents and is superseded only
+    // by a new model scene.
+    uint64_t modelSceneGeneration = 0;
+    uint64_t scenePassGeneration = 0;
+    uint64_t sceneTargetEpoch = 0;   // increments on every (re-)entry to the target
+    uint64_t drawSequence = 0;       // which draw of that epoch this was
+    uint64_t vertexShader = 0;
+    uint64_t renderTarget = 0;
+    uint64_t depthStencil = 0;
+    float    viewportX = 0.0f;
+    float    viewportY = 0.0f;
+    float    viewportWidth = 0.0f;
+    float    viewportHeight = 0.0f;
+    ConstantBufferBinding vsConstantBuffers[kConstantBufferSlots];
+};
+
+// RENDER THREAD. Latch the live state as the newest verified scene draw.
+void OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
+                  uint64_t drawSequence, uint64_t modelSceneGeneration, bool inModelPass);
+
+// ANY THREAD. What the most recent verified scene draw consumed.
+SceneDrawState LastSceneDraw ();
+
+// ⚠️ THE LAST DRAW THAT ACTUALLY CARRIED A CAMERA, WHICH IS NOT THE LAST DRAW.
+// Archicad finishes a pass with selection markers, gizmos and screen-space
+// helpers that use a different shader and different constants, so "the last
+// draw of the pass" can easily be one of those -- and injecting with whatever it
+// had bound would be a camera from nowhere. A draw counts here only if THAT
+// EXACT DRAW consumed both `b1` and `b2` as the 256-byte windows stage 3
+// identified; having had them bound earlier in the pass is not enough.
+SceneDrawState LastCameraDraw ();
+
+// How strictly that is holding. `withBoth` is the only one that matters.
+struct DrawCameraCounts {
+    uint64_t total = 0;
+    uint64_t withView = 0;
+    uint64_t withProjection = 0;
+    uint64_t withBoth = 0;
+    // ⚠️ AND OF THOSE, HOW MANY WERE IN THE LEARNED MODEL PASS. Run twenty-five:
+    // `b2` was bound on all 1716 draws but `b1` on only 858, so slot 1 does not
+    // always hold the model's view -- shadow, helper and UI passes bind their own
+    // thing there. Latching any draw that merely has both slots filled hands the
+    // injector a camera that belongs to a different rendering, which projects the
+    // triangle somewhere off screen. It has to be the MODEL pass's camera.
+    uint64_t withBothInModelPass = 0;
+};
+DrawCameraCounts GetDrawCameraCounts ();
+
 // ---- any thread ------------------------------------------------------------
 // A copy of what is bound now. This is what a scene pass snapshots when it
 // begins, so the pass inherits bindings made long before it rather than waiting

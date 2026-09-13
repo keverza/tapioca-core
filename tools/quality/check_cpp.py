@@ -231,6 +231,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # create a second definition of it, which is worse than the sideways include.
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/AutoOrbit.hpp"),
+    # Stage 5's arming verb. The injected triangle draws into Archicad's own scene
+    # target, so it gets an explicit switch rather than starting whenever the
+    # diagnostic hooks are armed -- and that switch has to name the renderer.
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionRenderer.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/DeviceIdentity.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/PresentHook.hpp"),
@@ -247,6 +252,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # restating the PairingStats contract on this side would create a second
     # definition of it.
     ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/SameFrameCamera.hpp"),
+    # `CameraSyncModeState` reports what the last verified Archicad scene draw
+    # consumed -- the binding state stage 5 will inject with. Same adapter, same
+    # reason: restating the SceneDrawState contract here would be a second
+    # definition of it.
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),

@@ -27,6 +27,45 @@ namespace {
 
 // ---- the scene pass --------------------------------------------------------
 std::atomic<uint64_t> g_scenePassGeneration {0};
+uint64_t g_sceneConsumedCount = 0;
+uint64_t g_modelSceneGeneration = 0;
+uint64_t g_modelPassOfGeneration = 0;
+DepartureStats g_departures;
+SceneSignature g_signature;
+
+// ⚠️ HOW MANY CONSECUTIVE FRAMES MUST AGREE. Two is enough to reject a one-off
+// and cheap enough that the triangle appears almost immediately.
+constexpr uint32_t kStableFramesRequired = 2;
+
+// The passes completed in the frame being watched. Sixteen is more separate
+// render passes than any capture has shown in one Archicad frame.
+constexpr size_t kMaxPassesPerFrame = 16;
+ScenePass g_framePasses[kMaxPassesPerFrame];
+size_t    g_framePassCount = 0;
+
+// ⚠️ A FLOOR UNDER THE LEARNED THRESHOLD. A frame in which Archicad genuinely
+// draws almost nothing must not make a four-draw gizmo pass look like the
+// scene; the 3D pass of even a trivial model is busier than this.
+constexpr uint32_t kMinimumSceneDraws = 24;
+uint64_t g_boundColourResource = 0;
+
+// ⚠️ ONE `GetResource` PER TARGET POINTER, AND THE REFERENCE IS RELEASED AT
+// ONCE. `GetResource` AddRefs; holding that reference would keep Archicad's
+// scene texture alive past a resize and is exactly the persistent cache stage 5
+// forbids. The address is kept only as an identity to compare against.
+uint64_t ResourceBehind (ID3D11RenderTargetView* view)
+{
+    if (view == nullptr)
+        return 0;
+    ID3D11Resource* resource = nullptr;
+    view->GetResource (&resource);
+    if (resource == nullptr)
+        return 0;
+    const uint64_t identity = uint64_t (uintptr_t (resource));
+    resource->Release ();
+    return identity;
+}
+
 ScenePass g_currentPass;
 ScenePass g_lastCompletedPass;
 uint64_t  g_presentFrameId = 0;
@@ -121,6 +160,7 @@ void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* de
     ++g_current.targetBinds;
     const uint64_t previous = g_boundColour;
     g_boundColour = uint64_t (uintptr_t (colour));
+    g_boundColourResource = ResourceBehind (colour);
     g_boundDepth = uint64_t (uintptr_t (depth));
 
     // ⚠️ THE CANDIDATE INJECTION BOUNDARY. The colour target the current pass was
@@ -140,10 +180,20 @@ void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* de
         // it. The pass reopens, and the count is what says the boundary to use is
         // a later switch than this one.
         ++g_currentPass.targetReturns;
+        ++g_currentPass.targetEpoch;
+        g_currentPass.drawsThisEpoch = 0;
         g_currentPass.boundaryHit = false;
         if (g_lastCompletedPass.generation == g_currentPass.generation)
             g_lastCompletedPass = g_currentPass;
     }
+}
+
+// Two viewports are the same rectangle if they agree to within half a pixel;
+// exact float equality across frames is not something to rely on.
+bool SameExtent (float a, float b)
+{
+    const float difference = (a > b) ? (a - b) : (b - a);
+    return difference < 0.5f;
 }
 
 void OnDraw ()
@@ -152,6 +202,36 @@ void OnDraw ()
         return;
     if (!g_currentPass.boundaryHit && g_boundColour == g_currentPass.colorTarget) {
         ++g_currentPass.draws;
+        ++g_currentPass.drawsThisEpoch;
+        // ⚠️ DID THIS DRAW CARRY A CAMERA? That is what separates the model pass
+        // from a gizmo pass on a host where neither is busy.
+        {
+            const contextstate::ContextState live = contextstate::Snapshot ();
+            if (live.vsConstantBuffers[1].IsBound () && live.vsConstantBuffers[2].IsBound ())
+                g_currentPass.drawsHadCamera = true;
+        }
+        // ⚠️ LATCHED AT THE DRAW, NOT AT THE BOUNDARY. Archicad may legally
+        // change shader and constant-buffer state between its final scene draw
+        // and the target switch, so the state live at the switch is not
+        // necessarily the state that rendered the model. See
+        // ContextStateTracker.hpp's `SceneDrawState`.
+        // ⚠️ "IN THE MODEL PASS" MEANS THIS PASS MATCHES THE LEARNED SIGNATURE,
+        // not merely that it cleared depth. Until phase 1 has learned one,
+        // nothing is in the model pass and nothing is latched -- fail closed.
+        const bool inModelPass =
+                g_signature.learned &&
+                g_currentPass.colorResource == g_signature.colorResource &&
+                SameExtent (g_currentPass.viewport.width, g_signature.viewportWidth) &&
+                SameExtent (g_currentPass.viewport.height, g_signature.viewportHeight);
+        // ⚠️ ONE INCREMENT PER MODEL PASS, AT ITS FIRST CAMERA-BEARING DRAW. A
+        // generation per draw would make every later draw of the same scene look
+        // like a new scene; a generation per Present is the mistake this replaces.
+        if (inModelPass && g_modelPassOfGeneration != g_currentPass.generation) {
+            g_modelPassOfGeneration = g_currentPass.generation;
+            ++g_modelSceneGeneration;
+        }
+        contextstate::OnSceneDraw (g_currentPass.generation, g_currentPass.targetEpoch,
+                g_currentPass.drawsThisEpoch, g_modelSceneGeneration, inModelPass);
         return;
     }
     // ⚠️ COUNTED SEPARATELY, NOT IGNORED. Draws after the boundary are the UI and
@@ -164,13 +244,122 @@ void OnDraw ()
         g_lastCompletedPass.drawsAfterBoundary = g_currentPass.drawsAfterBoundary;
 }
 
-void OnCopyOrResolve ()
+bool SceneCompletesAt (uint64_t newColorTarget)
 {
-    if (g_currentPass.generation == 0 || !g_currentPass.boundaryHit)
-        return;
-    ++g_currentPass.opsAfterBoundary;
+    if (g_currentPass.generation == 0 || g_currentPass.draws == 0)
+        return false;
+    if (g_boundColour != g_currentPass.colorTarget)
+        return false;
+    if (newColorTarget == g_currentPass.colorTarget)
+        return false;
+
+    ++g_departures.departuresSeen;
+    if (g_currentPass.sceneConsumed) {
+        ++g_departures.rejectedAlreadyDone;
+        return false;
+    }
+
+    // ⚠️ A DEPTH CLEAR STARTS A PASS, AND MOST PASSES ARE NOT THE 3D SCENE.
+    // Run twenty-two: 1453 depth clears and 14178 indexed draws, while the pass
+    // that happened to be current at the departure held FOUR of them. Archicad
+    // clears depth many times a frame -- gizmos, highlights, overlays -- so "the
+    // most recent depth clear" selects a small pass far more often than it
+    // selects the scene, and the first triangle was injected into one of those
+    // and then painted over by the real geometry. That is why it executed 595
+    // times and was never seen.
+    //
+    // ⚠️ THE DISCRIMINATOR IS DRAW COUNT, LEARNED ONLINE AND FAIL-CLOSED. The 3D
+    // scene is by a wide margin the busiest pass in its frame, so a pass
+    // qualifies only once it has at least half as many draws as the busiest pass
+    // seen so far, and never fewer than a floor. Until something has been seen
+    // to be busy, NOTHING qualifies -- which costs the first frame or two and
+    // cannot inject into the wrong pass.
+    if (g_currentPass.draws > g_departures.busiestPassDraws)
+        g_departures.busiestPassDraws = g_currentPass.draws;
+
+    // ⚠️ THE LEARNED SIGNATURE, NOT A THRESHOLD. See `SceneSignature`: on this
+    // host nothing is ever busy -- the busiest pass of a whole session had four
+    // draws -- so size identifies nothing and the signature is everything. Until
+    // phase 1 has agreed with itself on consecutive frames, this refuses.
+    if (!g_signature.learned) {
+        ++g_departures.rejectedTooFewDraws;
+        return false;
+    }
+    g_departures.drawThreshold = (g_signature.draws > 1) ? (g_signature.draws / 2) : 1;
+    const bool matches =
+            g_currentPass.colorResource == g_signature.colorResource &&
+            g_currentPass.depthTarget == g_signature.depthTarget &&
+            SameExtent (g_currentPass.viewport.width, g_signature.viewportWidth) &&
+            SameExtent (g_currentPass.viewport.height, g_signature.viewportHeight) &&
+            g_currentPass.drawsHadCamera &&
+            g_currentPass.draws >= g_departures.drawThreshold;
+    if (!matches) {
+        ++g_departures.rejectedTooFewDraws;
+        return false;
+    }
+
+    g_currentPass.sceneConsumed = true;
     if (g_lastCompletedPass.generation == g_currentPass.generation)
-        g_lastCompletedPass.opsAfterBoundary = g_currentPass.opsAfterBoundary;
+        g_lastCompletedPass.sceneConsumed = true;
+    ++g_sceneConsumedCount;
+    ++g_departures.acceptedAsScene;
+    return true;
+}
+
+DepartureStats GetDepartureStats ()
+{
+    return g_departures;
+}
+
+SceneSignature GetSceneSignature ()
+{
+    return g_signature;
+}
+
+void ForgetSceneSignature ()
+{
+    g_signature = SceneSignature {};
+    g_framePassCount = 0;
+}
+
+bool OnCopyOrResolve (uint64_t sourceResource)
+{
+    if (g_currentPass.generation == 0)
+        return false;
+    if (g_currentPass.boundaryHit) {
+        ++g_currentPass.opsAfterBoundary;
+        if (g_lastCompletedPass.generation == g_currentPass.generation)
+            g_lastCompletedPass.opsAfterBoundary = g_currentPass.opsAfterBoundary;
+    }
+
+    // ⚠️ SOURCE RESOURCE, NOT VIEW POINTER, and once per pass. Several views can
+    // address one texture; and a scene consumed twice is one scene, so the
+    // trigger fires on the FIRST consumer and not on every later copy of the
+    // same bytes.
+    if (sourceResource == 0 || sourceResource != g_currentPass.colorResource)
+        return false;
+    if (g_currentPass.sceneConsumed)
+        return false;
+    g_currentPass.sceneConsumed = true;
+    if (g_lastCompletedPass.generation == g_currentPass.generation)
+        g_lastCompletedPass.sceneConsumed = true;
+    ++g_sceneConsumedCount;
+    return true;
+}
+
+uint64_t SceneConsumedCount ()
+{
+    return g_sceneConsumedCount;
+}
+
+uint64_t CurrentPresentGeneration ()
+{
+    return g_presentFrameId;
+}
+
+uint64_t ModelSceneGeneration ()
+{
+    return g_modelSceneGeneration;
 }
 
 ScenePass CurrentScenePass ()
@@ -226,6 +415,8 @@ void OnClearDepthStencil (ID3D11DepthStencilView* view)
     pass.colorTarget = g_current.sceneColorTarget;
     pass.depthTarget = g_current.sceneDepthTarget;
     pass.viewport = g_current.sceneCandidate;
+    pass.targetEpoch = 1;
+    pass.colorResource = g_boundColourResource;
 
     // ⚠️ INHERIT, DO NOT WAIT. The pass takes whatever is bound at this instant
     // as its own starting state; requiring the camera buffers to be re-bound
@@ -264,6 +455,61 @@ void OnPresent (uint64_t frameId)
         g_current.sceneDepthTarget = g_lastSceneDepth;
     }
     g_current.sceneCandidateAgeFrames = g_lastSceneAge;
+
+    // ---- phase 1: pick this frame's model pass, and see if it is stable ----
+    if (g_currentPass.generation != 0 && g_framePassCount < kMaxPassesPerFrame)
+        g_framePasses[g_framePassCount++] = g_currentPass;
+
+    if (g_framePassCount > 0) {
+        ++g_signature.framesWatched;
+
+        // ⚠️ THE CANDIDATE IS THE BIGGEST FULL-VIEWPORT PASS WHOSE DRAWS CARRIED
+        // A CAMERA. All three conditions matter: a gizmo pass has a camera but a
+        // small viewport or few draws, a clear-only pass has neither, and a
+        // full-screen post pass has no camera at all.
+        const ScenePass* best = nullptr;
+        float widest = 0.0f;
+        for (size_t i = 0; i < g_framePassCount; ++i) {
+            if (g_framePasses[i].viewport.width > widest)
+                widest = g_framePasses[i].viewport.width;
+        }
+        uint32_t candidates = 0;
+        for (size_t i = 0; i < g_framePassCount; ++i) {
+            const ScenePass& pass = g_framePasses[i];
+            if (!pass.drawsHadCamera || pass.draws == 0)
+                continue;
+            if (!SameExtent (pass.viewport.width, widest))
+                continue;
+            ++candidates;
+            if (best == nullptr || pass.draws > best->draws)
+                best = &pass;
+        }
+        g_signature.candidatesThisFrame = candidates;
+
+        if (best == nullptr) {
+            g_signature.stableFrames = 0;
+        } else if (g_signature.colorResource == best->colorResource &&
+                   g_signature.depthTarget == best->depthTarget &&
+                   SameExtent (g_signature.viewportWidth, best->viewport.width) &&
+                   SameExtent (g_signature.viewportHeight, best->viewport.height)) {
+            if (g_signature.stableFrames < 0xffffffffu)
+                ++g_signature.stableFrames;
+            // Track the typical draw count rather than the first one seen.
+            g_signature.draws = (g_signature.draws + best->draws) / 2;
+            if (g_signature.stableFrames >= kStableFramesRequired)
+                g_signature.learned = true;
+        } else {
+            // A different signature: start counting again from this one.
+            g_signature.colorResource = best->colorResource;
+            g_signature.depthTarget = best->depthTarget;
+            g_signature.viewportWidth = best->viewport.width;
+            g_signature.viewportHeight = best->viewport.height;
+            g_signature.draws = best->draws;
+            g_signature.stableFrames = 1;
+            g_signature.learned = false;
+        }
+        g_framePassCount = 0;
+    }
 
     g_current.valid = true;
     g_current.frameId = frameId;
@@ -346,6 +592,13 @@ void Reset ()
     g_lastSceneDepth = 0;
     g_lastSceneAge = 0;
     g_scenePassGeneration.store (0, std::memory_order_relaxed);
+    g_sceneConsumedCount = 0;
+    g_modelSceneGeneration = 0;
+    g_modelPassOfGeneration = 0;
+    g_departures = DepartureStats {};
+    g_signature = SceneSignature {};
+    g_framePassCount = 0;
+    g_boundColourResource = 0;
     g_currentPass = ScenePass {};
     g_lastCompletedPass = ScenePass {};
     g_presentFrameId = 0;

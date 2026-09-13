@@ -12,6 +12,7 @@
 
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
+#include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 
@@ -195,6 +196,18 @@ Audience Who (ID3D11DeviceContext* context, ContextSlot slot)
     const uint64_t key = uint64_t (uintptr_t (context));
     if (key == 0)
         return Audience::Ignore;
+
+    // ⚠️ OUR OWN INJECTED CALLS ARE NOT ARCHICAD'S, AND NO POINTER FILTER CAN
+    // TELL THEM APART. The injection renderer drives ARCHICAD'S context on
+    // purpose, so its VSSetShader, VSSetConstantBuffers1 and Draw* arrive here on
+    // the same object with the same key. Without this the injected triangle
+    // would overwrite the tracked camera bindings with its own, count itself as
+    // a scene draw, advance the scene-pass state and feed its constants to the
+    // classifier -- the instrument measuring itself. The guard is checked here,
+    // once, because every recording path in this file goes through `Who`.
+    if (contextstate::Injecting ())
+        return Audience::Ignore;
+
     if (key == g_archicadContext.load (std::memory_order_acquire)) {
         g_calls.fetch_add (1, std::memory_order_relaxed);
         g_perSlot[size_t (slot)].fetch_add (1, std::memory_order_relaxed);
@@ -283,6 +296,23 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
     if (Who (context, ContextSlot::OMSetRenderTargets) == Audience::Archicad &&
         SlotOn (ContextSlot::OMSetRenderTargets)) {
         ID3D11RenderTargetView* first = (count > 0 && targets != nullptr) ? targets[0] : nullptr;
+        // ⚠️ THE SCENE-COMPLETION TRIGGER FIRES HERE, BEFORE THE SWITCH IS
+        // FORWARDED, so Archicad's scene target, depth buffer and viewport are
+        // still the bound state its own draws used.
+        //
+        // ⚠️ IT IS THIS AND NOT `CopyResource` BECAUSE ARCHICAD NEVER COPIES THE
+        // SCENE. Run twenty-one: zero `ResolveSubresource` (the target is not
+        // MSAA) and zero of thirty-six `CopyResource` calls sourced the scene
+        // colour -- the 3D pass renders straight into the swap-chain back buffer
+        // and is consumed by Present itself. There is no consumer operation to
+        // hang a causal trigger on, so the transition away from the target is
+        // what is left. Runs nineteen through twenty-one recorded `targetReturns
+        // = 0`, meaning Archicad does not come back to it, so the first
+        // departure IS the final one -- and the pass counts returns so that
+        // stops being an assumption the moment it is false.
+        if (renderstate::SceneCompletesAt (uint64_t (uintptr_t (first))))
+            injection::InjectIfReady (context);
+
         contextstate::OnRenderTargets (first, depth);
         renderstate::OnRenderTargets (first, depth);
         // `handle` is the colour target; the depth target rides in b/c as the low
@@ -533,8 +563,13 @@ void STDMETHODCALLTYPE DetourCopyResource (ID3D11DeviceContext* context,
                                            ID3D11Resource* source)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::CopyResource) == Audience::Archicad)
-        renderstate::OnCopyOrResolve ();
+    if (Who (context, ContextSlot::CopyResource) == Audience::Archicad) {
+        // ⚠️ THE SCENE-COMPLETION TRIGGER FIRES HERE, BEFORE THE COPY IS
+        // FORWARDED. At this instant Archicad's scene is finished and the copy
+        // that consumes it has not happened, so anything drawn now is inside the
+        // frame about to be posted and presented. See RenderStateCapture.hpp.
+        renderstate::OnCopyOrResolve (uint64_t (uintptr_t (source)));
+    }
     const CopyResourceFn original = OriginalOf<CopyResourceFn> (ContextSlot::CopyResource);
     if (original != nullptr)
         original (context, destination, source);
@@ -639,7 +674,7 @@ void STDMETHODCALLTYPE DetourCopySubresourceRegion (ID3D11DeviceContext* context
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::CopySubresourceRegion) == Audience::Archicad)
-        renderstate::OnCopyOrResolve ();
+        renderstate::OnCopyOrResolve (uint64_t (uintptr_t (source)));
     const CopySubresourceFn original =
         OriginalOf<CopySubresourceFn> (ContextSlot::CopySubresourceRegion);
     if (original != nullptr)
@@ -654,7 +689,7 @@ void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context,
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::ResolveSubresource) == Audience::Archicad)
-        renderstate::OnCopyOrResolve ();
+        renderstate::OnCopyOrResolve (uint64_t (uintptr_t (source)));
     const ResolveSubresourceFn original =
         OriginalOf<ResolveSubresourceFn> (ContextSlot::ResolveSubresource);
     if (original != nullptr)
@@ -669,10 +704,17 @@ void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context,
 // now name a RANGE inside a larger buffer -- and stage 3 will need that offset
 // when it comes to score, because the matrix may not start at byte zero.
 void RecordConstantBuffers1 (ContextSlot slot, UINT startSlot, UINT count,
-                             ID3D11Buffer* const* buffers, const UINT* firstConstant)
+                             ID3D11Buffer* const* buffers, const UINT* firstConstant,
+                             const UINT* numConstants)
 {
+    // ⚠️ `numConstants` IS PART OF THE BINDING AND MUST NOT BE DROPPED. Restoring
+    // a window with the right buffer and the right offset but the wrong LENGTH
+    // exposes a different region of an 8 MiB ring, and the injected shader would
+    // read whatever happened to follow the camera. It was being passed as
+    // nullptr, which is why every reported `numConstants` read 0.
     if (slot == ContextSlot::VSSetConstantBuffers1)
-        contextstate::OnVSConstantBuffers (startSlot, count, buffers, firstConstant, nullptr);
+        contextstate::OnVSConstantBuffers (startSlot, count, buffers, firstConstant,
+                numConstants);
     if (buffers == nullptr || count == 0) {
         eventring::Record (slot, 0, startSlot, count, 0);
         return;
@@ -719,7 +761,7 @@ void STDMETHODCALLTYPE DetourVSSetConstantBuffers1 (ID3D11DeviceContext* context
     if (Who (context, ContextSlot::VSSetConstantBuffers1) == Audience::Archicad &&
         SlotOn (ContextSlot::VSSetConstantBuffers1))
         RecordConstantBuffers1 (ContextSlot::VSSetConstantBuffers1, startSlot, count, buffers,
-                                firstConstant);
+                                firstConstant, numConstants);
     const SetConstantBuffers1Fn original =
         OriginalOf<SetConstantBuffers1Fn> (ContextSlot::VSSetConstantBuffers1);
     if (original != nullptr)
@@ -736,7 +778,7 @@ void STDMETHODCALLTYPE DetourPSSetConstantBuffers1 (ID3D11DeviceContext* context
     if (Who (context, ContextSlot::PSSetConstantBuffers1) == Audience::Archicad &&
         SlotOn (ContextSlot::PSSetConstantBuffers1))
         RecordConstantBuffers1 (ContextSlot::PSSetConstantBuffers1, startSlot, count, buffers,
-                                firstConstant);
+                                firstConstant, numConstants);
     const SetConstantBuffers1Fn original =
         OriginalOf<SetConstantBuffers1Fn> (ContextSlot::PSSetConstantBuffers1);
     if (original != nullptr)

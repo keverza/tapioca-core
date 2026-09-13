@@ -15,8 +15,96 @@ namespace contextstate {
 namespace {
 
 ContextState g_state;
+SceneDrawState g_lastSceneDraw;
+SceneDrawState g_lastCameraDraw;
+DrawCameraCounts g_drawCounts;
+
+// The window size stage 3 measured for both camera constants: 16 constants, 256
+// bytes, the D3D11.1 minimum granularity, matrix at offset zero.
+constexpr uint32_t kCameraWindowConstants = 16;
+
+// ⚠️ A COUNTER, NOT A FLAG, because the guard has to nest: an injected draw runs
+// inside a detour that is already forwarding one of Archicad's calls, and a
+// bool would be cleared by the inner scope while the outer one still needed it.
+// Render thread only, so no atomic is required -- and see the header for why an
+// object-pointer filter cannot do this job.
+int g_injectionDepth = 0;
 
 }   // namespace
+
+ScopedInjectionGuard::ScopedInjectionGuard ()
+{
+    ++g_injectionDepth;
+}
+
+ScopedInjectionGuard::~ScopedInjectionGuard ()
+{
+    if (g_injectionDepth > 0)
+        --g_injectionDepth;
+}
+
+bool Injecting ()
+{
+    return g_injectionDepth > 0;
+}
+
+void OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
+                  uint64_t drawSequence, uint64_t modelSceneGeneration, bool inModelPass)
+{
+    // ⚠️ THE WHOLE LIVE STATE, LATCHED AT THE DRAW. Not a reference to it, not a
+    // promise to read it later: by the time anything wants this, Archicad may
+    // have bound something else.
+    g_lastSceneDraw.valid = true;
+    g_lastSceneDraw.modelSceneGeneration = modelSceneGeneration;
+    g_lastSceneDraw.scenePassGeneration = scenePassGeneration;
+    g_lastSceneDraw.sceneTargetEpoch = sceneTargetEpoch;
+    g_lastSceneDraw.drawSequence = drawSequence;
+    g_lastSceneDraw.vertexShader = g_state.vertexShader;
+    g_lastSceneDraw.renderTarget = g_state.renderTarget;
+    g_lastSceneDraw.depthStencil = g_state.depthStencil;
+    g_lastSceneDraw.viewportX = g_state.viewportX;
+    g_lastSceneDraw.viewportY = g_state.viewportY;
+    g_lastSceneDraw.viewportWidth = g_state.viewportWidth;
+    g_lastSceneDraw.viewportHeight = g_state.viewportHeight;
+    for (size_t i = 0; i < kConstantBufferSlots; ++i)
+        g_lastSceneDraw.vsConstantBuffers[i] = g_state.vsConstantBuffers[i];
+
+    // ⚠️ STRICT: THIS DRAW, BOTH WINDOWS, RIGHT SIZE. Anything looser lets a
+    // gizmo draw that inherited a stale binding count as camera-bearing.
+    ++g_drawCounts.total;
+    const ConstantBufferBinding& view = g_state.vsConstantBuffers[1];
+    const ConstantBufferBinding& projection = g_state.vsConstantBuffers[2];
+    const bool hasView = view.IsBound () && view.numConstants == kCameraWindowConstants;
+    const bool hasProjection =
+            projection.IsBound () && projection.numConstants == kCameraWindowConstants;
+    if (hasView)
+        ++g_drawCounts.withView;
+    if (hasProjection)
+        ++g_drawCounts.withProjection;
+    if (hasView && hasProjection) {
+        ++g_drawCounts.withBoth;
+        // ⚠️ ONLY THE MODEL PASS'S CAMERA IS LATCHED. See `withBothInModelPass`.
+        if (inModelPass) {
+            ++g_drawCounts.withBothInModelPass;
+            g_lastCameraDraw = g_lastSceneDraw;
+        }
+    }
+}
+
+SceneDrawState LastCameraDraw ()
+{
+    return g_lastCameraDraw;
+}
+
+DrawCameraCounts GetDrawCameraCounts ()
+{
+    return g_drawCounts;
+}
+
+SceneDrawState LastSceneDraw ()
+{
+    return g_lastSceneDraw;
+}
 
 void OnVertexShader (ID3D11VertexShader* shader)
 {
@@ -65,6 +153,10 @@ ContextState Snapshot ()
 void Reset ()
 {
     g_state = ContextState {};
+    g_lastSceneDraw = SceneDrawState {};
+    g_lastCameraDraw = SceneDrawState {};
+    g_drawCounts = DrawCameraCounts {};
+    g_injectionDepth = 0;
 }
 
 }   // namespace contextstate

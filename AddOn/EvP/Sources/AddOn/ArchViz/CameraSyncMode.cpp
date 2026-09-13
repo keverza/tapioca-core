@@ -9,6 +9,7 @@
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/CameraWake.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
+#include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
@@ -139,6 +140,13 @@ void TearDownCurrent ()
     // restore lives here, on the path every exit already goes through, exactly
     // as `viewportoverlay::SetVisible (true)` does for `hookdraw`. No-op unless
     // something armed it, and it writes the saved projection back verbatim.
+    // ⚠️ THE INJECTED TRIANGLE STOPS ON EVERY TEARDOWN, and its device objects go
+    // with it. It draws into Archicad's own scene target; a cancelled run must
+    // not be able to leave that running, and nothing it created may outlive
+    // Archicad's device.
+    dxgi::injection::SetEnabled (false);
+    dxgi::injection::Shutdown ();
+
     autoorbit::Stop ();
 
     // ⚠️ THE BREADCRUMB GOES WITH THE MECHANISM. It was dropped only on an arm

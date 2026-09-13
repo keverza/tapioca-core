@@ -8,6 +8,7 @@
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/ConstantBufferCapture.hpp"
+#include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/NavLog.hpp"
 
@@ -201,6 +202,27 @@ void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
     // takes VirtualProtect when a slot has actually changed; the common path is
     // twenty-seven pointer compares, which is nothing beside a frame.
     RepairContextHook ();
+
+    // ⚠️ PROOF A DRAWS HERE, BEFORE THE PRESENT IS FORWARDED. The back buffer is
+    // still writable and everything Archicad meant to draw is already in it, so
+    // the triangle cannot be painted over -- which is exactly what happened when
+    // it was injected at the first scene-pass departure. See
+    // InjectionRenderer.hpp for why this is Proof A's point and not the final
+    // one. No-op unless the injection experiment is explicitly armed.
+    {
+        ID3D11Device* device = nullptr;
+        swapChain->GetDevice (__uuidof (ID3D11Device), (void**) &device);
+        if (device != nullptr) {
+            ID3D11DeviceContext* context = nullptr;
+            device->GetImmediateContext (&context);
+            if (context != nullptr) {
+                injection::InjectAtPresent (context, swapChain,
+                        renderstate::ModelSceneGeneration ());
+                context->Release ();
+            }
+            device->Release ();
+        }
+    }
 
     const uint64_t frameId = g_archicadFrames.fetch_add (1, std::memory_order_relaxed) + 1;
     // ⚠️ THE CAPTURE'S FRAME CLOCK IS ADVANCED HERE AND NOWHERE ELSE. Everything

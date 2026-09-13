@@ -13,6 +13,8 @@
 #include "ArchViz/AutoOrbit.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/DeviceIdentity.hpp"
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
+#include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
@@ -308,6 +310,108 @@ public:
     }
 };
 
+// ---------------------------------------------------------------------------
+// Tapioca.ViewerInjectTriangle { enabled } -> { enabled, injected, ... }
+//
+// Stage 5 Proof A. Arms the native injected triangle, and reports its counters.
+//
+// ⚠️ AN EXPLICIT SWITCH, NOT A SIDE EFFECT OF ARMING THE DIAGNOSTIC HOOKS. This
+// is the only thing in the project that draws into Archicad's own scene target,
+// and it must be impossible to turn on by accident -- arming `hookdiag` for any
+// other reason must not start injecting geometry into the user's 3D window.
+// `CameraSyncReset` turns it off along with everything else.
+// ---------------------------------------------------------------------------
+class ViewerInjectTriangleCommand : public MainThreadCommand {
+public:
+    GS::String GetName () const override { return "ViewerInjectTriangle"; }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        namespace inj = av::dxgi::injection;
+
+        // ⚠️ THE ANCHOR IS SET BEFORE THE ARM, so a run that names a point gets a
+        // vertex there on its first injection rather than on its second.
+        if (params.Contains ("x") || params.Contains ("y") || params.Contains ("z") ||
+            params.Contains ("sizeMetres")) {
+            double x = 0.0, y = 0.0, z = 0.0, size = 1.0;
+            params.Get ("x", x);
+            params.Get ("y", y);
+            params.Get ("z", z);
+            params.Get ("sizeMetres", size);
+            inj::SetAnchor (float (x), float (y), float (z), float (size));
+        }
+
+        // ⚠️ WHERE TO DRAW. "present" is Proof A -- on top of everything, which
+        // settles the transform question alone. "scenepass" is Proof B's point,
+        // inside the pass where Archicad's depth buffer still exists.
+        if (params.Contains ("point")) {
+            GS::UniString point;
+            params.Get ("point", point);
+            inj::SetPoint (point == "scenepass" ? inj::Point::ScenePass
+                                                : inj::Point::Present);
+        }
+
+        bool enabled = false;
+        if (params.Contains ("enabled")) {
+            params.Get ("enabled", enabled);
+            inj::SetEnabled (enabled);
+        }
+
+        const inj::InjectionStats stats = inj::GetInjectionStats ();
+        GS::ObjectState os;
+        os.Add ("enabled", inj::Enabled ());
+        os.Add ("point", GS::UniString (inj::GetPoint () == inj::Point::Present
+                                        ? "present" : "scenepass", CC_UTF8));
+        const av::dxgi::contextstate::DrawCameraCounts cameraCounts =
+                av::dxgi::contextstate::GetDrawCameraCounts ();
+        os.Add ("drawsTotal", (GS::Int32) cameraCounts.total);
+        os.Add ("drawsWithView", (GS::Int32) cameraCounts.withView);
+        os.Add ("drawsWithProjection", (GS::Int32) cameraCounts.withProjection);
+        os.Add ("drawsWithBothCamera", (GS::Int32) cameraCounts.withBoth);
+        os.Add ("initialised", stats.initialised);
+        os.Add ("injected", (GS::Int32) stats.injected);
+        os.Add ("skippedNoSceneDraw", (GS::Int32) stats.skippedNoSceneDraw);
+        os.Add ("skippedNoCamera", (GS::Int32) stats.skippedNoCamera);
+        os.Add ("skippedNotReady", (GS::Int32) stats.skippedNotReady);
+        os.Add ("skippedPassMismatch", (GS::Int32) stats.skippedPassMismatch);
+        os.Add ("skippedWindowSize", (GS::Int32) stats.skippedWindowSize);
+        os.Add ("skippedReentrant", (GS::Int32) stats.skippedReentrant);
+        os.Add ("skippedStaleCamera", (GS::Int32) stats.skippedStaleCamera);
+        os.Add ("backBufferFailures", (GS::Int32) stats.backBufferFailures);
+        os.Add ("newScene", (GS::Int32) stats.newScene);
+        os.Add ("repeatScene", (GS::Int32) stats.repeatScene);
+        os.Add ("invalidScene", (GS::Int32) stats.invalidScene);
+        os.Add ("drawsWithBothInModelPass", (GS::Int32) cameraCounts.withBothInModelPass);
+
+        // Why a target departure was or was not taken as scene completion.
+        const av::dxgi::renderstate::DepartureStats departures =
+                av::dxgi::renderstate::GetDepartureStats ();
+        os.Add ("departuresSeen", (GS::Int32) departures.departuresSeen);
+        os.Add ("acceptedAsScene", (GS::Int32) departures.acceptedAsScene);
+        os.Add ("rejectedTooFewDraws", (GS::Int32) departures.rejectedTooFewDraws);
+        os.Add ("rejectedAlreadyDone", (GS::Int32) departures.rejectedAlreadyDone);
+        os.Add ("drawThreshold", (GS::Int32) departures.drawThreshold);
+        os.Add ("busiestPassDraws", (GS::Int32) departures.busiestPassDraws);
+
+        // ⚠️ WHAT PHASE 1 LEARNED. Nothing is injected until `learned` is true,
+        // and it only becomes true when consecutive frames agree on the same
+        // colour resource, depth view and viewport for a camera-bearing pass.
+        const av::dxgi::renderstate::SceneSignature signature =
+                av::dxgi::renderstate::GetSceneSignature ();
+        os.Add ("signatureLearned", signature.learned);
+        os.Add ("signatureStableFrames", (GS::Int32) signature.stableFrames);
+        os.Add ("signatureFramesWatched", (GS::Int32) signature.framesWatched);
+        os.Add ("signatureCandidates", (GS::Int32) signature.candidatesThisFrame);
+        os.Add ("signatureDraws", (GS::Int32) signature.draws);
+        os.Add ("signatureViewportWidth", (double) signature.viewportWidth);
+        os.Add ("signatureViewportHeight", (double) signature.viewportHeight);
+        os.Add ("sceneConsumers",
+                (GS::Int32) av::dxgi::renderstate::SceneConsumedCount ());
+        os.Add ("lastError", GS::UniString (stats.lastError, CC_UTF8));
+        return os;
+    }
+};
+
 class ViewerGpuDeviceInfoCommand : public MainThreadCommand {
 public:
     GS::String GetName () const override { return "ViewerGpuDeviceInfo"; }
@@ -379,6 +483,9 @@ const NativeCommandRegistration kViewerGpuStateCommandRegistrations[] = {
     { "ViewerGpuStateCandidates", &MakeRegisteredNativeCommand<ViewerGpuStateCandidatesCommand>, false,
       R"json({"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":16}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"scored":{"type":"boolean"},"referenceValid":{"type":"boolean"},"candidates":{"type":"array","items":{"type":"object","properties":{"buffer":{"type":"string"},"byteOffset":{"type":"integer"},"windowOffset":{"type":"integer"},"pairedOffset":{"type":"integer"},"byteWidth":{"type":"integer"},"variant":{"type":"string"},"boundBy":{"type":"string"},"bindSlot":{"type":"integer"},"maxPixelError":{"type":"number"},"meanPixelError":{"type":"number"},"changesWhileMoving":{"type":"integer"},"changesWhileStill":{"type":"integer"}},"additionalProperties":false,"required":["buffer","byteOffset","variant","maxPixelError"]}}},"additionalProperties":false,"required":["scored","referenceValid","candidates"]})json" },
+    { "ViewerInjectTriangle", &MakeRegisteredNativeCommand<ViewerInjectTriangleCommand>, false,
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string","enum":["present","scenepass"]},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string"},"drawsTotal":{"type":"integer"},"drawsWithView":{"type":"integer"},"drawsWithProjection":{"type":"integer"},"drawsWithBothCamera":{"type":"integer"},"initialised":{"type":"boolean"},"injected":{"type":"integer"},"skippedNoSceneDraw":{"type":"integer"},"skippedNoCamera":{"type":"integer"},"skippedNotReady":{"type":"integer"},"skippedPassMismatch":{"type":"integer"},"skippedWindowSize":{"type":"integer"},"skippedReentrant":{"type":"integer"},"skippedStaleCamera":{"type":"integer"},"backBufferFailures":{"type":"integer"},"newScene":{"type":"integer"},"repeatScene":{"type":"integer"},"invalidScene":{"type":"integer"},"drawsWithBothInModelPass":{"type":"integer"},"departuresSeen":{"type":"integer"},"acceptedAsScene":{"type":"integer"},"rejectedTooFewDraws":{"type":"integer"},"rejectedAlreadyDone":{"type":"integer"},"drawThreshold":{"type":"integer"},"busiestPassDraws":{"type":"integer"},"signatureLearned":{"type":"boolean"},"signatureStableFrames":{"type":"integer"},"signatureFramesWatched":{"type":"integer"},"signatureCandidates":{"type":"integer"},"signatureDraws":{"type":"integer"},"signatureViewportWidth":{"type":"number"},"signatureViewportHeight":{"type":"number"},"sceneConsumers":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["enabled","injected"]})json" },
     { "ViewerGpuDeviceInfo", &MakeRegisteredNativeCommand<ViewerGpuDeviceInfoCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"deviceFound":{"type":"boolean"},"is11On12":{"type":"boolean"},"creationFlags":{"type":"integer"},"featureLevel":{"type":"integer"},"debugLayer":{"type":"boolean"},"singleThreaded":{"type":"boolean"},"bgraSupport":{"type":"boolean"},"highestDeviceInterface":{"type":"integer","minimum":0,"maximum":5},"openglLoaded":{"type":"boolean"},"openglIcdLoaded":{"type":"boolean"},"d3d12Loaded":{"type":"boolean"},"vulkanLoaded":{"type":"boolean"},"d2dLoaded":{"type":"boolean"},"dcompLoaded":{"type":"boolean"},"targetWindow":{"type":"string"},"targetHasPixelFormat":{"type":"boolean"},"targetPixelFormat":{"type":"integer"},"targetSupportsOpenGL":{"type":"boolean"},"targetSupportsGdi":{"type":"boolean"},"targetDoubleBuffered":{"type":"boolean"},"chains":{"type":"array","items":{"type":"object","properties":{"swapChain":{"type":"string"},"window":{"type":"string"},"presents":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"ours":{"type":"boolean"},"nominated":{"type":"boolean"}},"additionalProperties":false,"required":["swapChain","window","presents","ours","nominated"]}}},"additionalProperties":false,"required":["deviceFound","is11On12","chains"]})json" },

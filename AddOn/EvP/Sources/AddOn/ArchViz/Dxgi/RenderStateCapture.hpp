@@ -158,8 +158,12 @@ struct FrameState {
 struct ScenePass {
     uint64_t    generation = 0;      // 0 until the first depth clear
     uint64_t    presentFrameId = 0;  // which Present interval it lived in
-    uint64_t    colorTarget = 0;
-    uint64_t    depthTarget = 0;
+    uint64_t    colorTarget = 0;      // the RTV
+    uint64_t    depthTarget = 0;      // the DSV
+    // ⚠️ THE TEXTURE BEHIND THE RTV, AND IT IS NOT THE SAME QUESTION. Several
+    // views can address one texture, so a copy or resolve that consumes the
+    // scene is recognised by its SOURCE RESOURCE, never by an RTV pointer.
+    uint64_t    colorResource = 0;
     GpuViewport viewport;
     uint32_t    draws = 0;           // draw calls seen while its target was bound
     bool        boundaryHit = false; // the colour target was bound away afterwards
@@ -176,6 +180,28 @@ struct ScenePass {
     uint32_t    targetReturns = 0;
     uint32_t    drawsAfterReturn = 0;
 
+    // ⚠️ A PASS AND A TARGET SEGMENT ARE DIFFERENT THINGS, and run eighteen is
+    // why both are counted. `generation` is one logical 3D render within a
+    // Present interval; `targetEpoch` increments every time Archicad ENTERS or
+    // RE-ENTERS the scene RTV/DSV. A pass can contain several epochs, and an
+    // early departure from the target is not "the boundary" merely because the
+    // pass object later reopens.
+    uint64_t    targetEpoch = 0;
+    uint64_t    drawsThisEpoch = 0;
+
+    // Whether something has already consumed this pass's colour texture. The
+    // first consumer is the scene-completion trigger; later ones are post.
+    bool        sceneConsumed = false;
+
+    // ⚠️ WHETHER THIS PASS'S DRAWS CARRIED A CAMERA, which turns out to be the
+    // only discriminator that works on this host. Run twenty-three: the busiest
+    // pass in the whole session had FOUR draws -- Archicad renders its model in
+    // roughly four passes of a dozen draws each, not in one big one -- so "the
+    // pass with substantially more draws than the others" identifies nothing
+    // here. What separates the 3D pass from a gizmo pass is that its draws bind
+    // a view AND a projection in the windows stage 3 identified.
+    bool        drawsHadCamera = false;
+
     // The bindings that were live when this pass BEGAN -- inherited, not waited
     // for. See ContextStateTracker.hpp: a camera constant bound once and never
     // rebound is invisible to anything that only records events after the depth
@@ -190,13 +216,107 @@ struct ScenePass {
 // consumer that wants to draw wants the completed one; a consumer that wants to
 // know what is happening right now wants the started one.
 ScenePass CurrentScenePass ();
+
+// How many times a scene colour has been consumed by a copy or resolve. This is
+// the online trigger's own count, and the number stage 5 watches to know the
+// trigger fires exactly once per rendered scene.
+uint64_t SceneConsumedCount ();
+
+// ⚠️ THE GENERATION THE DRAWS OF THE FRAME BEING BUILT ARE STAMPED WITH, which
+// is the id of the LAST present, not of the one about to happen. A camera latched
+// during this frame carries this number; comparing it against the id `OnPresent`
+// is about to be given would reject every single draw.
+uint64_t CurrentPresentGeneration ();
+
+// ⚠️ THE GENERATION OF THE MODEL ITSELF, AND IT IS NOT THE PRESENT COUNTER.
+// A camera is not stale merely because another Present happened. Archicad
+// presents without re-rendering the model constantly -- a UI repaint, a cursor,
+// a palette -- and requiring `camera.presentGeneration == thisPresent` rejected
+// the perfectly good model camera on nearly six presents in ten, which is why
+// the triangle flickered rather than held.
+//
+// This increments ONLY when the learned model pass actually draws camera-bearing
+// geometry, and never from Present. That keeps the rule that matters --
+//
+//     new geometry + old camera = forbidden
+//
+// -- while allowing the case that is completely legitimate:
+//
+//     same geometry + same camera + another Present = fine
+//
+// ⚠️ SO SELECTION HELPERS, GIZMOS AND UI DRAWN AFTER THE MODEL DO NOT AGE THE
+// CAMERA. Only a new model scene supersedes it.
+uint64_t ModelSceneGeneration ();
 ScenePass LastCompletedScenePass ();
 
 // Render thread. The draw detours call this so a pass knows how much work went
 // into it -- `draws` is what separates the 3D pass from a one-draw gizmo that
 // also cleared depth.
 void OnDraw ();
-void OnCopyOrResolve ();
+
+// ⚠️ THE SCENE-COMPLETION TRIGGER, AND IT IS CAUSAL RATHER THAN PREDICTIVE.
+// Returns true when this copy or resolve is consuming the completed scene
+// colour -- at which point the scene is finished and the copy has NOT yet
+// happened, so an injected draw still lands inside the frame Archicad is about
+// to post-process and present.
+//
+// This is preferred over guessing which `OMSetRenderTargets` is the last one,
+// because at the first target switch you cannot know it is the last. The
+// operation itself proves the scene texture is being consumed. Run twenty
+// measured the shape: Archicad performs no `ResolveSubresource` at all (so the
+// scene target is not MSAA) and exactly ONE `CopyResource` after the boundary.
+bool OnCopyOrResolve (uint64_t sourceResource);
+
+// ⚠️ TRUE EXACTLY ONCE PER SCENE, AT THE TRANSITION THAT ENDS IT, AND ASKED
+// BEFORE THE TRANSITION IS FORWARDED. `newColorTarget` is what Archicad is about
+// to bind; the scene is complete when it is leaving the target it drew into and
+// that target saw at least one draw. The once-per-pass latch is what stops a
+// later switch re-triggering it.
+bool SceneCompletesAt (uint64_t newColorTarget);
+
+// Why a departure was or was not taken, so the proof can count refusals rather
+// than only successes.
+struct DepartureStats {
+    uint64_t departuresSeen = 0;       // left a target that had draws in it
+    uint64_t acceptedAsScene = 0;      // ... and the pass looked like the 3D scene
+    uint64_t rejectedTooFewDraws = 0;  // ... and it did not
+    uint64_t rejectedAlreadyDone = 0;  // this pass had already been injected into
+    uint32_t drawThreshold = 0;        // what "enough draws" currently means
+    uint32_t busiestPassDraws = 0;     // the most draws any one pass has had
+};
+DepartureStats GetDepartureStats ();
+
+// ---- learning which pass is the model, before injecting into it ------------
+// ⚠️ TWO PHASES, AND THE FIRST ONE DRAWS NOTHING. An adaptive "busiest so far"
+// threshold is not an identity: an early forty-draw pass qualifies as busiest,
+// and a thousand-draw scene arriving later never gets a chance to displace it.
+// Worse on this host, where nothing is ever busy: every pass has a handful of
+// draws and the discriminator has to be the SIGNATURE, not the size.
+//
+// Phase 1 watches complete frames and records, per pass: its colour resource,
+// its depth view, its viewport, its draw count, and whether its draws carried a
+// camera. At Present it picks the candidate that has a full-size viewport, a
+// camera on its draws, and more draws than the other camera-bearing passes --
+// and it must pick the SAME signature on consecutive frames before anything is
+// injected. If no stable dominant candidate exists, nothing is ever drawn.
+//
+// Phase 2 recognises that signature online at a departure and injects there.
+struct SceneSignature {
+    bool     learned = false;
+    uint64_t colorResource = 0;
+    uint64_t depthTarget = 0;
+    float    viewportWidth = 0.0f;
+    float    viewportHeight = 0.0f;
+    uint32_t draws = 0;          // what that pass typically draws
+    uint32_t stableFrames = 0;   // consecutive frames agreeing on this signature
+    uint32_t framesWatched = 0;
+    uint32_t candidatesThisFrame = 0;
+};
+SceneSignature GetSceneSignature ();
+
+// MAIN THREAD. Forget what was learned -- after a resize, a view-mode change, or
+// anything else that makes the old signature a lie.
+void ForgetSceneSignature ();
 
 // ---- render thread, from the context detours -------------------------------
 void OnViewport (const D3D11_VIEWPORT& viewport);
