@@ -196,10 +196,10 @@ bool SameExtent (float a, float b)
     return difference < 0.5f;
 }
 
-void OnDraw ()
+bool OnDraw ()
 {
     if (g_currentPass.generation == 0)
-        return;
+        return false;
     if (!g_currentPass.boundaryHit && g_boundColour == g_currentPass.colorTarget) {
         ++g_currentPass.draws;
         ++g_currentPass.drawsThisEpoch;
@@ -232,7 +232,10 @@ void OnDraw ()
         }
         contextstate::OnSceneDraw (g_currentPass.generation, g_currentPass.targetEpoch,
                 g_currentPass.drawsThisEpoch, g_modelSceneGeneration, inModelPass);
-        return;
+        // ⚠️ TRUE MEANS "SNAPSHOT THE CAMERA THIS DRAW IS ABOUT TO CONSUME". The
+        // binding tells you where the bytes are; only a copy preserves what they
+        // were. See InjectionRenderer::SnapshotCamera.
+        return inModelPass;
     }
     // ⚠️ COUNTED SEPARATELY, NOT IGNORED. Draws after the boundary are the UI and
     // post passes, and how many there are decides whether the boundary is a
@@ -242,6 +245,7 @@ void OnDraw ()
         ++g_currentPass.drawsAfterReturn;
     if (g_lastCompletedPass.generation == g_currentPass.generation)
         g_lastCompletedPass.drawsAfterBoundary = g_currentPass.drawsAfterBoundary;
+    return false;
 }
 
 bool SceneCompletesAt (uint64_t newColorTarget)

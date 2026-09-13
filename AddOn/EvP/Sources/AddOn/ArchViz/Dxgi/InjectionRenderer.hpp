@@ -69,6 +69,28 @@ void Shutdown ();
 // wrongly-drawn one is the bug.
 void InjectIfReady (ID3D11DeviceContext* context);
 
+// RENDER THREAD, from a draw detour, for a qualifying camera-bearing draw of the
+// learned model pass.
+//
+// ⚠️ THE BINDING IS NOT THE BYTES, AND THAT DISTINCTION IS THIS FUNCTION.
+// `buffer + firstConstant + numConstants` identifies WHERE the camera lived when
+// the model was drawn; it does not preserve WHAT was there. Archicad's constants
+// live in one 8 MiB ring, and between the model draw and Present its later
+// passes keep writing that ring -- so rebinding the same window at Present can
+// hand the shader another pass's bytes wearing the camera's address.
+//
+// That fits the symptom exactly. During navigation there is a great deal of
+// later ring traffic and the world triangle vanished; when navigation stopped
+// there was almost none, the window still held the model camera, and it
+// appeared. The clip-space probe was rock solid throughout, which had already
+// ruled out the injection, the back buffer and the state restoration.
+//
+// So the 256 bytes are copied GPU-to-GPU into a buffer we own, at the moment the
+// draw that consumes them happens. ⚠️ NO `Map`, NO CPU READBACK, NO
+// SYNCHRONISATION -- one `CopySubresourceRegion`, which for buffer resources
+// takes BYTE coordinates rather than texels.
+void SnapshotCamera (ID3D11DeviceContext* context);
+
 // RENDER THREAD, from the present detour, BEFORE the present is forwarded.
 //
 // ⚠️ THIS IS PROOF A's INJECTION POINT, AND IT IS DELIBERATELY NOT THE FINAL
@@ -123,6 +145,10 @@ struct InjectionStats {
     uint64_t newScene = 0;
     uint64_t repeatScene = 0;
     uint64_t invalidScene = 0;
+
+    // How many times the camera bytes have been copied out of Archicad's ring.
+    uint64_t snapshotsTaken = 0;
+    bool     snapshotValid = false;
     bool     initialised = false;
     char     lastError[192] = {};
 };

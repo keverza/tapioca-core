@@ -509,7 +509,8 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::DrawIndexed) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawIndexedFn original = OriginalOf<DrawIndexedFn> (ContextSlot::DrawIndexed);
     if (original != nullptr)
         original (context, indexCount, startIndex, baseVertex);
@@ -520,7 +521,8 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::Draw) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
     if (original != nullptr)
         original (context, count, start);
@@ -533,7 +535,8 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawIndexedInstFn original =
         OriginalOf<DrawIndexedInstFn> (ContextSlot::DrawIndexedInstanced);
     if (original != nullptr)
@@ -600,7 +603,8 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::DrawInstanced) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawInstancedFn original = OriginalOf<DrawInstancedFn> (ContextSlot::DrawInstanced);
     if (original != nullptr)
         original (context, perInstance, instances, startVertex, startInstance);
@@ -611,7 +615,8 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::DrawAuto) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawAutoFn original = OriginalOf<DrawAutoFn> (ContextSlot::DrawAuto);
     if (original != nullptr)
         original (context);
@@ -623,7 +628,8 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawIndirectFn original =
         OriginalOf<DrawIndirectFn> (ContextSlot::DrawIndexedInstancedIndirect);
     if (original != nullptr)
@@ -636,7 +642,8 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if (Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad)
-        renderstate::OnDraw ();
+        if (renderstate::OnDraw ())
+            injection::SnapshotCamera (context);
     const DrawIndirectFn original =
         OriginalOf<DrawIndirectFn> (ContextSlot::DrawInstancedIndirect);
     if (original != nullptr)

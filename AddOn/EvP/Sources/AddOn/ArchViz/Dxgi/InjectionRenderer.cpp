@@ -101,6 +101,16 @@ ID3D11VertexShader*      g_screenVs = nullptr;
 ID3D11PixelShader*       g_screenPs = nullptr;
 ID3D11Buffer*            g_screenVertices = nullptr;
 
+// ⚠️ OUR OWN COPIES OF THE CAMERA, 256 BYTES EACH -- one D3D11.1 window. Present
+// binds THESE and never Archicad's ring, so nothing Archicad does to the ring
+// after the model draw can change what the injected shader reads.
+ID3D11Buffer*            g_viewSnapshot = nullptr;
+ID3D11Buffer*            g_projectionSnapshot = nullptr;
+uint64_t g_snapshotModelGeneration = 0;
+uint64_t g_snapshotDrawSequence = 0;
+bool     g_snapshotValid = false;
+std::atomic<uint64_t> g_snapshotsTaken {0};
+
 // ⚠️ CLIP SPACE, AND PINNED TOP RIGHT BECAUSE THE HUD OWNS THE TOP LEFT. A probe
 // drawn underneath ImGui would be reported as flickering when it was only
 // covered, which is the opposite of what this probe is for.
@@ -249,6 +259,19 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     ok = ok && SUCCEEDED (g_device->CreateBuffer (&screenDesc, &screenInitial,
             &g_screenVertices));
 
+    // ⚠️ `DEFAULT` USAGE, NOT `IMMUTABLE` AND NOT `DYNAMIC`. The GPU writes these
+    // through `CopySubresourceRegion` and the vertex stage reads them: an
+    // immutable buffer could not be copied into, and a dynamic one would invite
+    // exactly the CPU round trip this design exists to avoid. 256 bytes is one
+    // D3D11.1 window -- the minimum granularity, which is what Archicad uses.
+    D3D11_BUFFER_DESC snapshotDesc = {};
+    snapshotDesc.ByteWidth = 256;
+    snapshotDesc.Usage = D3D11_USAGE_DEFAULT;
+    snapshotDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    ok = ok && SUCCEEDED (g_device->CreateBuffer (&snapshotDesc, nullptr, &g_viewSnapshot));
+    ok = ok && SUCCEEDED (g_device->CreateBuffer (&snapshotDesc, nullptr,
+            &g_projectionSnapshot));
+
     // ⚠️ PROOF A IS TRANSFORM ONLY: DEPTH TEST OFF. Depth WRITES stay off in
     // proof B as well, so this experiment can never affect Archicad geometry
     // drawn after it. Debugging the camera and the depth semantics at the same
@@ -310,6 +333,10 @@ void Shutdown ()
     ReleaseAndNull (g_blend);
     ReleaseAndNull (g_raster);
     ReleaseAndNull (g_depthState);
+    ReleaseAndNull (g_projectionSnapshot);
+    ReleaseAndNull (g_viewSnapshot);
+    g_snapshotValid = false;
+    g_snapshotModelGeneration = 0;
     ReleaseAndNull (g_screenVertices);
     ReleaseAndNull (g_screenPs);
     ReleaseAndNull (g_screenVs);
@@ -328,7 +355,7 @@ void Shutdown ()
 // target bound and only wants the draw.
 void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
                      const contextstate::SceneDrawState& draw,
-                     ID3D11RenderTargetView* targetView)
+                     ID3D11RenderTargetView* targetView, bool useSnapshot)
 {
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
@@ -371,13 +398,23 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // buffer, firstConstant AND numConstants. The legacy setter would rebind the
     // same buffer at offset zero and hand the shader a different region of an
     // 8 MiB ring.
-    ID3D11Buffer* const cameraBuffers[2] = {
+    // ⚠️ OUR SNAPSHOTS, NOT ARCHICAD'S RING. The whole point of the copy is that
+    // by the time this runs, the ring window the model draw used may hold some
+    // later pass's constants. Our buffers hold exactly the bytes that draw
+    // consumed, at offset zero, which is why `firstConstant` is 0 here.
+    ID3D11Buffer* const snapshotBuffers[2] = { g_viewSnapshot, g_projectionSnapshot };
+    ID3D11Buffer* const liveBuffers[2] = {
         reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)),
         reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)),
     };
-    const UINT firstConstants[2] = { view.firstConstant, projection.firstConstant };
-    const UINT numConstants[2] = { view.numConstants, projection.numConstants };
-    context1->VSSetConstantBuffers1 (1, 2, cameraBuffers, firstConstants, numConstants);
+    const UINT snapshotFirst[2] = { 0, 0 };
+    const UINT snapshotNum[2] = { kExpectedWindowConstants, kExpectedWindowConstants };
+    const UINT liveFirst[2] = { view.firstConstant, projection.firstConstant };
+    const UINT liveNum[2] = { view.numConstants, projection.numConstants };
+    if (useSnapshot)
+        context1->VSSetConstantBuffers1 (1, 2, snapshotBuffers, snapshotFirst, snapshotNum);
+    else
+        context1->VSSetConstantBuffers1 (1, 2, liveBuffers, liveFirst, liveNum);
 
     if (targetView != nullptr) {
         // Proof A at Present: no depth view at all, which is what depth-off means
@@ -455,6 +492,60 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     ReleaseAndNull (savedDsv);
 }
 
+void SnapshotCamera (ID3D11DeviceContext* context)
+{
+    if (context == nullptr || !g_enabled.load (std::memory_order_acquire))
+        return;
+    // ⚠️ OUR OWN COPIES ARE NOT ARCHICAD'S WORK. Without the guard these two
+    // copies would be counted as Archicad copy operations and could trip the
+    // scene-consumer logic that once served as the injection trigger.
+    if (contextstate::Injecting ())
+        return;
+
+    const contextstate::SceneDrawState draw = contextstate::LastCameraDraw ();
+    if (!draw.valid)
+        return;
+    const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
+    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
+    if (view.numConstants != kExpectedWindowConstants ||
+        projection.numConstants != kExpectedWindowConstants)
+        return;
+
+    contextstate::ScopedInjectionGuard guard;
+    if (!EnsureCreated (context))
+        return;
+
+    // ⚠️ BYTE COORDINATES, BECAUSE THESE ARE BUFFERS AND NOT TEXTURES. `left` and
+    // `right` are byte offsets into the ring; `top`/`bottom`/`front`/`back` are
+    // the 0..1 a buffer always has. Copying 256 bytes from `firstConstant * 16`
+    // lands the window at offset 0 of our own buffer, which is why the shader
+    // needs no padding and why Present can bind it with firstConstant 0.
+    D3D11_BOX box = {};
+    box.top = 0;
+    box.bottom = 1;
+    box.front = 0;
+    box.back = 1;
+
+    box.left = view.ByteOffset ();
+    box.right = box.left + 256;
+    context->CopySubresourceRegion (g_viewSnapshot, 0, 0, 0, 0,
+            reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
+
+    box.left = projection.ByteOffset ();
+    box.right = box.left + 256;
+    context->CopySubresourceRegion (g_projectionSnapshot, 0, 0, 0, 0,
+            reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
+
+    // ⚠️ EVERY QUALIFYING DRAW, NOT A GUESS AT THE LAST ONE. Two 256-byte GPU
+    // copies are nothing beside a draw, and overwriting on each one means that by
+    // Present the snapshot simply holds the most recent camera of the pass --
+    // with no prediction about which draw would turn out to be final.
+    g_snapshotModelGeneration = draw.modelSceneGeneration;
+    g_snapshotDrawSequence = draw.drawSequence;
+    g_snapshotValid = true;
+    g_snapshotsTaken.fetch_add (1, std::memory_order_relaxed);
+}
+
 void SetPoint (Point point)
 {
     g_point.store (int (point), std::memory_order_release);
@@ -485,6 +576,14 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
             fresh.valid &&
             fresh.vsConstantBuffers[1].numConstants == kExpectedWindowConstants &&
             fresh.vsConstantBuffers[2].numConstants == kExpectedWindowConstants;
+
+    // ⚠️ NO SNAPSHOT, NO WORLD TRIANGLE. The clip-space probe still draws, so a
+    // run with a broken snapshot is still visibly distinguishable from a run with
+    // a broken injection.
+    if (!g_snapshotValid) {
+        g_invalidScene.fetch_add (1, std::memory_order_relaxed);
+        return;
+    }
 
     if (freshIsUsable && fresh.modelSceneGeneration != g_lastInjectedModelGeneration) {
         // NEW_SCENE: the model was re-rendered since we last drew, and it came
@@ -531,7 +630,7 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
         g_device->CreateRenderTargetView (backBuffer, nullptr, &targetView);
     }
     if (targetView != nullptr) {
-        DrawWithCamera (context, context1, g_acceptedCamera, targetView);
+        DrawWithCamera (context, context1, g_acceptedCamera, targetView, true);
         g_injected.fetch_add (1, std::memory_order_relaxed);
     } else {
         g_backBufferFailures.fetch_add (1, std::memory_order_relaxed);
@@ -616,7 +715,10 @@ void InjectIfReady (ID3D11DeviceContext* context)
         return;
     }
 
-    DrawWithCamera (context, context1, draw, nullptr);
+    // In-pass injection happens while the ring window is still current, so it
+    // does not need the snapshot -- but it uses it anyway for one reason: two
+    // code paths that read the camera differently would eventually disagree.
+    DrawWithCamera (context, context1, draw, nullptr, true);
     ReleaseAndNull (context1);
 
     g_injected.fetch_add (1, std::memory_order_relaxed);
@@ -637,6 +739,8 @@ InjectionStats GetInjectionStats ()
     stats.newScene = g_newScene.load (std::memory_order_relaxed);
     stats.repeatScene = g_repeatScene.load (std::memory_order_relaxed);
     stats.invalidScene = g_invalidScene.load (std::memory_order_relaxed);
+    stats.snapshotsTaken = g_snapshotsTaken.load (std::memory_order_relaxed);
+    stats.snapshotValid = g_snapshotValid;
     stats.initialised = g_initialised;
     strncpy_s (stats.lastError, sizeof (stats.lastError), g_lastError, _TRUNCATE);
     return stats;

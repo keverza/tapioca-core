@@ -252,7 +252,10 @@ ScenePass LastCompletedScenePass ();
 // Render thread. The draw detours call this so a pass knows how much work went
 // into it -- `draws` is what separates the 3D pass from a one-draw gizmo that
 // also cleared depth.
-void OnDraw ();
+// Returns true when this draw is a qualifying camera-bearing draw of the learned
+// model pass -- the caller should then snapshot the camera bytes it is about to
+// consume. See InjectionRenderer::SnapshotCamera.
+bool OnDraw ();
 
 // ⚠️ THE SCENE-COMPLETION TRIGGER, AND IT IS CAUSAL RATHER THAN PREDICTIVE.
 // Returns true when this copy or resolve is consuming the completed scene
