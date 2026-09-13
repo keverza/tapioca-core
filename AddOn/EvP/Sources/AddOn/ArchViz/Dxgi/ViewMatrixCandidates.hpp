@@ -73,9 +73,21 @@ struct GpuViewport;
 
 namespace viewmatrix {
 
-// The largest constant buffer whose contents are captured. A view-projection
-// lives in a small per-frame buffer; anything larger is a material or instance
-// array, and copying it would cost Archicad frame time for nothing.
+// ⚠️ THIS IS A WINDOW SIZE, NOT A BUFFER SIZE LIMIT, and the distinction is the
+// whole of what the tenth live run bought. It was written as a buffer limit --
+// "a view-projection lives in a small per-frame buffer; anything larger is a
+// material array" -- and that assumption cost stage 3 two runs.
+//
+// ⚠️ ARCHICAD 29 PACKS ITS CONSTANTS INTO ONE 8 MiB RING AND BINDS WINDOWS OF
+// IT. Run ten: 18110 of 34092 maps were constant buffers and every one was
+// refused for being too large, with the widest at 8388608 bytes -- while
+// `VSSetConstantBuffers1` fired 27216 times, which is the D3D11.1 call that
+// exists precisely to bind a sub-range of a larger buffer. Raising a limit to
+// 8 MiB would have copied eight megabytes of write-combined memory per map on
+// Archicad's render thread; the camera would still not have been at offset zero.
+//
+// So the capture follows the bound offset instead: `firstConstant * 16` says
+// where the window starts and this says how much of it to take.
 constexpr uint32_t kMaxTrackedBytes = 1024;
 
 // How many distinct constant buffers are followed at once.
@@ -85,8 +97,41 @@ constexpr size_t kMaxTrackedBuffers = 64;
 // `slotKind` is the `ContextSlot` of the call that bound it, so a candidate can
 // say which shader stage reads it.
 void OnConstantBufferBound (uint32_t slotKind, uint32_t startSlot, ID3D11Buffer* buffer);
+
+// The D3D11.1 form, which also says WHERE in the buffer the binding starts.
+//
+// ⚠️ `byteOffset` IS WHAT MAKES A RING BUFFER READABLE AT ALL, so this is not a
+// richer variant of the call above -- on this host it is the only one that ever
+// fires. It remembers the window as pending, and the next `Unmap` of that buffer
+// is what copies it: at bind time the memory is not mapped and reading it would
+// be a read of an unmapped range.
+//
+// ⚠️ THE WINDOW IT CAPTURES IS ONE DRAW STALE, DELIBERATELY. A ring is written
+// under `Map`, unmapped, and only then bound, so the offset for the bytes just
+// written is not known until after the chance to read them has gone. What this
+// captures is the offset bound BEFORE the current map -- which under
+// `WRITE_NO_OVERWRITE` is still intact in the same allocation, and which holds
+// the previous draw's constants. Every 3D draw in a frame shares one
+// view-projection and stage 3 scores at rest, so one draw of staleness cannot
+// change the verdict. It would matter to stage 4, which measures freshness, and
+// stage 4 must not be built on this path without re-reading this paragraph.
+void OnConstantBufferBoundWindow (uint32_t slotKind, uint32_t startSlot, ID3D11Buffer* buffer,
+                                  uint32_t byteOffset);
+// `windowOffset` says which window of a ring these bytes came from; it is part
+// of the tracked entry's key, and 0 for a buffer that is its own window.
 void OnConstantBufferWrite (ID3D11Resource* resource, uint32_t byteOffset, const void* bytes,
-                            uint32_t byteCount);
+                            uint32_t byteCount, uint32_t windowOffset);
+
+// Say which shader stage and register a captured window was bound to. Does
+// nothing if that window is not currently tracked.
+//
+// ⚠️ IT LABELS, IT DOES NOT CLAIM. Archicad binds far more buffers than it
+// updates, and letting a bind fill the table would push the handful that
+// actually carry per-frame data out of it. Only a captured WRITE claims an
+// entry. This is also the whole reason the capture half does not need to see
+// the tracked table's internals -- see ConstantBufferCapture.hpp.
+void LabelCapturedWindow (ID3D11Resource* resource, uint32_t windowOffset, uint32_t slotKind,
+                          uint32_t bindSlot, uint64_t frameId);
 
 // The resource's constant-buffer byte width, or 0 for anything that is not one.
 //
@@ -136,9 +181,30 @@ bool HasReference ();
 
 struct Candidate {
     uint64_t buffer = 0;         // the ID3D11Resource, as an integer
-    uint32_t byteOffset = 0;     // where in that buffer the 64 bytes start
+    uint32_t byteOffset = 0;     // ABSOLUTE offset in the buffer of these 64
+                                 // bytes: the bound window's start plus the
+                                 // offset within it. On a ring the window start
+                                 // is the larger half of that by far.
+    uint32_t windowOffset = 0;   // where the captured window begins
+
+    // ⚠️ FOR A PRODUCT CANDIDATE, WHERE THE SECOND MATRIX CAME FROM. `byteOffset`
+    // is the affine one (the view) and this is the projective one; the candidate
+    // is their product, in that order. Zero and meaningless for variants 0..3.
+    uint32_t pairedOffset = 0;
     uint32_t variant = 0;        // 0 = as stored, 1 = transposed, 2 = inverse,
-                                 // 3 = inverse of the transpose
+                                 // 3 = inverse of the transpose; 4..7 the
+                                 // PRODUCT of two captured blocks (see
+                                 // `pairedOffset`); 8..9 a captured AFFINE block
+                                 // against OUR OWN projection; 10..11 OUR OWN
+                                 // view against a captured PROJECTIVE block.
+                                 //
+                                 // ⚠️ 8..11 ARE THE HALF-TESTS AND THEY ARE THE
+                                 // MOST INFORMATIVE ROWS IN THE TABLE. A whole
+                                 // view-projection that misses says only "wrong
+                                 // somewhere". A hybrid that HITS says which
+                                 // half of the transform we have found and, by
+                                 // elimination, which half of our own reference
+                                 // is wrong -- one run instead of three.
     uint32_t shaderStage = 0;    // the ContextSlot that bound it, or Count if unseen
     uint32_t bindSlot = 0;       // the b# register
     uint32_t byteWidth = 0;
@@ -181,6 +247,35 @@ struct CandidateStats {
     uint32_t largestConstantBytes = 0; // the widest constant buffer ever offered
     bool     bufferCacheFull = false;  // the 256-entry GetDesc cache stopped asking
 
+    // The ring path. `windowsPending` saturating means binds are arriving faster
+    // than the unmaps that drain them, and the ones dropped are the oldest.
+    uint64_t windowsCaptured = 0;
+    uint64_t windowsDropped = 0;
+    uint32_t largestBoundOffset = 0;
+
+    // ⚠️ WHAT THE CAPTURED BYTES LOOK LIKE, WHICH IS THE ONLY USEFUL THING TO
+    // SAY WHEN NOTHING MATCHES. Runs eleven and thirteen both ended on "NO
+    // MATCH" at about 1163 px, and neither could distinguish the three readings
+    // that verdict covers: the camera is not in these buffers at all; it is
+    // there but not as a single 4x4; or it is there as a 4x4 and our reference
+    // is the thing that is wrong. A count of how many captured 64-byte blocks
+    // are even SHAPED like a projection separates the first from the other two,
+    // and it costs a handful of comparisons on a scan that already runs.
+    //
+    // The convention is `MatrixMath.hpp`'s: row-vector, row-major, so a
+    // projection has m[2][3] = +/-1 with m[3][3] = 0, and an affine transform
+    // has a last column of (0, 0, 0, 1).
+    // How many tracked entries actually held bytes when the scan ran. Run
+    // fourteen examined 265 blocks where 64 full entries would give 1024, and
+    // the report had no way to say whether the rest were empty or unreadable.
+    uint32_t entriesWithData = 0;
+
+    uint32_t blocksExamined = 0;
+    uint32_t blocksFinite = 0;
+    uint32_t blocksAffine = 0;      // world, view, or any rigid/scale transform
+    uint32_t blocksProjective = 0;  // projection or view-projection
+    uint32_t firstProjectiveOffset = 0;
+
     uint32_t regionsScored = 0;
     double   bestMaxPixelError = 0.0;
     uint64_t bestBuffer = 0;
@@ -188,6 +283,25 @@ struct CandidateStats {
     uint32_t bestVariant = 0;
 };
 CandidateStats GetCandidateStats ();
+
+// ---- stage 4's raw material ------------------------------------------------
+// One captured 64-byte block that is shaped like part of a camera, with the
+// scene pass it was bound in. `SameFrameCamera` turns these into a pair; this
+// file only says what was captured and when.
+struct CameraBlock {
+    float    m[16] = {};
+    uint32_t windowOffset = 0;
+    uint32_t byteOffset = 0;     // absolute, for logging only -- the ring moves
+    uint32_t shaderStage = 0;    // the ContextSlot that bound it
+    uint32_t bindSlot = 0;       // the b# register
+    uint64_t scenePass = 0;
+    bool     projective = false; // false means affine: a view or a world matrix
+};
+
+// Copy out every camera-shaped block from a scene pass no older than
+// `maxAgePasses` behind `newestPass`. MAIN THREAD.
+size_t SnapshotCameraBlocks (CameraBlock* out, size_t max, uint64_t newestPass,
+                             uint32_t maxAgePasses);
 
 // MAIN THREAD. Forget every tracked buffer. Called when the hook is installed.
 void Reset ();

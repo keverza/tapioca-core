@@ -3,6 +3,9 @@
 
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 
+#include "ArchViz/Dxgi/ConstantBufferCapture.hpp"
+#include "ArchViz/Dxgi/SameFrameCamera.hpp"
+
 #include "ArchViz/Dxgi/ContextHook.hpp"          // ContextSlot
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"   // GpuViewport
 #include "ArchViz/MatrixMath.hpp"
@@ -28,13 +31,38 @@ namespace viewmatrix {
 namespace {
 
 // ---- what is tracked -------------------------------------------------------
-// One entry per distinct constant buffer, claimed on first write and never
-// evicted. ⚠️ NO EVICTION IS DELIBERATE, for the reason `ContextHook`'s buffer
-// cache gives: an eviction policy on a lock-free table read from a render thread
-// is a source of races bought for nothing, and `buffersDropped` says plainly
-// that the table saturated instead of the data quietly thinning.
+// One entry per captured window, MOST RECENT WINS.
+//
+// ⚠️ THIS TABLE USED TO NEVER EVICT, AND ON A RING THAT WAS EXACTLY BACKWARDS.
+// The rule was written for a handful of long-lived per-frame buffers, where
+// "claimed on first write and never evicted" keeps the interesting ones and
+// `buffersDropped` reports saturation honestly. Archicad 29 binds windows of an
+// 8 MiB ring at a fresh cursor every frame, so run eleven captured 24314 windows
+// into a 64-entry table, dropped 24240 of them, and scored the SIXTY-FOUR
+// OLDEST -- windows from the first tenth of a second after arming, thirty
+// seconds before the still view they were being compared against. Every
+// candidate showed `changed 0 times while moving, 1 while still`, which is not a
+// classification of a view matrix: it is the signature of an entry written once
+// and never revisited.
+//
+// ⚠️ MOST-RECENT-WINS IS WHAT MAKES A RING SCOREABLE. Scoring happens at rest,
+// Archicad stops redrawing when the view stops, so the newest captures are the
+// last frame it drew -- drawn with the camera the reference is about to be read
+// from. Sixty-four entries is then about a tenth of a second of history, which
+// is the right window and not an arbitrary one.
+//
+// ⚠️ AND THE CHANGE COUNTERS STOP MEANING ANYTHING FOR RING WINDOWS. They
+// compare an entry's previous bytes against the new ones, and after an eviction
+// the previous bytes belonged to a different window of a different frame. They
+// are reset on eviction and reported as unavailable rather than as zero, because
+// a zero here reads as a finding.
 struct Tracked {
     std::atomic<uint64_t> resource {0};
+    // ⚠️ PART OF THE KEY, NOT A LABEL. One 8 MiB ring is bound at many different
+    // offsets in a frame and each window is a different set of constants;
+    // keying on the resource alone would give them all one entry, and every
+    // capture would overwrite the last one's bytes under the same name.
+    std::atomic<uint32_t> windowOffset {0};
     // ⚠️ ODD MEANS "BEING WRITTEN". The render thread bumps this to odd, copies,
     // then bumps it to even; a reader samples it before and after its own copy
     // and retries if either was odd or they differ. Without it a scored matrix
@@ -45,6 +73,10 @@ struct Tracked {
     std::atomic<uint32_t> writes {0};
     std::atomic<uint32_t> shaderStage {uint32_t (ContextSlot::Count)};
     std::atomic<uint32_t> bindSlot {0};
+    // The frame the BIND that named this window happened in. See
+    // ConstantBufferCapture.hpp's frame clock for why it is the bind's frame
+    // and not the capture's.
+    std::atomic<uint64_t> frameId {0};
     // Per 64-byte region, how many writes actually CHANGED it, split by whether
     // the view was moving at the time. This is the classifier the handoff asks
     // for and it is far cheaper than the projection score.
@@ -53,12 +85,41 @@ struct Tracked {
     unsigned char bytes[kMaxTrackedBytes] = {};
 };
 Tracked g_tracked[kMaxTrackedBuffers];
+std::atomic<uint32_t> g_trackedCursor {0};
+// ⚠️ PLAIN, NOT ATOMIC, AND ONLY THE MAIN THREAD TOUCHES THEM. They are counted
+// inside `Classify`, which runs on the camera tick and nowhere else; the render
+// thread never sees them.
+// ⚠️ CAPPED, BECAUSE THE PAIRING IS QUADRATIC. Thirty-two of each is 1024 pairs
+// and four orderings apiece, which is four thousand scorings of eight points --
+// nothing on a tick that only runs when the view is at rest, and a hard ceiling
+// so a scene with hundreds of constant blocks cannot turn it into a stall.
+constexpr size_t kMaxPairBlocks = 32;
+struct PairBlock {
+    float    m[16] = {};
+    uint32_t offset = 0;        // absolute: window start plus the offset in it
+    // ⚠️ THE ABSOLUTE OFFSET IS USELESS TO STAGE 4 AND THESE THREE ARE NOT.
+    // Archicad's constants live in an 8 MiB ring whose cursor moves every frame,
+    // so "the view matrix is at 3045376" is true for one frame and never again.
+    // What is stable is the SHAPE of the binding: which shader stage, which b#
+    // register, and how far into that register's window the matrix sits. That
+    // triple is what a production hook watches for.
+    uint32_t windowOffset = 0;
+    uint32_t shaderStage = 0;
+    uint32_t bindSlot = 0;
+    uint64_t frameId = 0;
+};
+PairBlock g_affine[kMaxPairBlocks];
+PairBlock g_projective[kMaxPairBlocks];
+size_t    g_affineCount = 0;
+size_t    g_projectiveCount = 0;
+
+uint32_t g_entriesWithData = 0;
+uint32_t g_blocksExamined = 0;
+uint32_t g_blocksFinite = 0;
+uint32_t g_blocksAffine = 0;
+uint32_t g_blocksProjective = 0;
+uint32_t g_firstProjectiveOffset = 0;
 std::atomic<uint32_t> g_buffersTracked {0};
-std::atomic<uint64_t> g_mapsSeen {0};
-std::atomic<uint64_t> g_mapsNotConstantBuffer {0};
-std::atomic<uint64_t> g_mapsTooLarge {0};
-std::atomic<uint64_t> g_mapsNoSlot {0};
-std::atomic<uint32_t> g_largestConstantBytes {0};
 std::atomic<uint32_t> g_buffersDropped {0};
 std::atomic<uint64_t> g_writesCaptured {0};
 
@@ -69,6 +130,8 @@ std::atomic<bool> g_cameraMoving {false};
 // Main thread only.
 bool  g_referenceValid = false;
 float g_referenceViewProj[16] = {};
+float g_referenceView[16] = {};
+float g_referenceProjection[16] = {};
 float g_referenceEye[3] = {};
 float g_referenceTarget[3] = {};
 float g_referenceFovYDegrees = 0.0f;
@@ -253,30 +316,66 @@ bool ScoreAgainstReference (const float candidate[16], double& maxError, double&
 
 // ---- the tracked table -----------------------------------------------------
 
-Tracked* FindOrClaim (uint64_t key)
+bool Matches (const Tracked& entry, uint64_t key, uint32_t window)
+{
+    return entry.resource.load (std::memory_order_acquire) == key &&
+           entry.windowOffset.load (std::memory_order_relaxed) == window;
+}
+
+Tracked* FindOrClaim (uint64_t key, uint32_t window)
 {
     for (Tracked& entry : g_tracked) {
         const uint64_t seen = entry.resource.load (std::memory_order_acquire);
-        if (seen == key)
+        if (seen == key && entry.windowOffset.load (std::memory_order_relaxed) == window)
             return &entry;
         if (seen != 0)
             continue;
         uint64_t expected = 0;
         if (entry.resource.compare_exchange_strong (expected, key, std::memory_order_acq_rel)) {
+            // ⚠️ THE WINDOW IS STORED AFTER THE CAS AND THAT IS A REAL, NARROW
+            // RACE: a concurrent lookup for the same buffer at a different
+            // window can see this entry with a stale window for a few
+            // instructions and claim a second entry for the same pair. The cost
+            // is one duplicate row in a 64-entry table, which the classifier
+            // scores twice and reports once. A lock here would be on Archicad's
+            // render thread, which is not a trade worth making for that.
+            entry.windowOffset.store (window, std::memory_order_relaxed);
             g_buffersTracked.fetch_add (1, std::memory_order_relaxed);
             return &entry;
         }
-        if (entry.resource.load (std::memory_order_acquire) == key)
+        if (Matches (entry, key, window))
             return &entry;
     }
+    // ⚠️ NO FREE SLOT: TAKE THE OLDEST, ROUND ROBIN. The cursor sweeps the table,
+    // so the entry reused is the one written longest ago.
+    //
+    // ⚠️ THE SEQUENCE COUNTER IS BUMPED ACROSS THE RE-KEY, exactly as a write is,
+    // and the reader checks the key again afterwards. Without that a classifier
+    // could copy the first half of one window's bytes and the second half of the
+    // next window's, under whichever name it happened to read first -- and that
+    // does not look like corruption, it looks like a candidate that nearly
+    // matches. That failure mode is why the seqlock is here at all.
+    const uint32_t at =
+        g_trackedCursor.fetch_add (1, std::memory_order_relaxed) % uint32_t (kMaxTrackedBuffers);
+    Tracked& entry = g_tracked[at];
+    entry.sequence.fetch_add (1, std::memory_order_acq_rel);    // odd: being re-keyed
+    entry.resource.store (key, std::memory_order_relaxed);
+    entry.windowOffset.store (window, std::memory_order_relaxed);
+    entry.byteWidth.store (0, std::memory_order_relaxed);
+    entry.writes.store (0, std::memory_order_relaxed);
+    for (std::atomic<uint32_t>& region : entry.changedMoving)
+        region.store (0, std::memory_order_relaxed);
+    for (std::atomic<uint32_t>& region : entry.changedStill)
+        region.store (0, std::memory_order_relaxed);
+    entry.sequence.fetch_add (1, std::memory_order_release);    // even: readable
     g_buffersDropped.fetch_add (1, std::memory_order_relaxed);
-    return nullptr;
+    return &entry;
 }
 
-Tracked* Find (uint64_t key)
+Tracked* Find (uint64_t key, uint32_t window)
 {
     for (Tracked& entry : g_tracked) {
-        if (entry.resource.load (std::memory_order_acquire) == key)
+        if (Matches (entry, key, window))
             return &entry;
     }
     return nullptr;
@@ -285,9 +384,15 @@ Tracked* Find (uint64_t key)
 // Copy one entry's bytes out under the sequence counter. False if the render
 // thread kept overwriting it -- which is itself a finding about how hot that
 // buffer is, but not a scoreable sample.
-bool ReadStable (const Tracked& entry, unsigned char* out, uint32_t bytes)
+bool ReadStable (const Tracked& entry, unsigned char* out, uint32_t bytes,
+                 uint64_t expectedResource, uint32_t expectedWindow)
 {
     for (int attempt = 0; attempt < 8; ++attempt) {
+        // ⚠️ THE KEY IS PART OF WHAT IS BEING READ STABLY, not a precondition
+        // checked once outside. An eviction between the caller's look and this
+        // copy would hand back another window's bytes under this window's name.
+        if (!Matches (entry, expectedResource, expectedWindow))
+            return false;
         const uint32_t before = entry.sequence.load (std::memory_order_acquire);
         if ((before & 1u) != 0)
             continue;
@@ -299,173 +404,25 @@ bool ReadStable (const Tracked& entry, unsigned char* out, uint32_t bytes)
     return false;
 }
 
-// ---- sizing a constant buffer ----------------------------------------------
-// Moved here from `ContextHook` (2026-09-13) when that file reached the size
-// cap, and it belongs here on the merits: what counts as a capturable buffer is
-// a question about finding a view matrix. See the header for the caching rule.
-constexpr size_t kBufferCacheSize = 256;
-struct BufferInfo {
-    std::atomic<uint64_t> resource {0};
-    std::atomic<uint32_t> byteWidth {0};
-    std::atomic<uint32_t> isConstantBuffer {0};
-};
-BufferInfo g_bufferCache[kBufferCacheSize];
-std::atomic<bool> g_bufferCacheFull {false};
-
-// ---- what is mapped right now ----------------------------------------------
-constexpr size_t kMapTableSize = 16;
-struct MapEntry {
-    std::atomic<uint64_t> resource {0};
-    std::atomic<uint64_t> pointer {0};
-    std::atomic<uint32_t> bytes {0};
-};
-MapEntry g_mapped[kMapTableSize];
 
 }   // namespace
 
-uint32_t ConstantBufferWidth (ID3D11Resource* resource)
+
+void LabelCapturedWindow (ID3D11Resource* resource, uint32_t windowOffset, uint32_t slotKind,
+                          uint32_t bindSlot, uint64_t frameId)
 {
-    const uint64_t key = uint64_t (uintptr_t (resource));
-    if (key == 0)
-        return 0;
-
-    for (BufferInfo& entry : g_bufferCache) {
-        const uint64_t seen = entry.resource.load (std::memory_order_acquire);
-        if (seen == key) {
-            return entry.isConstantBuffer.load (std::memory_order_relaxed)
-                ? entry.byteWidth.load (std::memory_order_relaxed) : 0;
-        }
-        if (seen != 0)
-            continue;
-
-        uint32_t width = 0;
-        uint32_t isConstant = 0;
-        ID3D11Buffer* buffer = nullptr;
-        if (SUCCEEDED (resource->QueryInterface (__uuidof (ID3D11Buffer), (void**) &buffer)) &&
-            buffer != nullptr) {
-            D3D11_BUFFER_DESC desc = {};
-            buffer->GetDesc (&desc);
-            if ((desc.BindFlags & D3D11_BIND_CONSTANT_BUFFER) != 0) {
-                isConstant = 1;
-                width = desc.ByteWidth;
-            }
-            buffer->Release ();
-        }
-        // ⚠️ THE PAYLOAD IS PUBLISHED BEFORE THE KEY, for the reason
-        // `RememberChainWindow` gives: a reader that saw the key first could
-        // read a zero width and cache "this buffer is empty" for the session.
-        entry.byteWidth.store (width, std::memory_order_relaxed);
-        entry.isConstantBuffer.store (isConstant, std::memory_order_relaxed);
-        entry.resource.store (key, std::memory_order_release);
-        return isConstant ? width : 0;
-    }
-
-    // ⚠️ WHEN THE CACHE IS FULL IT STOPS ASKING RATHER THAN EVICTING. An eviction
-    // policy on a lock-free table read from a render thread is a source of races
-    // for no benefit: a scene with more distinct buffers than this has bigger
-    // problems than a few uncached ones.
-    g_bufferCacheFull.store (true, std::memory_order_relaxed);
-    return 0;
-}
-
-uint32_t OnMapped (ID3D11Resource* resource, const void* mappedPointer)
-{
-    if (resource == nullptr || mappedPointer == nullptr)
-        return 0;
-
-    // ⚠️ COUNTED BEFORE ANYTHING ELSE, AND EVERY REJECTION IS NAMED. All four
-    // of these are relaxed adds on already-hot cache lines, which is a price
-    // worth paying once: a run that captures nothing has to be able to say
-    // WHICH of "Archicad does not Map its constant buffers", "its constant
-    // buffers are bigger than we are willing to copy" and "we ran out of table"
-    // is true, and without these the report can only shrug.
-    g_mapsSeen.fetch_add (1, std::memory_order_relaxed);
-
-    const uint32_t width = ConstantBufferWidth (resource);
-    if (width == 0) {
-        g_mapsNotConstantBuffer.fetch_add (1, std::memory_order_relaxed);
-        return 0;
-    }
-
-    // ⚠️ THE WIDEST ONE IS REMEMBERED EVEN THOUGH IT IS REFUSED, because the
-    // number decides the next move. A few kilobytes means raise the cap; a
-    // megabyte means Archicad packs its constants into one big ring and the
-    // capture has to follow `firstConstant` into it instead of copying from the
-    // start -- two different pieces of work, and this is what tells them apart.
-    uint32_t seen = g_largestConstantBytes.load (std::memory_order_relaxed);
-    while (width > seen &&
-           !g_largestConstantBytes.compare_exchange_weak (seen, width,
-                   std::memory_order_relaxed))
-        ;
-
-    if (width > kMaxTrackedBytes) {
-        g_mapsTooLarge.fetch_add (1, std::memory_order_relaxed);
-        return 0;
-    }
-
-    const uint64_t key = uint64_t (uintptr_t (resource));
-    for (MapEntry& entry : g_mapped) {
-        uint64_t expected = 0;
-        // Claimed by CAS rather than by a store. The immediate context is single
-        // threaded by D3D11's own contract, but Archicad may drive a deferred one
-        // on another thread through the same vtable, and a torn claim here would
-        // copy one buffer's bytes under another buffer's name.
-        if (entry.resource.compare_exchange_strong (expected, key, std::memory_order_acq_rel)) {
-            entry.pointer.store (uint64_t (uintptr_t (mappedPointer)), std::memory_order_relaxed);
-            entry.bytes.store (width, std::memory_order_release);
-            return width;
-        }
-    }
-    // ⚠️ TABLE FULL. This used to return silently, on the reasoning that sixteen
-    // simultaneous constant-buffer maps would mean D3D11's own threading
-    // contract had been broken. That reasoning is sound and the silence was
-    // still wrong: it made one of the three ways to capture nothing invisible,
-    // and this rung has already lost six runs to an instrument that failed
-    // quietly. A non-zero count here is a real finding, not a tuning knob.
-    g_mapsNoSlot.fetch_add (1, std::memory_order_relaxed);
-    return 0;
-}
-
-uint32_t OnUnmapping (ID3D11Resource* resource)
-{
-    const uint64_t key = uint64_t (uintptr_t (resource));
-    if (key == 0)
-        return 0;
-    for (MapEntry& entry : g_mapped) {
-        if (entry.resource.load (std::memory_order_acquire) != key)
-            continue;
-        const void* pointer =
-            (const void*) (uintptr_t) entry.pointer.load (std::memory_order_relaxed);
-        const uint32_t bytes = entry.bytes.load (std::memory_order_acquire);
-        entry.pointer.store (0, std::memory_order_relaxed);
-        entry.bytes.store (0, std::memory_order_relaxed);
-        entry.resource.store (0, std::memory_order_release);
-        if (pointer != nullptr && bytes > 0) {
-            OnConstantBufferWrite (resource, 0, pointer, bytes);
-            return bytes;
-        }
-        return 0;
-    }
-    return 0;
-}
-
-void OnConstantBufferBound (uint32_t slotKind, uint32_t startSlot, ID3D11Buffer* buffer)
-{
-    if (buffer == nullptr)
+    if (resource == nullptr)
         return;
-    // ⚠️ IT DOES NOT CLAIM A SLOT. Archicad binds far more buffers than it
-    // updates, and letting a bind fill the table would push the handful that
-    // actually carry per-frame data out of it. Only a captured WRITE claims an
-    // entry; a bind merely labels one that already exists.
-    Tracked* entry = Find (uint64_t (uintptr_t (buffer)));
+    Tracked* entry = Find (uint64_t (uintptr_t (resource)), windowOffset);
     if (entry == nullptr)
         return;
     entry->shaderStage.store (slotKind, std::memory_order_relaxed);
-    entry->bindSlot.store (startSlot, std::memory_order_relaxed);
+    entry->bindSlot.store (bindSlot, std::memory_order_relaxed);
+    entry->frameId.store (frameId, std::memory_order_relaxed);
 }
 
 void OnConstantBufferWrite (ID3D11Resource* resource, uint32_t byteOffset, const void* bytes,
-                            uint32_t byteCount)
+                            uint32_t byteCount, uint32_t windowOffset)
 {
     if (resource == nullptr || bytes == nullptr || byteCount == 0)
         return;
@@ -473,7 +430,7 @@ void OnConstantBufferWrite (ID3D11Resource* resource, uint32_t byteOffset, const
         return;
     const uint32_t copyBytes = std::min (byteCount, kMaxTrackedBytes - byteOffset);
 
-    Tracked* entry = FindOrClaim (uint64_t (uintptr_t (resource)));
+    Tracked* entry = FindOrClaim (uint64_t (uintptr_t (resource)), windowOffset);
     if (entry == nullptr)
         return;
 
@@ -552,6 +509,13 @@ void SetReference (const float eye[3], const float target[3], float viewConeDegr
     LookAtRH (view, g_referenceEye, g_referenceTarget, up);
     PerspectiveRH (projection, g_referenceFovYDegrees, aspect, 0.1f, 10000.0f);
     Multiply (g_referenceViewProj, view, projection);
+    // ⚠️ THE HALVES ARE KEPT SEPARATELY SO THE CLASSIFIER CAN TEST THEM ONE AT A
+    // TIME. Scoring a captured view against OUR projection, and OUR view against
+    // a captured projection, turns "the whole transform is wrong" into "this
+    // half is right and that half is not" -- which is the difference between
+    // knowing what to fix and running the test again.
+    std::memcpy (g_referenceView, view, sizeof (g_referenceView));
+    std::memcpy (g_referenceProjection, projection, sizeof (g_referenceProjection));
     g_referenceValid = Finite (g_referenceViewProj);
 }
 
@@ -560,9 +524,96 @@ bool HasReference ()
     return g_referenceValid;
 }
 
+// ⚠️ SHAPE, NOT VALUE. This says nothing about whether a block is the RIGHT
+// matrix -- only whether it is the right kind of object. See `CandidateStats`
+// for why that distinction is what a "no match" run needs.
+//
+// The tolerances are loose on purpose. A projection's w column is exactly +/-1
+// and 0 in the maths, but these bytes have been through a float pipeline and a
+// perspective matrix built for a reversed or infinite far plane puts small
+// non-zero values where the textbook puts exact ones. Loose enough to catch
+// those, tight enough that arbitrary material constants do not qualify.
+void Census (const float* m, uint32_t absoluteOffset, uint32_t windowOffset,
+             uint32_t shaderStage, uint32_t bindSlot, uint64_t frameId)
+{
+    ++g_blocksExamined;
+    if (!Finite (m))
+        return;
+    ++g_blocksFinite;
+    // ⚠️ THE BLOCKS ARE KEPT, NOT JUST COUNTED, and that is what run fourteen
+    // bought. Its census found 38 affine blocks and 14 projective ones in the
+    // captured windows while every single-block candidate missed by 1163 px --
+    // which is exactly the picture you get when the renderer uploads the VIEW
+    // and the PROJECTION as separate constants and their product never exists in
+    // memory for anyone to find. Keeping them lets the classifier multiply them
+    // together and score that instead.
+
+    const float wx = m[3], wy = m[7], wz = m[11], ww = m[15];
+    const bool axisAligned = std::fabs (wx) < 1e-4f && std::fabs (wy) < 1e-4f;
+
+    if (axisAligned && std::fabs (wz) < 1e-4f && std::fabs (ww - 1.0f) < 1e-3f) {
+        ++g_blocksAffine;
+        if (g_affineCount < kMaxPairBlocks) {
+            PairBlock& block = g_affine[g_affineCount];
+            std::memcpy (block.m, m, sizeof (block.m));
+            block.offset = absoluteOffset;
+            block.windowOffset = windowOffset;
+            block.shaderStage = shaderStage;
+            block.bindSlot = bindSlot;
+            block.frameId = frameId;
+            ++g_affineCount;
+        }
+        return;
+    }
+    if (axisAligned && std::fabs (std::fabs (wz) - 1.0f) < 1e-2f &&
+        std::fabs (ww) < 1e-2f) {
+        // The scale terms have to be there too, or a matrix of mostly zeroes
+        // with a stray 1 in the w column would qualify.
+        if (std::fabs (m[0]) > 1e-6f && std::fabs (m[5]) > 1e-6f) {
+            if (g_blocksProjective == 0)
+                g_firstProjectiveOffset = absoluteOffset;
+            ++g_blocksProjective;
+            if (g_projectiveCount < kMaxPairBlocks) {
+                PairBlock& block = g_projective[g_projectiveCount];
+                std::memcpy (block.m, m, sizeof (block.m));
+                block.offset = absoluteOffset;
+                block.windowOffset = windowOffset;
+                block.shaderStage = shaderStage;
+                block.bindSlot = bindSlot;
+                block.frameId = frameId;
+                ++g_projectiveCount;
+            }
+        }
+    }
+}
+
+// Keep the best sixteen by max pixel error. Shared by the single-block scan and
+// the pair scan so the two cannot disagree about ordering.
+void Insert (Candidate* found, size_t& foundCount, const Candidate& result)
+{
+    size_t position = foundCount;
+    while (position > 0 && found[position - 1].maxPixelError > result.maxPixelError) {
+        if (position < 16)
+            found[position] = found[position - 1];
+        --position;
+    }
+    if (position < 16) {
+        found[position] = result;
+        foundCount = (foundCount < 16) ? (foundCount + 1) : 16;
+    }
+}
+
 size_t Classify (Candidate* out, size_t max)
 {
     g_regionsScored = 0;
+    g_blocksExamined = 0;
+    g_blocksFinite = 0;
+    g_blocksAffine = 0;
+    g_blocksProjective = 0;
+    g_firstProjectiveOffset = 0;
+    g_affineCount = 0;
+    g_projectiveCount = 0;
+    g_entriesWithData = 0;
     if (out == nullptr || max == 0)
         return 0;
     // Scoring a moving view would penalise a candidate for being fresher than
@@ -578,15 +629,21 @@ size_t Classify (Candidate* out, size_t max)
         const uint64_t resource = entry.resource.load (std::memory_order_acquire);
         if (resource == 0)
             continue;
+        const uint32_t window = entry.windowOffset.load (std::memory_order_relaxed);
         const uint32_t width = entry.byteWidth.load (std::memory_order_relaxed);
         if (width < 64)
             continue;
-        if (!ReadStable (entry, snapshot, std::min (width, kMaxTrackedBytes)))
+        if (!ReadStable (entry, snapshot, std::min (width, kMaxTrackedBytes), resource, window))
             continue;
+        ++g_entriesWithData;
 
         for (uint32_t offset = 0; offset + 64 <= width; offset += 64) {
             float stored[16];
             std::memcpy (stored, snapshot + offset, sizeof (stored));
+            Census (stored, window + offset, window,
+                    entry.shaderStage.load (std::memory_order_relaxed),
+                    entry.bindSlot.load (std::memory_order_relaxed),
+                    entry.frameId.load (std::memory_order_relaxed));
             if (!Finite (stored))
                 continue;
 
@@ -620,7 +677,11 @@ size_t Classify (Candidate* out, size_t max)
 
                 Candidate result;
                 result.buffer = resource;
-                result.byteOffset = offset;
+                // ⚠️ ABSOLUTE, so the number can be compared with a bind's
+                // `firstConstant * 16`. Within a ring, "offset 64" is meaningless
+                // on its own -- there are eight thousand of them.
+                result.windowOffset = window;
+                result.byteOffset = window + offset;
                 result.variant = variant;
                 result.shaderStage = entry.shaderStage.load (std::memory_order_relaxed);
                 result.bindSlot = entry.bindSlot.load (std::memory_order_relaxed);
@@ -638,20 +699,148 @@ size_t Classify (Candidate* out, size_t max)
                 result.scored = true;
                 std::memcpy (result.matrix, stored, sizeof (result.matrix));
 
-                // Insertion sort into a small best-of table. Keeping every scored
+                // Insertion into a small best-of table. Keeping every scored
                 // region would be thousands of rows a tick for no gain: what the
                 // stage needs is the handful that came close.
-                size_t position = foundCount;
-                while (position > 0 && found[position - 1].maxPixelError > maxError) {
-                    if (position < 16)
-                        found[position] = found[position - 1];
-                    --position;
-                }
-                if (position < 16) {
-                    found[position] = result;
-                    foundCount = std::min<size_t> (foundCount + 1, 16);
-                }
+                Insert (found, foundCount, result);
             }
+        }
+    }
+
+    // ---- products of pairs -------------------------------------------------
+    // ⚠️ THIS IS WHERE A RENDERER THAT UPLOADS VIEW AND PROJECTION SEPARATELY
+    // GETS FOUND, AND NOTHING ABOVE COULD EVER FIND IT. Every candidate so far
+    // is one captured 64-byte block; if Archicad hands the shaders a view matrix
+    // in one constant and a projection in another and lets the GPU combine them,
+    // then the view-projection this stage is looking for HAS NEVER EXISTED IN
+    // MEMORY and no amount of scanning bytes will produce it. Run fourteen made
+    // that the live hypothesis: 38 affine blocks and 14 projective ones in the
+    // captured windows, and every single-block candidate missing by 1163 px --
+    // not a near miss, a different transform.
+    //
+    // ⚠️ FOUR ORDERINGS PER PAIR, BECAUSE HLSL PACKS `float4x4` COLUMN-MAJOR.
+    // `MatrixMath` is row-vector row-major, so a matrix uploaded for a shader
+    // arrives transposed relative to this file's convention -- and it is the
+    // TRANSPOSED pair whose product is the expected hit, not the raw one. Trying
+    // both of each is four combinations and removes the guess.
+    for (size_t a = 0; a < g_affineCount; ++a) {
+        for (size_t b = 0; b < g_projectiveCount; ++b) {
+            for (uint32_t variant = 0; variant < 4; ++variant) {
+                float view[16];
+                float projection[16];
+                if ((variant & 1u) != 0)
+                    Transpose (view, g_affine[a].m);
+                else
+                    std::memcpy (view, g_affine[a].m, sizeof (view));
+                if ((variant & 2u) != 0)
+                    Transpose (projection, g_projective[b].m);
+                else
+                    std::memcpy (projection, g_projective[b].m, sizeof (projection));
+
+                float candidate[16];
+                Multiply (candidate, view, projection);
+                if (!Finite (candidate))
+                    continue;
+
+                double maxError = 0.0;
+                double meanError = 0.0;
+                ++g_regionsScored;
+                if (!ScoreAgainstReference (candidate, maxError, meanError))
+                    continue;
+
+                Candidate result;
+                result.byteOffset = g_affine[a].offset;
+                result.windowOffset = g_affine[a].windowOffset;
+                result.shaderStage = g_affine[a].shaderStage;
+                result.bindSlot = g_affine[a].bindSlot;
+                result.pairedOffset = g_projective[b].offset;
+                result.variant = 4u + variant;
+                result.byteWidth = 64;
+                result.maxPixelError = maxError;
+                result.meanPixelError = meanError;
+                result.scored = true;
+                std::memcpy (result.matrix, candidate, sizeof (result.matrix));
+                Insert (found, foundCount, result);
+            }
+        }
+    }
+
+    // ---- the half-tests ----------------------------------------------------
+    // ⚠️ THESE ANSWER A DIFFERENT QUESTION FROM EVERYTHING ABOVE, and it is the
+    // question a run of "no match" leaves behind. Above, a candidate is a whole
+    // view-projection and a miss says only that something is wrong. Here each
+    // captured half is scored against OUR OWN other half: if a captured affine
+    // block times our projection lands on the reference, we have found
+    // Archicad's VIEW and our projection is close enough to see it -- and by
+    // elimination our own view construction is what was wrong. If our view times
+    // a captured projective block lands, the reverse. Either outcome names the
+    // half to fix. Both missing says the pieces are not view and projection at
+    // all, which is also worth one run.
+    for (size_t a = 0; a < g_affineCount; ++a) {
+        for (uint32_t variant = 0; variant < 2; ++variant) {
+            float view[16];
+            if (variant != 0)
+                Transpose (view, g_affine[a].m);
+            else
+                std::memcpy (view, g_affine[a].m, sizeof (view));
+
+            float candidate[16];
+            Multiply (candidate, view, g_referenceProjection);
+            if (!Finite (candidate))
+                continue;
+
+            double maxError = 0.0;
+            double meanError = 0.0;
+            ++g_regionsScored;
+            if (!ScoreAgainstReference (candidate, maxError, meanError))
+                continue;
+
+            Candidate result;
+            result.byteOffset = g_affine[a].offset;
+            result.windowOffset = g_affine[a].windowOffset;
+            result.shaderStage = g_affine[a].shaderStage;
+            result.bindSlot = g_affine[a].bindSlot;
+            result.variant = 8u + variant;
+            result.byteWidth = 64;
+            result.maxPixelError = maxError;
+            result.meanPixelError = meanError;
+            result.scored = true;
+            std::memcpy (result.matrix, candidate, sizeof (result.matrix));
+            Insert (found, foundCount, result);
+        }
+    }
+
+    for (size_t b = 0; b < g_projectiveCount; ++b) {
+        for (uint32_t variant = 0; variant < 2; ++variant) {
+            float projection[16];
+            if (variant != 0)
+                Transpose (projection, g_projective[b].m);
+            else
+                std::memcpy (projection, g_projective[b].m, sizeof (projection));
+
+            float candidate[16];
+            Multiply (candidate, g_referenceView, projection);
+            if (!Finite (candidate))
+                continue;
+
+            double maxError = 0.0;
+            double meanError = 0.0;
+            ++g_regionsScored;
+            if (!ScoreAgainstReference (candidate, maxError, meanError))
+                continue;
+
+            Candidate result;
+            result.byteOffset = g_projective[b].offset;
+            result.windowOffset = g_projective[b].windowOffset;
+            result.shaderStage = g_projective[b].shaderStage;
+            result.bindSlot = g_projective[b].bindSlot;
+            result.variant = 10u + variant;
+            result.byteWidth = 64;
+            result.maxPixelError = maxError;
+            result.meanPixelError = meanError;
+            result.scored = true;
+            std::memcpy (result.matrix, candidate, sizeof (result.matrix));
+            Insert (found, foundCount, result);
         }
     }
 
@@ -659,6 +848,69 @@ size_t Classify (Candidate* out, size_t max)
     for (size_t i = 0; i < written; ++i)
         out[i] = found[i];
     g_best = (foundCount > 0) ? found[0] : Candidate {};
+    return written;
+}
+
+size_t SnapshotCameraBlocks (CameraBlock* out, size_t max, uint64_t newestPass,
+                             uint32_t maxAgePasses)
+{
+    if (out == nullptr || max == 0 || newestPass == 0)
+        return 0;
+
+    // ⚠️ ONE WALK, TAKEN FRESH, AND NOT CACHED. The tracked table is
+    // most-recent-wins and the render thread rewrites its entries while this
+    // runs, so an index kept between calls would name a different window by the
+    // time it was used. Sixty-four entries of sixteen blocks is a few thousand
+    // comparisons -- less than the ACAPI read the same tick already makes.
+    size_t written = 0;
+    unsigned char snapshot[kMaxTrackedBytes];
+    for (const Tracked& entry : g_tracked) {
+        if (written >= max)
+            break;
+        const uint64_t resource = entry.resource.load (std::memory_order_acquire);
+        if (resource == 0)
+            continue;
+        const uint32_t window = entry.windowOffset.load (std::memory_order_relaxed);
+        const uint32_t width = entry.byteWidth.load (std::memory_order_relaxed);
+        if (width < 64)
+            continue;
+        const uint64_t pass = entry.frameId.load (std::memory_order_relaxed);
+        if (pass == 0 || pass > newestPass || (newestPass - pass) > maxAgePasses)
+            continue;
+        if (!ReadStable (entry, snapshot, std::min (width, kMaxTrackedBytes), resource, window))
+            continue;
+
+        const uint32_t stage = entry.shaderStage.load (std::memory_order_relaxed);
+        const uint32_t slot = entry.bindSlot.load (std::memory_order_relaxed);
+        for (uint32_t offset = 0; offset + 64 <= width && written < max; offset += 64) {
+            float stored[16];
+            std::memcpy (stored, snapshot + offset, sizeof (stored));
+            if (!Finite (stored))
+                continue;
+
+            // Same shape test as the census, and deliberately the same
+            // tolerances -- see `Census`. A block that is neither is somebody
+            // else's constants and is not offered.
+            const float wx = stored[3], wy = stored[7], wz = stored[11], ww = stored[15];
+            const bool axisAligned = std::fabs (wx) < 1e-4f && std::fabs (wy) < 1e-4f;
+            const bool affine = axisAligned && std::fabs (wz) < 1e-4f &&
+                                std::fabs (ww - 1.0f) < 1e-3f;
+            const bool projective = axisAligned && std::fabs (std::fabs (wz) - 1.0f) < 1e-2f &&
+                                    std::fabs (ww) < 1e-2f && std::fabs (stored[0]) > 1e-6f &&
+                                    std::fabs (stored[5]) > 1e-6f;
+            if (!affine && !projective)
+                continue;
+
+            CameraBlock& block = out[written++];
+            std::memcpy (block.m, stored, sizeof (block.m));
+            block.windowOffset = window;
+            block.byteOffset = window + offset;
+            block.shaderStage = stage;
+            block.bindSlot = slot;
+            block.scenePass = pass;
+            block.projective = projective;
+        }
+    }
     return written;
 }
 
@@ -672,12 +924,13 @@ CandidateStats GetCandidateStats ()
     CandidateStats stats;
     stats.referenceValid = g_referenceValid;
     stats.buffersTracked = g_buffersTracked.load (std::memory_order_relaxed);
-    stats.mapsSeen = g_mapsSeen.load (std::memory_order_relaxed);
-    stats.mapsNotConstantBuffer = g_mapsNotConstantBuffer.load (std::memory_order_relaxed);
-    stats.mapsTooLarge = g_mapsTooLarge.load (std::memory_order_relaxed);
-    stats.mapsNoSlot = g_mapsNoSlot.load (std::memory_order_relaxed);
-    stats.largestConstantBytes = g_largestConstantBytes.load (std::memory_order_relaxed);
-    stats.bufferCacheFull = g_bufferCacheFull.load (std::memory_order_relaxed);
+    FillCaptureStats (stats);
+    stats.entriesWithData = g_entriesWithData;
+    stats.blocksExamined = g_blocksExamined;
+    stats.blocksFinite = g_blocksFinite;
+    stats.blocksAffine = g_blocksAffine;
+    stats.blocksProjective = g_blocksProjective;
+    stats.firstProjectiveOffset = g_firstProjectiveOffset;
     stats.buffersDropped = g_buffersDropped.load (std::memory_order_relaxed);
     stats.writesCaptured = g_writesCaptured.load (std::memory_order_relaxed);
     stats.regionsScored = g_regionsScored;
@@ -705,23 +958,14 @@ void Reset ()
         }
         std::memset (entry.bytes, 0, sizeof (entry.bytes));
     }
-    for (BufferInfo& entry : g_bufferCache) {
-        entry.resource.store (0, std::memory_order_relaxed);
-        entry.byteWidth.store (0, std::memory_order_relaxed);
-        entry.isConstantBuffer.store (0, std::memory_order_relaxed);
-    }
-    g_bufferCacheFull.store (false, std::memory_order_relaxed);
-    for (MapEntry& entry : g_mapped) {
-        entry.resource.store (0, std::memory_order_relaxed);
-        entry.pointer.store (0, std::memory_order_relaxed);
-        entry.bytes.store (0, std::memory_order_relaxed);
-    }
     g_buffersTracked.store (0, std::memory_order_relaxed);
-    g_mapsSeen.store (0, std::memory_order_relaxed);
-    g_mapsNotConstantBuffer.store (0, std::memory_order_relaxed);
-    g_mapsTooLarge.store (0, std::memory_order_relaxed);
-    g_mapsNoSlot.store (0, std::memory_order_relaxed);
-    g_largestConstantBytes.store (0, std::memory_order_relaxed);
+    for (Tracked& entry : g_tracked)
+        entry.windowOffset.store (0, std::memory_order_relaxed);
+    g_trackedCursor.store (0, std::memory_order_relaxed);
+    ResetPairing ();
+
+    // The capture half owns its own tables.
+    ResetCapture ();
     g_buffersDropped.store (0, std::memory_order_relaxed);
     g_writesCaptured.store (0, std::memory_order_relaxed);
     g_best = Candidate {};

@@ -664,6 +664,21 @@ ContextHookStats GetContextHookStats ()
     const uint64_t last = g_lastCallUs.load (std::memory_order_relaxed);
     stats.callSpanUs = (last > first) ? (last - first) : 0;
 
+    // ⚠️ REPAIR FIRST, THEN COUNT, AND THAT CHANGES WHAT THE NUMBER MEANS.
+    // Counting without repairing reports how many slots the runtime happened to
+    // have re-pointed at the instant of the read -- a snapshot of a race, not a
+    // health measure. The tenth live run read 11 of 27 that way and the report
+    // declared itself void, while the same run had recorded 301567 calls over a
+    // 27-second span through a hook that was plainly working: Archicad redraws
+    // on demand, the user had stopped orbiting, and no present had run to repair
+    // the table since the runtime last touched it.
+    //
+    // After a repair the count answers the question that actually matters --
+    // are there slots the repair CANNOT restore -- and anything below the full
+    // set is then a real fault rather than a timing artefact. The rate at which
+    // the runtime unpatches us is not lost; it is `repairs`.
+    RepairContextHook ();
+
     // ⚠️ RE-READ FROM THE LIVE TABLE, not from what we remember writing. The
     // whole point is to catch the case where the table changed under us.
     if (g_vtable != nullptr && g_installed.load (std::memory_order_acquire)) {

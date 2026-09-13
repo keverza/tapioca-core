@@ -108,10 +108,95 @@ struct FrameState {
     uint32_t    colourClears = 0;
     uint32_t    depthClears = 0;
 
+    // ⚠️ HOW MANY FRAMES AGO THE SCENE VIEWPORT WAS ACTUALLY SEEN, and it is not
+    // a diagnostic nicety. `sceneCandidate` is sampled at a depth clear, and
+    // Archicad presents frames that clear nothing -- at rest it presents
+    // thousands of them, so the LAST frame in the ring had a zeroed candidate
+    // and run fifteen announced "NO SCENE VIEWPORT" while its own slot table
+    // showed 2394 depth clears. The candidate is now carried forward and this
+    // says how stale it is: 0 means this frame drew the scene, a large number
+    // means nothing has drawn a 3D pass for a while, and only the second is the
+    // finding the old message was trying to report.
+    uint32_t    sceneCandidateAgeFrames = 0;
+
     uint32_t    distinctCount = 0;
     GpuViewport distinct[kMaxDistinctViewports];
     uint32_t    distinctHits[kMaxDistinctViewports] = {};
 };
+
+// ---- the scene pass (stage 4/5) --------------------------------------------
+// ⚠️ A PRESENT INTERVAL IS NOT A RENDERING PASS, AND PAIRING ON ONE IS WRONG.
+// Between two Presents Archicad may run a shadow pass, a preview, a thumbnail, a
+// selection-highlight pass and its UI -- each with its own camera and its own
+// targets. A view matrix from one and a projection from another carry the same
+// Present frame id and describe different things, and their product is a
+// plausible matrix that is wrong in a way no still-view pixel test can catch.
+//
+// So the identity a captured camera needs is not `view.frame == projection.frame`
+// but:
+//
+//     Present generation
+//         scene-pass generation          <- this counter
+//             viewport
+//             RTV / DSV
+//             view binding
+//             projection binding
+//             final scene draw
+//
+// ⚠️ A PASS BEGINS AT A DEPTH CLEAR, which is the strongest signal available
+// without hooking every draw, and ENDS when the colour target is bound away from
+// the one that clear was aimed at. That end is also stage 5's candidate
+// injection boundary: the last scene draw has happened, the camera for it is
+// still bound, and the depth buffer still holds the scene -- so geometry drawn
+// there is occluded correctly.
+//
+// ⚠️ WHETHER THAT BOUNDARY REALLY PRECEDES RESOLVE AND POST-PROCESSING IS NOT
+// ASSUMED. `opsAfterBoundary` counts the copies and resolves seen between the
+// boundary and Present; a non-zero count with the scene resources still bound is
+// the evidence that injecting there lands before them, and a zero count means
+// the boundary is at or after the post chain and stage 5 must move earlier.
+struct ScenePass {
+    uint64_t    generation = 0;      // 0 until the first depth clear
+    uint64_t    presentFrameId = 0;  // which Present interval it lived in
+    uint64_t    colorTarget = 0;
+    uint64_t    depthTarget = 0;
+    GpuViewport viewport;
+    uint32_t    draws = 0;           // draw calls seen while its target was bound
+    bool        boundaryHit = false; // the colour target was bound away afterwards
+    uint32_t    opsAfterBoundary = 0;// copies/resolves between boundary and Present
+    uint32_t    drawsAfterBoundary = 0;
+
+    // ⚠️ HOW MANY TIMES ARCHICAD CAME BACK TO THIS TARGET AFTER "LEAVING" IT.
+    // The candidate injection boundary is the switch away from the scene target,
+    // and it is the FINAL boundary only if the target never returns. Run
+    // eighteen recorded four draws into the target, a switch, and then eight
+    // more draws -- so treating the first switch as the end of the scene would
+    // have injected into the middle of it. A non-zero count here means the
+    // boundary to use is a later switch, not this one.
+    uint32_t    targetReturns = 0;
+    uint32_t    drawsAfterReturn = 0;
+
+    // The bindings that were live when this pass BEGAN -- inherited, not waited
+    // for. See ContextStateTracker.hpp: a camera constant bound once and never
+    // rebound is invisible to anything that only records events after the depth
+    // clear, which is the likeliest reason the view matrix has been found once
+    // in four runs while the projection is found every time.
+    uint64_t    vsShaderAtPassStart = 0;
+    uint64_t    vsBuffer[14] = {};
+    uint32_t    vsFirstConstant[14] = {};
+};
+
+// The most recently STARTED pass, and the most recently COMPLETED one. A
+// consumer that wants to draw wants the completed one; a consumer that wants to
+// know what is happening right now wants the started one.
+ScenePass CurrentScenePass ();
+ScenePass LastCompletedScenePass ();
+
+// Render thread. The draw detours call this so a pass knows how much work went
+// into it -- `draws` is what separates the 3D pass from a one-draw gizmo that
+// also cleared depth.
+void OnDraw ();
+void OnCopyOrResolve ();
 
 // ---- render thread, from the context detours -------------------------------
 void OnViewport (const D3D11_VIEWPORT& viewport);
@@ -140,6 +225,8 @@ struct CaptureStats {
     // answer without the caller reassembling it.
     GpuViewport largest;
     GpuViewport sceneCandidate;
+    // How stale that candidate is, in frames. See FrameState's field.
+    uint32_t    sceneCandidateAgeFrames = 0;
     uint32_t    distinctCount = 0;
 };
 CaptureStats GetCaptureStats ();

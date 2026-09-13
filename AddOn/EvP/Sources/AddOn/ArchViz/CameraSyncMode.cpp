@@ -3,6 +3,8 @@
 
 #include "ArchViz/CameraSyncMode.hpp"
 
+#include "ArchViz/AutoOrbit.hpp"
+
 #include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/CameraWake.hpp"
@@ -130,6 +132,15 @@ void TearDownCurrent ()
             DiligentViewport::Get ().SetBlanked (false);
             break;
     }
+    // ⚠️ THE ORBIT STOPS ON EVERY TEARDOWN, WHICHEVER MODE WAS ARMED, and that
+    // is what makes `CameraSyncReset` the way out of it. A diagnostic that turns
+    // the camera and is then CANCELLED cannot put the view back itself: after a
+    // Stop the bus refuses the very calls its `finally` block would make. So the
+    // restore lives here, on the path every exit already goes through, exactly
+    // as `viewportoverlay::SetVisible (true)` does for `hookdraw`. No-op unless
+    // something armed it, and it writes the saved projection back verbatim.
+    autoorbit::Stop ();
+
     // ⚠️ THE BREADCRUMB GOES WITH THE MECHANISM. It was dropped only on an arm
     // failure or at add-on shutdown, so a clean switch from `hookdraw` to
     // `legacy` left `EXPERIMENT_ARMED` on disk -- and an unrelated crash hours

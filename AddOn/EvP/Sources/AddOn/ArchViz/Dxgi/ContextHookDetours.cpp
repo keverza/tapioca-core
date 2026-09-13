@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
 
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 
@@ -239,6 +240,7 @@ void STDMETHODCALLTYPE DetourRSSetViewports (ID3D11DeviceContext* context, UINT 
         SlotOn (ContextSlot::RSSetViewports)) {
         if (count > 0 && viewports != nullptr) {
             renderstate::OnViewport (viewports[0]);
+            contextstate::OnViewport (viewports[0]);
             eventring::Record (ContextSlot::RSSetViewports, 0, count,
                     uint32_t (viewports[0].Width), uint32_t (viewports[0].Height));
         } else {
@@ -281,6 +283,7 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
     if (Who (context, ContextSlot::OMSetRenderTargets) == Audience::Archicad &&
         SlotOn (ContextSlot::OMSetRenderTargets)) {
         ID3D11RenderTargetView* first = (count > 0 && targets != nullptr) ? targets[0] : nullptr;
+        contextstate::OnRenderTargets (first, depth);
         renderstate::OnRenderTargets (first, depth);
         // `handle` is the colour target; the depth target rides in b/c as the low
         // and high halves of its pointer, because the ring row is fixed-size and
@@ -301,6 +304,11 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
 void RecordConstantBuffers (ContextSlot slot, UINT startSlot, UINT count,
                             ID3D11Buffer* const* buffers)
 {
+    // ⚠️ THE STATE TRACKER IS FED FROM THE VERTEX-STAGE BINDS WHATEVER ELSE
+    // HAPPENS, because a binding that is never repeated is exactly the one an
+    // event recorder misses. See ContextStateTracker.hpp.
+    if (slot == ContextSlot::VSSetConstantBuffers)
+        contextstate::OnVSConstantBuffers (startSlot, count, buffers, nullptr, nullptr);
     ID3D11Buffer* first = (count > 0 && buffers != nullptr) ? buffers[0] : nullptr;
     viewmatrix::OnConstantBufferBound (uint32_t (slot), startSlot, first);
     eventring::Record (slot, uint64_t (uintptr_t (first)), startSlot, count, 0);
@@ -413,7 +421,7 @@ void STDMETHODCALLTYPE DetourUpdateSubresource (ID3D11DeviceContext* context,
             bytes = (box->right > box->left) ? (box->right - box->left) : 0;
         }
         if (width > 0 && bytes > 0 && offset + bytes <= width)
-            viewmatrix::OnConstantBufferWrite (resource, offset, source, bytes);
+            viewmatrix::OnConstantBufferWrite (resource, offset, source, bytes, 0);
         eventring::Record (ContextSlot::UpdateSubresource, uint64_t (uintptr_t (resource)), subresource,
                 bytes, rowPitch);
     }
@@ -470,7 +478,8 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
                                           UINT startIndex, INT baseVertex)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DrawIndexed);   // counted; nothing else
+    if (Who (context, ContextSlot::DrawIndexed) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawIndexedFn original = OriginalOf<DrawIndexedFn> (ContextSlot::DrawIndexed);
     if (original != nullptr)
         original (context, indexCount, startIndex, baseVertex);
@@ -480,7 +489,8 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
 void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UINT start)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::Draw);
+    if (Who (context, ContextSlot::Draw) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
     if (original != nullptr)
         original (context, count, start);
@@ -492,7 +502,8 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
                                                    INT baseVertex, UINT startInstance)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DrawIndexedInstanced);
+    if (Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawIndexedInstFn original =
         OriginalOf<DrawIndexedInstFn> (ContextSlot::DrawIndexedInstanced);
     if (original != nullptr)
@@ -522,7 +533,8 @@ void STDMETHODCALLTYPE DetourCopyResource (ID3D11DeviceContext* context,
                                            ID3D11Resource* source)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::CopyResource);
+    if (Who (context, ContextSlot::CopyResource) == Audience::Archicad)
+        renderstate::OnCopyOrResolve ();
     const CopyResourceFn original = OriginalOf<CopyResourceFn> (ContextSlot::CopyResource);
     if (original != nullptr)
         original (context, destination, source);
@@ -552,7 +564,8 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
                                             UINT startInstance)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DrawInstanced);
+    if (Who (context, ContextSlot::DrawInstanced) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawInstancedFn original = OriginalOf<DrawInstancedFn> (ContextSlot::DrawInstanced);
     if (original != nullptr)
         original (context, perInstance, instances, startVertex, startInstance);
@@ -562,7 +575,8 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
 void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DrawAuto);
+    if (Who (context, ContextSlot::DrawAuto) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawAutoFn original = OriginalOf<DrawAutoFn> (ContextSlot::DrawAuto);
     if (original != nullptr)
         original (context);
@@ -573,7 +587,8 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
                                                            ID3D11Buffer* args, UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DrawIndexedInstancedIndirect);
+    if (Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawIndirectFn original =
         OriginalOf<DrawIndirectFn> (ContextSlot::DrawIndexedInstancedIndirect);
     if (original != nullptr)
@@ -585,7 +600,8 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
                                                     ID3D11Buffer* args, UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DrawInstancedIndirect);
+    if (Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad)
+        renderstate::OnDraw ();
     const DrawIndirectFn original =
         OriginalOf<DrawIndirectFn> (ContextSlot::DrawInstancedIndirect);
     if (original != nullptr)
@@ -622,7 +638,8 @@ void STDMETHODCALLTYPE DetourCopySubresourceRegion (ID3D11DeviceContext* context
                                                     const D3D11_BOX* box)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::CopySubresourceRegion);
+    if (Who (context, ContextSlot::CopySubresourceRegion) == Audience::Archicad)
+        renderstate::OnCopyOrResolve ();
     const CopySubresourceFn original =
         OriginalOf<CopySubresourceFn> (ContextSlot::CopySubresourceRegion);
     if (original != nullptr)
@@ -636,7 +653,8 @@ void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context,
                                                  DXGI_FORMAT format)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::ResolveSubresource);
+    if (Who (context, ContextSlot::ResolveSubresource) == Audience::Archicad)
+        renderstate::OnCopyOrResolve ();
     const ResolveSubresourceFn original =
         OriginalOf<ResolveSubresourceFn> (ContextSlot::ResolveSubresource);
     if (original != nullptr)
@@ -653,12 +671,43 @@ void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context,
 void RecordConstantBuffers1 (ContextSlot slot, UINT startSlot, UINT count,
                              ID3D11Buffer* const* buffers, const UINT* firstConstant)
 {
-    ID3D11Buffer* first = (count > 0 && buffers != nullptr) ? buffers[0] : nullptr;
-    viewmatrix::OnConstantBufferBound (uint32_t (slot), startSlot, first);
-    // `firstConstant` is in 16-byte constants, not bytes; recorded raw so the
-    // reader converts once, where the convention is written down.
-    const uint32_t offset = (firstConstant != nullptr && count > 0) ? firstConstant[0] : 0;
-    eventring::Record (slot, uint64_t (uintptr_t (first)), startSlot, count, offset);
+    if (slot == ContextSlot::VSSetConstantBuffers1)
+        contextstate::OnVSConstantBuffers (startSlot, count, buffers, firstConstant, nullptr);
+    if (buffers == nullptr || count == 0) {
+        eventring::Record (slot, 0, startSlot, count, 0);
+        return;
+    }
+
+    // ⚠️ EVERY BUFFER IN THE CALL, NOT JUST `buffers[0]`. This read only the
+    // first for three runs, and a bind of several constant buffers in one call
+    // is ordinary -- b0 the per-frame constants, b1 the per-object, b2 the
+    // material. If Archicad's camera rides in anything but the first register of
+    // a multi-buffer bind, the window carrying it was never even offered to the
+    // classifier, and stage 3 was scoring the other registers and reporting NO
+    // MATCH. Twenty-odd thousand binds a run: whichever one holds the camera,
+    // it has to be in the set.
+    //
+    // `firstConstant` is in 16-byte constants, not bytes. The event ring records
+    // it raw so the reader converts once; the classifier is told in bytes,
+    // because that is what it will index a mapped pointer with.
+    for (UINT i = 0; i < count; ++i) {
+        ID3D11Buffer* const buffer = buffers[i];
+        if (buffer == nullptr)
+            continue;
+        const uint32_t offset = (firstConstant != nullptr) ? firstConstant[i] : 0;
+        // ⚠️ THIS IS THE CALL THAT MAKES STAGE 3 POSSIBLE ON THIS HOST. Archicad
+        // 29 keeps its constants in one 8 MiB ring and binds windows of it, so
+        // the buffer pointer alone says nothing -- the offset is the address.
+        viewmatrix::OnConstantBufferBoundWindow (uint32_t (slot), startSlot + i, buffer,
+                offset * 16u);
+    }
+
+    // One ring row for the call, naming its first buffer: the ring is a trace of
+    // WHEN things happened and it already drops most of a busy frame, so a row
+    // per buffer would cost coverage of everything else to say what the
+    // classifier is being told anyway.
+    eventring::Record (slot, uint64_t (uintptr_t (buffers[0])), startSlot, count,
+            (firstConstant != nullptr) ? firstConstant[0] : 0);
 }
 
 void STDMETHODCALLTYPE DetourVSSetConstantBuffers1 (ID3D11DeviceContext* context, UINT startSlot,
@@ -711,7 +760,7 @@ void STDMETHODCALLTYPE DetourUpdateSubresource1 (ID3D11DeviceContext* context,
             bytes = (box->right > box->left) ? (box->right - box->left) : 0;
         }
         if (width > 0 && bytes > 0 && offset + bytes <= width)
-            viewmatrix::OnConstantBufferWrite (resource, offset, source, bytes);
+            viewmatrix::OnConstantBufferWrite (resource, offset, source, bytes, 0);
         eventring::Record (ContextSlot::UpdateSubresource1, uint64_t (uintptr_t (resource)),
                            subresource, bytes, rowPitch);
     }

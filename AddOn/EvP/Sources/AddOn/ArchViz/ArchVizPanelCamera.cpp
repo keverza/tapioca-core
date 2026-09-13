@@ -17,6 +17,7 @@
 #include "ArchViz/ArchVizPanel.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/AutoOrbit.hpp"
 #include "ArchViz/CameraSyncMode.hpp"
 #include "ArchViz/CameraWake.hpp"
 #include "ArchViz/DiligentViewport.hpp"
@@ -26,6 +27,7 @@
 #include "ArchViz/Dxgi/SharedOverlaySurface.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/SameFrameCamera.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 #include "ArchViz/NavLog.hpp"
 #include "ArchViz/PlanCameraMath.hpp"   // PredictPlanCamera — the `predict` mode
@@ -516,6 +518,24 @@ void PollGpuStateOnce (const geomsrv::archviz::CameraStart& observed)
                                         observed.viewConeDegreesHorizontal, viewport, moved);
     }
 
+    // ⚠️ STAGE 4 RUNS ON EVERY TICK, NOT EVERY EIGHTH, because what it measures
+    // is whether a pair can be had for THIS frame and a sampled answer to that
+    // is not an answer. It is a scan of sixty-four entries and a 4x4 multiply;
+    // the ACAPI read this tick already made costs more.
+    //
+    // ⚠️ AGE ZERO: THIS FRAME ONLY. A pair from the previous frame is exactly
+    // the error the rung exists to remove, so it is refused and counted rather
+    // than quietly used -- see `ResolveSameFramePair`. The counters say how
+    // often a same-frame pair is actually available, which is the question
+    // stage 5 needs answered before it can draw with one.
+    // ⚠️ ONE PASS OF SLACK, NOT ZERO. The capture is one DRAW stale by
+    // construction, so the newest completed pass may have bound its camera
+    // before the Unmap that copied it; allowing the immediately preceding pass
+    // is the difference between measuring a real association and measuring our
+    // own read timing. Age is reported, so a pair that is actually one pass old
+    // is visible rather than assumed to be current.
+    dxgi::viewmatrix::ResolveScenePassPair (1);
+
     // Every eighth tick, so a 33 ms timer scores about four times a second.
     static uint32_t g_tick = 0;
     if ((++g_tick % 8) == 0) {
@@ -636,6 +656,15 @@ void PollCameraOnceImpl ()
     // CANCELLED command cannot fix it -- after a Stop the bus refuses the very
     // calls its `finally` block would make. So the restore lives here.
     geomsrv::archviz::dxgi::WatchHostComposite ();
+
+    // ⚠️ THE ORBIT STEPS FROM HERE, AND BEFORE THE GPU-STATE POLL. This tick is
+    // the only main-thread heartbeat already running while a hookdiag run is
+    // under way, so it is what a deterministic camera walk has to hang off --
+    // see AutoOrbit.hpp for why the diagnostic cannot drive it over the bus.
+    // Stepping first means the poll below reads the camera the step just asked
+    // for rather than the previous one.
+    // No-op unless a diagnostic armed it.
+    geomsrv::archviz::autoorbit::StepIfRunning ();
 
     // ---- the GPU-state discovery path (PLAT-RE153..RE155) ------------------
     // No-op unless `hookdiag` was armed with the gpuState switch.

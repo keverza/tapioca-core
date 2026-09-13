@@ -10,6 +10,7 @@
 #include "NativeCommands/GateDiagnosticCommands.hpp"
 #include "NativeCommands/GraphCaptureCommands.hpp"
 #include "NativeCommands/ArchVizCommands.hpp"
+#include "NativeCommands/ViewerGpuStateCommands.hpp"
 #include "NativeCommands/ViewerSyncCommands.hpp"
 #include "NativeCommands/AttributeCommands.hpp"
 #include "NativeCommands/CaptureCommands.hpp"
@@ -116,6 +117,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetGateDiagnosticCommandRegistrations,
     &GetPointCloudCommandRegistrations,
     &GetViewerSyncCommandRegistrations,
+    &GetViewerGpuStateCommandRegistrations,
     &GetPreviewCommandRegistrations,
     &GetNodeGraphCommandRegistrations,
     &GetNodeGraphEditCommandRegistrations,

@@ -7,6 +7,7 @@
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
+#include "ArchViz/Dxgi/ConstantBufferCapture.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/NavLog.hpp"
 
@@ -201,7 +202,13 @@ void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
     // twenty-seven pointer compares, which is nothing beside a frame.
     RepairContextHook ();
 
-    renderstate::OnPresent (g_archicadFrames.fetch_add (1, std::memory_order_relaxed) + 1);
+    const uint64_t frameId = g_archicadFrames.fetch_add (1, std::memory_order_relaxed) + 1;
+    // ⚠️ THE CAPTURE'S FRAME CLOCK IS ADVANCED HERE AND NOWHERE ELSE. Everything
+    // the context detours record between two Presents belongs to one frame, and
+    // stage 4's whole guarantee is that a view and a projection carry the same
+    // stamp. See ConstantBufferCapture.hpp.
+    viewmatrix::BeginFrame (frameId);
+    renderstate::OnPresent (frameId);
 }
 
 HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)

@@ -3,6 +3,8 @@
 
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
+
 #include "ArchViz/NavLog.hpp"
 
 #ifndef NOMINMAX
@@ -22,6 +24,13 @@ namespace dxgi {
 namespace renderstate {
 
 namespace {
+
+// ---- the scene pass --------------------------------------------------------
+std::atomic<uint64_t> g_scenePassGeneration {0};
+ScenePass g_currentPass;
+ScenePass g_lastCompletedPass;
+uint64_t  g_presentFrameId = 0;
+
 
 // The frame being accumulated. Plain, one writer -- see the header for why that
 // is a reasoned choice rather than an oversight.
@@ -110,8 +119,68 @@ void OnScissor (const RECT& rect)
 void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* depth)
 {
     ++g_current.targetBinds;
+    const uint64_t previous = g_boundColour;
     g_boundColour = uint64_t (uintptr_t (colour));
     g_boundDepth = uint64_t (uintptr_t (depth));
+
+    // ⚠️ THE CANDIDATE INJECTION BOUNDARY. The colour target the current pass was
+    // drawing into has just been bound away, and it had real draws in it -- so
+    // the scene pass is over, its camera is still the last one bound, and its
+    // depth buffer is still intact. Everything after this and before Present is
+    // what stage 5 has to prove it lands in front of.
+    if (g_currentPass.generation != 0 && !g_currentPass.boundaryHit &&
+        g_currentPass.draws > 0 && previous == g_currentPass.colorTarget &&
+        g_boundColour != g_currentPass.colorTarget) {
+        g_currentPass.boundaryHit = true;
+        g_lastCompletedPass = g_currentPass;
+    } else if (g_currentPass.generation != 0 && g_currentPass.boundaryHit &&
+               g_boundColour == g_currentPass.colorTarget) {
+        // ⚠️ IT CAME BACK. The switch we called a boundary was not the end of the
+        // scene, and anything injected there would have landed in the middle of
+        // it. The pass reopens, and the count is what says the boundary to use is
+        // a later switch than this one.
+        ++g_currentPass.targetReturns;
+        g_currentPass.boundaryHit = false;
+        if (g_lastCompletedPass.generation == g_currentPass.generation)
+            g_lastCompletedPass = g_currentPass;
+    }
+}
+
+void OnDraw ()
+{
+    if (g_currentPass.generation == 0)
+        return;
+    if (!g_currentPass.boundaryHit && g_boundColour == g_currentPass.colorTarget) {
+        ++g_currentPass.draws;
+        return;
+    }
+    // ⚠️ COUNTED SEPARATELY, NOT IGNORED. Draws after the boundary are the UI and
+    // post passes, and how many there are decides whether the boundary is a
+    // quiet place to inject or the middle of somebody else's work.
+    ++g_currentPass.drawsAfterBoundary;
+    if (g_currentPass.targetReturns > 0)
+        ++g_currentPass.drawsAfterReturn;
+    if (g_lastCompletedPass.generation == g_currentPass.generation)
+        g_lastCompletedPass.drawsAfterBoundary = g_currentPass.drawsAfterBoundary;
+}
+
+void OnCopyOrResolve ()
+{
+    if (g_currentPass.generation == 0 || !g_currentPass.boundaryHit)
+        return;
+    ++g_currentPass.opsAfterBoundary;
+    if (g_lastCompletedPass.generation == g_currentPass.generation)
+        g_lastCompletedPass.opsAfterBoundary = g_currentPass.opsAfterBoundary;
+}
+
+ScenePass CurrentScenePass ()
+{
+    return g_currentPass;
+}
+
+ScenePass LastCompletedScenePass ()
+{
+    return g_lastCompletedPass;
 }
 
 void OnClearRenderTarget (ID3D11RenderTargetView* view)
@@ -119,6 +188,13 @@ void OnClearRenderTarget (ID3D11RenderTargetView* view)
     (void) view;
     ++g_current.colourClears;
 }
+
+// The last frame that actually drew a 3D pass, carried across frames that do
+// not. See `sceneCandidateAgeFrames` in the header for why.
+GpuViewport g_lastScene;
+uint64_t    g_lastSceneColour = 0;
+uint64_t    g_lastSceneDepth = 0;
+uint32_t    g_lastSceneAge = 0;
 
 void OnClearDepthStencil (ID3D11DepthStencilView* view)
 {
@@ -134,10 +210,61 @@ void OnClearDepthStencil (ID3D11DepthStencilView* view)
     // every sane frame, and where they differ the one being cleared is the one
     // the pass is about to use.
     g_current.sceneDepthTarget = (view != nullptr) ? uint64_t (uintptr_t (view)) : g_boundDepth;
+
+    g_lastScene = g_current.sceneCandidate;
+    g_lastSceneColour = g_current.sceneColorTarget;
+    g_lastSceneDepth = g_current.sceneDepthTarget;
+    g_lastSceneAge = 0;
+
+    // ⚠️ A NEW SCENE PASS STARTS HERE. Every camera binding recorded from now
+    // until the boundary belongs to THIS pass, and that is the association
+    // stage 4 needs -- not the Present interval, which can hold several passes
+    // with different cameras.
+    ScenePass pass;
+    pass.generation = g_scenePassGeneration.fetch_add (1, std::memory_order_relaxed) + 1;
+    pass.presentFrameId = g_presentFrameId;
+    pass.colorTarget = g_current.sceneColorTarget;
+    pass.depthTarget = g_current.sceneDepthTarget;
+    pass.viewport = g_current.sceneCandidate;
+
+    // ⚠️ INHERIT, DO NOT WAIT. The pass takes whatever is bound at this instant
+    // as its own starting state; requiring the camera buffers to be re-bound
+    // after the depth clear is what made the view matrix look intermittent.
+    const contextstate::ContextState live = contextstate::Snapshot ();
+    pass.vsShaderAtPassStart = live.vertexShader;
+    for (size_t i = 0; i < contextstate::kConstantBufferSlots && i < 14; ++i) {
+        pass.vsBuffer[i] = live.vsConstantBuffers[i].buffer;
+        pass.vsFirstConstant[i] = live.vsConstantBuffers[i].firstConstant;
+    }
+
+    g_currentPass = pass;
 }
 
 void OnPresent (uint64_t frameId)
 {
+    g_presentFrameId = frameId;
+    // A pass that never had its target bound away still ended -- at Present.
+    // Recording it as completed is what stops a frame whose UI draws into the
+    // same target from losing its pass entirely.
+    if (g_currentPass.generation != 0 && !g_currentPass.boundaryHit &&
+        g_currentPass.draws > 0) {
+        g_lastCompletedPass = g_currentPass;
+    }
+
+    // ⚠️ A FRAME THAT CLEARED NO DEPTH BUFFER INHERITS THE LAST ONE THAT DID.
+    // Otherwise the answer to "what viewport does Archicad render the scene
+    // with" depends on whether the very last present happened to be a 3D pass,
+    // and at rest it never is -- which is how run fifteen reported NO SCENE
+    // VIEWPORT beside its own count of 2394 depth clears.
+    if (g_current.depthClears == 0) {
+        if (g_lastSceneAge < 0xffffffffu)
+            ++g_lastSceneAge;
+        g_current.sceneCandidate = g_lastScene;
+        g_current.sceneColorTarget = g_lastSceneColour;
+        g_current.sceneDepthTarget = g_lastSceneDepth;
+    }
+    g_current.sceneCandidateAgeFrames = g_lastSceneAge;
+
     g_current.valid = true;
     g_current.frameId = frameId;
     g_current.timestampUs = MicrosecondsNow ();
@@ -198,6 +325,7 @@ CaptureStats GetCaptureStats ()
     const FrameState latest = LatestFrame ();
     stats.largest = latest.largest;
     stats.sceneCandidate = latest.sceneCandidate;
+    stats.sceneCandidateAgeFrames = latest.sceneCandidateAgeFrames;
     stats.distinctCount = latest.distinctCount;
     return stats;
 }
@@ -213,6 +341,14 @@ void Reset ()
     g_currentViewport = GpuViewport {};
     g_boundColour = 0;
     g_boundDepth = 0;
+    g_lastScene = GpuViewport {};
+    g_lastSceneColour = 0;
+    g_lastSceneDepth = 0;
+    g_lastSceneAge = 0;
+    g_scenePassGeneration.store (0, std::memory_order_relaxed);
+    g_currentPass = ScenePass {};
+    g_lastCompletedPass = ScenePass {};
+    g_presentFrameId = 0;
 }
 
 void FlushFrameLog ()

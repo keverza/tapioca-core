@@ -37,6 +37,18 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "ArchViz/Dxgi/ViewMatrixCandidates.cpp": (
+        995,
+        "stage 3's DISCOVERY scorer and the tracked window table it reads. The census, "
+        "the four single-block variants, the products of pairs and the half-tests are "
+        "one question asked five ways -- what COULD these captured bytes be -- and "
+        "splitting that question across files would scatter one argument. Stage 4's "
+        "production resolver, which was the other half of this file, has already been "
+        "extracted to Dxgi/SameFrameCamera along the seam between asking what the bytes "
+        "could be and deciding which two of them describe the frame being drawn. This "
+        "entry freezes what is left: the discovery scorer is evidence, not a growth "
+        "area, and the next feature extracts a seam rather than adding to it"
+    ),
     "ArchViz/ExtractionThread.cpp": (
         1011,
         "the extraction pass's control flow: the main-thread gate hops, the element "
@@ -210,6 +222,31 @@ LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"')
 # They are intentionally file-specific: a new sideways feature include must be
 # added here with its reason, rather than silently weakening the tier rule.
 BOUNDARY_INCLUDE_EXCEPTIONS = {
+    # The GPU-state discovery verbs (PLAT-RE153..RE155, 2026-09-13), extracted out
+    # of ViewerSyncCommands.cpp when the auto-orbit verb pushed it past the size
+    # cap. They inherit that file's recorded reasons unchanged: each verb is a thin
+    # adapter over one ArchViz mechanism -- the build pin, the context hook, the
+    # per-frame render state, the constant-buffer classifier, the camera orbit --
+    # and restating any of those contracts on this side of the boundary would
+    # create a second definition of it, which is worse than the sideways include.
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/AutoOrbit.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/DeviceIdentity.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/PresentHook.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/RenderStateCapture.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ViewMatrixCandidates.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/PatchProfile.hpp"),
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/ViewportOverlayWindow.hpp"),
+    # The orbit is armed by a verb and stopped by `CameraSyncReset`'s teardown, so
+    # the camera-sync file names it too.
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/AutoOrbit.hpp"),
+    # Stage 4's pairing counters are read by `CameraSyncModeState`, which is the
+    # one verb that reports the whole discovery path's health. Same reason as its
+    # neighbours: the command is a thin adapter over one ArchViz mechanism, and
+    # restating the PairingStats contract on this side would create a second
+    # definition of it.
+    ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/SameFrameCamera.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),

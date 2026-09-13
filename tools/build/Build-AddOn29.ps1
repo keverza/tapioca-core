@@ -1,4 +1,4 @@
-# Build the configured AC29 project. Pass a config as arg1 (default RelWithDebInfo).
+﻿# Build the configured AC29 project. Pass a config as arg1 (default RelWithDebInfo).
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $root = Join-Path $repo "AddOn\EvP"
@@ -61,6 +61,20 @@ if ($args -notcontains "-SkipArchCheck") {
         if ($LASTEXITCODE -ne 0) {
             $schema | Write-Host
             throw "Schema check failed - see the list above. A response field and its schema are one edit."
+        }
+
+        # WARNING: A COMMAND WITHOUT ITS `@evp.command` DECORATOR IS SILENTLY
+        # ABSENT FROM THE PALETTE, and nothing else in this build can see it. It
+        # compiles, it syncs, Sync-Commands reports it copied, and the only trace
+        # is one line in scan.log that nobody reads until a user says "the
+        # command is not there". That cost a round trip on 2026-09-13, when an
+        # edit to the function ABOVE `run` swallowed the decorator along with it.
+        # check_python.py already answers the question; it simply was not being
+        # asked by the build.
+        $palette = & python "$repo\tools\quality\check_python.py"
+        if ($LASTEXITCODE -ne 0) {
+            $palette | Write-Host
+            throw "Python/palette check failed - see the list above. A command with no @evp.command decorator never reaches the palette."
         }
 
         # ⚠️ THE COMPILER NEVER SEES THE VIEWPORT'S SHADERS. They are raw string
