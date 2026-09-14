@@ -195,12 +195,13 @@ def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anc
         return tx.call("EvP.PlacePicture", params)
 
     data = call("EvP.PlacePicture", params).data or {}
+    element_id = data.get("elementId") or {}
     return {
-        "ok": bool(data.get("ok", False)),
-        "guid": data.get("guid", ""),
+        "ok": bool(element_id.get("guid")),
+        "guid": element_id.get("guid", ""),
         "pixel_width": data.get("pixelWidth", 0),
         "pixel_height": data.get("pixelHeight", 0),
         "placed_width": data.get("placedWidth", 0.0),
         "placed_height": data.get("placedHeight", 0.0),
-        "error": data.get("error", ""),
+        "error": "",
     }

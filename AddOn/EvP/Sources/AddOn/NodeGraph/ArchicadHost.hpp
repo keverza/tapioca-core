@@ -17,115 +17,14 @@
 #include "NodeGraph/ProjectGenerations.hpp"
 #include "NodeGraph/ReferenceResolver.hpp"
 #include "NodeGraph/Value.hpp"
+#include "ProjectEnv/ArchicadCamera.hpp"
 
 #include <string>
 #include <vector>
 
 namespace evp::nodegraph {
 
-// Archicad's own 3D window camera, in model coordinates and degrees.
-//
-// ⚠️ THE SAME ELEVEN NUMBERS Tapioca.GetArchicad3DCamera ALREADY ANSWERS
-// WITH, and that is deliberate rather than incidental: the headless capture path
-// consumes exactly this shape (ArchViz/DiligentViewport.hpp's CameraStart, and
-// StartDiligentCapture's own schema), so a camera captured by a node travels to
-// the renderer with NO conversion in between. A second spelling of a camera in
-// this repository would be a second place for the aspect-ratio and handedness
-// mistakes that header spends thirty lines warning about.
-//
-// ⚠️ DOUBLES HERE, FLOATS THERE, AND THE NARROWING HAPPENS AT THE
-// RENDERER'S DOOR. ACAPI answers in doubles and every other coordinate in the
-// graph runtime is a double; CameraStart is float because it is read on the
-// render thread. Narrowing once, at the boundary, is one conversion in one place.
-//
-// ⚠️ `viewCone` IS HORIZONTAL, IN DEGREES. Archicad's is; the viewer's
-// camera is VERTICAL and converts with the aspect ratio. Nothing in this file
-// converts it - it is carried exactly as Archicad reported it, and the renderer
-// does the conversion once it knows the target size.
-struct ViewCamera {
-    // False when there is no camera to copy - an axonometric 3D window, or a
-    // read that failed. `source` then says which, in words a user can act on.
-    bool valid = false;
-
-    // "perspective", or why there is no camera. Carried rather than derived so
-    // a refusal can name the reason instead of reporting a generic failure.
-    std::string source;
-
-    double eye[3] = { 0.0, 0.0, 0.0 };
-    double target[3] = { 0.0, 0.0, 0.0 };
-    double viewConeDegreesHorizontal = 0.0;
-
-    // ---- the sun that was lighting the model when this camera was taken ----
-    //
-    // ⚠️ CAPTURED WITH THE CAMERA, ON PURPOSE, so a list of viewpoints
-    // taken across a day carries a sun per frame. That is what makes "orbit, set
-    // the time, Add, repeat" a sun study rather than a set of views all lit the
-    // same way.
-    //
-    // ⚠️ IT COMES FROM API_PlaceInfo, NOT FROM THE PROJECTION'S OWN
-    // sunAngSets, AND THAT IS NOT ARBITRARY. API_PerspPars carries a
-    // sunAngSets whose convention nothing in this repository interprets -
-    // ScreenshotCapture only copies it across verbatim - while
-    // API_PlaceInfo::sunAngXY/sunAngZ is the sun the viewer already lights the
-    // model with (ArchViz/ExtractionEnvironment.cpp) and the one convention that
-    // was settled against an independent NOAA calculation, twice, at two
-    // different project-north values (NativeCommands/ProjectCommands.cpp).
-    // Reading the other one would put a SECOND sun vocabulary in this repository,
-    // which the comments there record as having already cost a debugging cycle:
-    // the two azimuths differ by a convention and the mistake renders as a
-    // perfectly plausible shadow pointing the wrong way.
-    //
-    // False when the project has no readable place information. The camera is
-    // still valid; it simply carries no sun.
-    bool hasSun = false;
-
-    // ⚠️ THE MODEL ANGLE, DEGREES, COUNTERCLOCKWISE FROM +X - which is
-    // what Tapioca.SetDiligentSun takes and what DiligentViewportState reports.
-    // It is NOT the compass bearing Archicad's Sun dialog shows; the two differ
-    // by project north, and confusing them is the entire history of this corner
-    // of the code.
-    double sunAzimuthDegrees = 0.0;
-
-    // Above the horizon. Negative means the sun is down.
-    double sunAltitudeDegrees = 0.0;
-
-    // Clockwise from geographic north - the number a person reads ("the sun is
-    // at 193 degrees"). Carried as well as the model angle rather than instead
-    // of it, because one of them is for the renderer and the other is for the
-    // row in the node, and deriving either on demand means re-deriving the north
-    // term that ProjectCommands.cpp records getting wrong the first time.
-    double sunBearingDegrees = 0.0;
-
-    // Which rule produced the three angles above: "date" when they were computed
-    // for the project's moment, "angles" when the user typed them into the Sun
-    // dialog and they were taken as given.
-    //
-    // ⚠️ CARRIED SO A WRONG SUN CAN BE DIAGNOSED WITHOUT GUESSING. The two
-    // paths fail in opposite directions - a stale cache freezes the sun, a
-    // needless recompute throws away a typed one - and they are indistinguishable
-    // from the angles alone.
-    std::string sunSource;
-
-    // ---- Archicad's own sun settings for this view, VERBATIM ---------------
-    //
-    // ⚠️ ROUND-TRIPPED, NOT INTERPRETED, AND THAT IS THE WHOLE POINT.
-    // Restore has to put the sun back, and the convention of
-    // API_SunAngleSettings::sunAzimuth is not documented anywhere this repository
-    // could check. Copying the struct out and back in needs no such knowledge:
-    // whatever Archicad meant by these numbers, it means the same thing when it
-    // reads them again. The DERIVED angles above are the ones with a known
-    // convention, and they are what the renderer gets.
-    bool sunFromDate = false;
-    double sunRawAzimuth = 0.0;
-    double sunRawAltitude = 0.0;
-    int sunYear = 0;
-    int sunMonth = 0;
-    int sunDay = 0;
-    int sunHour = 0;
-    int sunMinute = 0;
-    int sunSecond = 0;
-    bool sunSummerTime = false;
-};
+using ViewCamera = geomsrv::ArchicadCamera;
 
 class IArchicadHost {
   public:

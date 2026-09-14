@@ -624,6 +624,8 @@ def scan_file(path, folder_name):
                 # Ordered role names for the optional selection-set panel. Kept flat
                 # because C++ can reliably read string arrays from ObjectState.
                 "selection_sets": [],
+                # Ordered role names for session-only perspective camera lists.
+                "camera_sets": [],
                 # Explicit opt-in plus forced safety values for normal-run previews
                 # triggered by complete selection-role changes.
                 "preview_on_selection": False,
@@ -653,10 +655,13 @@ def scan_file(path, folder_name):
                     decorator.lineno,
                 )
             selection_sets_specified = False
+            camera_sets_specified = False
             preview_overrides = None
             for kw in decorator.keywords:
                 if kw.arg == "selection_sets":
                     selection_sets_specified = True
+                if kw.arg == "camera_sets":
+                    camera_sets_specified = True
                 # inputs=/outputs=/plan=/preview= name a MODEL or a function in the
                 # same file, so they are the one place a decorator argument is
                 # legitimately not a literal. Record the identifier; the ports
@@ -719,6 +724,28 @@ def scan_file(path, folder_name):
                 seen.add(key)
                 normalized.append(role.strip())
             meta["selection_sets"] = normalized
+
+            camera_sets = meta.get("camera_sets") or []
+            if (isinstance(camera_sets, str) or not isinstance(camera_sets, (list, tuple))
+                    or (camera_sets_specified and not camera_sets)):
+                raise ScanError(
+                    "@evp.command(camera_sets=...) must be a list/tuple of role names, e.g. "
+                    '("Exterior", "Interior") (line %d)' % decorator.lineno, decorator.lineno)
+            normalized_cameras = []
+            seen_cameras = set()
+            for role in camera_sets:
+                if not isinstance(role, str) or not role.strip():
+                    raise ScanError(
+                        "@evp.command(camera_sets=...) role names must be non-empty strings "
+                        "(line %d)" % decorator.lineno, decorator.lineno)
+                key = role.strip().casefold()
+                if key in seen_cameras:
+                    raise ScanError(
+                        "@evp.command(camera_sets=...) role names must be unique "
+                        "(line %d)" % decorator.lineno, decorator.lineno)
+                seen_cameras.add(key)
+                normalized_cameras.append(role.strip())
+            meta["camera_sets"] = normalized_cameras
 
             preview_on_selection = meta.get("preview_on_selection", False)
             if not isinstance(preview_on_selection, bool):

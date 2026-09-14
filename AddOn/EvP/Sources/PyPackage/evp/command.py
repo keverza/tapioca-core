@@ -418,7 +418,7 @@ PREVIEW_KINDS = ("text", "3d", "plan2d")
 
 def command(title=None, category="General", requires_api=None, requires_tapir=None, runtime="embedded",
              description=None, requires=None, needs_selection=False, labels=None,
-             timeout_s=0, tags=None, selection_sets=None,
+             timeout_s=0, tags=None, selection_sets=None, camera_sets=None,
              inputs=None, outputs=None, plan=None, needs_preview=False,
              preview=None, preview_kind=None, actions=None,
              preview_on_selection=False, preview_overrides=None):
@@ -463,7 +463,10 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
     selection_sets
                   ordered role names for the optional selection-manager panel,
                   e.g. ("Targets", "Operators"). The command reads those saved
-                   sets through evp.selection.sets; the panel is absent when omitted.
+                  sets through evp.selection.sets; the panel is absent when omitted.
+    camera_sets   ordered role names for session-only perspective camera lists,
+                  e.g. ("Exterior", "Interior"). The command reads them through
+                  evp.cameras.sets; each captured camera includes its view sun.
     preview_on_selection
                   explicitly opts this command into a debounced normal run whenever
                   one of its declared selection sets changes and every role is
@@ -541,6 +544,7 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
             "timeout_s": float(timeout_s or 0),
             "labels": dict(labels) if labels else {},
             "selection_sets": list(selection_sets) if selection_sets else [],
+            "camera_sets": list(camera_sets) if camera_sets else [],
             "preview_on_selection": bool(preview_on_selection),
             "preview_overrides": dict(preview_overrides) if preview_overrides else {},
             "needs_preview": bool(needs_preview) or preview is not None,

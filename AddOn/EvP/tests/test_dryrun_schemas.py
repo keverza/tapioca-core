@@ -35,6 +35,17 @@ def test_schemas_are_actually_found():
     module = _load()
     assert len(module._INPUT_SCHEMAS) > 50
     assert "SetCameraSyncMode" in module._INPUT_SCHEMAS
+    assert "GetCameraSet" in module._INPUT_SCHEMAS
+
+
+def test_camera_set_fixture_matches_batch_capture_shape():
+    module = _load()
+    result = module._one("EvP.GetCameraSet", {"name": "Views"})
+    camera = result["data"]["cameras"][0]
+
+    assert camera["source"] == "perspective"
+    assert camera["orthographic"] is False
+    assert camera["sun"]["enabled"] is True
 
 
 @pytest.mark.parametrize("schema,params,expected", [

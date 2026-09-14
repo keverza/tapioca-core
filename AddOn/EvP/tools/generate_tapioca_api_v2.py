@@ -166,9 +166,13 @@ from typing import Any
 # render thread - Stop() rather than a cancel, so the flags are provably clear
 # when it returns - and is a no-op when nothing is running, which is what makes it
 # a first move rather than a last resort. Touches no model data.
-EXPECTED_REGISTRY_COMMANDS = 197
+# 2026-09-14, command camera sets: +2 for GetCameraSet and ModifyCameraSet.
+# The clean tree already contained six additional registrations beyond the 197
+# tripwire before this change; record that existing drift rather than hiding it
+# inside the feature's increment. Current registry baseline: 203, then +2 here.
+EXPECTED_REGISTRY_COMMANDS = 205
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 216
+EXPECTED_TOTAL_COMMANDS = 224
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

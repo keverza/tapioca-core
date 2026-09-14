@@ -14,6 +14,7 @@
 #include "NativeCommands/ViewerSyncCommands.hpp"
 #include "NativeCommands/AttributeCommands.hpp"
 #include "NativeCommands/CaptureCommands.hpp"
+#include "NativeCommands/CameraSetCommands.hpp"
 #include "NativeCommands/Component3DCommands.hpp"
 #include "NativeCommands/CreateCommands.hpp"
 #include "NativeCommands/CuttingPlaneCommands.hpp"
@@ -99,6 +100,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetLibraryObjectCommandRegistrations,
     &GetFavoriteCommandRegistrations,
     &GetSelectionCommandRegistrations,
+    &GetCameraSetCommandRegistrations,
     &GetTopologyCommandRegistrations,
     &GetIssueCommandRegistrations,
     &GetSurfaceCommandRegistrations,

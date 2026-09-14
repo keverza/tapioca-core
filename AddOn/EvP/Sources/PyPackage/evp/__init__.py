@@ -12,6 +12,7 @@ truth and any wrapper bug reduces to a single reproducible `evp.api.call` line.
 """
 
 from . import changes
+from . import cameras
 from . import context
 from . import drafting
 from . import diligent
@@ -55,7 +56,7 @@ __all__ = [
     "Transaction", "TransactionError", "Handle", "transaction",
     "Context", "ElementSpec", "FromStep", "Plan", "PlanDiff", "PlanError",
     "PreviewScene", "PreviewBudgetError", "WatchBudgetError", "watch",
-    "changes", "context", "drafting", "diligent", "drawings", "elements", "errors", "geometry",
+    "cameras", "changes", "context", "drafting", "diligent", "drawings", "elements", "errors", "geometry",
     "issues",
     "layouts", "outputs", "paths", "plan", "preview", "properties", "runtime", "selection",
     "model", "topology", "ui", "webui",

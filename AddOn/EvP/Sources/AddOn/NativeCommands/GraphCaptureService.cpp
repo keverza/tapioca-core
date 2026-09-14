@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,19 +53,20 @@ std::string MakeCaptureDirectory (std::string& error)
 // visibility rather than whatever the 3D window happens to show.
 bool GoToModelView (const std::string& guid, std::string& error)
 {
-    bool ok = false;
+    const auto ok = std::make_shared<bool> (false);
+    const auto failure = std::make_shared<std::string> ();
     GS::UniString gateError;
     const bool delivered = evp::MainThreadGate::Get ().Invoke (
-        [&guid, &ok, &error] () {
+        [guid, ok, failure] () {
             // ⚠️ AND IT LEAVES THE VIEW APPLIED, by explicit decision. That is
             // why the capture node is HostUiWrite: this moves what the user is
             // looking at, so it may only happen on a deliberate press.
             const GSErrCode err = ACAPI_View_GoToView (guid.c_str ());
             if (err != NoError) {
-                error = "Archicad refused the model view (error " + std::to_string ((int) err) + ")";
+                *failure = "Archicad refused the model view (error " + std::to_string ((int) err) + ")";
                 return;
             }
-            ok = true;
+            *ok = true;
         },
         evp::MainThreadGate::DefaultTimeoutMs, gateError);
     if (!delivered) {
@@ -72,7 +74,11 @@ bool GoToModelView (const std::string& guid, std::string& error)
                                      : std::string (gateError.ToCStr (0, MaxUSize, CC_UTF8).Get ());
         return false;
     }
-    return ok;
+    if (!failure->empty ()) {
+        error = *failure;
+        return false;
+    }
+    return *ok;
 }
 
 class DiligentCaptureService final : public graph::ICaptureService {

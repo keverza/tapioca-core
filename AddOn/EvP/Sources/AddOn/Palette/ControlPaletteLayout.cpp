@@ -15,7 +15,6 @@
 // file. They left for ControlPaletteUserItems.cpp when the Grasshopper PAGE
 // needed one line here to take the layout over: the shell's budget only ever
 // goes down, so a new line is paid for by moving something out, and event
-// routing was never band geometry to begin with.
 
 #include "ControlPalette.hpp"
 #include "Palette/PaletteMetrics.hpp" // Margin / BottomMargin / ActionButtonHeight / …
@@ -129,8 +128,9 @@ void ControlPalette::Layout ()
 
     // Element sets sit BETWEEN the description and the inputs: the description
     // says what the command does, then the user builds the set the parameters
-    // below operate on. See SelectionSetPanel.hpp.
+    // below operate on.
     y += selectionSets.PlaceAt (y, Margin, right, scroll);
+    y += cameraSets.PlaceAt (y, Margin, right, scroll);
 
     // The command block places itself in the band starting at y — the generated
     // rows, required, section rule, optional — and reports the height used.

@@ -15,6 +15,7 @@
 #include "Palette/PreviewPanel.hpp"
 #include "Palette/ActionBar.hpp"
 #include "Palette/SelectionSetPanel.hpp"
+#include "Palette/CameraSetPanel.hpp"
 #include "Palette/CommandListPanel.hpp"
 #include "Palette/PaletteContextMenu.hpp"
 #include "Palette/ServerBand.hpp"
@@ -420,6 +421,7 @@ class ControlPalette final : public DG::Palette,
     // result. See ActionBar.hpp for why it is a band and not a menu.
     evp::ActionBar actionBar;
     evp::SelectionSetPanel selectionSets;
+    evp::CameraSetPanel cameraSets;
 
     // PLAT-F13 — the selected command's description, as a band that folds away.
     // It owns its header, its wrapped lines and its height; this shell owns the

@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 195,
+      "nativeRegistry": 205,
       "dispatcherLocal": 19,
-      "total": 214
+      "total": 224
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -432,6 +432,270 @@
           },
           "compositeLastError": {
             "type": "string"
+          },
+          "gpuState": {
+            "type": "boolean"
+          },
+          "gpuStateInstalled": {
+            "type": "boolean"
+          },
+          "gpuStateWanted": {
+            "type": "boolean"
+          },
+          "gpuStatePinned": {
+            "type": "boolean"
+          },
+          "gpuStateContextFound": {
+            "type": "boolean"
+          },
+          "gpuStateContextChosen": {
+            "type": "boolean"
+          },
+          "gpuStateProof": {
+            "type": "string"
+          },
+          "gpuStateCallSpanMs": {
+            "type": "integer"
+          },
+          "gpuStateSlotsStillPatched": {
+            "type": "integer"
+          },
+          "gpuStateRepairs": {
+            "type": "integer"
+          },
+          "gpuStateCalls": {
+            "type": "integer"
+          },
+          "gpuStateOtherContextCalls": {
+            "type": "integer"
+          },
+          "gpuStateEventsDropped": {
+            "type": "integer"
+          },
+          "gpuStateLastError": {
+            "type": "string"
+          },
+          "gpuFrames": {
+            "type": "integer"
+          },
+          "gpuFramesDropped": {
+            "type": "integer"
+          },
+          "gpuSceneAgeFrames": {
+            "type": "integer"
+          },
+          "gpuViewportWidth": {
+            "type": "number"
+          },
+          "gpuViewportHeight": {
+            "type": "number"
+          },
+          "gpuViewportX": {
+            "type": "number"
+          },
+          "gpuViewportY": {
+            "type": "number"
+          },
+          "gpuLargestWidth": {
+            "type": "number"
+          },
+          "gpuLargestHeight": {
+            "type": "number"
+          },
+          "gpuDistinctViewports": {
+            "type": "integer"
+          },
+          "gpuReferenceValid": {
+            "type": "boolean"
+          },
+          "gpuBuffersTracked": {
+            "type": "integer"
+          },
+          "gpuBuffersDropped": {
+            "type": "integer"
+          },
+          "gpuWritesCaptured": {
+            "type": "integer"
+          },
+          "gpuMapsSeen": {
+            "type": "integer"
+          },
+          "gpuMapsNotConstantBuffer": {
+            "type": "integer"
+          },
+          "gpuMapsTooLarge": {
+            "type": "integer"
+          },
+          "gpuMapsNoSlot": {
+            "type": "integer"
+          },
+          "gpuLargestConstantBytes": {
+            "type": "integer"
+          },
+          "gpuBufferCacheFull": {
+            "type": "boolean"
+          },
+          "gpuWindowsCaptured": {
+            "type": "integer"
+          },
+          "gpuWindowsDropped": {
+            "type": "integer"
+          },
+          "gpuLargestBoundOffset": {
+            "type": "integer"
+          },
+          "gpuPairResolved": {
+            "type": "integer"
+          },
+          "gpuPairNoView": {
+            "type": "integer"
+          },
+          "gpuPairNoProjection": {
+            "type": "integer"
+          },
+          "gpuPairStraddle": {
+            "type": "integer"
+          },
+          "gpuPairLastAgePasses": {
+            "type": "integer"
+          },
+          "gpuPairLastScenePass": {
+            "type": "integer"
+          },
+          "scenePassGeneration": {
+            "type": "integer"
+          },
+          "scenePassDraws": {
+            "type": "integer"
+          },
+          "scenePassBoundaryHit": {
+            "type": "boolean"
+          },
+          "scenePassOpsAfterBoundary": {
+            "type": "integer"
+          },
+          "scenePassDrawsAfterBoundary": {
+            "type": "integer"
+          },
+          "sceneConsumedCount": {
+            "type": "integer"
+          },
+          "scenePassSceneConsumed": {
+            "type": "boolean"
+          },
+          "scenePassTargetReturns": {
+            "type": "integer"
+          },
+          "scenePassDrawsAfterReturn": {
+            "type": "integer"
+          },
+          "scenePassVsBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slot": {
+                  "type": "integer"
+                },
+                "buffer": {
+                  "type": "string"
+                },
+                "byteOffset": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "slot",
+                "buffer",
+                "byteOffset"
+              ]
+            }
+          },
+          "lastSceneDrawValid": {
+            "type": "boolean"
+          },
+          "lastSceneDrawPass": {
+            "type": "integer"
+          },
+          "lastSceneDrawEpoch": {
+            "type": "integer"
+          },
+          "lastSceneDrawSequence": {
+            "type": "integer"
+          },
+          "lastSceneDrawVsBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "slot": {
+                  "type": "integer"
+                },
+                "buffer": {
+                  "type": "string"
+                },
+                "firstConstant": {
+                  "type": "integer"
+                },
+                "numConstants": {
+                  "type": "integer"
+                },
+                "byteOffset": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "slot",
+                "buffer",
+                "firstConstant",
+                "numConstants",
+                "byteOffset"
+              ]
+            }
+          },
+          "scenePassColorTarget": {
+            "type": "string"
+          },
+          "scenePassDepthTarget": {
+            "type": "string"
+          },
+          "gpuEntriesWithData": {
+            "type": "integer"
+          },
+          "gpuBlocksExamined": {
+            "type": "integer"
+          },
+          "gpuBlocksFinite": {
+            "type": "integer"
+          },
+          "gpuBlocksAffine": {
+            "type": "integer"
+          },
+          "gpuBlocksProjective": {
+            "type": "integer"
+          },
+          "gpuFirstProjectiveOffset": {
+            "type": "integer"
+          },
+          "gpuRegionsScored": {
+            "type": "integer"
+          },
+          "gpuBestMaxPixelError": {
+            "type": "number"
+          },
+          "gpuBestByteOffset": {
+            "type": "integer"
+          },
+          "gpuBestVariant": {
+            "type": "integer"
+          },
+          "patchProfilePath": {
+            "type": "string"
+          },
+          "patchProfilePinned": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -4570,6 +4834,117 @@
       }
     },
     {
+      "name": "Tapioca.GetCameraSet",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "cameras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "valid": {
+                  "type": "boolean"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "orthographic": {
+                  "type": "boolean"
+                },
+                "viewMoving": {
+                  "type": "boolean"
+                },
+                "eyeX": {
+                  "type": "number"
+                },
+                "eyeY": {
+                  "type": "number"
+                },
+                "eyeZ": {
+                  "type": "number"
+                },
+                "targetX": {
+                  "type": "number"
+                },
+                "targetY": {
+                  "type": "number"
+                },
+                "targetZ": {
+                  "type": "number"
+                },
+                "viewConeDegreesHorizontal": {
+                  "type": "number",
+                  "exclusiveMinimum": 1,
+                  "exclusiveMaximum": 179
+                },
+                "sun": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "azimuthDegrees": {
+                      "type": "number",
+                      "minimum": -360,
+                      "maximum": 360
+                    },
+                    "altitudeDegrees": {
+                      "type": "number",
+                      "minimum": -90,
+                      "maximum": 90
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "enabled"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "valid",
+                "source",
+                "orthographic",
+                "viewMoving",
+                "eyeX",
+                "eyeY",
+                "eyeZ",
+                "targetX",
+                "targetY",
+                "targetZ",
+                "viewConeDegreesHorizontal",
+                "sun"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "cameras",
+          "count"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GetChangeToken",
       "implementation": "native-registry",
       "inputScheme": {
@@ -6301,6 +6676,174 @@
         "additionalProperties": false,
         "required": [
           "infoOfElements",
+          "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetElementProperties",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId"
+              ]
+            }
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "user",
+              "builtin"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "propertiesOfElements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "found": {
+                  "type": "boolean"
+                },
+                "typeName": {
+                  "type": "string"
+                },
+                "elemId": {
+                  "type": "string"
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "story": {
+                  "type": "string"
+                },
+                "storyIndex": {
+                  "type": "integer"
+                },
+                "classifications": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string"
+                      },
+                      "found": {
+                        "type": "boolean"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "system",
+                      "found",
+                      "code",
+                      "name"
+                    ]
+                  }
+                },
+                "properties": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "group": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      },
+                      "isDefault": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "group",
+                      "status",
+                      "value",
+                      "isDefault"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "found",
+                "typeName",
+                "elemId",
+                "layer",
+                "story",
+                "storyIndex",
+                "classifications",
+                "properties"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "propertiesOfElements",
           "count"
         ]
       }
@@ -8860,6 +9403,79 @@
       }
     },
     {
+      "name": "Tapioca.GetPlanElementEdges",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "$ref": "#Elements"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "points": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#Point2D"
+                        }
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "points"
+                    ]
+                  }
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "succeeded"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements",
+          "count"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.GetPointClouds",
       "implementation": "native-registry",
       "inputScheme": {
@@ -9316,6 +9932,9 @@
           "port": {
             "type": "integer"
           },
+          "jsonPort": {
+            "type": "integer"
+          },
           "modelOpen": {
             "type": "boolean"
           },
@@ -9330,6 +9949,7 @@
         "required": [
           "serverRunning",
           "port",
+          "jsonPort",
           "modelOpen",
           "snapshotId",
           "retainedBytes"
@@ -10109,6 +10729,9 @@
                     "polygon",
                     "unknown"
                   ]
+                },
+                "flipped": {
+                  "type": "boolean"
                 },
                 "outline": {
                   "type": "array",
@@ -16306,6 +16929,60 @@
       }
     },
     {
+      "name": "Tapioca.ModifyCameraSet",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "update",
+              "remove",
+              "restore",
+              "clear"
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "action"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "threeDWindowInFront": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "count",
+          "changed",
+          "threeDWindowInFront"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ModifySelection",
       "implementation": "native-registry",
       "inputScheme": {
@@ -19640,6 +20317,9 @@
           },
           "hideOnNav": {
             "type": "boolean"
+          },
+          "gpuState": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -19664,6 +20344,9 @@
             "maximum": 4
           },
           "hideOnNav": {
+            "type": "boolean"
+          },
+          "gpuState": {
             "type": "boolean"
           }
         },
@@ -22221,6 +22904,455 @@
       }
     },
     {
+      "name": "Tapioca.ViewerAutoOrbit",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "degreesPerStep": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 15
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "boolean"
+          },
+          "steps": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "running",
+          "steps"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerGpuDeviceInfo",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "deviceFound": {
+            "type": "boolean"
+          },
+          "is11On12": {
+            "type": "boolean"
+          },
+          "creationFlags": {
+            "type": "integer"
+          },
+          "featureLevel": {
+            "type": "integer"
+          },
+          "debugLayer": {
+            "type": "boolean"
+          },
+          "singleThreaded": {
+            "type": "boolean"
+          },
+          "bgraSupport": {
+            "type": "boolean"
+          },
+          "highestDeviceInterface": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5
+          },
+          "openglLoaded": {
+            "type": "boolean"
+          },
+          "openglIcdLoaded": {
+            "type": "boolean"
+          },
+          "d3d12Loaded": {
+            "type": "boolean"
+          },
+          "vulkanLoaded": {
+            "type": "boolean"
+          },
+          "d2dLoaded": {
+            "type": "boolean"
+          },
+          "dcompLoaded": {
+            "type": "boolean"
+          },
+          "targetWindow": {
+            "type": "string"
+          },
+          "targetHasPixelFormat": {
+            "type": "boolean"
+          },
+          "targetPixelFormat": {
+            "type": "integer"
+          },
+          "targetSupportsOpenGL": {
+            "type": "boolean"
+          },
+          "targetSupportsGdi": {
+            "type": "boolean"
+          },
+          "targetDoubleBuffered": {
+            "type": "boolean"
+          },
+          "chains": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "swapChain": {
+                  "type": "string"
+                },
+                "window": {
+                  "type": "string"
+                },
+                "presents": {
+                  "type": "integer"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "ours": {
+                  "type": "boolean"
+                },
+                "nominated": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "swapChain",
+                "window",
+                "presents",
+                "ours",
+                "nominated"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "deviceFound",
+          "is11On12",
+          "chains"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerGpuStateCandidates",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "scored": {
+            "type": "boolean"
+          },
+          "referenceValid": {
+            "type": "boolean"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "buffer": {
+                  "type": "string"
+                },
+                "byteOffset": {
+                  "type": "integer"
+                },
+                "windowOffset": {
+                  "type": "integer"
+                },
+                "pairedOffset": {
+                  "type": "integer"
+                },
+                "byteWidth": {
+                  "type": "integer"
+                },
+                "variant": {
+                  "type": "string"
+                },
+                "boundBy": {
+                  "type": "string"
+                },
+                "bindSlot": {
+                  "type": "integer"
+                },
+                "maxPixelError": {
+                  "type": "number"
+                },
+                "meanPixelError": {
+                  "type": "number"
+                },
+                "changesWhileMoving": {
+                  "type": "integer"
+                },
+                "changesWhileStill": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "buffer",
+                "byteOffset",
+                "variant",
+                "maxPixelError"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "scored",
+          "referenceValid",
+          "candidates"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerGpuStateSlots",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "constantBuffers": {
+            "type": "boolean"
+          },
+          "slot": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "installed": {
+            "type": "boolean"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "calls": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "enabled",
+                "calls"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "installed",
+          "slots"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerInjectTriangle",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "point": {
+            "type": "string",
+            "enum": [
+              "present",
+              "scenepass"
+            ]
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          },
+          "sizeMetres": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "point": {
+            "type": "string"
+          },
+          "drawsTotal": {
+            "type": "integer"
+          },
+          "drawsWithView": {
+            "type": "integer"
+          },
+          "drawsWithProjection": {
+            "type": "integer"
+          },
+          "drawsWithBothCamera": {
+            "type": "integer"
+          },
+          "initialised": {
+            "type": "boolean"
+          },
+          "injected": {
+            "type": "integer"
+          },
+          "skippedNoSceneDraw": {
+            "type": "integer"
+          },
+          "skippedNoCamera": {
+            "type": "integer"
+          },
+          "skippedNotReady": {
+            "type": "integer"
+          },
+          "skippedPassMismatch": {
+            "type": "integer"
+          },
+          "skippedWindowSize": {
+            "type": "integer"
+          },
+          "skippedReentrant": {
+            "type": "integer"
+          },
+          "skippedStaleCamera": {
+            "type": "integer"
+          },
+          "backBufferFailures": {
+            "type": "integer"
+          },
+          "newScene": {
+            "type": "integer"
+          },
+          "repeatScene": {
+            "type": "integer"
+          },
+          "invalidScene": {
+            "type": "integer"
+          },
+          "snapshotsTaken": {
+            "type": "integer"
+          },
+          "snapshotValid": {
+            "type": "boolean"
+          },
+          "drawsWithBothInModelPass": {
+            "type": "integer"
+          },
+          "departuresSeen": {
+            "type": "integer"
+          },
+          "acceptedAsScene": {
+            "type": "integer"
+          },
+          "rejectedTooFewDraws": {
+            "type": "integer"
+          },
+          "rejectedAlreadyDone": {
+            "type": "integer"
+          },
+          "drawThreshold": {
+            "type": "integer"
+          },
+          "busiestPassDraws": {
+            "type": "integer"
+          },
+          "signatureLearned": {
+            "type": "boolean"
+          },
+          "signatureStableFrames": {
+            "type": "integer"
+          },
+          "signatureFramesWatched": {
+            "type": "integer"
+          },
+          "signatureCandidates": {
+            "type": "integer"
+          },
+          "signatureDraws": {
+            "type": "integer"
+          },
+          "signatureViewportWidth": {
+            "type": "number"
+          },
+          "signatureViewportHeight": {
+            "type": "number"
+          },
+          "sceneConsumers": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "injected"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ViewerNavLog",
       "implementation": "native-registry",
       "inputScheme": {
@@ -22286,6 +23418,61 @@
           "archicadRows",
           "archicadFails",
           "maxArchicadGapMs"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerPatchProfile",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "pinnedSummary": {
+            "type": "string"
+          },
+          "currentSummary": {
+            "type": "string"
+          },
+          "hostPath": {
+            "type": "string"
+          },
+          "hostVersion": {
+            "type": "string"
+          },
+          "hostSha256": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "verifies": {
+            "type": "boolean"
+          },
+          "verifyError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "pinned",
+          "verifies"
         ]
       }
     },

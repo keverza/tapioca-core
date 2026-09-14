@@ -42,8 +42,9 @@ ControlPalette::ControlPalette ()
       // the .grc list box and `serverBand` the toggle and the address line — see the
       // header.
       serverBand (runToggle, urlText), results (*this, *this), preview (*this, *this, *this, *this, *this, *this),
-      actionBar (*this, *this), selectionSets (*this, *this), description (*this, *this), scroll (*this, *this),
-      commandsPanel (*this, *this, commandList), params (*this, *this, penPool), workflow (*this, *this)
+      actionBar (*this, *this), selectionSets (*this, *this), cameraSets (*this, *this, *this),
+      description (*this, *this), scroll (*this, *this), commandsPanel (*this, *this, commandList),
+      params (*this, *this, penPool), workflow (*this, *this)
 {
     evp::StartupTrace ("ControlPalette: constructor entered");
 }
@@ -156,6 +157,7 @@ void ControlPalette::Initialize ()
 ControlPalette::~ControlPalette ()
 {
     selectionSets.Clear ();
+    cameraSets.Clear ();
     params.Clear ();
     if (eventProcessingStarted)
         EndEventProcessing ();
@@ -363,15 +365,12 @@ void ControlPalette::PanelMoved (const DG::PanelMoveEvent& /*ev*/)
     SavePlacement ();
 }
 
-// The file itself — schema, validation, IO — is Palette/PalettePlacement. These
-// two only translate between it and the live panel.
-// The scan and the rows it produces belong to the command-list band; this only
-// clears what the previous command left behind and shows the band's answer.
 void ControlPalette::Rescan ()
 {
     CancelAutomaticPreview (true);
     params.Clear ();
     selectionSets.Clear ();
+    cameraSets.Clear ();
     // A table belongs to the command that produced it, and a rescan can change
     // which command is selected — so its table must not outlive it.
     results.Clear ();
@@ -383,13 +382,12 @@ void ControlPalette::Rescan ()
     RebuildCommandBlock ();
 }
 
-// The selected command's whole block: its description band (whose fold header
-// carries the command's name) and the parameter rows built from the scan.
 void ControlPalette::RebuildCommandBlock ()
 {
     CancelAutomaticPreview (true);
     params.Clear ();
     selectionSets.Clear ();
+    cameraSets.Clear ();
     description.Clear ();
     actionBar.Clear ();
 
@@ -408,12 +406,11 @@ void ControlPalette::RebuildCommandBlock ()
     // a user who folded the description away meant it for the palette, not for one
     // command - re-opening it per selection would undo that faster than they chose.
     description.Rebuild (info->title, info->description);
-    // Built now, dead until a run completes: an action acts on the result the
-    // last run stored, and there is nothing stored before that.
     actionBar.Rebuild (*info);
 
     params.Rebuild (*info);
     selectionSets.Rebuild (info->selectionSets);
+    cameraSets.Rebuild (info->cameraSets);
 
     // Position everything BEFORE revealing it: a dynamically created DG item starts
     // hidden at its construction rect, and showing it first would make every control
@@ -421,8 +418,6 @@ void ControlPalette::RebuildCommandBlock ()
     Layout ();
     params.ShowControls ();
 
-    // A freshly built set of controls changes what is missing — recheck before the
-    // user can press anything.
     RefreshRunGate ();
 }
 
@@ -533,12 +528,15 @@ void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
         Redraw ();
         return;
     }
+    if (cameraSets.HandleButtonClicked (ev)) {
+        Layout ();
+        Redraw ();
+        return;
+    }
 
-    // An output action. It goes down the SAME launch path as Run - one worker,
-    // one cancel token, one place an outcome lands - carrying the action's name
+    // An output action uses the same launch path as Run, carrying its action name
     // instead of an empty one. What it must NOT do is re-run the command: the
-    // Python side reads the last run's stored result, so every write that run
-    // performed stays performed once.
+    // Python reads the stored result, so the original writes stay performed once.
     const GS::UniString action = actionBar.ActionOf (ev.GetSource ());
     if (!action.IsEmpty ()) {
         RunSelected (action);
@@ -586,6 +584,8 @@ void ControlPalette::PopUpChanged (const DG::PopUpChangeEvent& ev)
 
 void ControlPalette::ListBoxSelectionChanged (const DG::ListBoxSelectionEvent& ev)
 {
+    if (cameraSets.HandleSelectionChanged (ev))
+        return;
     if (commandsPanel.IsSource (ev.GetSource ())) {
         // A picked row IS the answer the dropdown was open for — collapse it back to
         // the selection before rebuilding, so the block below appears where the list
@@ -617,6 +617,7 @@ void ControlPalette::PanelCloseRequested (const DG::PanelCloseRequestEvent&, boo
     // closing an idle palette costs nothing.
     evp::RunCancel::Get ().Request (evp::CancelReason::PanelClosed);
     selectionSets.Clear ();
+    cameraSets.Clear ();
     if (runActive.load ())
         stopRequested.store (true); // F1 — reopening mid-run must not offer a Cancel
                                     // that has already been asked for

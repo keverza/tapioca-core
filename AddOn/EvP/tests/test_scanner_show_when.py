@@ -184,6 +184,33 @@ def run():
         scan(source, tmp_path)
 
 
+def test_camera_sets_are_preserved_in_declaration_order(tmp_path):
+    source = '''
+import tapioca
+
+
+@tapioca.command(camera_sets=("Exterior", "Interior", "Details"))
+def run():
+    pass
+'''
+    meta = scan(source, tmp_path)
+    assert meta["camera_sets"] == ["Exterior", "Interior", "Details"]
+
+
+@pytest.mark.parametrize("value", ["Exterior", [], ["Exterior", "exterior"], [""], [42]])
+def test_invalid_camera_sets_are_diagnostic(tmp_path, value):
+    source = '''
+import tapioca
+
+
+@tapioca.command(camera_sets=%r)
+def run():
+    pass
+''' % (value,)
+    with pytest.raises(scanner.ScanError):
+        scan(source, tmp_path)
+
+
 def test_two_actions_are_a_diagnostic(tmp_path):
     source = '''
 import evp

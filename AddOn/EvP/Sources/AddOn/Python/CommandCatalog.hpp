@@ -24,6 +24,7 @@ struct CommandInfo {
     GS::Array<GS::UniString> requirements;
     GS::Array<GS::UniString> tags;
     GS::Array<GS::UniString> selectionSets;
+    GS::Array<GS::UniString> cameraSets;
     // Automatic selection previews are opt-in and always carry forced values.
     // The object stays JSON because ObjectState does not preserve arbitrary nested
     // decorator values reliably.

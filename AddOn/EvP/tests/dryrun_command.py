@@ -76,6 +76,13 @@ _sections = {}
 # back what was really asked for rather than a constant 0.
 _placed_angles = {}
 _selection_sets = {"Targets": [], "Operators": []}
+_camera_sets = {"Views": [{
+    "valid": True, "source": "perspective", "orthographic": False,
+    "viewMoving": False, "eyeX": 10.0, "eyeY": 5.0, "eyeZ": 3.0,
+    "targetX": 0.0, "targetY": 0.0, "targetZ": 1.0,
+    "viewConeDegreesHorizontal": 60.0,
+    "sun": {"enabled": True, "azimuthDegrees": 135.0, "altitudeDegrees": 45.0},
+}]}
 # E25: the change token this run has handed out, and whether WatchModel was armed.
 # ArchViz viewer state, shared by the three EvP.*Viewer* verbs.
 _archviz = {"open": False, "polls": 0, "navlog": False, "navInterval": 50,
@@ -1316,6 +1323,31 @@ def _one(command, params):
     if command == "EvP.ReselectSelectionSet":
         values = list(_selection_sets.get(params.get("name", ""), []))
         return _v2({"selected": len(values), "missing": [], "changed": len(values), "count": len(values)})
+
+    if command == "EvP.GetCameraSet":
+        values = list(_camera_sets.get(params.get("name", ""), []))
+        return _v2({"cameras": values, "count": len(values)})
+
+    if command == "EvP.ModifyCameraSet":
+        name = params.get("name", "")
+        values = _camera_sets.setdefault(name, [])
+        action = params.get("action")
+        index = params.get("index", -1)
+        changed = 0
+        if action == "add":
+            values.append(dict(_camera_sets["Views"][0]))
+            changed = 1
+        elif action == "update" and 0 <= index < len(values):
+            values[index] = dict(_camera_sets["Views"][0])
+            changed = 1
+        elif action == "remove" and 0 <= index < len(values):
+            values.pop(index)
+            changed = 1
+        elif action == "clear":
+            changed = len(values)
+            values.clear()
+        return _v2({"count": len(values), "changed": changed,
+                    "threeDWindowInFront": action == "restore"})
 
     if command == "EvP.GetElementIds":
         guids = [(item.get("elementId") or {}).get("guid", "")

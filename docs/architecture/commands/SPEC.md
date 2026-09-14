@@ -170,6 +170,14 @@ selected command changes or the palette closes.
 `reselect`. A command may only access roles declared by its active metadata. GUIDs are normalized
 at the Python edge with `strip("{}").upper()` while capture order is retained.
 
+### Camera Sets
+
+Commands declare ordered camera-list roles with `camera_sets=("Exterior", "Interior")`.
+The palette captures perspective 3D cameras with their per-view sun, supports ordered
+add/update/remove/restore/clear operations, and clears the lists with the command session.
+`tapioca.cameras.sets.get(name)` returns camera dictionaries accepted directly by
+`tapioca.outputs.diligent_capture_batch`.
+
 ## Execution and Failure Rules
 
 - Reads use `raise_on_error=False` when absence is an ordinary result; writes let `EvpError`
