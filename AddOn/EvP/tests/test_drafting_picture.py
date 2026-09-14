@@ -13,6 +13,9 @@ def test_place_picture_normalizes_native_element_id(monkeypatch):
         "pixelHeight": 1080,
         "placedWidth": 4.0,
         "placedHeight": 2.25,
+        "databaseId": {"guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+        "layer": "Reports",
+        "verified": True,
     }
     monkeypatch.setattr(drafting, "call", lambda *args, **kwargs: SimpleNamespace(data=response))
 
@@ -25,5 +28,72 @@ def test_place_picture_normalizes_native_element_id(monkeypatch):
         "pixel_height": 1080,
         "placed_width": 4.0,
         "placed_height": 2.25,
+        "database_guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "layer": "Reports",
+        "verified": True,
         "error": "",
     }
+
+
+def test_place_picture_sends_database_anchor():
+    sent = {}
+
+    class Tx:
+        def call(self, command, params):
+            sent.update({"command": command, "params": params})
+            return "handle"
+
+    result = drafting.place_picture(
+        "frame.png",
+        1.0,
+        2.0,
+        layer="Reports",
+        database_anchor="11111111-2222-3333-4444-555555555555",
+        tx=Tx(),
+    )
+
+    assert result == "handle"
+    assert sent["command"] == "EvP.PlacePicture"
+    assert sent["params"]["layer"] == "Reports"
+    assert sent["params"]["databaseAnchorElementId"] == {
+        "guid": "11111111-2222-3333-4444-555555555555"
+    }
+
+
+def test_create_text_normalizes_native_result_and_sends_strict_anchor(monkeypatch):
+    response = {
+        "count": 1,
+        "results": [{
+            "succeeded": True,
+            "elementId": {"guid": "11111111-2222-3333-4444-555555555555"},
+            "databaseId": {"guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+            "layer": "Reports",
+            "verified": True,
+        }],
+    }
+    captured = {}
+
+    def fake_call(command, params):
+        captured.update({"command": command, "params": params})
+        return SimpleNamespace(data=response)
+
+    monkeypatch.setattr(drafting, "call", fake_call)
+    created = drafting.create_text(
+        {"text": "Metrics", "x": 1.0, "y": 2.0},
+        layer="Reports",
+        database_anchor="99999999-2222-3333-4444-555555555555",
+        fail_on_error=True,
+    )
+
+    assert created == [{
+        "ok": True,
+        "guid": "11111111-2222-3333-4444-555555555555",
+        "database_guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "layer": "Reports",
+        "verified": True,
+        "error": "",
+    }]
+    assert captured["params"]["databaseAnchorElementId"] == {
+        "guid": "99999999-2222-3333-4444-555555555555"
+    }
+    assert captured["params"]["failOnError"] is True

@@ -78,7 +78,7 @@ def _text_item(item, defaults):
     return out
 
 
-def create_text(texts, tx=None, **defaults):
+def create_text(texts, tx=None, database_anchor=None, fail_on_error=False, **defaults):
     """Place one or more text elements. `texts` is a list of dicts (or a single dict).
 
     Per-text fields — only `text`, `x` and `y` are required; everything omitted keeps
@@ -120,6 +120,11 @@ def create_text(texts, tx=None, **defaults):
             [{"text": t, "x": x, "y": y} for t, x, y in rows],
             layer="Notes", size=2.5, anchor="middleCenter", tx=tx)
 
+    ``database_anchor`` is the GUID of an existing element in the target
+    worksheet. When supplied, creation is switched to that element's containing
+    worksheet and each result is verified there. ``fail_on_error=True`` turns any
+    per-item failure into a command failure so an enclosing transaction rolls back.
+
     Returns a list of {ok, guid, error} aligned to `texts`. Returns [] for empty
     input. Raises ValueError on an unknown field or a bad just/anchor, before
     anything is written.
@@ -137,17 +142,30 @@ def create_text(texts, tx=None, **defaults):
         return []
 
     params = {"texts": items}
+    if database_anchor:
+        params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
+    if fail_on_error:
+        params["failOnError"] = True
     if tx is not None:
         return tx.call("EvP.CreateText", params)
 
     data = call("EvP.CreateText", params).data or {}
-    return [{"ok": bool(r.get("ok", False)), "guid": r.get("guid", ""), "error": r.get("error", "")}
-            for r in (data.get("results") or [])]
+    result = []
+    for item in data.get("results") or []:
+        result.append({
+            "ok": bool(item.get("succeeded", False)),
+            "guid": (item.get("elementId") or {}).get("guid", ""),
+            "database_guid": (item.get("databaseId") or {}).get("guid", ""),
+            "layer": item.get("layer", ""),
+            "verified": bool(item.get("verified", False)),
+            "error": item.get("error", ""),
+        })
+    return result
 
 
 def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anchor=None,
                   rot_angle=None, mirrored=None, transparent=None, name=None,
-                  floor_ind=None, use_pixel_size=None, tx=None):
+                  floor_ind=None, use_pixel_size=None, database_anchor=None, tx=None):
     """Place a raster image as a Figure element. `path` is a file on disk.
 
     The image is read from disk BY ARCHICAD, not sent over the bus — so write it
@@ -172,6 +190,10 @@ def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anc
     — `placed_*` are the metres actually used, so a caller can position the next
     thing without guessing.
 
+    ``database_anchor`` is the GUID of an existing element in the target
+    worksheet. The native command switches to that containing database, verifies
+    the new Figure there, and restores the previous current database.
+
     ⚠️ Inside a transaction this returns a **Handle**, not data: nothing has run
     yet. After the `with` block commits, read it with `handle.result()` -- and note
     that `result()` gives the RAW wire response (camelCase keys), not the dict this
@@ -188,6 +210,8 @@ def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anc
                        ("usePixelSize", use_pixel_size)):
         if value is not None:
             params[key] = value
+    if database_anchor:
+        params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
     if anchor is not None and anchor not in ANCHORS:
         raise ValueError("anchor must be one of %s" % (ANCHORS,))
 
@@ -203,5 +227,8 @@ def place_picture(path, x, y, width=None, height=None, dpi=None, layer=None, anc
         "pixel_height": data.get("pixelHeight", 0),
         "placed_width": data.get("placedWidth", 0.0),
         "placed_height": data.get("placedHeight", 0.0),
+        "database_guid": (data.get("databaseId") or {}).get("guid", ""),
+        "layer": data.get("layer", ""),
+        "verified": bool(data.get("verified", False)),
         "error": "",
     }

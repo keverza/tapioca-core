@@ -3,10 +3,11 @@
 
 #include "NativeCommands/DraftingCommands.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
-#include "NativeCommands/CommandUtils.hpp"      // ResolveLayerParam, ParseAnchor
+#include "NativeCommands/CommandUtils.hpp" // ResolveLayerParam, ParseAnchor
+#include "NativeCommands/DraftingDatabaseTarget.hpp"
 
-#include "File.hpp"          // IO::File / IO::Location — the picture bytes
-#include "GXImageBase.h"     // GX::ImageBase::GetFileInfo — pixel dimensions
+#include "File.hpp"      // IO::File / IO::Location — the picture bytes
+#include "GXImageBase.h" // GX::ImageBase::GetFileInfo — pixel dimensions
 
 namespace geomsrv {
 
@@ -67,25 +68,25 @@ namespace {
 // arrays inside it) are load-bearing — Archicad frees them through
 // ACAPI_DisposeElemMemoHdls and expects exactly these.
 
-GSErrCode SetParagraph (API_ParagraphType** paragraph, UInt32 parNum, Int32 from, Int32 range,
-                        Int32 numOfTabs, Int32 numOfRuns, Int32 numOfEolPos)
+GSErrCode SetParagraph (API_ParagraphType** paragraph, UInt32 parNum, Int32 from, Int32 range, Int32 numOfTabs,
+                        Int32 numOfRuns, Int32 numOfEolPos)
 {
     if (paragraph == nullptr || numOfTabs < 1 || numOfRuns < 1 || numOfEolPos < 0)
         return APIERR_BADPARS;
     if (parNum >= (BMhGetSize (reinterpret_cast<GSHandle> (paragraph)) / sizeof (API_ParagraphType)))
         return APIERR_BADPARS;
 
-    (*paragraph)[parNum].from  = from;
+    (*paragraph)[parNum].from = from;
     (*paragraph)[parNum].range = range;
-    (*paragraph)[parNum].tab   = reinterpret_cast<API_TabType*> (BMpAllClear (numOfTabs * sizeof (API_TabType)));
-    (*paragraph)[parNum].run   = reinterpret_cast<API_RunType*> (BMpAllClear (numOfRuns * sizeof (API_RunType)));
+    (*paragraph)[parNum].tab = reinterpret_cast<API_TabType*> (BMpAllClear (numOfTabs * sizeof (API_TabType)));
+    (*paragraph)[parNum].run = reinterpret_cast<API_RunType*> (BMpAllClear (numOfRuns * sizeof (API_RunType)));
     if (numOfEolPos > 0)
         (*paragraph)[parNum].eolPos = reinterpret_cast<Int32*> (BMpAllClear (numOfEolPos * sizeof (Int32)));
     return NoError;
 }
 
-GSErrCode SetRun (API_ParagraphType** paragraph, UInt32 parNum, UInt32 runNum, Int32 from, Int32 range,
-                  short pen, unsigned short faceBits, short font, Int32 effectBits, double size)
+GSErrCode SetRun (API_ParagraphType** paragraph, UInt32 parNum, UInt32 runNum, Int32 from, Int32 range, short pen,
+                  unsigned short faceBits, short font, Int32 effectBits, double size)
 {
     if (paragraph == nullptr)
         return APIERR_BADPARS;
@@ -95,13 +96,13 @@ GSErrCode SetRun (API_ParagraphType** paragraph, UInt32 parNum, UInt32 runNum, I
         return APIERR_BADPARS;
 
     API_RunType& run = (*paragraph)[parNum].run[runNum];
-    run.from       = from;
-    run.range      = range;
-    run.pen        = pen;
-    run.faceBits   = faceBits;
-    run.font       = font;
+    run.from = from;
+    run.range = range;
+    run.pen = pen;
+    run.faceBits = faceBits;
+    run.font = font;
     run.effectBits = (unsigned short) effectBits;
-    run.size       = size;
+    run.size = size;
     return NoError;
 }
 
@@ -135,8 +136,8 @@ void SetTextContentAndParagraphs (API_ElementMemo& memo, API_TextType& textData,
         return;
 
     SetParagraph (memo.paragraphs, 0, 0, text.GetLength (), 1, 1, textData.nLine);
-    SetRun (memo.paragraphs, 0, 0, 0, text.GetLength (),
-            textData.pen, textData.faceBits, textData.font, textData.effectsBits, textData.size);
+    SetRun (memo.paragraphs, 0, 0, 0, text.GetLength (), textData.pen, textData.faceBits, textData.font,
+            textData.effectsBits, textData.size);
 
     // One EOL offset per line: the length of that line, not its absolute
     // position. Same walk as Tapir's, which is the only place this is written
@@ -144,7 +145,8 @@ void SetTextContentAndParagraphs (API_ElementMemo& memo, API_TextType& textData,
     Int32 lastEolPos = 0;
     for (Int32 eolIndex = 0; eolIndex < textData.nLine; ++eolIndex) {
         const Int32 eolPos = text.FindFirst (newlineChar, eolIndex == 0 ? 0 : lastEolPos + 1);
-        const Int32 offset = (eolPos != (Int32) MaxUIndex ? eolPos : (Int32) text.GetLength ()) - lastEolPos - (eolIndex == 0 ? 0 : 1);
+        const Int32 offset =
+            (eolPos != (Int32) MaxUIndex ? eolPos : (Int32) text.GetLength ()) - lastEolPos - (eolIndex == 0 ? 0 : 1);
         lastEolPos = eolPos;
         SetEOL (memo.paragraphs, 0, eolIndex, offset < 0 ? 0 : offset);
     }
@@ -152,9 +154,12 @@ void SetTextContentAndParagraphs (API_ElementMemo& memo, API_TextType& textData,
 
 API_JustID ParseJust (const GS::UniString& name)
 {
-    if (name == "center") return APIJust_Center;
-    if (name == "right")  return APIJust_Right;
-    if (name == "full")   return APIJust_Full;
+    if (name == "center")
+        return APIJust_Center;
+    if (name == "right")
+        return APIJust_Right;
+    if (name == "full")
+        return APIJust_Full;
     return APIJust_Left;
 }
 
@@ -164,15 +169,24 @@ API_JustID ParseJust (const GS::UniString& name)
 const char* AnchorName (API_AnchorID anchor)
 {
     switch (anchor) {
-        case APIAnc_LT: return "topLeft";
-        case APIAnc_MT: return "topCenter";
-        case APIAnc_RT: return "topRight";
-        case APIAnc_LM: return "middleLeft";
-        case APIAnc_MM: return "middleCenter";
-        case APIAnc_RM: return "middleRight";
-        case APIAnc_LB: return "bottomLeft";
-        case APIAnc_MB: return "bottomCenter";
-        case APIAnc_RB: return "bottomRight";
+        case APIAnc_LT:
+            return "topLeft";
+        case APIAnc_MT:
+            return "topCenter";
+        case APIAnc_RT:
+            return "topRight";
+        case APIAnc_LM:
+            return "middleLeft";
+        case APIAnc_MM:
+            return "middleCenter";
+        case APIAnc_RM:
+            return "middleRight";
+        case APIAnc_LB:
+            return "bottomLeft";
+        case APIAnc_MB:
+            return "bottomCenter";
+        case APIAnc_RB:
+            return "bottomRight";
     }
     return "unknown";
 }
@@ -211,8 +225,11 @@ const char* AnchorName (API_AnchorID anchor)
 // `multiStyle` says so, rather than the value quietly meaning something else.
 // ---------------------------------------------------------------------------
 class GetTextElementsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetTextElements"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetTextElements";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -233,7 +250,7 @@ public:
             }
         }
         if (fromSelection) {
-            API_SelectionInfo   selectionInfo = {};
+            API_SelectionInfo selectionInfo = {};
             GS::Array<API_Neig> neigs;
             const GSErrCode selErr = ACAPI_Selection_Get (&selectionInfo, &neigs, false);
             if (selectionInfo.marquee.coords != nullptr)
@@ -241,15 +258,15 @@ public:
             // APIERR_NOSEL is "nothing selected", not a failure — an empty
             // answer is the honest one, exactly as EvP.GetSelection treats it.
             if (selErr != NoError && selErr != APIERR_NOSEL) {
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Selection_Get", selErr,
-                                                                      "reading the selection for EvP.GetTextElements"));
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_Selection_Get", selErr, "reading the selection for EvP.GetTextElements"));
             }
             for (const API_Neig& neig : neigs)
                 guidStrings.Push (GS::UniString (APIGuidToString (neig.guid).ToCStr ()));
         }
 
         GS::Array<GS::ObjectState> texts;
-        GS::Int32                  skipped = 0;   // selected things that are not texts
+        GS::Int32 skipped = 0; // selected things that are not texts
 
         for (const GS::UniString& guidString : guidStrings) {
             API_Element element = {};
@@ -267,8 +284,7 @@ public:
             }
 
             API_ElementMemo memo = {};
-            const GSErrCode memoErr = ACAPI_Element_GetMemo (element.header.guid, &memo,
-                                                            APIMemoMask_TextContent);
+            const GSErrCode memoErr = ACAPI_Element_GetMemo (element.header.guid, &memo, APIMemoMask_TextContent);
             GS::UniString content;
             if (memoErr == NoError && memo.textContent != nullptr)
                 content = *memo.textContent;
@@ -278,32 +294,31 @@ public:
             // A failure here is not fatal: the content and the anchor are still
             // worth returning, and `hasBounds` tells the caller which it got.
             API_Box3D bounds = {};
-            const bool hasBounds =
-                ACAPI_Element_CalcBounds (&element.header, &bounds) == NoError;
+            const bool hasBounds = ACAPI_Element_CalcBounds (&element.header, &bounds) == NoError;
 
             GS::ObjectState rec;
             GS::ObjectState elementId;
             elementId.Add ("guid", guidString);
-            rec.Add ("elementId",  elementId);
-            rec.Add ("content",    content);
+            rec.Add ("elementId", elementId);
+            rec.Add ("content", content);
             // THE point of this command: bottom-left of the real model-space box.
-            rec.Add ("x",          hasBounds ? bounds.xMin : element.text.loc.x);
-            rec.Add ("y",          hasBounds ? bounds.yMin : element.text.loc.y);
-            rec.Add ("hasBounds",  hasBounds);
-            rec.Add ("xMin",       bounds.xMin);
-            rec.Add ("yMin",       bounds.yMin);
-            rec.Add ("xMax",       bounds.xMax);
-            rec.Add ("yMax",       bounds.yMax);
-            rec.Add ("anchorX",    element.text.loc.x);
-            rec.Add ("anchorY",    element.text.loc.y);
-            rec.Add ("anchor",     GS::UniString (AnchorName (element.text.anchor)));
-            rec.Add ("pen",        (GS::Int32) element.text.pen);
-            rec.Add ("angle",      element.text.angle);
-            rec.Add ("size",       element.text.size);
+            rec.Add ("x", hasBounds ? bounds.xMin : element.text.loc.x);
+            rec.Add ("y", hasBounds ? bounds.yMin : element.text.loc.y);
+            rec.Add ("hasBounds", hasBounds);
+            rec.Add ("xMin", bounds.xMin);
+            rec.Add ("yMin", bounds.yMin);
+            rec.Add ("xMax", bounds.xMax);
+            rec.Add ("yMax", bounds.yMax);
+            rec.Add ("anchorX", element.text.loc.x);
+            rec.Add ("anchorY", element.text.loc.y);
+            rec.Add ("anchor", GS::UniString (AnchorName (element.text.anchor)));
+            rec.Add ("pen", (GS::Int32) element.text.pen);
+            rec.Add ("angle", element.text.angle);
+            rec.Add ("size", element.text.size);
             rec.Add ("multiStyle", element.text.multiStyle);
-            rec.Add ("nLine",      (GS::Int32) element.text.nLine);
-            rec.Add ("floorInd",   (GS::Int32) element.header.floorInd);
-            rec.Add ("layer",      AttributeIndexToName (API_LayerID, element.header.layer));
+            rec.Add ("nLine", (GS::Int32) element.text.nLine);
+            rec.Add ("floorInd", (GS::Int32) element.header.floorInd);
+            rec.Add ("layer", AttributeIndexToName (API_LayerID, element.header.layer));
             texts.Push (rec);
         }
 
@@ -342,8 +357,11 @@ public:
 // answer echoes `scope` so a caller can log which database it actually searched.
 // ---------------------------------------------------------------------------
 class GetArcElementsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetArcElements"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetArcElements";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -356,9 +374,9 @@ public:
         if (!params.Get ("scope", scope) || scope.IsEmpty ())
             scope = "database";
         if (scope != "database" && scope != "selection") {
-            return NativeCommandResult::Failure (EVP_FAIL (GS::UniString::Printf ("unknown scope: %T (want \"database\" or \"selection\")",
-                                                                                  scope.ToPrintf ()),
-                                                            "EvP.GetArcElements"));
+            return NativeCommandResult::Failure (EVP_FAIL (
+                GS::UniString::Printf ("unknown scope: %T (want \"database\" or \"selection\")", scope.ToPrintf ()),
+                "EvP.GetArcElements"));
         }
 
         GS::Array<GS::ObjectState> requested;
@@ -375,21 +393,21 @@ public:
                 candidates.Push (APIGuidFromString (guid.ToCStr ().Get ()));
             }
             scope = "elements";
-
-        } else if (scope == "selection") {
-            API_SelectionInfo   selectionInfo = {};
+        }
+        else if (scope == "selection") {
+            API_SelectionInfo selectionInfo = {};
             GS::Array<API_Neig> neigs;
             const GSErrCode selErr = ACAPI_Selection_Get (&selectionInfo, &neigs, false);
             if (selectionInfo.marquee.coords != nullptr)
                 BMKillHandle (reinterpret_cast<GSHandle*> (&selectionInfo.marquee.coords));
             if (selErr != NoError && selErr != APIERR_NOSEL) {
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Selection_Get", selErr,
-                                                                      "reading the selection for EvP.GetArcElements"));
+                return NativeCommandResult::Failure (
+                    EVP_ACAPI_FAIL ("ACAPI_Selection_Get", selErr, "reading the selection for EvP.GetArcElements"));
             }
             for (const API_Neig& neig : neigs)
                 candidates.Push (neig.guid);
-
-        } else {
+        }
+        else {
             // Both tools, in one list. A caller asking for "the circles" means the
             // markers, and a surveyor's template may well have drawn them with
             // either tool.
@@ -397,8 +415,9 @@ public:
                 GS::Array<API_Guid> found;
                 if (const GSErrCode listErr = ACAPI_Element_GetElemList (typeId, &found); listErr != NoError) {
                     return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listErr,
-                                                                          typeId == API_CircleID ? "API_CircleID (listing circle markers)"
-                                                                                                 : "API_ArcID (listing arc markers)"));
+                                                                         typeId == API_CircleID
+                                                                             ? "API_CircleID (listing circle markers)"
+                                                                             : "API_ArcID (listing arc markers)"));
                 }
                 for (const API_Guid& g : found)
                     candidates.Push (g);
@@ -406,7 +425,7 @@ public:
         }
 
         GS::Array<GS::ObjectState> arcs;
-        GS::Int32                  skipped = 0;
+        GS::Int32 skipped = 0;
 
         for (const API_Guid& guid : candidates) {
             API_Element element = {};
@@ -417,7 +436,7 @@ public:
             }
             const API_ElemTypeID typeId = element.header.type.typeID;
             if (typeId != API_CircleID && typeId != API_ArcID) {
-                ++skipped;          // a selection full of texts lands here
+                ++skipped; // a selection full of texts lands here
                 continue;
             }
 
@@ -434,16 +453,16 @@ public:
             GS::ObjectState elementId;
             elementId.Add ("guid", GS::UniString (APIGuidToString (guid).ToCStr ()));
             rec.Add ("elementId", elementId);
-            rec.Add ("x",        arc.origC.x);      // the CENTRE - the survey point
-            rec.Add ("y",        arc.origC.y);
-            rec.Add ("radius",   arc.r);
+            rec.Add ("x", arc.origC.x); // the CENTRE - the survey point
+            rec.Add ("y", arc.origC.y);
+            rec.Add ("radius", arc.r);
             rec.Add ("isCircle", isCircle);
             rec.Add ("begAngle", arc.begAng);
             rec.Add ("endAngle", arc.endAng);
-            rec.Add ("ratio",    arc.ratio);        // != 1 means an ELLIPSE
-            rec.Add ("angle",    arc.angle);
-            rec.Add ("pen",      (GS::Int32) arc.linePen.penIndex);
-            rec.Add ("layer",    AttributeIndexToName (API_LayerID, element.header.layer));
+            rec.Add ("ratio", arc.ratio); // != 1 means an ELLIPSE
+            rec.Add ("angle", arc.angle);
+            rec.Add ("pen", (GS::Int32) arc.linePen.penIndex);
+            rec.Add ("layer", AttributeIndexToName (API_LayerID, element.header.layer));
             rec.Add ("floorInd", (GS::Int32) element.header.floorInd);
             arcs.Push (rec);
         }
@@ -473,8 +492,11 @@ public:
 // the user would get by typing it, which is the right floor for "leave it alone".
 // ---------------------------------------------------------------------------
 class CreateTextCommand : public WriteCommand {
-public:
-    GS::String GetName () const override { return "CreateText"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "CreateText";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -482,11 +504,18 @@ public:
 
         GS::Array<GS::ObjectState> items;
         if (!params.Get ("texts", items) || items.IsEmpty ()) {
-            return NativeCommandResult::Failure (EVP_FAIL ("need texts=[{text, x, y, …}, …] (non-empty)", "EvP.CreateText"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("need texts=[{text, x, y, …}, …] (non-empty)", "EvP.CreateText"));
         }
 
+        GS::UniString targetDatabaseGuid;
+        GS::UniString databaseError;
+        AnchoredWorksheetDatabase database;
+        if (!database.Activate (params, targetDatabaseGuid, databaseError))
+            return NativeCommandResult::Failure (databaseError);
+
         GS::Array<GS::ObjectState> results;
-        GS::Int32                  created = 0;
+        GS::Int32 created = 0;
 
         for (const GS::ObjectState& item : items) {
             GS::ObjectState rec;
@@ -532,25 +561,25 @@ public:
             bool inheritDefaults = false;
             item.Get ("inheritDefaults", inheritDefaults);
             if (!inheritDefaults) {
-                element.text.angle       = 0.0;
-                element.text.faceBits    = APIFace_Plain;
+                element.text.angle = 0.0;
+                element.text.faceBits = APIFace_Plain;
                 element.text.effectsBits = 0;
-                element.text.just        = APIJust_Left;
-                element.text.anchor      = APIAnc_LB;
-                element.text.fixedAngle  = false;
-                element.text.fixedSize   = false;
+                element.text.just = APIJust_Left;
+                element.text.anchor = APIAnc_LB;
+                element.text.fixedAngle = false;
+                element.text.fixedSize = false;
                 // width 0 + nonBreaking means "grow to fit the content". A stale
                 // narrow width inherited from the tool wraps the text to one
                 // character per line, which is the same failure a caller-supplied
                 // width in the wrong unit produces.
-                element.text.width       = 0.0;
+                element.text.width = 0.0;
                 element.text.nonBreaking = true;
             }
 
-            item.Get ("size",            element.text.size);        // mm, character height
-            item.Get ("angle",           element.text.angle);       // radians
-            item.Get ("spacing",         element.text.spacing);
-            item.Get ("widthFactor",     element.text.widthFactor);
+            item.Get ("size", element.text.size);   // mm, character height
+            item.Get ("angle", element.text.angle); // radians
+            item.Get ("spacing", element.text.spacing);
+            item.Get ("widthFactor", element.text.widthFactor);
             item.Get ("charSpaceFactor", element.text.charSpaceFactor);
 
             GS::Int32 pen = 0;
@@ -573,7 +602,9 @@ public:
                 API_AnchorID anchor;
                 if (!ParseAnchor (anchorName, anchor)) {
                     rec.Add ("succeeded", false);
-                    rec.Add ("error", EVP_FAIL (GS::UniString::Printf ("unknown anchor: %T (want topLeft…bottomRight)", anchorName.ToPrintf ()), "EvP.CreateText"));
+                    rec.Add ("error", EVP_FAIL (GS::UniString::Printf ("unknown anchor: %T (want topLeft…bottomRight)",
+                                                                       anchorName.ToPrintf ()),
+                                                "EvP.CreateText"));
                     results.Push (rec);
                     continue;
                 }
@@ -589,8 +620,8 @@ public:
                     element.text.faceBits = flag ? (unsigned short) (element.text.faceBits | bit)
                                                  : (unsigned short) (element.text.faceBits & ~bit);
             };
-            setFace ("bold",      APIFace_Bold);
-            setFace ("italic",    APIFace_Italic);
+            setFace ("bold", APIFace_Bold);
+            setFace ("italic", APIFace_Italic);
             setFace ("underline", APIFace_Underline);
 
             if (item.Get ("strikeOut", flag))
@@ -603,11 +634,11 @@ public:
             // onto its own line rather than making a modest box.
             double width = 0.0;
             if (item.Get ("width", width) && width > 0.0) {
-                element.text.width       = width;
-                element.text.nonBreaking = false;   // false = DO wrap at the box edge
+                element.text.width = width;
+                element.text.nonBreaking = false; // false = DO wrap at the box edge
             }
             item.Get ("fixedAngle", element.text.fixedAngle);
-            item.Get ("fixedSize",  element.text.fixedSize);
+            item.Get ("fixedSize", element.text.fixedSize);
 
             API_ElementMemo memo = {};
             SetTextContentAndParagraphs (memo, element.text, content);
@@ -619,20 +650,35 @@ public:
             if (err != NoError) {
                 rec.Add ("succeeded", false);
                 rec.Add ("error", EVP_ACAPI_FAIL ("ACAPI_Element_Create", err,
-                                                  GS::UniString::Printf ("text \"%T\" at (%.3f, %.3f)", content.ToPrintf (), x, y)));
-            } else {
+                                                  GS::UniString::Printf ("text \"%T\" at (%.3f, %.3f)",
+                                                                         content.ToPrintf (), x, y)));
+            }
+            else {
                 const GS::UniString guid (APIGuidToString (element.header.guid).ToCStr ());
                 GS::ObjectState elementId;
                 elementId.Add ("guid", guid);
                 rec.Add ("succeeded", true);
                 rec.Add ("elementId", elementId);
+                GS::UniString verificationError;
+                if (!VerifyCreatedDraftingElement (element.header.guid, API_TextID, targetDatabaseGuid, rec,
+                                                   verificationError)) {
+                    return NativeCommandResult::Failure (verificationError);
+                }
                 ++created;
             }
             results.Push (rec);
         }
 
         os.Add ("results", results);
-        os.Add ("count",   created);
+        os.Add ("count", created);
+        bool failOnError = false;
+        params.Get ("failOnError", failOnError);
+        if (failOnError && created != (GS::Int32) items.GetSize ()) {
+            return NativeCommandResult::Failure (
+                EVP_FAIL (GS::UniString::Printf ("created %d of %d requested text elements", created,
+                                                 (GS::Int32) items.GetSize ()),
+                          "strict EvP.CreateText batch"));
+        }
         return os;
     }
 };
@@ -670,8 +716,11 @@ public:
 // the ACAPI_DisposeElemMemoHdls on every path.
 // ---------------------------------------------------------------------------
 class PlacePictureCommand : public WriteCommand {
-public:
-    GS::String GetName () const override { return "PlacePicture"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "PlacePicture";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -679,10 +728,15 @@ public:
 
         GS::UniString path;
         double x = 0.0, y = 0.0;
-        if (!params.Get ("path", path) || path.IsEmpty () ||
-            !params.Get ("x", x) || !params.Get ("y", y)) {
+        if (!params.Get ("path", path) || path.IsEmpty () || !params.Get ("x", x) || !params.Get ("y", y)) {
             return NativeCommandResult::Failure (EVP_FAIL ("need path, x and y", "EvP.PlacePicture"));
         }
+
+        GS::UniString targetDatabaseGuid;
+        GS::UniString databaseError;
+        AnchoredWorksheetDatabase database;
+        if (!database.Activate (params, targetDatabaseGuid, databaseError))
+            return NativeCommandResult::Failure (databaseError);
 
         const IO::Location location (path);
 
@@ -709,14 +763,21 @@ public:
         {
             GS::UniString lower = path;
             lower.SetToLowerCase ();
-            if      (lower.EndsWith (".png"))                             storageFormat = APIPictForm_PNG;
-            else if (lower.EndsWith (".jpg") || lower.EndsWith (".jpeg")) storageFormat = APIPictForm_JPEG;
-            else if (lower.EndsWith (".tif") || lower.EndsWith (".tiff")) storageFormat = APIPictForm_TIFF;
-            else if (lower.EndsWith (".gif"))                             storageFormat = APIPictForm_GIF;
-            else if (lower.EndsWith (".bmp"))                             storageFormat = APIPictForm_Bitmap;
+            if (lower.EndsWith (".png"))
+                storageFormat = APIPictForm_PNG;
+            else if (lower.EndsWith (".jpg") || lower.EndsWith (".jpeg"))
+                storageFormat = APIPictForm_JPEG;
+            else if (lower.EndsWith (".tif") || lower.EndsWith (".tiff"))
+                storageFormat = APIPictForm_TIFF;
+            else if (lower.EndsWith (".gif"))
+                storageFormat = APIPictForm_GIF;
+            else if (lower.EndsWith (".bmp"))
+                storageFormat = APIPictForm_Bitmap;
             else {
-                return NativeCommandResult::Failure (EVP_FAIL (GS::UniString::Printf ("unsupported image type: %T (want .png .jpg .tif .gif .bmp)", path.ToPrintf ()),
-                                                               "EvP.PlacePicture"));
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString::Printf ("unsupported image type: %T (want .png .jpg .tif .gif .bmp)",
+                                                     path.ToPrintf ()),
+                              "EvP.PlacePicture"));
             }
         }
         element.picture.storageFormat = storageFormat;
@@ -727,23 +788,23 @@ public:
         Int32 pixelW = 0, pixelH = 0;
         {
             Int32 hRes = 0, vRes = 0, pixelBitNum = 0;
-            const GSErrCode infoErr = GX::ImageBase::GetFileInfo (location, &pixelW, &pixelH,
-                                                                  &hRes, &vRes, &pixelBitNum);
+            const GSErrCode infoErr =
+                GX::ImageBase::GetFileInfo (location, &pixelW, &pixelH, &hRes, &vRes, &pixelBitNum);
             if (infoErr != NoError) {
-                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("GX::ImageBase::GetFileInfo", infoErr,
-                                                                      GS::UniString ("reading image dimensions of ") + path));
+                return NativeCommandResult::Failure (EVP_ACAPI_FAIL (
+                    "GX::ImageBase::GetFileInfo", infoErr, GS::UniString ("reading image dimensions of ") + path));
             }
             element.picture.pixelSizeX = (short) pixelW;
             element.picture.pixelSizeY = (short) pixelH;
-            os.Add ("pixelWidth",  (GS::Int32) pixelW);
+            os.Add ("pixelWidth", (GS::Int32) pixelW);
             os.Add ("pixelHeight", (GS::Int32) pixelH);
         }
 
         double placedWidth = 0.0, placedHeight = 0.0;
-        const bool haveSize = params.Get ("width", placedWidth) && params.Get ("height", placedHeight)
-                              && placedWidth > 0.0 && placedHeight > 0.0;
+        const bool haveSize = params.Get ("width", placedWidth) && params.Get ("height", placedHeight) &&
+                              placedWidth > 0.0 && placedHeight > 0.0;
 
-        bool usePixelSize = false;          // see the SIZING note above
+        bool usePixelSize = false; // see the SIZING note above
         params.Get ("usePixelSize", usePixelSize);
 
         double dpi = 96.0;
@@ -757,17 +818,17 @@ public:
             if (!haveSize) {
                 // Deterministic default: the image at `dpi`, in metres. Same
                 // result in a plan, a worksheet and a layout.
-                placedWidth  = (double) pixelW / dpi * 0.0254;
+                placedWidth = (double) pixelW / dpi * 0.0254;
                 placedHeight = (double) pixelH / dpi * 0.0254;
             }
             element.picture.destBox.xMax = x + placedWidth;
             element.picture.destBox.yMax = y + placedHeight;
-            os.Add ("placedWidth",  placedWidth);
+            os.Add ("placedWidth", placedWidth);
             os.Add ("placedHeight", placedHeight);
         }
 
-        params.Get ("rotAngle",    element.picture.rotAngle);
-        params.Get ("mirrored",    element.picture.mirrored);
+        params.Get ("rotAngle", element.picture.rotAngle);
+        params.Get ("mirrored", element.picture.mirrored);
         params.Get ("transparent", element.picture.transparent);
 
         element.picture.anchorPoint = APIAnc_LB;
@@ -775,7 +836,9 @@ public:
         if (params.Get ("anchor", anchorName)) {
             API_AnchorID anchor;
             if (!ParseAnchor (anchorName, anchor)) {
-                return NativeCommandResult::Failure (EVP_FAIL (GS::UniString::Printf ("unknown anchor: %T (want topLeft…bottomRight)", anchorName.ToPrintf ()), "EvP.PlacePicture"));
+                return NativeCommandResult::Failure (EVP_FAIL (
+                    GS::UniString::Printf ("unknown anchor: %T (want topLeft…bottomRight)", anchorName.ToPrintf ()),
+                    "EvP.PlacePicture"));
             }
             element.picture.anchorPoint = anchor;
         }
@@ -791,24 +854,29 @@ public:
         {
             IO::File file (location);
             if (file.Open (IO::File::ReadMode) != NoError) {
-                return NativeCommandResult::Failure (EVP_FAIL (GS::UniString ("cannot open image file: ") + path, "EvP.PlacePicture"));
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString ("cannot open image file: ") + path, "EvP.PlacePicture"));
             }
             USize nBytes = 0;
             if (file.GetDataLength (&nBytes) != NoError || nBytes == 0) {
                 file.Close ();
-                return NativeCommandResult::Failure (EVP_FAIL (GS::UniString ("image file is empty or unreadable: ") + path, "EvP.PlacePicture"));
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString ("image file is empty or unreadable: ") + path, "EvP.PlacePicture"));
             }
             memo.pictHdl = BMAllocateHandle ((GSSize) nBytes, ALLOCATE_CLEAR, 0);
             if (memo.pictHdl == nullptr) {
                 file.Close ();
-                return NativeCommandResult::Failure (EVP_FAIL (GS::UniString::Printf ("out of memory allocating %d bytes for the image", (int) nBytes), "EvP.PlacePicture"));
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString::Printf ("out of memory allocating %d bytes for the image", (int) nBytes),
+                              "EvP.PlacePicture"));
             }
             USize readCount = 0;
             const GSErrCode readErr = file.ReadBin (*memo.pictHdl, nBytes, &readCount);
             file.Close ();
             if (readErr != NoError || readCount != nBytes) {
                 ACAPI_DisposeElemMemoHdls (&memo);
-                return NativeCommandResult::Failure (EVP_FAIL (GS::UniString ("short read on image file: ") + path, "EvP.PlacePicture"));
+                return NativeCommandResult::Failure (
+                    EVP_FAIL (GS::UniString ("short read on image file: ") + path, "EvP.PlacePicture"));
             }
         }
 
@@ -817,33 +885,38 @@ public:
         ACAPI_DisposeElemMemoHdls (&memo);
 
         if (err != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Element_Create", err,
-                                                                  GS::UniString::Printf ("picture %T at (%.3f, %.3f)", path.ToPrintf (), x, y)));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_Element_Create", err,
+                                GS::UniString::Printf ("picture %T at (%.3f, %.3f)", path.ToPrintf (), x, y)));
         }
 
         GS::ObjectState elementId;
         elementId.Add ("guid", GS::UniString (APIGuidToString (element.header.guid).ToCStr ()));
         os.Add ("elementId", elementId);
+        GS::UniString verificationError;
+        if (!VerifyCreatedDraftingElement (element.header.guid, API_PictureID, targetDatabaseGuid, os,
+                                           verificationError)) {
+            return NativeCommandResult::Failure (verificationError);
+        }
         return os;
     }
 };
 
-const NativeCommandRegistration DraftingCommandRegistrations[] = {
-    { "CreateText", &MakeRegisteredNativeCommand<CreateTextCommand>, false,
-      R"json({"type":"object","properties":{"texts":{"type":"array","minItems":1,"items":{"type":"object","properties":{"text":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"floorInd":{"type":"integer"},"layer":{"type":"string"},"size":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer"},"font":{"type":"integer"},"just":{"type":"string","enum":["left","center","right","full"]},"anchor":{"type":"string","enum":["topLeft","topCenter","topRight","middleLeft","middleCenter","middleRight","bottomLeft","bottomCenter","bottomRight"]},"bold":{"type":"boolean"},"italic":{"type":"boolean"},"underline":{"type":"boolean"},"strikeOut":{"type":"boolean"},"width":{"type":"number"},"fixedAngle":{"type":"boolean"},"fixedSize":{"type":"boolean"},"spacing":{"type":"number"},"widthFactor":{"type":"number"},"charSpaceFactor":{"type":"number"},"inheritDefaults":{"type":"boolean"}},"additionalProperties":false,"required":["text","x","y"]}}},"additionalProperties":false,"required":["texts"]})json",
-      R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"succeeded":{"type":"boolean"},"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count"]})json" },
-    { "GetTextElements", &MakeRegisteredNativeCommand<GetTextElementsCommand>, false,
-      R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"fromSelection":{"type":"boolean"},"texts":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"content":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"hasBounds":{"type":"boolean"},"xMin":{"type":"number"},"yMin":{"type":"number"},"xMax":{"type":"number"},"yMax":{"type":"number"},"anchorX":{"type":"number"},"anchorY":{"type":"number"},"anchor":{"type":"string"},"pen":{"type":"integer"},"angle":{"type":"number"},"size":{"type":"number"},"multiStyle":{"type":"boolean"},"nLine":{"type":"integer"},"floorInd":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["elementId","content","x","y","hasBounds","xMin","yMin","xMax","yMax","anchorX","anchorY","anchor","pen","angle","size","multiStyle","nLine","floorInd","layer"]}},"count":{"type":"integer","minimum":0},"skipped":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["fromSelection","texts","count","skipped"]})json" },
-    { "GetArcElements", &MakeRegisteredNativeCommand<GetArcElementsCommand>, false,
-      R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"scope":{"type":"string","enum":["database","selection"]},"wholeOnly":{"type":"boolean"}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"scope":{"type":"string","enum":["database","selection","elements"]},"arcs":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"isCircle":{"type":"boolean"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer"},"layer":{"type":"string"},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["elementId","x","y","radius","isCircle","begAngle","endAngle","ratio","angle","pen","layer","floorInd"]}},"count":{"type":"integer","minimum":0},"skipped":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["scope","arcs","count","skipped"]})json" },
-    { "PlacePicture", &MakeRegisteredNativeCommand<PlacePictureCommand>, false,
-      R"json({"type":"object","properties":{"path":{"type":"string","minLength":1},"x":{"type":"number"},"y":{"type":"number"},"floorInd":{"type":"integer"},"layer":{"type":"string"},"width":{"type":"number"},"height":{"type":"number"},"rotAngle":{"type":"number"},"anchor":{"type":"string","enum":["topLeft","topCenter","topRight","middleLeft","middleCenter","middleRight","bottomLeft","bottomCenter","bottomRight"]},"mirrored":{"type":"boolean"},"transparent":{"type":"boolean"},"name":{"type":"string"},"usePixelSize":{"type":"boolean"},"dpi":{"type":"number","exclusiveMinimum":0}},"additionalProperties":false,"required":["path","x","y"]})json",
-      R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"pixelWidth":{"type":"integer","minimum":1},"pixelHeight":{"type":"integer","minimum":1},"placedWidth":{"type":"number"},"placedHeight":{"type":"number"}},"additionalProperties":false,"required":["elementId","pixelWidth","pixelHeight"]})json" },
-};
+const NativeCommandRegistration
+    DraftingCommandRegistrations[] = {
+        { "CreateText", &MakeRegisteredNativeCommand<CreateTextCommand>, false,
+          R"json({"type":"object","properties":{"texts":{"type":"array","minItems":1,"items":{"type":"object","properties":{"text":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"floorInd":{"type":"integer"},"layer":{"type":"string"},"size":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer"},"font":{"type":"integer"},"just":{"type":"string","enum":["left","center","right","full"]},"anchor":{"type":"string","enum":["topLeft","topCenter","topRight","middleLeft","middleCenter","middleRight","bottomLeft","bottomCenter","bottomRight"]},"bold":{"type":"boolean"},"italic":{"type":"boolean"},"underline":{"type":"boolean"},"strikeOut":{"type":"boolean"},"width":{"type":"number"},"fixedAngle":{"type":"boolean"},"fixedSize":{"type":"boolean"},"spacing":{"type":"number"},"widthFactor":{"type":"number"},"charSpaceFactor":{"type":"number"},"inheritDefaults":{"type":"boolean"}},"additionalProperties":false,"required":["text","x","y"]}},"databaseAnchorElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"failOnError":{"type":"boolean"}},"additionalProperties":false,"required":["texts"]})json",
+          R"json({"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"succeeded":{"type":"boolean"},"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"databaseId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"layer":{"type":"string"},"verified":{"type":"boolean"},"error":{"type":"string"}},"additionalProperties":false,"required":["succeeded"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count"]})json" },
+        { "GetTextElements", &MakeRegisteredNativeCommand<GetTextElementsCommand>, false, R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false})json",
+          R"json({"type":"object","properties":{"fromSelection":{"type":"boolean"},"texts":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"content":{"type":"string"},"x":{"type":"number"},"y":{"type":"number"},"hasBounds":{"type":"boolean"},"xMin":{"type":"number"},"yMin":{"type":"number"},"xMax":{"type":"number"},"yMax":{"type":"number"},"anchorX":{"type":"number"},"anchorY":{"type":"number"},"anchor":{"type":"string"},"pen":{"type":"integer"},"angle":{"type":"number"},"size":{"type":"number"},"multiStyle":{"type":"boolean"},"nLine":{"type":"integer"},"floorInd":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["elementId","content","x","y","hasBounds","xMin","yMin","xMax","yMax","anchorX","anchorY","anchor","pen","angle","size","multiStyle","nLine","floorInd","layer"]}},"count":{"type":"integer","minimum":0},"skipped":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["fromSelection","texts","count","skipped"]})json" },
+        { "GetArcElements", &MakeRegisteredNativeCommand<GetArcElementsCommand>, false,
+          R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"scope":{"type":"string","enum":["database","selection"]},"wholeOnly":{"type":"boolean"}},"additionalProperties":false})json",
+          R"json({"type":"object","properties":{"scope":{"type":"string","enum":["database","selection","elements"]},"arcs":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"isCircle":{"type":"boolean"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer"},"layer":{"type":"string"},"floorInd":{"type":"integer"}},"additionalProperties":false,"required":["elementId","x","y","radius","isCircle","begAngle","endAngle","ratio","angle","pen","layer","floorInd"]}},"count":{"type":"integer","minimum":0},"skipped":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["scope","arcs","count","skipped"]})json" },
+        { "PlacePicture", &MakeRegisteredNativeCommand<PlacePictureCommand>, false,
+          R"json({"type":"object","properties":{"path":{"type":"string","minLength":1},"x":{"type":"number"},"y":{"type":"number"},"floorInd":{"type":"integer"},"layer":{"type":"string"},"width":{"type":"number"},"height":{"type":"number"},"rotAngle":{"type":"number"},"anchor":{"type":"string","enum":["topLeft","topCenter","topRight","middleLeft","middleCenter","middleRight","bottomLeft","bottomCenter","bottomRight"]},"mirrored":{"type":"boolean"},"transparent":{"type":"boolean"},"name":{"type":"string"},"usePixelSize":{"type":"boolean"},"dpi":{"type":"number","exclusiveMinimum":0},"databaseAnchorElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["path","x","y"]})json", R"json({"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"pixelWidth":{"type":"integer","minimum":1},"pixelHeight":{"type":"integer","minimum":1},"placedWidth":{"type":"number"},"placedHeight":{"type":"number"},"databaseId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"layer":{"type":"string"},"verified":{"type":"boolean"}},"additionalProperties":false,"required":["elementId","pixelWidth","pixelHeight","databaseId","layer","verified"]})json" },
+    };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetDraftingCommandRegistrations ()
 {
