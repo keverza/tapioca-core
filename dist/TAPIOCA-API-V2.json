@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 205,
+      "nativeRegistry": 207,
       "dispatcherLocal": 19,
-      "total": 224
+      "total": 226
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1563,6 +1563,22 @@
                 "y"
               ]
             }
+          },
+          "databaseAnchorElementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "failOnError": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -1592,6 +1608,24 @@
                   "required": [
                     "guid"
                   ]
+                },
+                "databaseId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "verified": {
+                  "type": "boolean"
                 },
                 "error": {
                   "type": "string"
@@ -18065,6 +18099,19 @@
           "dpi": {
             "type": "number",
             "exclusiveMinimum": 0
+          },
+          "databaseAnchorElementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
           }
         },
         "additionalProperties": false,
@@ -18102,13 +18149,34 @@
           },
           "placedHeight": {
             "type": "number"
+          },
+          "databaseId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "layer": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
         "required": [
           "elementId",
           "pixelWidth",
-          "pixelHeight"
+          "pixelHeight",
+          "databaseId",
+          "layer",
+          "verified"
         ]
       }
     },
@@ -22941,6 +23009,276 @@
       }
     },
     {
+      "name": "Tapioca.ViewerCameraCensus",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "reset": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "z": {
+            "type": "number"
+          },
+          "select": {
+            "type": "boolean"
+          },
+          "clearSelection": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "vertexShader": {
+                  "type": "string"
+                },
+                "renderTarget": {
+                  "type": "string"
+                },
+                "depthStencil": {
+                  "type": "string"
+                },
+                "viewportX": {
+                  "type": "number"
+                },
+                "viewportY": {
+                  "type": "number"
+                },
+                "viewportWidth": {
+                  "type": "number"
+                },
+                "viewportHeight": {
+                  "type": "number"
+                },
+                "viewBuffer": {
+                  "type": "string"
+                },
+                "viewFirstConstant": {
+                  "type": "integer"
+                },
+                "viewNumConstants": {
+                  "type": "integer"
+                },
+                "projectionBuffer": {
+                  "type": "string"
+                },
+                "projectionFirstConstant": {
+                  "type": "integer"
+                },
+                "projectionNumConstants": {
+                  "type": "integer"
+                },
+                "b0Bound": {
+                  "type": "boolean"
+                },
+                "b0Buffer": {
+                  "type": "string"
+                },
+                "b0FirstConstant": {
+                  "type": "integer"
+                },
+                "b0NumConstants": {
+                  "type": "integer"
+                },
+                "passGeneration": {
+                  "type": "integer"
+                },
+                "targetEpoch": {
+                  "type": "integer"
+                },
+                "drawSequenceFirst": {
+                  "type": "integer"
+                },
+                "drawSequenceLast": {
+                  "type": "integer"
+                },
+                "drawsObserved": {
+                  "type": "integer"
+                },
+                "framesObserved": {
+                  "type": "integer"
+                },
+                "modelFramesObserved": {
+                  "type": "integer"
+                },
+                "groupId": {
+                  "type": "integer"
+                },
+                "firstPresent": {
+                  "type": "integer"
+                },
+                "lastPresent": {
+                  "type": "integer"
+                },
+                "drawKindMask": {
+                  "type": "integer"
+                },
+                "lastIndexCount": {
+                  "type": "integer"
+                },
+                "samplesScored": {
+                  "type": "integer"
+                },
+                "winningVariant": {
+                  "type": "integer"
+                },
+                "winningVariantValid": {
+                  "type": "integer"
+                },
+                "medianCentreError": {
+                  "type": "number"
+                },
+                "meanCentreError": {
+                  "type": "number"
+                },
+                "worstCentreError": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "vertexShader",
+                "drawsObserved",
+                "samplesScored"
+              ]
+            }
+          },
+          "drawsSeen": {
+            "type": "integer"
+          },
+          "drawsQualified": {
+            "type": "integer"
+          },
+          "framesSeen": {
+            "type": "integer"
+          },
+          "groupsUsed": {
+            "type": "integer"
+          },
+          "groupsOverflowed": {
+            "type": "integer"
+          },
+          "copiesIssued": {
+            "type": "integer"
+          },
+          "readbacksServed": {
+            "type": "integer"
+          },
+          "readbacksBusy": {
+            "type": "integer"
+          },
+          "modelFramesSeen": {
+            "type": "integer"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "cameraSource": {
+            "type": "string"
+          },
+          "eligibility": {
+            "type": "object",
+            "properties": {
+              "minSamples": {
+                "type": "integer"
+              },
+              "minModelCoverage": {
+                "type": "number"
+              },
+              "minInsideClip": {
+                "type": "number"
+              },
+              "maxMedianCentreError": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          },
+          "selection": {
+            "type": "object",
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "groupId": {
+                "type": "integer"
+              },
+              "vertexShader": {
+                "type": "string"
+              },
+              "renderTarget": {
+                "type": "string"
+              },
+              "depthStencil": {
+                "type": "string"
+              },
+              "viewportWidth": {
+                "type": "number"
+              },
+              "viewportHeight": {
+                "type": "number"
+              },
+              "variant": {
+                "type": "integer"
+              },
+              "samples": {
+                "type": "integer"
+              },
+              "modelCoverage": {
+                "type": "number"
+              },
+              "insideClip": {
+                "type": "number"
+              },
+              "medianCentreError": {
+                "type": "number"
+              },
+              "snapshotsTaken": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valid"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "groups"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ViewerGpuDeviceInfo",
       "implementation": "native-registry",
       "inputScheme": {
@@ -23210,7 +23548,8 @@
             "type": "string",
             "enum": [
               "present",
-              "scenepass"
+              "scenepass",
+              "both"
             ]
           },
           "x": {
@@ -23226,6 +23565,12 @@
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 1000
+          },
+          "occurrenceReset": {
+            "type": "boolean"
+          },
+          "occurrenceSelect": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -23293,6 +23638,116 @@
           "snapshotsTaken": {
             "type": "integer"
           },
+          "qualifyingCameraDraws": {
+            "type": "integer"
+          },
+          "cameraSource": {
+            "type": "string"
+          },
+          "selectedCameraValid": {
+            "type": "boolean"
+          },
+          "selectedGroupId": {
+            "type": "integer"
+          },
+          "selectedGroupDraws": {
+            "type": "integer"
+          },
+          "selectedGroupSnapshots": {
+            "type": "integer"
+          },
+          "selectedSnapshotGeneration": {
+            "type": "integer"
+          },
+          "occurrenceSelected": {
+            "type": "boolean"
+          },
+          "occurrenceLocked": {
+            "type": "boolean"
+          },
+          "lockedOccurrence": {
+            "type": "integer"
+          },
+          "occurrenceDraws": {
+            "type": "integer"
+          },
+          "authoritativeSnapshots": {
+            "type": "integer"
+          },
+          "occurrenceModelFrames": {
+            "type": "integer"
+          },
+          "occurrences": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer"
+                },
+                "draws": {
+                  "type": "integer"
+                },
+                "modelFrames": {
+                  "type": "integer"
+                },
+                "samples": {
+                  "type": "integer"
+                },
+                "insideClip": {
+                  "type": "integer"
+                },
+                "medianCentreError": {
+                  "type": "number"
+                },
+                "meanCentreError": {
+                  "type": "number"
+                },
+                "worstCentreError": {
+                  "type": "number"
+                },
+                "viewportWidth": {
+                  "type": "number"
+                },
+                "viewportHeight": {
+                  "type": "number"
+                },
+                "lastDrawSequence": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "index",
+                "draws",
+                "samples"
+              ]
+            }
+          },
+          "injectedPresent": {
+            "type": "integer"
+          },
+          "injectedScenePass": {
+            "type": "integer"
+          },
+          "shaderInterpretation": {
+            "type": "integer"
+          },
+          "expectedInterpretation": {
+            "type": "integer"
+          },
+          "interpretationAgrees": {
+            "type": "boolean"
+          },
+          "skippedInterpretation": {
+            "type": "integer"
+          },
+          "viewCopies": {
+            "type": "integer"
+          },
+          "projectionCopies": {
+            "type": "integer"
+          },
           "snapshotValid": {
             "type": "boolean"
           },
@@ -23349,6 +23804,229 @@
         "required": [
           "enabled",
           "injected"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerInjectionOracle",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "reset": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "present": {
+                  "type": "integer"
+                },
+                "modelSceneGeneration": {
+                  "type": "integer"
+                },
+                "snapshotSequence": {
+                  "type": "integer"
+                },
+                "snapshotDrawSequence": {
+                  "type": "integer"
+                },
+                "state": {
+                  "type": "integer"
+                },
+                "cameraSource": {
+                  "type": "integer"
+                },
+                "selectedGroupId": {
+                  "type": "integer"
+                },
+                "selectedGroupSnapshotGeneration": {
+                  "type": "integer"
+                },
+                "sourceDrawSequence": {
+                  "type": "integer"
+                },
+                "sourceModelGeneration": {
+                  "type": "integer"
+                },
+                "viewBuffer": {
+                  "type": "string"
+                },
+                "viewFirstConstant": {
+                  "type": "integer"
+                },
+                "viewNumConstants": {
+                  "type": "integer"
+                },
+                "projectionBuffer": {
+                  "type": "string"
+                },
+                "projectionFirstConstant": {
+                  "type": "integer"
+                },
+                "projectionNumConstants": {
+                  "type": "integer"
+                },
+                "matricesRead": {
+                  "type": "boolean"
+                },
+                "clipW": {
+                  "type": "number"
+                },
+                "ndcX": {
+                  "type": "number"
+                },
+                "ndcY": {
+                  "type": "number"
+                },
+                "ndcZ": {
+                  "type": "number"
+                },
+                "pixelX": {
+                  "type": "number"
+                },
+                "pixelY": {
+                  "type": "number"
+                },
+                "insideClipVolume": {
+                  "type": "boolean"
+                },
+                "viewportX": {
+                  "type": "number"
+                },
+                "viewportY": {
+                  "type": "number"
+                },
+                "viewportWidth": {
+                  "type": "number"
+                },
+                "viewportHeight": {
+                  "type": "number"
+                },
+                "bestVariant": {
+                  "type": "integer"
+                },
+                "bestVariantPixelX": {
+                  "type": "number"
+                },
+                "bestVariantPixelY": {
+                  "type": "number"
+                },
+                "bestVariantCentreError": {
+                  "type": "number"
+                },
+                "drawIssued": {
+                  "type": "boolean"
+                },
+                "samplesKnown": {
+                  "type": "boolean"
+                },
+                "samplesPassed": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "present",
+                "state",
+                "matricesRead"
+              ]
+            }
+          },
+          "rowsCompleted": {
+            "type": "integer"
+          },
+          "rowsDroppedUnresolved": {
+            "type": "integer"
+          },
+          "readbacksAttempted": {
+            "type": "integer"
+          },
+          "readbacksServed": {
+            "type": "integer"
+          },
+          "readbacksStillDrawing": {
+            "type": "integer"
+          },
+          "readbacksStale": {
+            "type": "integer"
+          },
+          "queriesIssued": {
+            "type": "integer"
+          },
+          "queriesResolved": {
+            "type": "integer"
+          },
+          "queriesUnavailable": {
+            "type": "integer"
+          },
+          "snapshotsStaged": {
+            "type": "integer"
+          },
+          "rowsQualified": {
+            "type": "integer"
+          },
+          "rowsRejectedNotNew": {
+            "type": "integer"
+          },
+          "rowsRejectedStill": {
+            "type": "integer"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "variant": {
+                  "type": "integer"
+                },
+                "rowsTested": {
+                  "type": "integer"
+                },
+                "rowsInsideClip": {
+                  "type": "integer"
+                },
+                "rowsWon": {
+                  "type": "integer"
+                },
+                "medianCentreError": {
+                  "type": "number"
+                },
+                "meanCentreError": {
+                  "type": "number"
+                },
+                "worstCentreError": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "variant",
+                "rowsTested"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ready",
+          "rows"
         ]
       }
     },

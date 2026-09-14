@@ -32,6 +32,8 @@
 // recorded as Archicad's -- they arrive at the same detours on the same context
 // object and no pointer filter can separate them.
 
+#include "ArchViz/Dxgi/InjectionCamera.hpp"
+
 #include <cstdint>
 
 struct ID3D11DeviceContext;
@@ -69,27 +71,12 @@ void Shutdown ();
 // wrongly-drawn one is the bug.
 void InjectIfReady (ID3D11DeviceContext* context);
 
-// RENDER THREAD, from a draw detour, for a qualifying camera-bearing draw of the
-// learned model pass.
-//
-// ⚠️ THE BINDING IS NOT THE BYTES, AND THAT DISTINCTION IS THIS FUNCTION.
-// `buffer + firstConstant + numConstants` identifies WHERE the camera lived when
-// the model was drawn; it does not preserve WHAT was there. Archicad's constants
-// live in one 8 MiB ring, and between the model draw and Present its later
-// passes keep writing that ring -- so rebinding the same window at Present can
-// hand the shader another pass's bytes wearing the camera's address.
-//
-// That fits the symptom exactly. During navigation there is a great deal of
-// later ring traffic and the world triangle vanished; when navigation stopped
-// there was almost none, the window still held the model camera, and it
-// appeared. The clip-space probe was rock solid throughout, which had already
-// ruled out the injection, the back buffer and the state restoration.
-//
-// So the 256 bytes are copied GPU-to-GPU into a buffer we own, at the moment the
-// draw that consumes them happens. ⚠️ NO `Map`, NO CPU READBACK, NO
-// SYNCHRONISATION -- one `CopySubresourceRegion`, which for buffer resources
-// takes BYTE coordinates rather than texels.
-void SnapshotCamera (ID3D11DeviceContext* context);
+// ⚠️ THE CAMERA ITSELF IS `InjectionCamera`, INCLUDED ABOVE, AND ITS DECLARATIONS
+// ARE NOT REPEATED HERE. `SnapshotCamera`, `SnapshotSelectedDraw`,
+// `CameraSource`, `SelectedCameraState` and the interpretation agreement all
+// live there, because what the primitive is drawn WITH and how it is DRAWN are
+// two questions -- and every failure from run twenty-eight onward was in the
+// first while the second was never in doubt.
 
 // RENDER THREAD, from the present detour, BEFORE the present is forwarded.
 //
@@ -114,7 +101,13 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
 
 // Which injection point is armed. Proof A uses Present; Proof B will use the
 // scene pass, where Archicad's depth buffer still exists.
-enum class Point { ScenePass, Present };
+// ⚠️ `Both` DRAWS AT BOTH POINTS IN ONE RUN, which is the only way to tell three
+// possible failures apart without three runs and three memories of what the
+// screen looked like. The scene-pass triangle is drawn inside Archicad's own
+// pass, where its depth buffer still exists and later geometry can paint over
+// it; the Present triangle is drawn on top of the finished frame. Seeing one and
+// not the other is itself the answer.
+enum class Point { ScenePass, Present, Both };
 void  SetPoint (Point point);
 Point GetPoint ();
 
@@ -135,6 +128,26 @@ struct InjectionStats {
     uint64_t skippedStaleCamera = 0;
     uint64_t backBufferFailures = 0;
 
+    // The two injection points, counted apart: one fires per scene departure and
+    // the other per Present, so a shared counter is a meaningless ratio.
+    uint64_t injectedPresent = 0;
+    uint64_t injectedScenePass = 0;
+
+    // ⚠️ THE RATIO THAT MATTERS: `occurrenceDraws / occurrenceModelFrames` is how
+    // many times the selected group draws per model frame -- six, in run
+    // thirty-four -- and `authoritativeSnapshots` must be ONE per model frame,
+    // not six, once an occurrence is locked.
+    uint64_t occurrenceDraws = 0;
+    uint64_t authoritativeSnapshots = 0;
+    uint64_t occurrenceModelFrames = 0;
+    bool     occurrenceLocked = false;
+    uint32_t lockedOccurrence = 0;
+
+    uint32_t shaderInterpretation = 0;
+    uint32_t expectedInterpretation = 0;
+    bool     interpretationAgrees = false;
+    uint64_t skippedInterpretation = 0;
+
     // ⚠️ THE THREE FRAME STATES, WHICH SAY MORE THAN ANY SKIP COUNT. Healthy is
     // newScene + repeatScene == Presents, with invalidScene at zero.
     //   NEW_SCENE     the model was re-rendered and brought its own camera
@@ -146,8 +159,32 @@ struct InjectionStats {
     uint64_t repeatScene = 0;
     uint64_t invalidScene = 0;
 
-    // How many times the camera bytes have been copied out of Archicad's ring.
-    uint64_t snapshotsTaken = 0;
+    // ⚠️ THE SNAPSHOT ARITHMETIC, AND ITS INVARIANT IS AN EQUALITY.
+    //
+    //     qualifyingCameraDraws == viewCopies == projectionCopies
+    //
+    // Any inequality names its own cause: fewer copies than qualifying draws
+    // means the window predicate refused, and a difference BETWEEN the two copy
+    // counts would mean one of the two `CopySubresourceRegion` calls is not
+    // happening at all -- which no picture could ever show.
+    uint64_t qualifyingCameraDraws = 0;
+
+    // ⚠️ THE SELECTED GROUP'S OWN ARITHMETIC, KEPT APART FROM THE LEARNER'S. In
+    // phase B these must satisfy
+    //
+    //     selectedGroupDraws == selectedGroupSnapshots == snapshotsTaken
+    //
+    // and `snapshotsTaken == 0` beside `selectedGroupDraws > 0` is a HARNESS
+    // failure -- the camera is not connected to the injection -- not a finding
+    // about cameras or rasterisation.
+    uint64_t selectedGroupDraws = 0;
+    uint64_t selectedGroupSnapshots = 0;
+    uint32_t selectedGroupId = 0;
+    uint64_t selectedSnapshotGeneration = 0;
+    uint64_t viewCopies = 0;
+    uint64_t projectionCopies = 0;
+    uint64_t snapshotsTaken = 0;     // generations completed: both halves copied
+    uint64_t snapshotSequence = 0;   // the sequence number of the newest snapshot
     bool     snapshotValid = false;
     bool     initialised = false;
     char     lastError[192] = {};

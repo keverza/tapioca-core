@@ -150,7 +150,17 @@ struct SceneDrawState {
 };
 
 // RENDER THREAD. Latch the live state as the newest verified scene draw.
-void OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
+//
+// ⚠️ RETURNS TRUE EXACTLY WHEN THIS DRAW BECAME THE NEW `LastCameraDraw` -- that
+// is, when THIS draw consumed both `b1` and `b2` as 256-byte windows AND belonged
+// to the learned model pass. It is the ONLY definition of "camera-bearing draw"
+// in the tree, and it is returned rather than restated because a second copy of
+// this predicate is exactly what went wrong: `RenderStateCapture::OnDraw` tested
+// only `IsBound()`, without the window size, and so qualified 724 draws where
+// this function counted 362. Every snapshot count downstream was therefore
+// exactly twice the truth, and the invariant that was supposed to catch it was
+// comparing two different populations.
+bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
                   uint64_t drawSequence, uint64_t modelSceneGeneration, bool inModelPass);
 
 // ANY THREAD. What the most recent verified scene draw consumed.

@@ -230,12 +230,20 @@ bool OnDraw ()
             g_modelPassOfGeneration = g_currentPass.generation;
             ++g_modelSceneGeneration;
         }
-        contextstate::OnSceneDraw (g_currentPass.generation, g_currentPass.targetEpoch,
-                g_currentPass.drawsThisEpoch, g_modelSceneGeneration, inModelPass);
-        // ⚠️ TRUE MEANS "SNAPSHOT THE CAMERA THIS DRAW IS ABOUT TO CONSUME". The
-        // binding tells you where the bytes are; only a copy preserves what they
-        // were. See InjectionRenderer::SnapshotCamera.
-        return inModelPass;
+        const bool latchedCamera = contextstate::OnSceneDraw (g_currentPass.generation,
+                g_currentPass.targetEpoch, g_currentPass.drawsThisEpoch,
+                g_modelSceneGeneration, inModelPass);
+        // ⚠️ TRUE MEANS "SNAPSHOT THE CAMERA THIS DRAW JUST BECAME THE SOURCE OF",
+        // and the answer comes from the latch itself rather than from a second
+        // predicate here. Run twenty-eight still reported exactly twice the truth
+        // -- 724 qualifying draws against 362 camera-bearing ones -- because the
+        // copy of the test on this side asked only whether `b1` and `b2` were
+        // bound, while the latch also requires the 256-byte window. Two spellings
+        // of one rule is one spelling too many.
+        //
+        // The binding tells you where the bytes are; only a copy preserves what
+        // they were. See InjectionRenderer::SnapshotCamera.
+        return latchedCamera;
     }
     // ⚠️ COUNTED SEPARATELY, NOT IGNORED. Draws after the boundary are the UI and
     // post passes, and how many there are decides whether the boundary is a

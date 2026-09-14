@@ -48,7 +48,7 @@ bool Injecting ()
     return g_injectionDepth > 0;
 }
 
-void OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
+bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
                   uint64_t drawSequence, uint64_t modelSceneGeneration, bool inModelPass)
 {
     // ⚠️ THE WHOLE LIVE STATE, LATCHED AT THE DRAW. Not a reference to it, not a
@@ -87,8 +87,10 @@ void OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
         if (inModelPass) {
             ++g_drawCounts.withBothInModelPass;
             g_lastCameraDraw = g_lastSceneDraw;
+            return true;
         }
     }
+    return false;
 }
 
 SceneDrawState LastCameraDraw ()

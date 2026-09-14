@@ -170,9 +170,21 @@ from typing import Any
 # The clean tree already contained six additional registrations beyond the 197
 # tripwire before this change; record that existing drift rather than hiding it
 # inside the feature's increment. Current registry baseline: 203, then +2 here.
-EXPECTED_REGISTRY_COMMANDS = 205
+# 2026-09-14, stage 5's numeric witness: +1 for ViewerInjectionOracle. It reads
+# the per-Present diagnostic rows the injected triangle produces -- where the
+# anchor projected, whether that was inside the clip volume, and how many samples
+# its occlusion query counted -- and reads only; nothing in it arms, draws or
+# touches model data. It exists because six runs of visual iteration could not
+# separate a wrong camera from a correct camera that rasterised nothing.
+# 2026-09-14, the camera census: +1 for ViewerCameraCensus. Run thirty proved
+# the learned model pass carries more than one camera-bearing draw group, so this
+# verb groups every draw that binds both camera windows by what the draw is --
+# shader, targets, viewport, window shape -- scores each group's own bytes
+# against the orbit-target invariant, and ranks them. It reads only: nothing in
+# it arms, draws, or touches model data.
+EXPECTED_REGISTRY_COMMANDS = 207
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 224
+EXPECTED_TOTAL_COMMANDS = 226
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

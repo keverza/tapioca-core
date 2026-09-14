@@ -9,6 +9,7 @@
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/CameraWake.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
+#include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
@@ -146,6 +147,12 @@ void TearDownCurrent ()
     // Archicad's device.
     dxgi::injection::SetEnabled (false);
     dxgi::injection::Shutdown ();
+
+    // ⚠️ THE CENSUS GOES THE SAME WAY, for the same reason. It draws nothing, but
+    // it owns staging buffers on Archicad's device and nothing here may outlive
+    // that device.
+    dxgi::census::SetEnabled (false);
+    dxgi::census::Shutdown ();
 
     autoorbit::Stop ();
 

@@ -4,6 +4,8 @@
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
+#include "ArchViz/Dxgi/InjectionCamera.hpp"
+#include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 
 #include <d3d11_1.h>
@@ -20,12 +22,26 @@ namespace injection {
 
 namespace {
 
-// ⚠️ THE MATRICES ARE DECLARED WHERE ARCHICAD PUTS THEM AND READ WITH AN
-// EXPLICIT LAYOUT. `row_major` is stated rather than left to the compiler's
-// default, which is column-major, and the multiplication is row-vector -- world
-// on the left -- because that is the convention stage 3's classifier proved
-// these bytes are in. Getting either wrong produces a matrix that is almost
-// right, which is the hardest kind of wrong to see.
+// ⚠️ THE TWO HALVES ARE DECLARED WITH DIFFERENT LAYOUTS, AND THAT IS THE
+// MEASURED RESULT RATHER THAN A GUESS. The camera census scores eight readings of
+// the same 128 bytes against the orbit-target invariant on every moving frame,
+// and the selected group returned interpretation 2 -- `p * V * Pt` -- in phase A
+// and again in phase B, at 99% inside the clip volume and a median of 0.002 from
+// the viewport centre.
+//
+//     View        row_major      the bytes are the view, as stored
+//     Projection  column_major   the bytes are the TRANSPOSE of the projection
+//
+// ⚠️ `column_major` IS THE FIX, NOT A `transpose ()` CALL AND CERTAINLY NOT A CPU
+// COPY. A cbuffer matrix declared `column_major` has its columns in successive
+// registers, so HLSL reads exactly the transpose of the same bytes read
+// `row_major` -- which is what `p * V * Pt` means. The declaration records WHAT
+// ARCHICAD'S BUFFER ACTUALLY CONTAINS; a transpose in the shader body would
+// produce identical pixels while writing down the wrong fact, and the next person
+// would have to rediscover it.
+//
+// The multiplication stays row-vector, world on the left, which is the convention
+// the view half has been proven in since stage 3.
 //
 // ⚠️ NO PADDING IS DECLARED BECAUSE THE MATRIX SITS AT OFFSET 0 OF ITS WINDOW.
 // Run twenty-one measured `numConstants = 16` for both -- a 256-byte window,
@@ -34,7 +50,7 @@ namespace {
 // a CPU copy to make the offset convenient.
 const char* const kShaderSource =
 "cbuffer ArchicadView : register (b1)       { row_major float4x4 View; };\n"
-"cbuffer ArchicadProjection : register (b2) { row_major float4x4 Projection; };\n"
+"cbuffer ArchicadProjection : register (b2) { column_major float4x4 Projection; };\n"
 "float4 VSMain (float3 position : POSITION) : SV_POSITION\n"
 "{\n"
 "    float4 p = float4 (position, 1.0);\n"
@@ -101,15 +117,9 @@ ID3D11VertexShader*      g_screenVs = nullptr;
 ID3D11PixelShader*       g_screenPs = nullptr;
 ID3D11Buffer*            g_screenVertices = nullptr;
 
-// ⚠️ OUR OWN COPIES OF THE CAMERA, 256 BYTES EACH -- one D3D11.1 window. Present
-// binds THESE and never Archicad's ring, so nothing Archicad does to the ring
-// after the model draw can change what the injected shader reads.
-ID3D11Buffer*            g_viewSnapshot = nullptr;
-ID3D11Buffer*            g_projectionSnapshot = nullptr;
-uint64_t g_snapshotModelGeneration = 0;
-uint64_t g_snapshotDrawSequence = 0;
-bool     g_snapshotValid = false;
-std::atomic<uint64_t> g_snapshotsTaken {0};
+// ⚠️ THE CAMERA ITSELF LIVES IN `InjectionCamera`, NOT HERE. This file answers
+// how the primitive is DRAWN; that one answers what it is drawn WITH. Five runs
+// of failure were all in the second while the first was never in doubt.
 
 // ⚠️ CLIP SPACE, AND PINNED TOP RIGHT BECAUSE THE HUD OWNS THE TOP LEFT. A probe
 // drawn underneath ImGui would be reported as flickering when it was only
@@ -135,6 +145,14 @@ std::atomic<uint64_t> g_skipReentrant {0};
 std::atomic<int> g_point {int (Point::Present)};
 std::atomic<uint64_t> g_skipStaleCamera {0};
 std::atomic<uint64_t> g_backBufferFailures {0};
+std::atomic<uint64_t> g_skipInterpretation {0};
+
+// ⚠️ THE TWO INJECTION POINTS ARE COUNTED SEPARATELY. They have entirely
+// different denominators -- one fires per scene departure, the other per Present
+// -- and sharing a counter produced "attempted 381, succeeded 944", which reads
+// as a broken latch and is only a broken report.
+std::atomic<uint64_t> g_injectedPresent {0};
+std::atomic<uint64_t> g_injectedScenePass {0};
 
 // ⚠️ THE LAST ACCEPTED MODEL CAMERA, WHICH OUTLIVES PRESENTS ON PURPOSE. Present
 // injection is ephemeral -- it paints the CURRENT back buffer and nothing of it
@@ -259,19 +277,6 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     ok = ok && SUCCEEDED (g_device->CreateBuffer (&screenDesc, &screenInitial,
             &g_screenVertices));
 
-    // ⚠️ `DEFAULT` USAGE, NOT `IMMUTABLE` AND NOT `DYNAMIC`. The GPU writes these
-    // through `CopySubresourceRegion` and the vertex stage reads them: an
-    // immutable buffer could not be copied into, and a dynamic one would invite
-    // exactly the CPU round trip this design exists to avoid. 256 bytes is one
-    // D3D11.1 window -- the minimum granularity, which is what Archicad uses.
-    D3D11_BUFFER_DESC snapshotDesc = {};
-    snapshotDesc.ByteWidth = 256;
-    snapshotDesc.Usage = D3D11_USAGE_DEFAULT;
-    snapshotDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    ok = ok && SUCCEEDED (g_device->CreateBuffer (&snapshotDesc, nullptr, &g_viewSnapshot));
-    ok = ok && SUCCEEDED (g_device->CreateBuffer (&snapshotDesc, nullptr,
-            &g_projectionSnapshot));
-
     // ⚠️ PROOF A IS TRANSFORM ONLY: DEPTH TEST OFF. Depth WRITES stay off in
     // proof B as well, so this experiment can never affect Archicad geometry
     // drawn after it. Debugging the camera and the depth semantics at the same
@@ -288,6 +293,15 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     rasterDesc.FillMode = D3D11_FILL_SOLID;
     rasterDesc.CullMode = D3D11_CULL_NONE;
     rasterDesc.DepthClipEnable = TRUE;
+    // ⚠️ SCISSOR OFF, STATED RATHER THAN INHERITED. Archicad draws its helpers
+    // and UI with scissor rectangles, and a correct transform clipped by a
+    // leftover helper rectangle produces exactly zero pixels and looks identical
+    // to a wrong camera. Binding our own rasterizer state with `ScissorEnable`
+    // false removes that possibility completely -- the rectangles themselves can
+    // then stay as Archicad left them, because a disabled scissor ignores them.
+    rasterDesc.ScissorEnable = FALSE;
+    rasterDesc.MultisampleEnable = FALSE;
+    rasterDesc.AntialiasedLineEnable = FALSE;
     ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&rasterDesc, &g_raster));
 
     D3D11_BLEND_DESC blendDesc = {};
@@ -320,6 +334,9 @@ void SetAnchor (float x, float y, float z, float sizeMetres)
     g_anchorY = y;
     g_anchorZ = z;
     g_anchorSize = (sizeMetres > 0.001f) ? sizeMetres : 1.0f;
+    // The oracle projects THIS point and nothing else: during an orbit it is the
+    // orbit target, which is what makes its pixel a test rather than a reading.
+    oracle::SetAnchor (x, y, z);
     // The vertex buffer is immutable and built from these, so it has to go.
     // Cheap: it is rebuilt on the next injection.
     ReleaseAndNull (g_vertices);
@@ -330,13 +347,11 @@ void SetAnchor (float x, float y, float z, float sizeMetres)
 void Shutdown ()
 {
     g_enabled.store (false, std::memory_order_release);
+    oracle::Shutdown ();
     ReleaseAndNull (g_blend);
     ReleaseAndNull (g_raster);
     ReleaseAndNull (g_depthState);
-    ReleaseAndNull (g_projectionSnapshot);
-    ReleaseAndNull (g_viewSnapshot);
-    g_snapshotValid = false;
-    g_snapshotModelGeneration = 0;
+    ShutdownCamera ();
     ReleaseAndNull (g_screenVertices);
     ReleaseAndNull (g_screenPs);
     ReleaseAndNull (g_screenVs);
@@ -353,9 +368,16 @@ void Shutdown ()
 // Both injection points go through this so they cannot disagree about what they
 // touch. `targetView` is null when the caller has already got the right render
 // target bound and only wants the draw.
+// ⚠️ `altColour` LETS THE TWO INJECTION POINTS BE TOLD APART ON SCREEN WITHOUT A
+// LINE OF NEW HLSL. The world vertex shader and the clip-space pixel shader are
+// a legal pair -- the pixel shader takes no interpolated inputs -- so the
+// scene-pass triangle can be green and the Present one magenta using shaders
+// that are already compiled. With `point="both"` that turns four different
+// failures into four different pictures in a single run.
 void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
                      const contextstate::SceneDrawState& draw,
-                     ID3D11RenderTargetView* targetView, bool useSnapshot)
+                     ID3D11RenderTargetView* targetView, bool useSnapshot,
+                     bool altColour)
 {
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
@@ -402,7 +424,8 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // by the time this runs, the ring window the model draw used may hold some
     // later pass's constants. Our buffers hold exactly the bytes that draw
     // consumed, at offset zero, which is why `firstConstant` is 0 here.
-    ID3D11Buffer* const snapshotBuffers[2] = { g_viewSnapshot, g_projectionSnapshot };
+    ID3D11Buffer* const snapshotBuffers[2] = { ViewSnapshotBuffer (),
+                                               ProjectionSnapshotBuffer () };
     ID3D11Buffer* const liveBuffers[2] = {
         reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)),
         reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)),
@@ -455,12 +478,20 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     context->IASetVertexBuffers (0, 1, &g_vertices, &stride, &offset);
     context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader (g_vs, nullptr, 0);
-    context->PSSetShader (g_ps, nullptr, 0);
+    context->PSSetShader (altColour ? g_screenPs : g_ps, nullptr, 0);
     context->OMSetDepthStencilState (g_depthState, 0);
     context->RSSetState (g_raster);
     const FLOAT blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     context->OMSetBlendState (g_blend, blendFactor, 0xffffffffu);
+    // ⚠️ THE QUERY WRAPS THIS DRAW AND NOTHING ELSE. Depth is off and the pixel
+    // shader is opaque, so a triangle whose anchor projects inside the frustum
+    // MUST produce samples here. Zero samples with a correct projection is a
+    // different investigation from a wrong projection, and this is the number
+    // that separates them. The clip-space probe is deliberately not measured:
+    // it has never been in doubt and counting it would dilute this.
+    oracle::BeginTriangleQuery (context);
     context->Draw (3, 0);
+    oracle::EndTriangleQuery (context);
 
     // ---- put everything back ------------------------------------------------
     if (targetView != nullptr)
@@ -492,60 +523,6 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     ReleaseAndNull (savedDsv);
 }
 
-void SnapshotCamera (ID3D11DeviceContext* context)
-{
-    if (context == nullptr || !g_enabled.load (std::memory_order_acquire))
-        return;
-    // ⚠️ OUR OWN COPIES ARE NOT ARCHICAD'S WORK. Without the guard these two
-    // copies would be counted as Archicad copy operations and could trip the
-    // scene-consumer logic that once served as the injection trigger.
-    if (contextstate::Injecting ())
-        return;
-
-    const contextstate::SceneDrawState draw = contextstate::LastCameraDraw ();
-    if (!draw.valid)
-        return;
-    const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
-    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
-    if (view.numConstants != kExpectedWindowConstants ||
-        projection.numConstants != kExpectedWindowConstants)
-        return;
-
-    contextstate::ScopedInjectionGuard guard;
-    if (!EnsureCreated (context))
-        return;
-
-    // ⚠️ BYTE COORDINATES, BECAUSE THESE ARE BUFFERS AND NOT TEXTURES. `left` and
-    // `right` are byte offsets into the ring; `top`/`bottom`/`front`/`back` are
-    // the 0..1 a buffer always has. Copying 256 bytes from `firstConstant * 16`
-    // lands the window at offset 0 of our own buffer, which is why the shader
-    // needs no padding and why Present can bind it with firstConstant 0.
-    D3D11_BOX box = {};
-    box.top = 0;
-    box.bottom = 1;
-    box.front = 0;
-    box.back = 1;
-
-    box.left = view.ByteOffset ();
-    box.right = box.left + 256;
-    context->CopySubresourceRegion (g_viewSnapshot, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
-
-    box.left = projection.ByteOffset ();
-    box.right = box.left + 256;
-    context->CopySubresourceRegion (g_projectionSnapshot, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
-
-    // ⚠️ EVERY QUALIFYING DRAW, NOT A GUESS AT THE LAST ONE. Two 256-byte GPU
-    // copies are nothing beside a draw, and overwriting on each one means that by
-    // Present the snapshot simply holds the most recent camera of the pass --
-    // with no prediction about which draw would turn out to be final.
-    g_snapshotModelGeneration = draw.modelSceneGeneration;
-    g_snapshotDrawSequence = draw.drawSequence;
-    g_snapshotValid = true;
-    g_snapshotsTaken.fetch_add (1, std::memory_order_relaxed);
-}
-
 void SetPoint (Point point)
 {
     g_point.store (int (point), std::memory_order_release);
@@ -563,34 +540,59 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
         return;
     if (!g_enabled.load (std::memory_order_acquire))
         return;
-    if (GetPoint () != Point::Present)
+    if (GetPoint () == Point::ScenePass)
         return;
     if (contextstate::Injecting ()) {
         g_skipReentrant.fetch_add (1, std::memory_order_relaxed);
         return;
     }
 
+    // ⚠️ THE GUARD IS TAKEN BEFORE THE CLASSIFICATION, NOT AFTER IT, because the
+    // oracle's own staging copies and readbacks go out below and they must not be
+    // recorded as Archicad's work. They arrive at the same detours on the same
+    // context and no pointer filter could separate them.
+    contextstate::ScopedInjectionGuard guard;
+
     // ---- which of the three frame states is this Present? ------------------
-    const contextstate::SceneDrawState fresh = contextstate::LastCameraDraw ();
+    // ⚠️ WHEN A GROUP IS SELECTED THE CAMERA IS `SelectedCameraState` AND NOTHING
+    // ELSE. `LastCameraDraw` is the last camera-bearing draw of the LEARNED pass,
+    // which is precisely the thing that turned out to be two different cameras;
+    // it must not be consulted, not even as a fallback, because a fallback that
+    // fires occasionally is indistinguishable from the bug it replaced.
+    const CameraSource source = GetCameraSource ();
+    if (source == CameraSource::None)
+        return;
+    // ⚠️ FAIL CLOSED ON A CONVENTION MISMATCH. Drawing with a transform the
+    // census did not choose is exactly the situation that cost run thirty-three,
+    // and it is invisible in every other counter.
+    if (!InterpretationAgrees ()) {
+        g_skipInterpretation.fetch_add (1, std::memory_order_relaxed);
+        return;
+    }
+    const contextstate::SceneDrawState fresh =
+            source == CameraSource::CensusSelectedGroup
+                    ? SnapshotDraw ()
+                    : contextstate::LastCameraDraw ();
     const bool freshIsUsable =
             fresh.valid &&
             fresh.vsConstantBuffers[1].numConstants == kExpectedWindowConstants &&
             fresh.vsConstantBuffers[2].numConstants == kExpectedWindowConstants;
 
-    // ⚠️ NO SNAPSHOT, NO WORLD TRIANGLE. The clip-space probe still draws, so a
-    // run with a broken snapshot is still visibly distinguishable from a run with
-    // a broken injection.
-    if (!g_snapshotValid) {
+    oracle::FrameState state = oracle::FrameState::InvalidScene;
+    bool draw = false;
+    if (!SnapshotValid ()) {
+        // ⚠️ NO SNAPSHOT, NO WORLD TRIANGLE. The clip-space probe still draws, so
+        // a run with a broken snapshot stays visibly distinguishable from a run
+        // with a broken injection.
         g_invalidScene.fetch_add (1, std::memory_order_relaxed);
-        return;
-    }
-
-    if (freshIsUsable && fresh.modelSceneGeneration != g_lastInjectedModelGeneration) {
+    } else if (freshIsUsable && fresh.modelSceneGeneration != g_lastInjectedModelGeneration) {
         // NEW_SCENE: the model was re-rendered since we last drew, and it came
         // with its own camera. Take it.
         g_acceptedCamera = fresh;
         g_lastInjectedModelGeneration = fresh.modelSceneGeneration;
         g_newScene.fetch_add (1, std::memory_order_relaxed);
+        state = oracle::FrameState::NewScene;
+        draw = true;
     } else if (g_acceptedCamera.valid &&
                modelSceneGeneration == g_lastInjectedModelGeneration) {
         // ⚠️ REPEAT_SCENE, AND IT IS VALID RATHER THAN A COMPROMISE. Archicad
@@ -599,53 +601,80 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
         // Present injection paints the CURRENT back buffer and nothing survives
         // into the next one, so it has to be drawn again every time.
         g_repeatScene.fetch_add (1, std::memory_order_relaxed);
+        state = oracle::FrameState::RepeatScene;
+        draw = true;
     } else {
         // ⚠️ INVALID_SCENE: the model moved on and no camera came with it. New
         // geometry with an old camera is the one combination that is forbidden,
         // and the only one worth skipping a frame for.
         g_invalidScene.fetch_add (1, std::memory_order_relaxed);
-        return;
     }
 
-    contextstate::ScopedInjectionGuard guard;
-    if (!EnsureCreated (context)) {
-        g_skipNotReady.fetch_add (1, std::memory_order_relaxed);
-        return;
+    // ⚠️ THE ROW IS OPENED FOR EVERY TESTED PRESENT, INCLUDING THE REFUSED ONES.
+    // A report that only records the Presents that went well cannot explain the
+    // ones that did not, and "the triangle disappeared" is a statement about
+    // exactly those.
+    // ⚠️ EVERY ROW CARRIES WHERE ITS CAMERA CAME FROM, so an accidental fallback
+    // to the learner cannot hide inside an aggregate that looks healthy.
+    oracle::BeginPresent (renderstate::CurrentPresentGeneration (), state,
+                          modelSceneGeneration, uint32_t (source),
+                          GetSelectedCamera ().groupId,
+                          GetSelectedCamera ().snapshotGeneration,
+                          SnapshotDrawSequence (), SnapshotModelGeneration ());
+
+    if (draw) {
+        if (!EnsureCreated (context)) {
+            g_skipNotReady.fetch_add (1, std::memory_order_relaxed);
+        } else {
+            ID3D11DeviceContext1* context1 = nullptr;
+            if (FAILED (context->QueryInterface (__uuidof (ID3D11DeviceContext1),
+                                                 (void**) &context1)) ||
+                context1 == nullptr) {
+                g_skipNotReady.fetch_add (1, std::memory_order_relaxed);
+            } else {
+                // ⚠️ THE BACK BUFFER IS FETCHED AND RELEASED HERE, NEVER CACHED.
+                // A held view of a swap-chain buffer makes `ResizeBuffers` fail,
+                // which would break every window resize in Archicad.
+                ID3D11Texture2D* backBuffer = nullptr;
+                ID3D11RenderTargetView* targetView = nullptr;
+                if (SUCCEEDED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D),
+                                                     (void**) &backBuffer)) &&
+                    backBuffer != nullptr) {
+                    g_device->CreateRenderTargetView (backBuffer, nullptr, &targetView);
+                }
+                if (targetView != nullptr) {
+                    DrawWithCamera (context, context1, g_acceptedCamera, targetView, true, false);
+                    g_injected.fetch_add (1, std::memory_order_relaxed);
+                    g_injectedPresent.fetch_add (1, std::memory_order_relaxed);
+                } else {
+                    g_backBufferFailures.fetch_add (1, std::memory_order_relaxed);
+                }
+                ReleaseAndNull (targetView);
+                ReleaseAndNull (backBuffer);
+                ReleaseAndNull (context1);
+            }
+        }
     }
 
-    ID3D11DeviceContext1* context1 = nullptr;
-    if (FAILED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) ||
-        context1 == nullptr) {
-        g_skipNotReady.fetch_add (1, std::memory_order_relaxed);
-        return;
-    }
-
-    // ⚠️ THE BACK BUFFER IS FETCHED AND RELEASED HERE, NEVER CACHED. A held view
-    // of a swap-chain buffer makes `ResizeBuffers` fail, which would break every
-    // window resize in Archicad.
-    ID3D11Texture2D* backBuffer = nullptr;
-    ID3D11RenderTargetView* targetView = nullptr;
-    if (SUCCEEDED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) &&
-        backBuffer != nullptr) {
-        g_device->CreateRenderTargetView (backBuffer, nullptr, &targetView);
-    }
-    if (targetView != nullptr) {
-        DrawWithCamera (context, context1, g_acceptedCamera, targetView, true);
-        g_injected.fetch_add (1, std::memory_order_relaxed);
-    } else {
-        g_backBufferFailures.fetch_add (1, std::memory_order_relaxed);
-    }
-    ReleaseAndNull (targetView);
-    ReleaseAndNull (backBuffer);
-    ReleaseAndNull (context1);
+    // ⚠️ ALWAYS, EVEN WHEN NOTHING WAS DRAWN. This is what polls the older
+    // staging slots and the older occlusion queries, so a Present that skipped
+    // its own draw still advances every row that is waiting on the GPU.
+    oracle::EndPresent (context);
 }
 
 void InjectIfReady (ID3D11DeviceContext* context)
 {
-    if (GetPoint () != Point::ScenePass)
+    if (GetPoint () == Point::Present)
         return;
     if (context == nullptr || !g_enabled.load (std::memory_order_acquire))
         return;
+    // ⚠️ THE SAME REFUSAL AS THE PRESENT PATH, AND THE SAME SHADER. Both points
+    // use `g_vs` and therefore the same camera interpretation; only the pixel
+    // shader differs, so that the two can be told apart on screen.
+    if (!InterpretationAgrees ()) {
+        g_skipInterpretation.fetch_add (1, std::memory_order_relaxed);
+        return;
+    }
 
     // ⚠️ ALREADY INSIDE AN INJECTION. Our own draw calls reach the same detours,
     // so a nested entry would be us, and re-entering would recurse.
@@ -718,10 +747,13 @@ void InjectIfReady (ID3D11DeviceContext* context)
     // In-pass injection happens while the ring window is still current, so it
     // does not need the snapshot -- but it uses it anyway for one reason: two
     // code paths that read the camera differently would eventually disagree.
-    DrawWithCamera (context, context1, draw, nullptr, true);
+    // ⚠️ GREEN AT THE SCENE PASS, MAGENTA AT PRESENT. Seeing one and not the
+    // other says which of the two points is at fault without a second run.
+    DrawWithCamera (context, context1, draw, nullptr, true, true);
     ReleaseAndNull (context1);
 
     g_injected.fetch_add (1, std::memory_order_relaxed);
+    g_injectedScenePass.fetch_add (1, std::memory_order_relaxed);
 }
 
 InjectionStats GetInjectionStats ()
@@ -739,8 +771,28 @@ InjectionStats GetInjectionStats ()
     stats.newScene = g_newScene.load (std::memory_order_relaxed);
     stats.repeatScene = g_repeatScene.load (std::memory_order_relaxed);
     stats.invalidScene = g_invalidScene.load (std::memory_order_relaxed);
-    stats.snapshotsTaken = g_snapshotsTaken.load (std::memory_order_relaxed);
-    stats.snapshotValid = g_snapshotValid;
+    const CameraStats camera = GetCameraStats ();
+    stats.snapshotsTaken = camera.snapshotsTaken;
+    stats.snapshotSequence = camera.snapshotsTaken;
+    stats.qualifyingCameraDraws = camera.qualifyingCameraDraws;
+    stats.selectedGroupDraws = camera.selectedGroupDraws;
+    stats.selectedGroupSnapshots = camera.selectedGroupSnapshots;
+    stats.selectedGroupId = camera.selectedGroupId;
+    stats.selectedSnapshotGeneration = camera.selectedSnapshotGeneration;
+    stats.injectedPresent = g_injectedPresent.load (std::memory_order_relaxed);
+    stats.injectedScenePass = g_injectedScenePass.load (std::memory_order_relaxed);
+    stats.shaderInterpretation = ShaderInterpretation ();
+    stats.expectedInterpretation = ExpectedInterpretation ();
+    stats.interpretationAgrees = InterpretationAgrees ();
+    stats.skippedInterpretation = g_skipInterpretation.load (std::memory_order_relaxed);
+    stats.viewCopies = camera.viewCopies;
+    stats.projectionCopies = camera.projectionCopies;
+    stats.snapshotValid = camera.snapshotValid;
+    stats.occurrenceDraws = camera.occurrenceDraws;
+    stats.authoritativeSnapshots = camera.authoritativeSnapshots;
+    stats.occurrenceModelFrames = camera.occurrenceModelFrames;
+    stats.occurrenceLocked = camera.occurrenceLocked;
+    stats.lockedOccurrence = camera.lockedOccurrence;
     stats.initialised = g_initialised;
     strncpy_s (stats.lastError, sizeof (stats.lastError), g_lastError, _TRUNCATE);
     return stats;

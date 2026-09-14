@@ -236,6 +236,17 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # diagnostic hooks are armed -- and that switch has to name the renderer.
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionRenderer.hpp"),
+    # Stage 5's numeric witness, read by Tapioca.ViewerInjectionOracle. Same
+    # reason as the renderer beside it: the per-Present rows are produced on
+    # Archicad's render thread and this verb only copies them out. Restating the
+    # row shape on this side of the boundary would create a second definition of
+    # it, which is worse than the sideways include.
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionOracle.hpp"),
+    # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
+    # the groups are built on Archicad's render thread and this verb only copies
+    # them out. A second definition of the group shape on this side of the
+    # boundary is worse than the sideways include.
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/CameraCensus.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/DeviceIdentity.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/PresentHook.hpp"),
@@ -325,6 +336,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ViewportOverlayWindow.hpp"),
     ("NativeCommands/CommandBase.hpp", "Diagnostics/ApiError.hpp"),
     ("NativeCommands/CommandUtils.cpp", "Diagnostics/ApiError.hpp"),
+    # The same ApiError adapter every command-side file here already has: a
+    # failed ACAPI call is reported in one vocabulary across the add-on, and a
+    # second definition of that vocabulary is the thing this rule exists to stop.
+    ("NativeCommands/DraftingDatabaseTarget.cpp", "Diagnostics/ApiError.hpp"),
     ("NativeCommands/PlanGeometryCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/PlanOverlayCommands.cpp", "Diagnostics/ApiError.hpp"),
     ("NativeCommands/PlanOverlayCommands.cpp", "PlanOverlay/OverlayWindow.hpp"),

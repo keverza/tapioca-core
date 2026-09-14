@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
 
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
+#include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
@@ -508,9 +509,15 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
                                           UINT startIndex, INT baseVertex)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawIndexed) == Audience::Archicad)
+    if (Who (context, ContextSlot::DrawIndexed) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::Indexed, indexCount);
+    }
     const DrawIndexedFn original = OriginalOf<DrawIndexedFn> (ContextSlot::DrawIndexed);
     if (original != nullptr)
         original (context, indexCount, startIndex, baseVertex);
@@ -520,9 +527,15 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
 void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UINT start)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::Draw) == Audience::Archicad)
+    if (Who (context, ContextSlot::Draw) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::Direct, count);
+    }
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
     if (original != nullptr)
         original (context, count, start);
@@ -534,9 +547,15 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
                                                    INT baseVertex, UINT startInstance)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad)
+    if (Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::IndexedInstanced, perInst);
+    }
     const DrawIndexedInstFn original =
         OriginalOf<DrawIndexedInstFn> (ContextSlot::DrawIndexedInstanced);
     if (original != nullptr)
@@ -602,9 +621,15 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
                                             UINT startInstance)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawInstanced) == Audience::Archicad)
+    if (Who (context, ContextSlot::DrawInstanced) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::Instanced, perInstance);
+    }
     const DrawInstancedFn original = OriginalOf<DrawInstancedFn> (ContextSlot::DrawInstanced);
     if (original != nullptr)
         original (context, perInstance, instances, startVertex, startInstance);
@@ -614,9 +639,15 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
 void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawAuto) == Audience::Archicad)
+    if (Who (context, ContextSlot::DrawAuto) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::Auto, 0);
+    }
     const DrawAutoFn original = OriginalOf<DrawAutoFn> (ContextSlot::DrawAuto);
     if (original != nullptr)
         original (context);
@@ -627,9 +658,15 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
                                                            ID3D11Buffer* args, UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad)
+    if (Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::IndexedInstancedIndirect, 0);
+    }
     const DrawIndirectFn original =
         OriginalOf<DrawIndirectFn> (ContextSlot::DrawIndexedInstancedIndirect);
     if (original != nullptr)
@@ -641,9 +678,15 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
                                                     ID3D11Buffer* args, UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad)
+    if (Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
+        // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
+        // unless a diagnostic arms it, it draws nothing, and it admits a draw on
+        // its own evidence -- both camera windows bound at the 256-byte shape --
+        // rather than on the learner's verdict. See CameraCensus.hpp.
+        census::OnDraw (context, census::DrawKind::InstancedIndirect, 0);
+    }
     const DrawIndirectFn original =
         OriginalOf<DrawIndirectFn> (ContextSlot::DrawInstancedIndirect);
     if (original != nullptr)
