@@ -137,6 +137,9 @@ struct HudState {
     int wireTessellation = 1;
     float wireLineWidth = 1.25f;
     float annotationTextHeightMetres = 0.18f;
+    float annotationDimensionOffsetMetres = 0.25f;
+    float annotationWitnessStartGapMetres = 0.02f;
+    float annotationWitnessOverhangMetres = 0.04f;
     float annotationHideBelowPixels = 10.0f;
     float annotationCapAbovePixels = 36.0f;
     bool annotationDimensionsOnHover = true;
@@ -471,6 +474,8 @@ struct HudState {
     // whatever steps a Python caller manages to send.
     double instructionSecondsRemaining = -1.0;
 };
+
+annotation::DimensionStyle AnnotationDimensionStyle (const HudState& state);
 
 class DiligentHud final {
   public:

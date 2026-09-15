@@ -52,6 +52,9 @@ struct WatchPrimitive {
     std::optional<bool> hoverOnly;
     std::optional<bool> alwaysVisible;
     std::optional<double> offset;
+    std::optional<Point3> planeNormal;
+    std::optional<Point3> preferredOffsetDirection;
+    std::optional<std::string> annotationId;
 };
 
 struct WatchFrame {

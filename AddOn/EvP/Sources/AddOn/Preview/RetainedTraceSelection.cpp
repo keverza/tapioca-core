@@ -71,6 +71,14 @@ geomsrv::annotation::DrawList ToDrawList (const WatchTrace& trace)
                 primitive.hoverOnly = source.hoverOnly.value_or (false);
                 primitive.alwaysVisible = source.alwaysVisible.value_or (false);
                 primitive.offset = source.offset.value_or (0.0);
+                if (source.planeNormal.has_value ())
+                    primitive.planeNormal = { (*source.planeNormal)[0], (*source.planeNormal)[1],
+                                              (*source.planeNormal)[2] };
+                if (source.preferredOffsetDirection.has_value ())
+                    primitive.preferredOffsetDirection = { (*source.preferredOffsetDirection)[0],
+                                                           (*source.preferredOffsetDirection)[1],
+                                                           (*source.preferredOffsetDirection)[2] };
+                primitive.annotationId = source.annotationId.value_or ("");
                 primitive.points.reserve (source.points.size () / 3);
                 for (std::size_t index = 0; index + 2 < source.points.size (); index += 3)
                     primitive.points.push_back (

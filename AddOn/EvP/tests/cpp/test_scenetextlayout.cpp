@@ -85,3 +85,28 @@ TEST (SceneTextLayout, PreservesUtf8ClustersDirectionAndReplacement)
         replacementCount += glyph.glyphIndex == replacement.glyphs.front ().glyphIndex ? 1u : 0u;
     EXPECT_EQ (replacementCount, 2u);
 }
+
+TEST (SceneTextLayout, PublishesRendererIndependentLogicalAndInkMetrics)
+{
+    const std::vector<uint8_t> font = ReadShapingFont ();
+    geomsrv::archviz::SceneTextShaper shaper;
+    std::string error;
+    ASSERT_TRUE (shaper.Init (font.data (), font.size (), error)) << error;
+
+    const auto run = Shape (shaper, "Ag");
+
+    EXPECT_FLOAT_EQ (run.baseline, 0.0f);
+    EXPECT_GT (run.ascent, 0.0f);
+    EXPECT_GT (run.descent, 0.0f);
+    EXPECT_GE (run.lineHeight, run.ascent + run.descent);
+    EXPECT_FLOAT_EQ (run.logicalBounds.left, 0.0f);
+    EXPECT_FLOAT_EQ (run.logicalBounds.right, run.advance);
+    EXPECT_FLOAT_EQ (run.logicalBounds.top, run.ascent);
+    EXPECT_FLOAT_EQ (run.logicalBounds.bottom, -run.descent);
+    EXPECT_TRUE (run.hasInkBounds);
+    EXPECT_LT (run.inkBounds.left, run.inkBounds.right);
+    EXPECT_LT (run.inkBounds.bottom, run.inkBounds.top);
+    ASSERT_EQ (run.glyphs.size (), 2u);
+    EXPECT_TRUE (run.glyphs[0].hasInkBounds);
+    EXPECT_TRUE (run.glyphs[1].hasInkBounds);
+}

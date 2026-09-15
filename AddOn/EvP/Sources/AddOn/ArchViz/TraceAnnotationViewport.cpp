@@ -42,6 +42,7 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (
                 placementHistory.nodeIndex = selected->nodeIndex;
                 placementHistory.frameIndex = selected->frameIndex;
                 placementHistory.candidateByPrimitive.clear ();
+                placementHistory.dimensionCandidateByAnnotation.clear ();
             }
             const ScreenTextMeasure measureText = [&layer] (std::string_view text, float fontSize,
                                                             ScreenTextExtent& extent) {
@@ -50,10 +51,10 @@ ProjectedDrawList UpdateAndDrawTraceAnnotations (
             const AnnotationPrimitiveFilter primitiveFilter = UpdateAnnotationHover (
                 selected->SelectedFrame (), selected->drawList, selected->nodeIndex, selected->frameIndex, viewProj,
                 width, height, dpiScale, annotationsOnly, hudState, input, dimensionHoverState);
+            const annotation::DimensionStyle dimensionStyle = AnnotationDimensionStyle (hudState);
             annotations = BuildTraceAnnotations (
                 selected->SelectedFrame (), viewProj, width, height, dpiScale, annotationsOnly, measureText,
-                &placementHistory, hudState.annotationTextHeightMetres, hudState.annotationHideBelowPixels,
-                hudState.annotationCapAbovePixels, primitiveFilter);
+                &placementHistory, dimensionStyle, primitiveFilter);
             if (!annotations.labels.empty () && layer.IsReady () &&
                 layer.DrawProjected (device, context, depthView, annotations.labels, width, height, dpiScale, nearClip,
                                      farClip, perspective)) {

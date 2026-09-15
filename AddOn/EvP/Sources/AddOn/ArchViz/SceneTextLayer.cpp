@@ -652,9 +652,10 @@ bool SceneTextLayer::MeasureProjectedText (std::string_view text, float fontSize
     const auto run = impl_->layoutCache.FindOrRequest (std::string (text), SceneTextDirection::Auto);
     if (run == nullptr)
         return false;
-    extent.width = std::fabs (run->advance) * fontSize;
-    extent.height = fontSize;
-    return std::isfinite (extent.width) && extent.width >= 0.0f;
+    extent.width = (run->logicalBounds.right - run->logicalBounds.left) * fontSize;
+    extent.height = (run->logicalBounds.top - run->logicalBounds.bottom) * fontSize;
+    return std::isfinite (extent.width) && std::isfinite (extent.height) && extent.width >= 0.0f &&
+           extent.height > 0.0f;
 }
 
 bool SceneTextLayer::Impl::DrawPrepared (Diligent::IRenderDevice* device, Diligent::IDeviceContext* context,

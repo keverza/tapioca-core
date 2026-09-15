@@ -81,6 +81,9 @@ struct Primitive {
     bool hoverOnly = false;
     bool alwaysVisible = false;
     double offset = 0.0;
+    std::optional<Point3> planeNormal;
+    std::optional<Point3> preferredOffsetDirection;
+    std::string annotationId;
 };
 
 // Fits an open or closed sampled XY circle and reports its traversal direction.

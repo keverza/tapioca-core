@@ -1,14 +1,12 @@
 #include "ArchViz/TraceAnnotationLayer.hpp"
 
+#include "ArchViz/AnnotationScreenLayout.hpp"
 #include "ArchViz/MatrixMath.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdio>
-#include <iterator>
 #include <limits>
-#include <numeric>
 
 namespace geomsrv::archviz {
 namespace {
@@ -19,7 +17,6 @@ using annotation::PrimitiveKind;
 using annotation::SemanticRole;
 
 constexpr float kArrowLength = 10.0f;
-constexpr float kArrowWidth = 5.0f;
 constexpr float kDimensionOffset = 14.0f;
 constexpr float kBaseFontPixels = 18.0f;
 
@@ -57,7 +54,8 @@ void AddLine (ProjectedDrawList& out, const ScreenPoint& from, const ScreenPoint
 }
 
 void AddArrowhead (ProjectedDrawList& out, const ScreenPoint& tail, const ScreenPoint& tip, uint32_t color,
-                   float dpiScale)
+                    float dpiScale, float arrowLength = kArrowLength,
+                    float arrowAngle = 0.4636476090008061f)
 {
     const float dx = tip.x - tail.x;
     const float dy = tip.y - tail.y;
@@ -66,10 +64,12 @@ void AddArrowhead (ProjectedDrawList& out, const ScreenPoint& tail, const Screen
         return;
     const float ux = dx / length;
     const float uy = dy / length;
-    const ScreenPoint base { tip.x - ux * kArrowLength * dpiScale, tip.y - uy * kArrowLength * dpiScale };
+    const float scaledLength = arrowLength * dpiScale;
+    const float scaledHalfWidth = std::tan (arrowAngle) * scaledLength;
+    const ScreenPoint base { tip.x - ux * scaledLength, tip.y - uy * scaledLength };
     out.triangles.push_back ({ { tip,
-                                 { base.x - uy * kArrowWidth * dpiScale, base.y + ux * kArrowWidth * dpiScale },
-                                 { base.x + uy * kArrowWidth * dpiScale, base.y - ux * kArrowWidth * dpiScale } },
+                                 { base.x - uy * scaledHalfWidth, base.y + ux * scaledHalfWidth },
+                                 { base.x + uy * scaledHalfWidth, base.y - ux * scaledHalfWidth } },
                                color });
 }
 
@@ -160,6 +160,22 @@ ScreenTextExtent MeasureText (std::string_view text, float fontSize, const Scree
     return { std::max (fontSize * 0.56f * float (Utf8CodepointCount (text)), fontSize * 0.5f), fontSize };
 }
 
+std::optional<annotation::Point3> CameraFacingNormal (const float viewProj[16])
+{
+    // In a row-vector perspective matrix the fourth column is the world-space
+    // view direction. Orthographic projection has no perspective column, so its
+    // depth column supplies the same axis up to sign and scale.
+    annotation::Point3 normal { viewProj[3], viewProj[7], viewProj[11] };
+    double length = std::hypot (normal.x, std::hypot (normal.y, normal.z));
+    if (length <= 1.0e-12) {
+        normal = { viewProj[2], viewProj[6], viewProj[10] };
+        length = std::hypot (normal.x, std::hypot (normal.y, normal.z));
+    }
+    if (!std::isfinite (length) || length <= 1.0e-12)
+        return std::nullopt;
+    return annotation::Point3 { normal.x / length, normal.y / length, normal.z / length };
+}
+
 float EdgeClearance (const ScreenPoint& first, const ScreenPoint& second, const ScreenPoint& labelCenter,
                      const ScreenTextExtent& label, uint32_t width, uint32_t height)
 {
@@ -195,93 +211,21 @@ float ReadableRotation (float radians)
     return radians;
 }
 
-void AddLineTrimmedAgainstLabel (ProjectedDrawList& out, const ScreenPoint& from, const ScreenPoint& to,
-                                 const ScreenPoint& labelCenter, const ScreenTextExtent& label, float padding,
-                                 uint32_t color, float lineWidth)
+void AddResolvedDimensionLine (ProjectedDrawList& out, const ScreenPoint& origin, const ScreenPoint& unit,
+                               float dimensionLength, const annotation::ResolvedDimensionFit& fit, uint32_t color,
+                               float lineWidth)
 {
-    const float dx = to.x - from.x;
-    const float dy = to.y - from.y;
-    const float length = std::hypot (dx, dy);
-    if (length <= 1.0e-3f)
-        return;
-    const float ux = dx / length;
-    const float uy = dy / length;
-    const float centerDistance = (labelCenter.x - from.x) * ux + (labelCenter.y - from.y) * uy;
-    const float halfGap =
-        std::fabs (ux) * (label.width * 0.5f + padding) + std::fabs (uy) * (label.height * 0.5f + padding);
-    const float before = std::clamp (centerDistance - halfGap, 0.0f, length);
-    const float after = std::clamp (centerDistance + halfGap, 0.0f, length);
-    if (before > 1.0e-3f)
-        AddLine (out, from, { from.x + ux * before, from.y + uy * before }, color, lineWidth);
-    if (after < length - 1.0e-3f)
-        AddLine (out, { from.x + ux * after, from.y + uy * after }, to, color, lineWidth);
-}
-
-struct LabelBox {
-    ScreenPoint center;
-    float halfWidth;
-    float halfHeight;
-    float rotationRadians;
-};
-
-float ProjectionRadius (const LabelBox& box, const ScreenPoint& axis)
-{
-    const float cosine = std::cos (box.rotationRadians);
-    const float sine = std::sin (box.rotationRadians);
-    const ScreenPoint along { cosine, sine };
-    const ScreenPoint across { -sine, cosine };
-    return box.halfWidth * std::fabs (along.x * axis.x + along.y * axis.y) +
-           box.halfHeight * std::fabs (across.x * axis.x + across.y * axis.y);
-}
-
-bool Overlaps (const LabelBox& left, const LabelBox& right, float gap)
-{
-    const ScreenPoint delta { right.center.x - left.center.x, right.center.y - left.center.y };
-    const float leftCosine = std::cos (left.rotationRadians);
-    const float leftSine = std::sin (left.rotationRadians);
-    const float rightCosine = std::cos (right.rotationRadians);
-    const float rightSine = std::sin (right.rotationRadians);
-    const ScreenPoint axes[] = {
-        { leftCosine, leftSine },
-        { -leftSine, leftCosine },
-        { rightCosine, rightSine },
-        { -rightSine, rightCosine },
+    const float lineStart = -float (fit.extensionBeforePx);
+    const float lineEnd = dimensionLength + float (fit.extensionAfterPx);
+    const float gapStart = float (fit.gapStartPx);
+    const float gapEnd = float (fit.gapEndPx);
+    const auto pointAt = [&] (float distance) {
+        return ScreenPoint { origin.x + unit.x * distance, origin.y + unit.y * distance };
     };
-    return std::all_of (std::begin (axes), std::end (axes), [&] (const ScreenPoint& axis) {
-        const float distance = std::fabs (delta.x * axis.x + delta.y * axis.y);
-        return distance < ProjectionRadius (left, axis) + ProjectionRadius (right, axis) + gap;
-    });
-}
-
-bool Intersects (const ScreenLine& line, const LabelBox& box, float gap)
-{
-    const float cosine = std::cos (box.rotationRadians);
-    const float sine = std::sin (box.rotationRadians);
-    const auto local = [&] (const ScreenPoint& point) {
-        const float x = point.x - box.center.x;
-        const float y = point.y - box.center.y;
-        return ScreenPoint { x * cosine + y * sine, -x * sine + y * cosine };
-    };
-    const ScreenPoint from = local (line.from);
-    const ScreenPoint to = local (line.to);
-    const float dx = to.x - from.x;
-    const float dy = to.y - from.y;
-    const float halfWidth = box.halfWidth + gap;
-    const float halfHeight = box.halfHeight + gap;
-    float minimum = 0.0f;
-    float maximum = 1.0f;
-    const auto clip = [&] (float start, float delta, float extent) {
-        if (std::fabs (delta) <= 1.0e-6f)
-            return std::fabs (start) <= extent;
-        float first = (-extent - start) / delta;
-        float second = (extent - start) / delta;
-        if (first > second)
-            std::swap (first, second);
-        minimum = std::max (minimum, first);
-        maximum = std::min (maximum, second);
-        return minimum <= maximum;
-    };
-    return clip (from.x, dx, halfWidth) && clip (from.y, dy, halfHeight);
+    if (gapStart > lineStart + 1.0e-3f)
+        AddLine (out, pointAt (lineStart), pointAt (std::min (gapStart, lineEnd)), color, lineWidth);
+    if (gapEnd < lineEnd - 1.0e-3f)
+        AddLine (out, pointAt (std::max (gapEnd, lineStart)), pointAt (lineEnd), color, lineWidth);
 }
 
 float PointSegmentDistanceSquared (const ScreenPoint& point, const ScreenPoint& first, const ScreenPoint& second)
@@ -298,94 +242,6 @@ float PointSegmentDistanceSquared (const ScreenPoint& point, const ScreenPoint& 
     const float distanceX = point.x - nearestX;
     const float distanceY = point.y - nearestY;
     return distanceX * distanceX + distanceY * distanceY;
-}
-
-void ResolveLabelOverlaps (ProjectedDrawList& out, uint32_t width, uint32_t height, float dpiScale,
-                           const ScreenTextMeasure& measureText, AnnotationPlacementHistory* placementHistory)
-{
-    std::vector<LabelBox> occupied;
-    occupied.reserve (out.labels.size ());
-    const float inset = 4.0f * dpiScale;
-    for (ScreenLabel& label : out.labels) {
-        const float fontSize = label.fontSize > 0.0f ? label.fontSize : 18.0f * dpiScale;
-        const float labelScale = fontSize / kBaseFontPixels;
-        const float gap = 5.0f * labelScale;
-        const ScreenTextExtent extent = MeasureText (label.text, fontSize, measureText);
-        const ScreenPoint original = label.anchor;
-        const ScreenPoint originalCenter { label.centered ? original.x : original.x + extent.width * 0.5f,
-                                           label.centered ? original.y + extent.height * 0.5f
-                                                          : original.y - extent.height * 0.5f };
-        const float cosine = std::cos (label.rotationRadians);
-        const float sine = std::sin (label.rotationRadians);
-        const ScreenPoint along { cosine, sine };
-        const ScreenPoint across { -sine, cosine };
-        const float stepAlong = extent.width + 7.0f * labelScale;
-        const float stepAcross = extent.height + 7.0f * labelScale;
-        const ScreenPoint offsets[] = {
-            { 0.0f, 0.0f },
-            { across.x * stepAcross, across.y * stepAcross },
-            { -across.x * stepAcross, -across.y * stepAcross },
-            { along.x * stepAlong, along.y * stepAlong },
-            { -along.x * stepAlong, -along.y * stepAlong },
-            { across.x * stepAcross + along.x * stepAlong, across.y * stepAcross + along.y * stepAlong },
-            { across.x * stepAcross - along.x * stepAlong, across.y * stepAcross - along.y * stepAlong },
-            { -across.x * stepAcross + along.x * stepAlong, -across.y * stepAcross + along.y * stepAlong },
-            { -across.x * stepAcross - along.x * stepAlong, -across.y * stepAcross - along.y * stepAlong },
-            { across.x * 2.0f * stepAcross, across.y * 2.0f * stepAcross },
-            { -across.x * 2.0f * stepAcross, -across.y * 2.0f * stepAcross },
-        };
-        std::array<std::size_t, std::size (offsets)> candidateOrder;
-        std::iota (candidateOrder.begin (), candidateOrder.end (), 0);
-        if (placementHistory != nullptr) {
-            const auto previous = placementHistory->candidateByPrimitive.find (label.sourcePrimitive);
-            if (previous != placementHistory->candidateByPrimitive.end () && previous->second < candidateOrder.size ())
-                std::swap (candidateOrder[0], candidateOrder[previous->second]);
-        }
-        bool placed = false;
-        for (int pass = 0; pass < 2 && !placed; ++pass) {
-            for (const std::size_t candidateIndex : candidateOrder) {
-                const ScreenPoint& offset = offsets[candidateIndex];
-                const ScreenPoint anchor { original.x + offset.x, original.y + offset.y };
-                const ScreenPoint center { originalCenter.x + offset.x, originalCenter.y + offset.y };
-                const LabelBox candidate { center, extent.width * 0.5f, extent.height * 0.5f, label.rotationRadians };
-                const float aabbHalfWidth =
-                    std::fabs (cosine) * candidate.halfWidth + std::fabs (sine) * candidate.halfHeight;
-                const float aabbHalfHeight =
-                    std::fabs (sine) * candidate.halfWidth + std::fabs (cosine) * candidate.halfHeight;
-                if (center.x - aabbHalfWidth < inset || center.y - aabbHalfHeight < inset ||
-                    center.x + aabbHalfWidth > float (width) - inset ||
-                    center.y + aabbHalfHeight > float (height) - inset)
-                    continue;
-                if (std::any_of (occupied.begin (), occupied.end (),
-                                 [&] (const LabelBox& item) { return Overlaps (candidate, item, gap); }))
-                    continue;
-                if (pass == 0 && !label.backgroundPanel) {
-                    bool intersectsGeometry = false;
-                    for (std::size_t lineIndex = 0; lineIndex < out.lines.size (); ++lineIndex) {
-                        if (lineIndex >= label.ownLineBegin && lineIndex < label.ownLineEnd)
-                            continue;
-                        if (out.lines[lineIndex].collisionObstacle &&
-                            Intersects (out.lines[lineIndex], candidate, 2.0f * labelScale)) {
-                            intersectsGeometry = true;
-                            break;
-                        }
-                    }
-                    if (intersectsGeometry)
-                        continue;
-                }
-                label.anchor = anchor;
-                occupied.push_back (candidate);
-                placed = true;
-                if (placementHistory != nullptr)
-                    placementHistory->candidateByPrimitive[label.sourcePrimitive] =
-                        static_cast<uint8_t> (candidateIndex);
-                break;
-            }
-        }
-        if (!placed) {
-            occupied.push_back ({ originalCenter, extent.width * 0.5f, extent.height * 0.5f, label.rotationRadians });
-        }
-    }
 }
 
 void AddTrimmedPath (ProjectedDrawList& out, const std::vector<ScreenPoint>& path, const std::vector<float>& distances,
@@ -545,104 +401,181 @@ void AddArcDimension (ProjectedDrawList& out, const Primitive& primitive, const 
 }
 
 void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
-                   uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
-                   float fontSizePixels)
+                    uint32_t height, uint32_t color, float furnitureScale, const ScreenTextMeasure& measureText,
+                     float fontSizePixels, const annotation::DimensionStyle& style, std::size_t primitiveIndex,
+                     AnnotationPlacementHistory* placementHistory, bool retainDimensionCandidates)
 {
     if (primitive.points.size () > 2) {
         AddArcDimension (out, primitive, viewProj, width, height, color, furnitureScale, measureText, fontSizePixels);
         return;
     }
-    const std::size_t ownLineBegin = out.lines.size ();
-    ScreenPoint a, b;
-    double worldA[3], worldB[3];
-    if (!PointAt (primitive, 0, worldA) || !PointAt (primitive, 1, worldB) ||
-        !Project (worldA, viewProj, width, height, a) || !Project (worldB, viewProj, width, height, b))
+    const annotation::Point3& worldA = primitive.points[0];
+    const annotation::Point3& worldB = primitive.points[1];
+    const annotation::Point3 difference { worldB.x - worldA.x, worldB.y - worldA.y, worldB.z - worldA.z };
+    const double worldLength = std::sqrt (difference.x * difference.x + difference.y * difference.y +
+                                          difference.z * difference.z);
+    if (worldLength <= 1.0e-12)
         return;
-    const float dx = b.x - a.x;
-    const float dy = b.y - a.y;
-    const float screenLength = std::sqrt (dx * dx + dy * dy);
-    if (screenLength <= 1.0e-3f)
-        return;
-    const ScreenPoint projectedUnit { dx / screenLength, dy / screenLength };
     char measured[64];
-    const double wx = worldB[0] - worldA[0], wy = worldB[1] - worldA[1], wz = worldB[2] - worldA[2];
-    std::snprintf (measured, sizeof (measured), "%.3f m", std::sqrt (wx * wx + wy * wy + wz * wz));
+    std::snprintf (measured, sizeof (measured), "%.3f m", worldLength);
     const std::string text = primitive.text.empty () ? measured : primitive.text;
     const float fontSize = fontSizePixels;
     const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
-    ScreenPoint da;
-    ScreenPoint db;
-    double depthWorld[3] = { (worldA[0] + worldB[0]) * 0.5, (worldA[1] + worldB[1]) * 0.5,
-                             (worldA[2] + worldB[2]) * 0.5 };
+    annotation::AlignedDimensionInput input;
+    input.first = worldA;
+    input.second = worldB;
+    input.planes.explicitNormal = primitive.planeNormal;
+    input.planes.preferredOffsetDirection = primitive.preferredOffsetDirection;
+    const annotation::Point3 axis { difference.x / worldLength, difference.y / worldLength,
+                                    difference.z / worldLength };
+    if (!input.planes.explicitNormal.has_value () && input.planes.preferredOffsetDirection.has_value ()) {
+        const annotation::Point3& preferred = *input.planes.preferredOffsetDirection;
+        input.planes.geometryNormal = { axis.y * preferred.z - axis.z * preferred.y,
+                                       axis.z * preferred.x - axis.x * preferred.z,
+                                       axis.x * preferred.y - axis.y * preferred.x };
+    }
+    if (std::fabs (axis.z) < 1.0 - 1.0e-6)
+        input.planes.declaredNormal = annotation::Point3 { 0.0, 0.0, 1.0 };
+    input.planes.cameraFacingNormal = CameraFacingNormal (viewProj);
     if (primitive.offset != 0.0) {
-        const double planX = worldB[0] - worldA[0], planY = worldB[1] - worldA[1];
-        const double planLength = std::sqrt (planX * planX + planY * planY);
-        if (planLength <= 1.0e-12)
-            return;
-        const double ox = -planY / planLength * primitive.offset;
-        const double oy = planX / planLength * primitive.offset;
-        const double dimensionA[3] = { worldA[0] + ox, worldA[1] + oy, worldA[2] };
-        const double dimensionB[3] = { worldB[0] + ox, worldB[1] + oy, worldB[2] };
-        depthWorld[0] += ox;
-        depthWorld[1] += oy;
-        if (!Project (dimensionA, viewProj, width, height, da) || !Project (dimensionB, viewProj, width, height, db))
-            return;
-    }
-    else {
-        const ScreenPoint normal { -projectedUnit.y * kDimensionOffset * furnitureScale,
-                                   projectedUnit.x * kDimensionOffset * furnitureScale };
-        const ScreenPoint positiveA { a.x + normal.x, a.y + normal.y };
-        const ScreenPoint positiveB { b.x + normal.x, b.y + normal.y };
-        const ScreenPoint negativeA { a.x - normal.x, a.y - normal.y };
-        const ScreenPoint negativeB { b.x - normal.x, b.y - normal.y };
-        const ScreenPoint positiveCenter { (positiveA.x + positiveB.x) * 0.5f, (positiveA.y + positiveB.y) * 0.5f };
-        const ScreenPoint negativeCenter { (negativeA.x + negativeB.x) * 0.5f, (negativeA.y + negativeB.y) * 0.5f };
-        if (EdgeClearance (positiveA, positiveB, positiveCenter, textExtent, width, height) >=
-            EdgeClearance (negativeA, negativeB, negativeCenter, textExtent, width, height)) {
-            da = positiveA;
-            db = positiveB;
-        }
-        else {
-            da = negativeA;
-            db = negativeB;
+        input.explicitOffset = std::fabs (primitive.offset);
+        if (primitive.offset < 0.0) {
+            if (input.planes.preferredOffsetDirection.has_value ()) {
+                annotation::Point3& preferred = *input.planes.preferredOffsetDirection;
+                preferred = { -preferred.x, -preferred.y, -preferred.z };
+            }
+            else {
+                input.planes.preferredOffsetDirection = annotation::Point3 { 0.0, 0.0, -1.0 };
+            }
         }
     }
-    AddLine (out, a, da, color, 2.0f * furnitureScale);
-    AddLine (out, b, db, color, 2.0f * furnitureScale);
+
+    struct Candidate {
+        annotation::ResolvedDimensionGeometry geometry;
+        ScreenPoint first;
+        ScreenPoint second;
+        ScreenPoint labelCenter;
+        annotation::ResolvedDimensionFit fit;
+        float score = 0.0f;
+        uint8_t id = 0;
+    };
+    std::vector<Candidate> candidates;
+    const std::optional<annotation::Point3> preferred = input.planes.preferredOffsetDirection;
+    for (uint8_t candidateId = 0; candidateId < 4; ++candidateId) {
+        annotation::AlignedDimensionInput candidateInput = input;
+        const double sign = candidateId % 2 == 0 ? 1.0 : -1.0;
+        if (preferred.has_value ())
+            candidateInput.planes.preferredOffsetDirection = annotation::Point3 {
+                preferred->x * sign, preferred->y * sign, preferred->z * sign };
+        else
+            candidateInput.planes.preferredOffsetDirection = annotation::Point3 { 0.0, sign, 0.0 };
+        const double baseOffset = input.explicitOffset.value_or (style.dimensionOffset + input.userOffset);
+        candidateInput.explicitOffset = baseOffset * (candidateId >= 2 ? 1.75 : 1.0);
+        const auto resolved = annotation::ResolveAlignedDimensionGeometry (candidateInput, style);
+        if (!resolved.has_value ())
+            continue;
+        const auto projectPoint = [&] (const annotation::Point3& point, ScreenPoint& screen, float* depth = nullptr) {
+            const double value[3] = { point.x, point.y, point.z };
+            return Project (value, viewProj, width, height, screen, depth);
+        };
+        Candidate candidate;
+        candidate.geometry = *resolved;
+        candidate.id = candidateId;
+        if (!projectPoint (resolved->dimensionFirst, candidate.first) ||
+            !projectPoint (resolved->dimensionSecond, candidate.second))
+            continue;
+        const ScreenPoint center { (candidate.first.x + candidate.second.x) * 0.5f,
+                                   (candidate.first.y + candidate.second.y) * 0.5f };
+        const float dimensionDx = candidate.second.x - candidate.first.x;
+        const float dimensionDy = candidate.second.y - candidate.first.y;
+        const float dimensionLength = std::hypot (dimensionDx, dimensionDy);
+        if (dimensionLength <= 1.0e-3f)
+            continue;
+        const ScreenPoint unit { dimensionDx / dimensionLength, dimensionDy / dimensionLength };
+        const float panelPadding = float (style.textPaddingPx);
+        const float labelDistance = float ((style.arrowSize + style.outsideTextGapPx) * furnitureScale) +
+                                    textExtent.width * 0.5f + panelPadding;
+        const ScreenPoint before { candidate.first.x - unit.x * labelDistance,
+                                   candidate.first.y - unit.y * labelDistance };
+        const ScreenPoint after { candidate.second.x + unit.x * labelDistance,
+                                  candidate.second.y + unit.y * labelDistance };
+        const auto fit = annotation::ResolveDimensionFit (
+            { dimensionLength, textExtent.width, LabelOverflow (before, textExtent, width, height, panelPadding),
+              LabelOverflow (after, textExtent, width, height, panelPadding), furnitureScale },
+            style);
+        if (!fit.has_value ())
+            continue;
+        candidate.fit = *fit;
+        candidate.labelCenter = fit->textMode == annotation::DimensionTextMode::Centered
+                                    ? center
+                                    : (fit->textMode == annotation::DimensionTextMode::OutsideBefore ? before : after);
+        candidate.id = uint8_t (candidateId | (uint8_t (fit->textMode) << 2) |
+                                (uint8_t (fit->arrowMode) << 4));
+        candidate.score = EdgeClearance (candidate.first, candidate.second, candidate.labelCenter, textExtent, width,
+                                         height) -
+                          100.0f * LabelOverflow (candidate.labelCenter, textExtent, width, height, panelPadding) -
+                          AnnotationCandidateOccupancyPenalty (
+                              out, candidate.labelCenter, textExtent,
+                              ReadableRotation (std::atan2 (dimensionDy, dimensionDx)), 5.0f * furnitureScale,
+                              measureText);
+        candidates.push_back (candidate);
+    }
+    if (candidates.empty ())
+        return;
+    const auto best = std::max_element (candidates.begin (), candidates.end (), [] (const Candidate& left,
+                                                                                     const Candidate& right) {
+        return left.score < right.score;
+    });
+    auto selected = best;
+    const std::string annotationId = primitive.annotationId.empty () ? std::to_string (primitiveIndex)
+                                                                      : primitive.annotationId;
+    if (placementHistory != nullptr) {
+        const auto previous = placementHistory->dimensionCandidateByAnnotation.find (annotationId);
+        if (previous != placementHistory->dimensionCandidateByAnnotation.end ()) {
+            const auto retained = std::find_if (candidates.begin (), candidates.end (), [&] (const Candidate& item) {
+                return item.id == previous->second;
+            });
+            if (retained != candidates.end () &&
+                (retainDimensionCandidates || retained->score >= best->score - 8.0f * furnitureScale))
+                selected = retained;
+        }
+        placementHistory->dimensionCandidateByAnnotation[annotationId] = selected->id;
+    }
+    const annotation::ResolvedDimensionGeometry& geometry = selected->geometry;
+    const ScreenPoint da = selected->first;
+    const ScreenPoint db = selected->second;
+    const auto projectPoint = [&] (const annotation::Point3& point, ScreenPoint& screen, float* depth = nullptr) {
+        const double value[3] = { point.x, point.y, point.z };
+        return Project (value, viewProj, width, height, screen, depth);
+    };
+    ScreenPoint witnessA0, witnessA1, witnessB0, witnessB1;
+    if (!projectPoint (geometry.witnessFirstStart, witnessA0) || !projectPoint (geometry.witnessFirstEnd, witnessA1) ||
+        !projectPoint (geometry.witnessSecondStart, witnessB0) || !projectPoint (geometry.witnessSecondEnd, witnessB1))
+        return;
+    const std::size_t ownLineBegin = out.lines.size ();
+    AddLine (out, witnessA0, witnessA1, color, 2.0f * furnitureScale);
+    AddLine (out, witnessB0, witnessB1, color, 2.0f * furnitureScale);
     const float dimensionDx = db.x - da.x;
     const float dimensionDy = db.y - da.y;
     const float dimensionLength = std::hypot (dimensionDx, dimensionDy);
     if (dimensionLength <= 1.0e-3f)
         return;
     const ScreenPoint unit { dimensionDx / dimensionLength, dimensionDy / dimensionLength };
-    const float panelPadding = 4.0f * furnitureScale;
-    const float textAlongLine = textExtent.width;
-    const bool fitsInside = dimensionLength >= textAlongLine + 2.0f * (kArrowLength + 3.0f) * furnitureScale;
-    ScreenPoint labelCenter;
-    ScreenPoint lineFrom = da;
-    ScreenPoint lineTo = db;
-    if (fitsInside) {
-        labelCenter = { (da.x + db.x) * 0.5f, (da.y + db.y) * 0.5f };
-        AddArrowhead (out, db, da, color, furnitureScale);
-        AddArrowhead (out, da, db, color, furnitureScale);
+    const ScreenPoint labelCenter = selected->labelCenter;
+    const annotation::ResolvedDimensionFit& fit = selected->fit;
+    if (fit.arrowMode == annotation::DimensionArrowMode::Inward) {
+        AddArrowhead (out, { da.x - unit.x, da.y - unit.y }, da, color, furnitureScale,
+                      float (style.arrowSize), float (style.arrowAngle));
+        AddArrowhead (out, { db.x + unit.x, db.y + unit.y }, db, color, furnitureScale,
+                      float (style.arrowSize), float (style.arrowAngle));
     }
     else {
-        const float labelDistance = (kArrowLength + 2.0f) * furnitureScale + textAlongLine * 0.5f + panelPadding;
-        const ScreenPoint before { da.x - unit.x * labelDistance, da.y - unit.y * labelDistance };
-        const ScreenPoint after { db.x + unit.x * labelDistance, db.y + unit.y * labelDistance };
-        const bool useBefore = LabelOverflow (before, textExtent, width, height, panelPadding) <=
-                               LabelOverflow (after, textExtent, width, height, panelPadding);
-        labelCenter = useBefore ? before : after;
-        const float overhang = (kArrowLength + 4.0f) * furnitureScale + textAlongLine + panelPadding * 2.0f;
-        if (useBefore)
-            lineFrom = { da.x - unit.x * overhang, da.y - unit.y * overhang };
-        else
-            lineTo = { db.x + unit.x * overhang, db.y + unit.y * overhang };
-        AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, furnitureScale);
-        AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, furnitureScale);
+        AddArrowhead (out, { da.x + unit.x, da.y + unit.y }, da, color, furnitureScale,
+                      float (style.arrowSize), float (style.arrowAngle));
+        AddArrowhead (out, { db.x - unit.x, db.y - unit.y }, db, color, furnitureScale,
+                      float (style.arrowSize), float (style.arrowAngle));
     }
-    AddLineTrimmedAgainstLabel (out, lineFrom, lineTo, labelCenter, textExtent, panelPadding, color,
-                                2.0f * furnitureScale);
+    AddResolvedDimensionLine (out, da, unit, dimensionLength, fit, color, 2.0f * furnitureScale);
     if (!text.empty ())
         out.labels.push_back ({ { labelCenter.x, labelCenter.y - textExtent.height * 0.5f },
                                 text,
@@ -654,30 +587,18 @@ void AddDimension (ProjectedDrawList& out, const Primitive& primitive, const flo
                                 false });
     if (!text.empty ()) {
         out.labels.back ().rotationRadians = ReadableRotation (std::atan2 (dimensionDy, dimensionDx));
+        out.labels.back ().resolvedPlacement = true;
         out.labels.back ().ownLineBegin = ownLineBegin;
         out.labels.back ().ownLineEnd = out.lines.size ();
-        ScreenPoint unused;
+        ScreenPoint depthAnchor;
         float depth = 1.0f;
-        if (Project (depthWorld, viewProj, width, height, unused, &depth))
+        const annotation::Point3 depthWorld { (geometry.dimensionFirst.x + geometry.dimensionSecond.x) * 0.5,
+                                              (geometry.dimensionFirst.y + geometry.dimensionSecond.y) * 0.5,
+                                              (geometry.dimensionFirst.z + geometry.dimensionSecond.z) * 0.5 };
+        if (projectPoint (depthWorld, depthAnchor, &depth) &&
+            style.depthPolicy == annotation::DepthPolicy::FadeWhenOccluded)
             FadeLabelWhenOccluded (out.labels.back (), depth);
     }
-}
-
-double ModelAngleDegrees (const Primitive& primitive)
-{
-    if (primitive.points.size () < 3)
-        return 0.0;
-    const annotation::Point3& center = primitive.points[0];
-    const annotation::Point3& first = primitive.points[1];
-    const annotation::Point3& second = primitive.points[2];
-    const double ax = first.x - center.x, ay = first.y - center.y, az = first.z - center.z;
-    const double bx = second.x - center.x, by = second.y - center.y, bz = second.z - center.z;
-    const double aLength = std::sqrt (ax * ax + ay * ay + az * az);
-    const double bLength = std::sqrt (bx * bx + by * by + bz * bz);
-    if (aLength <= 1.0e-12 || bLength <= 1.0e-12)
-        return 0.0;
-    const double cosine = std::clamp ((ax * bx + ay * by + az * bz) / (aLength * bLength), -1.0, 1.0);
-    return std::acos (cosine) * 180.0 / 3.14159265358979323846;
 }
 
 void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float viewProj[16], uint32_t width,
@@ -685,13 +606,23 @@ void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float v
                float fontSizePixels)
 {
     const std::size_t ownLineBegin = out.lines.size ();
+    annotation::AngularDimensionInput input;
+    input.vertex = primitive.points[0];
+    input.firstRayPoint = primitive.points[1];
+    input.secondRayPoint = primitive.points[2];
+    input.planes.explicitNormal = primitive.planeNormal;
+    input.planes.cameraFacingNormal = CameraFacingNormal (viewProj);
+    input.reverse = primitive.direction;
+    const auto resolved = annotation::ResolveAngularDimensionGeometry (input);
+    if (!resolved.has_value ())
+        return;
     ScreenPoint center, first, second;
     float centerDepth = 1.0f;
     if (!ProjectPoint (primitive, 0, viewProj, width, height, center, &centerDepth) ||
         !ProjectPoint (primitive, 1, viewProj, width, height, first) ||
         !ProjectPoint (primitive, 2, viewProj, width, height, second))
         return;
-    if (primitive.direction)
+    if (input.reverse)
         std::swap (first, second);
     annotation::ArchitecturalAngleGlyph glyph;
     if (!annotation::BuildArchitecturalAngleGlyph ({ center.x, center.y }, { first.x, first.y }, { second.x, second.y },
@@ -706,7 +637,8 @@ void AddAngle (ProjectedDrawList& out, const Primitive& primitive, const float v
                                      { float (arrowhead.third.x), float (arrowhead.third.y) } },
                                    color });
     char measured[64];
-    std::snprintf (measured, sizeof (measured), "%.1f\xC2\xB0", ModelAngleDegrees (primitive));
+    std::snprintf (measured, sizeof (measured), "%.1f\xC2\xB0",
+                   resolved->angleRadians * 180.0 / 3.14159265358979323846);
     const std::string text = primitive.text.empty () ? measured : primitive.text;
     const float fontSize = fontSizePixels;
     const ScreenTextExtent textExtent = MeasureText (text, fontSize, measureText);
@@ -780,18 +712,44 @@ bool FitFrameProjection (const Frame& frame, const float viewProj[16], uint32_t 
 
 std::optional<std::size_t> HitTestTraceDimension (const Frame& frame, const float viewProj[16], uint32_t width,
                                                   uint32_t height, float dpiScale, bool fitSelectedFrame,
-                                                  const ScreenPoint& cursor, float textHeightMetres,
-                                                  float hideBelowPixels, float capAbovePixels)
+                                                  const ScreenPoint& cursor,
+                                                  const annotation::DimensionStyle& style)
 {
     if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f || !std::isfinite (cursor.x) ||
-        !std::isfinite (cursor.y) || !std::isfinite (textHeightMetres) || textHeightMetres <= 0.0f ||
-        !std::isfinite (hideBelowPixels) || hideBelowPixels < 0.0f || !std::isfinite (capAbovePixels) ||
-        capAbovePixels < hideBelowPixels)
+        !std::isfinite (cursor.y) || !annotation::IsValid (style))
         return std::nullopt;
     float fitted[16];
     const float* projection = viewProj;
     if (fitSelectedFrame && FitFrameProjection (frame, viewProj, width, height, 24.0f * dpiScale, fitted))
         projection = fitted;
+    // ⏸️ PAUSED ANNOTATION WORK REMOVED FROM HERE TO UNBLOCK THE BUILD.
+    //
+    // A camera-movement test was pasted into this function:
+    //
+    //     retainDimensionCandidates |= placementHistory->hasViewProjection &&
+    //         !std::equal (projection, projection + 16,
+    //                      placementHistory->lastViewProjection);
+    //     std::copy (projection, projection + 16, placementHistory->lastViewProjection);
+    //     placementHistory->hasViewProjection = true;
+    //
+    // It does not compile here: `HitTestTraceDimension` takes neither
+    // `placementHistory` nor `retainDimensionCandidates`. `BuildTraceAnnotationFrame`
+    // takes both, and the `AnnotationPlacementHistory` fields it writes
+    // (`lastViewProjection`, `hasViewProjection`) are still declared in the
+    // header, so the paused work can resume by putting it there.
+    //
+    // ⚠️ AND IT SHOULD NOT COME BACK TO THIS FUNCTION EVEN ONCE THE PARAMETERS
+    // EXIST. This is a HIT TEST: it runs on every cursor move, and it is const in
+    // spirit -- answering "what is under the pointer?". Letting it write the
+    // shared record of the last view projection would have hover traffic clobber
+    // the frame builder's own record, so the builder would see the camera as
+    // unmoved whenever the mouse had passed over first, and drop exactly the
+    // candidate retention the block exists to provide. The symptom would be
+    // intermittent dimension flicker that only appears when the cursor is over
+    // the viewport, which is close to undebuggable.
+    //
+    // This restores the function to its committed (HEAD) behaviour exactly;
+    // nothing else in the paused annotation workstream was touched.
 
     const float hitRadiusSquared = 36.0f * dpiScale * dpiScale;
     float bestDistanceSquared = std::numeric_limits<float>::infinity ();
@@ -803,8 +761,9 @@ std::optional<std::size_t> HitTestTraceDimension (const Frame& frame, const floa
             continue;
         float fontPixels = 0.0f;
         float furnitureScale = 0.0f;
-        if (!ModelAnnotationScale (primitive, projection, width, height, textHeightMetres, hideBelowPixels,
-                                   capAbovePixels, fontPixels, furnitureScale))
+        if (!ModelAnnotationScale (primitive, projection, width, height, float (style.textHeightModel),
+                                   float (style.hideBelowPixels), float (style.capAbovePixels), fontPixels,
+                                   furnitureScale))
             continue;
 
         std::vector<ScreenPoint> path;
@@ -875,14 +834,14 @@ UpdateDimensionHover (DimensionHoverState& state, const std::shared_ptr<const an
 
 ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewProj[16], uint32_t width, uint32_t height,
                                          float dpiScale, bool fitSelectedFrame, const ScreenTextMeasure& measureText,
-                                         AnnotationPlacementHistory* placementHistory, float textHeightMetres,
-                                         float hideBelowPixels, float capAbovePixels,
-                                         const AnnotationPrimitiveFilter& primitiveFilter)
+                                         AnnotationPlacementHistory* placementHistory,
+                                         const annotation::DimensionStyle& style,
+                                         const AnnotationPrimitiveFilter& primitiveFilter,
+                                         bool retainDimensionCandidates)
 {
     ProjectedDrawList out;
     if (width == 0 || height == 0 || !std::isfinite (dpiScale) || dpiScale <= 0.0f ||
-        !std::isfinite (textHeightMetres) || textHeightMetres <= 0.0f || !std::isfinite (hideBelowPixels) ||
-        hideBelowPixels < 0.0f || !std::isfinite (capAbovePixels) || capAbovePixels < hideBelowPixels)
+        !annotation::IsValid (style))
         return out;
     float fitted[16];
     const float* projection = viewProj;
@@ -906,12 +865,14 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
                                       primitive.kind == PrimitiveKind::Label || primitive.kind == PrimitiveKind::Arrow;
         float fontSizePixels = 0.0f;
         float furnitureScale = 0.0f;
-        if (scaledAnnotation && !ModelAnnotationScale (primitive, projection, width, height, textHeightMetres,
-                                                       hideBelowPixels, capAbovePixels, fontSizePixels, furnitureScale))
+        if (scaledAnnotation &&
+            !ModelAnnotationScale (primitive, projection, width, height, float (style.textHeightModel),
+                                   float (style.hideBelowPixels), float (style.capAbovePixels), fontSizePixels,
+                                   furnitureScale))
             continue;
         if (primitive.kind == PrimitiveKind::Dimension) {
-            AddDimension (out, primitive, projection, width, height, color, furnitureScale, measureText,
-                          fontSizePixels);
+            AddDimension (out, primitive, projection, width, height, color, furnitureScale, measureText, fontSizePixels,
+                          style, primitiveIndex, placementHistory, retainDimensionCandidates);
             markLabels ();
             continue;
         }
@@ -966,7 +927,7 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
                 FadeLabelWhenOccluded (out.labels.back (), firstDepth);
         }
     }
-    ResolveLabelOverlaps (out, width, height, dpiScale, measureText, placementHistory);
+    ResolveAnnotationLabelOverlaps (out, width, height, dpiScale, measureText, placementHistory);
     return out;
 }
 

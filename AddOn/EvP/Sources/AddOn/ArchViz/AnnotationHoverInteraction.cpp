@@ -18,15 +18,15 @@ AnnotationPrimitiveFilter UpdateAnnotationHover (const annotation::Frame& frame,
     if (!hudState.annotationDimensionsOnHover) {
         UpdateDimensionHover (state, source, nodeIndex, frameIndex, std::nullopt, false,
                               std::chrono::steady_clock::now ());
-        return [] (std::size_t, const annotation::Primitive& primitive) { return !primitive.hoverOnly; };
+        return {};
     }
     const bool eligible = input.inside && !hudState.wantsMouse && input.buttons == kMouseNone && !input.navButton &&
                           input.wheelDelta == 0;
-    const std::optional<std::size_t> hit =
-        eligible ? HitTestTraceDimension (frame, viewProj, width, height, dpiScale, fitSelectedFrame,
-                                          { float (input.x), float (input.y) }, hudState.annotationTextHeightMetres,
-                                          hudState.annotationHideBelowPixels, hudState.annotationCapAbovePixels)
-                 : std::nullopt;
+    const annotation::DimensionStyle style = AnnotationDimensionStyle (hudState);
+    const std::optional<std::size_t> hit = eligible ? HitTestTraceDimension (
+                                                         frame, viewProj, width, height, dpiScale, fitSelectedFrame,
+                                                         { float (input.x), float (input.y) }, style)
+                                                    : std::nullopt;
     const std::optional<std::size_t> visible =
         UpdateDimensionHover (state, source, nodeIndex, frameIndex, hit, eligible, std::chrono::steady_clock::now ());
     return [visible] (std::size_t primitiveIndex, const annotation::Primitive& primitive) {

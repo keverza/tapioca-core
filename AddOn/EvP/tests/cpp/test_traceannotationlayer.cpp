@@ -19,6 +19,15 @@ annotation::Primitive Primitive (annotation::PrimitiveKind kind, std::vector<ann
     return primitive;
 }
 
+annotation::DimensionStyle Style (double textHeight, double hideBelow, double capAbove)
+{
+    annotation::DimensionStyle style;
+    style.textHeightModel = textHeight;
+    style.hideBelowPixels = hideBelow;
+    style.capAbovePixels = capAbove;
+    return style;
+}
+
 TEST (TraceAnnotationLayer, ProjectsWorldLinesWithRendererCoordinateConventions)
 {
     annotation::Frame frame;
@@ -302,9 +311,9 @@ TEST (TraceAnnotationLayer, PixelResolutionScalesAngleFurnitureBeforeCap)
         Primitive (annotation::PrimitiveKind::Angle, { { 0.0, 0.0, 0.5 }, { 0.5, 0.0, 0.5 }, { 0.0, 0.5, 0.5 } }));
 
     const auto one =
-        archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f, false, {}, nullptr, 0.09f, 0.0f, 100.0f);
+        archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f, false, {}, nullptr, Style (0.09, 0.0, 100.0));
     const auto two =
-        archviz::BuildTraceAnnotations (frame, kIdentity, 800, 600, 2.0f, false, {}, nullptr, 0.09f, 0.0f, 100.0f);
+        archviz::BuildTraceAnnotations (frame, kIdentity, 800, 600, 2.0f, false, {}, nullptr, Style (0.09, 0.0, 100.0));
 
     ASSERT_EQ (one.lines.size (), 32u);
     ASSERT_EQ (two.lines.size (), 32u);
@@ -338,9 +347,9 @@ TEST (TraceAnnotationLayer, ZoomScalesMeasurementFurnitureLikeModelGeometry)
     zoomedOut[0] = zoomedOut[5] = 0.5f;
 
     const auto near =
-        archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, nullptr, 0.18f, 0.0f, 100.0f);
+        archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, nullptr, Style (0.18, 0.0, 100.0));
     const auto far =
-        archviz::BuildTraceAnnotations (frame, zoomedOut, 200, 100, 1.0f, false, {}, nullptr, 0.18f, 0.0f, 100.0f);
+        archviz::BuildTraceAnnotations (frame, zoomedOut, 200, 100, 1.0f, false, {}, nullptr, Style (0.18, 0.0, 100.0));
 
     ASSERT_GE (near.lines.size (), 2u);
     ASSERT_GE (far.lines.size (), 2u);
@@ -404,7 +413,7 @@ TEST (TraceAnnotationLayer, ModelTextHeightScalesAllRetainedLabels)
     frame.primitives = { dimension, label };
 
     const auto draw =
-        archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f, false, {}, nullptr, 0.13f, 0.0f, 100.0f);
+        archviz::BuildTraceAnnotations (frame, kIdentity, 400, 300, 1.0f, false, {}, nullptr, Style (0.13, 0.0, 100.0));
 
     ASSERT_EQ (draw.labels.size (), 2u);
     EXPECT_NEAR (draw.labels[0].fontSize, 26.0f, 1.0e-3f);
@@ -472,7 +481,7 @@ TEST (TraceAnnotationLayer, NearCapLimitsTextLinesHalosAndArrowheadsTogether)
     zoomedIn[0] = zoomedIn[5] = 4.0f;
 
     const auto draw =
-        archviz::BuildTraceAnnotations (frame, zoomedIn, 200, 100, 1.0f, false, {}, nullptr, 0.18f, 0.0f, 24.0f);
+        archviz::BuildTraceAnnotations (frame, zoomedIn, 200, 100, 1.0f, false, {}, nullptr, Style (0.18, 0.0, 24.0));
 
     ASSERT_EQ (draw.labels.size (), 1u);
     ASSERT_EQ (draw.triangles.size (), 2u);
@@ -553,8 +562,8 @@ TEST (TraceAnnotationLayer, PrimitiveFilterRemovesCompleteDimensionsBeforeLayout
         return primitive.kind != annotation::PrimitiveKind::Dimension;
     };
 
-    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, nullptr, 0.18f,
-                                                      10.0f, 36.0f, hideDimensions);
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, nullptr, {},
+                                                       hideDimensions);
 
     ASSERT_EQ (draw.lines.size (), 1u);
     EXPECT_FALSE (draw.lines[0].collisionObstacle);
@@ -612,8 +621,74 @@ TEST (TraceAnnotationLayer, KeepsPreviousValidCandidateAcrossCameraFrames)
     EXPECT_EQ (history.candidateByPrimitive.at (1u), previousCandidate);
 }
 
+TEST (TraceAnnotationLayer, UsesCameraFacingPlaneForVerticalDimension)
+{
+    constexpr float sideView[16] = {
+        0.0f, 0.0f, 0.5f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.5f, 1.0f,
+    };
+    annotation::Frame frame;
+    auto dimension =
+        Primitive (annotation::PrimitiveKind::Dimension, { { 0.0, 0.0, -0.4 }, { 0.0, 0.0, 0.4 } });
+    dimension.text = "0.800 m";
+    frame.primitives.push_back (dimension);
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, sideView, 200, 100);
+
+    EXPECT_FALSE (draw.lines.empty ());
+    ASSERT_EQ (draw.labels.size (), 1u);
+    EXPECT_NEAR (draw.labels[0].anchor.x, 125.0f, 0.1f);
+}
+
+TEST (TraceAnnotationLayer, DimensionCandidatesAvoidOccupiedAnnotationSide)
+{
+    annotation::Frame frame;
+    auto first = Primitive (annotation::PrimitiveKind::Dimension, { { -0.4, 0.0, 0.5 }, { 0.4, 0.0, 0.5 } });
+    first.text = "0.800 m";
+    first.annotationId = "first";
+    auto second = first;
+    second.annotationId = "second";
+    frame.primitives = { first, second };
+    archviz::AnnotationPlacementHistory history;
+
+    const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history);
+
+    ASSERT_EQ (draw.labels.size (), 2u);
+    ASSERT_EQ (history.dimensionCandidateByAnnotation.size (), 2u);
+    EXPECT_NE (history.dimensionCandidateByAnnotation.at ("first") & 1u,
+               history.dimensionCandidateByAnnotation.at ("second") & 1u);
+    EXPECT_NE (draw.labels[0].anchor.y, draw.labels[1].anchor.y);
+}
+
+TEST (TraceAnnotationLayer, RetainsValidDimensionCandidateOnlyWhileCameraMoves)
+{
+    annotation::Frame frame;
+    auto dimension =
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.4, 0.7, 0.5 }, { 0.4, 0.7, 0.5 } });
+    dimension.text = "0.800 m";
+    dimension.annotationId = "moving";
+    frame.primitives.push_back (dimension);
+    archviz::AnnotationPlacementHistory history;
+    archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history);
+    const uint8_t best = history.dimensionCandidateByAnnotation.at ("moving");
+    history.dimensionCandidateByAnnotation["moving"] = best ^ 1u;
+
+    archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history, {}, {}, true);
+    EXPECT_EQ (history.dimensionCandidateByAnnotation.at ("moving"), (best ^ 1u));
+
+    archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history, {}, {}, false);
+    EXPECT_EQ (history.dimensionCandidateByAnnotation.at ("moving"), best);
+}
+
 TEST (TraceAnnotationLayer, ContextWireframeDoesNotRepelDimensionText)
 {
+    annotation::Frame baselineFrame;
+    auto baselineDimension =
+        Primitive (annotation::PrimitiveKind::Dimension, { { -0.5, 0.0, 0.5 }, { 0.5, 0.0, 0.5 } });
+    baselineDimension.text = "x";
+    baselineFrame.primitives.push_back (baselineDimension);
+    const auto baseline = archviz::BuildTraceAnnotations (baselineFrame, kIdentity, 200, 100);
+
     annotation::Frame frame;
     auto context = Primitive (annotation::PrimitiveKind::Polyline, { { -0.8, -0.28, 0.5 }, { 0.8, -0.28, 0.5 } });
     context.role = annotation::SemanticRole::Context;
@@ -624,9 +699,10 @@ TEST (TraceAnnotationLayer, ContextWireframeDoesNotRepelDimensionText)
 
     const auto draw = archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100);
 
+    ASSERT_EQ (baseline.labels.size (), 1u);
     ASSERT_EQ (draw.labels.size (), 1u);
-    EXPECT_FLOAT_EQ (draw.labels[0].anchor.x, 100.0f);
-    EXPECT_FLOAT_EQ (draw.labels[0].anchor.y, 55.0f);
+    EXPECT_FLOAT_EQ (draw.labels[0].anchor.x, baseline.labels[0].anchor.x);
+    EXPECT_FLOAT_EQ (draw.labels[0].anchor.y, baseline.labels[0].anchor.y);
     EXPECT_FALSE (draw.lines[0].collisionObstacle);
 }
 

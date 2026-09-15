@@ -2,6 +2,7 @@
 #define EVP_ARCHVIZ_TRACEANNOTATIONLAYER_HPP
 
 #include "Annotation/DrawList.hpp"
+#include "Annotation/DimensionGeometry.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -58,6 +59,7 @@ struct ScreenLabel {
     ScreenPoint depthAnchor;
     float anchorDepth = 1.0f;
     bool fadeWhenOccluded = false;
+    bool resolvedPlacement = false;
 };
 
 struct ProjectedDrawList {
@@ -71,6 +73,9 @@ struct AnnotationPlacementHistory {
     std::size_t nodeIndex = 0;
     std::size_t frameIndex = 0;
     std::unordered_map<std::size_t, uint8_t> candidateByPrimitive;
+    std::unordered_map<std::string, uint8_t> dimensionCandidateByAnnotation;
+    float lastViewProjection[16] = {};
+    bool hasViewProjection = false;
 };
 
 struct DimensionHoverState {
@@ -88,10 +93,9 @@ bool FitFrameProjection (const annotation::Frame& frame, const float viewProj[16
                          float marginPixels, float fittedViewProj[16]);
 
 std::optional<std::size_t> HitTestTraceDimension (const annotation::Frame& frame, const float viewProj[16],
-                                                  uint32_t width, uint32_t height, float dpiScale,
-                                                  bool fitSelectedFrame, const ScreenPoint& cursor,
-                                                  float textHeightMetres = 0.18f, float hideBelowPixels = 10.0f,
-                                                  float capAbovePixels = 36.0f);
+                                                   uint32_t width, uint32_t height, float dpiScale,
+                                                   bool fitSelectedFrame, const ScreenPoint& cursor,
+                                                   const annotation::DimensionStyle& style = {});
 
 std::optional<std::size_t> UpdateDimensionHover (DimensionHoverState& state,
                                                  const std::shared_ptr<const annotation::DrawList>& source,
@@ -108,9 +112,9 @@ ProjectedDrawList BuildTraceAnnotations (const annotation::Frame& frame, const f
                                          uint32_t height, float dpiScale = 1.0f, bool fitSelectedFrame = false,
                                          const ScreenTextMeasure& measureText = {},
                                          AnnotationPlacementHistory* placementHistory = nullptr,
-                                         float textHeightMetres = 0.18f, float hideBelowPixels = 10.0f,
-                                         float capAbovePixels = 36.0f,
-                                         const AnnotationPrimitiveFilter& primitiveFilter = {});
+                                         const annotation::DimensionStyle& style = {},
+                                         const AnnotationPrimitiveFilter& primitiveFilter = {},
+                                         bool retainDimensionCandidates = false);
 
 } // namespace geomsrv::archviz
 

@@ -11,6 +11,14 @@ namespace geomsrv::archviz {
 
 enum class SceneTextDirection : uint8_t { Auto, LeftToRight, RightToLeft };
 
+// Font-independent coordinates in em units with y increasing above the baseline.
+struct SceneTextMetricBounds {
+    float left = 0.0f;
+    float bottom = 0.0f;
+    float right = 0.0f;
+    float top = 0.0f;
+};
+
 struct SceneTextPositionedGlyph {
     uint32_t glyphIndex = 0;
     uint32_t cluster = 0;
@@ -18,12 +26,21 @@ struct SceneTextPositionedGlyph {
     float yAdvance = 0.0f;
     float xOffset = 0.0f;
     float yOffset = 0.0f;
+    SceneTextMetricBounds inkBounds;
+    bool hasInkBounds = false;
 };
 
 struct SceneTextGlyphRun {
     std::vector<SceneTextPositionedGlyph> glyphs;
     SceneTextDirection direction = SceneTextDirection::LeftToRight;
     float advance = 0.0f;
+    float baseline = 0.0f;
+    float ascent = 0.0f;
+    float descent = 0.0f;
+    float lineHeight = 0.0f;
+    SceneTextMetricBounds logicalBounds;
+    SceneTextMetricBounds inkBounds;
+    bool hasInkBounds = false;
 };
 
 // One shaper owns one FreeType face and is intentionally not concurrent. Worker

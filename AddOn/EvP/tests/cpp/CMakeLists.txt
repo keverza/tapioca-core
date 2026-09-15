@@ -475,7 +475,9 @@ set (EVP_CLOUDCOMPARE_SOURCES
      "${EVP_ROOT}/Sources/AddOn/Python/CloudCompareCommand.cpp")
 
 set (EVP_ANNOTATION_SOURCES
+     "${EVP_ROOT}/Sources/AddOn/Annotation/DimensionGeometry.cpp"
      "${EVP_ROOT}/Sources/AddOn/Annotation/DrawList.cpp"
+     "${EVP_ROOT}/Sources/AddOn/ArchViz/AnnotationScreenLayout.cpp"
      "${EVP_ROOT}/Sources/AddOn/ArchViz/TraceAnnotationLayer.cpp")
 
 set (EVP_PREVIEW_SOURCES
@@ -527,6 +529,7 @@ set (EVP_PREVIEW_SOURCES
      "${EVP_ROOT}/Sources/AddOn/PlanOverlay/PlanTransformMath.cpp")
 
 set (EVP_TEST_SOURCES
+    test_dimensiongeometry.cpp
     test_drawlist.cpp
     test_traceannotationlayer.cpp
     test_retainedpreviewstore.cpp

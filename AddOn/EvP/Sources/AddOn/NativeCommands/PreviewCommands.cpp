@@ -51,7 +51,7 @@ constexpr const char kPolylineSchema[] =
 constexpr const char kArrowSchema[] =
     R"json({"type":"object","properties":{"kind":{"type":"string","const":"arrow"},"points":{"type":"array","minItems":6,"maxItems":6,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
 constexpr const char kDimensionSchema[] =
-    R"json({"type":"object","properties":{"kind":{"type":"string","const":"dimension"},"points":{"type":"array","minItems":6,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"hoverOnly":{"type":"boolean"},"alwaysVisible":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
+    R"json({"type":"object","properties":{"kind":{"type":"string","const":"dimension"},"points":{"type":"array","minItems":6,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"hoverOnly":{"type":"boolean"},"alwaysVisible":{"type":"boolean"},"offset":{"type":"number"},"planeNormal":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},"preferredOffsetDirection":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},"annotationId":{"type":"string"}},"additionalProperties":false,"required":["kind","points"]})json";
 constexpr const char kAngleSchema[] =
     R"json({"type":"object","properties":{"kind":{"type":"string","const":"angle"},"points":{"type":"array","minItems":9,"maxItems":9,"items":{"type":"number"}},"text":{"type":"string"},"role":{"type":"string"},"closed":{"type":"boolean"},"direction":{"type":"boolean"},"offset":{"type":"number"}},"additionalProperties":false,"required":["kind","points"]})json";
 constexpr const char kLabelSchema[] =
@@ -179,6 +179,20 @@ bool DecodePrimitive (const GS::ObjectState& value, const GS::UniString& context
     double offset = 0.0;
     if (value.Get ("offset", offset))
         out.offset = offset;
+    std::vector<double> vectorValue;
+    if (value.Contains ("planeNormal")) {
+        if (!ReadFiniteValues (value, "planeNormal", vectorValue, context, error))
+            return false;
+        out.planeNormal = { vectorValue[0], vectorValue[1], vectorValue[2] };
+    }
+    if (value.Contains ("preferredOffsetDirection")) {
+        vectorValue.clear ();
+        if (!ReadFiniteValues (value, "preferredOffsetDirection", vectorValue, context, error))
+            return false;
+        out.preferredOffsetDirection = { vectorValue[0], vectorValue[1], vectorValue[2] };
+    }
+    if (value.Get ("annotationId", stringValue))
+        out.annotationId = Utf8 (stringValue);
     return true;
 }
 

@@ -21,7 +21,7 @@ MAX_POINTS = 20000
 _KINDS = {"point", "polyline", "arrow", "dimension", "angle", "label", "element"}
 _OPTIONAL = {
     "text", "role", "closed", "direction", "guid", "offset",
-    "hoverOnly", "alwaysVisible",
+    "hoverOnly", "alwaysVisible", "planeNormal", "preferredOffsetDirection", "annotationId",
 }
 _REQUIRED_POINTS = {
     "point": 1, "arrow": 2, "angle": 3, "label": 1,
@@ -145,7 +145,7 @@ def _primitive(record):
         raise ValueError("unknown watch primitive kind %r" % kind)
     allowed = {"kind", "text", "role", "closed", "direction", "offset"}
     if kind == "dimension":
-        allowed.update(("hoverOnly", "alwaysVisible"))
+        allowed.update(("hoverOnly", "alwaysVisible", "planeNormal", "preferredOffsetDirection", "annotationId"))
     allowed.add("guid" if kind == "element" else "points")
     unknown = set(record) - allowed
     if unknown:
@@ -167,8 +167,10 @@ def _primitive(record):
     for field in _OPTIONAL:
         if field in record:
             value = record[field]
-            if field in ("text", "role", "guid"):
+            if field in ("text", "role", "guid", "annotationId"):
                 value = str(value)
+            elif field in ("planeNormal", "preferredOffsetDirection"):
+                value = _point(value, field)
             elif field in ("closed", "direction", "hoverOnly", "alwaysVisible") and not isinstance(value, bool):
                 raise ValueError("watch primitive %s must be a boolean" % field)
             elif field == "offset":

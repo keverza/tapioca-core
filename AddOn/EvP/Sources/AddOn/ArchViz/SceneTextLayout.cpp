@@ -5,6 +5,8 @@
 #include <hb-ft.h>
 #include <hb.h>
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 
 namespace geomsrv::archviz {
@@ -92,7 +94,12 @@ bool SceneTextShaper::Shape (const std::string& utf8, SceneTextDirection request
     const hb_glyph_info_t* infos = hb_buffer_get_glyph_infos (buffer, &glyphCount);
     const hb_glyph_position_t* positions = hb_buffer_get_glyph_positions (buffer, &glyphCount);
     const float emScale = impl_->face->units_per_EM > 0 ? 1.0f / float (impl_->face->units_per_EM) : 0.0f;
+    run.ascent = std::max (0.0f, float (impl_->face->ascender) * emScale);
+    run.descent = std::max (0.0f, -float (impl_->face->descender) * emScale);
+    run.lineHeight = std::max (float (impl_->face->height) * emScale, run.ascent + run.descent);
     run.glyphs.reserve (glyphCount);
+    float penX = 0.0f;
+    float penY = 0.0f;
     for (unsigned int index = 0; index < glyphCount; ++index) {
         SceneTextPositionedGlyph glyph;
         glyph.glyphIndex = infos[index].codepoint;
@@ -101,9 +108,32 @@ bool SceneTextShaper::Shape (const std::string& utf8, SceneTextDirection request
         glyph.yAdvance = float (positions[index].y_advance) * emScale;
         glyph.xOffset = float (positions[index].x_offset) * emScale;
         glyph.yOffset = float (positions[index].y_offset) * emScale;
+        hb_glyph_extents_t extents {};
+        if (hb_font_get_glyph_extents (impl_->font, glyph.glyphIndex, &extents)) {
+            const float firstX = penX + glyph.xOffset + float (extents.x_bearing) * emScale;
+            const float secondX = firstX + float (extents.width) * emScale;
+            const float firstY = penY + glyph.yOffset + float (extents.y_bearing) * emScale;
+            const float secondY = firstY + float (extents.height) * emScale;
+            glyph.inkBounds = { std::min (firstX, secondX), std::min (firstY, secondY),
+                                std::max (firstX, secondX), std::max (firstY, secondY) };
+            glyph.hasInkBounds = true;
+            if (!run.hasInkBounds) {
+                run.inkBounds = glyph.inkBounds;
+                run.hasInkBounds = true;
+            }
+            else {
+                run.inkBounds.left = std::min (run.inkBounds.left, glyph.inkBounds.left);
+                run.inkBounds.bottom = std::min (run.inkBounds.bottom, glyph.inkBounds.bottom);
+                run.inkBounds.right = std::max (run.inkBounds.right, glyph.inkBounds.right);
+                run.inkBounds.top = std::max (run.inkBounds.top, glyph.inkBounds.top);
+            }
+        }
         run.advance += glyph.xAdvance;
         run.glyphs.push_back (glyph);
+        penX += glyph.xAdvance;
+        penY += glyph.yAdvance;
     }
+    run.logicalBounds = { std::min (0.0f, penX), -run.descent, std::max (0.0f, penX), run.ascent };
     const hb_direction_t shapedDirection = hb_buffer_get_direction (buffer);
     run.direction =
         HB_DIRECTION_IS_BACKWARD (shapedDirection) ? SceneTextDirection::RightToLeft : SceneTextDirection::LeftToRight;
