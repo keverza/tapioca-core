@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 207,
+      "nativeRegistry": 211,
       "dispatcherLocal": 19,
-      "total": 226
+      "total": 230
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1204,6 +1204,97 @@
       }
     },
     {
+      "name": "Tapioca.CreateDraftingPolyline",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "coordinates": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "layer": {
+            "type": "string"
+          },
+          "databaseAnchorElementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "coordinates"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "databaseId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "layer": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elementId",
+          "databaseId",
+          "layer",
+          "verified"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.CreateIssue",
       "implementation": "native-registry",
       "inputScheme": {
@@ -2229,6 +2320,9 @@
             "type": "integer"
           },
           "refreshes": {
+            "type": "integer"
+          },
+          "environmentOnly": {
             "type": "integer"
           },
           "lastDiffMs": {
@@ -16360,6 +16454,103 @@
       }
     },
     {
+      "name": "Tapioca.ListDraftingPolylines",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "databaseAnchorElementId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "databaseAnchorElementId"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "databaseId": {
+            "type": "object",
+            "properties": {
+              "guid": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "guid"
+            ]
+          },
+          "polylines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "type": "object",
+                  "properties": {
+                    "guid": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "number"
+                },
+                "height": {
+                  "type": "number"
+                },
+                "layer": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "x",
+                "y",
+                "width",
+                "height",
+                "layer"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "databaseId",
+          "polylines",
+          "count"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ListFavorites",
       "implementation": "native-registry",
       "inputScheme": {
@@ -22062,6 +22253,72 @@
       }
     },
     {
+      "name": "Tapioca.ShowSunStudy",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "show": {
+            "type": "boolean"
+          },
+          "hoursMax": {
+            "type": "number"
+          },
+          "debug": {
+            "type": "integer"
+          },
+          "depth": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "studyId": {
+            "type": "string"
+          },
+          "shown": {
+            "type": "boolean"
+          },
+          "viewerRunning": {
+            "type": "boolean"
+          },
+          "elements": {
+            "type": "integer"
+          },
+          "atlasWidth": {
+            "type": "integer"
+          },
+          "atlasHeight": {
+            "type": "integer"
+          },
+          "converged": {
+            "type": "boolean"
+          },
+          "hoursMax": {
+            "type": "number"
+          },
+          "debug": {
+            "type": "integer"
+          },
+          "depth": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "studyId",
+          "shown",
+          "elements"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.SliceZ",
       "implementation": "native-registry",
       "inputScheme": {
@@ -22748,6 +23005,79 @@
         "additionalProperties": false,
         "required": [
           "stopped"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SunStudyOverlayState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "viewerRunning": {
+            "type": "boolean"
+          },
+          "studyId": {
+            "type": "string"
+          },
+          "drawing": {
+            "type": "boolean"
+          },
+          "elementsNamed": {
+            "type": "integer"
+          },
+          "elementsAttached": {
+            "type": "integer"
+          },
+          "refusedTriangleCount": {
+            "type": "integer"
+          },
+          "refusedTopologyHash": {
+            "type": "integer"
+          },
+          "atlasWidth": {
+            "type": "integer"
+          },
+          "atlasHeight": {
+            "type": "integer"
+          },
+          "atlasUploads": {
+            "type": "integer"
+          },
+          "atlasBytesUploaded": {
+            "type": "integer"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "depth": {
+            "type": "integer"
+          },
+          "tintFrames": {
+            "type": "integer"
+          },
+          "tintElementsDrawn": {
+            "type": "integer"
+          },
+          "framesSkippedIncompleteBinding": {
+            "type": "integer"
+          },
+          "rejection": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "viewerRunning",
+          "studyId",
+          "drawing",
+          "elementsNamed",
+          "elementsAttached"
         ]
       }
     },

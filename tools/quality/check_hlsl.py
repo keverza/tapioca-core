@@ -60,6 +60,12 @@ STAGES = {
     "kArchVizGBufferDebugPS": "ps_5_0",
     "kArchVizAmbientOcclusionDebugPS": "ps_5_0",
     "kArchVizResolvePS": "ps_5_0",
+    # ⚠️ THE SUN STUDY TINT IS BUILT LAZILY, ON THE FIRST STUDY A USER SHOWS,
+    # so it is the one stage whose compile failure would surface as "the tint
+    # never appeared" in a live Archicad session rather than at startup -- and
+    # "never appeared" is also what a study with no elements attached looks
+    # like. Compiling it here is what separates those two answers offline.
+    "kArchVizSunTintPS": "ps_5_0",
     "kArchVizDepthRangeCS": "cs_5_0",
     "kArchVizDepthRangeSmoothCS": "cs_5_0",
     "kArchVizEnvBackgroundVS": "vs_5_0",

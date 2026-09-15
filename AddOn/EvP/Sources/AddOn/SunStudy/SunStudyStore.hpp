@@ -119,6 +119,22 @@ class SunStudyStore final {
     bool AtlasImage (const std::string& id, uint32_t& width, uint32_t& height, std::vector<float>& image,
                      std::string& error) const;
 
+    // Everything a RENDERER needs, read under one lock so the image and the
+    // packing it was scattered through cannot come from different generations.
+    //
+    // ⚠️ THE PER-FACE ARRAYS AND NOT THE SAMPLE ARRAYS. A display path needs the
+    // tiles, the face layouts and the image; it does not need the positions,
+    // normals, areas or step bits, which on a real model are tens of megabytes.
+    // Copying those to change a palette is the one way this could cost a frame.
+    //
+    // ⚠️ `converged` IS RETURNED RATHER THAN CHECKED HERE. A study still
+    // advancing has an atlas of the hours SO FAR, which are too low; that is a
+    // legitimate thing to draw progressively and an illegitimate thing to
+    // present as a finished study, and only the caller knows which it is doing.
+    bool DisplayData (const std::string& id, std::vector<AtlasTile>& tiles, std::vector<FaceLayout>& layouts,
+                      uint32_t& width, uint32_t& height, double& spacing, std::vector<float>& image,
+                      double& daylightHours, bool& converged, uint64_t& generation, std::string& error) const;
+
     bool Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const;
 
     bool Erase (const std::string& id);

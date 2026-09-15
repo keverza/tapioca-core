@@ -3,9 +3,11 @@
 
 #include "ArchViz/ModelWatch.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"       // ArchVizLog -- one log for the whole viewer
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- one log for the whole viewer
 #include "ArchViz/DiligentViewport.hpp"
+#include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/SceneCmdQueue.hpp"
 #include "Notify/ModelDiff.hpp"
 
 #include <windows.h>
@@ -31,10 +33,10 @@ constexpr int64_t kDutyDivisor = 20;
 // itself rather than looking like the watch having died.
 constexpr uint32_t kCeilingMs = 30000;
 
-UINT_PTR gTimer     = 0;
-uint32_t gFloorMs   = 750;
+UINT_PTR gTimer = 0;
+uint32_t gFloorMs = 750;
 uint32_t gIntervalMs = 0;
-bool     gCeilingLogged = false;
+bool gCeilingLogged = false;
 
 Stats gStats;
 
@@ -96,7 +98,7 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     }
     gStats.lastError.clear ();
 
-    gStats.lastDiffMs  = diff.elapsedMs;
+    gStats.lastDiffMs = diff.elapsedMs;
     gStats.worstDiffMs = std::max (gStats.worstDiffMs, diff.elapsedMs);
 
     // ---- adapt the cadence to what this project actually costs --------------
@@ -104,14 +106,12 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // what changed, and a cadence set from a cheap tick would be undone by the
     // next expensive one and oscillate.
     const int64_t wanted = std::max<int64_t> (gFloorMs, gStats.worstDiffMs * kDutyDivisor);
-    const uint32_t next  = (uint32_t) std::min<int64_t> (wanted, kCeilingMs);
+    const uint32_t next = (uint32_t) std::min<int64_t> (wanted, kCeilingMs);
     if (next != gIntervalMs) {
         if (next >= kCeilingMs && !gCeilingLogged) {
             gCeilingLogged = true;
-            ArchVizLog ("model watch: the difference generator costs " +
-                        std::to_string (gStats.worstDiffMs) +
-                        " ms on this project, so the watch has backed off to its " +
-                        std::to_string (kCeilingMs) +
+            ArchVizLog ("model watch: the difference generator costs " + std::to_string (gStats.worstDiffMs) +
+                        " ms on this project, so the watch has backed off to its " + std::to_string (kCeilingMs) +
                         " ms ceiling. Edits will take that long to appear; use Refresh "
                         "for an immediate rebuild.");
         }
@@ -123,12 +123,37 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     if (diff.firstCall || !diff.AnythingChanged ())
         return;
 
+    // ---- an environment-only change is NOT a reason to rebuild the model ----
+    //
+    // ⚠️ THIS IS THE DIFFERENCE BETWEEN ORBITING AND EDITING, AND ARCHICAD'S
+    // GENERATOR DOES NOT MAKE IT FOR US. Its `isEnvironmentChanged` flag rises
+    // whenever the 3D window's own projection or sun settings move -- which is
+    // every time the user navigates. Treating that as a model change meant a
+    // user who did nothing but orbit triggered a FULL re-extraction about twice
+    // a second: 37 of them in 100 seconds on the run that found this, each one
+    // destroying and recreating every element's vertex, index and side buffers
+    // for geometry that was byte-for-byte identical.
+    //
+    // The environment is four floats and a direction. Reading it here and
+    // pushing it is the whole correct response, and it costs no GPU resource at
+    // all. ⚠️ MAIN THREAD, WHICH IS WHERE THIS TIMER ALREADY RUNS -- that is what
+    // makes calling ACAPI from here legal (see ExtractionEnvironment.hpp).
+    if (diff.created.empty () && diff.modified.empty () && diff.deleted.empty () && diff.environmentChanged) {
+        EnvironmentUpload environment;
+        if (ReadEnvironment (environment))
+            SceneCmdQueue::Get ().PushEnvironment (environment);
+        // ⚠️ COUNTED, NOT LOGGED. It happens on every poll during navigation, and
+        // a line each would bury the events that matter in the one log the whole
+        // viewer shares. ModelWatchState reports the counter.
+        ++gStats.environmentOnly;
+        return;
+    }
+
     if (StartPass ()) {
         ++gStats.refreshes;
-        ArchVizLog ("model watch: re-extracting -- " + std::to_string (diff.created.size ()) +
-                    " new, " + std::to_string (diff.modified.size ()) + " modified, " +
-                    std::to_string (diff.deleted.size ()) + " deleted" +
-                    (diff.environmentChanged ? ", environment changed" : ""));
+        ArchVizLog ("model watch: re-extracting -- " + std::to_string (diff.created.size ()) + " new, " +
+                    std::to_string (diff.modified.size ()) + " modified, " + std::to_string (diff.deleted.size ()) +
+                    " deleted" + (diff.environmentChanged ? ", environment changed" : ""));
     }
 }
 
@@ -143,12 +168,12 @@ void Rearm (uint32_t intervalMs)
         gStats.running = false;
         return;
     }
-    gIntervalMs        = intervalMs;
-    gStats.intervalMs  = intervalMs;
-    gStats.running     = true;
+    gIntervalMs = intervalMs;
+    gStats.intervalMs = intervalMs;
+    gStats.running = true;
 }
 
-}   // namespace
+} // namespace
 
 bool Start (uint32_t floorMs)
 {
@@ -172,11 +197,13 @@ bool Start (uint32_t floorMs)
     if (!first.ok) {
         gStats.lastError = first.error;
         ArchVizLog ("model watch: could not establish a baseline -- " + first.error);
-    } else {
-        gStats.lastDiffMs  = first.elapsedMs;
+    }
+    else {
+        gStats.lastDiffMs = first.elapsedMs;
         gStats.worstDiffMs = first.elapsedMs;
-        ArchVizLog ("model watch: armed, polling every " + std::to_string (gIntervalMs) +
-                    " ms (baseline took " + std::to_string (first.elapsedMs) + " ms). "
+        ArchVizLog ("model watch: armed, polling every " + std::to_string (gIntervalMs) + " ms (baseline took " +
+                    std::to_string (first.elapsedMs) +
+                    " ms). "
                     "No observers are attached and nothing is written to the project.");
     }
     return true;
@@ -189,7 +216,7 @@ void Stop ()
         gTimer = 0;
     }
     gBaseline.reset ();
-    gIntervalMs    = 0;
+    gIntervalMs = 0;
     gStats.running = false;
     gStats.intervalMs = 0;
 }
@@ -208,8 +235,11 @@ bool RefreshNow ()
     return true;
 }
 
-Stats Get () { return gStats; }
+Stats Get ()
+{
+    return gStats;
+}
 
-}   // namespace modelwatch
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace modelwatch
+} // namespace archviz
+} // namespace geomsrv

@@ -182,9 +182,30 @@ from typing import Any
 # shader, targets, viewport, window shape -- scores each group's own bytes
 # against the orbit-target invariant, and ranks them. It reads only: nothing in
 # it arms, draws, or touches model data.
-EXPECTED_REGISTRY_COMMANDS = 207
+# 2026-09-15, the sun study's display path: +1 for ShowSunStudy. It is the verb
+# that puts a COMPLETED study's atlas on the Diligent model and takes it off
+# again -- it builds one per-element side buffer of atlas tiles and pushes the
+# whole study through SceneCmdQueue, where geometry has always travelled. It is
+# gate-free and calls no ACAPI: everything it needs is already resident in the
+# study store and in MeshStore, and asking Archicad's main thread to display a
+# result that is already computed would put a stutter in the one place the
+# native sun study core exists to avoid one.
+# 2026-09-15, the overlay's acknowledgement: +1 for SunStudyOverlayState. It
+# reports what the RENDER THREAD did with a study -- drawing or not, how many
+# elements bound, how many were refused and why, how many atlas uploads have
+# happened. It exists because ShowSunStudy can only report what it SENT: geometry
+# reaches the renderer through SceneCmdQueue, a deliberately one-way hand-over, so
+# the push succeeds whether or not a viewport is running to consume it. Five
+# studies were pushed at an unopened viewport the day this was written and every
+# layer above them reported success.
+# 2026-09-15, the drafting polyline pair: +2 for ListDraftingPolylines and
+# CreateDraftingPolyline. NOT part of the sun study work above -- they arrived in
+# the tree alongside it from the "drafting commands half complete" line of work,
+# and they are counted here because this constant describes the TREE, not one
+# task. If that work is reverted, this comes back down by two.
+EXPECTED_REGISTRY_COMMANDS = 211
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 226
+EXPECTED_TOTAL_COMMANDS = 230
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

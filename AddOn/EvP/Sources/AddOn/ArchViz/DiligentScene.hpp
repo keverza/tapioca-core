@@ -63,6 +63,64 @@ namespace archviz {
 // in: it carries every shader source string in the renderer.
 struct DiligentSceneConstants;
 
+// What the renderer has actually done with a sun study.
+//
+// ⚠️ THIS EXISTS BECAUSE "SHOWN" WAS A PRODUCER-SIDE FICTION. Tapioca.ShowSunStudy
+// builds the side cars and pushes them into SceneCmdQueue; that push SUCCEEDS
+// whether a viewport is running, starting, tearing down, or was never opened at
+// all -- the queue is a singleton and a command with no consumer simply waits in
+// it until something calls Clear(). So the verb could report "6 elements handed
+// to the viewer" for a study that was never drawn, and the only honest record of
+// what happened lived on the render thread.
+//
+// On 2026-09-15 that is exactly what happened: five studies were pushed, the
+// viewport was started two minutes later by an unrelated offscreen capture whose
+// own startup clears the queue, and the smoke log said PASS five times over a
+// model that had never been tinted. Nothing in the picture, and nothing in the
+// command's answer, said so.
+//
+// Every field here is written by the render thread and read through the
+// viewport's stats snapshot. THE PAIR `elementsNamed` / `elementsAttached` IS THE
+// DIAGNOSIS, like `materials`/`materialMisses` above it: named-and-none-attached
+// is a refusal, named-and-some-attached is a partially tinted building, and zero
+// named means no study ever arrived.
+struct SunStudyOverlayStatus {
+    // Empty means no study is resident. ⚠️ NOT THE SAME AS "the last one was
+    // refused" -- `rejection` says that, and a refusal deliberately leaves the
+    // id so a caller can see WHICH study was turned away.
+    std::string studyId;
+    uint64_t version = 0;
+    uint32_t atlasWidth = 0;
+    uint32_t atlasHeight = 0;
+    size_t elementsNamed = 0;
+    size_t elementsAttached = 0;
+    // Why the others were turned away, split because the two mean different
+    // things: a triangle-count mismatch is a different extraction, a hash
+    // mismatch is the same triangle count reordered or retopologised.
+    size_t refusedTriangleCount = 0;
+    size_t refusedTopologyHash = 0;
+    // How many times an atlas image has actually been handed to the GPU, and how
+    // many bytes went with it. ⚠️ THE COUNTER IS THE ONLY WAY TO SEE A PER-FRAME
+    // UPLOAD, which costs nothing visible and everything measurable.
+    uint64_t atlasUploads = 0;
+    uint64_t atlasBytesUploaded = 0;
+    // The depth mode the tint pass is using -- see SunStudyDepthMode.
+    uint32_t depthMode = 0;
+    // Frames the tint pass ran, and elements tinted across them.
+    uint64_t tintFrames = 0;
+    uint64_t tintElementsDrawn = 0;
+    // ⚠️ THE ONE COUNTER THAT SEPARATES A LIFECYCLE FAULT FROM A SHADING ONE. It
+    // rises when the scene draws an element whose side buffer is not bound --
+    // i.e. the model is on screen and its tint is not, for that frame.
+    uint64_t framesSkippedIncompleteBinding = 0;
+    // Empty when the resident study was accepted whole. Otherwise a sentence
+    // saying what was wrong with the last one offered.
+    std::string rejection;
+    // An atlas is resident AND at least one element is bound to it, so the tint
+    // pass has something to draw. This is the flag that answers "is it on".
+    bool drawing = false;
+};
+
 struct DiligentSceneStats {
     size_t elements = 0;
     size_t triangles = 0;
@@ -98,6 +156,8 @@ struct DiligentSceneStats {
     // ⚠️ `sunApplied` false means no SetEnvironment ever arrived and the shader
     // is running on a hardcoded default -- indistinguishable from a real sun by
     // eye, and the first thing to check when the model reads flat.
+    // The sun study overlay, as the render thread has it. See the struct.
+    SunStudyOverlayStatus sunStudy;
     bool sunApplied = false;
     bool sunBelowHorizon = false;
     float sun[3] = { 0.0f, 0.0f, 1.0f };
@@ -706,6 +766,36 @@ class DiligentScene final {
                                  const Diligent::SamplerDesc& envSampler, std::string& error);
     bool CreateSemanticWirePipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
                                      uint32_t depthBufferFormat, std::string& error);
+    // ---- the sun study tint, all of it in DiligentSceneSunStudy.cpp ---------
+    //
+    // ⚠️ BUILT LAZILY ON THE FIRST STUDY, like the occlusion prepass and for
+    // the same reason: nobody who never runs a sun study should pay an HLSL
+    // compile for it, and a failure must LATCH rather than retry every frame.
+    bool CreateSunStudyPipeline (Diligent::IRenderDevice* device, uint32_t colorBufferFormat,
+                                 uint32_t depthBufferFormat, std::string& error);
+    // Take ownership of a completed study: upload the atlas, build one side
+    // buffer per element it names, and drop the previous study's resources.
+    void ApplySunStudy (Diligent::IRenderDevice* device, std::unique_ptr<SunStudyAtlasUpload> study);
+    // Forget it. ⚠️ ALSO CALLED ON A FULL GEOMETRY BATCH: a side buffer is
+    // indexed by triangle, so geometry that changed under a study leaves every
+    // face reading a neighbour's tile -- which draws as a result.
+    void ClearSunStudy ();
+    // Bind (or re-bind) the resident study to whatever elements the scene holds
+    // NOW. ⚠️ IDEMPOTENT AND CALLED AGAIN AT EVERY EndBatch, because the elements
+    // a study describes are replaced wholesale by each extraction while the study
+    // itself is unchanged. Re-validating per element -- by GUID and by index hash
+    // -- is what tells a re-extraction of the SAME model (re-attach) apart from a
+    // model that has actually changed (refuse, and say so).
+    void AttachSunStudy (Diligent::IRenderDevice* device);
+    // The tint pass itself. Drawn over the resolved image with depth EQUAL, so
+    // it colours exactly the pixels the shaded pass produced.
+    void DrawSunStudyTint (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull);
+    // The wireframe and the two silhouettes, in DiligentSceneOverlayPasses.cpp.
+    // ⚠️ EXTRACTED VERBATIM FROM THE END OF Draw(), and Draw() still decides
+    // WHEN it runs: these are the marks that say where a thing ends, so the pass
+    // order is the contract and it stays where it can be read in one place.
+    void DrawLineOverlays (Diligent::IDeviceContext* context, DiligentSceneConstants& constants, CullMode cull,
+                           bool drawWireframe);
     // Implemented in DiligentSceneOcclusion.cpp beside its one caller. ⚠️ NOT
     // CALLED FROM Init: it is built on first use so a compile failure latches
     // instead of retrying every frame, and so the pass compiles against the

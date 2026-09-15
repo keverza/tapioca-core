@@ -871,6 +871,12 @@ void IdentifyOwnSwapChain (IDXGISwapChain* swapChain)
 // the viewport rather than the scene stay at the call site.
 void CopySceneStatsInto (DiligentViewportStats& stats, const DiligentSceneStats& sceneStats)
 {
+    // ⚠️ THE WHOLE STRUCT, NOT FIELD BY FIELD. SunStudyOverlayStatus carries two
+    // std::strings and eight counters; copying them one at a time here is a list
+    // that silently stops covering the struct the next time a field is added --
+    // and a missing field in THIS copy reads as "the renderer is not drawing the
+    // study", which is the answer it exists to give truthfully.
+    stats.sunStudy = sceneStats.sunStudy;
     stats.month = sceneStats.month;
     stats.day = sceneStats.day;
     stats.hour = sceneStats.hour;

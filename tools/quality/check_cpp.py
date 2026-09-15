@@ -268,6 +268,24 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # reason: restating the SceneDrawState contract here would be a second
     # definition of it.
     ("NativeCommands/ViewerSyncCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
+    # The sun study's DISPLAY verb, extracted out of SunStudyCommands.cpp
+    # (2026-09-15) when it pushed that file past the size cap. Same reason as its
+    # neighbours: the atlas and its per-element side buffers are GEOMETRY, and
+    # geometry has always reached the renderer through SceneCmdQueue rather than
+    # through a command's return value -- so the one verb that starts that
+    # journey has to name the queue and the payload it carries. Restating
+    # SunStudyAtlasUpload on this side of the boundary would create a second
+    # definition of the payload contract, which is worse than the sideways
+    # include. Exactly one translation unit in the domain crosses; the other five
+    # sun study verbs stay renderer-free.
+    # Tapioca.SunStudyOverlayState reads what the RENDER THREAD did with the
+    # study -- the acknowledgement a SceneCmdQueue push cannot give, because the
+    # hand-over is one-way by design. It must name the viewport to read its stats
+    # snapshot, and restating that snapshot on this side would be a second
+    # definition of it. Same file, same domain, same reason as the pair below.
+    ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
+    ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
+    ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/ArchVizPanel.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentFxLink.hpp"),
     ("NativeCommands/ArchVizCommands.cpp", "ArchViz/DiligentProbe.hpp"),
@@ -862,6 +880,11 @@ SRB_BOUND_SHADER_STAGES = (
     "kArchVizGBufferDebugPS",
     "kArchVizAmbientOcclusionDebugPS",
     "kArchVizResolvePS",
+    # The sun study tint (2026-09-15). Both of its resources are DYNAMIC and both
+    # must stay that way: the atlas texture is recreated whenever a study is
+    # replaced, and the per-element face-map buffer changes between draws INSIDE
+    # the pass. Either one left STATIC is the 2026-08-21 crash again.
+    "kArchVizSunTintPS",
 )
 
 

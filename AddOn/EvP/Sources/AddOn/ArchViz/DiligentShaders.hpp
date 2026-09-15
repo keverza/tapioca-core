@@ -275,6 +275,17 @@ struct DiligentSceneConstants {
     float motionViewProj[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
     // x tessellation factor, y line width in pixels, zw viewport size.
     float wireParams[4] = { 4.0f, 1.25f, 1.0f, 1.0f };
+
+    // ---- appended for the sun study tint pass -------------------------------
+    // xy = 1 / atlas width and height, z = the top of the hours ramp,
+    // w = the diagnostic atlas mode (SunStudyDebugMode).
+    //
+    // ⚠️ A NEW float4 RATHER THAN A SPARE LANE, AND IT HAS TO BE. Every other
+    // float4 in this buffer is full; `outlineParams` was the last one with room
+    // and both of its spares are already spoken for. Appending is the safe
+    // direction -- HLSL packs by declaration order, so a field added at the END
+    // cannot move any existing one, and every PSO reads the same struct.
+    float sunStudyParams[4] = { 0.0f, 0.0f, 1.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -315,7 +326,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) ==
-                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16,
+                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -364,6 +375,8 @@ cbuffer ArchVizConstants
                                 //     not ALPHA -- see kArchVizCoveragePS)
     float4x4 g_motionViewProj;  // RE51.C8: current camera without projection jitter
     float4   g_wireParams;      // x tess factor, y line width px, zw viewport px
+    float4   g_sunStudyParams;  // xy = 1/atlas size, z = hours ramp top,
+                                // w = the diagnostic atlas mode
 };
 )hlsl";
 
@@ -537,6 +550,134 @@ void main (in PSInput psIn, out PSOutput psOut)
 
 // Face-aware wireframe: source triangles become patches, but their internal
 // triangulation edges are masked. The tessellator's new interior edges remain.
+// The sun study tint.
+//
+// ⚠️ IT REDRAWS THE EXISTING GEOMETRY AND RESOLVES THE ATLAS PER PIXEL, rather
+// than interpolating a per-vertex UV. `ArchViz/SunStudyOverlay.hpp` carries the
+// full argument; the short version is that a sun study FACE is a source
+// triangle while the render mesh WELDS the corners those triangles share, so a
+// per-vertex atlas UV has no correct value to hold. Here the face is named by
+// SV_PrimitiveID, which is unambiguous, and the interpolated world position is
+// mapped into that face's own cell lattice -- the same affine map the sampler
+// recorded in FaceLayout and the atlas used to place the samples.
+//
+// ⚠️ THE NEGATIVE TEST IS MANDATORY AND IT IS `< 0`, NOT `<= 0`. The atlas fills
+// every texel no sample landed on with a negative sentinel precisely because
+// ZERO IS A RESULT: a north wall in December receives nought hours, and painting
+// its gutter the same colour as its surface would be a shadow that is not there.
+// A pixel that resolves to the sentinel DISCARDS, leaving the shaded model it is
+// drawn over untouched.
+//
+// ⚠️ IT PAIRS WITH kArchVizMeshVS, like the flat shader, so the tint lands on
+// exactly the pixels the shaded pass produced -- which is also what lets the PSO
+// test depth for EQUALITY instead of re-rasterising with a bias.
+constexpr const char* kArchVizSunTintPS = R"hlsl(
+struct SunFaceMap
+{
+    float4 originAndInvSpacing; // xyz face grid origin (world m), w = 1/spacing
+    float4 uAxisAndStart;       // xyz in-plane u axis, w = first cell column
+    float4 vAxisAndStart;
+    float4 tile;                // xy tile origin in texels, zw tile size
+};
+
+StructuredBuffer<SunFaceMap> g_sunFaceMaps;
+Texture2D<float>             g_sunAtlas;
+SamplerState                 g_sunAtlas_sampler;
+
+struct PSInput
+{
+    float4 position : SV_POSITION;
+    float3 worldPos : WORLDPOS;
+    float3 normal   : NORMAL;
+    float4 color    : COLOR0;
+};
+
+struct PSOutput
+{
+    float4 color : SV_TARGET;
+};
+
+// A deliberately plain blue -> cyan -> yellow -> red ramp. This task is proving
+// correspondence, not designing the final visualisation, and a simple ramp makes
+// a mapping fault easier to see than a perceptual one would.
+float3 SunRamp (float t)
+{
+    t = saturate (t);
+    float3 cold = float3 (0.05, 0.10, 0.55);
+    float3 cool = float3 (0.10, 0.70, 0.75);
+    float3 warm = float3 (0.95, 0.80, 0.15);
+    float3 hot  = float3 (0.85, 0.15, 0.10);
+    if (t < 0.33)
+        return lerp (cold, cool, t / 0.33);
+    if (t < 0.66)
+        return lerp (cool, warm, (t - 0.33) / 0.33);
+    return lerp (warm, hot, (t - 0.66) / 0.34);
+}
+
+// Three decorrelated channels from one integer, so adjacent tiles are different
+// colours rather than adjacent shades of one.
+float3 TileColor (float id)
+{
+    return frac (float3 (id * 0.6180339887, id * 0.4142135624, id * 0.7320508076)) * 0.85 + 0.15;
+}
+
+void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput psOut)
+{
+    SunFaceMap face = g_sunFaceMaps[primitiveId];
+
+    // A face the atlas never placed -- degenerate, or below the grid with only a
+    // centroid sample -- carries a zero-sized tile. It is not "zero hours"; it
+    // is "this face was not measured", and it falls through to the shaded model.
+    if (face.tile.z < 0.5 || face.tile.w < 0.5)
+        discard;
+
+    float3 relative = psIn.worldPos - face.originAndInvSpacing.xyz;
+    float cellU = floor (dot (relative, face.uAxisAndStart.xyz) * face.originAndInvSpacing.w) - face.uAxisAndStart.w;
+    float cellV = floor (dot (relative, face.vAxisAndStart.xyz) * face.originAndInvSpacing.w) - face.vAxisAndStart.w;
+
+    // ⚠️ CLAMPED TO THE LAST CELL, NOT TO THE TILE EDGE. One past the last cell
+    // is the GUTTER the packer leaves between tiles, which holds the sentinel --
+    // so an unclamped edge pixel would discard and draw a one-texel unshaded
+    // seam along every face boundary, exactly where a person expects shading to
+    // change anyway.
+    float column = clamp (cellU, 0.0, face.tile.z - 1.0);
+    float row    = clamp (cellV, 0.0, face.tile.w - 1.0);
+    float2 uv = (face.tile.xy + float2 (column, row) + 0.5) * g_sunStudyParams.xy;
+
+    int mode = int (g_sunStudyParams.w + 0.5);
+    if (mode == 1) {
+        // Tile id: neighbouring faces must be different colours, and a face must
+        // be ONE flat colour across its whole surface.
+        psOut.color = float4 (TileColor (face.tile.x * 7919.0 + face.tile.y), 1.0);
+        return;
+    }
+    if (mode == 2) {
+        // Cell gradient: red runs along the face's own u axis, green along v.
+        // Continuous inside a tile, discontinuous across a face boundary, and it
+        // shows the orientation of the lattice directly.
+        psOut.color = float4 (column / max (face.tile.z - 1.0, 1.0), row / max (face.tile.w - 1.0, 1.0), 0.25, 1.0);
+        return;
+    }
+    if (mode == 3) {
+        // One-cell checker: each square IS one atlas texel, so a study whose
+        // grid is 2 m must show 2 m squares on the model. Nothing else measures
+        // the lattice's pitch on screen.
+        float checker = fmod (column + row, 2.0) < 0.5 ? 0.15 : 0.85;
+        psOut.color = float4 (checker, checker, checker, 1.0);
+        return;
+    }
+
+    // ⚠️ SampleLevel, NOT Sample. This runs after a discard, and a gradient-based
+    // mip selection in non-uniform flow is undefined; the atlas has one level
+    // anyway.
+    float hours = g_sunAtlas.SampleLevel (g_sunAtlas_sampler, uv, 0);
+    if (hours < 0.0)
+        discard; // the sentinel: no sample here. NOT zero hours.
+
+    psOut.color = float4 (SunRamp (hours / max (g_sunStudyParams.z, 1e-6)), 1.0);
+}
+)hlsl";
+
 constexpr const char* kArchVizWireVS = R"hlsl(
 struct VSInput
 {

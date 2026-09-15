@@ -42,14 +42,22 @@ namespace archviz {
 namespace modelwatch {
 
 struct Stats {
-    bool     running       = false;
-    uint32_t polls         = 0;   // ticks that actually asked Archicad
-    uint32_t skippedBusy   = 0;   // ticks that found an extraction already running
-    uint32_t refreshes     = 0;   // ticks that started a re-extraction
-    int64_t  lastDiffMs    = 0;   // what the last poll cost
-    int64_t  worstDiffMs   = 0;   // the worst one, which is what set the interval
-    uint32_t intervalMs    = 0;   // the cadence it has settled on
-    std::string lastError;        // last generator failure, empty when healthy
+    bool running = false;
+    uint32_t polls = 0;       // ticks that actually asked Archicad
+    uint32_t skippedBusy = 0; // ticks that found an extraction already running
+    uint32_t refreshes = 0;   // ticks that started a re-extraction
+    // Ticks where ONLY the environment moved, answered by re-reading the sun
+    // instead of rebuilding the model. ⚠️ THE PAIR WITH `refreshes` IS THE
+    // DIAGNOSIS: navigating Archicad's 3D window makes its own difference
+    // generator report `isEnvironmentChanged` on every poll, so before this
+    // split a user who simply orbited caused a FULL re-extraction roughly twice
+    // a second -- every element's vertex, index and side buffers destroyed and
+    // recreated, for a model that had not changed at all.
+    uint32_t environmentOnly = 0;
+    int64_t lastDiffMs = 0;  // what the last poll cost
+    int64_t worstDiffMs = 0; // the worst one, which is what set the interval
+    uint32_t intervalMs = 0; // the cadence it has settled on
+    std::string lastError;   // last generator failure, empty when healthy
 };
 
 // Arm the watch (idempotent). `floorMs` is the FASTEST it will ever poll; the
@@ -66,8 +74,8 @@ bool RefreshNow ();
 
 Stats Get ();
 
-}   // namespace modelwatch
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace modelwatch
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

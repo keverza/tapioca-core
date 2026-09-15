@@ -19,6 +19,7 @@
 #include "NativeCommands/CreateCommands.hpp"
 #include "NativeCommands/CuttingPlaneCommands.hpp"
 #include "NativeCommands/DraftingCommands.hpp"
+#include "NativeCommands/DraftingPolylineCommands.hpp"
 #include "NativeCommands/DrawingCommands.hpp"
 #include "NativeCommands/ElementModifyCommands.hpp"
 #include "NativeCommands/ElementReadCommands.hpp"
@@ -49,6 +50,7 @@
 #include "NativeCommands/ProjectCommands.hpp"
 #include "NativeCommands/QueryCommands.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
+#include "NativeCommands/SunStudyDisplayCommands.hpp"
 #include "NativeCommands/RoofCreateCommands.hpp"
 #include "NativeCommands/SelectionCommands.hpp"
 #include "NativeCommands/SnapshotCommands.hpp"
@@ -86,6 +88,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetCaptureCommandRegistrations,
     &GetQueryCommandRegistrations,
     &GetSunStudyCommandRegistrations,
+    &GetSunStudyDisplayCommandRegistrations,
     &GetElementReadCommandRegistrations,
     &GetElementPropertyCommandRegistrations,
     &GetElementModifyCommandRegistrations,
@@ -95,6 +98,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetCreateCommandRegistrations,
     &GetRoofCreateCommandRegistrations,
     &GetDraftingCommandRegistrations,
+    &GetDraftingPolylineCommandRegistrations,
     &GetDrawingCommandRegistrations,
     &GetLayoutCommandRegistrations,
     &GetLibraryObjectCommandRegistrations,

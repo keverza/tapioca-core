@@ -165,6 +165,12 @@ struct DiligentViewportStats {
     float taaJitterPixels[2] = { 0.0f, 0.0f };
     float whiteBalanceGains[3] = { 1.0f, 1.0f, 1.0f };
 
+    // The sun study overlay, straight from the render thread. ⚠️ IT IS THE ONLY
+    // HONEST ANSWER TO "IS THE STUDY ON SCREEN". The command that starts a
+    // display pushes into a queue with no reply; see SunStudyOverlayStatus for
+    // the run that proved a push can succeed while nothing is ever drawn.
+    SunStudyOverlayStatus sunStudy;
+
     // ---- RE51.B2: the substance join's coverage ------------------------------
     uint64_t substanceNamed = 0;
     uint64_t substanceCounts[7] = {};
@@ -318,7 +324,7 @@ class DiligentViewport final {
     };
 
     bool StartCapture (uint32_t width, uint32_t height, float dpi, const CameraStart& camera, int renderQuality,
-                        const CaptureOverlays& overlays, uint64_t& captureId, std::string& error);
+                       const CaptureOverlays& overlays, uint64_t& captureId, std::string& error);
 
     // MANY FRAMES, ONE EXTRACTION.
     //
@@ -341,8 +347,8 @@ class DiligentViewport final {
     // memory does not grow with the number of cameras: eight 4K PNGs held at
     // once to hand back at the end would be tens of megabytes for no reason.
     bool StartCaptureBatch (uint32_t width, uint32_t height, float dpi, const std::vector<CaptureFrame>& frames,
-                             int renderQuality, const CaptureOverlays& overlays, const std::string& outputDirectory,
-                             uint64_t& captureId, std::string& error);
+                            int renderQuality, const CaptureOverlays& overlays, const std::string& outputDirectory,
+                            uint64_t& captureId, std::string& error);
     bool CancelCapture (uint64_t captureId);
     DiligentCaptureStats CaptureStats () const;
     bool CurrentCamera (CameraStart& camera) const;

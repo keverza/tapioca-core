@@ -160,6 +160,36 @@ bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t
     return true;
 }
 
+bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& tiles, std::vector<FaceLayout>& layouts,
+                                 uint32_t& width, uint32_t& height, double& spacing, std::vector<float>& image,
+                                 double& daylightHours, bool& converged, uint64_t& generation, std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+
+    const StudyRecord& record = *found->second;
+    if (!record.atlas.valid) {
+        error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+        return false;
+    }
+
+    tiles = record.atlas.tiles;
+    layouts = record.sampleGrid.layouts;
+    width = record.atlas.width;
+    height = record.atlas.height;
+    spacing = record.gridSpacing;
+    image = ScatterToAtlas (record.atlas, record.session.SunHours ());
+    daylightHours = record.series.DaylightHours ();
+    const StudyProgress progress = record.session.Progress ();
+    converged = progress.converged;
+    generation = progress.generation;
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);

@@ -8,12 +8,15 @@ namespace archviz {
 
 void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vector<int32_t>& triMaterial,
                           std::vector<uint32_t>& outIndices, std::vector<MaterialRange>& outRanges,
-                          const std::vector<uint8_t>* triWireEdges, std::vector<uint32_t>* outWireEdges)
+                          const std::vector<uint8_t>* triWireEdges, std::vector<uint32_t>* outWireEdges,
+                          std::vector<uint32_t>* outOrder)
 {
     outIndices.clear ();
     outRanges.clear ();
     if (outWireEdges != nullptr)
         outWireEdges->clear ();
+    if (outOrder != nullptr)
+        outOrder->clear ();
 
     const size_t triCount = triangles.size () / 3;
     if (triCount == 0)
@@ -39,6 +42,8 @@ void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vec
     outIndices.resize (triCount * 3);
     if (outWireEdges != nullptr)
         outWireEdges->resize (triCount);
+    if (outOrder != nullptr)
+        outOrder->resize (triCount);
     outRanges.reserve (8);
 
     int32_t runMaterial = MaterialOf (order[0]);
@@ -46,6 +51,8 @@ void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vec
 
     for (size_t i = 0; i < triCount; ++i) {
         const size_t src = order[i];
+        if (outOrder != nullptr)
+            (*outOrder)[i] = static_cast<uint32_t> (src);
         outIndices[i * 3 + 0] = triangles[src * 3 + 0];
         outIndices[i * 3 + 1] = triangles[src * 3 + 1];
         outIndices[i * 3 + 2] = triangles[src * 3 + 2];
@@ -67,6 +74,23 @@ void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vec
     // differ from. Forgetting this drops the LAST material entirely, which
     // looks like one missing surface rather than a loop bug.
     outRanges.push_back (MaterialRange { runMaterial, runStartTri * 3, (uint32_t (triCount) - runStartTri) * 3 });
+}
+
+uint64_t MeshIndexHash (const std::vector<uint32_t>& indices)
+{
+    uint64_t hash = 1469598103934665603ull; // FNV-1a offset basis
+    const auto mix = [&hash] (uint64_t value) {
+        for (int byte = 0; byte < 8; ++byte) {
+            hash ^= (value >> (byte * 8)) & 0xffull;
+            hash *= 1099511628211ull;
+        }
+    };
+    // The count goes in first so a truncated buffer cannot hash like a shorter
+    // mesh that happens to share a prefix.
+    mix (indices.size ());
+    for (uint32_t index : indices)
+        mix (index);
+    return hash;
 }
 
 } // namespace archviz

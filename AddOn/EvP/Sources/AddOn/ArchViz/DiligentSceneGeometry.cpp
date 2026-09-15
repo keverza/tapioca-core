@@ -136,6 +136,20 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                 if (cmd.full) {
                     for (Entry& e : impl_->elements)
                         e.seenThisBatch = false;
+                    // ⚠️ A FULL REBUILD DOES **NOT** DROP THE STUDY ANY MORE, AND
+                    // THE REASON IS THE SAME ONE THAT USED TO DROP IT. The side
+                    // buffers are indexed by TRIANGLE, so geometry replaced
+                    // underneath one must not stay bound -- but every Upsert
+                    // already releases its own element's buffer, and a removed
+                    // element takes its buffer with it. So the dangerous binding
+                    // cannot survive the batch either way, and clearing the whole
+                    // study on top of that threw away the CPU payload as well.
+                    //
+                    // That made the overlay last exactly until the next
+                    // extraction -- which on a live model is seconds -- and it
+                    // made a study pushed BEFORE the first extraction impossible
+                    // to ever show. EndBatch re-binds from the retained payload
+                    // instead, per element and only where the hash still agrees.
                 }
                 break;
 
@@ -221,6 +235,12 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
 
                 CreateWireEdgeBuffer (device, e, upload.wireEdges);
 
+                // ⚠️ THE SIDE BUFFER DOES NOT SURVIVE AN UPSERT. Re-extracted
+                // geometry has a new triangle list; the buffer that described
+                // the old one would still bind and still draw.
+                e.sunFaceBuffer.Release ();
+                e.topologyHash = MeshIndexHash (upload.indices);
+
                 e.guid = upload.guid;
                 // ⚠️ ASSIGNED ONCE, AND ONLY ONCE. An upsert of an element that
                 // is already cached is the ordinary case during live sync;
@@ -279,6 +299,13 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
                     }
                 }
                 impl_->inFullBatch = false;
+                // ⚠️ HERE, AND NOT IN THE UPSERT. An element's side buffer can
+                // only be bound once the element exists, and a study names
+                // elements the batch may deliver in any order -- so the one
+                // moment when "which elements does the scene hold" is settled is
+                // the end of the batch. It is a no-op when no study is resident
+                // and an early-out per already-bound element otherwise.
+                AttachSunStudy (device);
                 break;
 
             case SceneCmdType::SetSelection:
@@ -317,6 +344,16 @@ size_t DiligentScene::Consume (Diligent::IRenderDevice* device, size_t maxComman
 
             case SceneCmdType::EndPointLayer:
                 impl_->pointCloud.EndLayer (cmd.pointLayerId);
+                break;
+
+            case SceneCmdType::SetSunStudyAtlas:
+                // Whole, and it replaces: ApplySunStudy releases the previous
+                // atlas and every element's previous side buffer first.
+                ApplySunStudy (device, std::move (cmd.sunStudy));
+                break;
+
+            case SceneCmdType::ClearSunStudy:
+                ClearSunStudy ();
                 break;
         }
     }
@@ -481,6 +518,27 @@ DiligentSceneStats DiligentScene::Stats () const
         s.triangles += e.indexCount / 3;
         s.gpuBytes += e.gpuBytes;
     }
+    s.sunStudy.studyId = impl_->sunStudyId;
+    s.sunStudy.version = impl_->sunStudyVersion;
+    s.sunStudy.atlasWidth = impl_->sunAtlasWidth;
+    s.sunStudy.atlasHeight = impl_->sunAtlasHeight;
+    s.sunStudy.elementsNamed = impl_->sunElementsNamed;
+    s.sunStudy.elementsAttached = impl_->sunElementsAttached;
+    s.sunStudy.refusedTriangleCount = impl_->sunRefusedTriangleCount;
+    s.sunStudy.refusedTopologyHash = impl_->sunRefusedTopologyHash;
+    s.sunStudy.atlasUploads = impl_->sunAtlasUploads;
+    s.sunStudy.atlasBytesUploaded = impl_->sunAtlasBytesUploaded;
+    s.sunStudy.rejection = impl_->sunRejection;
+    s.sunStudy.depthMode = impl_->sunDepthMode;
+    s.sunStudy.tintFrames = impl_->sunTintFrames;
+    s.sunStudy.tintElementsDrawn = impl_->sunTintElementsDrawn;
+    s.sunStudy.framesSkippedIncompleteBinding = impl_->sunFramesSkippedIncompleteBinding;
+    // ⚠️ THE ATLAS VIEW *AND* AN ATTACHED ELEMENT. Either alone draws nothing:
+    // an atlas with no side buffer has no triangle to tint, and a side buffer
+    // with no atlas has nothing to read. This is the flag a caller should trust
+    // over any count.
+    s.sunStudy.drawing = impl_->sunAtlasSRV != nullptr && impl_->sunElementsAttached > 0;
+
     s.shadowReady = impl_->shadowMap.IsReady ();
     s.shadowFitted = impl_->shadowMap.IsFitted ();
     s.shadowResolution = impl_->shadowMap.Resolution ();

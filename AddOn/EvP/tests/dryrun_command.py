@@ -438,6 +438,9 @@ def _validate_input(command, params):
 # See the canned responses below for why a stateless fake would pass a broken
 # caller and hang a working one.
 _SUN_STUDY = {}
+# What the RENDERER would report. Empty until a study is actually shown, so the
+# fake can model "pushed at a viewer that is not there" -- see EvP.ShowSunStudy.
+_SUN_OVERLAY = {}
 
 
 def _ok(data):
@@ -1708,6 +1711,16 @@ def _one(command, params):
                     "databaseId": {"guid": _GUID % 950},
                     "layer": params.get("layer", "Layer 1"),
                     "verified": True})
+
+    if command == "EvP.CreateDraftingPolyline":
+        return _ok({"elementId": {"guid": _GUID % 201},
+                    "databaseId": {"guid": _GUID % 950},
+                    "layer": params.get("layer", "Layer 1"),
+                    "verified": True})
+
+    if command == "EvP.ListDraftingPolylines":
+        return _ok({"databaseId": {"guid": _GUID % 950},
+                    "polylines": [], "count": 0})
 
     if command == "EvP.CreateColumn":
         n = len(params.get("x", []))
@@ -3128,6 +3141,69 @@ def _one(command, params):
             else:
                 out["stepBits"] = bits
         return _v2(out)
+
+    if command == "EvP.ShowSunStudy":
+        # ⚠️ show=False MUST ANSWER WITHOUT A STUDY. The native verb clears the
+        # viewer unconditionally and names no study, precisely so a stale tint
+        # can be removed after the study behind it was cancelled; a fake that
+        # refused without a live study would let a caller that only ever tests
+        # the happy path through.
+        if not bool(params.get("show", True)):
+            _SUN_OVERLAY.clear()
+            return _v2({"studyId": "", "shown": False,
+                        "viewerRunning": False, "elements": 0, "depth": 0,
+                        "atlasWidth": 0, "atlasHeight": 0, "converged": False,
+                        "hoursMax": 0.0, "debug": 0})
+        if not _SUN_STUDY:
+            return _err("no sun study to show - start one first")
+        # ⚠️ THE ELEMENT COUNT IS THE FAKE SNAPSHOT'S, NOT THE SAMPLE COUNT.
+        # The whole point of the display verb is that it pairs a study with the
+        # ELEMENTS the viewer holds, and a fake that answered with the sample
+        # count would let a caller confuse the two and still look right.
+        debug = int(params.get("debug", 0))
+        debug = 0 if debug < 0 else (3 if debug > 3 else debug)
+        depth = int(params.get("depth", 0))
+        depth = 0 if depth < 0 else (2 if depth > 2 else depth)
+        hours_max = float(params.get("hoursMax", 0.0))
+        if hours_max <= 0.0:
+            hours_max = float(_SUN_STUDY["total"])
+        elements = 1 if _SCENARIO == "topography" else len(_SNAP_GUIDS)
+        _SUN_OVERLAY.clear()
+        _SUN_OVERLAY.update({
+            "viewerRunning": True, "studyId": _SUN_STUDY["id"], "drawing": True,
+            "elementsNamed": elements, "elementsAttached": elements,
+            "refusedTriangleCount": 0, "refusedTopologyHash": 0,
+            "atlasWidth": 256, "atlasHeight": 256,
+            "atlasUploads": _SUN_OVERLAY.get("atlasUploads", 0) + 1,
+            "atlasBytesUploaded": 256 * 256 * 4, "revision": 1, "depth": depth,
+            # A fake that always reported a clean frame history would hide the
+            # one counter this pass was instrumented for.
+            "tintFrames": 120, "tintElementsDrawn": 120 * elements,
+            "framesSkippedIncompleteBinding": 0, "rejection": ""})
+        return _v2({"studyId": _SUN_STUDY["id"], "shown": True,
+                    "viewerRunning": True,
+                    "elements": elements,
+                    "atlasWidth": 256, "atlasHeight": 256,
+                    "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
+                    "hoursMax": hours_max, "debug": debug, "depth": depth})
+
+    if command == "EvP.SunStudyOverlayState":
+        # ⚠️ THE FAKE MUST MODEL "SENT BUT NOT DRAWN", because that is the whole
+        # reason the verb exists. It reports a RUNNING viewer only when a study
+        # has actually been shown in this process; a fake that always answered
+        # viewerRunning=True would send the caller down the happy path and hide
+        # the exact failure the real verb was added to surface.
+        if not _SUN_OVERLAY:
+            return _v2({"viewerRunning": False, "studyId": "", "drawing": False,
+                        "elementsNamed": 0, "elementsAttached": 0,
+                        "refusedTriangleCount": 0, "refusedTopologyHash": 0,
+                        "atlasWidth": 0, "atlasHeight": 0, "atlasUploads": 0,
+                        "atlasBytesUploaded": 0, "revision": 0, "depth": 0,
+                        "tintFrames": 0, "tintElementsDrawn": 0,
+                        "framesSkippedIncompleteBinding": 0,
+                        "rejection": "no Diligent viewport is running - nothing "
+                                     "can be displaying a study"})
+        return _v2(dict(_SUN_OVERLAY))
 
     if command == "EvP.CancelSunStudy":
         erased = 1 if _SUN_STUDY else 0

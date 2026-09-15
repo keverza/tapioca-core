@@ -309,6 +309,13 @@ set (EVP_SCENE_TEXT_TESTS
     test_scenetextplacement.cpp)
 set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
+    # ArchViz/SunStudyOverlay.cpp is the whole of the sun study's DISPLAY
+    # correspondence: which atlas tile a rendered triangle reads, and through
+    # which permutation. It includes no Diligent header for exactly that reason
+    # -- the mapping is what cannot be judged from the picture (a wrong tile
+    # renders as a plausible study), and it is therefore the part that has to be
+    # checked numerically here rather than by looking at a viewport.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/SunStudyOverlay.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MaterialTable.cpp"
     # ArchViz/SurfaceClassifier.cpp decides what a surface IS from its numeric
     # channels alone. It is here for the strongest version of the ArchViz
@@ -550,6 +557,7 @@ set (EVP_TEST_SOURCES
     test_sunstudysampler.cpp
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp
+    test_sunstudyoverlay.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp

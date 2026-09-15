@@ -97,3 +97,51 @@ def test_create_text_normalizes_native_result_and_sends_strict_anchor(monkeypatc
         "guid": "99999999-2222-3333-4444-555555555555"
     }
     assert captured["params"]["failOnError"] is True
+
+
+def test_create_polyline_sends_closed_points_layer_and_anchor():
+    sent = {}
+
+    class Tx:
+        def call(self, command, params):
+            sent.update({"command": command, "params": params})
+            return "polyline-handle"
+
+    result = drafting.create_polyline(
+        [(0, 0), (2, 0), (2, 1), (0, 1), (0, 0)],
+        layer="Reports",
+        database_anchor="11111111-2222-3333-4444-555555555555",
+        tx=Tx(),
+    )
+
+    assert result == "polyline-handle"
+    assert sent["command"] == "Tapioca.CreateDraftingPolyline"
+    assert sent["params"]["coordinates"][0] == {"x": 0.0, "y": 0.0}
+    assert sent["params"]["coordinates"][-1] == {"x": 0.0, "y": 0.0}
+    assert sent["params"]["layer"] == "Reports"
+    assert sent["params"]["databaseAnchorElementId"] == {
+        "guid": "11111111-2222-3333-4444-555555555555"
+    }
+
+
+def test_polyline_rectangles_normalizes_database_and_bounds(monkeypatch):
+    response = {
+        "databaseId": {"guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"},
+        "count": 1,
+        "polylines": [{
+            "elementId": {"guid": "11111111-2222-3333-4444-555555555555"},
+            "x": 1.0,
+            "y": 2.0,
+            "width": 3.0,
+            "height": 4.0,
+            "layer": "Reports",
+        }],
+    }
+    monkeypatch.setattr(drafting, "call", lambda *args, **kwargs: SimpleNamespace(data=response))
+
+    assert drafting.polyline_rectangles("anchor") == [{
+        "guid": "11111111-2222-3333-4444-555555555555",
+        "rect": (1.0, 2.0, 3.0, 4.0),
+        "layer": "Reports",
+        "database_guid": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    }]

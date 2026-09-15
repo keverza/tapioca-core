@@ -68,6 +68,8 @@ using Diligent::RefCntAutoPtr;
 // blend.
 
 constexpr int kCullModeCount = 3;
+// EQUAL, LESS_EQUAL and ALWAYS -- see SunStudyDepthMode for why all three exist.
+constexpr int kSunDepthModeCount = 3;
 constexpr int kShadowModeCount = 4;
 
 inline int ShadowModeIndex (DiligentShadowMode mode)
@@ -208,6 +210,14 @@ struct Entry {
     RefCntAutoPtr<Diligent::IBuffer> vertexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> indexBuffer;
     RefCntAutoPtr<Diligent::IBuffer> wireEdgeBuffer;
+    // ---- the sun study side car (one SunFaceMap per RENDERED triangle) ------
+    // Null unless a study named this element. ⚠️ BOUND BY THE TINT PASS ONLY:
+    // no other pass declares it, so an element without one costs nothing and the
+    // ordinary vertex format is untouched.
+    RefCntAutoPtr<Diligent::IBuffer> sunFaceBuffer;
+    // What the upload's SOURCE mesh hashed to. The study's side buffer is
+    // matched against this before it is accepted -- see MeshGroups.hpp.
+    uint64_t topologyHash = 0;
     Diligent::Uint32 vertexCount = 0;
     Diligent::Uint32 indexCount = 0;
     bool indices32 = true;
@@ -329,6 +339,93 @@ struct geomsrv::archviz::DiligentScene::Impl {
     RefCntAutoPtr<Diligent::IPipelineState> occlusionDepthPso;
     RefCntAutoPtr<Diligent::IShaderResourceBinding> occlusionDepthSrb;
     bool occlusionDepthInitFailed = false;
+
+    // ---- the sun study tint (DiligentSceneSunStudy.cpp) ---------------------
+    //
+    // ⚠️ ONE PSO PER CULL MODE AND NOTHING ELSE. The pass draws AFTER the HDR
+    // resolve, straight into the swap chain, so there is no second render-target
+    // format to build a parallel set for -- and the tint then reads the same
+    // colour whether or not the frame took the HDR path, which a diagnostic must.
+    // The formats Init was given. ⚠️ KEPT SO A LAZILY BUILT PASS THAT DRAWS INTO
+    // THE FRAME LOOP'S OWN BINDING CAN COMPILE AGAINST THEM. The occlusion
+    // prepass takes its formats from its caller because it runs in the OVERLAY's
+    // binding, which is not the scene's; the tint draws into exactly the target
+    // the opaque PSOs above were built for, so taking anything else would be a
+    // second source of truth for one format.
+    uint32_t initColorFormat = 0;
+    uint32_t initDepthFormat = 0;
+
+    RefCntAutoPtr<Diligent::IShader> sunTintPs;
+    RefCntAutoPtr<Diligent::IPipelineState> sunTintPso[kSunDepthModeCount][kCullModeCount];
+    // ⚠️ ONE SRB PER CULL MODE, SHARED ACROSS THE DEPTH MODES. An SRB belongs to a
+    // pipeline's RESOURCE LAYOUT, and all nine of these declare the identical
+    // layout -- the depth state is not a resource. Three copies would be three
+    // things to keep bound in step for no benefit.
+    RefCntAutoPtr<Diligent::IShaderResourceBinding> sunTintSrb[kCullModeCount];
+    bool sunTintInitFailed = false;
+    // The study itself. The texture is the atlas; the CPU-side record is kept so
+    // a HUD, a stat line or a later progressive refresh can say WHICH study is
+    // on screen. ⚠️ REPLACING IT RELEASES THE OLD TEXTURE AND EVERY ELEMENT'S
+    // side buffer, because a side buffer outliving its atlas indexes into the
+    // new one with the old one's tiles.
+    // ⚠️ THE CPU PAYLOAD IS KEPT, NOT CONSUMED AND DROPPED, AND THAT IS WHAT
+    // MAKES THE OVERLAY A FEATURE RATHER THAN A ONE-SHOT. A study is pushed by a
+    // command on another thread whenever the user asks; the ELEMENTS it binds to
+    // come and go on their own schedule -- a study can arrive before the first
+    // extraction has produced any, and every later full rebuild replaces all of
+    // them. Without the payload there is nothing to re-bind from, so the tint
+    // would survive exactly until the next extraction and then vanish with no
+    // error anywhere. Holding it costs the atlas image (256 KB on the live test
+    // model) and one SunFaceMap per triangle.
+    //
+    // ⚠️ AND IT IS WHAT THE CHEAP VALUE-ONLY UPDATE WILL NEED. The triangle
+    // records and the permutation are invariant for the lifetime of one study;
+    // only the texels change as the analysis converges.
+    std::shared_ptr<const SunStudyAtlasUpload> sunStudyPayload;
+    RefCntAutoPtr<Diligent::ITexture> sunAtlasTexture;
+    Diligent::ITextureView* sunAtlasSRV = nullptr;
+    std::string sunStudyId;
+    uint64_t sunStudyVersion = 0;
+    uint32_t sunAtlasWidth = 0;
+    uint32_t sunAtlasHeight = 0;
+    float sunHoursMax = 1.0f;
+    uint32_t sunDebugMode = 0;
+    uint32_t sunDepthMode = 0;
+    // ---- what the last drawn frame actually did with the overlay ------------
+    // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
+    // the overlay ever fail to draw something it should have", and a flag that
+    // resets every frame cannot be caught by a caller polling at human speed --
+    // which is exactly the shape of the fault they exist to find (one dark frame
+    // during navigation).
+    uint64_t sunTintFrames = 0;        // frames the tint pass actually ran
+    uint64_t sunTintElementsDrawn = 0; // elements tinted, summed over frames
+    // An element with geometry the scene is drawing, whose side buffer is NOT
+    // bound this frame. ⚠️ THIS IS THE COUNTER THAT SEPARATES A LIFECYCLE BUG
+    // FROM A SHADER BUG. If a visible glitch coincides with this rising, the
+    // overlay lost a binding for a frame; if it does not, the fault is in the
+    // depth state or in the pass underneath.
+    uint64_t sunFramesSkippedIncompleteBinding = 0;
+    // How many elements the study named, and how many actually attached. ⚠️ BOTH
+    // NUMBERS, because "the tint is missing" and "the tint is on the wrong
+    // surfaces" are different faults and only the pair separates them: a study
+    // that named six elements and attached two did not fail quietly, it refused
+    // four topology hashes.
+    size_t sunElementsNamed = 0;
+    size_t sunElementsAttached = 0;
+    // Elements the study named that the scene has not received yet. ⚠️ A
+    // DIFFERENT NUMBER FROM THE REFUSALS and it must stay one: this one resolves
+    // itself at the next EndBatch, the refusals never will.
+    size_t sunElementsAbsent = 0;
+    size_t sunRefusedTriangleCount = 0;
+    size_t sunRefusedTopologyHash = 0;
+    // ⚠️ THESE TWO DO NOT RESET WITH THE STUDY. They are lifetime counters for
+    // this viewport, because the question they answer -- "is something uploading
+    // this atlas more often than the analysis produces one?" -- is meaningless
+    // against a number that goes back to zero whenever the study is replaced.
+    uint64_t sunAtlasUploads = 0;
+    uint64_t sunAtlasBytesUploaded = 0;
+    // Why the last study offered was not taken, whole. Empty when it was.
+    std::string sunRejection;
 
     std::unique_ptr<Diligent::GBuffer> gBuffer;
     RefCntAutoPtr<Diligent::IShader> gBufferPs;

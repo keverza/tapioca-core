@@ -48,6 +48,9 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
     if (impl_->ready)
         return true;
 
+    impl_->initColorFormat = colorBufferFormat;
+    impl_->initDepthFormat = depthBufferFormat;
+
     auto compile = [&] (Diligent::SHADER_TYPE type, const char* name, const char* body,
                         RefCntAutoPtr<Diligent::IShader>& out, const char* more = nullptr,
                         const char* evenMore = nullptr, const char* last = nullptr) -> bool {

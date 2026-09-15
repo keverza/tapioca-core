@@ -54,10 +54,38 @@ struct MaterialRange {
 // triangle count is treated as material 0 for the remainder rather than read out
 // of bounds: a truncated material array is a bad extraction, and drawing it in
 // one colour is recoverable where a crash is not.
+// `outOrder`, when asked for, is the PERMUTATION ITSELF: `outOrder[i]` is the
+// SOURCE triangle that became output triangle `i`.
+//
+// ⚠️ IT IS HANDED OUT RATHER THAN RE-DERIVED, because a second consumer of the
+// same ordering already exists. The sun study's atlas is indexed by SOURCE face
+// while the GPU draws triangles in THIS order, so the tint pass has to walk the
+// same permutation -- and a second stable_sort over the same key, written
+// somewhere else, is free to disagree the first time either side's tie-break or
+// material fallback changes. The symptom would be every face reading its
+// neighbour's sun hours: a plausible picture, wrong everywhere.
 void BuildMaterialGroups (const std::vector<uint32_t>& triangles, const std::vector<int32_t>& triMaterial,
                           std::vector<uint32_t>& outIndices, std::vector<MaterialRange>& outRanges,
                           const std::vector<uint8_t>* triWireEdges = nullptr,
-                          std::vector<uint32_t>* outWireEdges = nullptr);
+                          std::vector<uint32_t>* outWireEdges = nullptr, std::vector<uint32_t>* outOrder = nullptr);
+
+// A 64-bit FNV-1a over a REORDERED index buffer -- the output of the function
+// above, which is also the buffer the GPU draws with.
+//
+// ⚠️ IT IS THE ONLY THING THAT CAN CATCH A PER-TRIANGLE SIDE BUFFER BUILT
+// AGAINST A DIFFERENT EXTRACTION OF THE SAME ELEMENT. The viewer's geometry
+// comes from ExtractionThread's own extraction while the sun study samples the
+// MeshStore snapshot -- two runs of the same extractor over the same model,
+// which agree until the model changes between them. A side buffer indexed into
+// the wrong triangle list does not fail: it draws every face with a neighbour's
+// data, which looks like an analysis result rather than a mismatch.
+//
+// ⚠️ OVER THE REORDERED BUFFER RATHER THAN THE SOURCE ARRAYS, because that is
+// exactly what SV_PrimitiveID counts through. It therefore covers the source
+// triangles AND the material permutation in one number, and it is computed on
+// both sides from a buffer each side already holds -- so neither the extraction
+// pass nor the vertex format has to carry anything for it.
+uint64_t MeshIndexHash (const std::vector<uint32_t>& indices);
 
 } // namespace archviz
 } // namespace geomsrv

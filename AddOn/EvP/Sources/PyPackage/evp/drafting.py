@@ -26,6 +26,50 @@ ANCHORS = (
     "bottomLeft", "bottomCenter", "bottomRight",
 )
 
+
+def polyline_rectangles(database_anchor):
+    """Return every Polyline bounding rectangle in an anchored worksheet."""
+    data = call(
+        "Tapioca.ListDraftingPolylines",
+        {"databaseAnchorElementId": {"guid": str(database_anchor)}},
+    ).data or {}
+    return [
+        {
+            "guid": (item.get("elementId") or {}).get("guid", ""),
+            "rect": (item.get("x", 0.0), item.get("y", 0.0),
+                     item.get("width", 0.0), item.get("height", 0.0)),
+            "layer": item.get("layer", ""),
+            "database_guid": (data.get("databaseId") or {}).get("guid", ""),
+        }
+        for item in data.get("polylines") or []
+    ]
+
+
+def create_polyline(coordinates, layer=None, database_anchor=None, tx=None):
+    """Create a straight-segment Polyline from ``(x, y)`` model coordinates.
+
+    ``database_anchor`` identifies the containing worksheet explicitly. Pass a
+    repeated first point when the Polyline should be visibly closed.
+    """
+    points = [{"x": float(point[0]), "y": float(point[1])} for point in coordinates]
+    if len(points) < 2:
+        raise ValueError("create_polyline needs at least two coordinates")
+    params = {"coordinates": points}
+    if layer:
+        params["layer"] = str(layer)
+    if database_anchor:
+        params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
+    if tx is not None:
+        return tx.call("Tapioca.CreateDraftingPolyline", params)
+    data = call("Tapioca.CreateDraftingPolyline", params).data or {}
+    return {
+        "ok": bool((data.get("elementId") or {}).get("guid")),
+        "guid": (data.get("elementId") or {}).get("guid", ""),
+        "database_guid": (data.get("databaseId") or {}).get("guid", ""),
+        "layer": data.get("layer", ""),
+        "verified": bool(data.get("verified", False)),
+    }
+
 #: Horizontal justification within the text box (distinct from `anchor`, which
 #: positions the box itself).
 JUSTIFICATIONS = ("left", "center", "right", "full")

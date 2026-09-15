@@ -30,6 +30,7 @@
 #include "ArchViz/MeshGroups.hpp"
 #include "ArchViz/StorySliceGeometry.hpp" // StorySliceVertex, StorySliceFillVertex
 #include "ArchViz/PointCloudPly.hpp"
+#include "ArchViz/SunStudyOverlay.hpp" // SunStudyAtlasUpload
 
 #include <cstdint>
 #include <memory>
@@ -77,6 +78,25 @@ enum class SceneCmdType : uint8_t {
     ClearPointLayer,
     UpsertPointNode,
     EndPointLayer,
+    // A COMPLETED sun study's atlas and its per-element face maps.
+    //
+    // ⚠️ WHOLE, AND IT REPLACES. An element named in a previous study and not
+    // in this one loses its tint, which is what makes re-running a study over a
+    // changed model safe: a stale side buffer indexed into new geometry tints
+    // the right building through the wrong surfaces, and looks like a result.
+    //
+    // ⚠️ AND IT DOES NOT RIDE INSIDE THE ELEMENT BATCH. A study is started
+    // long after the geometry it measures arrived, by a command on another
+    // thread entirely; there is no per-element contribution to upsert, and
+    // wedging one into the batch would tie the display of a study to the next
+    // extraction. Ordering against the batch does not matter because every
+    // element is matched by GUID and verified by topology hash -- an atlas that
+    // arrives before its geometry simply finds nothing to attach to, and the
+    // hash refuses the pairing rather than guessing.
+    SetSunStudyAtlas,
+    // Forget the study: no atlas, no side buffers, ordinary shading everywhere.
+    // Pushed on cancel, on clear, and by the consumer's own full-rebuild rule.
+    ClearSunStudy,
 };
 
 // One element's geometry, ready for the GPU: nothing here needs interpreting,
@@ -247,6 +267,9 @@ struct SceneCmd {
     std::string pointLayerId;
     // SetStorySlices only. Owning, same handover rule as `upload`.
     std::unique_ptr<StorySliceUpload> storySlices;
+    // SetSunStudyAtlas only, and NULL for ClearSunStudy -- the consumer tells
+    // the two apart by the command type, never by the pointer.
+    std::unique_ptr<SunStudyAtlasUpload> sunStudy;
     // BeginBatch only: a FULL batch replaces the scene, so the consumer may drop
     // anything not mentioned before EndBatch. A partial batch touches only the
     // elements it names. Getting this backwards on a partial refresh deletes the
@@ -283,6 +306,8 @@ class SceneCmdQueue final {
     void PushClearPointLayer (const std::string& layerId);
     void PushUpsertPointNode (std::unique_ptr<PointNodeUpload> node);
     void PushEndPointLayer (const std::string& layerId);
+    void PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> study);
+    void PushClearSunStudy ();
 
     // ---- consumer, on the render thread ----
     // Move out up to `max` commands. Bounded on purpose: draining an entire

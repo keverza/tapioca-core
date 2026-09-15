@@ -160,6 +160,27 @@ void SceneCmdQueue::PushEndPointLayer (const std::string& layerId)
     queue_.push_back (std::move (cmd));
 }
 
+void SceneCmdQueue::PushSunStudyAtlas (std::unique_ptr<SunStudyAtlasUpload> study)
+{
+    if (study == nullptr)
+        return; // a null node would be a consumer crash; see PushUpsert
+
+    std::lock_guard<std::mutex> lock (mutex_);
+    pendingBytes_ += study->Bytes ();
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::SetSunStudyAtlas;
+    cmd.sunStudy = std::move (study);
+    queue_.push_back (std::move (cmd));
+}
+
+void SceneCmdQueue::PushClearSunStudy ()
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    SceneCmd cmd;
+    cmd.type = SceneCmdType::ClearSunStudy;
+    queue_.push_back (std::move (cmd));
+}
+
 std::vector<SceneCmd> SceneCmdQueue::Take (size_t max)
 {
     std::vector<SceneCmd> out;
@@ -186,6 +207,8 @@ std::vector<SceneCmd> SceneCmdQueue::Take (size_t max)
             bytes += queue_[i].pointNode->Bytes ();
         if (queue_[i].storySlices != nullptr)
             bytes += queue_[i].storySlices->Bytes ();
+        if (queue_[i].sunStudy != nullptr)
+            bytes += queue_[i].sunStudy->Bytes ();
         pendingBytes_ = (pendingBytes_ > bytes) ? (pendingBytes_ - bytes) : 0;
         out.push_back (std::move (queue_[i]));
     }

@@ -33,8 +33,11 @@ namespace {
 namespace av = archviz;
 
 class GetArchicad3DCameraCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetArchicad3DCamera"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetArchicad3DCamera";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         // ACAPI, so it must be the main thread -- which MainThreadCommand
@@ -63,8 +66,11 @@ public:
 // detector can be asked to infer.
 // ---------------------------------------------------------------------------
 class RefreshDiligentModelCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "RefreshDiligentModel"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "RefreshDiligentModel";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         const bool started = av::modelwatch::RefreshNow ();
@@ -86,9 +92,15 @@ public:
 // cost turned out to be.
 // ---------------------------------------------------------------------------
 class DiligentModelWatchStateCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "DiligentModelWatchState"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "DiligentModelWatchState";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         const auto stats = av::modelwatch::Get ();
@@ -97,6 +109,12 @@ public:
         os.Add ("polls", (GS::Int32) stats.polls);
         os.Add ("skippedBusy", (GS::Int32) stats.skippedBusy);
         os.Add ("refreshes", (GS::Int32) stats.refreshes);
+        // ⚠️ REPORTED BESIDE `refreshes` BECAUSE THE PAIR IS THE DIAGNOSIS.
+        // Archicad's own difference generator raises isEnvironmentChanged
+        // whenever the 3D window is navigated, so a high environmentOnly with a
+        // flat refreshes is a user orbiting -- exactly the case that used to
+        // rebuild every element's GPU buffers twice a second.
+        os.Add ("environmentOnly", (GS::Int32) stats.environmentOnly);
         os.Add ("lastDiffMs", (GS::Int64) stats.lastDiffMs);
         os.Add ("worstDiffMs", (GS::Int64) stats.worstDiffMs);
         os.Add ("intervalMs", (GS::Int32) stats.intervalMs);
@@ -123,21 +141,23 @@ public:
 // MainThreadCommand already puts us there, so no gate hop is needed.
 // ---------------------------------------------------------------------------
 class SyncDiligentCameraOnceCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SyncDiligentCameraOnce"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SyncDiligentCameraOnce";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         if (!av::DiligentViewport::Get ().IsRunning ())
             return NativeCommandResult::Failure (
-                EVP_FAIL ("the Diligent viewport is not running",
-                          "syncing the viewport camera from Archicad"));
+                EVP_FAIL ("the Diligent viewport is not running", "syncing the viewport camera from Archicad"));
 
         const av::CameraStart camera = ArchVizPanel::ReadArchicadCamera ();
         if (!camera.valid)
-            return NativeCommandResult::Failure (EVP_FAIL (
-                "Archicad's current window has no readable camera -- an axonometric 3D "
-                "projection has no eye position, and a non-3D window has none at all",
-                "syncing the viewport camera from Archicad"));
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("Archicad's current window has no readable camera -- an axonometric 3D "
+                          "projection has no eye position, and a non-3D window has none at all",
+                          "syncing the viewport camera from Archicad"));
 
         av::DiligentViewport::Get ().AdoptCamera (camera);
         GS::ObjectState os;
@@ -148,20 +168,32 @@ public:
 };
 
 class SetDiligentCameraCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SetDiligentCamera"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetDiligentCamera";
+    }
     // No ACAPI: it hands seven floats to a thread-safe setter on the viewport.
-    bool NeedsMainThread () const override { return false; }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         av::CameraStart camera;
         double value = 0.0;
-        params.Get ("eyeX", value);    camera.eye[0] = float (value);
-        params.Get ("eyeY", value);    camera.eye[1] = float (value);
-        params.Get ("eyeZ", value);    camera.eye[2] = float (value);
-        params.Get ("targetX", value); camera.target[0] = float (value);
-        params.Get ("targetY", value); camera.target[1] = float (value);
-        params.Get ("targetZ", value); camera.target[2] = float (value);
+        params.Get ("eyeX", value);
+        camera.eye[0] = float (value);
+        params.Get ("eyeY", value);
+        camera.eye[1] = float (value);
+        params.Get ("eyeZ", value);
+        camera.eye[2] = float (value);
+        params.Get ("targetX", value);
+        camera.target[0] = float (value);
+        params.Get ("targetY", value);
+        camera.target[1] = float (value);
+        params.Get ("targetZ", value);
+        camera.target[2] = float (value);
         params.Get ("viewConeDegreesHorizontal", value);
         camera.viewConeDegreesHorizontal = float (value);
         camera.source = "synced";
@@ -169,8 +201,7 @@ public:
 
         if (!av::DiligentViewport::Get ().IsRunning ())
             return NativeCommandResult::Failure (
-                EVP_FAIL ("the Diligent viewport is not running",
-                          "pushing a camera into the Diligent viewport"));
+                EVP_FAIL ("the Diligent viewport is not running", "pushing a camera into the Diligent viewport"));
 
         // ⚠️ Adopt, NOT Sync. This is a caller SAYING where to look, which is a
         // one-shot request; SyncCamera means "keep following Archicad" and is
@@ -183,9 +214,15 @@ public:
 };
 
 class GetDiligentCameraCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetDiligentCamera"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetDiligentCamera";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
@@ -193,8 +230,7 @@ public:
         av::CameraStart camera;
         if (!viewport.IsRunning () || viewport.Mode () == av::SurfaceMode::Offscreen ||
             !viewport.CurrentCamera (camera)) {
-            return NativeCommandResult::Failure (
-                "a visible Diligent viewport with a perspective camera is required");
+            return NativeCommandResult::Failure ("a visible Diligent viewport with a perspective camera is required");
         }
 
         GS::ObjectState os;
@@ -227,8 +263,11 @@ public:
 // report a mode the machine is not actually in, which is the one thing a switch
 // built for reversibility must never do. `enabled` is exactly `legacy`/`off`.
 class SetDiligentCameraSyncCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SetDiligentCameraSync"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetDiligentCameraSync";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         bool enabled = false;
@@ -243,14 +282,12 @@ public:
         // `CurrentHideOnNav ()` and not a literal: this command has no opinion
         // about blanking and never had one, so passing anything else would let a
         // caller that only wanted the timer on silently reset somebody's switch.
-        const bool ok = av::SetCameraSyncMode (
-            enabled ? av::CameraSyncMode::Legacy : av::CameraSyncMode::Off,
-            (uint32_t) intervalMs, av::CurrentPredictionScale (), av::CurrentHideOnNav (),
-            av::CurrentGpuState (), error);
+        const bool ok = av::SetCameraSyncMode (enabled ? av::CameraSyncMode::Legacy : av::CameraSyncMode::Off,
+                                               (uint32_t) intervalMs, av::CurrentPredictionScale (),
+                                               av::CurrentHideOnNav (), av::CurrentGpuState (), error);
         if (!ok)
             return NativeCommandResult::Failure (
-                EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8),
-                          "starting the overlay camera sync"));
+                EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8), "starting the overlay camera sync"));
 
         GS::ObjectState os;
         os.Add ("enabled", av::CurrentCameraSyncMode () != av::CameraSyncMode::Off);
@@ -271,8 +308,11 @@ public:
 // retracts anything armed, in the same session, with no rebuild -- which is what
 // makes the DXGI work later on the ladder safe to attempt at all.
 class SetCameraSyncModeCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SetCameraSyncMode"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetCameraSyncMode";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::UniString requested;
@@ -324,11 +364,9 @@ public:
                           "setting the camera sync mode to '" + requested + "'"));
 
         std::string error;
-        if (!av::SetCameraSyncMode (mode, (uint32_t) intervalMs, predictionScale, hideOnNav,
-                                    gpuState, error))
-            return NativeCommandResult::Failure (
-                EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8),
-                          "setting the camera sync mode to '" + requested + "'"));
+        if (!av::SetCameraSyncMode (mode, (uint32_t) intervalMs, predictionScale, hideOnNav, gpuState, error))
+            return NativeCommandResult::Failure (EVP_FAIL (GS::UniString (error.c_str (), CC_UTF8),
+                                                           "setting the camera sync mode to '" + requested + "'"));
 
         GS::ObjectState os;
         os.Add ("mode", GS::UniString (av::CameraSyncModeName (av::CurrentCameraSyncMode ()), CC_UTF8));
@@ -343,9 +381,15 @@ public:
 };
 
 class CameraSyncModeStateCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "CameraSyncModeState"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "CameraSyncModeState";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
@@ -358,13 +402,10 @@ public:
         // like a broken one to anything that only samples pixels.
         os.Add ("hideOnNav", av::CurrentHideOnNav ());
         os.Add ("experimentsBlocked", av::experimentguard::Blocked ());
-        os.Add ("experimentsBlockedWhy",
-                GS::UniString (av::experimentguard::WhyBlocked ().c_str (), CC_UTF8));
+        os.Add ("experimentsBlockedWhy", GS::UniString (av::experimentguard::WhyBlocked ().c_str (), CC_UTF8));
         // Reported, never hard-coded by a caller -- see ExperimentGuard.hpp.
-        os.Add ("breadcrumbPath",
-                GS::UniString (av::experimentguard::BreadcrumbFilePath ().c_str (), CC_UTF8));
-        os.Add ("safeModePath",
-                GS::UniString (av::experimentguard::SafeModeFilePath ().c_str (), CC_UTF8));
+        os.Add ("breadcrumbPath", GS::UniString (av::experimentguard::BreadcrumbFilePath ().c_str (), CC_UTF8));
+        os.Add ("safeModePath", GS::UniString (av::experimentguard::SafeModeFilePath ().c_str (), CC_UTF8));
 
         // The wake hook's counters. `pollsCoalesced` against `pollsPosted` is the
         // number that says whether a faster wake source can still help: if
@@ -487,8 +528,7 @@ public:
         // Stage 4: how often a view and a projection can be had from the SAME
         // frame. `gpuPairStraddle` is the interesting failure -- both halves
         // present, describing different moments.
-        const av::dxgi::viewmatrix::PairingStats pairing =
-                av::dxgi::viewmatrix::GetPairingStats ();
+        const av::dxgi::viewmatrix::PairingStats pairing = av::dxgi::viewmatrix::GetPairingStats ();
         os.Add ("gpuPairResolved", (GS::Int32) pairing.resolved);
         os.Add ("gpuPairNoView", (GS::Int32) pairing.refusedNoView);
         os.Add ("gpuPairNoProjection", (GS::Int32) pairing.refusedNoProj);
@@ -499,8 +539,7 @@ public:
         // The scene pass itself: what it drew into, how much, and what happened
         // between the candidate injection boundary and Present. This is the
         // evidence stage 5's injection point stands or falls on.
-        const av::dxgi::renderstate::ScenePass pass =
-                av::dxgi::renderstate::LastCompletedScenePass ();
+        const av::dxgi::renderstate::ScenePass pass = av::dxgi::renderstate::LastCompletedScenePass ();
         os.Add ("scenePassGeneration", (GS::Int32) pass.generation);
         os.Add ("scenePassDraws", (GS::Int32) pass.draws);
         os.Add ("scenePassBoundaryHit", pass.boundaryHit);
@@ -510,8 +549,7 @@ public:
         // ⚠️ THE ONLINE SCENE-COMPLETION TRIGGER. Fires when a copy or resolve
         // consumes the scene colour RESOURCE -- causal, not predictive, and
         // recognised before the operation is forwarded.
-        os.Add ("sceneConsumedCount",
-                (GS::Int32) av::dxgi::renderstate::SceneConsumedCount ());
+        os.Add ("sceneConsumedCount", (GS::Int32) av::dxgi::renderstate::SceneConsumedCount ());
         os.Add ("scenePassSceneConsumed", pass.sceneConsumed);
         os.Add ("scenePassTargetReturns", (GS::Int32) pass.targetReturns);
         os.Add ("scenePassDrawsAfterReturn", (GS::Int32) pass.drawsAfterReturn);
@@ -525,8 +563,7 @@ public:
                 continue;
             GS::ObjectState row;
             row.Add ("slot", (GS::Int32) slot);
-            row.Add ("buffer",
-                     GS::UniString (std::to_string (pass.vsBuffer[slot]).c_str (), CC_UTF8));
+            row.Add ("buffer", GS::UniString (std::to_string (pass.vsBuffer[slot]).c_str (), CC_UTF8));
             row.Add ("byteOffset", (GS::Int32) (pass.vsFirstConstant[slot] * 16u));
             inherited.Push (row);
         }
@@ -536,32 +573,27 @@ public:
         // Not the pass-start snapshot and not the state live at the target
         // switch -- Archicad may legally change shader and constant buffers
         // between its final scene draw and that switch.
-        const av::dxgi::contextstate::SceneDrawState lastDraw =
-                av::dxgi::contextstate::LastSceneDraw ();
+        const av::dxgi::contextstate::SceneDrawState lastDraw = av::dxgi::contextstate::LastSceneDraw ();
         os.Add ("lastSceneDrawValid", lastDraw.valid);
         os.Add ("lastSceneDrawPass", (GS::Int32) lastDraw.scenePassGeneration);
         os.Add ("lastSceneDrawEpoch", (GS::Int32) lastDraw.sceneTargetEpoch);
         os.Add ("lastSceneDrawSequence", (GS::Int32) lastDraw.drawSequence);
         GS::Array<GS::ObjectState> consumed;
         for (int slot = 0; slot < 14; ++slot) {
-            const av::dxgi::contextstate::ConstantBufferBinding& binding =
-                    lastDraw.vsConstantBuffers[slot];
+            const av::dxgi::contextstate::ConstantBufferBinding& binding = lastDraw.vsConstantBuffers[slot];
             if (!binding.IsBound ())
                 continue;
             GS::ObjectState row;
             row.Add ("slot", (GS::Int32) slot);
-            row.Add ("buffer",
-                     GS::UniString (std::to_string (binding.buffer).c_str (), CC_UTF8));
+            row.Add ("buffer", GS::UniString (std::to_string (binding.buffer).c_str (), CC_UTF8));
             row.Add ("firstConstant", (GS::Int32) binding.firstConstant);
             row.Add ("numConstants", (GS::Int32) binding.numConstants);
             row.Add ("byteOffset", (GS::Int32) binding.ByteOffset ());
             consumed.Push (row);
         }
         os.Add ("lastSceneDrawVsBindings", consumed);
-        os.Add ("scenePassColorTarget",
-                GS::UniString (std::to_string (pass.colorTarget).c_str (), CC_UTF8));
-        os.Add ("scenePassDepthTarget",
-                GS::UniString (std::to_string (pass.depthTarget).c_str (), CC_UTF8));
+        os.Add ("scenePassColorTarget", GS::UniString (std::to_string (pass.colorTarget).c_str (), CC_UTF8));
+        os.Add ("scenePassDepthTarget", GS::UniString (std::to_string (pass.depthTarget).c_str (), CC_UTF8));
         os.Add ("gpuEntriesWithData", (GS::Int32) candidates.entriesWithData);
         os.Add ("gpuBlocksExamined", (GS::Int32) candidates.blocksExamined);
         os.Add ("gpuBlocksFinite", (GS::Int32) candidates.blocksFinite);
@@ -576,8 +608,7 @@ public:
         // The pin, reported rather than spelled out by a caller -- the rule
         // ExperimentGuard learned when the recovery instruction named a file the
         // code had never written.
-        os.Add ("patchProfilePath",
-                GS::UniString (av::patchprofile::PinFilePath ().c_str (), CC_UTF8));
+        os.Add ("patchProfilePath", GS::UniString (av::patchprofile::PinFilePath ().c_str (), CC_UTF8));
         os.Add ("patchProfilePinned", av::patchprofile::HasPin ());
         return os;
     }
@@ -592,8 +623,11 @@ public:
 // the handoffs was therefore unrunnable from a script, which is one reason the
 // 2026-08-06 samples were never followed up.
 class ViewerNavLogCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ViewerNavLog"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ViewerNavLog";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         bool enable = false;
@@ -616,7 +650,8 @@ public:
                               "the viewer's half would have been written, which is not a "
                               "comparison",
                               "starting the navigation comparison log"));
-        } else {
+        }
+        else {
             ArchVizPanel::StopNavLog ();
         }
 
@@ -647,9 +682,15 @@ public:
 // put the delimiter somewhere other than where the gesture actually started.
 // NavLog is mutex-protected and callable from any thread by design.
 class NavLogMarkCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "NavLogMark"; }
-    bool NeedsMainThread () const override { return false; }
+  public:
+    GS::String GetName () const override
+    {
+        return "NavLogMark";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         GS::UniString label;
@@ -674,8 +715,11 @@ public:
 // MainThreadCommand already puts us there -- the same reason
 // SetDiligentCameraSync does not Post.
 class SetDiligentSelectionBridgeCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SetDiligentSelectionBridge"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetDiligentSelectionBridge";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         bool toArchicad = false;
@@ -690,9 +734,7 @@ public:
             mode |= av::selectionbridge::ToViewer;
 
         if (mode != av::selectionbridge::Off && !av::DiligentViewport::Get ().IsRunning ())
-            return NativeCommandResult::Failure (
-                EVP_FAIL ("no viewer is running",
-                          "arming the selection bridge"));
+            return NativeCommandResult::Failure (EVP_FAIL ("no viewer is running", "arming the selection bridge"));
 
         const bool running = av::selectionbridge::Start (mode);
         if (mode != av::selectionbridge::Off && !running)
@@ -708,50 +750,48 @@ public:
         return os;
     }
 };
-const NativeCommandRegistration kViewerSyncCommandRegistrations[] = {
-    { "SetDiligentSelectionBridge", &MakeRegisteredNativeCommand<SetDiligentSelectionBridgeCommand>, false,
-      R"json({"type":"object","properties":{"toArchicad":{"type":"boolean"},"toViewer":{"type":"boolean"}},"additionalProperties":false,"required":["toArchicad","toViewer"]})json",
-      R"json({"type":"object","properties":{"toArchicad":{"type":"boolean"},"toViewer":{"type":"boolean"}},"additionalProperties":false,"required":["toArchicad","toViewer"]})json" },
-    { "SetDiligentCameraSync", &MakeRegisteredNativeCommand<SetDiligentCameraSyncCommand>, false,
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000}},"additionalProperties":false,"required":["enabled","intervalMs"]})json",
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000}},"additionalProperties":false,"required":["enabled","intervalMs"]})json" },
-    { "SetCameraSyncMode", &MakeRegisteredNativeCommand<SetCameraSyncModeCommand>, false,
-      R"json({"type":"object","properties":{"mode":{"type":"string","enum":["off","legacy","hideonnav","wake","predict","wakepredict","hookdiag","hookdraw"]},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4},"hideOnNav":{"type":"boolean"},"gpuState":{"type":"boolean"}},"additionalProperties":false,"required":["mode"]})json",
-      R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4},"hideOnNav":{"type":"boolean"},"gpuState":{"type":"boolean"}},"additionalProperties":false,"required":["mode","intervalMs","hideOnNav"]})json" },
-    { "ViewerNavLog", &MakeRegisteredNativeCommand<ViewerNavLogCommand>, false,
-      R"json({"type":"object","properties":{"enable":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":0,"maximum":5000},"sampler":{"type":"boolean"}},"additionalProperties":false,"required":["enable"]})json",
-      R"json({"type":"object","properties":{"running":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":0},"viewerRows":{"type":"integer","minimum":0},"archicadRows":{"type":"integer","minimum":0},"archicadFails":{"type":"integer","minimum":0},"maxArchicadGapMs":{"type":"integer","minimum":0},"writeFailures":{"type":"integer","minimum":0},"droppedRows":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["running","intervalMs","viewerRows","archicadRows","archicadFails","maxArchicadGapMs"]})json" },
-    { "NavLogMark", &MakeRegisteredNativeCommand<NavLogMarkCommand>, false,
-      R"json({"type":"object","properties":{"label":{"type":"string"}},"additionalProperties":false,"required":["label"]})json",
-      R"json({"type":"object","properties":{"marked":{"type":"boolean"}},"additionalProperties":false,"required":["marked"]})json" },
-    { "CameraSyncModeState", &MakeRegisteredNativeCommand<CameraSyncModeStateCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"experimentsBlocked":{"type":"boolean"},"experimentsBlockedWhy":{"type":"string"},"predictionScale":{"type":"number"},"hideOnNav":{"type":"boolean"},"breadcrumbPath":{"type":"string"},"safeModePath":{"type":"string"},"wakeInstalled":{"type":"boolean"},"wakeWheelEvents":{"type":"integer"},"wakeDragEvents":{"type":"integer"},"wakeKeyEvents":{"type":"integer"},"pollsPosted":{"type":"integer"},"pollsCoalesced":{"type":"integer"},"presentHookInstalled":{"type":"boolean"},"presentCalls":{"type":"integer"},"present1Calls":{"type":"integer"},"presentResizeCalls":{"type":"integer"},"busiestFrameCount":{"type":"integer"},"medianFrameUs":{"type":"integer"},"p95FrameUs":{"type":"integer"},"markerEnabled":{"type":"boolean"},"markerTargetChosen":{"type":"boolean"},"markerDraws":{"type":"integer"},"markerFailures":{"type":"integer"},"markerLastError":{"type":"string"},"compositeEnabled":{"type":"boolean"},"compositeReady":{"type":"boolean"},"compositeBlits":{"type":"integer"},"compositeFramesConsumed":{"type":"integer"},"compositeReprojections":{"type":"integer"},"compositeFailures":{"type":"integer"},"compositeBackBufferFormat":{"type":"integer"},"compositeWidth":{"type":"integer"},"compositeHeight":{"type":"integer"},"compositeLastError":{"type":"string"},"gpuState":{"type":"boolean"},"gpuStateInstalled":{"type":"boolean"},"gpuStateWanted":{"type":"boolean"},"gpuStatePinned":{"type":"boolean"},"gpuStateContextFound":{"type":"boolean"},"gpuStateContextChosen":{"type":"boolean"},"gpuStateProof":{"type":"string"},"gpuStateCallSpanMs":{"type":"integer"},"gpuStateSlotsStillPatched":{"type":"integer"},"gpuStateRepairs":{"type":"integer"},"gpuStateCalls":{"type":"integer"},"gpuStateOtherContextCalls":{"type":"integer"},"gpuStateEventsDropped":{"type":"integer"},"gpuStateLastError":{"type":"string"},"gpuFrames":{"type":"integer"},"gpuFramesDropped":{"type":"integer"},"gpuSceneAgeFrames":{"type":"integer"},"gpuViewportWidth":{"type":"number"},"gpuViewportHeight":{"type":"number"},"gpuViewportX":{"type":"number"},"gpuViewportY":{"type":"number"},"gpuLargestWidth":{"type":"number"},"gpuLargestHeight":{"type":"number"},"gpuDistinctViewports":{"type":"integer"},"gpuReferenceValid":{"type":"boolean"},"gpuBuffersTracked":{"type":"integer"},"gpuBuffersDropped":{"type":"integer"},"gpuWritesCaptured":{"type":"integer"},"gpuMapsSeen":{"type":"integer"},"gpuMapsNotConstantBuffer":{"type":"integer"},"gpuMapsTooLarge":{"type":"integer"},"gpuMapsNoSlot":{"type":"integer"},"gpuLargestConstantBytes":{"type":"integer"},"gpuBufferCacheFull":{"type":"boolean"},"gpuWindowsCaptured":{"type":"integer"},"gpuWindowsDropped":{"type":"integer"},"gpuLargestBoundOffset":{"type":"integer"},"gpuPairResolved":{"type":"integer"},"gpuPairNoView":{"type":"integer"},"gpuPairNoProjection":{"type":"integer"},"gpuPairStraddle":{"type":"integer"},"gpuPairLastAgePasses":{"type":"integer"},"gpuPairLastScenePass":{"type":"integer"},"scenePassGeneration":{"type":"integer"},"scenePassDraws":{"type":"integer"},"scenePassBoundaryHit":{"type":"boolean"},"scenePassOpsAfterBoundary":{"type":"integer"},"scenePassDrawsAfterBoundary":{"type":"integer"},"sceneConsumedCount":{"type":"integer"},"scenePassSceneConsumed":{"type":"boolean"},"scenePassTargetReturns":{"type":"integer"},"scenePassDrawsAfterReturn":{"type":"integer"},"scenePassVsBindings":{"type":"array","items":{"type":"object","properties":{"slot":{"type":"integer"},"buffer":{"type":"string"},"byteOffset":{"type":"integer"}},"additionalProperties":false,"required":["slot","buffer","byteOffset"]}},"lastSceneDrawValid":{"type":"boolean"},"lastSceneDrawPass":{"type":"integer"},"lastSceneDrawEpoch":{"type":"integer"},"lastSceneDrawSequence":{"type":"integer"},"lastSceneDrawVsBindings":{"type":"array","items":{"type":"object","properties":{"slot":{"type":"integer"},"buffer":{"type":"string"},"firstConstant":{"type":"integer"},"numConstants":{"type":"integer"},"byteOffset":{"type":"integer"}},"additionalProperties":false,"required":["slot","buffer","firstConstant","numConstants","byteOffset"]}},"scenePassColorTarget":{"type":"string"},"scenePassDepthTarget":{"type":"string"},"gpuEntriesWithData":{"type":"integer"},"gpuBlocksExamined":{"type":"integer"},"gpuBlocksFinite":{"type":"integer"},"gpuBlocksAffine":{"type":"integer"},"gpuBlocksProjective":{"type":"integer"},"gpuFirstProjectiveOffset":{"type":"integer"},"gpuRegionsScored":{"type":"integer"},"gpuBestMaxPixelError":{"type":"number"},"gpuBestByteOffset":{"type":"integer"},"gpuBestVariant":{"type":"integer"},"patchProfilePath":{"type":"string"},"patchProfilePinned":{"type":"boolean"}},"additionalProperties":false,"required":["mode","intervalMs","experimentsBlocked","experimentsBlockedWhy"]})json" },
-    { "GetArchicad3DCamera", &MakeRegisteredNativeCommand<GetArchicad3DCameraCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["valid","source","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },
-    { "GetDiligentCamera", &MakeRegisteredNativeCommand<GetDiligentCameraCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },
-    { "SetDiligentCamera", &MakeRegisteredNativeCommand<SetDiligentCameraCommand>, false,
-      R"json({"type":"object","properties":{"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json",
-      R"json({"type":"object","properties":{"accepted":{"type":"boolean"}},"additionalProperties":false,"required":["accepted"]})json" },
-    { "RefreshDiligentModel", &MakeRegisteredNativeCommand<RefreshDiligentModelCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"started":{"type":"boolean"}},"additionalProperties":false,"required":["started"]})json" },
-    { "DiligentModelWatchState", &MakeRegisteredNativeCommand<DiligentModelWatchStateCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"running":{"type":"boolean"},"polls":{"type":"integer"},"skippedBusy":{"type":"integer"},"refreshes":{"type":"integer"},"lastDiffMs":{"type":"integer"},"worstDiffMs":{"type":"integer"},"intervalMs":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["running","polls","skippedBusy","refreshes","lastDiffMs","worstDiffMs","intervalMs","lastError"]})json" },
-    { "SyncDiligentCameraOnce", &MakeRegisteredNativeCommand<SyncDiligentCameraOnceCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"synced":{"type":"boolean"},"source":{"type":"string"}},"additionalProperties":false,"required":["synced","source"]})json" },
-};
+const NativeCommandRegistration
+    kViewerSyncCommandRegistrations
+        [] = {
+            { "SetDiligentSelectionBridge", &MakeRegisteredNativeCommand<SetDiligentSelectionBridgeCommand>, false,
+              R"json({"type":"object","properties":{"toArchicad":{"type":"boolean"},"toViewer":{"type":"boolean"}},"additionalProperties":false,"required":["toArchicad","toViewer"]})json",
+              R"json({"type":"object","properties":{"toArchicad":{"type":"boolean"},"toViewer":{"type":"boolean"}},"additionalProperties":false,"required":["toArchicad","toViewer"]})json" },
+            { "SetDiligentCameraSync", &MakeRegisteredNativeCommand<SetDiligentCameraSyncCommand>, false,
+              R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000}},"additionalProperties":false,"required":["enabled","intervalMs"]})json",
+              R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000}},"additionalProperties":false,"required":["enabled","intervalMs"]})json" },
+            { "SetCameraSyncMode", &MakeRegisteredNativeCommand<SetCameraSyncModeCommand>, false,
+              R"json({"type":"object","properties":{"mode":{"type":"string","enum":["off","legacy","hideonnav","wake","predict","wakepredict","hookdiag","hookdraw"]},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4},"hideOnNav":{"type":"boolean"},"gpuState":{"type":"boolean"}},"additionalProperties":false,"required":["mode"]})json",
+              R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"predictionScale":{"type":"number","minimum":0,"maximum":4},"hideOnNav":{"type":"boolean"},"gpuState":{"type":"boolean"}},"additionalProperties":false,"required":["mode","intervalMs","hideOnNav"]})json" },
+            { "ViewerNavLog", &MakeRegisteredNativeCommand<ViewerNavLogCommand>, false,
+              R"json({"type":"object","properties":{"enable":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":0,"maximum":5000},"sampler":{"type":"boolean"}},"additionalProperties":false,"required":["enable"]})json",
+              R"json({"type":"object","properties":{"running":{"type":"boolean"},"intervalMs":{"type":"integer","minimum":0},"viewerRows":{"type":"integer","minimum":0},"archicadRows":{"type":"integer","minimum":0},"archicadFails":{"type":"integer","minimum":0},"maxArchicadGapMs":{"type":"integer","minimum":0},"writeFailures":{"type":"integer","minimum":0},"droppedRows":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["running","intervalMs","viewerRows","archicadRows","archicadFails","maxArchicadGapMs"]})json" },
+            { "NavLogMark", &MakeRegisteredNativeCommand<NavLogMarkCommand>, false,
+              R"json({"type":"object","properties":{"label":{"type":"string"}},"additionalProperties":false,"required":["label"]})json",
+              R"json({"type":"object","properties":{"marked":{"type":"boolean"}},"additionalProperties":false,"required":["marked"]})json" },
+            { "CameraSyncModeState", &MakeRegisteredNativeCommand<CameraSyncModeStateCommand>, false, R"json({"type":"object","properties":{},"additionalProperties":false})json", R"json({"type":"object","properties":{"mode":{"type":"string"},"intervalMs":{"type":"integer","minimum":10,"maximum":1000},"experimentsBlocked":{"type":"boolean"},"experimentsBlockedWhy":{"type":"string"},"predictionScale":{"type":"number"},"hideOnNav":{"type":"boolean"},"breadcrumbPath":{"type":"string"},"safeModePath":{"type":"string"},"wakeInstalled":{"type":"boolean"},"wakeWheelEvents":{"type":"integer"},"wakeDragEvents":{"type":"integer"},"wakeKeyEvents":{"type":"integer"},"pollsPosted":{"type":"integer"},"pollsCoalesced":{"type":"integer"},"presentHookInstalled":{"type":"boolean"},"presentCalls":{"type":"integer"},"present1Calls":{"type":"integer"},"presentResizeCalls":{"type":"integer"},"busiestFrameCount":{"type":"integer"},"medianFrameUs":{"type":"integer"},"p95FrameUs":{"type":"integer"},"markerEnabled":{"type":"boolean"},"markerTargetChosen":{"type":"boolean"},"markerDraws":{"type":"integer"},"markerFailures":{"type":"integer"},"markerLastError":{"type":"string"},"compositeEnabled":{"type":"boolean"},"compositeReady":{"type":"boolean"},"compositeBlits":{"type":"integer"},"compositeFramesConsumed":{"type":"integer"},"compositeReprojections":{"type":"integer"},"compositeFailures":{"type":"integer"},"compositeBackBufferFormat":{"type":"integer"},"compositeWidth":{"type":"integer"},"compositeHeight":{"type":"integer"},"compositeLastError":{"type":"string"},"gpuState":{"type":"boolean"},"gpuStateInstalled":{"type":"boolean"},"gpuStateWanted":{"type":"boolean"},"gpuStatePinned":{"type":"boolean"},"gpuStateContextFound":{"type":"boolean"},"gpuStateContextChosen":{"type":"boolean"},"gpuStateProof":{"type":"string"},"gpuStateCallSpanMs":{"type":"integer"},"gpuStateSlotsStillPatched":{"type":"integer"},"gpuStateRepairs":{"type":"integer"},"gpuStateCalls":{"type":"integer"},"gpuStateOtherContextCalls":{"type":"integer"},"gpuStateEventsDropped":{"type":"integer"},"gpuStateLastError":{"type":"string"},"gpuFrames":{"type":"integer"},"gpuFramesDropped":{"type":"integer"},"gpuSceneAgeFrames":{"type":"integer"},"gpuViewportWidth":{"type":"number"},"gpuViewportHeight":{"type":"number"},"gpuViewportX":{"type":"number"},"gpuViewportY":{"type":"number"},"gpuLargestWidth":{"type":"number"},"gpuLargestHeight":{"type":"number"},"gpuDistinctViewports":{"type":"integer"},"gpuReferenceValid":{"type":"boolean"},"gpuBuffersTracked":{"type":"integer"},"gpuBuffersDropped":{"type":"integer"},"gpuWritesCaptured":{"type":"integer"},"gpuMapsSeen":{"type":"integer"},"gpuMapsNotConstantBuffer":{"type":"integer"},"gpuMapsTooLarge":{"type":"integer"},"gpuMapsNoSlot":{"type":"integer"},"gpuLargestConstantBytes":{"type":"integer"},"gpuBufferCacheFull":{"type":"boolean"},"gpuWindowsCaptured":{"type":"integer"},"gpuWindowsDropped":{"type":"integer"},"gpuLargestBoundOffset":{"type":"integer"},"gpuPairResolved":{"type":"integer"},"gpuPairNoView":{"type":"integer"},"gpuPairNoProjection":{"type":"integer"},"gpuPairStraddle":{"type":"integer"},"gpuPairLastAgePasses":{"type":"integer"},"gpuPairLastScenePass":{"type":"integer"},"scenePassGeneration":{"type":"integer"},"scenePassDraws":{"type":"integer"},"scenePassBoundaryHit":{"type":"boolean"},"scenePassOpsAfterBoundary":{"type":"integer"},"scenePassDrawsAfterBoundary":{"type":"integer"},"sceneConsumedCount":{"type":"integer"},"scenePassSceneConsumed":{"type":"boolean"},"scenePassTargetReturns":{"type":"integer"},"scenePassDrawsAfterReturn":{"type":"integer"},"scenePassVsBindings":{"type":"array","items":{"type":"object","properties":{"slot":{"type":"integer"},"buffer":{"type":"string"},"byteOffset":{"type":"integer"}},"additionalProperties":false,"required":["slot","buffer","byteOffset"]}},"lastSceneDrawValid":{"type":"boolean"},"lastSceneDrawPass":{"type":"integer"},"lastSceneDrawEpoch":{"type":"integer"},"lastSceneDrawSequence":{"type":"integer"},"lastSceneDrawVsBindings":{"type":"array","items":{"type":"object","properties":{"slot":{"type":"integer"},"buffer":{"type":"string"},"firstConstant":{"type":"integer"},"numConstants":{"type":"integer"},"byteOffset":{"type":"integer"}},"additionalProperties":false,"required":["slot","buffer","firstConstant","numConstants","byteOffset"]}},"scenePassColorTarget":{"type":"string"},"scenePassDepthTarget":{"type":"string"},"gpuEntriesWithData":{"type":"integer"},"gpuBlocksExamined":{"type":"integer"},"gpuBlocksFinite":{"type":"integer"},"gpuBlocksAffine":{"type":"integer"},"gpuBlocksProjective":{"type":"integer"},"gpuFirstProjectiveOffset":{"type":"integer"},"gpuRegionsScored":{"type":"integer"},"gpuBestMaxPixelError":{"type":"number"},"gpuBestByteOffset":{"type":"integer"},"gpuBestVariant":{"type":"integer"},"patchProfilePath":{"type":"string"},"patchProfilePinned":{"type":"boolean"}},"additionalProperties":false,"required":["mode","intervalMs","experimentsBlocked","experimentsBlockedWhy"]})json" },
+            { "GetArchicad3DCamera", &MakeRegisteredNativeCommand<GetArchicad3DCameraCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["valid","source","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },
+            { "GetDiligentCamera", &MakeRegisteredNativeCommand<GetDiligentCameraCommand>, false, R"json({"type":"object","properties":{},"additionalProperties":false})json", R"json({"type":"object","properties":{"valid":{"type":"boolean"},"source":{"type":"string"},"orthographic":{"type":"boolean"},"viewMoving":{"type":"boolean"},"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","exclusiveMinimum":1,"exclusiveMaximum":179}},"additionalProperties":false,"required":["valid","source","orthographic","viewMoving","eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json" },
+            { "SetDiligentCamera", &MakeRegisteredNativeCommand<SetDiligentCameraCommand>, false,
+              R"json({"type":"object","properties":{"eyeX":{"type":"number"},"eyeY":{"type":"number"},"eyeZ":{"type":"number"},"targetX":{"type":"number"},"targetY":{"type":"number"},"targetZ":{"type":"number"},"viewConeDegreesHorizontal":{"type":"number","minimum":0,"maximum":180}},"additionalProperties":false,"required":["eyeX","eyeY","eyeZ","targetX","targetY","targetZ","viewConeDegreesHorizontal"]})json",
+              R"json({"type":"object","properties":{"accepted":{"type":"boolean"}},"additionalProperties":false,"required":["accepted"]})json" },
+            { "RefreshDiligentModel", &MakeRegisteredNativeCommand<RefreshDiligentModelCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{"started":{"type":"boolean"}},"additionalProperties":false,"required":["started"]})json" },
+            { "DiligentModelWatchState", &MakeRegisteredNativeCommand<DiligentModelWatchStateCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{"running":{"type":"boolean"},"polls":{"type":"integer"},"skippedBusy":{"type":"integer"},"refreshes":{"type":"integer"},"environmentOnly":{"type":"integer"},"lastDiffMs":{"type":"integer"},"worstDiffMs":{"type":"integer"},"intervalMs":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["running","polls","skippedBusy","refreshes","lastDiffMs","worstDiffMs","intervalMs","lastError"]})json" },
+            { "SyncDiligentCameraOnce", &MakeRegisteredNativeCommand<SyncDiligentCameraOnceCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{"synced":{"type":"boolean"},"source":{"type":"string"}},"additionalProperties":false,"required":["synced","source"]})json" },
+        };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetViewerSyncCommandRegistrations ()
 {
     return MakeRegistrationView (kViewerSyncCommandRegistrations);
 }
 
-}   // namespace geomsrv
+} // namespace geomsrv

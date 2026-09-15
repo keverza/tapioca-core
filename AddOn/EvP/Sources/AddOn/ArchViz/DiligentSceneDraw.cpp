@@ -902,98 +902,30 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
         impl_->taaView = nullptr;
     }
 
-    // ---- the wireframe overlay ---------------------------------------------
-    // ⚠️ ELEMENTS ONLY, AND THE WHOLE ELEMENT IN ONE DRAW. Material ranges do not
-    // matter to a line colour, and drawing per range would multiply the pass's
-    // cost by the material count for an identical picture. The gnomon and the
-    // debug cube are excluded for the same reason they are excluded from the id
-    // pass: they are not the model, and in the overlay's wireframe they would be
-    // the only things NOT matching Archicad's window.
-    if (drawWireframe) {
-        uploadConstants (kWireframeColor[0], kWireframeColor[1], kWireframeColor[2], kWireframeColor[3]);
-        for (const Entry& e : impl_->elements) {
-            if (e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
-                continue;
-            BindMesh (context, e);
-            if (impl_->semanticWirePso != nullptr && e.wireEdgeBuffer != nullptr) {
-                Diligent::IShaderResourceVariable* edgeVariable =
-                    impl_->semanticWireSrb->GetVariableByName (Diligent::SHADER_TYPE_HULL, "g_wirePatchFlags");
-                if (edgeVariable != nullptr)
-                    edgeVariable->Set (e.wireEdgeBuffer->GetDefaultView (Diligent::BUFFER_VIEW_SHADER_RESOURCE));
-                context->SetPipelineState (impl_->semanticWirePso);
-                context->CommitShaderResources (impl_->semanticWireSrb,
-                                                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-            }
-            else {
-                context->SetPipelineState (impl_->wirePso);
-                context->CommitShaderResources (impl_->wireSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-            }
-            const MaterialRange whole { -1, 0, e.indexCount };
-            DrawEntryRange (context, e, whole);
-            ++impl_->drawCalls;
-        }
-    }
-
-    // ---- the selection silhouette (PLAT-RE41) -------------------------------
-    // ⚠️ LAST, AFTER THE TRANSPARENT PASS. The outline is what says where the
-    // element ENDS, so anything drawn over it takes that away -- and a selected
-    // element is very often behind glass, which is drawn in the pass above.
+    // ---- the sun study tint --------------------------------------------------
     //
-    // ⚠️ SKIPPED ENTIRELY UNDER CullMode::None. The hull is exactly the faces the
-    // visible pass throws away; with nothing thrown away there is no hull, and
-    // the pass would paint a solid expanded copy of the model over the model.
-    // ---- the hover silhouette (PLAT-RE136) ----------------------------------
-    // Same pass, same hull, a different colour and a thinner offset: what a click
-    // WOULD take, drawn before the user commits to it. It shares the selection's
-    // pipeline state because it is the same inverted hull -- a second PSO would be
-    // two objects that must agree about depth, cull and blend forever.
-    const uint32_t hoverId = impl_->hoverId;
-    const int outlineIndex = CullIndex (cull);
-    const bool anyOutline = !impl_->selectionGuids.empty () || hoverId != kNoPickId;
-    if (cull != CullMode::None && impl_->outlinePso[outlineIndex] != nullptr && anyOutline) {
-        context->SetPipelineState (impl_->outlinePso[outlineIndex]);
-        context->CommitShaderResources (impl_->outlineSrb[outlineIndex],
-                                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+    // ⚠️ HERE, AFTER THE HDR RESOLVE AND BEFORE THE WIREFRAME. After the
+    // resolve because the tint is a DIAGNOSTIC and must read the same colour on
+    // both paths -- written into the HDR target it would be tone-mapped and
+    // auto-exposed, so the same hours would show as different colours depending
+    // on how bright the rest of the scene happened to be. Before the wireframe
+    // and the silhouettes because those say where things END, which an opaque
+    // tint painted over them would take away.
+    //
+    // ⚠️ AND IT IS SKIPPED IN EVERY DEBUG VIEW. Those answer questions about
+    // the model's own data; painting the study over a normals or roughness read
+    // would hide the thing the view exists to show.
+    if (drawSurfaces && debugView == 0)
+        DrawSunStudyTint (context, constants, cull);
 
-        auto drawHull = [&] (const Entry& e) {
-            BindMesh (context, e);
-            const MaterialRange whole { -1, 0, e.indexCount };
-            DrawEntryRange (context, e, whole);
-            ++impl_->drawCalls;
-        };
-
-        uploadConstants (kSelectionOutlineColor[0], kSelectionOutlineColor[1], kSelectionOutlineColor[2],
-                         kSelectionOutlineColor[3]);
-        for (const Entry& e : impl_->elements) {
-            if (!e.selected || e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
-                continue;
-            drawHull (e);
-        }
-
-        // ⚠️ SKIPPED WHEN THE HOVERED ELEMENT IS ALREADY SELECTED. Two hulls on
-        // one element paint the amber over the cyan, so hovering a selected
-        // element would make it look deselected -- the opposite of what both
-        // marks are for. Selection is the stronger statement and wins.
-        if (hoverId != kNoPickId) {
-            for (const Entry& e : impl_->elements) {
-                if (e.pickId != hoverId || e.selected || e.vertexBuffer == nullptr || e.indexBuffer == nullptr)
-                    continue;
-                // ⚠️ THE OFFSET IS RE-UPLOADED, NOT JUST THE COLOUR. The hull's
-                // thickness lives in `outlineParams`, which was filled for the
-                // SELECTION's 3 px far above; `uploadConstants` only touches
-                // `baseColor`, so without this the hover would silently inherit
-                // the selection's weight and the constant below would do nothing.
-                constants.outlineParams[0] =
-                    impl_->viewportWidth > 0 ? kHoverOutlinePixels * 2.0f / float (impl_->viewportWidth) : 0.0f;
-                constants.outlineParams[1] =
-                    impl_->viewportHeight > 0 ? kHoverOutlinePixels * 2.0f / float (impl_->viewportHeight) : 0.0f;
-                uploadConstants (kHoverOutlineColor[0], kHoverOutlineColor[1], kHoverOutlineColor[2],
-                                 kHoverOutlineColor[3]);
-                drawHull (e);
-                break; // one element carries an id; nothing after it can match
-            }
-        }
-    }
+    // ---- the line overlays: wireframe, selection and hover silhouettes -------
+    //
+    // ⚠️ LAST, AND IN DiligentSceneOverlayPasses.cpp. They are the marks that
+    // say where a thing ENDS, so anything drawn over one takes that away --
+    // which is why they follow the transparent pass and the tint. The pass
+    // ORDER is the contract; the passes themselves are one concern and live in
+    // their own translation unit.
+    DrawLineOverlays (context, constants, cull, drawWireframe);
 }
 
 } // namespace archviz
