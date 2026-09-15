@@ -1686,10 +1686,14 @@ def _one(command, params):
 
     if command == "EvP.CreateText":
         items = params.get("texts", [])
+        database_id = {"guid": _GUID % 950}
         return _ok({"count": len(items),
-                    "guids": [_GUID % (100 + i) for i in range(len(items))],
-                    "results": [{"ok": True, "guid": _GUID % (100 + i)}
-                                for i in range(len(items))]})
+                    "results": [{"succeeded": True,
+                                 "elementId": {"guid": _GUID % (100 + i)},
+                                 "databaseId": database_id,
+                                 "layer": item.get("layer", "Layer 1"),
+                                 "verified": True}
+                                for i, item in enumerate(items)]})
 
     if command == "EvP.PlacePicture":
         px, py = 64, 48
@@ -1698,8 +1702,12 @@ def _one(command, params):
         else:
             dpi = params.get("dpi") or 96.0
             w, h = px / dpi * 0.0254, py / dpi * 0.0254
-        return _ok({"guid": _GUID % 200, "pixelWidth": px, "pixelHeight": py,
-                    "placedWidth": w, "placedHeight": h})
+        return _ok({"elementId": {"guid": _GUID % 200},
+                    "pixelWidth": px, "pixelHeight": py,
+                    "placedWidth": w, "placedHeight": h,
+                    "databaseId": {"guid": _GUID % 950},
+                    "layer": params.get("layer", "Layer 1"),
+                    "verified": True})
 
     if command == "EvP.CreateColumn":
         n = len(params.get("x", []))
