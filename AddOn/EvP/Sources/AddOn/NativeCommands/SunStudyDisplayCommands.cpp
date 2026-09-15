@@ -6,11 +6,15 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 
+#include "NativeCommands/SunStudyFollowerDriver.hpp"
+
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
+#include "SunStudy/SunStudyPatchAtlas.hpp"
+#include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
@@ -130,6 +134,14 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
                                             generation, error))
         return NativeCommandResult::Failure (Text (error));
 
+    // What the study was RUN with, so a replacement can be run the same way.
+    // ⚠️ FROM THE STUDY RECORD, NOT FROM THIS COMMAND'S PARAMETERS. ShowSunStudy
+    // takes no date and no grid; a follower configured from what was typed here
+    // would rerun a different study from the one on screen.
+    evp::sunstudy::StudyRecord metadata;
+    std::string describeError;
+    const bool haveMetadata = SunStudyStore::Get ().Describe (id, metadata, describeError);
+
     std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
     if (snapshot == nullptr)
         return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");
@@ -162,6 +174,8 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const double rampTop = ReadDouble (params, "hoursMax", daylightHours > 0.0 ? daylightHours : 1.0);
     upload->hoursMax = static_cast<float> (rampTop > 0.0 ? rampTop : 1.0);
     const GS::Int32 debug = ReadInt (params, "debug", 0);
+    // Captured before the payload is handed over: `upload` is moved into the
+    // queue below and must not be read after that.
     upload->debugMode = static_cast<uint32_t> (debug < 0 ? 0 : (debug > 3 ? 3 : debug));
 
     uint32_t faceBase = 0;
@@ -206,8 +220,40 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     os.Add ("hoursMax", (double) upload->hoursMax);
     os.Add ("debug", (GS::Int32) upload->debugMode);
     os.Add ("depth", (GS::Int32) upload->depthMode);
+    const uint32_t adoptedDebug = upload->debugMode;
+    const uint32_t adoptedDepth = upload->depthMode;
 
     archviz::SceneCmdQueue::Get ().PushSunStudyAtlas (std::move (upload));
+
+    // ---- arm the follower, but only for a study a PERSON asked to see -------
+    //
+    // ⚠️ THIS IS THE ONLY PLACE AUTO-FOLLOW IS EVER TURNED ON, and it is
+    // deliberately not "the viewer opened". A viewer that spontaneously began
+    // analysing a building nobody asked about would burn the machine on every
+    // open and would surprise the user with a heat map they never requested.
+    // Until someone has run one study and displayed it, there is no active
+    // configuration and the follower sits in NoStudy.
+    //
+    // ⚠️ AND THE DRIVER'S OWN RERUNS COME BACK THROUGH HERE. `follow=false` is
+    // what stops a rerun from re-adopting itself and resetting the quiet period
+    // it was started by; the driver passes it, a person never does.
+    bool follow = true;
+    params.Get ("follow", follow);
+    if (follow && haveMetadata) {
+        sunfollow::ActiveSunStudyConfig config;
+        config.year = metadata.year;
+        config.month = metadata.month;
+        config.day = metadata.day;
+        config.timestep = metadata.timestepMinutes;
+        config.hourFrom = metadata.hourFrom;
+        config.hourTo = metadata.hourTo;
+        config.minAltitudeDeg = metadata.minAltitudeDegrees;
+        config.grid = metadata.gridSpacing;
+        config.debug = adoptedDebug;
+        config.depth = adoptedDepth;
+        config.hoursMax = rampTop;
+        sunfollow::Adopt (id, config);
+    }
     return os;
 }
 
@@ -290,6 +336,195 @@ class SunStudyOverlayStateCommand : public MainThreadCommand {
 };
 
 // ---------------------------------------------------------------------------
+// Tapioca.SunStudyPatchPreview - what the patch domain WOULD measure, on the
+// live model, beside what the triangle domain does.
+//
+// ⚠️ IT RUNS NO STUDY AND DISPLAYS NOTHING. The migration from triangles to
+// surfaces deliberately MOVES the sample points, so the two domains cannot be
+// diffed sample for sample; what they must agree on is the physical surface
+// area, and what has to be seen before migrating is how the counts and the
+// packing actually change on a real building rather than on a fixture.
+//
+// ⚠️ AND IT IS THE ONLY WAY TO SEE THE ONE FAILURE THAT WOULD MAKE PATCH MODE
+// POINTLESS. Patch merging rides on the extractor having WELDED coincident
+// corners; if it ever stopped, every patch would be one triangle, the diagonal
+// seams would come back and the incremental cache would re-key itself on every
+// edit -- while the picture went on looking fine. `patches == triangles` in this
+// report is that symptom, stated as a number.
+class SunStudyPatchPreviewCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "SunStudyPatchPreview";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
+        if (snapshot == nullptr)
+            return NativeCommandResult::Failure ("no snapshot is live - call Tapioca.BuildSnapshot first");
+
+        double spacing = 2.0;
+        params.Get ("grid", spacing);
+        if (!(spacing > 0.0))
+            spacing = 2.0;
+
+        // The same concatenation StartSunStudy does, so the two see one model.
+        std::vector<double> vertices;
+        std::vector<uint32_t> triangles;
+        std::vector<uint32_t> groups;
+        std::vector<std::string> elementOf;
+        for (const Mesh& mesh : snapshot->meshes) {
+            const uint32_t base = static_cast<uint32_t> (vertices.size () / 3);
+            const uint32_t group = static_cast<uint32_t> (elementOf.size ());
+            elementOf.push_back (mesh.guid);
+            vertices.insert (vertices.end (), mesh.vertices.begin (), mesh.vertices.end ());
+            for (const uint32_t index : mesh.triangles)
+                triangles.push_back (base + index);
+            groups.resize (triangles.size () / 3, group);
+        }
+        if (triangles.empty ())
+            return NativeCommandResult::Failure ("the snapshot has no triangles to measure");
+
+        // ---- the patch domain ------------------------------------------------
+        evp::sunstudy::PatchSamplerOptions patchOptions;
+        patchOptions.spacing = spacing;
+        const evp::sunstudy::PatchSampleGrid patchGrid =
+            evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, triangles.data (),
+                                                 triangles.size () / 3, groups.data (), elementOf, patchOptions);
+
+        evp::sunstudy::SunStudyPatchAtlas patchAtlas;
+        const evp::sunstudy::PatchAtlasUpdate fitted = patchAtlas.Fit (patchGrid);
+
+        // ---- the triangle domain, as the oracle ------------------------------
+        evp::sunstudy::SamplerOptions legacy;
+        legacy.spacing = spacing;
+        legacy.wantLayouts = true;
+        const evp::sunstudy::SampleGrid triangleGrid = evp::sunstudy::BuildSampleGrid (
+            vertices.data (), vertices.size () / 3, triangles.data (), triangles.size () / 3, groups.data (), legacy);
+        const evp::sunstudy::SunStudyAtlas triangleAtlas = evp::sunstudy::BuildSunStudyAtlas (triangleGrid);
+
+        double triangleArea = 0.0;
+        for (const double area : triangleGrid.areas)
+            triangleArea += area;
+
+        size_t patchTexels = 0;
+        for (const auto& entry : patchAtlas.Allocations ())
+            patchTexels += static_cast<size_t> (entry.second.width) * entry.second.height;
+
+        GS::ObjectState os;
+        os.Add ("elements", (GS::Int32) snapshot->meshes.size ());
+        os.Add ("triangles", (GS::Int32) (triangles.size () / 3));
+        os.Add ("gridSpacing", spacing);
+
+        os.Add ("patches", (GS::Int32) patchGrid.spans.size ());
+        os.Add ("patchSamples", (GS::Int32) patchGrid.Count ());
+        os.Add ("patchArea", patchGrid.TotalArea ());
+        os.Add ("patchCentroidFallbacks", (GS::Int32) patchGrid.centroidPatches);
+        os.Add ("patchAtlasWidth", (GS::Int32) patchAtlas.Width ());
+        os.Add ("patchAtlasHeight", (GS::Int32) patchAtlas.Height ());
+        os.Add ("patchAtlasTiles", (GS::Int32) patchAtlas.AllocationCount ());
+        os.Add ("patchAtlasUsedTexels", (GS::Int32) patchTexels);
+        os.Add ("patchAtlasResized", fitted.resized);
+
+        os.Add ("triangleSamples", (GS::Int32) triangleGrid.Count ());
+        os.Add ("triangleArea", triangleArea);
+        os.Add ("triangleAtlasWidth", (GS::Int32) triangleAtlas.width);
+        os.Add ("triangleAtlasHeight", (GS::Int32) triangleAtlas.height);
+        os.Add ("triangleAtlasTiles", (GS::Int32) triangleAtlas.placedFaces);
+
+        // ⚠️ THE SYMPTOM, NAMED. See the class note: equal counts mean the
+        // extraction stopped welding and patch mode has silently become triangle
+        // mode with extra steps.
+        os.Add ("weldingLooksBroken", patchGrid.spans.size () >= triangles.size () / 3);
+        return os;
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Tapioca.SunStudyFollowerState - the ANALYSIS lifecycle.
+//
+// ⚠️ DELIBERATELY SEPARATE FROM SunStudyOverlayState, WHICH REPORTS RENDERER
+// FACTS. "The analysis is stale" and "the renderer is not drawing" are different
+// sentences with different fixes, and a single surface that mixed them would
+// make a study that is correctly hidden because the model moved look identical
+// to one the viewer failed to bind.
+class SunStudyFollowerStateCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "SunStudyFollowerState";
+    }
+    bool NeedsMainThread () const override
+    {
+        return false;
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        const sunfollow::FollowerStats stats = sunfollow::State ();
+        GS::ObjectState os;
+        os.Add ("state", Text (StateText (stats.state)));
+        os.Add ("autoFollow", stats.autoFollow);
+        os.Add ("dirty", stats.dirty);
+        os.Add ("dirtyReason", Text (ReasonText (stats.dirtyReason)));
+        os.Add ("generation", (GS::Int32) stats.generation);
+        os.Add ("studyId", Text (stats.studyId));
+        os.Add ("studySnapshot", (GS::Int32) stats.studySnapshot);
+        os.Add ("sceneSnapshot", (GS::Int32) stats.sceneSnapshot);
+        os.Add ("millisecondsUntilStart", (GS::Int32) stats.millisecondsUntilStart);
+        os.Add ("starts", (GS::Int32) stats.starts);
+        os.Add ("acceptedCompletions", (GS::Int32) stats.acceptedCompletions);
+        os.Add ("discardedCompletions", (GS::Int32) stats.discardedCompletions);
+        os.Add ("automaticReruns", (GS::Int32) stats.automaticReruns);
+        os.Add ("snapshotRebuilds", (GS::Int32) stats.snapshotRebuilds);
+        os.Add ("lastError", Text (stats.lastError));
+        // The sentence a person can act on: "scene snapshot 124 != study
+        // snapshot 123" says which way to look; `dirty=true` does not.
+        os.Add ("description", Text (stats.description));
+        return os;
+    }
+
+  private:
+    static const char* StateText (evp::sunstudy::SunStudyFollowState state)
+    {
+        switch (state) {
+            case evp::sunstudy::SunStudyFollowState::NoStudy:
+                return "NoStudy";
+            case evp::sunstudy::SunStudyFollowState::Current:
+                return "Current";
+            case evp::sunstudy::SunStudyFollowState::DirtyVisible:
+                return "DirtyVisible";
+            case evp::sunstudy::SunStudyFollowState::Starting:
+                return "Starting";
+            case evp::sunstudy::SunStudyFollowState::UpdatingVisible:
+                return "UpdatingVisible";
+            case evp::sunstudy::SunStudyFollowState::Failed:
+                return "Failed";
+        }
+        return "Unknown";
+    }
+    static const char* ReasonText (evp::sunstudy::SunStudyDirtyReason reason)
+    {
+        switch (reason) {
+            case evp::sunstudy::SunStudyDirtyReason::Geometry:
+                return "geometry";
+            case evp::sunstudy::SunStudyDirtyReason::Sun:
+                return "sun";
+            case evp::sunstudy::SunStudyDirtyReason::Sampling:
+                return "sampling";
+            case evp::sunstudy::SunStudyDirtyReason::None:
+                break;
+        }
+        return "none";
+    }
+};
+
+// ---------------------------------------------------------------------------
 
 const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
     { "ShowSunStudy", &MakeRegisteredNativeCommand<ShowSunStudyCommand>, false,
@@ -300,7 +535,8 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
                 "show":{"type":"boolean"},
                 "hoursMax":{"type":"number"},
                 "debug":{"type":"integer"},
-                "depth":{"type":"integer"}
+                "depth":{"type":"integer"},
+                "follow":{"type":"boolean"}
             },
             "additionalProperties":false
         })json",
@@ -350,6 +586,66 @@ const NativeCommandRegistration kSunStudyDisplayRegistrations[] = {
             },
             "additionalProperties":false,
             "required":["viewerRunning","studyId","drawing","elementsNamed","elementsAttached"]
+        })json" },
+    { "SunStudyPatchPreview", &MakeRegisteredNativeCommand<SunStudyPatchPreviewCommand>, false,
+      R"json({
+            "type":"object",
+            "properties":{"grid":{"type":"number"}},
+            "additionalProperties":false
+        })json",
+      R"json({
+            "type":"object",
+            "properties":{
+                "elements":{"type":"integer"},
+                "triangles":{"type":"integer"},
+                "gridSpacing":{"type":"number"},
+                "patches":{"type":"integer"},
+                "patchSamples":{"type":"integer"},
+                "patchArea":{"type":"number"},
+                "patchCentroidFallbacks":{"type":"integer"},
+                "patchAtlasWidth":{"type":"integer"},
+                "patchAtlasHeight":{"type":"integer"},
+                "patchAtlasTiles":{"type":"integer"},
+                "patchAtlasUsedTexels":{"type":"integer"},
+                "patchAtlasResized":{"type":"boolean"},
+                "triangleSamples":{"type":"integer"},
+                "triangleArea":{"type":"number"},
+                "triangleAtlasWidth":{"type":"integer"},
+                "triangleAtlasHeight":{"type":"integer"},
+                "triangleAtlasTiles":{"type":"integer"},
+                "weldingLooksBroken":{"type":"boolean"}
+            },
+            "additionalProperties":false,
+            "required":["elements","triangles","patches","patchSamples","patchArea","triangleSamples","triangleArea"]
+        })json" },
+    { "SunStudyFollowerState", &MakeRegisteredNativeCommand<SunStudyFollowerStateCommand>, false,
+      R"json({
+            "type":"object",
+            "properties":{},
+            "additionalProperties":false
+        })json",
+      R"json({
+            "type":"object",
+            "properties":{
+                "state":{"type":"string"},
+                "autoFollow":{"type":"boolean"},
+                "dirty":{"type":"boolean"},
+                "dirtyReason":{"type":"string"},
+                "generation":{"type":"integer"},
+                "studyId":{"type":"string"},
+                "studySnapshot":{"type":"integer"},
+                "sceneSnapshot":{"type":"integer"},
+                "millisecondsUntilStart":{"type":"integer"},
+                "starts":{"type":"integer"},
+                "acceptedCompletions":{"type":"integer"},
+                "discardedCompletions":{"type":"integer"},
+                "automaticReruns":{"type":"integer"},
+                "snapshotRebuilds":{"type":"integer"},
+                "lastError":{"type":"string"},
+                "description":{"type":"string"}
+            },
+            "additionalProperties":false,
+            "required":["state","autoFollow","dirty","generation","studySnapshot","sceneSnapshot"]
         })json" },
 };
 

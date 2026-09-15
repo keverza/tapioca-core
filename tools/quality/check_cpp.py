@@ -283,6 +283,17 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # hand-over is one-way by design. It must name the viewport to read its stats
     # snapshot, and restating that snapshot on this side would be a second
     # definition of it. Same file, same domain, same reason as the pair below.
+    # The live follower driver. It is an internal COMMAND CLIENT -- it drives
+    # StartSunStudy/AdvanceSunStudy/ShowSunStudy through ExecuteNativeCommand and
+    # implements no analysis of its own -- but it has to know two renderer-side
+    # facts to schedule at all: whether an extraction is in flight (so it does
+    # not ask for a snapshot rebuild on top of one) and whether Archicad reported
+    # a genuine element change (because MeshStore is republished only by
+    # BuildSnapshot, so nothing else can tell it the model moved). Restating
+    # either on this side would be a second change detector.
+    ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ExtractionThread.hpp"),
+    ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ModelWatch.hpp"),
+    ("NativeCommands/SunStudyFollowerDriver.cpp", "ArchViz/ArchVizLog.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/DiligentViewport.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SceneCmdQueue.hpp"),
     ("NativeCommands/SunStudyDisplayCommands.cpp", "ArchViz/SunStudyOverlay.hpp"),

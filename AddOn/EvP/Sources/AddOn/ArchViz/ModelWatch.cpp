@@ -149,6 +149,13 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
         return;
     }
 
+    // ⚠️ BUMPED BEFORE THE PASS IS STARTED, AND WHETHER OR NOT IT STARTS. The
+    // counter says "Archicad reported an element change", which is true even
+    // when an extraction is already running and this tick's refresh is skipped.
+    // Tying it to StartPass would lose exactly the edits that arrive during a
+    // busy moment -- which is most of them during a drag.
+    ++gStats.geometryEdits;
+
     if (StartPass ()) {
         ++gStats.refreshes;
         ArchVizLog ("model watch: re-extracting -- " + std::to_string (diff.created.size ()) + " new, " +

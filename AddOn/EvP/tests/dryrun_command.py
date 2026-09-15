@@ -3187,6 +3187,29 @@ def _one(command, params):
                     "converged": _SUN_STUDY["resolved"] >= _SUN_STUDY["total"],
                     "hoursMax": hours_max, "debug": debug, "depth": depth})
 
+    if command == "EvP.SunStudyFollowerState":
+        # ⚠️ THE FAKE FOLLOWS ONLY WHAT WAS SHOWN. autoFollow is armed by a
+        # successful ShowSunStudy and by nothing else -- a fake that reported
+        # autoFollow=True from the start would let a caller that never displayed
+        # anything believe the model was being followed.
+        if not _SUN_OVERLAY:
+            return _v2({"state": "NoStudy", "autoFollow": False, "dirty": False,
+                        "dirtyReason": "none", "generation": 0, "studyId": "",
+                        "studySnapshot": 0, "sceneSnapshot": 0,
+                        "millisecondsUntilStart": -1, "starts": 0,
+                        "acceptedCompletions": 0, "discardedCompletions": 0,
+                        "automaticReruns": 0, "snapshotRebuilds": 0,
+                        "lastError": "", "description": "no sun study is being followed"})
+        return _v2({"state": "Current", "autoFollow": True, "dirty": False,
+                    "dirtyReason": "none", "generation": 1,
+                    "studyId": _SUN_OVERLAY.get("studyId", ""),
+                    "studySnapshot": 1, "sceneSnapshot": 1,
+                    "millisecondsUntilStart": -1, "starts": 0,
+                    "acceptedCompletions": 0, "discardedCompletions": 0,
+                    "automaticReruns": 0, "snapshotRebuilds": 0, "lastError": "",
+                    "description": "sun study '%s' is current for snapshot 1"
+                                   % _SUN_OVERLAY.get("studyId", "")})
+
     if command == "EvP.SunStudyOverlayState":
         # ⚠️ THE FAKE MUST MODEL "SENT BUT NOT DRAWN", because that is the whole
         # reason the verb exists. It reports a RUNNING viewer only when a study

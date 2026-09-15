@@ -54,6 +54,14 @@ struct Stats {
     // a second -- every element's vertex, index and side buffers destroyed and
     // recreated, for a model that had not changed at all.
     uint32_t environmentOnly = 0;
+    // Ticks where Archicad reported a GENUINE element change -- created,
+    // modified or deleted. ⚠️ MONOTONIC, AND IT IS A SIGNAL RATHER THAN A
+    // STATISTIC: the sun study follower polls it to learn that the model moved,
+    // because MeshStore's snapshot is only republished by Tapioca.BuildSnapshot
+    // and would otherwise still describe the building as it was. A counter is
+    // the right shape because a poller that missed a tick must still see that
+    // something happened, which a boolean flag cannot promise.
+    uint32_t geometryEdits = 0;
     int64_t lastDiffMs = 0;  // what the last poll cost
     int64_t worstDiffMs = 0; // the worst one, which is what set the interval
     uint32_t intervalMs = 0; // the cadence it has settled on

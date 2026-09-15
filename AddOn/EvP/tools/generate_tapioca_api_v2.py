@@ -203,9 +203,24 @@ from typing import Any
 # the tree alongside it from the "drafting commands half complete" line of work,
 # and they are counted here because this constant describes the TREE, not one
 # task. If that work is reverted, this comes back down by two.
-EXPECTED_REGISTRY_COMMANDS = 211
+# 2026-09-15, the dirty follower: +1 for SunStudyFollowerState. It reports the
+# ANALYSIS lifecycle -- current/dirty/why, the study and scene snapshots, the
+# generation, and how many completions were accepted against discarded -- and is
+# deliberately separate from SunStudyOverlayState, which reports RENDERER facts.
+# "The analysis is stale because the model moved" and "the renderer is not
+# drawing" are different sentences with different fixes.
+# 2026-09-15, the patch-domain migration: +1 for SunStudyPatchPreview. It runs no
+# study and displays nothing -- it reports what the SurfacePatch domain would
+# measure on the live model beside what the triangle domain does. The two cannot
+# be diffed sample for sample (patch mode deliberately moves the sample points),
+# so the physical surface area is the number they must agree on, and the counts
+# are what has to be seen on a real building before migrating. It also names the
+# one failure that would make patch mode pointless: if the extraction ever
+# stopped welding coincident corners, every patch would be one triangle and the
+# whole migration would silently undo itself.
+EXPECTED_REGISTRY_COMMANDS = 213
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 230
+EXPECTED_TOTAL_COMMANDS = 232
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

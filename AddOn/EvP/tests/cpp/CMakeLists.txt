@@ -157,7 +157,33 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudySampler.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyWinding.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyAtlas.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp")
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStore.cpp"
+    # SunStudyFollower is when a study is stale, when to recompute it and which
+    # result may become visible. It has no clock and no host of its own for
+    # exactly that reason: every rule in it is about TIME and IDENTITY, and both
+    # are what a live Archicad session cannot be asked to reproduce on demand.
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyFollower.cpp"
+    # SurfacePatch is the analysis domain ABOVE the renderer's triangles: the
+    # coplanar, edge-connected run of source triangles that one BIM surface was
+    # tessellated into. It is here because the artefact it removes -- a diagonal
+    # seam down the middle of a flat slab, from two triangle-local lattices --
+    # is a geometric claim that can be checked numerically and cannot be judged
+    # from a viewport.
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SurfacePatch.cpp"
+    # SunStudyCache is the persistent analysis and, more importantly, the rule
+    # for which patches a geometry change invalidates. That rule fails PLAUSIBLY
+    # -- a patch left stale keeps a shadow from a wall that has moved, in a
+    # picture that looks finished -- so it is checked here against a full clean
+    # recomputation rather than by looking at a viewport.
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyCache.cpp"
+    # The patch DOMAIN as the running engine sees it: the sampler front end that
+    # replaces triangle grids with surface grids, and the atlas that gives each
+    # surface an address which SURVIVES an edit. Both are here because their
+    # central claims -- "each patch owns a contiguous span" and "nothing moved" --
+    # are invisible on screen: a repack hiding behind an update draws an
+    # identical picture and invalidates every coordinate already handed out.
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchSampler.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchAtlas.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
@@ -558,6 +584,10 @@ set (EVP_TEST_SOURCES
     test_sunstudywinding.cpp
     test_sunstudyatlas.cpp
     test_sunstudyoverlay.cpp
+    test_sunstudyfollower.cpp
+    test_surfacepatch.cpp
+    test_sunstudycache.cpp
+    test_sunstudypatchatlas.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp

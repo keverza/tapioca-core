@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 211,
+      "nativeRegistry": 213,
       "dispatcherLocal": 19,
-      "total": 230
+      "total": 232
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -22272,6 +22272,9 @@
           },
           "depth": {
             "type": "integer"
+          },
+          "follow": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -23009,6 +23012,77 @@
       }
     },
     {
+      "name": "Tapioca.SunStudyFollowerState",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string"
+          },
+          "autoFollow": {
+            "type": "boolean"
+          },
+          "dirty": {
+            "type": "boolean"
+          },
+          "dirtyReason": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "studyId": {
+            "type": "string"
+          },
+          "studySnapshot": {
+            "type": "integer"
+          },
+          "sceneSnapshot": {
+            "type": "integer"
+          },
+          "millisecondsUntilStart": {
+            "type": "integer"
+          },
+          "starts": {
+            "type": "integer"
+          },
+          "acceptedCompletions": {
+            "type": "integer"
+          },
+          "discardedCompletions": {
+            "type": "integer"
+          },
+          "automaticReruns": {
+            "type": "integer"
+          },
+          "snapshotRebuilds": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "autoFollow",
+          "dirty",
+          "generation",
+          "studySnapshot",
+          "sceneSnapshot"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.SunStudyOverlayState",
       "implementation": "native-registry",
       "inputScheme": {
@@ -23078,6 +23152,88 @@
           "drawing",
           "elementsNamed",
           "elementsAttached"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SunStudyPatchPreview",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "grid": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "integer"
+          },
+          "triangles": {
+            "type": "integer"
+          },
+          "gridSpacing": {
+            "type": "number"
+          },
+          "patches": {
+            "type": "integer"
+          },
+          "patchSamples": {
+            "type": "integer"
+          },
+          "patchArea": {
+            "type": "number"
+          },
+          "patchCentroidFallbacks": {
+            "type": "integer"
+          },
+          "patchAtlasWidth": {
+            "type": "integer"
+          },
+          "patchAtlasHeight": {
+            "type": "integer"
+          },
+          "patchAtlasTiles": {
+            "type": "integer"
+          },
+          "patchAtlasUsedTexels": {
+            "type": "integer"
+          },
+          "patchAtlasResized": {
+            "type": "boolean"
+          },
+          "triangleSamples": {
+            "type": "integer"
+          },
+          "triangleArea": {
+            "type": "number"
+          },
+          "triangleAtlasWidth": {
+            "type": "integer"
+          },
+          "triangleAtlasHeight": {
+            "type": "integer"
+          },
+          "triangleAtlasTiles": {
+            "type": "integer"
+          },
+          "weldingLooksBroken": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements",
+          "triangles",
+          "patches",
+          "patchSamples",
+          "patchArea",
+          "triangleSamples",
+          "triangleArea"
         ]
       }
     },
