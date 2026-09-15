@@ -146,7 +146,13 @@ bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t
 
     const StudyRecord& record = *found->second;
     if (!record.atlas.valid) {
-        error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+        // ⚠️ THE PATCH CASE IS NAMED SEPARATELY BECAUSE THE GENERAL MESSAGE IS
+        // A LIE FOR IT. A patch study WAS sampled on model surfaces; what it has
+        // is a different atlas. Telling its caller otherwise would send the next
+        // reader looking at the sampler instead of at the display path.
+        error = record.IsPatchDomain ()
+                    ? "study '" + id + "' is a patch-domain study - ask for its patch atlas, not the triangle one"
+                    : "study '" + id + "' has no atlas - it was not sampled on model surfaces";
         return false;
     }
 
@@ -157,6 +163,50 @@ bool SunStudyStore::AtlasImage (const std::string& id, uint32_t& width, uint32_t
     // told `converged` alongside and must not paint a final picture from a
     // partial one.
     image = ScatterToAtlas (record.atlas, record.session.SunHours ());
+    return true;
+}
+
+bool SunStudyStore::PatchAtlasImage (const std::string& id, uint32_t& width, uint32_t& height,
+                                     std::vector<float>& image, std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+
+    const StudyRecord& record = *found->second;
+    if (!record.IsPatchDomain () || !record.patchGrid.valid || record.patchAtlas.Width () == 0) {
+        error = "study '" + id + "' is not a patch-domain study with a packed atlas";
+        return false;
+    }
+
+    width = record.patchAtlas.Width ();
+    height = record.patchAtlas.Height ();
+
+    // ⚠️ THE SENTINEL IS THE INITIAL VALUE, NOT ZERO, AND IT IS NOT DECORATION.
+    // Every texel no sample lands on -- gutters, the space between shelves, the
+    // fragmentation the atlas deliberately never compacts away -- has to read as
+    // "no sample here", which the shader discards. Zero would read as "nought
+    // hours of sun", which is a legitimate measurement, and the unused half of
+    // the atlas would paint as permanent shadow.
+    image.assign (record.patchAtlas.TexelCount (), -1.0f);
+
+    const std::vector<double>& hours = record.session.SunHours ();
+
+    // Scattered PATCH BY PATCH through the atlas's own routine rather than
+    // sample by sample through a flat loop. It is the same routine the
+    // incremental path will use for a single surface, so the whole-study image
+    // and a one-surface update cannot disagree about where a patch's texels are.
+    std::vector<double> forSpan;
+    for (size_t spanIndex = 0; spanIndex < record.patchGrid.spans.size (); ++spanIndex) {
+        const PatchSampleSpan& span = record.patchGrid.spans[spanIndex];
+        if (span.first + span.count > hours.size ())
+            continue; // the study has not produced these yet
+        forSpan.assign (hours.begin () + span.first, hours.begin () + span.first + span.count);
+        record.patchAtlas.ScatterPatch (record.patchGrid, spanIndex, forSpan, image);
+    }
     return true;
 }
 
@@ -173,7 +223,11 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
 
     const StudyRecord& record = *found->second;
     if (!record.atlas.valid) {
-        error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+        // See the note in AtlasImage: the patch case needs its own words.
+        error = record.IsPatchDomain ()
+                    ? "study '" + id +
+                          "' is a patch-domain study - the renderer needs patch tiles, which this call does not carry"
+                    : "study '" + id + "' has no atlas - it was not sampled on model surfaces";
         return false;
     }
 

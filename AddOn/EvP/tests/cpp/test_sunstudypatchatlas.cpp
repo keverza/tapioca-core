@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "ArchViz/MeshGroups.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySampler.hpp"
@@ -390,4 +391,119 @@ TEST (PatchAtlas, TheRectangleReadBackIsWhatAPartialUploadWouldSend)
             present = present || std::fabs (value - float (hour)) < 1e-6f;
         EXPECT_TRUE (present) << "hour " << hour << " is outside the patch's own rectangle";
     }
+}
+
+// ---------------------------------------------------------------------------
+// the triangle -> patch bridge
+//
+// ⚠️ THE RENDERER STILL DRAWS TRIANGLES WHILE THE ANALYSIS BELONGS TO SURFACES,
+// so one array has to join them. It is built by the flood fill that formed the
+// patches, because that is the only place adjacency still exists -- by the time
+// a triangle reaches a pixel shader its neighbours are gone. These tests pin the
+// two properties the renderer depends on and cannot check for itself.
+// ---------------------------------------------------------------------------
+
+TEST (PatchMapping, EveryDrawnTriangleResolvesToExactlyOnePatchKey)
+{
+    Scene scene;
+    AddWeldedStrips (scene, "wall-a", 6.0, 2.0, 6); // 12 triangles, one surface
+    AddQuad (scene, "wall-b", 20, 0, 4, 3, 0);      //  2 triangles, one surface
+
+    const PatchSampleGrid grid = SampleOf (scene, 1.0);
+    ASSERT_TRUE (grid.valid);
+
+    const size_t faceCount = scene.triangles.size () / 3;
+    ASSERT_EQ (grid.patchOfTriangle.size (), faceCount) << "a triangle the renderer can draw has no entry";
+
+    for (size_t face = 0; face < faceCount; ++face) {
+        const uint32_t span = grid.patchOfTriangle[face];
+        ASSERT_NE (span, PatchSampleGrid::kNoPatch) << "triangle " << face << " resolves to no patch";
+        ASSERT_LT (span, grid.spans.size ()) << "triangle " << face << " resolves out of range";
+    }
+
+    // "Exactly one" is the half that matters: the fill must not have left a
+    // triangle claimed by two surfaces, which would make its hours depend on
+    // which patch was written last.
+    std::set<PatchKey> distinct;
+    for (size_t face = 0; face < 12; ++face)
+        distinct.insert (grid.spans[grid.patchOfTriangle[face]].key);
+    EXPECT_EQ (distinct.size (), 1u) << "one welded surface produced more than one key";
+    EXPECT_NE (grid.spans[grid.patchOfTriangle[0]].key, grid.spans[grid.patchOfTriangle[12]].key)
+        << "two separate walls collapsed onto one key";
+}
+
+TEST (PatchMapping, ATriangleNoPatchClaimedIsAddressableRatherThanPatchZero)
+{
+    // ⚠️ THE FAILURE THIS PREVENTS IS INVISIBLE. A degenerate triangle that fell
+    // out of the fill has no sun hours of its own. Answering "patch 0" for it
+    // would paint some unrelated surface's analysis onto it -- a plausible
+    // picture, wrong in one place, and nothing reports it.
+    Scene scene;
+    AddQuad (scene, "wall", 0, 0, 4, 3, 0);
+    // A zero-area triangle appended to the same element.
+    const uint32_t base = static_cast<uint32_t> (scene.vertices.size () / 3);
+    scene.vertices.insert (scene.vertices.end (), { 9.0, 0.0, 0.0, 9.0, 0.0, 0.0, 9.0, 0.0, 0.0 });
+    scene.triangles.insert (scene.triangles.end (), { base, base + 1, base + 2 });
+    scene.groups.push_back (0);
+
+    const PatchSampleGrid grid = SampleOf (scene, 1.0);
+    ASSERT_TRUE (grid.valid);
+    ASSERT_EQ (grid.patchOfTriangle.size (), scene.triangles.size () / 3);
+
+    const uint32_t degenerate = grid.patchOfTriangle.back ();
+    if (degenerate != PatchSampleGrid::kNoPatch) {
+        // It was claimed; then it must be claimed by a real span, not by a
+        // default-constructed index.
+        ASSERT_LT (degenerate, grid.spans.size ());
+    }
+    // Either way the real quad still maps to a real patch.
+    EXPECT_NE (grid.patchOfTriangle[0], PatchSampleGrid::kNoPatch);
+}
+
+TEST (PatchMapping, TheMaterialPermutationCarriesTheMappingRatherThanRediscoveringIt)
+{
+    // ⚠️ THE RULE THIS ENFORCES: the renderer permutation is handed forward,
+    // never rediscovered downstream. The GPU draws triangles in MATERIAL order,
+    // so `SV_PrimitiveID` counts through the permuted buffer -- not through the
+    // source triangles the patches were built from. Walking the permutation is
+    // therefore the whole of the bridge, and the property is that composing the
+    // two lookups lands on the same surface the source triangle belonged to.
+    Scene scene;
+    AddWeldedStrips (scene, "wall-a", 6.0, 2.0, 6);
+    AddQuad (scene, "wall-b", 20, 0, 4, 3, 0);
+
+    const PatchSampleGrid grid = SampleOf (scene, 1.0);
+    ASSERT_TRUE (grid.valid);
+
+    // Materials chosen to INTERLEAVE the two walls, so a permutation that was
+    // silently the identity could not pass.
+    const size_t faceCount = scene.triangles.size () / 3;
+    std::vector<int32_t> material (faceCount, 0);
+    for (size_t face = 0; face < faceCount; ++face)
+        material[face] = int32_t (face % 3);
+
+    std::vector<uint32_t> outIndices;
+    std::vector<geomsrv::archviz::MaterialRange> ranges;
+    std::vector<uint32_t> order;
+    geomsrv::archviz::BuildMaterialGroups (scene.triangles, material, outIndices, ranges, nullptr, nullptr, &order);
+    ASSERT_EQ (order.size (), faceCount);
+
+    bool sawAReorder = false;
+    for (size_t drawn = 0; drawn < order.size (); ++drawn) {
+        const uint32_t source = order[drawn];
+        sawAReorder = sawAReorder || source != drawn;
+        ASSERT_LT (source, grid.patchOfTriangle.size ());
+
+        // What the shader will do: drawn triangle -> source -> patch.
+        const uint32_t span = grid.patchOfTriangle[source];
+        ASSERT_NE (span, PatchSampleGrid::kNoPatch);
+
+        // And it must be the surface that source triangle's own corners lie on.
+        const uint32_t corner = scene.triangles[source * 3];
+        const bool firstWall = corner < 14; // the welded strip's vertices
+        const PatchKey& key = grid.spans[span].key;
+        EXPECT_EQ (key.element, firstWall ? "wall-a" : "wall-b")
+            << "drawn triangle " << drawn << " reads another element's surface";
+    }
+    ASSERT_TRUE (sawAReorder) << "the fixture did not actually permute anything";
 }

@@ -44,6 +44,13 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
             return grid; // invalid; the caller asks for a coarser grid
     }
 
+    // ⚠️ SIZED TO EVERY SOURCE TRIANGLE AND PRE-FILLED WITH kNoPatch, not
+    // sized to the claimed ones. The array is indexed by the renderer with a
+    // triangle index it got from elsewhere; a short array would be read out of
+    // bounds, and a zero-filled one would answer "patch 0" for a triangle no
+    // patch ever claimed.
+    grid.patchOfTriangle.assign (faceCount, PatchSampleGrid::kNoPatch);
+
     grid.spans.reserve (patches.size ());
     for (size_t index = 0; index < patches.size (); ++index) {
         const SurfacePatch& patch = patches[index];
@@ -114,6 +121,13 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
                     span.boundsMax[axis] = std::max (span.boundsMax[axis], value);
                 }
             }
+        }
+
+        // Claim every source triangle of this patch, BEFORE the span is pushed,
+        // so the index recorded is the one `span` is about to take.
+        for (const uint32_t face : patch.triangles) {
+            if (face < grid.patchOfTriangle.size ())
+                grid.patchOfTriangle[face] = static_cast<uint32_t> (grid.spans.size ());
         }
 
         grid.spans.push_back (span);

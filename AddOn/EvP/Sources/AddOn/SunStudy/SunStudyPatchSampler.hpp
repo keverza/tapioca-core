@@ -90,12 +90,34 @@ struct PatchSampleGrid {
 
     std::vector<PatchSampleSpan> spans;
 
+    // Per SOURCE TRIANGLE, the span that owns it, or `kNoPatch`.
+    //
+    // ⚠️ THE BRIDGE THE RENDERER CANNOT REBUILD FOR ITSELF. The viewport still
+    // draws triangles; the analysis now belongs to surfaces. Something has to say
+    // which surface a drawn triangle reads its hours from, and the ONLY place
+    // that knows is the flood fill that formed the patches -- by the time a
+    // triangle reaches a pixel shader its adjacency, and therefore its patch, is
+    // gone.
+    //
+    // ⚠️ AND IT MUST BE CARRIED FORWARD, NEVER REDISCOVERED. Re-deriving patch
+    // identity downstream from positions or normals would agree with this array
+    // almost always -- and disagree exactly at the coplanar surfaces that meet
+    // at a shared edge, which is the case patch mode exists for. The renderer
+    // permutation rule already says it: handed forward, never rediscovered.
+    std::vector<uint32_t> patchOfTriangle;
+
     size_t degenerateFaces = 0;
     // Patches whose lattice held no covered cell at all and that fell back to a
     // single centroid sample. ⚠️ REPORTED, NOT SILENT: coverage is a correctness
     // property and this is the count of surfaces that only just kept it.
     size_t centroidPatches = 0;
     bool valid = false;
+
+    // A triangle that no patch claimed: degenerate, or dropped by the builder.
+    // ⚠️ IT IS A REAL CASE AND MUST STAY ADDRESSABLE. A renderer that treated a
+    // missing patch as patch 0 would paint one surface's sunlight onto an
+    // unrelated triangle, which looks entirely plausible.
+    static constexpr uint32_t kNoPatch = 0xffffffffu;
 
     size_t Count () const
     {

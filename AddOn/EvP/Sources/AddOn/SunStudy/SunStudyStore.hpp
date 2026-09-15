@@ -29,6 +29,8 @@
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/CpuTraversal.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
+#include "SunStudy/SunStudyPatchAtlas.hpp"
+#include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySession.hpp"
 
 #include <cstdint>
@@ -72,6 +74,32 @@ struct StudyRecord {
     // texture coordinate a consumer had already been handed.
     SunStudyAtlas atlas;
     SampleGrid sampleGrid;
+
+    // ---- the SurfacePatch domain ------------------------------------------
+    //
+    // ⚠️ BOTH DOMAINS LIVE IN ONE RECORD RATHER THAN IN TWO STUDY TYPES, and
+    // only one of them is populated. The alternative -- a second record type
+    // with its own store, advance and results path -- is how one analysis engine
+    // becomes two, and the first defect fixed in either would live on in the
+    // other. `domain` says which set of fields is real; `positions`, `normals`
+    // and everything downstream of them are filled identically by both.
+    SamplingDomain domain = SamplingDomain::TriangleLegacy;
+
+    // Populated only when `domain == SurfacePatch`. The spans index the SAME
+    // `positions`/`normals` the triangle path fills, which is exactly what lets
+    // the accumulator and the traversal stay unaware of the difference.
+    PatchSampleGrid patchGrid;
+
+    // ⚠️ THE ATLAS IS OWNED BY THE STUDY AND OUTLIVES EVERY UPDATE. Its whole
+    // value is that a patch's rectangle does not move; rebuilding it per read,
+    // or holding it anywhere a rerun would replace it, throws away the one
+    // property incremental display depends on.
+    SunStudyPatchAtlas patchAtlas;
+
+    bool IsPatchDomain () const
+    {
+        return domain == SamplingDomain::SurfacePatch;
+    }
 
     SampleSet Samples () const;
 };
@@ -118,6 +146,19 @@ class SunStudyStore final {
     // sentinel in every texel no sample landed on.
     bool AtlasImage (const std::string& id, uint32_t& width, uint32_t& height, std::vector<float>& image,
                      std::string& error) const;
+
+    // The same, for a `domain=patch` study: the hours scattered into the PATCH
+    // atlas, one rectangle per surface.
+    //
+    // ⚠️ A SEPARATE ENTRY POINT RATHER THAN A BRANCH INSIDE `AtlasImage`,
+    // because the two images are not interchangeable even though both are
+    // `width * height` floats with a negative sentinel. They are packed by
+    // different allocators and addressed by different maps -- a consumer holding
+    // triangle tile coordinates would read a patch image without complaint and
+    // draw every face with a stranger's sunlight. Making the caller name which
+    // one it wants is what keeps that from being a silent mistake.
+    bool PatchAtlasImage (const std::string& id, uint32_t& width, uint32_t& height, std::vector<float>& image,
+                          std::string& error) const;
 
     // Everything a RENDERER needs, read under one lock so the image and the
     // packing it was scattered through cannot come from different generations.

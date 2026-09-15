@@ -4,6 +4,7 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandUtils.hpp"
 #include "NativeCommands/SunStudyCommands.hpp"
+#include "NativeCommands/SunStudyCommandsSupport.hpp"
 
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -31,90 +32,22 @@ using evp::sunstudy::SunSeries;
 using evp::sunstudy::SunStep;
 using evp::sunstudy::SunStudyStore;
 
-std::string Utf8 (const GS::UniString& text)
-{
-    return std::string (text.ToCStr (0, MaxUSize, CC_UTF8).Get ());
-}
-
-GS::UniString Text (const std::string& text)
-{
-    return GS::UniString (text.c_str (), CC_UTF8);
-}
-
-// The study a verb operates on when it names none. Keeps a console session short
-// while the contract stays multi-study underneath.
-std::string ReadStudyId (const GS::ObjectState& params)
-{
-    GS::UniString id;
-    if (params.Get ("studyId", id) && !id.IsEmpty ())
-        return Utf8 (id);
-
-    const std::vector<std::string> ids = SunStudyStore::Get ().Ids ();
-    return ids.empty () ? std::string () : ids.back ();
-}
-
-GS::Int32 ReadInt (const GS::ObjectState& params, const char* key, GS::Int32 fallback)
-{
-    GS::Int32 value = 0;
-    return params.Get (key, value) ? value : fallback;
-}
-
-double ReadDouble (const GS::ObjectState& params, const char* key, double fallback)
-{
-    double value = 0.0;
-    return params.Get (key, value) ? value : fallback;
-}
-
-std::string ReadString (const GS::ObjectState& params, const char* key, const char* fallback)
-{
-    GS::UniString value;
-    if (params.Get (key, value) && !value.IsEmpty ())
-        return Utf8 (value);
-    return std::string (fallback);
-}
-
-// ⚠️ BULK ARRAYS TRAVEL PACKED, AND THIS IS NOT A MICRO-OPTIMISATION. A live
-// study of 176,106 samples over 49 timesteps measured 1,209 ms of ANALYSIS
-// inside 15,636 ms of call: fourteen of those seconds were the wire, carrying a
-// million doubles up as JSON text and 8.6 million step bits back the same way.
-// Packed, the same payloads are base64 over raw bytes -- one bit per step
-// instead of two characters, eight bytes per coordinate instead of twenty --
-// and they parse in one pass instead of eight million allocations.
-//
-// The plain arrays stay for small studies and for anything reading by eye; a
-// caller asks for packed when the size is worth it.
-GS::UniString PackDoubles (const std::vector<double>& values)
-{
-    std::vector<unsigned char> bytes (values.size () * sizeof (double));
-    if (!values.empty ())
-        std::memcpy (bytes.data (), values.data (), bytes.size ());
-    return Base64Encode (bytes);
-}
-
-bool UnpackDoubles (const GS::UniString& text, std::vector<double>& values)
-{
-    std::vector<unsigned char> bytes;
-    if (!Base64Decode (text, bytes))
-        return false;
-    if (bytes.size () % sizeof (double) != 0)
-        return false;
-    values.resize (bytes.size () / sizeof (double));
-    if (!values.empty ())
-        std::memcpy (values.data (), bytes.data (), bytes.size ());
-    return true;
-}
-
-// One BIT per (sample, step), sample-major, LSB first within each byte. A step
-// bit is one of two values, so a byte per step wastes seven eighths of the wire.
-GS::UniString PackBits (const std::vector<uint8_t>& flags)
-{
-    std::vector<unsigned char> bytes ((flags.size () + 7) / 8, 0);
-    for (size_t i = 0; i < flags.size (); ++i) {
-        if (flags[i] != 0)
-            bytes[i / 8] |= (unsigned char) (1u << (i % 8));
-    }
-    return Base64Encode (bytes);
-}
+// ⚠️ THE PARAMETER READING AND BULK PACKING LIVE IN
+// NativeCommands/SunStudyCommandsSupport, NOT HERE. This domain and the
+// display domain are separate files because one command file exports exactly
+// one provider -- but they speak the same wire format, and two private copies
+// of a base64 packer is how two callers of "the same" format begin to
+// disagree about it. `using` rather than qualification at every call site,
+// because these read as language here.
+using sunstudysupport::PackBits;
+using sunstudysupport::PackDoubles;
+using sunstudysupport::ReadDouble;
+using sunstudysupport::ReadInt;
+using sunstudysupport::ReadString;
+using sunstudysupport::ReadStudyId;
+using sunstudysupport::Text;
+using sunstudysupport::UnpackDoubles;
+using sunstudysupport::Utf8;
 
 // ⚠️ THE PROGRESS FIELDS ARE WRITTEN OUT IN EVERY COMMAND RATHER THAN THROUGH A
 // HELPER, AND THAT IS DELIBERATE. tools/schema_check.py reads the text of each
@@ -238,6 +171,33 @@ class StartSunStudyCommand : public MainThreadCommand {
         const bool sampleSurfaces = (sampleMode == "surfaces");
         const bool sampleExplicit = (sampleMode == "explicit");
 
+        // ---- which DOMAIN the surfaces are diced into --------------------
+        //
+        // ⚠️ A DOMAIN IS NOT A SAMPLE MODE, which is why it is a separate
+        // parameter rather than a fourth `samples` value. `samples` says WHAT is
+        // measured -- the model's faces, a ground plane, or points the caller
+        // supplies. `domain` says how those faces are DIVIDED: per source
+        // triangle, or per coplanar surface. Folding them into one enum would
+        // have made "ground, patch" spellable, and it means nothing.
+        const std::string domainName = ReadString (params, "domain", "triangle");
+        const bool patchDomain = (domainName == "patch");
+        if (!patchDomain && domainName != "triangle") {
+            return NativeCommandResult::Failure (GS::UniString ("'domain' must be 'triangle' or 'patch', not '") +
+                                                 GS::UniString (domainName.c_str (), CC_UTF8) + "'");
+        }
+        if (patchDomain && !sampleSurfaces) {
+            // ⚠️ REFUSED RATHER THAN IGNORED. A patch is a coplanar run of the
+            // MODEL's own triangles; a ground plane has none, and an explicit
+            // point list is not a surface at all. Quietly falling back to the
+            // triangle domain would hand back a study that says `domain=triangle`
+            // only if the caller thought to read it -- and everything downstream
+            // of here, the incremental cache included, keys on patches existing.
+            return NativeCommandResult::Failure (
+                GS::UniString ("domain='patch' needs samples='surfaces' - a patch is a coplanar run of the model's "
+                               "own triangles, which samples='") +
+                GS::UniString (sampleMode.c_str (), CC_UTF8) + "' does not produce");
+        }
+
         size_t columns = 0;
         size_t rows = 0;
         double groundZ = 0.0;
@@ -250,6 +210,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         uint32_t atlasWidth = 0;
         uint32_t atlasHeight = 0;
         size_t atlasFaces = 0;
+        size_t patchCount = 0;
 
         if (sampleExplicit) {
             // ⚠️ THE SEAM THAT MAKES THIS A CORE RATHER THAN A COMMAND. A
@@ -330,6 +291,67 @@ class StartSunStudyCommand : public MainThreadCommand {
             options.jitter = ReadDouble (params, "jitter", 0.0);
             options.wantLayouts = true;
 
+            if (patchDomain) {
+                // ⚠️ THE *ORIENTED* TRIANGLES, NOT THE RAW ONES, AND IT MATTERS
+                // MORE HERE THAN IT DOES BELOW. The patch builder merges by
+                // comparing NORMALS for coplanarity, so two adjacent faces of one
+                // flat wall that happen to be wound oppositely have opposing
+                // normals and refuse to merge: the surface splits silently back
+                // into triangles and patch mode quietly becomes triangle mode
+                // with extra steps. The triangle path needs the orientation only
+                // for the sample lift; this path needs it for the TOPOLOGY.
+                evp::sunstudy::PatchSamplerOptions patchOptions;
+                patchOptions.spacing = spacing;
+                patchOptions.normalOffset = zOffset;
+
+                std::vector<std::string> elementOf;
+                elementOf.reserve (snapshot->meshes.size ());
+                for (const Mesh& mesh : snapshot->meshes)
+                    elementOf.push_back (mesh.guid);
+
+                evp::sunstudy::PatchSampleGrid patches = evp::sunstudy::BuildPatchSampleGrid (
+                    vertices.data (), vertices.size () / 3, oriented.data (), oriented.size () / 3, groups.data (),
+                    elementOf, patchOptions);
+                if (!patches.valid) {
+                    return NativeCommandResult::Failure (
+                        "the patch sample grid was refused - the requested spacing would exceed the sample ceiling "
+                        "on this model; ask for a coarser grid");
+                }
+
+                record->domain = evp::sunstudy::SamplingDomain::SurfacePatch;
+                record->positions = patches.positions;
+                record->normals = patches.normals;
+                degenerateFaces = patches.degenerateFaces;
+                // Reported through the same field the triangle path uses for
+                // faces too small to carry a lattice. Same meaning, same remedy.
+                undersizedFaces = patches.centroidPatches;
+
+                // ⚠️ FITTED ONCE, HERE, AND KEPT FOR THE STUDY'S LIFETIME. Every
+                // later update re-fits THIS atlas, which is what keeps an
+                // untouched surface's rectangle where it was. A fresh atlas per
+                // read would repack and invalidate every texture coordinate
+                // already handed out -- and the result draws perfectly, in
+                // somebody else's colours.
+                record->patchAtlas.Fit (patches);
+                if (record->patchAtlas.Width () == 0) {
+                    return NativeCommandResult::Failure (
+                        "the patch atlas could not be packed within the maximum texture dimension - ask for a "
+                        "coarser grid");
+                }
+                atlasWidth = record->patchAtlas.Width ();
+                atlasHeight = record->patchAtlas.Height ();
+                atlasFaces = record->patchAtlas.AllocationCount ();
+
+                closedGroups = winding.closed;
+                flippedGroups = winding.flipped;
+                gridVersion = static_cast<uint64_t> (patches.Count ()) * 73856093ull ^
+                              static_cast<uint64_t> (patches.spans.size ()) * 19349663ull ^
+                              static_cast<uint64_t> (triangles.size ()) * 83492791ull;
+                patchCount = patches.spans.size ();
+                record->patchGrid = std::move (patches);
+            }
+            else {
+
             const evp::sunstudy::SampleGrid samples =
                 evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
                                                 oriented.size () / 3, groups.data (), options);
@@ -357,6 +379,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             flippedGroups = winding.flipped;
             gridVersion = static_cast<uint64_t> (samples.Count ()) * 73856093ull ^
                           static_cast<uint64_t> (triangles.size ()) * 19349663ull;
+            } // end of the triangle domain
         }
         else {
             const evp::sunstudy::GroundGrid grid = evp::sunstudy::MakeGroundSampleGrid (
@@ -411,6 +434,11 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("groundZ", groundZ);
         os.Add ("groundPad", reportedPad);
         os.Add ("sampleMode", Text (sampleMode));
+        // ⚠️ ECHOED BACK RATHER THAN ASSUMED. A caller that asked for `patch`
+        // and silently got `triangle` would be reading a study whose every number
+        // is reasonable and whose atlas cannot be updated incrementally.
+        os.Add ("domain", Text (patchDomain ? std::string ("patch") : std::string ("triangle")));
+        os.Add ("patchCount", (GS::Int32) patchCount);
         os.Add ("undersizedFaces", (GS::Int32) undersizedFaces);
         os.Add ("degenerateFaces", (GS::Int32) degenerateFaces);
         os.Add ("closedGroups", (GS::Int32) closedGroups);
@@ -638,7 +666,16 @@ class GetSunStudyResultsCommand : public MainThreadCommand {
             uint32_t atlasHeight = 0;
             std::vector<float> image;
             std::string atlasError;
-            if (SunStudyStore::Get ().AtlasImage (id, atlasWidth, atlasHeight, image, atlasError)) {
+            // ⚠️ WHICHEVER ATLAS THIS STUDY ACTUALLY HAS. The two are packed by
+            // different allocators, so a caller cannot be handed one while
+            // believing it has the other -- the picture would draw perfectly,
+            // with every surface reading a stranger's hours. `atlasDomain` says
+            // which arrived; a reader that ignores it is reading coordinates it
+            // cannot interpret.
+            const bool patchAtlas =
+                SunStudyStore::Get ().PatchAtlasImage (id, atlasWidth, atlasHeight, image, atlasError);
+            if (patchAtlas || SunStudyStore::Get ().AtlasImage (id, atlasWidth, atlasHeight, image, atlasError)) {
+                os.Add ("atlasDomain", Text (patchAtlas ? std::string ("patch") : std::string ("triangle")));
                 os.Add ("atlasWidth", (GS::Int32) atlasWidth);
                 os.Add ("atlasHeight", (GS::Int32) atlasHeight);
                 // float32, row-major, negative in every texel no sample reached.
@@ -722,6 +759,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "pad":{"type":"number"},
                 "zOffset":{"type":"number"},
                 "samples":{"type":"string","enum":["surfaces","ground","explicit"]},
+                "domain":{"type":"string","enum":["triangle","patch"]},
                 "positions":{"type":"array","items":{"type":"number"}},
                 "normals":{"type":"array","items":{"type":"number"}},
                 "positionsPacked":{"type":"string"},
@@ -754,6 +792,8 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "atlasWidth":{"type":"integer"},
                 "atlasHeight":{"type":"integer"},
                 "atlasFaces":{"type":"integer"},
+                "domain":{"type":"string"},
+                "patchCount":{"type":"integer"},
                 "latitude":{"type":"number"},
                 "longitude":{"type":"number"},
                 "northDeg":{"type":"number"},
@@ -851,6 +891,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "atlasWidth":{"type":"integer"},
                 "atlasHeight":{"type":"integer"},
                 "atlasPacked":{"type":"string"},
+                "atlasDomain":{"type":"string"},
                 "atlasReason":{"type":"string"},
                 "positionsPacked":{"type":"string"},
                 "normalsPacked":{"type":"string"},

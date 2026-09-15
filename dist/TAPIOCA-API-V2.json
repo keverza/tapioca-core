@@ -10204,6 +10204,9 @@
           "atlasPacked": {
             "type": "string"
           },
+          "atlasDomain": {
+            "type": "string"
+          },
           "atlasReason": {
             "type": "string"
           },
@@ -22846,6 +22849,13 @@
               "explicit"
             ]
           },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "triangle",
+              "patch"
+            ]
+          },
           "positions": {
             "type": "array",
             "items": {
@@ -22934,6 +22944,12 @@
             "type": "integer"
           },
           "atlasFaces": {
+            "type": "integer"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "patchCount": {
             "type": "integer"
           },
           "latitude": {
