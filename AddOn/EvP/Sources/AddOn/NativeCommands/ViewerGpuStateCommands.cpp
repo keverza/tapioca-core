@@ -16,6 +16,7 @@
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
+#include "ArchViz/Dxgi/InjectionProbes.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
@@ -411,6 +412,44 @@ public:
         os.Add ("occurrenceDraws", (GS::Int32) stats.occurrenceDraws);
         os.Add ("authoritativeSnapshots", (GS::Int32) stats.authoritativeSnapshots);
         os.Add ("occurrenceModelFrames", (GS::Int32) stats.occurrenceModelFrames);
+
+        // ⚠️ THE THREE SAMPLE COUNTS THE RUN EXISTS TO OBTAIN. A, B and C differ
+        // by exactly one thing each, so which of them produced pixels names the
+        // remaining fault without a further run.
+        {
+            namespace prb = av::dxgi::injection::probes;
+            if (params.Contains ("probeReset")) {
+                bool wanted = false;
+                params.Get ("probeReset", wanted);
+                if (wanted)
+                    prb::Reset ();
+            }
+            const prb::Stats probes = prb::GetStats ();
+            GS::Array<GS::ObjectState> rows;
+            const char* const names[prb::kProbeCount] = {
+                "A raster/output", "B camera shader", "C production IA" };
+            for (size_t i = 0; i < prb::kProbeCount; ++i) {
+                GS::ObjectState row;
+                row.Add ("name", GS::UniString (names[i], CC_UTF8));
+                row.Add ("draws", (GS::Int32) probes.probe[i].draws);
+                row.Add ("queriesIssued", (GS::Int32) probes.probe[i].queriesIssued);
+                row.Add ("queriesResolved", (GS::Int32) probes.probe[i].queriesResolved);
+                row.Add ("drawsWithSamples", (GS::Int32) probes.probe[i].drawsWithSamples);
+                row.Add ("totalSamples", (GS::Int32) probes.probe[i].totalSamples);
+                rows.Push (row);
+            }
+            os.Add ("probes", rows);
+            os.Add ("probesReady", probes.ready);
+            // As strings: a 64-bit hash does not fit an Int32, and these are only
+            // ever compared for equality and read by eye.
+            os.Add ("cameraVsHash",
+                    GS::UniString (std::to_string (probes.cameraVsHash).c_str (), CC_UTF8));
+            os.Add ("probeVsHash",
+                    GS::UniString (std::to_string (probes.probeVsHash).c_str (), CC_UTF8));
+            os.Add ("rasterVsHash",
+                    GS::UniString (std::to_string (probes.rasterVsHash).c_str (), CC_UTF8));
+            os.Add ("probeError", GS::UniString (probes.lastError, CC_UTF8));
+        }
         {
             inj::OccurrenceStats occurrences[inj::kOccurrenceCapacity];
             const size_t count = inj::CopyOccurrences (occurrences,
@@ -426,6 +465,7 @@ public:
                 row.Add ("medianCentreError", (double) occurrences[i].medianCentreError);
                 row.Add ("meanCentreError", (double) occurrences[i].meanCentreError);
                 row.Add ("worstCentreError", (double) occurrences[i].worstCentreError);
+                row.Add ("meanSpreadPixels", (double) occurrences[i].meanSpreadPixels);
                 row.Add ("viewportWidth", (double) occurrences[i].viewportWidth);
                 row.Add ("viewportHeight", (double) occurrences[i].viewportHeight);
                 row.Add ("lastDrawSequence", (GS::Int32) occurrences[i].lastDrawSequence);
@@ -458,6 +498,13 @@ public:
         os.Add ("newScene", (GS::Int32) stats.newScene);
         os.Add ("repeatScene", (GS::Int32) stats.repeatScene);
         os.Add ("invalidScene", (GS::Int32) stats.invalidScene);
+        os.Add ("invalidNoSnapshot", (GS::Int32) stats.invalidNoSnapshot);
+        os.Add ("invalidNoDrawThisGeneration",
+                (GS::Int32) stats.invalidNoDrawThisGeneration);
+        os.Add ("invalidGenerationAdvanced",
+                (GS::Int32) stats.invalidGenerationAdvanced);
+        os.Add ("invalidGenerationMismatch",
+                (GS::Int32) stats.invalidGenerationMismatch);
         os.Add ("snapshotsTaken", (GS::Int32) stats.snapshotsTaken);
         os.Add ("qualifyingCameraDraws", (GS::Int32) stats.qualifyingCameraDraws);
         os.Add ("viewCopies", (GS::Int32) stats.viewCopies);
@@ -642,11 +689,12 @@ public:
         namespace cen = av::dxgi::census;
 
         if (params.Contains ("x") || params.Contains ("y") || params.Contains ("z")) {
-            double x = 0.0, y = 0.0, z = 0.0;
+            double x = 0.0, y = 0.0, z = 0.0, size = 1.0;
             params.Get ("x", x);
             params.Get ("y", y);
             params.Get ("z", z);
-            cen::SetAnchor (float (x), float (y), float (z));
+            params.Get ("sizeMetres", size);
+            cen::SetAnchor (float (x), float (y), float (z), float (size));
         }
         // ⚠️ `reset` KEEPS THE SELECTION AND `clearSelection` DROPS IT. Phase B
         // resets the counts so the report can say whether the chosen group stayed
@@ -736,6 +784,11 @@ public:
             row.Add ("framesObserved", (GS::Int32) group.framesObserved);
             row.Add ("modelFramesObserved", (GS::Int32) group.modelFramesObserved);
             row.Add ("groupId", (GS::Int32) group.groupId);
+            row.Add ("occurrenceIndex", (GS::Int32) group.occurrenceIndex);
+            row.Add ("anchorInside", (GS::Int32) group.anchorInside);
+            row.Add ("trianglesFinite", (GS::Int32) group.trianglesFinite);
+            row.Add ("medianAreaPixels", (double) group.medianAreaPixels);
+            row.Add ("medianMaxEdgePixels", (double) group.medianMaxEdgePixels);
             row.Add ("firstPresent", (GS::Int32) group.firstPresent);
             row.Add ("lastPresent", (GS::Int32) group.lastPresent);
             row.Add ("drawKindMask", (GS::Int32) group.drawKindMask);
@@ -745,6 +798,7 @@ public:
             row.Add ("winningVariantValid", (GS::Int32) group.winningVariantValid);
             row.Add ("medianCentreError", (double) group.medianCentreError);
             row.Add ("meanCentreError", (double) group.meanCentreError);
+            row.Add ("meanSpreadPixels", (double) group.meanSpreadPixels);
             row.Add ("worstCentreError", (double) group.worstCentreError);
             rows.Push (row);
         }
@@ -753,6 +807,9 @@ public:
         GS::ObjectState chosen;
         chosen.Add ("valid", selection.valid);
         chosen.Add ("groupId", (GS::Int32) selection.groupId);
+        chosen.Add ("occurrenceIndex", (GS::Int32) selection.occurrenceIndex);
+        chosen.Add ("medianAreaPixels", (double) selection.medianAreaPixels);
+        chosen.Add ("medianMaxEdgePixels", (double) selection.medianMaxEdgePixels);
         chosen.Add ("vertexShader",
                     GS::UniString (std::to_string (selection.vertexShader).c_str (), CC_UTF8));
         chosen.Add ("renderTarget",
@@ -774,6 +831,9 @@ public:
         gateState.Add ("minModelCoverage", (double) gate.minModelCoverage);
         gateState.Add ("minInsideClip", (double) gate.minInsideClip);
         gateState.Add ("maxMedianCentreError", (double) gate.maxMedianCentreError);
+        gateState.Add ("minFiniteTriangles", (double) gate.minFiniteTriangles);
+        gateState.Add ("minMedianAreaPixels", (double) gate.minMedianAreaPixels);
+        gateState.Add ("minMedianMaxEdgePixels", (double) gate.minMedianMaxEdgePixels);
 
         const cen::Stats stats = cen::GetStats ();
         GS::ObjectState os;
@@ -872,14 +932,14 @@ const NativeCommandRegistration kViewerGpuStateCommandRegistrations[] = {
       R"json({"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":16}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"scored":{"type":"boolean"},"referenceValid":{"type":"boolean"},"candidates":{"type":"array","items":{"type":"object","properties":{"buffer":{"type":"string"},"byteOffset":{"type":"integer"},"windowOffset":{"type":"integer"},"pairedOffset":{"type":"integer"},"byteWidth":{"type":"integer"},"variant":{"type":"string"},"boundBy":{"type":"string"},"bindSlot":{"type":"integer"},"maxPixelError":{"type":"number"},"meanPixelError":{"type":"number"},"changesWhileMoving":{"type":"integer"},"changesWhileStill":{"type":"integer"}},"additionalProperties":false,"required":["buffer","byteOffset","variant","maxPixelError"]}}},"additionalProperties":false,"required":["scored","referenceValid","candidates"]})json" },
     { "ViewerInjectTriangle", &MakeRegisteredNativeCommand<ViewerInjectTriangleCommand>, false,
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string","enum":["present","scenepass","both"]},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"occurrenceReset":{"type":"boolean"},"occurrenceSelect":{"type":"boolean"}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string"},"drawsTotal":{"type":"integer"},"drawsWithView":{"type":"integer"},"drawsWithProjection":{"type":"integer"},"drawsWithBothCamera":{"type":"integer"},"initialised":{"type":"boolean"},"injected":{"type":"integer"},"skippedNoSceneDraw":{"type":"integer"},"skippedNoCamera":{"type":"integer"},"skippedNotReady":{"type":"integer"},"skippedPassMismatch":{"type":"integer"},"skippedWindowSize":{"type":"integer"},"skippedReentrant":{"type":"integer"},"skippedStaleCamera":{"type":"integer"},"backBufferFailures":{"type":"integer"},"newScene":{"type":"integer"},"repeatScene":{"type":"integer"},"invalidScene":{"type":"integer"},"snapshotsTaken":{"type":"integer"},"qualifyingCameraDraws":{"type":"integer"},"cameraSource":{"type":"string"},"selectedCameraValid":{"type":"boolean"},"selectedGroupId":{"type":"integer"},"selectedGroupDraws":{"type":"integer"},"selectedGroupSnapshots":{"type":"integer"},"selectedSnapshotGeneration":{"type":"integer"},"occurrenceSelected":{"type":"boolean"},"occurrenceLocked":{"type":"boolean"},"lockedOccurrence":{"type":"integer"},"occurrenceDraws":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"occurrenceModelFrames":{"type":"integer"},"occurrences":{"type":"array","items":{"type":"object","properties":{"index":{"type":"integer"},"draws":{"type":"integer"},"modelFrames":{"type":"integer"},"samples":{"type":"integer"},"insideClip":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"lastDrawSequence":{"type":"integer"}},"additionalProperties":false,"required":["index","draws","samples"]}},"injectedPresent":{"type":"integer"},"injectedScenePass":{"type":"integer"},"shaderInterpretation":{"type":"integer"},"expectedInterpretation":{"type":"integer"},"interpretationAgrees":{"type":"boolean"},"skippedInterpretation":{"type":"integer"},"viewCopies":{"type":"integer"},"projectionCopies":{"type":"integer"},"snapshotValid":{"type":"boolean"},"drawsWithBothInModelPass":{"type":"integer"},"departuresSeen":{"type":"integer"},"acceptedAsScene":{"type":"integer"},"rejectedTooFewDraws":{"type":"integer"},"rejectedAlreadyDone":{"type":"integer"},"drawThreshold":{"type":"integer"},"busiestPassDraws":{"type":"integer"},"signatureLearned":{"type":"boolean"},"signatureStableFrames":{"type":"integer"},"signatureFramesWatched":{"type":"integer"},"signatureCandidates":{"type":"integer"},"signatureDraws":{"type":"integer"},"signatureViewportWidth":{"type":"number"},"signatureViewportHeight":{"type":"number"},"sceneConsumers":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["enabled","injected"]})json" },
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string","enum":["present","scenepass","both"]},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"occurrenceReset":{"type":"boolean"},"occurrenceSelect":{"type":"boolean"},"probeReset":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string"},"drawsTotal":{"type":"integer"},"drawsWithView":{"type":"integer"},"drawsWithProjection":{"type":"integer"},"drawsWithBothCamera":{"type":"integer"},"initialised":{"type":"boolean"},"injected":{"type":"integer"},"skippedNoSceneDraw":{"type":"integer"},"skippedNoCamera":{"type":"integer"},"skippedNotReady":{"type":"integer"},"skippedPassMismatch":{"type":"integer"},"skippedWindowSize":{"type":"integer"},"skippedReentrant":{"type":"integer"},"skippedStaleCamera":{"type":"integer"},"backBufferFailures":{"type":"integer"},"newScene":{"type":"integer"},"repeatScene":{"type":"integer"},"invalidScene":{"type":"integer"},"invalidNoSnapshot":{"type":"integer"},"invalidNoDrawThisGeneration":{"type":"integer"},"invalidGenerationAdvanced":{"type":"integer"},"invalidGenerationMismatch":{"type":"integer"},"snapshotsTaken":{"type":"integer"},"qualifyingCameraDraws":{"type":"integer"},"cameraSource":{"type":"string"},"selectedCameraValid":{"type":"boolean"},"selectedGroupId":{"type":"integer"},"selectedGroupDraws":{"type":"integer"},"selectedGroupSnapshots":{"type":"integer"},"selectedSnapshotGeneration":{"type":"integer"},"occurrenceSelected":{"type":"boolean"},"occurrenceLocked":{"type":"boolean"},"lockedOccurrence":{"type":"integer"},"occurrenceDraws":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"occurrenceModelFrames":{"type":"integer"},"probesReady":{"type":"boolean"},"cameraVsHash":{"type":"string"},"probeVsHash":{"type":"string"},"rasterVsHash":{"type":"string"},"probeError":{"type":"string"},"probes":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"draws":{"type":"integer"},"queriesIssued":{"type":"integer"},"queriesResolved":{"type":"integer"},"drawsWithSamples":{"type":"integer"},"totalSamples":{"type":"integer"}},"additionalProperties":false,"required":["name","draws"]}},"occurrences":{"type":"array","items":{"type":"object","properties":{"index":{"type":"integer"},"draws":{"type":"integer"},"modelFrames":{"type":"integer"},"samples":{"type":"integer"},"insideClip":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"meanSpreadPixels":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"lastDrawSequence":{"type":"integer"}},"additionalProperties":false,"required":["index","draws","samples"]}},"injectedPresent":{"type":"integer"},"injectedScenePass":{"type":"integer"},"shaderInterpretation":{"type":"integer"},"expectedInterpretation":{"type":"integer"},"interpretationAgrees":{"type":"boolean"},"skippedInterpretation":{"type":"integer"},"viewCopies":{"type":"integer"},"projectionCopies":{"type":"integer"},"snapshotValid":{"type":"boolean"},"drawsWithBothInModelPass":{"type":"integer"},"departuresSeen":{"type":"integer"},"acceptedAsScene":{"type":"integer"},"rejectedTooFewDraws":{"type":"integer"},"rejectedAlreadyDone":{"type":"integer"},"drawThreshold":{"type":"integer"},"busiestPassDraws":{"type":"integer"},"signatureLearned":{"type":"boolean"},"signatureStableFrames":{"type":"integer"},"signatureFramesWatched":{"type":"integer"},"signatureCandidates":{"type":"integer"},"signatureDraws":{"type":"integer"},"signatureViewportWidth":{"type":"number"},"signatureViewportHeight":{"type":"number"},"sceneConsumers":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["enabled","injected"]})json" },
     { "ViewerInjectionOracle", &MakeRegisteredNativeCommand<ViewerInjectionOracleCommand>, false,
       R"json({"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":64},"reset":{"type":"boolean"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"ready":{"type":"boolean"},"rows":{"type":"array","items":{"type":"object","properties":{"present":{"type":"integer"},"modelSceneGeneration":{"type":"integer"},"snapshotSequence":{"type":"integer"},"snapshotDrawSequence":{"type":"integer"},"state":{"type":"integer"},"cameraSource":{"type":"integer"},"selectedGroupId":{"type":"integer"},"selectedGroupSnapshotGeneration":{"type":"integer"},"sourceDrawSequence":{"type":"integer"},"sourceModelGeneration":{"type":"integer"},"viewBuffer":{"type":"string"},"viewFirstConstant":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionBuffer":{"type":"string"},"projectionFirstConstant":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"matricesRead":{"type":"boolean"},"clipW":{"type":"number"},"ndcX":{"type":"number"},"ndcY":{"type":"number"},"ndcZ":{"type":"number"},"pixelX":{"type":"number"},"pixelY":{"type":"number"},"insideClipVolume":{"type":"boolean"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"bestVariant":{"type":"integer"},"bestVariantPixelX":{"type":"number"},"bestVariantPixelY":{"type":"number"},"bestVariantCentreError":{"type":"number"},"drawIssued":{"type":"boolean"},"samplesKnown":{"type":"boolean"},"samplesPassed":{"type":"integer"}},"additionalProperties":false,"required":["present","state","matricesRead"]}},"rowsCompleted":{"type":"integer"},"rowsDroppedUnresolved":{"type":"integer"},"readbacksAttempted":{"type":"integer"},"readbacksServed":{"type":"integer"},"readbacksStillDrawing":{"type":"integer"},"readbacksStale":{"type":"integer"},"queriesIssued":{"type":"integer"},"queriesResolved":{"type":"integer"},"queriesUnavailable":{"type":"integer"},"snapshotsStaged":{"type":"integer"},"rowsQualified":{"type":"integer"},"rowsRejectedNotNew":{"type":"integer"},"rowsRejectedStill":{"type":"integer"},"variants":{"type":"array","items":{"type":"object","properties":{"variant":{"type":"integer"},"rowsTested":{"type":"integer"},"rowsInsideClip":{"type":"integer"},"rowsWon":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"}},"additionalProperties":false,"required":["variant","rowsTested"]}}},"additionalProperties":false,"required":["ready","rows"]})json" },
     { "ViewerCameraCensus", &MakeRegisteredNativeCommand<ViewerCameraCensusCommand>, false,
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"reset":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":32},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"select":{"type":"boolean"},"clearSelection":{"type":"boolean"}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"ready":{"type":"boolean"},"groups":{"type":"array","items":{"type":"object","properties":{"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"viewBuffer":{"type":"string"},"viewFirstConstant":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionBuffer":{"type":"string"},"projectionFirstConstant":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"b0Bound":{"type":"boolean"},"b0Buffer":{"type":"string"},"b0FirstConstant":{"type":"integer"},"b0NumConstants":{"type":"integer"},"passGeneration":{"type":"integer"},"targetEpoch":{"type":"integer"},"drawSequenceFirst":{"type":"integer"},"drawSequenceLast":{"type":"integer"},"drawsObserved":{"type":"integer"},"framesObserved":{"type":"integer"},"modelFramesObserved":{"type":"integer"},"groupId":{"type":"integer"},"firstPresent":{"type":"integer"},"lastPresent":{"type":"integer"},"drawKindMask":{"type":"integer"},"lastIndexCount":{"type":"integer"},"samplesScored":{"type":"integer"},"winningVariant":{"type":"integer"},"winningVariantValid":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"}},"additionalProperties":false,"required":["vertexShader","drawsObserved","samplesScored"]}},"drawsSeen":{"type":"integer"},"drawsQualified":{"type":"integer"},"framesSeen":{"type":"integer"},"groupsUsed":{"type":"integer"},"groupsOverflowed":{"type":"integer"},"copiesIssued":{"type":"integer"},"readbacksServed":{"type":"integer"},"readbacksBusy":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"selected":{"type":"boolean"},"cameraSource":{"type":"string"},"eligibility":{"type":"object","properties":{"minSamples":{"type":"integer"},"minModelCoverage":{"type":"number"},"minInsideClip":{"type":"number"},"maxMedianCentreError":{"type":"number"}},"additionalProperties":false},"selection":{"type":"object","properties":{"valid":{"type":"boolean"},"groupId":{"type":"integer"},"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"variant":{"type":"integer"},"samples":{"type":"integer"},"modelCoverage":{"type":"number"},"insideClip":{"type":"number"},"medianCentreError":{"type":"number"},"snapshotsTaken":{"type":"integer"}},"additionalProperties":false,"required":["valid"]}},"additionalProperties":false,"required":["enabled","groups"]})json" },
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"reset":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":32},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"select":{"type":"boolean"},"clearSelection":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"ready":{"type":"boolean"},"groups":{"type":"array","items":{"type":"object","properties":{"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"viewBuffer":{"type":"string"},"viewFirstConstant":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionBuffer":{"type":"string"},"projectionFirstConstant":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"b0Bound":{"type":"boolean"},"b0Buffer":{"type":"string"},"b0FirstConstant":{"type":"integer"},"b0NumConstants":{"type":"integer"},"passGeneration":{"type":"integer"},"targetEpoch":{"type":"integer"},"drawSequenceFirst":{"type":"integer"},"drawSequenceLast":{"type":"integer"},"drawsObserved":{"type":"integer"},"framesObserved":{"type":"integer"},"modelFramesObserved":{"type":"integer"},"groupId":{"type":"integer"},"occurrenceIndex":{"type":"integer"},"anchorInside":{"type":"integer"},"trianglesFinite":{"type":"integer"},"medianAreaPixels":{"type":"number"},"medianMaxEdgePixels":{"type":"number"},"firstPresent":{"type":"integer"},"lastPresent":{"type":"integer"},"drawKindMask":{"type":"integer"},"lastIndexCount":{"type":"integer"},"samplesScored":{"type":"integer"},"winningVariant":{"type":"integer"},"winningVariantValid":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"meanSpreadPixels":{"type":"number"}},"additionalProperties":false,"required":["vertexShader","drawsObserved","samplesScored"]}},"drawsSeen":{"type":"integer"},"drawsQualified":{"type":"integer"},"framesSeen":{"type":"integer"},"groupsUsed":{"type":"integer"},"groupsOverflowed":{"type":"integer"},"copiesIssued":{"type":"integer"},"readbacksServed":{"type":"integer"},"readbacksBusy":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"selected":{"type":"boolean"},"cameraSource":{"type":"string"},"eligibility":{"type":"object","properties":{"minSamples":{"type":"integer"},"minModelCoverage":{"type":"number"},"minInsideClip":{"type":"number"},"maxMedianCentreError":{"type":"number"},"minFiniteTriangles":{"type":"number"},"minMedianAreaPixels":{"type":"number"},"minMedianMaxEdgePixels":{"type":"number"}},"additionalProperties":false},"selection":{"type":"object","properties":{"valid":{"type":"boolean"},"groupId":{"type":"integer"},"occurrenceIndex":{"type":"integer"},"medianAreaPixels":{"type":"number"},"medianMaxEdgePixels":{"type":"number"},"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"variant":{"type":"integer"},"samples":{"type":"integer"},"modelCoverage":{"type":"number"},"insideClip":{"type":"number"},"medianCentreError":{"type":"number"},"snapshotsTaken":{"type":"integer"}},"additionalProperties":false,"required":["valid"]}},"additionalProperties":false,"required":["enabled","groups"]})json" },
     { "ViewerGpuDeviceInfo", &MakeRegisteredNativeCommand<ViewerGpuDeviceInfoCommand>, false,
       R"json({"type":"object","properties":{},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"deviceFound":{"type":"boolean"},"is11On12":{"type":"boolean"},"creationFlags":{"type":"integer"},"featureLevel":{"type":"integer"},"debugLayer":{"type":"boolean"},"singleThreaded":{"type":"boolean"},"bgraSupport":{"type":"boolean"},"highestDeviceInterface":{"type":"integer","minimum":0,"maximum":5},"openglLoaded":{"type":"boolean"},"openglIcdLoaded":{"type":"boolean"},"d3d12Loaded":{"type":"boolean"},"vulkanLoaded":{"type":"boolean"},"d2dLoaded":{"type":"boolean"},"dcompLoaded":{"type":"boolean"},"targetWindow":{"type":"string"},"targetHasPixelFormat":{"type":"boolean"},"targetPixelFormat":{"type":"integer"},"targetSupportsOpenGL":{"type":"boolean"},"targetSupportsGdi":{"type":"boolean"},"targetDoubleBuffered":{"type":"boolean"},"chains":{"type":"array","items":{"type":"object","properties":{"swapChain":{"type":"string"},"window":{"type":"string"},"presents":{"type":"integer"},"width":{"type":"integer"},"height":{"type":"integer"},"ours":{"type":"boolean"},"nominated":{"type":"boolean"}},"additionalProperties":false,"required":["swapChain","window","presents","ours","nominated"]}}},"additionalProperties":false,"required":["deviceFound","is11On12","chains"]})json" },

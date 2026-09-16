@@ -82,7 +82,14 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context,
 // SIDE BY SIDE SO THEY CANNOT SILENTLY DIFFER. When a group is selected and its
 // learned interpretation is not the shader's, the injection REFUSES rather than
 // drawing a transform nobody chose.
+// ⚠️ NOT A CONSTANT ANY MORE, AND THAT IS THE POINT. It used to be a number
+// written in the renderer asserting which reading the compiled shader
+// implements -- a claim nobody could check, and run thirty-six showed it can be
+// both unchecked and wrong. All four declarations are now compiled and the one
+// the census selected is bound, so this REPORTS what is bound rather than
+// promising it.
 uint32_t ShaderInterpretation ();
+void     SetShaderInterpretation (uint32_t variant);
 void     SetExpectedInterpretation (uint32_t variant);   // 0xffffffff clears it
 uint32_t ExpectedInterpretation ();
 bool     InterpretationAgrees ();
@@ -113,6 +120,7 @@ struct OccurrenceStats {
     float    medianCentreError = 0.0f;
     float    meanCentreError = 0.0f;
     float    worstCentreError = 0.0f;
+    float    meanSpreadPixels = 0.0f;   // see CameraCensus::Group
     float    viewportWidth = 0.0f, viewportHeight = 0.0f;
     uint64_t lastDrawSequence = 0;
 };
@@ -128,6 +136,11 @@ void ResetOccurrences ();
 // ⚠️ FAILS CLOSED: returns false and locks nothing when none qualifies, and an
 // unlocked camera never becomes valid, so Present injects nothing rather than
 // injecting with whichever occurrence drew last.
+// ⚠️ THE CENSUS CHOOSES THE OCCURRENCE NOW, because the camera identity is
+// atomic -- signature AND occurrence, scored together. This records what it
+// chose; the local scoring below stays only as a report.
+void     SetSelectedOccurrence (uint32_t index);
+
 bool     SelectOccurrence ();
 void     ClearOccurrenceLock ();
 bool     OccurrenceLocked ();

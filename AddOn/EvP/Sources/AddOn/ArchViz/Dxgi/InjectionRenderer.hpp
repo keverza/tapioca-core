@@ -159,6 +159,14 @@ struct InjectionStats {
     uint64_t repeatScene = 0;
     uint64_t invalidScene = 0;
 
+    // ⚠️ ONE GENERIC `INVALID` COUNTER HID THE NEXT PROBLEM FOR FOUR RUNS. These
+    // four reasons are different faults with different fixes, and lumping them
+    // together turned a specific, answerable question into a shrug.
+    uint64_t invalidNoSnapshot = 0;       // nothing has been snapshotted at all
+    uint64_t invalidNoDrawThisGeneration = 0;  // the candidate did not draw this frame
+    uint64_t invalidGenerationAdvanced = 0;    // the model moved on before we drew
+    uint64_t invalidGenerationMismatch = 0;    // snapshot and Present disagree
+
     // ⚠️ THE SNAPSHOT ARITHMETIC, AND ITS INVARIANT IS AN EQUALITY.
     //
     //     qualifyingCameraDraws == viewCopies == projectionCopies

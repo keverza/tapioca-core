@@ -83,6 +83,12 @@ uint64_t g_presentCounter = 0;
 float g_anchorX = 0.0f;
 float g_anchorY = 0.0f;
 float g_anchorZ = 0.0f;
+float g_anchorSize = 1.0f;
+
+// ⚠️ THE SMALLEST PRIMITIVE WORTH CALLING RENDERED. Below this the transform has
+// collapsed the triangle to a point: run thirty-six measured exactly ONE sample
+// per draw from a two-metre triangle whose anchor scored 0.002 from the centre.
+constexpr float kMinSpreadPixels = 6.0f;
 
 bool g_created = false;
 bool g_createFailed = false;
@@ -474,7 +480,15 @@ void ResolvePending (ID3D11DeviceContext* context)
 void ScoreVariants (const float view[16], const float projection[16],
                     const ViewportRect& viewport, VariantScore out[kVariantCount])
 {
-    const float anchor[4] = { g_anchorX, g_anchorY, g_anchorZ, 1.0f };
+    // ⚠️ THE WHOLE PRIMITIVE, NOT ONE CORNER OF IT. These are the three vertices
+    // the production vertex buffer holds, and projecting all of them is what
+    // makes a collapsing transform fail instead of winning.
+    const float corners[3][4] = {
+        { g_anchorX, g_anchorY, g_anchorZ, 1.0f },
+        { g_anchorX + g_anchorSize, g_anchorY, g_anchorZ, 1.0f },
+        { g_anchorX, g_anchorY, g_anchorZ + g_anchorSize, 1.0f },
+    };
+    const float* const anchor = corners[0];
     for (size_t variant = 0; variant < kVariantCount; ++variant) {
         out[variant] = VariantScore {};
         float composed[16];
@@ -512,6 +526,70 @@ void ScoreVariants (const float view[16], const float projection[16],
         if (viewport.width < 2.0f || viewport.height < 2.0f)
             continue;
 
+        // ⚠️ AND IS IT BIG ENOUGH TO BE A TRIANGLE? The other two vertices are
+        // projected here, and a primitive squashed below a few pixels is refused
+        // however perfectly its anchor sits at the centre. This is the test run
+        // thirty-six proved was missing: one sample per draw from a two-metre
+        // triangle, under a transform that scored 0.002.
+        float minX = score.pixelX;
+        float maxX = score.pixelX;
+        float minY = score.pixelY;
+        float maxY = score.pixelY;
+        float px[3] = { score.pixelX, 0.0f, 0.0f };
+        float py[3] = { score.pixelY, 0.0f, 0.0f };
+        bool cornersUsable = true;
+        for (int corner = 1; corner < 3 && cornersUsable; ++corner) {
+            float cornerClip[4] = {};
+            TransformPoint (cornerClip, corners[corner], composed);
+            for (int i = 0; i < 4; ++i)
+                cornersUsable = cornersUsable && std::isfinite (cornerClip[i]);
+            if (!cornersUsable || !(cornerClip[3] > 1e-9f)) {
+                cornersUsable = false;
+                break;
+            }
+            const float ndcX = cornerClip[0] / cornerClip[3];
+            const float ndcY = cornerClip[1] / cornerClip[3];
+            const float cornerX = viewport.x + (ndcX * 0.5f + 0.5f) * viewport.width;
+            const float cornerY = viewport.y + (0.5f - ndcY * 0.5f) * viewport.height;
+            px[corner] = cornerX;
+            py[corner] = cornerY;
+            minX = cornerX < minX ? cornerX : minX;
+            maxX = cornerX > maxX ? cornerX : maxX;
+            minY = cornerY < minY ? cornerY : minY;
+            maxY = cornerY > maxY ? cornerY : maxY;
+        }
+        if (!cornersUsable)
+            continue;
+        score.verticesFinite = true;
+        const float spreadX = maxX - minX;
+        const float spreadY = maxY - minY;
+        score.spreadPixels = std::sqrt (spreadX * spreadX + spreadY * spreadY);
+
+        // ⚠️ AREA AND THE LONGEST EDGE, BECAUSE A BOUNDING BOX ALONE CAN BE
+        // FOOLED. Three collinear points span a box and enclose nothing; the
+        // cross product is what says whether there is a triangle there at all.
+        const float ax = px[1] - px[0];
+        const float ay = py[1] - py[0];
+        const float bx = px[2] - px[0];
+        const float by = py[2] - py[0];
+        score.areaPixels = std::fabs (ax * by - ay * bx) * 0.5f;
+        float edges[3];
+        edges[0] = std::sqrt (ax * ax + ay * ay);
+        edges[1] = std::sqrt (bx * bx + by * by);
+        const float cx = px[2] - px[1];
+        const float cy = py[2] - py[1];
+        edges[2] = std::sqrt (cx * cx + cy * cy);
+        score.minEdgePixels = edges[0];
+        score.maxEdgePixels = edges[0];
+        for (int i = 1; i < 3; ++i) {
+            score.minEdgePixels = edges[i] < score.minEdgePixels ? edges[i]
+                                                                 : score.minEdgePixels;
+            score.maxEdgePixels = edges[i] > score.maxEdgePixels ? edges[i]
+                                                                 : score.maxEdgePixels;
+        }
+        if (score.spreadPixels < kMinSpreadPixels)
+            continue;
+
         score.validProjection = true;
         const float centreX = viewport.x + viewport.width * 0.5f;
         const float centreY = viewport.y + viewport.height * 0.5f;
@@ -522,11 +600,12 @@ void ScoreVariants (const float view[16], const float projection[16],
     }
 }
 
-void SetAnchor (float x, float y, float z)
+void SetAnchor (float x, float y, float z, float sizeMetres)
 {
     g_anchorX = x;
     g_anchorY = y;
     g_anchorZ = z;
+    g_anchorSize = (sizeMetres > 0.001f) ? sizeMetres : 1.0f;
 }
 
 void OnSnapshot (ID3D11DeviceContext* context, ID3D11Buffer* viewSnapshot,

@@ -23536,6 +23536,11 @@
           "z": {
             "type": "number"
           },
+          "sizeMetres": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000
+          },
           "select": {
             "type": "boolean"
           },
@@ -23634,6 +23639,21 @@
                 "groupId": {
                   "type": "integer"
                 },
+                "occurrenceIndex": {
+                  "type": "integer"
+                },
+                "anchorInside": {
+                  "type": "integer"
+                },
+                "trianglesFinite": {
+                  "type": "integer"
+                },
+                "medianAreaPixels": {
+                  "type": "number"
+                },
+                "medianMaxEdgePixels": {
+                  "type": "number"
+                },
                 "firstPresent": {
                   "type": "integer"
                 },
@@ -23662,6 +23682,9 @@
                   "type": "number"
                 },
                 "worstCentreError": {
+                  "type": "number"
+                },
+                "meanSpreadPixels": {
                   "type": "number"
                 }
               },
@@ -23720,6 +23743,15 @@
               },
               "maxMedianCentreError": {
                 "type": "number"
+              },
+              "minFiniteTriangles": {
+                "type": "number"
+              },
+              "minMedianAreaPixels": {
+                "type": "number"
+              },
+              "minMedianMaxEdgePixels": {
+                "type": "number"
               }
             },
             "additionalProperties": false
@@ -23732,6 +23764,15 @@
               },
               "groupId": {
                 "type": "integer"
+              },
+              "occurrenceIndex": {
+                "type": "integer"
+              },
+              "medianAreaPixels": {
+                "type": "number"
+              },
+              "medianMaxEdgePixels": {
+                "type": "number"
               },
               "vertexShader": {
                 "type": "string"
@@ -24073,6 +24114,9 @@
           },
           "occurrenceSelect": {
             "type": "boolean"
+          },
+          "probeReset": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -24137,6 +24181,18 @@
           "invalidScene": {
             "type": "integer"
           },
+          "invalidNoSnapshot": {
+            "type": "integer"
+          },
+          "invalidNoDrawThisGeneration": {
+            "type": "integer"
+          },
+          "invalidGenerationAdvanced": {
+            "type": "integer"
+          },
+          "invalidGenerationMismatch": {
+            "type": "integer"
+          },
           "snapshotsTaken": {
             "type": "integer"
           },
@@ -24179,6 +24235,52 @@
           "occurrenceModelFrames": {
             "type": "integer"
           },
+          "probesReady": {
+            "type": "boolean"
+          },
+          "cameraVsHash": {
+            "type": "string"
+          },
+          "probeVsHash": {
+            "type": "string"
+          },
+          "rasterVsHash": {
+            "type": "string"
+          },
+          "probeError": {
+            "type": "string"
+          },
+          "probes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "draws": {
+                  "type": "integer"
+                },
+                "queriesIssued": {
+                  "type": "integer"
+                },
+                "queriesResolved": {
+                  "type": "integer"
+                },
+                "drawsWithSamples": {
+                  "type": "integer"
+                },
+                "totalSamples": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "draws"
+              ]
+            }
+          },
           "occurrences": {
             "type": "array",
             "items": {
@@ -24206,6 +24308,9 @@
                   "type": "number"
                 },
                 "worstCentreError": {
+                  "type": "number"
+                },
+                "meanSpreadPixels": {
                   "type": "number"
                 },
                 "viewportWidth": {

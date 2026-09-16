@@ -29,7 +29,9 @@ constexpr UINT kExpectedWindowConstants = 16;
 // `Projection` `column_major`, which is `p * V * Pt` -- interpretation 2, the one
 // the selected group returned in phase A and again in phase B at 99% inside the
 // clip volume and a median of 0.002 from the viewport centre.
-constexpr uint32_t kShaderInterpretation = 2;
+// The declaration bound at start-up, before the census has selected anything.
+constexpr uint32_t kDefaultInterpretation = 0;
+std::atomic<uint32_t> g_shaderInterpretation {kDefaultInterpretation};
 
 // Sentinel: nothing has been learned, so there is nothing to disagree with.
 constexpr uint32_t kNoInterpretation = 0xffffffffu;
@@ -81,6 +83,7 @@ struct Occurrence {
 
     uint32_t samples = 0;
     uint32_t insideClip = 0;
+    double   spreadSum = 0.0;
     float    errors[kErrorSamples] = {};
     uint32_t errorCount = 0;
     uint32_t errorNext = 0;
@@ -195,6 +198,7 @@ void TryScoreOccurrence (ID3D11DeviceContext* context, Occurrence& slot)
     if (!score.validProjection)
         return;
     ++slot.insideClip;
+    slot.spreadSum += double (score.spreadPixels);
     if (score.centreError > slot.worst)
         slot.worst = score.centreError;
     slot.errorSum += double (score.centreError);
@@ -318,7 +322,12 @@ void CopyCameraWindows (ID3D11DeviceContext* context,
 
 uint32_t ShaderInterpretation ()
 {
-    return kShaderInterpretation;
+    return g_shaderInterpretation.load (std::memory_order_acquire);
+}
+
+void SetShaderInterpretation (uint32_t variant)
+{
+    g_shaderInterpretation.store (variant, std::memory_order_release);
 }
 
 void SetExpectedInterpretation (uint32_t variant)
@@ -335,8 +344,15 @@ bool InterpretationAgrees ()
 {
     const uint32_t expected = ExpectedInterpretation ();
     // Nothing learned yet means nothing to disagree with -- the learner path has
-    // no interpretation of its own to offer.
-    return expected == kNoInterpretation || expected == kShaderInterpretation;
+    // no interpretation of its own to offer. ⚠️ AND A REVERSED MULTIPLICATION
+    // ORDER (4..7) CANNOT BE EXPRESSED AS A DECLARATION, so it is refused rather
+    // than silently drawn as variant 0.
+    // ⚠️ EVERY DECLARATION IN 0..3 IS COMPILED, so agreement is structural
+    // rather than a coincidence to be checked: the draw binds whichever the
+    // census selected. Only a reversed multiplication order (4..7) has no
+    // declaration that expresses it, and that is refused rather than silently
+    // drawn as variant 0. `ShaderInterpretation ()` then REPORTS what was bound.
+    return expected == kNoInterpretation || expected < 4;
 }
 
 void SetCameraSource (CameraSource source)
@@ -425,12 +441,12 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context,
         TryScoreOccurrence (context, slot);
     }
 
-    // ⚠️ UNTIL AN OCCURRENCE IS LOCKED THERE IS NO AUTHORITATIVE CAMERA, and
-    // `SnapshotValid` stays false so Present injects nothing. Learning and
-    // drawing are different phases on purpose: a camera chosen from statistics
-    // that were gathered while drawing with an unchosen camera would be a
-    // circular argument.
-    if (!g_occurrenceLocked || occurrence != g_lockedOccurrence)
+    // ⚠️ THE CENSUS HAS ALREADY FILTERED BY OCCURRENCE, so this does not
+    // re-derive or re-compare it: the camera identity is atomic and the census
+    // owns it. What remains here is the fail-closed rule -- until something has
+    // been selected there is no authoritative camera, `SnapshotValid` stays
+    // false, and Present injects nothing.
+    if (!g_occurrenceLocked)
         return;
 
     CopyCameraWindows (context, draw);
@@ -508,6 +524,8 @@ size_t CopyOccurrences (OccurrenceStats* out, size_t capacity)
         stats.meanCentreError = slot.errorCount > 0
                 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
         stats.worstCentreError = slot.worst;
+        stats.meanSpreadPixels = slot.insideClip > 0
+                ? float (slot.spreadSum / double (slot.insideClip)) : 0.0f;
         stats.viewportWidth = slot.viewportWidth;
         stats.viewportHeight = slot.viewportHeight;
         stats.lastDrawSequence = slot.lastDrawSequence;
@@ -557,7 +575,11 @@ bool SelectOccurrence ()
         const float coverage = frames > 0
                 ? float (double (slot.modelFrames) / double (frames)) : 0.0f;
         const float median = OccurrenceMedian (slot);
-        if (coverage < 0.80f || inside < 0.95f || median > 0.05f)
+        // ⚠️ THE SAME LOOSENED THRESHOLD AS THE CENSUS, AND FOR THE SAME REASON:
+        // 0.05 was calibrated against a transform that collapsed the primitive to
+        // a point, and therefore selected for degeneracy. See
+        // `CameraCensus::Eligibility::maxMedianCentreError`.
+        if (coverage < 0.80f || inside < 0.95f || median > 0.25f)
             continue;
         if (best < 0 || inside > bestInside + 0.005f ||
             (inside >= bestInside - 0.005f && median < bestMedian)) {
@@ -573,6 +595,12 @@ bool SelectOccurrence ()
     g_occurrenceLocked = true;
     g_lockedOccurrence = uint32_t (best);
     return true;
+}
+
+void SetSelectedOccurrence (uint32_t index)
+{
+    g_occurrenceLocked = true;
+    g_lockedOccurrence = index;
 }
 
 void ClearOccurrenceLock ()

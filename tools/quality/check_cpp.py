@@ -247,6 +247,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # them out. A second definition of the group shape on this side of the
     # boundary is worse than the sideways include.
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/CameraCensus.hpp"),
+    # The three-probe diagnostic, read by the same verb. Same reason as the
+    # renderer and the census beside it: the probe counters are produced on
+    # Archicad's render thread and this verb only copies them out.
+    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionProbes.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/DeviceIdentity.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/PresentHook.hpp"),

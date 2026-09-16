@@ -118,6 +118,30 @@ struct VariantScore {
     bool  computed = false;          // the product was finite and w was usable
     bool  validProjection = false;   // ... and it passed the whole gate above
     float centreError = 0.0f;        // fraction of the viewport half-extent
+
+    // ⚠️ HOW BIG THE PRIMITIVE ACTUALLY IS ON SCREEN, AND WITHOUT IT THE WHOLE
+    // SCORE IS DEGENERATE. Run thirty-six's occlusion queries settled this:
+    // probe B and probe C each produced **one sample per draw** while the
+    // clip-space probe produced twenty-two thousand. The transform was putting
+    // the anchor at the viewport centre and COLLAPSING EVERY OTHER POINT ONTO IT
+    // -- and a one-point "is the anchor near the centre" test is passed
+    // perfectly by a matrix that maps all of space to a point. The interpretation
+    // that wins such a test can be the one that draws nothing.
+    //
+    // So all three triangle vertices are projected and this is the diagonal of
+    // their pixel bounding box. A transform that squashes the primitive below a
+    // few pixels is REFUSED however well-centred its anchor is.
+    float spreadPixels = 0.0f;
+
+    // ⚠️ THE TRIANGLE ITSELF, MEASURED. A candidate is invalid if the primitive
+    // collapses EVEN IF ITS ANCHOR SITS PERFECTLY AT THE CENTRE -- which is the
+    // whole lesson of runs thirty to thirty-six, where a transform that mapped
+    // all of space onto the viewport centre scored 0.002 for six runs and drew
+    // one pixel. Area and the longest edge are what a collapse cannot fake.
+    bool  verticesFinite = false;
+    float areaPixels = 0.0f;
+    float minEdgePixels = 0.0f;
+    float maxEdgePixels = 0.0f;
     float ndcX = 0.0f, ndcY = 0.0f, ndcZ = 0.0f, clipW = 0.0f;
     float pixelX = 0.0f, pixelY = 0.0f;
 };
@@ -219,7 +243,9 @@ struct Counters {
 // MAIN THREAD. The world point whose projection every row reports. During an
 // orbit this must be the orbit target, which is what makes the row a test
 // rather than an observation.
-void SetAnchor (float x, float y, float z);
+// The size argument matters as much as the point: the scorer projects the whole
+// primitive, not one corner of it. See `VariantScore::spreadPixels`.
+void SetAnchor (float x, float y, float z, float sizeMetres);
 
 // RENDER THREAD, under the injection guard, immediately after `SnapshotCamera`
 // has copied both windows. Stages the same 256-byte copies for readback.

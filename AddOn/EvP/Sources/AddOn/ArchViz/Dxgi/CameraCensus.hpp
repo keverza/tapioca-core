@@ -71,11 +71,22 @@ enum class DrawKind : uint32_t {
     InstancedIndirect = 6,
 };
 
+// ⚠️ THE CAMERA IDENTITY IS ATOMIC: SIGNATURE **AND** OCCURRENCE, SCORED
+// TOGETHER. Choosing a group first and then inspecting its occurrences is what
+// run thirty-eight got wrong: a group's aggregate mixes six occurrences, five of
+// which project nothing, so the aggregate can rank well while every occurrence
+// inside it fails -- and the phase-A winner then had 2% of its anchors inside
+// the clip volume. There is no group winner before this table any more.
 struct Group {
     // ⚠️ RUN-LOCAL, AND THAT IS ALL A GROUP IDENTITY MAY BE. It exists so every
     // injection row can name the group its camera came from; it means nothing in
     // the next session and is never written anywhere that outlives one.
     uint32_t groupId = 0;
+
+    // Which draw of this signature within the model frame. Reset to zero when the
+    // model generation changes; `firstConstant` is never used to derive it,
+    // because Archicad's ring window advances every frame by design.
+    uint32_t occurrenceIndex = 0;
 
     // ---- the signature, which is what makes this a group ------------------
     uint64_t vertexShader = 0;
@@ -117,9 +128,23 @@ struct Group {
     uint32_t samplesScored = 0;
     uint32_t winningVariant = 0;
     uint32_t winningVariantValid = 0;   // samples where THAT variant was valid
+
+    // ⚠️ THE HARD METRICS, MEASURED ON THE WHOLE TRIANGLE AT INTERPRETATION 0.
+    // The transform question is settled; these answer whether THIS draw carries
+    // the model camera, and a candidate is invalid if the triangle collapses
+    // however perfectly its anchor sits at the centre.
+    uint32_t anchorInside = 0;          // samples whose anchor was inside clip
+    uint32_t trianglesFinite = 0;       // ... and all three vertices finite
+    float    medianAreaPixels = 0.0f;
+    float    medianMaxEdgePixels = 0.0f;
     float    medianCentreError = 0.0f;  // over the best valid variant per sample
     float    worstCentreError = 0.0f;
     float    meanCentreError = 0.0f;
+
+    // ⚠️ HOW BIG THE PRIMITIVE IS ON SCREEN, which is what separates a transform
+    // from a transform that has collapsed. A two-metre triangle rendering as one
+    // pixel was invisible for six runs while every other number looked perfect.
+    float    meanSpreadPixels = 0.0f;
     uint32_t variantValid[kVariantCount] = {};
 };
 
@@ -145,9 +170,12 @@ bool Enabled ();
 // census describes the gesture and nothing before it.
 void Reset ();
 
-// MAIN THREAD. The world point every group is scored against -- during an orbit,
-// the orbit target.
-void SetAnchor (float x, float y, float z);
+// MAIN THREAD. The primitive every group is scored against: during an orbit its
+// anchor is the orbit target, and its SIZE matters as much as its position --
+// the scorer projects the whole triangle, because a transform that collapses it
+// to a point passes any test that looks at one corner. See
+// `InjectionOracle::VariantScore::spreadPixels`.
+void SetAnchor (float x, float y, float z, float sizeMetres);
 
 // RENDER THREAD, from every draw detour, before the call is forwarded. Admits
 // the draw if it binds both camera windows; ignores it otherwise.
@@ -164,7 +192,29 @@ struct Eligibility {
     uint32_t minSamples = 32;
     float    minModelCoverage = 0.80f;
     float    minInsideClip = 0.95f;
-    float    maxMedianCentreError = 0.05f;
+
+    // ⚠️ THE GATES A COLLAPSE CANNOT PASS. Centre error is now a weak ranking
+    // term; these two are the discriminators. A two-metre triangle that renders
+    // under ten pixels across, or encloses almost no area, is not the model
+    // camera whatever its anchor does.
+    float    minFiniteTriangles = 0.95f;
+    float    minMedianAreaPixels = 50.0f;
+    float    minMedianMaxEdgePixels = 10.0f;
+
+    // ⚠️ A QUARTER OF THE HALF-EXTENT, NOT A TWENTIETH, AND THE OLD NUMBER WAS
+    // CALIBRATED AGAINST A LIE. 0.05 was set while the winning interpretation
+    // collapsed the primitive to a point -- and a transform that maps all of
+    // space to the viewport centre scores essentially ZERO on this metric. So
+    // the tight threshold was actively selecting FOR degeneracy: run
+    // thirty-seven rejected the real model camera at 0.069 (96% coverage, 99%
+    // inside the clip volume, 2089 draws) while the collapsing transform had
+    // sailed through at 0.002 for six runs.
+    //
+    // The orbit target is set by a human hand on a mouse and is not the anchor
+    // to the pixel; a few percent of the viewport is what an honest transform
+    // looks like. The discriminating work is done by `minInsideClip` and by the
+    // spread gate in the scorer, both of which a degenerate transform fails.
+    float    maxMedianCentreError = 0.25f;
     // ⚠️ THE WINNING INTERPRETATION MUST HOLD ACROSS THE SAMPLES, not merely win
     // once: this is the fraction of scored samples on which THAT interpretation
     // produced a valid projection. By construction it is the same number as the
@@ -184,6 +234,7 @@ struct Eligibility {
 struct Selection {
     bool     valid = false;
     uint32_t groupId = 0;
+    uint32_t occurrenceIndex = 0;
     uint64_t vertexShader = 0;
     uint64_t renderTarget = 0;
     uint64_t depthStencil = 0;
@@ -201,6 +252,8 @@ struct Selection {
     float    modelCoverage = 0.0f;
     float    insideClip = 0.0f;
     float    medianCentreError = 0.0f;
+    float    medianAreaPixels = 0.0f;
+    float    medianMaxEdgePixels = 0.0f;
     uint64_t snapshotsTaken = 0;    // draws matched since the lock
 };
 

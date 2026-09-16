@@ -39,11 +39,17 @@ struct Slot {
     ID3D11Buffer* stagingProjection = nullptr;
     bool     copyPending = false;
 
+    double   spreadSum = 0.0;
+    uint32_t spreadCount = 0;
     float    errors[kErrorSamples] = {};
     uint32_t errorCount = 0;
     uint32_t errorNext = 0;
     double   errorSum = 0.0;
     double   variantErrorSum[kVariantCount] = {};
+    float    areas[kErrorSamples] = {};
+    float    edges[kErrorSamples] = {};
+    uint32_t triangleCount = 0;
+    uint32_t triangleNext = 0;
 
     uint64_t lastPresentCounted = 0;
     uint64_t lastModelCounted = 0;
@@ -58,6 +64,22 @@ bool g_created = false;
 bool g_createFailed = false;
 uint64_t g_lastPresentSeen = 0;
 uint64_t g_lastModelSeen = 0;
+
+// ⚠️ THE OCCURRENCE INDEX BELONGS TO THE SIGNATURE, NOT TO THE TABLE. Each
+// distinct signature draws several times per model frame, and "which of them" is
+// counted per signature and reset when the model generation changes. A global
+// counter would number draws across different signatures and mean nothing.
+constexpr size_t kSignatureCounters = 16;
+struct SignatureCounter {
+    uint64_t vertexShader = 0;
+    uint64_t renderTarget = 0;
+    uint64_t depthStencil = 0;
+    uint64_t generation = 0;
+    uint32_t count = 0;
+    bool     used = false;
+};
+SignatureCounter g_counters[kSignatureCounters];
+
 Selection g_selection;
 Eligibility g_eligibility;
 
@@ -118,9 +140,11 @@ bool SameExtent (float a, float b)
 // ⚠️ `firstConstant` IS NOT PART OF THE KEY. Archicad binds successive windows of
 // one advancing ring, so the offset changes on every frame by design; keying on
 // it would make every frame its own group and the census would count nothing.
-bool Matches (const Group& group, const contextstate::ContextState& live)
+bool Matches (const Group& group, const contextstate::ContextState& live,
+              uint32_t occurrence)
 {
-    return group.vertexShader == live.vertexShader &&
+    return group.occurrenceIndex == occurrence &&
+           group.vertexShader == live.vertexShader &&
            group.renderTarget == live.renderTarget &&
            group.depthStencil == live.depthStencil &&
            SameExtent (group.viewportWidth, live.viewportWidth) &&
@@ -136,11 +160,12 @@ bool Matches (const Group& group, const contextstate::ContextState& live)
 // The locked group's signature, tested against what is bound right now. Same
 // fields as `Matches`, for the same reasons -- and `firstConstant` is absent from
 // both because Archicad's ring window advances every frame by design.
-bool MatchesSelection (const contextstate::ContextState& live)
+bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurrence)
 {
     if (!g_selection.valid)
         return false;
-    return g_selection.vertexShader == live.vertexShader &&
+    return g_selection.occurrenceIndex == occurrence &&
+           g_selection.vertexShader == live.vertexShader &&
            g_selection.renderTarget == live.renderTarget &&
            g_selection.depthStencil == live.depthStencil &&
            SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
@@ -170,11 +195,35 @@ void RecordSample (Slot& slot, const injection::oracle::VariantScore* scores)
             bestError = scores[variant].centreError;
         }
     }
+    // ⚠️ INTERPRETATION 0 IS THE TRANSFORM NOW, AND THE HARD METRICS COME FROM
+    // IT ALONE. Re-opening the convention per candidate would let a collapsing
+    // reading win a candidate it has no business winning.
+    const injection::oracle::VariantScore& production = scores[0];
+    if (production.validProjection)
+        ++group.anchorInside;
+    if (production.verticesFinite) {
+        ++group.trianglesFinite;
+        slot.areas[slot.triangleNext] = production.areaPixels;
+        slot.edges[slot.triangleNext] = production.maxEdgePixels;
+        slot.triangleNext = uint32_t ((slot.triangleNext + 1) % kErrorSamples);
+        if (slot.triangleCount < kErrorSamples)
+            ++slot.triangleCount;
+    }
+
     if (!haveBest)
         return;
 
     if (bestError > group.worstCentreError)
         group.worstCentreError = bestError;
+    for (size_t variant = 0; variant < kVariantCount; ++variant) {
+        if (!scores[variant].validProjection)
+            continue;
+        if (scores[variant].centreError > bestError + 1e-6f)
+            continue;
+        slot.spreadSum += double (scores[variant].spreadPixels);
+        ++slot.spreadCount;
+        break;
+    }
     slot.errorSum += double (bestError);
     slot.errors[slot.errorNext] = bestError;
     slot.errorNext = uint32_t ((slot.errorNext + 1) % kErrorSamples);
@@ -242,6 +291,24 @@ void ResolveSome (ID3D11DeviceContext* context)
     }
 }
 
+float MedianOf (const float* values, uint32_t count)
+{
+    if (count == 0)
+        return 0.0f;
+    float sorted[kErrorSamples];
+    std::memcpy (sorted, values, sizeof (float) * count);
+    for (uint32_t a = 1; a < count; ++a) {
+        const float key = sorted[a];
+        uint32_t b = a;
+        while (b > 0 && sorted[b - 1] > key) {
+            sorted[b] = sorted[b - 1];
+            --b;
+        }
+        sorted[b] = key;
+    }
+    return sorted[count / 2];
+}
+
 float Median (Slot& slot)
 {
     const uint32_t count = slot.errorCount;
@@ -274,10 +341,10 @@ bool Enabled ()
     return g_enabled.load (std::memory_order_acquire);
 }
 
-void SetAnchor (float x, float y, float z)
+void SetAnchor (float x, float y, float z, float sizeMetres)
 {
     // The anchor belongs to the scorer, which both this and the oracle share.
-    injection::oracle::SetAnchor (x, y, z);
+    injection::oracle::SetAnchor (x, y, z, sizeMetres);
 }
 
 void ResetCounts ()
@@ -297,6 +364,8 @@ void ResetCounts ()
     g_stats.enabled = enabled;
     g_lastPresentSeen = 0;
     g_lastModelSeen = 0;
+    for (size_t i = 0; i < kSignatureCounters; ++i)
+        g_counters[i] = SignatureCounter {};
 }
 
 void Reset ()
@@ -320,7 +389,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         return;
 
     ++g_stats.drawsSeen;
-    const contextstate::ContextState live = contextstate::Snapshot ();
+    contextstate::ContextState live = contextstate::Snapshot ();
     const contextstate::ConstantBufferBinding& view = live.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = live.vsConstantBuffers[2];
 
@@ -339,6 +408,20 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         return;
     ResolveSome (context);
 
+    // ⚠️ THE VERTEX SHADER IS ASKED FOR, NOT TRACKED. `VSSetShader` is not one of
+    // the patched vtable slots, so the state tracker has always reported zero --
+    // which threw away the strongest draw identifier there is and left the
+    // signature leaning on render-target pointers. Adding the slot would change
+    // the patch profile and force every pinned build to be re-pinned; asking the
+    // context costs one COM call on a path that already makes several.
+    {
+        ID3D11VertexShader* bound = nullptr;
+        context->VSGetShader (&bound, nullptr, nullptr);
+        live.vertexShader = uint64_t (uintptr_t (bound));
+        if (bound != nullptr)
+            bound->Release ();
+    }
+
     const uint64_t present = renderstate::CurrentPresentGeneration ();
     if (present != g_lastPresentSeen) {
         g_lastPresentSeen = present;
@@ -356,12 +439,48 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     }
     const renderstate::ScenePass pass = renderstate::CurrentScenePass ();
 
+    // ---- which draw of THIS signature, within THIS model frame? ------------
+    uint32_t occurrence = 0;
+    {
+        SignatureCounter* counter = nullptr;
+        for (size_t i = 0; i < kSignatureCounters; ++i) {
+            if (g_counters[i].used && g_counters[i].vertexShader == live.vertexShader &&
+                g_counters[i].renderTarget == live.renderTarget &&
+                g_counters[i].depthStencil == live.depthStencil) {
+                counter = &g_counters[i];
+                break;
+            }
+        }
+        if (counter == nullptr) {
+            for (size_t i = 0; i < kSignatureCounters; ++i) {
+                if (g_counters[i].used)
+                    continue;
+                counter = &g_counters[i];
+                counter->used = true;
+                counter->vertexShader = live.vertexShader;
+                counter->renderTarget = live.renderTarget;
+                counter->depthStencil = live.depthStencil;
+                counter->generation = modelGeneration;
+                counter->count = 0;
+                break;
+            }
+        }
+        if (counter != nullptr) {
+            if (counter->generation != modelGeneration) {
+                counter->generation = modelGeneration;
+                counter->count = 0;
+            }
+            occurrence = counter->count;
+            ++counter->count;
+        }
+    }
+
     // ⚠️ THE LOCKED GROUP FEEDS THE SNAPSHOT DIRECTLY, AND THIS IS THE ONLY LINE
     // IN THE CENSUS THAT AFFECTS WHAT IS DRAWN. Before phase A commits there is
     // no selection and this does nothing; after it, ONLY draws of the chosen
     // group become the camera Present uses.
     if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
-        MatchesSelection (live)) {
+        MatchesSelection (live, occurrence)) {
         contextstate::SceneDrawState draw;
         draw.valid = true;
         draw.modelSceneGeneration = modelGeneration;
@@ -383,7 +502,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
 
     Slot* found = nullptr;
     for (size_t i = 0; i < kGroupCapacity; ++i) {
-        if (g_slots[i].used && Matches (g_slots[i].group, live)) {
+        if (g_slots[i].used && Matches (g_slots[i].group, live, occurrence)) {
             found = &g_slots[i];
             break;
         }
@@ -396,6 +515,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
             found->used = true;
             Group& fresh = found->group;
             fresh.groupId = uint32_t (i + 1);
+            fresh.occurrenceIndex = occurrence;
             fresh.vertexShader = live.vertexShader;
             fresh.renderTarget = live.renderTarget;
             fresh.depthStencil = live.depthStencil;
@@ -490,20 +610,31 @@ bool Qualifies (const Group& group, const Slot& slot, uint64_t modelFrames,
     coverage = modelFrames > 0
             ? float (double (group.modelFramesObserved) / double (modelFrames)) : 0.0f;
     insideClip = group.samplesScored > 0
-            ? float (double (group.winningVariantValid) / double (group.samplesScored))
-            : 0.0f;
-    agreement = insideClip;
+            ? float (double (group.anchorInside) / double (group.samplesScored)) : 0.0f;
+    agreement = group.samplesScored > 0
+            ? float (double (group.trianglesFinite) / double (group.samplesScored)) : 0.0f;
     if (group.samplesScored < g_eligibility.minSamples)
         return false;
     if (coverage < g_eligibility.minModelCoverage)
         return false;
     if (insideClip < g_eligibility.minInsideClip)
         return false;
-    if (group.winningVariantValid == 0)
+    if (agreement < g_eligibility.minFiniteTriangles)
         return false;
-    if (slot.errorCount > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError)
+
+    // ⚠️ THE TWO GATES A COLLAPSE CANNOT PASS. Everything above this line was
+    // satisfied for six runs by a transform that drew one pixel.
+    const float area = MedianOf (slot.areas, slot.triangleCount);
+    const float edge = MedianOf (slot.edges, slot.triangleCount);
+    if (area < g_eligibility.minMedianAreaPixels)
         return false;
-    return agreement >= g_eligibility.minInterpretationAgreement;
+    if (edge < g_eligibility.minMedianMaxEdgePixels)
+        return false;
+
+    // Centre error is the weak term: a human hand on a mouse does not put the
+    // orbit target on the anchor to the pixel.
+    return !(slot.errorCount > 0 &&
+             group.medianCentreError > g_eligibility.maxMedianCentreError);
 }
 
 bool SelectCandidate ()
@@ -559,6 +690,7 @@ bool SelectCandidate ()
     // injection row can name the group it came from; it means nothing in the next
     // session and is never written anywhere that outlives one.
     chosen.groupId = best->groupId;
+    chosen.occurrenceIndex = best->occurrenceIndex;
     chosen.vertexShader = best->vertexShader;
     chosen.renderTarget = best->renderTarget;
     chosen.depthStencil = best->depthStencil;
@@ -575,12 +707,18 @@ bool SelectCandidate ()
     chosen.modelCoverage = bestCoverage;
     chosen.insideClip = bestInside;
     chosen.medianCentreError = best->medianCentreError;
+    chosen.medianAreaPixels = best->medianAreaPixels;
+    chosen.medianMaxEdgePixels = best->medianMaxEdgePixels;
     g_selection = chosen;
     // ⚠️ THE SHADER IS TOLD WHAT WAS LEARNED, AND REFUSES IF IT CANNOT HONOUR IT.
     // This is the link that was missing for run thirty-three: the census proved
     // `p * V * Pt` twice over while the shader rendered `p * V * P`, and nothing
     // in the pipeline compared the two.
     injection::SetExpectedInterpretation (chosen.variant);
+    // ⚠️ THE OCCURRENCE TRAVELS WITH THE SIGNATURE. They are one identity, and
+    // handing over only half of it is what let the snapshot take whichever draw
+    // of the family came last.
+    injection::SetSelectedOccurrence (chosen.occurrenceIndex);
     return true;
 }
 
@@ -634,6 +772,10 @@ size_t CopyGroups (Group* out, size_t capacity)
         group.medianCentreError = Median (slot);
         group.meanCentreError = slot.errorCount > 0
                 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
+        group.meanSpreadPixels = slot.spreadCount > 0
+                ? float (slot.spreadSum / double (slot.spreadCount)) : 0.0f;
+        group.medianAreaPixels = MedianOf (slot.areas, slot.triangleCount);
+        group.medianMaxEdgePixels = MedianOf (slot.edges, slot.triangleCount);
         out[written] = group;
         ++written;
     }

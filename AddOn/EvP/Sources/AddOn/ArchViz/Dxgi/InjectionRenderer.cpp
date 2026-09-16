@@ -6,6 +6,7 @@
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
+#include "ArchViz/Dxgi/InjectionProbes.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 
 #include <d3d11_1.h>
@@ -13,6 +14,7 @@
 #include <d3dcompiler.h>
 
 #include <atomic>
+#include <cstdio>
 #include <cstring>
 
 namespace geomsrv {
@@ -48,9 +50,21 @@ namespace {
 // which is the minimum D3D11.1 granularity -- with the matrix at its start. If a
 // future Archicad puts it elsewhere in the window the fix is padding HERE, never
 // a CPU copy to make the offset convenient.
-const char* const kShaderSource =
-"cbuffer ArchicadView : register (b1)       { row_major float4x4 View; };\n"
-"cbuffer ArchicadProjection : register (b2) { column_major float4x4 Projection; };\n"
+// ⚠️ THE TWO LAYOUTS ARE SUBSTITUTED, NOT HARD-CODED, AND THE CENSUS CHOOSES
+// THEM. Run thirty-six is why: the shader was pinned to interpretation 2 by a
+// constant in this file while the scorer that chose 2 could not tell a correct
+// transform from one that collapses the primitive to a point. Compiling all four
+// declarations and binding the one the census selected removes the possibility
+// of the two disagreeing at all -- there is no longer a number here to be wrong.
+//
+//     variant bit 0 -- the VIEW is read transposed      (column_major)
+//     variant bit 1 -- the PROJECTION is read transposed (column_major)
+//
+// which is exactly the oracle's variant numbering, so no translation is needed
+// between what is measured and what is drawn.
+const char* const kShaderSourceFormat =
+"cbuffer ArchicadView : register (b1)       { %s float4x4 View; };\n"
+"cbuffer ArchicadProjection : register (b2) { %s float4x4 Projection; };\n"
 "float4 VSMain (float3 position : POSITION) : SV_POSITION\n"
 "{\n"
 "    float4 p = float4 (position, 1.0);\n"
@@ -109,7 +123,9 @@ constexpr UINT kExpectedWindowConstants = 16;
 std::atomic<bool> g_enabled {false};
 
 ID3D11Device*            g_device = nullptr;
-ID3D11VertexShader*      g_vs = nullptr;
+ID3D11VertexShader*      g_vs = nullptr;          // the bound variant
+ID3D11VertexShader*      g_vsVariant[4] = {};     // one per matrix declaration
+uint32_t                 g_boundVariant = 0;
 ID3D11PixelShader*       g_ps = nullptr;
 ID3D11InputLayout*       g_layout = nullptr;
 ID3D11Buffer*            g_vertices = nullptr;
@@ -166,6 +182,10 @@ uint64_t g_lastInjectedModelGeneration = 0;
 std::atomic<uint64_t> g_newScene {0};
 std::atomic<uint64_t> g_repeatScene {0};
 std::atomic<uint64_t> g_invalidScene {0};
+std::atomic<uint64_t> g_invalidNoSnapshot {0};
+std::atomic<uint64_t> g_invalidNoDrawThisGeneration {0};
+std::atomic<uint64_t> g_invalidGenerationAdvanced {0};
+std::atomic<uint64_t> g_invalidGenerationMismatch {0};
 char g_lastError[192] = {};
 
 void Fail (const char* what)
@@ -210,6 +230,19 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     ID3DBlob* psBlob = nullptr;
     ID3DBlob* errors = nullptr;
     const UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3;
+
+    // ⚠️ ALL FOUR DECLARATIONS ARE COMPILED AND THE CENSUS PICKS ONE. A constant
+    // in this file saying "the shader implements interpretation N" was a claim
+    // nobody could check; a shader chosen BY the measurement cannot disagree with
+    // it. See `kShaderSourceFormat`.
+    const char* const layouts[2] = { "row_major", "column_major" };
+    char sources[4][4096] = {};
+    for (uint32_t variant = 0; variant < 4; ++variant) {
+        _snprintf_s (sources[variant], sizeof (sources[variant]), _TRUNCATE,
+                     kShaderSourceFormat, layouts[variant & 1u],
+                     layouts[(variant >> 1) & 1u]);
+    }
+    const char* const kShaderSource = sources[0];
     const SIZE_T sourceLength = strlen (kShaderSource);
 
     if (FAILED (D3DCompile (kShaderSource, sourceLength, "TapiocaInjection", nullptr, nullptr,
@@ -231,7 +264,43 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     ReleaseAndNull (errors);
 
     bool ok = SUCCEEDED (g_device->CreateVertexShader (vsBlob->GetBufferPointer (),
-            vsBlob->GetBufferSize (), nullptr, &g_vs));
+            vsBlob->GetBufferSize (), nullptr, &g_vsVariant[0]));
+
+    // The other three declarations of the same shader. The input signature is
+    // identical, so the input layout below is built from variant 0's blob and is
+    // valid for all of them.
+    for (uint32_t variant = 1; variant < 4 && ok; ++variant) {
+        ID3DBlob* blob = nullptr;
+        if (FAILED (D3DCompile (sources[variant], strlen (sources[variant]),
+                                "TapiocaInjection", nullptr, nullptr, "VSMain", "vs_5_0",
+                                flags, 0, &blob, &errors))) {
+            Fail (errors != nullptr ? (const char*) errors->GetBufferPointer ()
+                                    : "a camera shader variant would not compile");
+            ok = false;
+        } else {
+            ok = SUCCEEDED (g_device->CreateVertexShader (blob->GetBufferPointer (),
+                    blob->GetBufferSize (), nullptr, &g_vsVariant[variant]));
+        }
+        ReleaseAndNull (errors);
+        ReleaseAndNull (blob);
+    }
+    g_boundVariant = 0;
+    g_vs = g_vsVariant[0];
+
+    // ⚠️ THE PRODUCTION VERTEX SHADER'S IDENTITY, SO THE REPORT CAN PRINT IT
+    // BESIDE PROBE B'S. "They use the same camera semantics" is an assumption
+    // until two hashes are shown side by side -- and if B passes while C fails,
+    // the first question is whether they were the shaders we think they were.
+    {
+        const unsigned char* bytes = (const unsigned char*) vsBlob->GetBufferPointer ();
+        const size_t size = vsBlob->GetBufferSize ();
+        uint64_t hash = 1469598103934665603ull;
+        for (size_t i = 0; i < size; ++i) {
+            hash ^= uint64_t (bytes[i]);
+            hash *= 1099511628211ull;
+        }
+        probes::SetCameraVsHash (hash);
+    }
     ok = ok && SUCCEEDED (g_device->CreatePixelShader (psBlob->GetBufferPointer (),
             psBlob->GetBufferSize (), nullptr, &g_ps));
 
@@ -336,7 +405,8 @@ void SetAnchor (float x, float y, float z, float sizeMetres)
     g_anchorSize = (sizeMetres > 0.001f) ? sizeMetres : 1.0f;
     // The oracle projects THIS point and nothing else: during an orbit it is the
     // orbit target, which is what makes its pixel a test rather than a reading.
-    oracle::SetAnchor (x, y, z);
+    oracle::SetAnchor (x, y, z, g_anchorSize);
+    probes::SetAnchor (x, y, z, g_anchorSize);
     // The vertex buffer is immutable and built from these, so it has to go.
     // Cheap: it is rebuilt on the next injection.
     ReleaseAndNull (g_vertices);
@@ -352,13 +422,16 @@ void Shutdown ()
     ReleaseAndNull (g_raster);
     ReleaseAndNull (g_depthState);
     ShutdownCamera ();
+    probes::Shutdown ();
     ReleaseAndNull (g_screenVertices);
     ReleaseAndNull (g_screenPs);
     ReleaseAndNull (g_screenVs);
     ReleaseAndNull (g_vertices);
     ReleaseAndNull (g_layout);
     ReleaseAndNull (g_ps);
-    ReleaseAndNull (g_vs);
+    for (uint32_t variant = 0; variant < 4; ++variant)
+        ReleaseAndNull (g_vsVariant[variant]);
+    g_vs = nullptr;
     ReleaseAndNull (g_device);
     g_initialised = false;
     g_initFailed = false;
@@ -477,6 +550,16 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     context->IASetInputLayout (g_layout);
     context->IASetVertexBuffers (0, 1, &g_vertices, &stride, &offset);
     context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    // ⚠️ THE VARIANT THE CENSUS SELECTED, RE-BOUND EVERY DRAW. `ExpectedInterpretation`
+    // is what the measurement chose; anything at or above 4 is a reversed
+    // multiplication order, which no declaration can express, and the injection
+    // refuses those upstream rather than silently drawing variant 0.
+    const uint32_t wanted = ExpectedInterpretation ();
+    if (wanted < 4 && g_vsVariant[wanted] != nullptr) {
+        g_boundVariant = wanted;
+        g_vs = g_vsVariant[wanted];
+        SetShaderInterpretation (wanted);
+    }
     context->VSSetShader (g_vs, nullptr, 0);
     context->PSSetShader (altColour ? g_screenPs : g_ps, nullptr, 0);
     context->OMSetDepthStencilState (g_depthState, 0);
@@ -489,8 +572,14 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // different investigation from a wrong projection, and this is the number
     // that separates them. The clip-space probe is deliberately not measured:
     // it has never been in doubt and counting it would dilute this.
+    // ⚠️ PROBE C IS THIS DRAW, NOT A COPY OF IT. A second rendering of the
+    // production path through different code would not be the production path,
+    // and the whole point of the three probes is that only one thing differs
+    // between them.
     oracle::BeginTriangleQuery (context);
+    probes::BeginProductionQuery (context);
     context->Draw (3, 0);
+    probes::EndProductionQuery (context);
     oracle::EndTriangleQuery (context);
 
     // ---- put everything back ------------------------------------------------
@@ -580,7 +669,16 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
 
     oracle::FrameState state = oracle::FrameState::InvalidScene;
     bool draw = false;
-    if (!SnapshotValid ()) {
+    // ⚠️ FRAME STATE DOES NOT VETO THE PROBES, AND FOR THIS DIAGNOSTIC IT MUST
+    // NOT. The locked camera is numerically valid on 100% of its samples and
+    // Present has already produced hundreds of injections; refusing to draw
+    // because the NEW/REPEAT/INVALID bookkeeping disagrees would withhold the
+    // three sample counts the whole run exists to obtain. The classification is
+    // still recorded on every row, so the frame-state semantics can be repaired
+    // afterwards on evidence rather than guessed at now.
+    const bool snapshotUsable = SnapshotValid ();
+    if (!snapshotUsable) {
+        g_invalidNoSnapshot.fetch_add (1, std::memory_order_relaxed);
         // ⚠️ NO SNAPSHOT, NO WORLD TRIANGLE. The clip-space probe still draws, so
         // a run with a broken snapshot stays visibly distinguishable from a run
         // with a broken injection.
@@ -604,10 +702,23 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
         state = oracle::FrameState::RepeatScene;
         draw = true;
     } else {
-        // ⚠️ INVALID_SCENE: the model moved on and no camera came with it. New
-        // geometry with an old camera is the one combination that is forbidden,
-        // and the only one worth skipping a frame for.
+        // ⚠️ RECORDED, NOT ENFORCED, AND NOW SPLIT BY REASON. The snapshot is
+        // valid and the camera is the selected candidate's; the bookkeeping
+        // disagreeing about which frame it belongs to is a separate fault, and
+        // WHICH disagreement it is decides the fix.
         g_invalidScene.fetch_add (1, std::memory_order_relaxed);
+        if (fresh.modelSceneGeneration > modelSceneGeneration) {
+            // The snapshot is from a model frame Present has not reached yet.
+            g_invalidGenerationMismatch.fetch_add (1, std::memory_order_relaxed);
+        } else if (fresh.modelSceneGeneration < modelSceneGeneration) {
+            // The model advanced and the candidate has not drawn in the new
+            // frame yet -- the commonest case, and the one that says the
+            // candidate draws before the generation counter increments.
+            g_invalidGenerationAdvanced.fetch_add (1, std::memory_order_relaxed);
+        } else {
+            g_invalidNoDrawThisGeneration.fetch_add (1, std::memory_order_relaxed);
+        }
+        draw = true;
     }
 
     // ⚠️ THE ROW IS OPENED FOR EVERY TESTED PRESENT, INCLUDING THE REFUSED ONES.
@@ -644,6 +755,14 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
                 }
                 if (targetView != nullptr) {
                     DrawWithCamera (context, context1, g_acceptedCamera, targetView, true, false);
+                    // ⚠️ A AND B GO THROUGH THE SAME BACK-BUFFER VIEW AS C, in the
+                    // same Present, under the same explicit raster state. Three
+                    // sample counts from one frame answer a question that three
+                    // separate runs could not.
+                    probes::DrawAll (context, context1, targetView,
+                            g_acceptedCamera.viewportX, g_acceptedCamera.viewportY,
+                            g_acceptedCamera.viewportWidth,
+                            g_acceptedCamera.viewportHeight);
                     g_injected.fetch_add (1, std::memory_order_relaxed);
                     g_injectedPresent.fetch_add (1, std::memory_order_relaxed);
                 } else {
@@ -771,6 +890,13 @@ InjectionStats GetInjectionStats ()
     stats.newScene = g_newScene.load (std::memory_order_relaxed);
     stats.repeatScene = g_repeatScene.load (std::memory_order_relaxed);
     stats.invalidScene = g_invalidScene.load (std::memory_order_relaxed);
+    stats.invalidNoSnapshot = g_invalidNoSnapshot.load (std::memory_order_relaxed);
+    stats.invalidNoDrawThisGeneration =
+            g_invalidNoDrawThisGeneration.load (std::memory_order_relaxed);
+    stats.invalidGenerationAdvanced =
+            g_invalidGenerationAdvanced.load (std::memory_order_relaxed);
+    stats.invalidGenerationMismatch =
+            g_invalidGenerationMismatch.load (std::memory_order_relaxed);
     const CameraStats camera = GetCameraStats ();
     stats.snapshotsTaken = camera.snapshotsTaken;
     stats.snapshotSequence = camera.snapshotsTaken;
