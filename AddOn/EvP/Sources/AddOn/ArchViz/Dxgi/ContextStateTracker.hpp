@@ -53,11 +53,48 @@ constexpr size_t kConstantBufferSlots = 14;
 // whole buffer" and is recorded as such rather than faked.
 struct ConstantBufferBinding {
     uint64_t buffer = 0;
-    uint32_t firstConstant = 0;   // in 16-byte constants, as D3D11 reports it
-    uint32_t numConstants = 0;    // 0 when the whole buffer is bound
+    uint32_t firstConstant = 0; // in 16-byte constants, as D3D11 reports it
+    uint32_t numConstants = 0;  // 0 when the whole buffer is bound
 
-    uint32_t ByteOffset () const { return firstConstant * 16u; }
-    bool     IsBound () const { return buffer != 0; }
+    uint32_t ByteOffset () const
+    {
+        return firstConstant * 16u;
+    }
+    bool IsBound () const
+    {
+        return buffer != 0;
+    }
+};
+
+// ⚠️ WHAT THE VIEW IS A VIEW OF, BECAUSE THE VIEW POINTER DOES NOT
+// SURVIVE. Run forty-five is the whole argument: the census selected a camera
+// group at RTV 1970460137464 / DSV 1970460135224, and by the time the injection
+// was armed the SAME 3D window, the SAME shaders and the SAME viewport were
+// drawing through RTV 1970460145208 / DSV 1970460147384. Archicad had recreated
+// its views; nothing about the camera had changed. A recognizer keyed on a COM
+// address therefore recognised nothing, and zero draws matched.
+//
+// The description -- width, height, format, sample count -- is a property of the
+// RESOURCE and survives the view being rebuilt around it, so it is what a
+// logical fingerprint can be made of.
+//
+// ⚠️ RESOLVED WHEN THE BOUND POINTER CHANGES, NEVER PER DRAW. This
+// costs a `GetResource` + `QueryInterface` + `GetDesc` on `OMSetRenderTargets`,
+// which happens tens of times a frame, rather than thousands. The one hazard is
+// an address reused by a different resource with the same value, which would
+// keep a stale description; the fingerprint tolerates that because it is only
+// ever used to RE-ACQUIRE a concrete binding, never to keep one.
+struct ViewDescriptor {
+    bool present = false;
+    uint32_t width = 0, height = 0;
+    uint32_t format = 0;
+    uint32_t sampleCount = 0;
+
+    bool SameResource (const ViewDescriptor& other) const
+    {
+        return present == other.present && width == other.width && height == other.height && format == other.format &&
+               sampleCount == other.sampleCount;
+    }
 };
 
 struct ContextState {
@@ -66,6 +103,8 @@ struct ContextState {
 
     uint64_t renderTarget = 0;
     uint64_t depthStencil = 0;
+    ViewDescriptor renderTargetDesc;
+    ViewDescriptor depthStencilDesc;
 
     float viewportX = 0.0f;
     float viewportY = 0.0f;
@@ -97,7 +136,7 @@ void OnViewport (const D3D11_VIEWPORT& viewport);
 // RENDER THREAD ONLY, and it must nest correctly: the injected draw runs INSIDE
 // a detour that is already forwarding one of Archicad's calls.
 class ScopedInjectionGuard {
-public:
+  public:
     ScopedInjectionGuard ();
     ~ScopedInjectionGuard ();
     ScopedInjectionGuard (const ScopedInjectionGuard&) = delete;
@@ -124,7 +163,7 @@ bool Injecting ();
 // So the bindings are latched at every draw that executes while the verified
 // scene RTV and DSV are bound, and the last one latched is what injection uses.
 struct SceneDrawState {
-    bool     valid = false;
+    bool valid = false;
     // ⚠️ WHICH PRESENTED FRAME THIS BELONGS TO, AND IT IS NOT OPTIONAL. Run
     // twenty-five injected 1051 times from only 858 camera-bearing draws, so
     // roughly a fifth of the triangles were drawn with a camera latched in an
@@ -137,15 +176,15 @@ struct SceneDrawState {
     // by a new model scene.
     uint64_t modelSceneGeneration = 0;
     uint64_t scenePassGeneration = 0;
-    uint64_t sceneTargetEpoch = 0;   // increments on every (re-)entry to the target
-    uint64_t drawSequence = 0;       // which draw of that epoch this was
+    uint64_t sceneTargetEpoch = 0; // increments on every (re-)entry to the target
+    uint64_t drawSequence = 0;     // which draw of that epoch this was
     uint64_t vertexShader = 0;
     uint64_t renderTarget = 0;
     uint64_t depthStencil = 0;
-    float    viewportX = 0.0f;
-    float    viewportY = 0.0f;
-    float    viewportWidth = 0.0f;
-    float    viewportHeight = 0.0f;
+    float viewportX = 0.0f;
+    float viewportY = 0.0f;
+    float viewportWidth = 0.0f;
+    float viewportHeight = 0.0f;
     ConstantBufferBinding vsConstantBuffers[kConstantBufferSlots];
 };
 
@@ -160,8 +199,8 @@ struct SceneDrawState {
 // this function counted 362. Every snapshot count downstream was therefore
 // exactly twice the truth, and the invariant that was supposed to catch it was
 // comparing two different populations.
-bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
-                  uint64_t drawSequence, uint64_t modelSceneGeneration, bool inModelPass);
+bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch, uint64_t drawSequence,
+                  uint64_t modelSceneGeneration, bool inModelPass);
 
 // ANY THREAD. What the most recent verified scene draw consumed.
 SceneDrawState LastSceneDraw ();
@@ -199,9 +238,9 @@ ContextState Snapshot ();
 
 void Reset ();
 
-}   // namespace contextstate
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace contextstate
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

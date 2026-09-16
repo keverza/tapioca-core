@@ -135,10 +135,12 @@ bool EnsurePrivate (ID3D11DeviceContext* context, ID3D11Texture2D* source)
     ours.BindFlags = D3D11_BIND_DEPTH_STENCIL;
     ours.CPUAccessFlags = 0;
     ours.MiscFlags = 0;
+    ++g_stats.sourceDescAccepted;
     if (FAILED (g_device->CreateTexture2D (&ours, nullptr, &g_privateTexture))) {
         Fail ("the private depth texture could not be created");
         return false;
     }
+    ++g_stats.textureCreated;
 
     D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
     viewDesc.Format = DepthViewFormat (desc.Format);
@@ -151,6 +153,7 @@ bool EnsurePrivate (ID3D11DeviceContext* context, ID3D11Texture2D* source)
         return false;
     }
 
+    ++g_stats.viewCreated;
     g_privateDesc = desc;
     g_privateViewFormat = viewDesc.Format;
     g_privateReady = true;
@@ -192,18 +195,23 @@ ID3D11DepthStencilView* PrepareForInjection (ID3D11DeviceContext* context)
     ++g_stats.preparations;
     if (g_sceneView == nullptr) {
         ++g_stats.noSceneView;
+        Fail ("no scene depth view has been seen yet");
         return nullptr;
     }
+    ++g_stats.sourceViewAcquired;
     if (!EnsureStates (context))
         return nullptr;
-    if (mode == Mode::SceneReadOnly)
+    if (mode == Mode::SceneReadOnly) {
+        ++g_stats.viewBound;
         return g_sceneView;
+    }
 
     // ---- PrivateCopy -------------------------------------------------------
     ID3D11Resource* sourceResource = nullptr;
     g_sceneView->GetResource (&sourceResource);
     if (sourceResource == nullptr) {
         ++g_stats.copyRefused;
+        Fail ("the scene depth view has no resource");
         return nullptr;
     }
     ID3D11Texture2D* source = nullptr;
@@ -211,9 +219,11 @@ ID3D11DepthStencilView* PrepareForInjection (ID3D11DeviceContext* context)
                                                 (void**) &source)) ||
         source == nullptr) {
         ++g_stats.copyRefused;
+        Fail ("the scene depth resource is not a 2D texture");
         ReleaseAndNull (sourceResource);
         return nullptr;
     }
+    ++g_stats.sourceResourceAcquired;
     ID3D11DepthStencilView* result = nullptr;
     if (EnsurePrivate (context, source)) {
         // ⚠️ ONE WHOLE-RESOURCE COPY PER INJECTED FRAME, GPU TO GPU. It carries
@@ -221,7 +231,9 @@ ID3D11DepthStencilView* PrepareForInjection (ID3D11DeviceContext* context)
         // from here every write is ours.
         context->CopyResource (g_privateTexture, source);
         ++g_stats.copies;
+        ++g_stats.copyIssued;
         result = g_privateView;
+        ++g_stats.viewBound;
     }
     ReleaseAndNull (source);
     ReleaseAndNull (sourceResource);

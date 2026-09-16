@@ -3,6 +3,8 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 
+#include "ArchViz/Dxgi/CameraRecognizer.hpp"
+
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
@@ -13,6 +15,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cmath>
 #include <cstring>
 
 namespace geomsrv {
@@ -22,8 +25,8 @@ namespace census {
 
 namespace {
 
-constexpr UINT   kWindowBytes = 256;
-constexpr UINT   kCameraWindowConstants = 16;
+constexpr UINT kWindowBytes = 256;
+constexpr UINT kCameraWindowConstants = 16;
 constexpr size_t kErrorSamples = 128;
 
 // ⚠️ AT MOST THIS MANY READBACKS ARE ATTEMPTED PER DRAW. A census that mapped
@@ -38,29 +41,29 @@ struct Slot {
 
     ID3D11Buffer* stagingView = nullptr;
     ID3D11Buffer* stagingProjection = nullptr;
-    bool     copyPending = false;
+    bool copyPending = false;
 
-    double   spreadSum = 0.0;
+    double spreadSum = 0.0;
     uint32_t spreadCount = 0;
-    float    errors[kErrorSamples] = {};
+    float errors[kErrorSamples] = {};
     uint32_t errorCount = 0;
     uint32_t errorNext = 0;
-    double   errorSum = 0.0;
-    double   variantErrorSum[kVariantCount] = {};
-    float    areas[kErrorSamples] = {};
-    float    edges[kErrorSamples] = {};
+    double errorSum = 0.0;
+    double variantErrorSum[kVariantCount] = {};
+    float areas[kErrorSamples] = {};
+    float edges[kErrorSamples] = {};
     uint32_t triangleCount = 0;
     uint32_t triangleNext = 0;
 
     uint64_t lastPresentCounted = 0;
     uint64_t lastModelCounted = 0;
-    bool     used = false;
+    bool used = false;
 };
 
 ID3D11Device* g_device = nullptr;
-Slot          g_slots[kGroupCapacity];
-Stats         g_stats;
-std::atomic<bool> g_enabled {false};
+Slot g_slots[kGroupCapacity];
+Stats g_stats;
+std::atomic<bool> g_enabled { false };
 bool g_created = false;
 bool g_createFailed = false;
 uint64_t g_lastPresentSeen = 0;
@@ -71,20 +74,42 @@ uint64_t g_lastModelSeen = 0;
 // counted per signature and reset when the model generation changes. A global
 // counter would number draws across different signatures and mean nothing.
 constexpr size_t kSignatureCounters = 32;
+// ⚠️ KEYED LOGICALLY FOR THE SAME REASON AND, CRITICALLY, AT THE
+// SAME GRAIN AS BEFORE. It used to key on (renderTarget, depthStencil): the
+// TARGET identity, deliberately coarser than the group key, so that every draw
+// into the same target is numbered in one sequence. The logical translation is
+// the target's DESCRIPTION plus the viewport -- not the draw shape, which would
+// split the numbering and change what "occurrence #0" means. Occurrence
+// semantics are frozen; only the way the target is named has changed.
 struct SignatureCounter {
     // ⚠️ KEYED EXACTLY AS THE GROUPS ARE, and therefore NOT on the vertex
     // shader. A counter keyed more finely than the table it feeds would number
     // draws the table cannot tell apart.
-    uint64_t renderTarget = 0;
-    uint64_t depthStencil = 0;
+    uint32_t renderTargetWidth = 0, renderTargetHeight = 0;
+    uint32_t renderTargetFormat = 0, renderTargetSamples = 0;
+    uint32_t depthWidth = 0, depthHeight = 0;
+    uint32_t depthFormat = 0, depthSamples = 0;
+    bool depthPresent = false;
+    float viewportWidth = 0.0f, viewportHeight = 0.0f;
     uint64_t generation = 0;
     uint32_t count = 0;
-    bool     used = false;
+    bool used = false;
 };
-SignatureCounter g_counters[kSignatureCounters];
 
-Selection g_selection;
-Eligibility g_eligibility;
+bool SameTarget (const SignatureCounter& counter, const contextstate::ContextState& live)
+{
+    return counter.renderTargetWidth == live.renderTargetDesc.width &&
+           counter.renderTargetHeight == live.renderTargetDesc.height &&
+           counter.renderTargetFormat == live.renderTargetDesc.format &&
+           counter.renderTargetSamples == live.renderTargetDesc.sampleCount &&
+           counter.depthWidth == live.depthStencilDesc.width && counter.depthHeight == live.depthStencilDesc.height &&
+           counter.depthFormat == live.depthStencilDesc.format &&
+           counter.depthSamples == live.depthStencilDesc.sampleCount &&
+           counter.depthPresent == (live.depthStencil != 0) &&
+           std::fabs (counter.viewportWidth - live.viewportWidth) < 1.5f &&
+           std::fabs (counter.viewportHeight - live.viewportHeight) < 1.5f;
+}
+SignatureCounter g_counters[kSignatureCounters];
 
 // ⚠️ THE DEPTH PROOF WANTS THE LATEST POINT INSIDE THE PASS, NOT THE CAMERA'S
 // OWN DRAW. The camera occurrence is usually the FIRST draw of its family, when
@@ -97,8 +122,7 @@ uint32_t g_selectionOccurrencesThisFrame = 0;
 uint32_t g_selectionOccurrencesLastFrame = 0;
 uint64_t g_selectionFrame = 0;
 
-template <typename T>
-void ReleaseAndNull (T*& object)
+template <typename T> void ReleaseAndNull (T*& object)
 {
     if (object != nullptr) {
         object->Release ();
@@ -128,8 +152,7 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     bool ok = true;
     for (size_t i = 0; i < kGroupCapacity; ++i) {
         ok = ok && SUCCEEDED (g_device->CreateBuffer (&desc, nullptr, &g_slots[i].stagingView));
-        ok = ok && SUCCEEDED (g_device->CreateBuffer (&desc, nullptr,
-                &g_slots[i].stagingProjection));
+        ok = ok && SUCCEEDED (g_device->CreateBuffer (&desc, nullptr, &g_slots[i].stagingProjection));
     }
     if (!ok) {
         g_createFailed = true;
@@ -162,54 +185,37 @@ bool SameExtent (float a, float b)
 // shares one camera across many shaders, so the shader identity fragments the
 // signature instead of sharpening it. It stays in the report, where knowing
 // which shader drew is useful, and out of the key, where it was fatal.
-bool Matches (const Group& group, const contextstate::ContextState& live,
-              uint32_t occurrence)
+// ⚠️ AND NOT ONE COM ADDRESS IS IN IT ANY MORE, WHICH RUN
+// FORTY-SEVEN FORCED. That run ended `groups used / overflowed : 48 / 5841`
+// with 124 readbacks across 48 groups -- six samples each against a gate of 32
+// -- and NOTHING QUALIFIED. The cause is the one run forty-five found a level
+// down: this key held `renderTarget`, `depthStencil`, `viewBuffer` and
+// `projectionBuffer`, all live COM addresses, and run forty-six measured
+// Archicad rebuilding its views TWENTY TIMES in fifteen seconds. Every rebuild
+// minted a fresh set of groups for the same camera; forty-eight slots is six
+// rebuilds, and the table was full in the first second.
+//
+// The evidence is in run forty-six's own table: groups 1-8 at 1-2% coverage and
+// group 36 at 96% were FRAGMENTS OF ONE THING, separated by nothing but the
+// address of a view.
+//
+// So the key is what the draw IS, exactly as `Fingerprint` already is: the
+// viewport rectangle, the draw shape, the camera window sizes, and the
+// DESCRIPTIONS of the targets rather than their names. Same structure as
+// before, logical terms in place of addresses.
+bool Matches (const Group& group, const contextstate::ContextState& live, uint32_t occurrence)
 {
-    return group.occurrenceIndex == occurrence &&
-           group.renderTarget == live.renderTarget &&
-           group.depthStencil == live.depthStencil &&
-           SameExtent (group.viewportWidth, live.viewportWidth) &&
-           SameExtent (group.viewportHeight, live.viewportHeight) &&
-           SameExtent (group.viewportX, live.viewportX) &&
+    return group.occurrenceIndex == occurrence && SameExtent (group.viewportWidth, live.viewportWidth) &&
+           SameExtent (group.viewportHeight, live.viewportHeight) && SameExtent (group.viewportX, live.viewportX) &&
            SameExtent (group.viewportY, live.viewportY) &&
-           group.viewBuffer == live.vsConstantBuffers[1].buffer &&
-           group.projectionBuffer == live.vsConstantBuffers[2].buffer &&
            group.viewNumConstants == live.vsConstantBuffers[1].numConstants &&
-           group.projectionNumConstants == live.vsConstantBuffers[2].numConstants;
-}
-
-// The locked group's signature, tested against what is bound right now. Same
-// fields as `Matches`, for the same reasons -- and `firstConstant` is absent from
-// both because Archicad's ring window advances every frame by design.
-// The signature alone, without the occurrence: the depth proof wants a
-// different draw of the same family than the camera snapshot does.
-bool MatchesSelectionSignature (const contextstate::ContextState& live)
-{
-    if (!g_selection.valid)
-        return false;
-    return g_selection.renderTarget == live.renderTarget &&
-           g_selection.depthStencil == live.depthStencil &&
-           SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
-           SameExtent (g_selection.viewportHeight, live.viewportHeight) &&
-           g_selection.viewBuffer == live.vsConstantBuffers[1].buffer &&
-           g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer;
-}
-
-bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurrence)
-{
-    if (!g_selection.valid)
-        return false;
-    return g_selection.occurrenceIndex == occurrence &&
-           g_selection.renderTarget == live.renderTarget &&
-           g_selection.depthStencil == live.depthStencil &&
-           SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
-           SameExtent (g_selection.viewportHeight, live.viewportHeight) &&
-           SameExtent (g_selection.viewportX, live.viewportX) &&
-           SameExtent (g_selection.viewportY, live.viewportY) &&
-           g_selection.viewBuffer == live.vsConstantBuffers[1].buffer &&
-           g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer &&
-           g_selection.viewNumConstants == live.vsConstantBuffers[1].numConstants &&
-           g_selection.projectionNumConstants == live.vsConstantBuffers[2].numConstants;
+           group.projectionNumConstants == live.vsConstantBuffers[2].numConstants &&
+           group.depthPresent == (live.depthStencil != 0) && group.renderTargetWidth == live.renderTargetDesc.width &&
+           group.renderTargetHeight == live.renderTargetDesc.height &&
+           group.renderTargetFormat == live.renderTargetDesc.format &&
+           group.renderTargetSamples == live.renderTargetDesc.sampleCount &&
+           group.depthWidth == live.depthStencilDesc.width && group.depthHeight == live.depthStencilDesc.height &&
+           group.depthFormat == live.depthStencilDesc.format && group.depthSamples == live.depthStencilDesc.sampleCount;
 }
 
 void RecordSample (Slot& slot, const injection::oracle::VariantScore* scores)
@@ -270,8 +276,7 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
 {
     D3D11_MAPPED_SUBRESOURCE viewMap = {};
     D3D11_MAPPED_SUBRESOURCE projectionMap = {};
-    HRESULT hr = context->Map (slot.stagingView, 0, D3D11_MAP_READ,
-                               D3D11_MAP_FLAG_DO_NOT_WAIT, &viewMap);
+    HRESULT hr = context->Map (slot.stagingView, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &viewMap);
     if (hr == DXGI_ERROR_WAS_STILL_DRAWING) {
         ++g_stats.readbacksBusy;
         return;
@@ -280,8 +285,7 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
         slot.copyPending = false;
         return;
     }
-    hr = context->Map (slot.stagingProjection, 0, D3D11_MAP_READ,
-                       D3D11_MAP_FLAG_DO_NOT_WAIT, &projectionMap);
+    hr = context->Map (slot.stagingProjection, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &projectionMap);
     if (hr == DXGI_ERROR_WAS_STILL_DRAWING || FAILED (hr) || projectionMap.pData == nullptr) {
         context->Unmap (slot.stagingView, 0);
         if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
@@ -362,7 +366,7 @@ float Median (Slot& slot)
     return sorted[count / 2];
 }
 
-}   // namespace
+} // namespace
 
 void SetEnabled (bool enabled)
 {
@@ -400,6 +404,15 @@ void ResetCounts ()
     g_lastModelSeen = 0;
     for (size_t i = 0; i < kSignatureCounters; ++i)
         g_counters[i] = SignatureCounter {};
+
+    // ⚠️ THE FINGERPRINT AND THE SELECTION DELIBERATELY SURVIVE THIS.
+    // See the header. What is reset is the memory of WHERE the pinned resources
+    // were last seen -- phase B's generations are not phase A's, and starting at
+    // "never seen" is what lets the first logical match re-acquire immediately
+    // instead of waiting out a staleness window.
+    // ⚠️ THE RECOGNIZER'S COUNTERS RESET WITH OURS, ITS DECISION
+    // DOES NOT. See `CameraRecognizer::ResetBindingStats`.
+    ResetBindingStats ();
 }
 
 void Reset ()
@@ -432,8 +445,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     // the draw belongs to.
     if (!view.IsBound () || !projection.IsBound ())
         return;
-    if (view.numConstants != kCameraWindowConstants ||
-        projection.numConstants != kCameraWindowConstants)
+    if (view.numConstants != kCameraWindowConstants || projection.numConstants != kCameraWindowConstants)
         return;
     ++g_stats.drawsQualified;
 
@@ -478,9 +490,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     {
         SignatureCounter* counter = nullptr;
         for (size_t i = 0; i < kSignatureCounters; ++i) {
-            if (g_counters[i].used &&
-                g_counters[i].renderTarget == live.renderTarget &&
-                g_counters[i].depthStencil == live.depthStencil) {
+            if (g_counters[i].used && SameTarget (g_counters[i], live)) {
                 counter = &g_counters[i];
                 break;
             }
@@ -491,8 +501,17 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
                     continue;
                 counter = &g_counters[i];
                 counter->used = true;
-                counter->renderTarget = live.renderTarget;
-                counter->depthStencil = live.depthStencil;
+                counter->renderTargetWidth = live.renderTargetDesc.width;
+                counter->renderTargetHeight = live.renderTargetDesc.height;
+                counter->renderTargetFormat = live.renderTargetDesc.format;
+                counter->renderTargetSamples = live.renderTargetDesc.sampleCount;
+                counter->depthWidth = live.depthStencilDesc.width;
+                counter->depthHeight = live.depthStencilDesc.height;
+                counter->depthFormat = live.depthStencilDesc.format;
+                counter->depthSamples = live.depthStencilDesc.sampleCount;
+                counter->depthPresent = live.depthStencil != 0;
+                counter->viewportWidth = live.viewportWidth;
+                counter->viewportHeight = live.viewportHeight;
                 counter->generation = modelGeneration;
                 counter->count = 0;
                 break;
@@ -508,19 +527,23 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         }
     }
 
+    // ⚠️ BEFORE ANYTHING READS THE SELECTION, GIVE IT A CHANCE TO
+    // FIND ITS RESOURCES AGAIN. Everything below -- the depth proof, the camera
+    // snapshot -- tests the pinned pointers, so the re-acquisition has to happen
+    // first or it would take an extra frame to have any effect.
+    MaintainBinding (live, kind, indexCount, occurrence, modelGeneration);
+
     // ---- the depth proof, at the predicted last draw of this family --------
-    if (g_selection.valid && MatchesSelectionSignature (live)) {
+    if (MatchesSelectionSignature (live)) {
         if (g_selectionFrame != modelGeneration) {
             g_selectionFrame = modelGeneration;
             g_selectionOccurrencesLastFrame = g_selectionOccurrencesThisFrame;
             g_selectionOccurrencesThisFrame = 0;
         }
         ++g_selectionOccurrencesThisFrame;
-        if (g_selectionOccurrencesLastFrame > 0 &&
-            occurrence + 1 == g_selectionOccurrencesLastFrame) {
+        if (g_selectionOccurrencesLastFrame > 0 && occurrence + 1 == g_selectionOccurrencesLastFrame) {
             ID3D11DeviceContext1* context1 = nullptr;
-            if (SUCCEEDED (context->QueryInterface (__uuidof (ID3D11DeviceContext1),
-                                                    (void**) &context1)) &&
+            if (SUCCEEDED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) &&
                 context1 != nullptr) {
                 injection::probes::DrawDepthProof (context, context1);
                 context1->Release ();
@@ -549,8 +572,8 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         draw.viewportHeight = live.viewportHeight;
         for (size_t i = 0; i < contextstate::kConstantBufferSlots; ++i)
             draw.vsConstantBuffers[i] = live.vsConstantBuffers[i];
-        injection::SnapshotSelectedDraw (context, draw, g_selection.groupId);
-        ++g_selection.snapshotsTaken;
+        injection::SnapshotSelectedDraw (context, draw, GetSelection ().groupId);
+        NoteSnapshot ();
     }
 
     Slot* found = nullptr;
@@ -576,12 +599,25 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
             fresh.viewportY = live.viewportY;
             fresh.viewportWidth = live.viewportWidth;
             fresh.viewportHeight = live.viewportHeight;
+            // ⚠️ THE KEY FIELDS ARE SET AT CREATION, NOT ONLY
+            // REFRESHED LATER. `Matches` reads them on the very next draw; a
+            // group created with zeroes would never match itself and would mint
+            // a new slot every frame -- the overflow this change exists to end.
+            fresh.renderTargetWidth = live.renderTargetDesc.width;
+            fresh.renderTargetHeight = live.renderTargetDesc.height;
+            fresh.renderTargetFormat = live.renderTargetDesc.format;
+            fresh.renderTargetSamples = live.renderTargetDesc.sampleCount;
+            fresh.depthPresent = live.depthStencil != 0;
+            fresh.depthWidth = live.depthStencilDesc.width;
+            fresh.depthHeight = live.depthStencilDesc.height;
+            fresh.depthFormat = live.depthStencilDesc.format;
+            fresh.depthSamples = live.depthStencilDesc.sampleCount;
             fresh.viewBuffer = view.buffer;
             fresh.viewNumConstants = view.numConstants;
             fresh.projectionBuffer = projection.buffer;
             fresh.projectionNumConstants = projection.numConstants;
             fresh.firstPresent = present;
-        fresh.passGeneration = pass.generation;
+            fresh.passGeneration = pass.generation;
             fresh.drawSequenceFirst = pass.drawsThisEpoch;
             ++g_stats.groupsUsed;
             break;
@@ -600,6 +636,32 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     group.drawSequenceLast = pass.drawsThisEpoch;
     group.drawKindMask |= (1u << uint32_t (kind));
     group.lastIndexCount = indexCount;
+
+    // ⚠️ AND THE POINTERS TRACK THE NEWEST DRAW, BECAUSE A GROUP NOW
+    // OUTLIVES THEM. The key is logical, so one group spans every view
+    // generation Archicad builds for that camera; the addresses recorded at
+    // creation are the FIRST generation's and may be dead by the time phase A
+    // selects. Keeping the latest means the selection pins to something alive
+    // and the re-acquisition path is a repair rather than a routine.
+    group.renderTarget = live.renderTarget;
+    group.depthStencil = live.depthStencil;
+    group.viewBuffer = view.buffer;
+    group.projectionBuffer = projection.buffer;
+    group.vertexShader = live.vertexShader;
+
+    // ⚠️ REFRESHED EVERY DRAW, NOT CAPTURED AT CREATION. A group can
+    // be created on a draw whose targets have not been described yet -- the
+    // tracker resolves a description when the bound view CHANGES -- and a
+    // fingerprint built from zeroes would match nothing at all.
+    group.renderTargetWidth = live.renderTargetDesc.width;
+    group.renderTargetHeight = live.renderTargetDesc.height;
+    group.renderTargetFormat = live.renderTargetDesc.format;
+    group.renderTargetSamples = live.renderTargetDesc.sampleCount;
+    group.depthPresent = live.depthStencil != 0;
+    group.depthWidth = live.depthStencilDesc.width;
+    group.depthHeight = live.depthStencilDesc.height;
+    group.depthFormat = live.depthStencilDesc.format;
+    group.depthSamples = live.depthStencilDesc.sampleCount;
     group.viewFirstConstant = view.firstConstant;
     group.projectionFirstConstant = projection.firstConstant;
     if (found->lastPresentCounted != present) {
@@ -633,11 +695,11 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     box.left = view.ByteOffset ();
     box.right = box.left + kWindowBytes;
     context->CopySubresourceRegion (found->stagingView, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
     box.left = projection.ByteOffset ();
     box.right = box.left + kWindowBytes;
     context->CopySubresourceRegion (found->stagingProjection, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
     found->copyPending = true;
     ++g_stats.copiesIssued;
 }
@@ -654,141 +716,7 @@ void Shutdown ()
     g_created = false;
     g_createFailed = false;
     g_stats = Stats {};
-    g_selection = Selection {};
-}
-
-bool Qualifies (const Group& group, const Slot& slot, uint64_t modelFrames,
-                float& coverage, float& insideClip, float& agreement)
-{
-    coverage = modelFrames > 0
-            ? float (double (group.modelFramesObserved) / double (modelFrames)) : 0.0f;
-    insideClip = group.samplesScored > 0
-            ? float (double (group.anchorInside) / double (group.samplesScored)) : 0.0f;
-    agreement = group.samplesScored > 0
-            ? float (double (group.trianglesFinite) / double (group.samplesScored)) : 0.0f;
-    if (group.samplesScored < g_eligibility.minSamples)
-        return false;
-    if (coverage < g_eligibility.minModelCoverage)
-        return false;
-    if (insideClip < g_eligibility.minInsideClip)
-        return false;
-    if (agreement < g_eligibility.minFiniteTriangles)
-        return false;
-
-    // ⚠️ THE TWO GATES A COLLAPSE CANNOT PASS. Everything above this line was
-    // satisfied for six runs by a transform that drew one pixel.
-    const float area = MedianOf (slot.areas, slot.triangleCount);
-    const float edge = MedianOf (slot.edges, slot.triangleCount);
-    if (area < g_eligibility.minMedianAreaPixels)
-        return false;
-    if (edge < g_eligibility.minMedianMaxEdgePixels)
-        return false;
-
-    // Centre error is the weak term: a human hand on a mouse does not put the
-    // orbit target on the anchor to the pixel.
-    return !(slot.errorCount > 0 &&
-             group.medianCentreError > g_eligibility.maxMedianCentreError);
-}
-
-bool SelectCandidate ()
-{
-    Group groups[kGroupCapacity];
-    const size_t count = CopyGroups (groups, kGroupCapacity);
-    const uint64_t modelFrames = g_stats.modelFramesSeen;
-
-    // ⚠️ ELIGIBILITY FIRST, RANK SECOND, AND NEVER THE OTHER WAY. Ranking by
-    // error alone put a group with ONE sample and no coverage ahead of the real
-    // model camera, which carried 1497 draws across 259 model frames.
-    const Group* best = nullptr;
-    float bestCoverage = 0.0f;
-    float bestInside = 0.0f;
-    float bestMedian = 0.0f;
-    for (size_t i = 0, slotIndex = 0; i < count; ++i) {
-        while (slotIndex < kGroupCapacity && !g_slots[slotIndex].used)
-            ++slotIndex;
-        if (slotIndex >= kGroupCapacity)
-            break;
-        const Slot& slot = g_slots[slotIndex];
-        ++slotIndex;
-
-        float coverage = 0.0f;
-        float insideClip = 0.0f;
-        float agreement = 0.0f;
-        if (!Qualifies (groups[i], slot, modelFrames, coverage, insideClip, agreement))
-            continue;
-        const bool better =
-                best == nullptr ||
-                coverage > bestCoverage + 0.01f ||
-                (coverage >= bestCoverage - 0.01f && insideClip > bestInside + 0.005f) ||
-                (coverage >= bestCoverage - 0.01f && insideClip >= bestInside - 0.005f &&
-                 groups[i].medianCentreError < bestMedian);
-        if (better) {
-            best = &groups[i];
-            bestCoverage = coverage;
-            bestInside = insideClip;
-            bestMedian = groups[i].medianCentreError;
-        }
-    }
-    if (best == nullptr) {
-        // ⚠️ FAIL CLOSED. A run that could not identify the camera injects
-        // nothing, rather than injecting with whatever drew last -- which is the
-        // behaviour that produced six inconclusive runs.
-        g_selection = Selection {};
-        return false;
-    }
-
-    Selection chosen;
-    chosen.valid = true;
-    // ⚠️ A RUN-LOCAL ID, WHICH IS ALL A GROUP IDENTITY MAY BE. It exists so every
-    // injection row can name the group it came from; it means nothing in the next
-    // session and is never written anywhere that outlives one.
-    chosen.groupId = best->groupId;
-    chosen.occurrenceIndex = best->occurrenceIndex;
-    chosen.vertexShader = best->vertexShader;
-    chosen.renderTarget = best->renderTarget;
-    chosen.depthStencil = best->depthStencil;
-    chosen.viewportX = best->viewportX;
-    chosen.viewportY = best->viewportY;
-    chosen.viewportWidth = best->viewportWidth;
-    chosen.viewportHeight = best->viewportHeight;
-    chosen.viewBuffer = best->viewBuffer;
-    chosen.viewNumConstants = best->viewNumConstants;
-    chosen.projectionBuffer = best->projectionBuffer;
-    chosen.projectionNumConstants = best->projectionNumConstants;
-    chosen.variant = best->winningVariant;
-    chosen.samples = best->samplesScored;
-    chosen.modelCoverage = bestCoverage;
-    chosen.insideClip = bestInside;
-    chosen.medianCentreError = best->medianCentreError;
-    chosen.medianAreaPixels = best->medianAreaPixels;
-    chosen.medianMaxEdgePixels = best->medianMaxEdgePixels;
-    g_selection = chosen;
-    // ⚠️ THE SHADER IS TOLD WHAT WAS LEARNED, AND REFUSES IF IT CANNOT HONOUR IT.
-    // This is the link that was missing for run thirty-three: the census proved
-    // `p * V * Pt` twice over while the shader rendered `p * V * P`, and nothing
-    // in the pipeline compared the two.
-    injection::SetExpectedInterpretation (chosen.variant);
-    // ⚠️ THE OCCURRENCE TRAVELS WITH THE SIGNATURE. They are one identity, and
-    // handing over only half of it is what let the snapshot take whichever draw
-    // of the family came last.
-    injection::SetSelectedOccurrence (chosen.occurrenceIndex);
-    return true;
-}
-
-void ClearSelection ()
-{
-    g_selection = Selection {};
-    injection::SetExpectedInterpretation (0xffffffffu);
-}
-
-Selection GetSelection ()
-{
-    return g_selection;
-}
-
-Eligibility GetEligibility ()
-{
-    return g_eligibility;
+    ShutdownRecognizer ();
 }
 
 size_t CopyGroups (Group* out, size_t capacity)
@@ -808,7 +736,7 @@ size_t CopyGroups (Group* out, size_t capacity)
         // putting the anchor inside the clip volume.
         uint32_t bestVariant = 0;
         uint32_t bestValid = 0;
-        double   bestMean = 0.0;
+        double bestMean = 0.0;
         for (size_t variant = 0; variant < kVariantCount; ++variant) {
             const uint32_t valid = group.variantValid[variant];
             if (valid == 0)
@@ -823,10 +751,9 @@ size_t CopyGroups (Group* out, size_t capacity)
         group.winningVariant = bestVariant;
         group.winningVariantValid = bestValid;
         group.medianCentreError = Median (slot);
-        group.meanCentreError = slot.errorCount > 0
-                ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
-        group.meanSpreadPixels = slot.spreadCount > 0
-                ? float (slot.spreadSum / double (slot.spreadCount)) : 0.0f;
+        group.meanCentreError = slot.errorCount > 0 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
+        group.meanSpreadPixels = slot.spreadCount > 0 ? float (slot.spreadSum / double (slot.spreadCount)) : 0.0f;
+        group.errorSamples = slot.errorCount;
         group.medianAreaPixels = MedianOf (slot.areas, slot.triangleCount);
         group.medianMaxEdgePixels = MedianOf (slot.edges, slot.triangleCount);
         out[written] = group;
@@ -835,12 +762,32 @@ size_t CopyGroups (Group* out, size_t capacity)
     return written;
 }
 
-Stats GetStats ()
+// ⚠️ PHASE A'S DECISION, MADE FROM A COPIED TABLE. The census
+// owns the measurements and hands them over; the recognizer owns the choice. It
+// still fails closed -- no eligible group means no selection and no injection.
+bool SelectCandidate ()
 {
-    return g_stats;
+    Group groups[kGroupCapacity];
+    const size_t count = CopyGroups (groups, kGroupCapacity);
+    return SelectCandidate (groups, count, g_stats.modelFramesSeen);
 }
 
-}   // namespace census
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+Stats GetStats ()
+{
+    // ⚠️ THE BINDING COUNTERS ARE REPORTED THROUGH THE CENSUS because
+    // that is the verb every report already calls. They are MEASURED by the
+    // recognizer, which is why they are copied here rather than kept here.
+    Stats stats = g_stats;
+    const BindingStats binding = GetBindingStats ();
+    stats.selectionMatches = binding.selectionMatches;
+    stats.logicalMatches = binding.logicalMatches;
+    stats.rebinds = binding.rebinds;
+    stats.rebindsRefused = binding.rebindsRefused;
+    stats.fingerprintValid = binding.fingerprintValid;
+    return stats;
+}
+
+} // namespace census
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

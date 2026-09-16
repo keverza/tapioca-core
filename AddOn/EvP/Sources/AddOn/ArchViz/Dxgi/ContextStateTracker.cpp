@@ -30,7 +30,7 @@ constexpr uint32_t kCameraWindowConstants = 16;
 // object-pointer filter cannot do this job.
 int g_injectionDepth = 0;
 
-}   // namespace
+} // namespace
 
 ScopedInjectionGuard::ScopedInjectionGuard ()
 {
@@ -48,8 +48,8 @@ bool Injecting ()
     return g_injectionDepth > 0;
 }
 
-bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
-                  uint64_t drawSequence, uint64_t modelSceneGeneration, bool inModelPass)
+bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch, uint64_t drawSequence,
+                  uint64_t modelSceneGeneration, bool inModelPass)
 {
     // ⚠️ THE WHOLE LIVE STATE, LATCHED AT THE DRAW. Not a reference to it, not a
     // promise to read it later: by the time anything wants this, Archicad may
@@ -75,8 +75,7 @@ bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch,
     const ConstantBufferBinding& view = g_state.vsConstantBuffers[1];
     const ConstantBufferBinding& projection = g_state.vsConstantBuffers[2];
     const bool hasView = view.IsBound () && view.numConstants == kCameraWindowConstants;
-    const bool hasProjection =
-            projection.IsBound () && projection.numConstants == kCameraWindowConstants;
+    const bool hasProjection = projection.IsBound () && projection.numConstants == kCameraWindowConstants;
     if (hasView)
         ++g_drawCounts.withView;
     if (hasProjection)
@@ -133,10 +132,53 @@ void OnVSConstantBuffers (uint32_t startSlot, uint32_t count, ID3D11Buffer* cons
     }
 }
 
+namespace {
+
+// ⚠️ THE RESOURCE BEHIND A VIEW, WHICH IS THE PART THAT SURVIVES.
+// See the header: a view pointer is a COM address Archicad may rebuild at any
+// time, and run forty-five lost the camera to exactly that. Width, height,
+// format and sample count belong to the texture and do not move.
+void DescribeView (ID3D11View* view, ViewDescriptor& out)
+{
+    out = ViewDescriptor {};
+    if (view == nullptr)
+        return;
+    out.present = true;
+
+    ID3D11Resource* resource = nullptr;
+    view->GetResource (&resource);
+    if (resource == nullptr)
+        return;
+    ID3D11Texture2D* texture = nullptr;
+    if (SUCCEEDED (resource->QueryInterface (__uuidof (ID3D11Texture2D), (void**) &texture)) && texture != nullptr) {
+        D3D11_TEXTURE2D_DESC desc = {};
+        texture->GetDesc (&desc);
+        out.width = desc.Width;
+        out.height = desc.Height;
+        out.format = uint32_t (desc.Format);
+        out.sampleCount = desc.SampleDesc.Count;
+        texture->Release ();
+    }
+    resource->Release ();
+}
+
+} // namespace
+
 void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* depth)
 {
-    g_state.renderTarget = uint64_t (uintptr_t (colour));
-    g_state.depthStencil = uint64_t (uintptr_t (depth));
+    // ⚠️ DESCRIBED ON CHANGE, NOT ON EVERY BIND. Archicad rebinds the
+    // same two views tens of times a frame; asking the resource each time would
+    // put three COM calls on a hot path to learn something that did not change.
+    const uint64_t colourId = uint64_t (uintptr_t (colour));
+    const uint64_t depthId = uint64_t (uintptr_t (depth));
+    if (colourId != g_state.renderTarget || !g_state.renderTargetDesc.present) {
+        g_state.renderTarget = colourId;
+        DescribeView (colour, g_state.renderTargetDesc);
+    }
+    if (depthId != g_state.depthStencil || !g_state.depthStencilDesc.present) {
+        g_state.depthStencil = depthId;
+        DescribeView (depth, g_state.depthStencilDesc);
+    }
 }
 
 void OnViewport (const D3D11_VIEWPORT& viewport)
@@ -161,7 +203,7 @@ void Reset ()
     g_injectionDepth = 0;
 }
 
-}   // namespace contextstate
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace contextstate
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

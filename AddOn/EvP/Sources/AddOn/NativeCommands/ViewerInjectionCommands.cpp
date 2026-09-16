@@ -8,8 +8,10 @@
 #include "NativeCommands/CommandRegistration.hpp"
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
+#include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
+#include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
@@ -36,8 +38,11 @@ namespace {
 // `CameraSyncReset` turns it off along with everything else.
 // ---------------------------------------------------------------------------
 class ViewerInjectTriangleCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ViewerInjectTriangle"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ViewerInjectTriangle";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -45,8 +50,7 @@ public:
 
         // ⚠️ THE ANCHOR IS SET BEFORE THE ARM, so a run that names a point gets a
         // vertex there on its first injection rather than on its second.
-        if (params.Contains ("x") || params.Contains ("y") || params.Contains ("z") ||
-            params.Contains ("sizeMetres")) {
+        if (params.Contains ("x") || params.Contains ("y") || params.Contains ("z") || params.Contains ("sizeMetres")) {
             double x = 0.0, y = 0.0, z = 0.0, size = 1.0;
             params.Get ("x", x);
             params.Get ("y", y);
@@ -103,6 +107,25 @@ public:
                                                  : dep::Mode::Off);
         }
 
+        // ⚠️ THE GHOST MESH IS ARMED SEPARATELY FROM THE INJECTION, and
+        // that is deliberate. Arming the injection draws the frozen proof
+        // primitives -- probes A, B and C and the production triangle -- which
+        // are the regression test for the camera and depth work. A mesh bug must
+        // not be able to take the instrument down with it.
+        {
+            namespace gh = av::dxgi::ghost;
+            if (params.Contains ("mesh")) {
+                bool wanted = false;
+                params.Get ("mesh", wanted);
+                gh::SetEnabled (wanted);
+            }
+            if (params.Contains ("meshAnimate")) {
+                bool wanted = true;
+                params.Get ("meshAnimate", wanted);
+                gh::SetAnimated (wanted);
+            }
+        }
+
         bool enabled = false;
         if (params.Contains ("enabled")) {
             params.Get ("enabled", enabled);
@@ -111,22 +134,61 @@ public:
 
         const inj::InjectionStats stats = inj::GetInjectionStats ();
         GS::ObjectState os;
+        {
+            namespace gh = av::dxgi::ghost;
+            const gh::Stats mesh = gh::GetStats ();
+            os.Add ("mesh", gh::Enabled ());
+            os.Add ("meshAnimate", gh::Animated ());
+            os.Add ("meshCreated", mesh.created);
+            os.Add ("meshBuilds", (GS::Int32) mesh.builds);
+            os.Add ("meshUploads", (GS::Int32) mesh.uploads);
+            os.Add ("meshUploadFailures", (GS::Int32) mesh.uploadFailures);
+            os.Add ("meshDraws", (GS::Int32) mesh.draws);
+            os.Add ("meshVertices", (GS::Int32) mesh.vertices);
+            os.Add ("meshIndices", (GS::Int32) mesh.indices);
+            os.Add ("meshTriangles", (GS::Int32) mesh.triangles);
+            os.Add ("meshPhase", (GS::Int32) mesh.phase);
+            os.Add ("meshError", GS::UniString (mesh.lastError, CC_UTF8));
+        }
         os.Add ("enabled", inj::Enabled ());
         os.Add ("point", GS::UniString (inj::GetPoint () == inj::Point::Present ? "present"
-                                        : inj::GetPoint () == inj::Point::Both ? "both"
-                                        : "scenepass", CC_UTF8));
+                                        : inj::GetPoint () == inj::Point::Both  ? "both"
+                                                                                : "scenepass",
+                                        CC_UTF8));
 
         // ⚠️ WHERE THE CAMERA COMES FROM, STATED OUTRIGHT. An accidental fallback
         // to the learner is the one failure that would look like success.
         const inj::CameraSource cameraSource = inj::GetCameraSource ();
         os.Add ("cameraSource",
-                GS::UniString (cameraSource == inj::CameraSource::CensusSelectedGroup
-                                       ? "CensusSelectedGroup"
-                               : cameraSource == inj::CameraSource::Learner ? "Learner"
-                                                                            : "None",
+                GS::UniString (cameraSource == inj::CameraSource::CensusSelectedGroup ? "CensusSelectedGroup"
+                               : cameraSource == inj::CameraSource::Learner           ? "Learner"
+                                                                                      : "None",
                                CC_UTF8));
+        // ⚠️ THE ARM STATE, WHICH IS THE ANSWER TO "DID ENABLING
+        // WORK". `enabled` alone cannot distinguish "armed and hunting" from
+        // "armed and drawing", and run forty-five spent a whole run unable to
+        // tell those apart from the outside.
+        const inj::ArmState armState = inj::GetArmState ();
+        os.Add ("armState", GS::UniString (armState == inj::ArmState::Active               ? "Active"
+                                           : armState == inj::ArmState::ArmedPendingCamera ? "ArmedPendingCamera"
+                                                                                           : "Disabled",
+                                           CC_UTF8));
         const inj::SelectedCameraState selected = inj::GetSelectedCamera ();
         os.Add ("selectedCameraValid", selected.valid);
+
+        // ⚠️ WHETHER THE LOGICAL IDENTITY SURVIVED, AND WHETHER IT
+        // FOUND ANYTHING. These four come from the census and are repeated here
+        // because this is the verb the caller arms with: a refusal has to be
+        // able to name its cause without a second call.
+        {
+            namespace cen = av::dxgi::census;
+            const cen::Stats censusStats = cen::GetStats ();
+            os.Add ("fingerprintValid", censusStats.fingerprintValid);
+            os.Add ("censusSelectionMatches", (GS::Int32) censusStats.selectionMatches);
+            os.Add ("censusLogicalMatches", (GS::Int32) censusStats.logicalMatches);
+            os.Add ("censusRebinds", (GS::Int32) censusStats.rebinds);
+            os.Add ("censusRebindsRefused", (GS::Int32) censusStats.rebindsRefused);
+        }
         os.Add ("selectedGroupId", (GS::Int32) stats.selectedGroupId);
         os.Add ("selectedGroupDraws", (GS::Int32) stats.selectedGroupDraws);
         os.Add ("selectedGroupSnapshots", (GS::Int32) stats.selectedGroupSnapshots);
@@ -141,11 +203,18 @@ public:
             namespace dep = av::dxgi::injection::depth;
             const dep::Mode mode = dep::GetMode ();
             const dep::Stats depthStats = dep::GetStats ();
-            os.Add ("depthMode",
-                    GS::UniString (mode == dep::Mode::PrivateCopy ? "private"
-                                   : mode == dep::Mode::SceneReadOnly ? "scene" : "off",
-                                   CC_UTF8));
+            os.Add ("depthMode", GS::UniString (mode == dep::Mode::PrivateCopy     ? "private"
+                                                : mode == dep::Mode::SceneReadOnly ? "scene"
+                                                                                   : "off",
+                                                CC_UTF8));
             os.Add ("depthPreparations", (GS::Int32) depthStats.preparations);
+            os.Add ("depthSourceViewAcquired", (GS::Int32) depthStats.sourceViewAcquired);
+            os.Add ("depthSourceResourceAcquired", (GS::Int32) depthStats.sourceResourceAcquired);
+            os.Add ("depthSourceDescAccepted", (GS::Int32) depthStats.sourceDescAccepted);
+            os.Add ("depthTextureCreated", (GS::Int32) depthStats.textureCreated);
+            os.Add ("depthViewCreated", (GS::Int32) depthStats.viewCreated);
+            os.Add ("depthCopyIssued", (GS::Int32) depthStats.copyIssued);
+            os.Add ("depthViewBound", (GS::Int32) depthStats.viewBound);
             os.Add ("depthCopies", (GS::Int32) depthStats.copies);
             os.Add ("depthNoSceneView", (GS::Int32) depthStats.noSceneView);
             os.Add ("depthCopyRefused", (GS::Int32) depthStats.copyRefused);
@@ -178,10 +247,9 @@ public:
             const prb::Stats probes = prb::GetStats ();
             GS::Array<GS::ObjectState> rows;
             const char* const names[prb::kProbeCount] = {
-                "A raster/output", "B camera shader", "C production IA",
-                "FRONT depth off", "BEHIND depth off",
-                "FRONT depth ON", "BEHIND depth ON",
-                "PRESENT front depth", "PRESENT behind depth" };
+                "A raster/output", "B camera shader", "C production IA",     "FRONT depth off",     "BEHIND depth off",
+                "FRONT depth ON",  "BEHIND depth ON", "PRESENT front depth", "PRESENT behind depth"
+            };
             for (size_t i = 0; i < prb::kProbeCount; ++i) {
                 GS::ObjectState row;
                 row.Add ("name", GS::UniString (names[i], CC_UTF8));
@@ -196,25 +264,20 @@ public:
             os.Add ("probesReady", probes.ready);
             // As strings: a 64-bit hash does not fit an Int32, and these are only
             // ever compared for equality and read by eye.
-            os.Add ("cameraVsHash",
-                    GS::UniString (std::to_string (probes.cameraVsHash).c_str (), CC_UTF8));
-            os.Add ("probeVsHash",
-                    GS::UniString (std::to_string (probes.probeVsHash).c_str (), CC_UTF8));
-            os.Add ("rasterVsHash",
-                    GS::UniString (std::to_string (probes.rasterVsHash).c_str (), CC_UTF8));
+            os.Add ("cameraVsHash", GS::UniString (std::to_string (probes.cameraVsHash).c_str (), CC_UTF8));
+            os.Add ("probeVsHash", GS::UniString (std::to_string (probes.probeVsHash).c_str (), CC_UTF8));
+            os.Add ("rasterVsHash", GS::UniString (std::to_string (probes.rasterVsHash).c_str (), CC_UTF8));
             os.Add ("probeError", GS::UniString (probes.lastError, CC_UTF8));
             os.Add ("depthInjections", (GS::Int32) probes.depthInjections);
             os.Add ("depthNoView", (GS::Int32) probes.depthNoView);
             os.Add ("depthViewChanged", (GS::Int32) probes.depthViewChanged);
             os.Add ("presentDepthDraws", (GS::Int32) probes.presentDepthDraws);
             os.Add ("presentDepthNoView", (GS::Int32) probes.presentDepthNoView);
-            os.Add ("lastDepthView",
-                    GS::UniString (std::to_string (probes.lastDepthView).c_str (), CC_UTF8));
+            os.Add ("lastDepthView", GS::UniString (std::to_string (probes.lastDepthView).c_str (), CC_UTF8));
         }
         {
             inj::OccurrenceStats occurrences[inj::kOccurrenceCapacity];
-            const size_t count = inj::CopyOccurrences (occurrences,
-                    inj::kOccurrenceCapacity);
+            const size_t count = inj::CopyOccurrences (occurrences, inj::kOccurrenceCapacity);
             GS::Array<GS::ObjectState> rows;
             for (size_t i = 0; i < count; ++i) {
                 GS::ObjectState row;
@@ -240,8 +303,7 @@ public:
         os.Add ("expectedInterpretation", (GS::Int32) stats.expectedInterpretation);
         os.Add ("interpretationAgrees", stats.interpretationAgrees);
         os.Add ("skippedInterpretation", (GS::Int32) stats.skippedInterpretation);
-        const av::dxgi::contextstate::DrawCameraCounts cameraCounts =
-                av::dxgi::contextstate::GetDrawCameraCounts ();
+        const av::dxgi::contextstate::DrawCameraCounts cameraCounts = av::dxgi::contextstate::GetDrawCameraCounts ();
         os.Add ("drawsTotal", (GS::Int32) cameraCounts.total);
         os.Add ("drawsWithView", (GS::Int32) cameraCounts.withView);
         os.Add ("drawsWithProjection", (GS::Int32) cameraCounts.withProjection);
@@ -260,12 +322,9 @@ public:
         os.Add ("repeatScene", (GS::Int32) stats.repeatScene);
         os.Add ("invalidScene", (GS::Int32) stats.invalidScene);
         os.Add ("invalidNoSnapshot", (GS::Int32) stats.invalidNoSnapshot);
-        os.Add ("invalidNoDrawThisGeneration",
-                (GS::Int32) stats.invalidNoDrawThisGeneration);
-        os.Add ("invalidGenerationAdvanced",
-                (GS::Int32) stats.invalidGenerationAdvanced);
-        os.Add ("invalidGenerationMismatch",
-                (GS::Int32) stats.invalidGenerationMismatch);
+        os.Add ("invalidNoDrawThisGeneration", (GS::Int32) stats.invalidNoDrawThisGeneration);
+        os.Add ("invalidGenerationAdvanced", (GS::Int32) stats.invalidGenerationAdvanced);
+        os.Add ("invalidGenerationMismatch", (GS::Int32) stats.invalidGenerationMismatch);
         os.Add ("snapshotsTaken", (GS::Int32) stats.snapshotsTaken);
         os.Add ("qualifyingCameraDraws", (GS::Int32) stats.qualifyingCameraDraws);
         os.Add ("viewCopies", (GS::Int32) stats.viewCopies);
@@ -274,8 +333,7 @@ public:
         os.Add ("drawsWithBothInModelPass", (GS::Int32) cameraCounts.withBothInModelPass);
 
         // Why a target departure was or was not taken as scene completion.
-        const av::dxgi::renderstate::DepartureStats departures =
-                av::dxgi::renderstate::GetDepartureStats ();
+        const av::dxgi::renderstate::DepartureStats departures = av::dxgi::renderstate::GetDepartureStats ();
         os.Add ("departuresSeen", (GS::Int32) departures.departuresSeen);
         os.Add ("acceptedAsScene", (GS::Int32) departures.acceptedAsScene);
         os.Add ("rejectedTooFewDraws", (GS::Int32) departures.rejectedTooFewDraws);
@@ -286,8 +344,7 @@ public:
         // ⚠️ WHAT PHASE 1 LEARNED. Nothing is injected until `learned` is true,
         // and it only becomes true when consecutive frames agree on the same
         // colour resource, depth view and viewport for a camera-bearing pass.
-        const av::dxgi::renderstate::SceneSignature signature =
-                av::dxgi::renderstate::GetSceneSignature ();
+        const av::dxgi::renderstate::SceneSignature signature = av::dxgi::renderstate::GetSceneSignature ();
         os.Add ("signatureLearned", signature.learned);
         os.Add ("signatureStableFrames", (GS::Int32) signature.stableFrames);
         os.Add ("signatureFramesWatched", (GS::Int32) signature.framesWatched);
@@ -295,8 +352,7 @@ public:
         os.Add ("signatureDraws", (GS::Int32) signature.draws);
         os.Add ("signatureViewportWidth", (double) signature.viewportWidth);
         os.Add ("signatureViewportHeight", (double) signature.viewportHeight);
-        os.Add ("sceneConsumers",
-                (GS::Int32) av::dxgi::renderstate::SceneConsumedCount ());
+        os.Add ("sceneConsumers", (GS::Int32) av::dxgi::renderstate::SceneConsumedCount ());
         os.Add ("lastError", GS::UniString (stats.lastError, CC_UTF8));
         return os;
     }
@@ -313,8 +369,11 @@ public:
 // ArchViz/Dxgi/InjectionOracle.hpp.
 // ---------------------------------------------------------------------------
 class ViewerInjectionOracleCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ViewerInjectionOracle"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ViewerInjectionOracle";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -353,18 +412,15 @@ public:
             entry.Add ("state", (GS::Int32) row.state);
             entry.Add ("cameraSource", (GS::Int32) row.cameraSource);
             entry.Add ("selectedGroupId", (GS::Int32) row.selectedGroupId);
-            entry.Add ("selectedGroupSnapshotGeneration",
-                       (GS::Int32) row.selectedGroupSnapshotGeneration);
+            entry.Add ("selectedGroupSnapshotGeneration", (GS::Int32) row.selectedGroupSnapshotGeneration);
             entry.Add ("sourceDrawSequence", (GS::Int32) row.sourceDrawSequence);
             entry.Add ("sourceModelGeneration", (GS::Int32) row.sourceModelGeneration);
             // As strings: a buffer pointer does not fit an Int32, and these are
             // only ever compared for equality and read by eye.
-            entry.Add ("viewBuffer",
-                       GS::UniString (std::to_string (row.viewBuffer).c_str (), CC_UTF8));
+            entry.Add ("viewBuffer", GS::UniString (std::to_string (row.viewBuffer).c_str (), CC_UTF8));
             entry.Add ("viewFirstConstant", (GS::Int32) row.viewFirstConstant);
             entry.Add ("viewNumConstants", (GS::Int32) row.viewNumConstants);
-            entry.Add ("projectionBuffer",
-                       GS::UniString (std::to_string (row.projectionBuffer).c_str (), CC_UTF8));
+            entry.Add ("projectionBuffer", GS::UniString (std::to_string (row.projectionBuffer).c_str (), CC_UTF8));
             entry.Add ("projectionFirstConstant", (GS::Int32) row.projectionFirstConstant);
             entry.Add ("projectionNumConstants", (GS::Int32) row.projectionNumConstants);
             entry.Add ("matricesRead", row.matricesRead);
@@ -442,8 +498,11 @@ public:
 // ArchViz/Dxgi/CameraCensus.hpp.
 // ---------------------------------------------------------------------------
 class ViewerCameraCensusCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ViewerCameraCensus"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ViewerCameraCensus";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -471,8 +530,7 @@ public:
             params.Get ("clearSelection", clearSelection);
         if (clearSelection) {
             cen::ClearSelection ();
-            av::dxgi::injection::SetCameraSource (
-                    av::dxgi::injection::CameraSource::Learner);
+            av::dxgi::injection::SetCameraSource (av::dxgi::injection::CameraSource::Learner);
         }
 
         // ⚠️ PHASE A'S DECISION, AND IT FAILS CLOSED. If no group clears the
@@ -485,9 +543,8 @@ public:
             params.Get ("select", wanted);
             if (wanted) {
                 selected = cen::SelectCandidate ();
-                av::dxgi::injection::SetCameraSource (
-                        selected ? av::dxgi::injection::CameraSource::CensusSelectedGroup
-                                 : av::dxgi::injection::CameraSource::Learner);
+                av::dxgi::injection::SetCameraSource (selected ? av::dxgi::injection::CameraSource::CensusSelectedGroup
+                                                               : av::dxgi::injection::CameraSource::Learner);
             }
         }
 
@@ -514,27 +571,21 @@ public:
             GS::ObjectState row;
             // As strings: a shader or view pointer does not fit an Int32, and
             // these are only ever compared for equality and read by eye.
-            row.Add ("vertexShader",
-                     GS::UniString (std::to_string (group.vertexShader).c_str (), CC_UTF8));
-            row.Add ("renderTarget",
-                     GS::UniString (std::to_string (group.renderTarget).c_str (), CC_UTF8));
-            row.Add ("depthStencil",
-                     GS::UniString (std::to_string (group.depthStencil).c_str (), CC_UTF8));
+            row.Add ("vertexShader", GS::UniString (std::to_string (group.vertexShader).c_str (), CC_UTF8));
+            row.Add ("renderTarget", GS::UniString (std::to_string (group.renderTarget).c_str (), CC_UTF8));
+            row.Add ("depthStencil", GS::UniString (std::to_string (group.depthStencil).c_str (), CC_UTF8));
             row.Add ("viewportX", (double) group.viewportX);
             row.Add ("viewportY", (double) group.viewportY);
             row.Add ("viewportWidth", (double) group.viewportWidth);
             row.Add ("viewportHeight", (double) group.viewportHeight);
-            row.Add ("viewBuffer",
-                     GS::UniString (std::to_string (group.viewBuffer).c_str (), CC_UTF8));
+            row.Add ("viewBuffer", GS::UniString (std::to_string (group.viewBuffer).c_str (), CC_UTF8));
             row.Add ("viewFirstConstant", (GS::Int32) group.viewFirstConstant);
             row.Add ("viewNumConstants", (GS::Int32) group.viewNumConstants);
-            row.Add ("projectionBuffer",
-                     GS::UniString (std::to_string (group.projectionBuffer).c_str (), CC_UTF8));
+            row.Add ("projectionBuffer", GS::UniString (std::to_string (group.projectionBuffer).c_str (), CC_UTF8));
             row.Add ("projectionFirstConstant", (GS::Int32) group.projectionFirstConstant);
             row.Add ("projectionNumConstants", (GS::Int32) group.projectionNumConstants);
             row.Add ("b0Bound", group.b0Bound);
-            row.Add ("b0Buffer",
-                     GS::UniString (std::to_string (group.b0Buffer).c_str (), CC_UTF8));
+            row.Add ("b0Buffer", GS::UniString (std::to_string (group.b0Buffer).c_str (), CC_UTF8));
             row.Add ("b0FirstConstant", (GS::Int32) group.b0FirstConstant);
             row.Add ("b0NumConstants", (GS::Int32) group.b0NumConstants);
             row.Add ("passGeneration", (GS::Int32) group.passGeneration);
@@ -571,12 +622,9 @@ public:
         chosen.Add ("occurrenceIndex", (GS::Int32) selection.occurrenceIndex);
         chosen.Add ("medianAreaPixels", (double) selection.medianAreaPixels);
         chosen.Add ("medianMaxEdgePixels", (double) selection.medianMaxEdgePixels);
-        chosen.Add ("vertexShader",
-                    GS::UniString (std::to_string (selection.vertexShader).c_str (), CC_UTF8));
-        chosen.Add ("renderTarget",
-                    GS::UniString (std::to_string (selection.renderTarget).c_str (), CC_UTF8));
-        chosen.Add ("depthStencil",
-                    GS::UniString (std::to_string (selection.depthStencil).c_str (), CC_UTF8));
+        chosen.Add ("vertexShader", GS::UniString (std::to_string (selection.vertexShader).c_str (), CC_UTF8));
+        chosen.Add ("renderTarget", GS::UniString (std::to_string (selection.renderTarget).c_str (), CC_UTF8));
+        chosen.Add ("depthStencil", GS::UniString (std::to_string (selection.depthStencil).c_str (), CC_UTF8));
         chosen.Add ("viewportWidth", (double) selection.viewportWidth);
         chosen.Add ("viewportHeight", (double) selection.viewportHeight);
         chosen.Add ("variant", (GS::Int32) selection.variant);
@@ -586,6 +634,33 @@ public:
         chosen.Add ("medianCentreError", (double) selection.medianCentreError);
         chosen.Add ("snapshotsTaken", (GS::Int32) selection.snapshotsTaken);
 
+        // ⚠️ THE IDENTITY, BESIDE THE BINDING. `selection` above is
+        // this session's pointers; this is what the camera IS, and it is the part
+        // a later phase can find again after Archicad rebuilds its views.
+        const cen::Fingerprint print = cen::GetFingerprint ();
+        GS::ObjectState fingerprint;
+        fingerprint.Add ("valid", print.valid);
+        fingerprint.Add ("occurrenceIndex", (GS::Int32) print.occurrenceIndex);
+        fingerprint.Add ("viewportX", (double) print.viewportX);
+        fingerprint.Add ("viewportY", (double) print.viewportY);
+        fingerprint.Add ("viewportWidth", (double) print.viewportWidth);
+        fingerprint.Add ("viewportHeight", (double) print.viewportHeight);
+        fingerprint.Add ("drawKindMask", (GS::Int32) print.drawKindMask);
+        fingerprint.Add ("indexCount", (GS::Int32) print.indexCount);
+        fingerprint.Add ("viewNumConstants", (GS::Int32) print.viewNumConstants);
+        fingerprint.Add ("projectionNumConstants", (GS::Int32) print.projectionNumConstants);
+        fingerprint.Add ("depthPresent", print.depthPresent);
+        fingerprint.Add ("renderTargetWidth", (GS::Int32) print.renderTargetWidth);
+        fingerprint.Add ("renderTargetHeight", (GS::Int32) print.renderTargetHeight);
+        fingerprint.Add ("renderTargetFormat", (GS::Int32) print.renderTargetFormat);
+        fingerprint.Add ("renderTargetSamples", (GS::Int32) print.renderTargetSamples);
+        fingerprint.Add ("depthWidth", (GS::Int32) print.depthWidth);
+        fingerprint.Add ("depthHeight", (GS::Int32) print.depthHeight);
+        fingerprint.Add ("depthFormat", (GS::Int32) print.depthFormat);
+        fingerprint.Add ("depthSamples", (GS::Int32) print.depthSamples);
+        fingerprint.Add ("variant", (GS::Int32) print.variant);
+        fingerprint.Add ("drawOrdinalFirst", (GS::Int32) print.drawOrdinalFirst);
+        fingerprint.Add ("drawOrdinalLast", (GS::Int32) print.drawOrdinalLast);
         const cen::Eligibility gate = cen::GetEligibility ();
         GS::ObjectState gateState;
         gateState.Add ("minSamples", (GS::Int32) gate.minSamples);
@@ -598,14 +673,16 @@ public:
 
         const cen::Stats stats = cen::GetStats ();
         GS::ObjectState os;
+        os.Add ("fingerprint", fingerprint);
         os.Add ("selection", chosen);
         os.Add ("selected", selected);
         os.Add ("eligibility", gateState);
         os.Add ("modelFramesSeen", (GS::Int32) stats.modelFramesSeen);
-        os.Add ("cameraSource",
-                GS::UniString (av::dxgi::injection::GetCameraSource () ==
-                                       av::dxgi::injection::CameraSource::CensusSelectedGroup
-                               ? "CensusSelectedGroup" : "Learner", CC_UTF8));
+        os.Add ("cameraSource", GS::UniString (av::dxgi::injection::GetCameraSource () ==
+                                                       av::dxgi::injection::CameraSource::CensusSelectedGroup
+                                                   ? "CensusSelectedGroup"
+                                                   : "Learner",
+                                               CC_UTF8));
         os.Add ("enabled", cen::Enabled ());
         os.Add ("ready", stats.ready);
         os.Add ("groups", rows);
@@ -617,28 +694,59 @@ public:
         os.Add ("copiesIssued", (GS::Int32) stats.copiesIssued);
         os.Add ("readbacksServed", (GS::Int32) stats.readbacksServed);
         os.Add ("readbacksBusy", (GS::Int32) stats.readbacksBusy);
+        os.Add ("fingerprintValid", stats.fingerprintValid);
+        os.Add ("selectionMatches", (GS::Int32) stats.selectionMatches);
+        os.Add ("logicalMatches", (GS::Int32) stats.logicalMatches);
+        os.Add ("rebinds", (GS::Int32) stats.rebinds);
+        os.Add ("rebindsRefused", (GS::Int32) stats.rebindsRefused);
+
+        // ⚠️ WHICH TERM OF THE FINGERPRINT REFUSED. `logicalMatches
+        // == 0` is the one failure this whole mechanism exists to prevent and
+        // also the least informative thing it could report; `soleMiss` names the
+        // single term that disagreed on draws which matched every other one.
+        {
+            const cen::FingerprintDiagnosis diag = cen::GetFingerprintDiagnosis ();
+            const char* const termNames[cen::kFingerprintTermCount] = { "occurrence",     "viewport",
+                                                                        "draw kind",      "index count",
+                                                                        "camera windows", "depth presence",
+                                                                        "colour target",  "depth target" };
+            GS::Array<GS::ObjectState> terms;
+            for (size_t i = 0; i < cen::kFingerprintTermCount; ++i) {
+                GS::ObjectState term;
+                term.Add ("name", GS::UniString (termNames[i], CC_UTF8));
+                term.Add ("missed", (GS::Int32) diag.missed[i]);
+                term.Add ("soleMiss", (GS::Int32) diag.soleMiss[i]);
+                term.Add ("sampled", diag.sampled[i]);
+                term.Add ("observed0", (GS::Int32) diag.observed[i][0]);
+                term.Add ("observed1", (GS::Int32) diag.observed[i][1]);
+                term.Add ("observed2", (GS::Int32) diag.observed[i][2]);
+                term.Add ("observed3", (GS::Int32) diag.observed[i][3]);
+                terms.Push (term);
+            }
+            os.Add ("fingerprintTerms", terms);
+            os.Add ("fingerprintEvaluated", (GS::Int32) diag.evaluated);
+        }
         return os;
     }
 };
 
-
 const NativeCommandRegistration kViewerInjectionCommandRegistrations[] = {
     { "ViewerInjectTriangle", &MakeRegisteredNativeCommand<ViewerInjectTriangleCommand>, false,
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string","enum":["present","scenepass","both"]},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"occurrenceReset":{"type":"boolean"},"occurrenceSelect":{"type":"boolean"},"probeReset":{"type":"boolean"},"depth":{"type":"string","enum":["off","scene","private"]},"frontOffsetZ":{"type":"number"},"behindOffsetZ":{"type":"number"}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string"},"drawsTotal":{"type":"integer"},"drawsWithView":{"type":"integer"},"drawsWithProjection":{"type":"integer"},"drawsWithBothCamera":{"type":"integer"},"initialised":{"type":"boolean"},"injected":{"type":"integer"},"skippedNoSceneDraw":{"type":"integer"},"skippedNoCamera":{"type":"integer"},"skippedNotReady":{"type":"integer"},"skippedPassMismatch":{"type":"integer"},"skippedWindowSize":{"type":"integer"},"skippedReentrant":{"type":"integer"},"skippedStaleCamera":{"type":"integer"},"backBufferFailures":{"type":"integer"},"newScene":{"type":"integer"},"repeatScene":{"type":"integer"},"invalidScene":{"type":"integer"},"invalidNoSnapshot":{"type":"integer"},"invalidNoDrawThisGeneration":{"type":"integer"},"invalidGenerationAdvanced":{"type":"integer"},"invalidGenerationMismatch":{"type":"integer"},"snapshotsTaken":{"type":"integer"},"qualifyingCameraDraws":{"type":"integer"},"cameraSource":{"type":"string"},"selectedCameraValid":{"type":"boolean"},"selectedGroupId":{"type":"integer"},"selectedGroupDraws":{"type":"integer"},"selectedGroupSnapshots":{"type":"integer"},"selectedSnapshotGeneration":{"type":"integer"},"occurrenceSelected":{"type":"boolean"},"occurrenceLocked":{"type":"boolean"},"lockedOccurrence":{"type":"integer"},"occurrenceDraws":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"occurrenceModelFrames":{"type":"integer"},"depthMode":{"type":"string"},"depthPreparations":{"type":"integer"},"depthCopies":{"type":"integer"},"depthNoSceneView":{"type":"integer"},"depthCopyRefused":{"type":"integer"},"depthRebuilds":{"type":"integer"},"depthWidth":{"type":"integer"},"depthHeight":{"type":"integer"},"depthFormat":{"type":"integer"},"depthSamples":{"type":"integer"},"depthPrivateReady":{"type":"boolean"},"depthError":{"type":"string"},"probesReady":{"type":"boolean"},"cameraVsHash":{"type":"string"},"probeVsHash":{"type":"string"},"rasterVsHash":{"type":"string"},"probeError":{"type":"string"},"depthInjections":{"type":"integer"},"depthNoView":{"type":"integer"},"depthViewChanged":{"type":"integer"},"presentDepthDraws":{"type":"integer"},"presentDepthNoView":{"type":"integer"},"lastDepthView":{"type":"string"},"probes":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"draws":{"type":"integer"},"queriesIssued":{"type":"integer"},"queriesResolved":{"type":"integer"},"drawsWithSamples":{"type":"integer"},"totalSamples":{"type":"integer"}},"additionalProperties":false,"required":["name","draws"]}},"occurrences":{"type":"array","items":{"type":"object","properties":{"index":{"type":"integer"},"draws":{"type":"integer"},"modelFrames":{"type":"integer"},"samples":{"type":"integer"},"insideClip":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"meanSpreadPixels":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"lastDrawSequence":{"type":"integer"}},"additionalProperties":false,"required":["index","draws","samples"]}},"injectedPresent":{"type":"integer"},"injectedScenePass":{"type":"integer"},"shaderInterpretation":{"type":"integer"},"expectedInterpretation":{"type":"integer"},"interpretationAgrees":{"type":"boolean"},"skippedInterpretation":{"type":"integer"},"viewCopies":{"type":"integer"},"projectionCopies":{"type":"integer"},"snapshotValid":{"type":"boolean"},"drawsWithBothInModelPass":{"type":"integer"},"departuresSeen":{"type":"integer"},"acceptedAsScene":{"type":"integer"},"rejectedTooFewDraws":{"type":"integer"},"rejectedAlreadyDone":{"type":"integer"},"drawThreshold":{"type":"integer"},"busiestPassDraws":{"type":"integer"},"signatureLearned":{"type":"boolean"},"signatureStableFrames":{"type":"integer"},"signatureFramesWatched":{"type":"integer"},"signatureCandidates":{"type":"integer"},"signatureDraws":{"type":"integer"},"signatureViewportWidth":{"type":"number"},"signatureViewportHeight":{"type":"number"},"sceneConsumers":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["enabled","injected"]})json" },
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string","enum":["present","scenepass","both"]},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"occurrenceReset":{"type":"boolean"},"occurrenceSelect":{"type":"boolean"},"probeReset":{"type":"boolean"},"depth":{"type":"string","enum":["off","scene","private"]},"mesh":{"type":"boolean"},"meshAnimate":{"type":"boolean"},"frontOffsetZ":{"type":"number"},"behindOffsetZ":{"type":"number"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"point":{"type":"string"},"drawsTotal":{"type":"integer"},"drawsWithView":{"type":"integer"},"drawsWithProjection":{"type":"integer"},"drawsWithBothCamera":{"type":"integer"},"initialised":{"type":"boolean"},"injected":{"type":"integer"},"skippedNoSceneDraw":{"type":"integer"},"skippedNoCamera":{"type":"integer"},"skippedNotReady":{"type":"integer"},"skippedPassMismatch":{"type":"integer"},"skippedWindowSize":{"type":"integer"},"skippedReentrant":{"type":"integer"},"skippedStaleCamera":{"type":"integer"},"backBufferFailures":{"type":"integer"},"newScene":{"type":"integer"},"repeatScene":{"type":"integer"},"invalidScene":{"type":"integer"},"invalidNoSnapshot":{"type":"integer"},"invalidNoDrawThisGeneration":{"type":"integer"},"invalidGenerationAdvanced":{"type":"integer"},"invalidGenerationMismatch":{"type":"integer"},"snapshotsTaken":{"type":"integer"},"qualifyingCameraDraws":{"type":"integer"},"cameraSource":{"type":"string"},"selectedCameraValid":{"type":"boolean"},"armState":{"type":"string"},"fingerprintValid":{"type":"boolean"},"censusSelectionMatches":{"type":"integer"},"censusLogicalMatches":{"type":"integer"},"censusRebinds":{"type":"integer"},"censusRebindsRefused":{"type":"integer"},"selectedGroupId":{"type":"integer"},"selectedGroupDraws":{"type":"integer"},"selectedGroupSnapshots":{"type":"integer"},"selectedSnapshotGeneration":{"type":"integer"},"occurrenceSelected":{"type":"boolean"},"occurrenceLocked":{"type":"boolean"},"lockedOccurrence":{"type":"integer"},"occurrenceDraws":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"occurrenceModelFrames":{"type":"integer"},"depthMode":{"type":"string"},"depthPreparations":{"type":"integer"},"depthSourceViewAcquired":{"type":"integer"},"depthSourceResourceAcquired":{"type":"integer"},"depthSourceDescAccepted":{"type":"integer"},"depthTextureCreated":{"type":"integer"},"depthViewCreated":{"type":"integer"},"depthCopyIssued":{"type":"integer"},"depthViewBound":{"type":"integer"},"depthCopies":{"type":"integer"},"depthNoSceneView":{"type":"integer"},"depthCopyRefused":{"type":"integer"},"depthRebuilds":{"type":"integer"},"depthWidth":{"type":"integer"},"depthHeight":{"type":"integer"},"depthFormat":{"type":"integer"},"depthSamples":{"type":"integer"},"depthPrivateReady":{"type":"boolean"},"depthError":{"type":"string"},"mesh":{"type":"boolean"},"meshAnimate":{"type":"boolean"},"meshCreated":{"type":"boolean"},"meshBuilds":{"type":"integer"},"meshUploads":{"type":"integer"},"meshUploadFailures":{"type":"integer"},"meshDraws":{"type":"integer"},"meshVertices":{"type":"integer"},"meshIndices":{"type":"integer"},"meshTriangles":{"type":"integer"},"meshPhase":{"type":"integer"},"meshError":{"type":"string"},"probesReady":{"type":"boolean"},"cameraVsHash":{"type":"string"},"probeVsHash":{"type":"string"},"rasterVsHash":{"type":"string"},"probeError":{"type":"string"},"depthInjections":{"type":"integer"},"depthNoView":{"type":"integer"},"depthViewChanged":{"type":"integer"},"presentDepthDraws":{"type":"integer"},"presentDepthNoView":{"type":"integer"},"lastDepthView":{"type":"string"},"probes":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"draws":{"type":"integer"},"queriesIssued":{"type":"integer"},"queriesResolved":{"type":"integer"},"drawsWithSamples":{"type":"integer"},"totalSamples":{"type":"integer"}},"additionalProperties":false,"required":["name","draws"]}},"occurrences":{"type":"array","items":{"type":"object","properties":{"index":{"type":"integer"},"draws":{"type":"integer"},"modelFrames":{"type":"integer"},"samples":{"type":"integer"},"insideClip":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"meanSpreadPixels":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"lastDrawSequence":{"type":"integer"}},"additionalProperties":false,"required":["index","draws","samples"]}},"injectedPresent":{"type":"integer"},"injectedScenePass":{"type":"integer"},"shaderInterpretation":{"type":"integer"},"expectedInterpretation":{"type":"integer"},"interpretationAgrees":{"type":"boolean"},"skippedInterpretation":{"type":"integer"},"viewCopies":{"type":"integer"},"projectionCopies":{"type":"integer"},"snapshotValid":{"type":"boolean"},"drawsWithBothInModelPass":{"type":"integer"},"departuresSeen":{"type":"integer"},"acceptedAsScene":{"type":"integer"},"rejectedTooFewDraws":{"type":"integer"},"rejectedAlreadyDone":{"type":"integer"},"drawThreshold":{"type":"integer"},"busiestPassDraws":{"type":"integer"},"signatureLearned":{"type":"boolean"},"signatureStableFrames":{"type":"integer"},"signatureFramesWatched":{"type":"integer"},"signatureCandidates":{"type":"integer"},"signatureDraws":{"type":"integer"},"signatureViewportWidth":{"type":"number"},"signatureViewportHeight":{"type":"number"},"sceneConsumers":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["enabled","injected"]})json" },
     { "ViewerInjectionOracle", &MakeRegisteredNativeCommand<ViewerInjectionOracleCommand>, false,
       R"json({"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":64},"reset":{"type":"boolean"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"ready":{"type":"boolean"},"rows":{"type":"array","items":{"type":"object","properties":{"present":{"type":"integer"},"modelSceneGeneration":{"type":"integer"},"snapshotSequence":{"type":"integer"},"snapshotDrawSequence":{"type":"integer"},"state":{"type":"integer"},"cameraSource":{"type":"integer"},"selectedGroupId":{"type":"integer"},"selectedGroupSnapshotGeneration":{"type":"integer"},"sourceDrawSequence":{"type":"integer"},"sourceModelGeneration":{"type":"integer"},"viewBuffer":{"type":"string"},"viewFirstConstant":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionBuffer":{"type":"string"},"projectionFirstConstant":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"matricesRead":{"type":"boolean"},"clipW":{"type":"number"},"ndcX":{"type":"number"},"ndcY":{"type":"number"},"ndcZ":{"type":"number"},"pixelX":{"type":"number"},"pixelY":{"type":"number"},"insideClipVolume":{"type":"boolean"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"bestVariant":{"type":"integer"},"bestVariantPixelX":{"type":"number"},"bestVariantPixelY":{"type":"number"},"bestVariantCentreError":{"type":"number"},"drawIssued":{"type":"boolean"},"samplesKnown":{"type":"boolean"},"samplesPassed":{"type":"integer"}},"additionalProperties":false,"required":["present","state","matricesRead"]}},"rowsCompleted":{"type":"integer"},"rowsDroppedUnresolved":{"type":"integer"},"readbacksAttempted":{"type":"integer"},"readbacksServed":{"type":"integer"},"readbacksStillDrawing":{"type":"integer"},"readbacksStale":{"type":"integer"},"queriesIssued":{"type":"integer"},"queriesResolved":{"type":"integer"},"queriesUnavailable":{"type":"integer"},"snapshotsStaged":{"type":"integer"},"rowsQualified":{"type":"integer"},"rowsRejectedNotNew":{"type":"integer"},"rowsRejectedStill":{"type":"integer"},"variants":{"type":"array","items":{"type":"object","properties":{"variant":{"type":"integer"},"rowsTested":{"type":"integer"},"rowsInsideClip":{"type":"integer"},"rowsWon":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"}},"additionalProperties":false,"required":["variant","rowsTested"]}}},"additionalProperties":false,"required":["ready","rows"]})json" },
     { "ViewerCameraCensus", &MakeRegisteredNativeCommand<ViewerCameraCensusCommand>, false,
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"reset":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":32},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"select":{"type":"boolean"},"clearSelection":{"type":"boolean"}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"ready":{"type":"boolean"},"groups":{"type":"array","items":{"type":"object","properties":{"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"viewBuffer":{"type":"string"},"viewFirstConstant":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionBuffer":{"type":"string"},"projectionFirstConstant":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"b0Bound":{"type":"boolean"},"b0Buffer":{"type":"string"},"b0FirstConstant":{"type":"integer"},"b0NumConstants":{"type":"integer"},"passGeneration":{"type":"integer"},"targetEpoch":{"type":"integer"},"drawSequenceFirst":{"type":"integer"},"drawSequenceLast":{"type":"integer"},"drawsObserved":{"type":"integer"},"framesObserved":{"type":"integer"},"modelFramesObserved":{"type":"integer"},"groupId":{"type":"integer"},"occurrenceIndex":{"type":"integer"},"anchorInside":{"type":"integer"},"trianglesFinite":{"type":"integer"},"medianAreaPixels":{"type":"number"},"medianMaxEdgePixels":{"type":"number"},"firstPresent":{"type":"integer"},"lastPresent":{"type":"integer"},"drawKindMask":{"type":"integer"},"lastIndexCount":{"type":"integer"},"samplesScored":{"type":"integer"},"winningVariant":{"type":"integer"},"winningVariantValid":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"meanSpreadPixels":{"type":"number"}},"additionalProperties":false,"required":["vertexShader","drawsObserved","samplesScored"]}},"drawsSeen":{"type":"integer"},"drawsQualified":{"type":"integer"},"framesSeen":{"type":"integer"},"groupsUsed":{"type":"integer"},"groupsOverflowed":{"type":"integer"},"copiesIssued":{"type":"integer"},"readbacksServed":{"type":"integer"},"readbacksBusy":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"selected":{"type":"boolean"},"cameraSource":{"type":"string"},"eligibility":{"type":"object","properties":{"minSamples":{"type":"integer"},"minModelCoverage":{"type":"number"},"minInsideClip":{"type":"number"},"maxMedianCentreError":{"type":"number"},"minFiniteTriangles":{"type":"number"},"minMedianAreaPixels":{"type":"number"},"minMedianMaxEdgePixels":{"type":"number"}},"additionalProperties":false},"selection":{"type":"object","properties":{"valid":{"type":"boolean"},"groupId":{"type":"integer"},"occurrenceIndex":{"type":"integer"},"medianAreaPixels":{"type":"number"},"medianMaxEdgePixels":{"type":"number"},"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"variant":{"type":"integer"},"samples":{"type":"integer"},"modelCoverage":{"type":"number"},"insideClip":{"type":"number"},"medianCentreError":{"type":"number"},"snapshotsTaken":{"type":"integer"}},"additionalProperties":false,"required":["valid"]}},"additionalProperties":false,"required":["enabled","groups"]})json" },
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"reset":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":48},"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"},"sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000},"select":{"type":"boolean"},"clearSelection":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"enabled":{"type":"boolean"},"ready":{"type":"boolean"},"groups":{"type":"array","items":{"type":"object","properties":{"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"viewBuffer":{"type":"string"},"viewFirstConstant":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionBuffer":{"type":"string"},"projectionFirstConstant":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"b0Bound":{"type":"boolean"},"b0Buffer":{"type":"string"},"b0FirstConstant":{"type":"integer"},"b0NumConstants":{"type":"integer"},"passGeneration":{"type":"integer"},"targetEpoch":{"type":"integer"},"drawSequenceFirst":{"type":"integer"},"drawSequenceLast":{"type":"integer"},"drawsObserved":{"type":"integer"},"framesObserved":{"type":"integer"},"modelFramesObserved":{"type":"integer"},"groupId":{"type":"integer"},"occurrenceIndex":{"type":"integer"},"anchorInside":{"type":"integer"},"trianglesFinite":{"type":"integer"},"medianAreaPixels":{"type":"number"},"medianMaxEdgePixels":{"type":"number"},"firstPresent":{"type":"integer"},"lastPresent":{"type":"integer"},"drawKindMask":{"type":"integer"},"lastIndexCount":{"type":"integer"},"samplesScored":{"type":"integer"},"winningVariant":{"type":"integer"},"winningVariantValid":{"type":"integer"},"medianCentreError":{"type":"number"},"meanCentreError":{"type":"number"},"worstCentreError":{"type":"number"},"meanSpreadPixels":{"type":"number"}},"additionalProperties":false,"required":["vertexShader","drawsObserved","samplesScored"]}},"drawsSeen":{"type":"integer"},"drawsQualified":{"type":"integer"},"framesSeen":{"type":"integer"},"groupsUsed":{"type":"integer"},"groupsOverflowed":{"type":"integer"},"copiesIssued":{"type":"integer"},"readbacksServed":{"type":"integer"},"readbacksBusy":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"selected":{"type":"boolean"},"fingerprintValid":{"type":"boolean"},"selectionMatches":{"type":"integer"},"logicalMatches":{"type":"integer"},"rebinds":{"type":"integer"},"rebindsRefused":{"type":"integer"},"fingerprintEvaluated":{"type":"integer"},"fingerprintTerms":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"missed":{"type":"integer"},"soleMiss":{"type":"integer"},"sampled":{"type":"boolean"},"observed0":{"type":"integer"},"observed1":{"type":"integer"},"observed2":{"type":"integer"},"observed3":{"type":"integer"}},"additionalProperties":false,"required":["name"]}},"fingerprint":{"type":"object","properties":{"valid":{"type":"boolean"},"occurrenceIndex":{"type":"integer"},"viewportX":{"type":"number"},"viewportY":{"type":"number"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"drawKindMask":{"type":"integer"},"indexCount":{"type":"integer"},"viewNumConstants":{"type":"integer"},"projectionNumConstants":{"type":"integer"},"depthPresent":{"type":"boolean"},"renderTargetWidth":{"type":"integer"},"renderTargetHeight":{"type":"integer"},"renderTargetFormat":{"type":"integer"},"renderTargetSamples":{"type":"integer"},"depthWidth":{"type":"integer"},"depthHeight":{"type":"integer"},"depthFormat":{"type":"integer"},"depthSamples":{"type":"integer"},"variant":{"type":"integer"},"drawOrdinalFirst":{"type":"integer"},"drawOrdinalLast":{"type":"integer"}},"additionalProperties":false,"required":["valid"]},"cameraSource":{"type":"string"},"eligibility":{"type":"object","properties":{"minSamples":{"type":"integer"},"minModelCoverage":{"type":"number"},"minInsideClip":{"type":"number"},"maxMedianCentreError":{"type":"number"},"minFiniteTriangles":{"type":"number"},"minMedianAreaPixels":{"type":"number"},"minMedianMaxEdgePixels":{"type":"number"}},"additionalProperties":false},"selection":{"type":"object","properties":{"valid":{"type":"boolean"},"groupId":{"type":"integer"},"occurrenceIndex":{"type":"integer"},"medianAreaPixels":{"type":"number"},"medianMaxEdgePixels":{"type":"number"},"vertexShader":{"type":"string"},"renderTarget":{"type":"string"},"depthStencil":{"type":"string"},"viewportWidth":{"type":"number"},"viewportHeight":{"type":"number"},"variant":{"type":"integer"},"samples":{"type":"integer"},"modelCoverage":{"type":"number"},"insideClip":{"type":"number"},"medianCentreError":{"type":"number"},"snapshotsTaken":{"type":"integer"}},"additionalProperties":false,"required":["valid"]}},"additionalProperties":false,"required":["enabled","groups"]})json" },
 };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetViewerInjectionCommandRegistrations ()
 {
     return MakeRegistrationView (kViewerInjectionCommandRegistrations);
 }
 
-}   // namespace geomsrv
+} // namespace geomsrv

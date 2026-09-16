@@ -24255,6 +24255,27 @@
           "depthPreparations": {
             "type": "integer"
           },
+          "depthSourceViewAcquired": {
+            "type": "integer"
+          },
+          "depthSourceResourceAcquired": {
+            "type": "integer"
+          },
+          "depthSourceDescAccepted": {
+            "type": "integer"
+          },
+          "depthTextureCreated": {
+            "type": "integer"
+          },
+          "depthViewCreated": {
+            "type": "integer"
+          },
+          "depthCopyIssued": {
+            "type": "integer"
+          },
+          "depthViewBound": {
+            "type": "integer"
+          },
           "depthCopies": {
             "type": "integer"
           },

@@ -76,8 +76,18 @@ ID3D11DepthStencilState* StateForMode (ID3D11DeviceContext* context);
 // MAIN THREAD, at teardown.
 void Shutdown ();
 
+// ⚠️ EVERY STAGE OF THE PRIVATE COPY IS COUNTED SEPARATELY, so a failure names
+// the step that failed instead of producing an absence. "It did not work" is not
+// a diagnosis, and a path with seven ways to fail needs seven counters.
 struct Stats {
     uint64_t preparations = 0;
+    uint64_t sourceViewAcquired = 0;
+    uint64_t sourceResourceAcquired = 0;
+    uint64_t sourceDescAccepted = 0;
+    uint64_t textureCreated = 0;
+    uint64_t viewCreated = 0;
+    uint64_t copyIssued = 0;
+    uint64_t viewBound = 0;
     uint64_t copies = 0;
     uint64_t noSceneView = 0;
     uint64_t copyRefused = 0;      // the source could not be copied from

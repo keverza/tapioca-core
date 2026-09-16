@@ -247,6 +247,14 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # them out. A second definition of the group shape on this side of the
     # boundary is worse than the sideways include.
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/CameraCensus.hpp"),
+    # The recognizer half of the census -- which measured group is the camera,
+    # and the logical fingerprint that finds it again after Archicad rebuilds
+    # its render target and depth views. Same reason as the census beside it:
+    # `Selection`, `Fingerprint` and `Eligibility` are decided on the render
+    # thread and this verb only copies them out, and a second definition of the
+    # fingerprint on this side of the boundary is exactly the kind of drift that
+    # let run forty-five report a selected camera the injection could not find.
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/CameraRecognizer.hpp"),
     # The three-probe diagnostic, read by the same verb. Same reason as the
     # renderer and the census beside it: the probe counters are produced on
     # Archicad's render thread and this verb only copies them out.
@@ -255,6 +263,12 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # draw tests against is a property of the mechanism, and restating it here
     # would be a second definition of it.
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionDepth.hpp"),
+    # The ghost mesh, armed and reported by Tapioca.ViewerInjectTriangle. Same
+    # reason as the depth module beside it: the mesh is built and uploaded on
+    # Archicad's render thread and this verb only flips its switches and copies
+    # its counters out. Restating the counter shape here would be a second
+    # definition of it.
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/GhostMesh.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionCamera.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/RenderStateCapture.hpp"),

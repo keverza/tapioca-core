@@ -31,7 +31,7 @@ constexpr UINT kExpectedWindowConstants = 16;
 // clip volume and a median of 0.002 from the viewport centre.
 // The declaration bound at start-up, before the census has selected anything.
 constexpr uint32_t kDefaultInterpretation = 0;
-std::atomic<uint32_t> g_shaderInterpretation {kDefaultInterpretation};
+std::atomic<uint32_t> g_shaderInterpretation { kDefaultInterpretation };
 
 // Sentinel: nothing has been learned, so there is nothing to disagree with.
 constexpr uint32_t kNoInterpretation = 0xffffffffu;
@@ -47,18 +47,18 @@ bool g_createFailed = false;
 
 uint64_t g_snapshotModelGeneration = 0;
 uint64_t g_snapshotDrawSequence = 0;
-bool     g_snapshotValid = false;
+bool g_snapshotValid = false;
 contextstate::SceneDrawState g_snapshotDraw;
 SelectedCameraState g_selectedCamera;
 
-std::atomic<uint64_t> g_snapshotsTaken {0};
-std::atomic<uint64_t> g_qualifyingCameraDraws {0};
-std::atomic<uint64_t> g_viewCopies {0};
-std::atomic<uint64_t> g_projectionCopies {0};
-std::atomic<uint64_t> g_selectedGroupDraws {0};
-std::atomic<uint64_t> g_selectedGroupSnapshots {0};
-std::atomic<int> g_cameraSource {int (CameraSource::Learner)};
-std::atomic<uint32_t> g_expectedInterpretation {kNoInterpretation};
+std::atomic<uint64_t> g_snapshotsTaken { 0 };
+std::atomic<uint64_t> g_qualifyingCameraDraws { 0 };
+std::atomic<uint64_t> g_viewCopies { 0 };
+std::atomic<uint64_t> g_projectionCopies { 0 };
+std::atomic<uint64_t> g_selectedGroupDraws { 0 };
+std::atomic<uint64_t> g_selectedGroupSnapshots { 0 };
+std::atomic<int> g_cameraSource { int (CameraSource::Learner) };
+std::atomic<uint32_t> g_expectedInterpretation { kNoInterpretation };
 
 // ⚠️ ONE SLOT PER OCCURRENCE WITHIN A MODEL FRAME, EACH WITH ITS OWN BYTES. The
 // selected group draws several times per frame -- six, in run thirty-four -- and
@@ -72,33 +72,33 @@ struct Occurrence {
     ID3D11Buffer* projection = nullptr;
     ID3D11Buffer* stagingView = nullptr;
     ID3D11Buffer* stagingProjection = nullptr;
-    bool     copyPending = false;
+    bool copyPending = false;
 
     uint64_t draws = 0;
     uint64_t modelFrames = 0;
     uint64_t lastModelCounted = 0;
     uint64_t lastDrawSequence = 0;
-    float    viewportX = 0.0f, viewportY = 0.0f;
-    float    viewportWidth = 0.0f, viewportHeight = 0.0f;
+    float viewportX = 0.0f, viewportY = 0.0f;
+    float viewportWidth = 0.0f, viewportHeight = 0.0f;
 
     uint32_t samples = 0;
     uint32_t insideClip = 0;
-    double   spreadSum = 0.0;
-    float    errors[kErrorSamples] = {};
+    double spreadSum = 0.0;
+    float errors[kErrorSamples] = {};
     uint32_t errorCount = 0;
     uint32_t errorNext = 0;
-    double   errorSum = 0.0;
-    float    worst = 0.0f;
-    bool     used = false;
+    double errorSum = 0.0;
+    float worst = 0.0f;
+    bool used = false;
 };
 
 Occurrence g_occurrences[kOccurrenceCapacity];
-uint64_t g_occurrenceModelGeneration = 0;   // the generation being counted through
-uint32_t g_occurrenceIndex = 0;             // position within that generation
+uint64_t g_occurrenceModelGeneration = 0; // the generation being counted through
+uint32_t g_occurrenceIndex = 0;           // position within that generation
 uint64_t g_occurrenceModelFrames = 0;
-std::atomic<uint64_t> g_occurrenceDraws {0};
-std::atomic<uint64_t> g_authoritativeSnapshots {0};
-bool     g_occurrenceLocked = false;
+std::atomic<uint64_t> g_occurrenceDraws { 0 };
+std::atomic<uint64_t> g_authoritativeSnapshots { 0 };
+bool g_occurrenceLocked = false;
 uint32_t g_lockedOccurrence = 0;
 
 // ⚠️ SCORED AT INTERPRETATION 2 AND NOTHING ELSE. The census already settled
@@ -108,8 +108,7 @@ uint32_t g_lockedOccurrence = 0;
 // wrong reading.
 constexpr size_t kScoredInterpretation = 2;
 
-template <typename T>
-void ReleaseAndNull (T*& object)
+template <typename T> void ReleaseAndNull (T*& object)
 {
     if (object != nullptr) {
         object->Release ();
@@ -151,8 +150,7 @@ bool EnsureCameraCreated (ID3D11DeviceContext* context)
         ok = ok && SUCCEEDED (g_device->CreateBuffer (&desc, nullptr, &slot.view));
         ok = ok && SUCCEEDED (g_device->CreateBuffer (&desc, nullptr, &slot.projection));
         ok = ok && SUCCEEDED (g_device->CreateBuffer (&staging, nullptr, &slot.stagingView));
-        ok = ok && SUCCEEDED (g_device->CreateBuffer (&staging, nullptr,
-                &slot.stagingProjection));
+        ok = ok && SUCCEEDED (g_device->CreateBuffer (&staging, nullptr, &slot.stagingProjection));
     }
     if (!ok) {
         g_createFailed = true;
@@ -167,12 +165,10 @@ void TryScoreOccurrence (ID3D11DeviceContext* context, Occurrence& slot)
 {
     D3D11_MAPPED_SUBRESOURCE viewMap = {};
     D3D11_MAPPED_SUBRESOURCE projectionMap = {};
-    HRESULT hr = context->Map (slot.stagingView, 0, D3D11_MAP_READ,
-                               D3D11_MAP_FLAG_DO_NOT_WAIT, &viewMap);
+    HRESULT hr = context->Map (slot.stagingView, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &viewMap);
     if (FAILED (hr) || viewMap.pData == nullptr)
         return;
-    hr = context->Map (slot.stagingProjection, 0, D3D11_MAP_READ,
-                       D3D11_MAP_FLAG_DO_NOT_WAIT, &projectionMap);
+    hr = context->Map (slot.stagingProjection, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &projectionMap);
     if (FAILED (hr) || projectionMap.pData == nullptr) {
         context->Unmap (slot.stagingView, 0);
         return;
@@ -226,10 +222,9 @@ float OccurrenceMedian (const Occurrence& slot)
     return sorted[slot.errorCount / 2];
 }
 
-}   // namespace
+} // namespace
 
-void CopyCameraWindows (ID3D11DeviceContext* context,
-                        const contextstate::SceneDrawState& draw);
+void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneDrawState& draw);
 
 void SnapshotCamera (ID3D11DeviceContext* context)
 {
@@ -258,8 +253,7 @@ void SnapshotCamera (ID3D11DeviceContext* context)
         return;
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
-    if (view.numConstants != kExpectedWindowConstants ||
-        projection.numConstants != kExpectedWindowConstants)
+    if (view.numConstants != kExpectedWindowConstants || projection.numConstants != kExpectedWindowConstants)
         return;
 
     CopyCameraWindows (context, draw);
@@ -267,8 +261,7 @@ void SnapshotCamera (ID3D11DeviceContext* context)
 
 // The two GPU copies, the stamps, and the diagnostic staging -- shared by both
 // camera sources so they can never drift apart in what they preserve.
-void CopyCameraWindows (ID3D11DeviceContext* context,
-                        const contextstate::SceneDrawState& draw)
+void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneDrawState& draw)
 {
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
@@ -291,13 +284,13 @@ void CopyCameraWindows (ID3D11DeviceContext* context,
     box.left = view.ByteOffset ();
     box.right = box.left + 256;
     context->CopySubresourceRegion (g_viewSnapshot, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
     g_viewCopies.fetch_add (1, std::memory_order_relaxed);
 
     box.left = projection.ByteOffset ();
     box.right = box.left + 256;
     context->CopySubresourceRegion (g_projectionSnapshot, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
     g_projectionCopies.fetch_add (1, std::memory_order_relaxed);
 
     // ⚠️ EVERY QUALIFYING DRAW, NOT A GUESS AT THE LAST ONE. Two 256-byte GPU
@@ -313,11 +306,10 @@ void CopyCameraWindows (ID3D11DeviceContext* context,
     // ⚠️ THE DIAGNOSTIC COPY IS OF OUR COPY, NEVER OF ARCHICAD'S RING. It is one
     // more GPU-to-GPU copy of 256 bytes and it is read back LATER, from a slot
     // the GPU has finished with; nothing on this line waits for anything.
-    oracle::OnSnapshot (context, g_viewSnapshot, g_projectionSnapshot, sequence,
-            draw.modelSceneGeneration, draw.drawSequence,
-            view.buffer, view.firstConstant, view.numConstants,
-            projection.buffer, projection.firstConstant, projection.numConstants,
-            draw.viewportX, draw.viewportY, draw.viewportWidth, draw.viewportHeight);
+    oracle::OnSnapshot (context, g_viewSnapshot, g_projectionSnapshot, sequence, draw.modelSceneGeneration,
+                        draw.drawSequence, view.buffer, view.firstConstant, view.numConstants, projection.buffer,
+                        projection.firstConstant, projection.numConstants, draw.viewportX, draw.viewportY,
+                        draw.viewportWidth, draw.viewportHeight);
 }
 
 uint32_t ShaderInterpretation ()
@@ -365,8 +357,7 @@ CameraSource GetCameraSource ()
     return CameraSource (g_cameraSource.load (std::memory_order_acquire));
 }
 
-void SnapshotSelectedDraw (ID3D11DeviceContext* context,
-                           const contextstate::SceneDrawState& draw, uint32_t groupId)
+void SnapshotSelectedDraw (ID3D11DeviceContext* context, const contextstate::SceneDrawState& draw, uint32_t groupId)
 {
     if (context == nullptr || !Enabled ())
         return;
@@ -381,8 +372,7 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context,
 
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
-    if (view.numConstants != kExpectedWindowConstants ||
-        projection.numConstants != kExpectedWindowConstants)
+    if (view.numConstants != kExpectedWindowConstants || projection.numConstants != kExpectedWindowConstants)
         return;
 
     if (!EnsureCameraCreated (context))
@@ -426,18 +416,19 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context,
     box.back = 1;
     box.left = view.ByteOffset ();
     box.right = box.left + 256;
-    context->CopySubresourceRegion (slot.view, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
+    context->CopySubresourceRegion (slot.view, 0, 0, 0, 0, reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0,
+                                    &box);
     box.left = projection.ByteOffset ();
     box.right = box.left + 256;
     context->CopySubresourceRegion (slot.projection, 0, 0, 0, 0,
-            reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
 
     if (!slot.copyPending) {
         context->CopyResource (slot.stagingView, slot.view);
         context->CopyResource (slot.stagingProjection, slot.projection);
         slot.copyPending = true;
-    } else {
+    }
+    else {
         TryScoreOccurrence (context, slot);
     }
 
@@ -468,6 +459,13 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context,
     g_selectedCamera.viewportWidth = draw.viewportWidth;
     g_selectedCamera.viewportHeight = draw.viewportHeight;
     g_selectedGroupSnapshots.fetch_add (1, std::memory_order_relaxed);
+
+    // ⚠️ THIS IS THE ONLY PLACE A CAMERA BECOMES REAL, SO IT IS THE
+    // ONLY PLACE THAT MAY ACTIVATE THE INJECTION. `ArmedPendingCamera` ends
+    // here, on the render thread, on the evidence of a matching draw -- never on
+    // the main thread's say-so, and never before the 256 bytes have actually
+    // been copied.
+    NotifyCameraAcquired ();
 }
 
 SelectedCameraState GetSelectedCamera ()
@@ -521,11 +519,9 @@ size_t CopyOccurrences (OccurrenceStats* out, size_t capacity)
         stats.samples = slot.samples;
         stats.insideClip = slot.insideClip;
         stats.medianCentreError = OccurrenceMedian (slot);
-        stats.meanCentreError = slot.errorCount > 0
-                ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
+        stats.meanCentreError = slot.errorCount > 0 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
         stats.worstCentreError = slot.worst;
-        stats.meanSpreadPixels = slot.insideClip > 0
-                ? float (slot.spreadSum / double (slot.insideClip)) : 0.0f;
+        stats.meanSpreadPixels = slot.insideClip > 0 ? float (slot.spreadSum / double (slot.insideClip)) : 0.0f;
         stats.viewportWidth = slot.viewportWidth;
         stats.viewportHeight = slot.viewportHeight;
         stats.lastDrawSequence = slot.lastDrawSequence;
@@ -572,8 +568,7 @@ bool SelectOccurrence ()
         if (!slot.used || slot.samples < 8)
             continue;
         const float inside = float (double (slot.insideClip) / double (slot.samples));
-        const float coverage = frames > 0
-                ? float (double (slot.modelFrames) / double (frames)) : 0.0f;
+        const float coverage = frames > 0 ? float (double (slot.modelFrames) / double (frames)) : 0.0f;
         const float median = OccurrenceMedian (slot);
         // ⚠️ THE SAME LOOSENED THRESHOLD AS THE CENSUS, AND FOR THE SAME REASON:
         // 0.05 was calibrated against a transform that collapsed the primitive to
@@ -581,8 +576,7 @@ bool SelectOccurrence ()
         // `CameraCensus::Eligibility::maxMedianCentreError`.
         if (coverage < 0.80f || inside < 0.95f || median > 0.25f)
             continue;
-        if (best < 0 || inside > bestInside + 0.005f ||
-            (inside >= bestInside - 0.005f && median < bestMedian)) {
+        if (best < 0 || inside > bestInside + 0.005f || (inside >= bestInside - 0.005f && median < bestMedian)) {
             best = int (i);
             bestMedian = median;
             bestInside = inside;
@@ -665,7 +659,7 @@ void ShutdownCamera ()
     g_selectedCamera = SelectedCameraState {};
 }
 
-}   // namespace injection
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace injection
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

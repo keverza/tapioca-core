@@ -95,8 +95,8 @@ struct Group {
     uint64_t vertexShader = 0;
     uint64_t renderTarget = 0;
     uint64_t depthStencil = 0;
-    float    viewportX = 0.0f, viewportY = 0.0f;
-    float    viewportWidth = 0.0f, viewportHeight = 0.0f;
+    float viewportX = 0.0f, viewportY = 0.0f;
+    float viewportWidth = 0.0f, viewportHeight = 0.0f;
     uint64_t viewBuffer = 0;
     uint32_t viewNumConstants = 0;
     uint64_t projectionBuffer = 0;
@@ -107,7 +107,7 @@ struct Group {
     uint64_t passGeneration = 0, targetEpoch = 0;
     uint64_t drawSequenceFirst = 0, drawSequenceLast = 0;
     uint64_t drawsObserved = 0;
-    uint64_t framesObserved = 0;        // Presents. Informational only.
+    uint64_t framesObserved = 0; // Presents. Informational only.
 
     // ⚠️ THE DENOMINATOR THAT MATTERS IS MODEL FRAMES, NOT PRESENTS. Archicad
     // presents constantly without re-rendering the model -- a UI repaint, a
@@ -118,51 +118,77 @@ struct Group {
     uint64_t modelFramesObserved = 0;
     uint32_t drawKindMask = 0;
     uint32_t lastIndexCount = 0;
-    uint32_t viewFirstConstant = 0;     // last seen; the ring window advances
+
+    // ⚠️ WHAT THE TARGETS ARE, BESIDE WHAT THEY ARE CALLED. The
+    // pointers above name this session's views; these describe the textures
+    // behind them, and they are the only part of a target identity that survives
+    // Archicad rebuilding its views. See `Fingerprint`.
+    uint32_t renderTargetWidth = 0, renderTargetHeight = 0;
+    uint32_t renderTargetFormat = 0, renderTargetSamples = 0;
+    bool depthPresent = false;
+    uint32_t depthWidth = 0, depthHeight = 0;
+    uint32_t depthFormat = 0, depthSamples = 0;
+    uint32_t viewFirstConstant = 0; // last seen; the ring window advances
     uint32_t projectionFirstConstant = 0;
 
     // ⚠️ RECORDED, NOT USED. See the header note on `b0`.
-    bool     b0Bound = false;
+    bool b0Bound = false;
     uint64_t b0Buffer = 0;
     uint32_t b0FirstConstant = 0;
     uint32_t b0NumConstants = 0;
 
     // ---- what its bytes actually project to -------------------------------
     uint32_t samplesScored = 0;
+    // How many of those produced a best VALID variant, which is the denominator
+    // the centre-error gate uses. Folded in by `CopyGroups`.
+    uint32_t errorSamples = 0;
     uint32_t winningVariant = 0;
-    uint32_t winningVariantValid = 0;   // samples where THAT variant was valid
+    uint32_t winningVariantValid = 0; // samples where THAT variant was valid
 
     // ⚠️ THE HARD METRICS, MEASURED ON THE WHOLE TRIANGLE AT INTERPRETATION 0.
     // The transform question is settled; these answer whether THIS draw carries
     // the model camera, and a candidate is invalid if the triangle collapses
     // however perfectly its anchor sits at the centre.
-    uint32_t anchorInside = 0;          // samples whose anchor was inside clip
-    uint32_t trianglesFinite = 0;       // ... and all three vertices finite
-    float    medianAreaPixels = 0.0f;
-    float    medianMaxEdgePixels = 0.0f;
-    float    medianCentreError = 0.0f;  // over the best valid variant per sample
-    float    worstCentreError = 0.0f;
-    float    meanCentreError = 0.0f;
+    uint32_t anchorInside = 0;    // samples whose anchor was inside clip
+    uint32_t trianglesFinite = 0; // ... and all three vertices finite
+    float medianAreaPixels = 0.0f;
+    float medianMaxEdgePixels = 0.0f;
+    float medianCentreError = 0.0f; // over the best valid variant per sample
+    float worstCentreError = 0.0f;
+    float meanCentreError = 0.0f;
 
     // ⚠️ HOW BIG THE PRIMITIVE IS ON SCREEN, which is what separates a transform
     // from a transform that has collapsed. A two-metre triangle rendering as one
     // pixel was invisible for six runs while every other number looked perfect.
-    float    meanSpreadPixels = 0.0f;
+    float meanSpreadPixels = 0.0f;
     uint32_t variantValid[kVariantCount] = {};
 };
 
 struct Stats {
     uint64_t drawsSeen = 0;
     uint64_t drawsQualified = 0;
-    uint64_t framesSeen = 0;          // Presents
-    uint64_t modelFramesSeen = 0;     // ⚠️ the coverage denominator
+    uint64_t framesSeen = 0;      // Presents
+    uint64_t modelFramesSeen = 0; // ⚠️ the coverage denominator
     uint32_t groupsUsed = 0;
     uint64_t groupsOverflowed = 0;
     uint64_t copiesIssued = 0;
     uint64_t readbacksServed = 0;
     uint64_t readbacksBusy = 0;
-    bool     enabled = false;
-    bool     ready = false;
+    bool enabled = false;
+    bool ready = false;
+
+    // ⚠️ THE FOUR NUMBERS THAT SAY WHETHER THE CAMERA SURVIVED THE
+    // PHASE CHANGE, and run forty-five had no way to ask. `selectionMatches`
+    // counts draws that matched the PINNED pointers, `logicalMatches` draws that
+    // matched the FINGERPRINT, and `rebinds` how often the pin was re-acquired
+    // from a logical match. `logicalMatches > 0` with `rebinds == 0` would mean
+    // the fingerprint found the camera and the rebind rule refused it; both at
+    // zero means the fingerprint itself is wrong.
+    uint64_t selectionMatches = 0;
+    uint64_t logicalMatches = 0;
+    uint64_t rebinds = 0;
+    uint64_t rebindsRefused = 0;
+    bool fingerprintValid = false;
 };
 
 // MAIN THREAD. Off by default. Observation only: arming this draws nothing.
@@ -187,106 +213,35 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount);
 // MAIN THREAD, at teardown. Nothing here may outlive Archicad's device.
 void Shutdown ();
 
-// ⚠️ WHAT A GROUP MUST CLEAR BEFORE IT MAY BE RANKED AT ALL. Ranking without a
-// gate is what let a group with ONE sample and no coverage come first, ahead of
-// a group that carried 1497 draws across 259 model frames at a median of 0.002.
-// A rank is an ordering among candidates; it is not a test of candidacy.
-struct Eligibility {
-    uint32_t minSamples = 32;
-    float    minModelCoverage = 0.80f;
-    float    minInsideClip = 0.95f;
-
-    // ⚠️ THE GATES A COLLAPSE CANNOT PASS. Centre error is now a weak ranking
-    // term; these two are the discriminators. A two-metre triangle that renders
-    // under ten pixels across, or encloses almost no area, is not the model
-    // camera whatever its anchor does.
-    float    minFiniteTriangles = 0.95f;
-    float    minMedianAreaPixels = 50.0f;
-    float    minMedianMaxEdgePixels = 10.0f;
-
-    // ⚠️ A QUARTER OF THE HALF-EXTENT, NOT A TWENTIETH, AND THE OLD NUMBER WAS
-    // CALIBRATED AGAINST A LIE. 0.05 was set while the winning interpretation
-    // collapsed the primitive to a point -- and a transform that maps all of
-    // space to the viewport centre scores essentially ZERO on this metric. So
-    // the tight threshold was actively selecting FOR degeneracy: run
-    // thirty-seven rejected the real model camera at 0.069 (96% coverage, 99%
-    // inside the clip volume, 2089 draws) while the collapsing transform had
-    // sailed through at 0.002 for six runs.
-    //
-    // The orbit target is set by a human hand on a mouse and is not the anchor
-    // to the pixel; a few percent of the viewport is what an honest transform
-    // looks like. The discriminating work is done by `minInsideClip` and by the
-    // spread gate in the scorer, both of which a degenerate transform fails.
-    // ⚠️ AND IT IS 0.60, NOT 0.25, BECAUSE THIS IS THE WEAK TERM AND THE HAND ON
-    // THE MOUSE IS NOT A ROBOT. Run thirty-nine's candidate was a genuinely
-    // correct camera -- 100% of anchors inside the clip volume, 100% finite
-    // triangles, a 1303 px2 primitive with a 70 px longest edge -- rejected at
-    // 0.275. The orbit target is wherever the user last clicked, not the anchor
-    // to the pixel. Off-screen is beyond 1.0, so 0.60 still refuses a wrong
-    // camera while the area, edge and inside-clip gates do the real work.
-    float    maxMedianCentreError = 0.60f;
-    // ⚠️ THE WINNING INTERPRETATION MUST HOLD ACROSS THE SAMPLES, not merely win
-    // once: this is the fraction of scored samples on which THAT interpretation
-    // produced a valid projection. By construction it is the same number as the
-    // inside-clip rate, and it is stated separately because they are different
-    // claims -- "the anchor was on screen" and "the same reading of the bytes
-    // kept putting it there".
-    float    minInterpretationAgreement = 0.90f;
-};
-
-// The camera group this run has committed to. ⚠️ RUNTIME IDENTITIES ONLY, AND
-// THEY ARE NEVER WRITTEN TO THE BUILD PROFILE. A render-target or buffer pointer
-// is a live COM address: it survives a gesture and not a resize, a device reset
-// or a new session. Proving one group is what this is for; the eventual
-// production recognizer has to learn a LOGICAL signature each session -- full
-// viewport, camera window shape, draw and pass position, resource descriptions --
-// and this is deliberately not that.
-struct Selection {
-    bool     valid = false;
-    uint32_t groupId = 0;
-    uint32_t occurrenceIndex = 0;
-    uint64_t vertexShader = 0;
-    uint64_t renderTarget = 0;
-    uint64_t depthStencil = 0;
-    float    viewportX = 0.0f, viewportY = 0.0f;
-    float    viewportWidth = 0.0f, viewportHeight = 0.0f;
-    uint64_t viewBuffer = 0;
-    uint32_t viewNumConstants = 0;
-    uint64_t projectionBuffer = 0;
-    uint32_t projectionNumConstants = 0;
-
-    // What it scored when it was chosen, so the report can state the evidence
-    // rather than the decision alone.
-    uint32_t variant = 0;
-    uint32_t samples = 0;
-    float    modelCoverage = 0.0f;
-    float    insideClip = 0.0f;
-    float    medianCentreError = 0.0f;
-    float    medianAreaPixels = 0.0f;
-    float    medianMaxEdgePixels = 0.0f;
-    uint64_t snapshotsTaken = 0;    // draws matched since the lock
-};
-
-// MAIN THREAD. Phase A's decision: choose the best ELIGIBLE group and lock on to
-// it. Returns false and changes nothing when none qualifies -- fail closed, so a
-// run that could not identify the camera injects nothing rather than injecting
-// with whatever came last.
-bool SelectCandidate ();
-void ClearSelection ();
-Selection GetSelection ();
-
-// MAIN THREAD. Clear the measurements but KEEP the selection, so phase B can
-// carry on scoring the group it locked on to.
+// MAIN THREAD. Clear the measurements but KEEP the selection AND THE
+// FINGERPRINT, so phase B can carry on scoring the group it locked on to.
+//
+// ⚠️ WHAT SURVIVES THIS CALL IS NOT AN IMPLEMENTATION DETAIL, IT IS
+// THE CONTRACT. Statistics, groups, signature counters and readback slots are
+// cleared; the fingerprint, the occurrence and the interpretation are not. A
+// reset that dropped the fingerprint would throw away the one thing phase A
+// exists to produce, and phase B would have to relearn a settled question.
 void ResetCounts ();
+
+// MAIN THREAD. Phase A's decision, forwarded to `CameraRecognizer` with a copy
+// of the measured table. Fails closed: no eligible group means no selection.
+bool SelectCandidate ();
 
 // ANY THREAD.
 size_t CopyGroups (Group* out, size_t capacity);
-Stats  GetStats ();
-Eligibility GetEligibility ();
+Stats GetStats ();
 
-}   // namespace census
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+// ⚠️ CHOOSING AND RE-FINDING THE CAMERA LIVE IN `CameraRecognizer`,
+// AND THE SEAM IS NOT THE LINE COUNT. This file answers "what draw groups are
+// there and what do their bytes project to"; that one answers "which of them is
+// the camera, and where did it go when Archicad rebuilt its views". Run
+// forty-five was a failure entirely within the second question while the first
+// was never in doubt -- the census measured the camera correctly in both phases
+// and the recognizer could not connect them.
+
+} // namespace census
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -44,9 +44,44 @@ namespace archviz {
 namespace dxgi {
 namespace injection {
 
+// ⚠️ ARMING IS NOT HAVING A CAMERA, AND RUN FORTY-FIVE FAILED ON
+// EXACTLY THAT CONFUSION. The caller asked "is the selected camera valid?" as a
+// PRECONDITION of enabling -- but the camera only becomes valid when a draw
+// matching the selection is snapshotted, and no such draw can happen while the
+// injection is disabled. Enabling required the thing enabling produces.
+//
+// Three states break the circle:
+//
+//   Disabled            nothing is drawn and nothing is snapshotted.
+//
+//   ArmedPendingCamera  the fingerprint is known and we are waiting for a draw
+//                       that matches it. ⚠️ SNAPSHOTS HAPPEN IN THIS
+//                       STATE AND DRAWS DO NOT -- that is the whole point of it
+//                       existing. There is no camera yet, so there is nothing to
+//                       draw with, but the machinery that FINDS one is live.
+//
+//   Active              a matching draw has been snapshotted. From here the
+//                       primitive is drawn with that camera.
+//
+// The transition out of `ArmedPendingCamera` is made by the first matching draw,
+// on the render thread, and by nothing else. A precondition that cannot be met
+// before arming is not a safety check, it is a deadlock.
+enum class ArmState : uint32_t { Disabled = 0, ArmedPendingCamera = 1, Active = 2 };
+
 // MAIN THREAD. Off by default; `Tapioca.ViewerInjectTriangle` arms it.
+// `SetEnabled (true)` moves Disabled -> ArmedPendingCamera and never further:
+// only a matching draw can reach `Active`.
 void SetEnabled (bool enabled);
+
+// True while anything is armed at all -- `ArmedPendingCamera` OR `Active`. The
+// snapshot path tests this, because it is what has to run BEFORE there is a
+// camera; the draw paths test `Active`.
 bool Enabled ();
+ArmState GetArmState ();
+
+// RENDER THREAD, from `InjectionCamera` when a snapshot first becomes valid.
+// Idempotent, and it can never arm anything that was not already armed.
+void NotifyCameraAcquired ();
 
 // MAIN THREAD. Where in the model to put the test primitive, in world metres.
 //
@@ -96,8 +131,7 @@ void InjectIfReady (ID3D11DeviceContext* context);
 //
 // The back-buffer view is created from the swap chain here and released
 // immediately -- nothing is cached, so `ResizeBuffers` stays possible.
-void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
-                      uint64_t modelSceneGeneration);
+void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, uint64_t modelSceneGeneration);
 
 // Which injection point is armed. Proof A uses Present; Proof B will use the
 // scene pass, where Archicad's depth buffer still exists.
@@ -108,20 +142,20 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
 // it; the Present triangle is drawn on top of the finished frame. Seeing one and
 // not the other is itself the answer.
 enum class Point { ScenePass, Present, Both };
-void  SetPoint (Point point);
+void SetPoint (Point point);
 Point GetPoint ();
 
 struct InjectionStats {
     uint64_t injected = 0;
     uint64_t skippedNoSceneDraw = 0;
-    uint64_t skippedNoCamera = 0;    // b1 or b2 missing from that draw
-    uint64_t skippedNotReady = 0;    // device objects could not be created
+    uint64_t skippedNoCamera = 0; // b1 or b2 missing from that draw
+    uint64_t skippedNotReady = 0; // device objects could not be created
     // ⚠️ THE PREDICATE FAILS CLOSED AND EACH REFUSAL IS NAMED. A frame that
     // cannot be vouched for is skipped; a skipped frame is invisible and a
     // wrongly-drawn one is the bug.
-    uint64_t skippedPassMismatch = 0;   // the latched draw is not this pass/epoch
-    uint64_t skippedWindowSize = 0;     // b1/b2 are not the expected 256-byte windows
-    uint64_t skippedReentrant = 0;      // we were already inside an injection
+    uint64_t skippedPassMismatch = 0; // the latched draw is not this pass/epoch
+    uint64_t skippedWindowSize = 0;   // b1/b2 are not the expected 256-byte windows
+    uint64_t skippedReentrant = 0;    // we were already inside an injection
     // ⚠️ THE CAMERA WAS LATCHED IN AN EARLIER FRAME. Drawing with it would be
     // geometrically valid and one frame wrong, which is the exact fault this
     // rung exists to remove and the one no pixel test at rest can see.
@@ -140,12 +174,12 @@ struct InjectionStats {
     uint64_t occurrenceDraws = 0;
     uint64_t authoritativeSnapshots = 0;
     uint64_t occurrenceModelFrames = 0;
-    bool     occurrenceLocked = false;
+    bool occurrenceLocked = false;
     uint32_t lockedOccurrence = 0;
 
     uint32_t shaderInterpretation = 0;
     uint32_t expectedInterpretation = 0;
-    bool     interpretationAgrees = false;
+    bool interpretationAgrees = false;
     uint64_t skippedInterpretation = 0;
 
     // ⚠️ THE THREE FRAME STATES, WHICH SAY MORE THAN ANY SKIP COUNT. Healthy is
@@ -162,10 +196,10 @@ struct InjectionStats {
     // ⚠️ ONE GENERIC `INVALID` COUNTER HID THE NEXT PROBLEM FOR FOUR RUNS. These
     // four reasons are different faults with different fixes, and lumping them
     // together turned a specific, answerable question into a shrug.
-    uint64_t invalidNoSnapshot = 0;       // nothing has been snapshotted at all
-    uint64_t invalidNoDrawThisGeneration = 0;  // the candidate did not draw this frame
-    uint64_t invalidGenerationAdvanced = 0;    // the model moved on before we drew
-    uint64_t invalidGenerationMismatch = 0;    // snapshot and Present disagree
+    uint64_t invalidNoSnapshot = 0;           // nothing has been snapshotted at all
+    uint64_t invalidNoDrawThisGeneration = 0; // the candidate did not draw this frame
+    uint64_t invalidGenerationAdvanced = 0;   // the model moved on before we drew
+    uint64_t invalidGenerationMismatch = 0;   // snapshot and Present disagree
 
     // ⚠️ THE SNAPSHOT ARITHMETIC, AND ITS INVARIANT IS AN EQUALITY.
     //
@@ -191,17 +225,17 @@ struct InjectionStats {
     uint64_t selectedSnapshotGeneration = 0;
     uint64_t viewCopies = 0;
     uint64_t projectionCopies = 0;
-    uint64_t snapshotsTaken = 0;     // generations completed: both halves copied
-    uint64_t snapshotSequence = 0;   // the sequence number of the newest snapshot
-    bool     snapshotValid = false;
-    bool     initialised = false;
-    char     lastError[192] = {};
+    uint64_t snapshotsTaken = 0;   // generations completed: both halves copied
+    uint64_t snapshotSequence = 0; // the sequence number of the newest snapshot
+    bool snapshotValid = false;
+    bool initialised = false;
+    char lastError[192] = {};
 };
 InjectionStats GetInjectionStats ();
 
-}   // namespace injection
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace injection
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif
