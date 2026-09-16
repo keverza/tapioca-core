@@ -22,7 +22,7 @@ namespace probes {
 namespace {
 
 constexpr size_t kQueryRing = 8;
-constexpr UINT   kCameraWindowConstants = 16;
+constexpr UINT kCameraWindowConstants = 16;
 
 // ⚠️ THE ANCHOR IS BAKED INTO THE SHADER AT COMPILE TIME RATHER THAN BOUND IN A
 // CONSTANT BUFFER OF OURS. Probe B exists to test the camera constants; giving
@@ -35,64 +35,64 @@ constexpr UINT   kCameraWindowConstants = 16;
 // -- and if probe B's declaration drifted from the production one, probe B would
 // stop testing the thing it exists to test.
 const char* const kProbeSourceFormat =
-"cbuffer ArchicadView : register (b1)       { %s float4x4 View; };\n"
-"cbuffer ArchicadProjection : register (b2) { %s float4x4 Projection; };\n"
-"\n"
-"// Probe A: clip space from the vertex id alone. No vertex buffer, no input\n"
-"// layout, no constant buffer, no camera -- the render target, the viewport,\n"
-"// the rasterizer, the pixel shader and the write mask, and nothing else.\n"
-"float4 VSProbeA (uint id : SV_VertexID) : SV_POSITION\n"
-"{\n"
-"    float2 corners[3] = { float2 (-0.08, -0.08), float2 (0.08, -0.08),\n"
-"                          float2 (0.0, 0.10) };\n"
-"    return float4 (corners[id], 0.5, 1.0);\n"
-"}\n"
-"\n"
-"// Probe B: the SAME three world points the production vertex buffer holds,\n"
-"// generated here instead of fetched, then put through the production camera.\n"
-"float4 VSProbeB (uint id : SV_VertexID) : SV_POSITION\n"
-"{\n"
-"    float3 corners[3] = { float3 (%.6ff, %.6ff, %.6ff),\n"
-"                          float3 (%.6ff, %.6ff, %.6ff),\n"
-"                          float3 (%.6ff, %.6ff, %.6ff) };\n"
-"    float4 p = float4 (corners[id], 1.0);\n"
-"    p = mul (p, View);\n"
-"    p = mul (p, Projection);\n"
-"    return p;\n"
-"}\n"
-"\n"
-"// Proof B's two test primitives, each its OWN shader.\n"
-"// \n"
-"// THE SELECTOR IS THE SHADER, NOT `StartVertexLocation`. Run forty-one drew\n"
-"// these as Draw(3,3) and Draw(3,6) into one nine-vertex array and got BYTE-\n"
-"// IDENTICAL sample counts from primitives eight metres apart -- SV_VertexID did\n"
-"// not carry the start location, so all three draws rendered the anchor triangle\n"
-"// and the depth comparison was run against itself. Three entry points cannot\n"
-"// have that bug.\n"
-"float4 VSProbeFront (uint id : SV_VertexID) : SV_POSITION\n"
-"{\n"
-"    float3 corners[3] = { float3 (%.6ff, %.6ff, %.6ff),\n"
-"                          float3 (%.6ff, %.6ff, %.6ff),\n"
-"                          float3 (%.6ff, %.6ff, %.6ff) };\n"
-"    float4 p = float4 (corners[id], 1.0);\n"
-"    p = mul (p, View);\n"
-"    p = mul (p, Projection);\n"
-"    return p;\n"
-"}\n"
-"float4 VSProbeBehind (uint id : SV_VertexID) : SV_POSITION\n"
-"{\n"
-"    float3 corners[3] = { float3 (%.6ff, %.6ff, %.6ff),\n"
-"                          float3 (%.6ff, %.6ff, %.6ff),\n"
-"                          float3 (%.6ff, %.6ff, %.6ff) };\n"
-"    float4 p = float4 (corners[id], 1.0);\n"
-"    p = mul (p, View);\n"
-"    p = mul (p, Projection);\n"
-"    return p;\n"
-"}\n"
-"\n"
-"float4 PSProbeA () : SV_TARGET { return float4 (1.0, 0.15, 0.85, 1.0); }\n"
-"float4 PSProbeB () : SV_TARGET { return float4 (0.1, 0.8, 1.0, 1.0); }\n"
-"float4 PSProbeC () : SV_TARGET { return float4 (1.0, 0.9, 0.1, 1.0); }\n";
+    "cbuffer ArchicadView : register (b1)       { %s float4x4 View; };\n"
+    "cbuffer ArchicadProjection : register (b2) { %s float4x4 Projection; };\n"
+    "\n"
+    "// Probe A: clip space from the vertex id alone. No vertex buffer, no input\n"
+    "// layout, no constant buffer, no camera -- the render target, the viewport,\n"
+    "// the rasterizer, the pixel shader and the write mask, and nothing else.\n"
+    "float4 VSProbeA (uint id : SV_VertexID) : SV_POSITION\n"
+    "{\n"
+    "    float2 corners[3] = { float2 (-0.08, -0.08), float2 (0.08, -0.08),\n"
+    "                          float2 (0.0, 0.10) };\n"
+    "    return float4 (corners[id], 0.5, 1.0);\n"
+    "}\n"
+    "\n"
+    "// Probe B: the SAME three world points the production vertex buffer holds,\n"
+    "// generated here instead of fetched, then put through the production camera.\n"
+    "float4 VSProbeB (uint id : SV_VertexID) : SV_POSITION\n"
+    "{\n"
+    "    float3 corners[3] = { float3 (%.6ff, %.6ff, %.6ff),\n"
+    "                          float3 (%.6ff, %.6ff, %.6ff),\n"
+    "                          float3 (%.6ff, %.6ff, %.6ff) };\n"
+    "    float4 p = float4 (corners[id], 1.0);\n"
+    "    p = mul (p, View);\n"
+    "    p = mul (p, Projection);\n"
+    "    return p;\n"
+    "}\n"
+    "\n"
+    "// Proof B's two test primitives, each its OWN shader.\n"
+    "// \n"
+    "// THE SELECTOR IS THE SHADER, NOT `StartVertexLocation`. Run forty-one drew\n"
+    "// these as Draw(3,3) and Draw(3,6) into one nine-vertex array and got BYTE-\n"
+    "// IDENTICAL sample counts from primitives eight metres apart -- SV_VertexID did\n"
+    "// not carry the start location, so all three draws rendered the anchor triangle\n"
+    "// and the depth comparison was run against itself. Three entry points cannot\n"
+    "// have that bug.\n"
+    "float4 VSProbeFront (uint id : SV_VertexID) : SV_POSITION\n"
+    "{\n"
+    "    float3 corners[3] = { float3 (%.6ff, %.6ff, %.6ff),\n"
+    "                          float3 (%.6ff, %.6ff, %.6ff),\n"
+    "                          float3 (%.6ff, %.6ff, %.6ff) };\n"
+    "    float4 p = float4 (corners[id], 1.0);\n"
+    "    p = mul (p, View);\n"
+    "    p = mul (p, Projection);\n"
+    "    return p;\n"
+    "}\n"
+    "float4 VSProbeBehind (uint id : SV_VertexID) : SV_POSITION\n"
+    "{\n"
+    "    float3 corners[3] = { float3 (%.6ff, %.6ff, %.6ff),\n"
+    "                          float3 (%.6ff, %.6ff, %.6ff),\n"
+    "                          float3 (%.6ff, %.6ff, %.6ff) };\n"
+    "    float4 p = float4 (corners[id], 1.0);\n"
+    "    p = mul (p, View);\n"
+    "    p = mul (p, Projection);\n"
+    "    return p;\n"
+    "}\n"
+    "\n"
+    "float4 PSProbeA () : SV_TARGET { return float4 (1.0, 0.15, 0.85, 1.0); }\n"
+    "float4 PSProbeB () : SV_TARGET { return float4 (0.1, 0.8, 1.0, 1.0); }\n"
+    "float4 PSProbeC () : SV_TARGET { return float4 (1.0, 0.9, 0.1, 1.0); }\n";
 
 float g_anchorX = 0.0f;
 float g_anchorY = 0.0f;
@@ -106,41 +106,40 @@ float g_anchorSize = 1.0f;
 float g_frontOffsetZ = 2.0f;
 float g_behindOffsetZ = -6.0f;
 
-ID3D11Device*            g_device = nullptr;
-ID3D11VertexShader*      g_vsProbeA = nullptr;
-ID3D11VertexShader*      g_vsProbeB = nullptr;        // the bound variant
-ID3D11VertexShader*      g_vsProbeBVariant[4] = {};   // one per declaration
-uint64_t                 g_probeHash[4] = {};
-ID3D11PixelShader*       g_psProbeA = nullptr;
-ID3D11PixelShader*       g_psProbeB = nullptr;
-ID3D11PixelShader*       g_psProbeC = nullptr;
-ID3D11VertexShader*      g_vsFront = nullptr;
-ID3D11VertexShader*      g_vsBehind = nullptr;
+ID3D11Device* g_device = nullptr;
+ID3D11VertexShader* g_vsProbeA = nullptr;
+ID3D11VertexShader* g_vsProbeB = nullptr;      // the bound variant
+ID3D11VertexShader* g_vsProbeBVariant[4] = {}; // one per declaration
+uint64_t g_probeHash[4] = {};
+ID3D11PixelShader* g_psProbeA = nullptr;
+ID3D11PixelShader* g_psProbeB = nullptr;
+ID3D11PixelShader* g_psProbeC = nullptr;
+ID3D11VertexShader* g_vsFront = nullptr;
+ID3D11VertexShader* g_vsBehind = nullptr;
 
 // ⚠️ THE MODEL'S OWN DEPTH VIEW, HELD ACROSS THE FRAME. Proof B2 asks whether it
 // is still usable at Present; the reference is dropped the moment a different
 // one arrives and at every teardown, because holding a view of a resource
 // Archicad may resize is the mistake the back-buffer path exists to refuse.
-ID3D11DepthStencilView*  g_sceneDepthView = nullptr;
+ID3D11DepthStencilView* g_sceneDepthView = nullptr;
 ID3D11DepthStencilState* g_depthTestState = nullptr;
 ID3D11DepthStencilState* g_depthState = nullptr;
-ID3D11RasterizerState*   g_raster = nullptr;
-ID3D11BlendState*        g_blend = nullptr;
+ID3D11RasterizerState* g_raster = nullptr;
+ID3D11BlendState* g_blend = nullptr;
 
 struct QuerySet {
     ID3D11Query* query[kQueryRing] = {};
-    bool         busy[kQueryRing] = {};
-    size_t       next = 0;
-    int          open = -1;
+    bool busy[kQueryRing] = {};
+    size_t next = 0;
+    int open = -1;
 };
 QuerySet g_queries[kProbeCount];
-Stats    g_stats;
+Stats g_stats;
 
 bool g_created = false;
 bool g_createFailed = false;
 
-template <typename T>
-void ReleaseAndNull (T*& object)
+template <typename T> void ReleaseAndNull (T*& object)
 {
     if (object != nullptr) {
         object->Release ();
@@ -191,21 +190,17 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     const char* const layouts[2] = { "row_major", "column_major" };
     char sources[4][4096] = {};
     for (uint32_t variant = 0; variant < 4; ++variant) {
-        _snprintf_s (sources[variant], sizeof (sources[variant]), _TRUNCATE,
-                     kProbeSourceFormat, layouts[variant & 1u],
+        _snprintf_s (sources[variant], sizeof (sources[variant]), _TRUNCATE, kProbeSourceFormat, layouts[variant & 1u],
                      layouts[(variant >> 1) & 1u],
                      // 0..2 the anchor triangle, as before
-                     g_anchorX, g_anchorY, g_anchorZ,
-                     g_anchorX + g_anchorSize, g_anchorY, g_anchorZ,
-                     g_anchorX, g_anchorY + g_anchorSize, g_anchorZ,
+                     g_anchorX, g_anchorY, g_anchorZ, g_anchorX + g_anchorSize, g_anchorY, g_anchorZ, g_anchorX,
+                     g_anchorY + g_anchorSize, g_anchorZ,
                      // 3..5 FRONT: lifted clear of the model
-                     g_anchorX, g_anchorY, g_anchorZ + g_frontOffsetZ,
-                     g_anchorX + g_anchorSize, g_anchorY, g_anchorZ + g_frontOffsetZ,
-                     g_anchorX, g_anchorY + g_anchorSize, g_anchorZ + g_frontOffsetZ,
+                     g_anchorX, g_anchorY, g_anchorZ + g_frontOffsetZ, g_anchorX + g_anchorSize, g_anchorY,
+                     g_anchorZ + g_frontOffsetZ, g_anchorX, g_anchorY + g_anchorSize, g_anchorZ + g_frontOffsetZ,
                      // 6..8 BEHIND: sunk into it
-                     g_anchorX, g_anchorY, g_anchorZ + g_behindOffsetZ,
-                     g_anchorX + g_anchorSize, g_anchorY, g_anchorZ + g_behindOffsetZ,
-                     g_anchorX, g_anchorY + g_anchorSize, g_anchorZ + g_behindOffsetZ);
+                     g_anchorX, g_anchorY, g_anchorZ + g_behindOffsetZ, g_anchorX + g_anchorSize, g_anchorY,
+                     g_anchorZ + g_behindOffsetZ, g_anchorX, g_anchorY + g_anchorSize, g_anchorZ + g_behindOffsetZ);
     }
     const char* const source = sources[0];
 
@@ -213,50 +208,48 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     const SIZE_T length = strlen (source);
     ID3DBlob* blobs[7] = {};
     ID3DBlob* errors = nullptr;
-    const char* const entries[7] = { "VSProbeA", "VSProbeB", "PSProbeA", "PSProbeB",
+    const char* const entries[7] = { "VSProbeA", "VSProbeB",     "PSProbeA",     "PSProbeB",
                                      "PSProbeC", "VSProbeFront", "VSProbeBehind" };
-    const char* const targets[7] = { "vs_5_0", "vs_5_0", "ps_5_0", "ps_5_0", "ps_5_0",
-                                     "vs_5_0", "vs_5_0" };
+    const char* const targets[7] = { "vs_5_0", "vs_5_0", "ps_5_0", "ps_5_0", "ps_5_0", "vs_5_0", "vs_5_0" };
 
     bool ok = true;
     for (int i = 0; i < 7 && ok; ++i) {
-        if (FAILED (D3DCompile (source, length, "TapiocaProbes", nullptr, nullptr,
-                                entries[i], targets[i], flags, 0, &blobs[i], &errors))) {
-            Fail (errors != nullptr ? (const char*) errors->GetBufferPointer ()
-                                    : "a probe shader would not compile");
+        if (FAILED (D3DCompile (source, length, "TapiocaProbes", nullptr, nullptr, entries[i], targets[i], flags, 0,
+                                &blobs[i], &errors))) {
+            Fail (errors != nullptr ? (const char*) errors->GetBufferPointer () : "a probe shader would not compile");
             ok = false;
         }
         ReleaseAndNull (errors);
     }
     if (ok) {
-        ok = SUCCEEDED (g_device->CreateVertexShader (blobs[0]->GetBufferPointer (),
-                     blobs[0]->GetBufferSize (), nullptr, &g_vsProbeA)) &&
-             SUCCEEDED (g_device->CreateVertexShader (blobs[1]->GetBufferPointer (),
-                     blobs[1]->GetBufferSize (), nullptr, &g_vsProbeBVariant[0])) &&
-             SUCCEEDED (g_device->CreatePixelShader (blobs[2]->GetBufferPointer (),
-                     blobs[2]->GetBufferSize (), nullptr, &g_psProbeA)) &&
-             SUCCEEDED (g_device->CreatePixelShader (blobs[3]->GetBufferPointer (),
-                     blobs[3]->GetBufferSize (), nullptr, &g_psProbeB)) &&
-             SUCCEEDED (g_device->CreatePixelShader (blobs[4]->GetBufferPointer (),
-                     blobs[4]->GetBufferSize (), nullptr, &g_psProbeC)) &&
-             SUCCEEDED (g_device->CreateVertexShader (blobs[5]->GetBufferPointer (),
-                     blobs[5]->GetBufferSize (), nullptr, &g_vsFront)) &&
-             SUCCEEDED (g_device->CreateVertexShader (blobs[6]->GetBufferPointer (),
-                     blobs[6]->GetBufferSize (), nullptr, &g_vsBehind));
+        ok = SUCCEEDED (g_device->CreateVertexShader (blobs[0]->GetBufferPointer (), blobs[0]->GetBufferSize (),
+                                                      nullptr, &g_vsProbeA)) &&
+             SUCCEEDED (g_device->CreateVertexShader (blobs[1]->GetBufferPointer (), blobs[1]->GetBufferSize (),
+                                                      nullptr, &g_vsProbeBVariant[0])) &&
+             SUCCEEDED (g_device->CreatePixelShader (blobs[2]->GetBufferPointer (), blobs[2]->GetBufferSize (), nullptr,
+                                                     &g_psProbeA)) &&
+             SUCCEEDED (g_device->CreatePixelShader (blobs[3]->GetBufferPointer (), blobs[3]->GetBufferSize (), nullptr,
+                                                     &g_psProbeB)) &&
+             SUCCEEDED (g_device->CreatePixelShader (blobs[4]->GetBufferPointer (), blobs[4]->GetBufferSize (), nullptr,
+                                                     &g_psProbeC)) &&
+             SUCCEEDED (g_device->CreateVertexShader (blobs[5]->GetBufferPointer (), blobs[5]->GetBufferSize (),
+                                                      nullptr, &g_vsFront)) &&
+             SUCCEEDED (g_device->CreateVertexShader (blobs[6]->GetBufferPointer (), blobs[6]->GetBufferSize (),
+                                                      nullptr, &g_vsBehind));
         g_stats.rasterVsHash = HashBlob (blobs[0]);
         g_probeHash[0] = HashBlob (blobs[1]);
         g_stats.probeVsHash = g_probeHash[0];
         for (uint32_t variant = 1; variant < 4 && ok; ++variant) {
             ID3DBlob* blob = nullptr;
-            if (FAILED (D3DCompile (sources[variant], strlen (sources[variant]),
-                                    "TapiocaProbes", nullptr, nullptr, "VSProbeB",
-                                    "vs_5_0", flags, 0, &blob, &errors))) {
+            if (FAILED (D3DCompile (sources[variant], strlen (sources[variant]), "TapiocaProbes", nullptr, nullptr,
+                                    "VSProbeB", "vs_5_0", flags, 0, &blob, &errors))) {
                 Fail (errors != nullptr ? (const char*) errors->GetBufferPointer ()
                                         : "a probe shader variant would not compile");
                 ok = false;
-            } else {
-                ok = SUCCEEDED (g_device->CreateVertexShader (blob->GetBufferPointer (),
-                        blob->GetBufferSize (), nullptr, &g_vsProbeBVariant[variant]));
+            }
+            else {
+                ok = SUCCEEDED (g_device->CreateVertexShader (blob->GetBufferPointer (), blob->GetBufferSize (),
+                                                              nullptr, &g_vsProbeBVariant[variant]));
                 g_probeHash[variant] = HashBlob (blob);
             }
             ReleaseAndNull (errors);
@@ -333,8 +326,8 @@ void PollQueries (ID3D11DeviceContext* context)
             if (!set.busy[i] || int (i) == set.open)
                 continue;
             UINT64 samples = 0;
-            const HRESULT hr = context->GetData (set.query[i], &samples, sizeof (samples),
-                                                 D3D11_ASYNC_GETDATA_DONOTFLUSH);
+            const HRESULT hr =
+                context->GetData (set.query[i], &samples, sizeof (samples), D3D11_ASYNC_GETDATA_DONOTFLUSH);
             if (hr != S_OK)
                 continue;
             set.busy[i] = false;
@@ -375,7 +368,7 @@ void EndQuery (ID3D11DeviceContext* context, size_t probe)
     ++g_stats.probe[probe].queriesIssued;
 }
 
-}   // namespace
+} // namespace
 
 void RetainSceneDepthView (ID3D11DepthStencilView* view)
 {
@@ -387,9 +380,8 @@ void RetainSceneDepthView (ID3D11DepthStencilView* view)
         g_sceneDepthView->AddRef ();
 }
 
-void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
-                       ID3D11RenderTargetView* targetView, float viewportX,
-                       float viewportY, float viewportWidth, float viewportHeight)
+void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11RenderTargetView* targetView,
+                       float viewportX, float viewportY, float viewportWidth, float viewportHeight)
 {
     if (context == nullptr || context1 == nullptr || targetView == nullptr)
         return;
@@ -406,9 +398,9 @@ void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* conte
     ++g_stats.presentDepthDraws;
 
     ID3D11VertexShader* savedVs = nullptr;
-    ID3D11PixelShader*  savedPs = nullptr;
-    ID3D11InputLayout*  savedLayout = nullptr;
-    ID3D11Buffer*       savedVertexBuffer = nullptr;
+    ID3D11PixelShader* savedPs = nullptr;
+    ID3D11InputLayout* savedLayout = nullptr;
+    ID3D11Buffer* savedVertexBuffer = nullptr;
     UINT savedStride = 0;
     UINT savedOffset = 0;
     D3D11_PRIMITIVE_TOPOLOGY savedTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
@@ -502,6 +494,20 @@ void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* conte
     ReleaseAndNull (savedDsv);
 }
 
+WorldProbePipeline GetWorldProbePipeline ()
+{
+    WorldProbePipeline pipeline;
+    pipeline.front = g_vsFront;
+    pipeline.behind = g_vsBehind;
+    pipeline.pixel = g_psProbeB;
+    pipeline.depthTest = g_depthTestState;
+    pipeline.raster = g_raster;
+    pipeline.blend = g_blend;
+    pipeline.valid = g_created && g_vsFront != nullptr && g_vsBehind != nullptr && g_psProbeB != nullptr &&
+                     g_depthTestState != nullptr && g_raster != nullptr && g_blend != nullptr;
+    return pipeline;
+}
+
 void SetDepthOffsets (float frontOffsetZ, float behindOffsetZ)
 {
     g_frontOffsetZ = frontOffsetZ;
@@ -554,9 +560,9 @@ void DrawDepthProof (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
 
     // ---- save what this touches -------------------------------------------
     ID3D11VertexShader* savedVs = nullptr;
-    ID3D11PixelShader*  savedPs = nullptr;
-    ID3D11InputLayout*  savedLayout = nullptr;
-    ID3D11Buffer*       savedVertexBuffer = nullptr;
+    ID3D11PixelShader* savedPs = nullptr;
+    ID3D11InputLayout* savedLayout = nullptr;
+    ID3D11Buffer* savedVertexBuffer = nullptr;
     UINT savedStride = 0;
     UINT savedOffset = 0;
     D3D11_PRIMITIVE_TOPOLOGY savedTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
@@ -668,9 +674,8 @@ void SetAnchor (float x, float y, float z, float sizeMetres)
     g_stats.lastError[0] = 0;
 }
 
-void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
-              ID3D11RenderTargetView* targetView, float viewportX, float viewportY,
-              float viewportWidth, float viewportHeight)
+void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11RenderTargetView* targetView,
+              float viewportX, float viewportY, float viewportWidth, float viewportHeight)
 {
     if (context == nullptr || context1 == nullptr || targetView == nullptr)
         return;
@@ -684,9 +689,9 @@ void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
 
     // ---- save everything this function touches -----------------------------
     ID3D11VertexShader* savedVs = nullptr;
-    ID3D11PixelShader*  savedPs = nullptr;
-    ID3D11InputLayout*  savedLayout = nullptr;
-    ID3D11Buffer*       savedVertexBuffer = nullptr;
+    ID3D11PixelShader* savedPs = nullptr;
+    ID3D11InputLayout* savedLayout = nullptr;
+    ID3D11Buffer* savedVertexBuffer = nullptr;
     UINT savedStride = 0;
     UINT savedOffset = 0;
     D3D11_PRIMITIVE_TOPOLOGY savedTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
@@ -855,8 +860,8 @@ Stats GetStats ()
     return g_stats;
 }
 
-}   // namespace probes
-}   // namespace injection
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace probes
+} // namespace injection
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

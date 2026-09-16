@@ -4,6 +4,8 @@
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
+#include "ArchViz/Dxgi/InjectionDepth.hpp"
+#include "ArchViz/Dxgi/InjectionDepth.hpp"
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
@@ -437,6 +439,20 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
 
     ++g_stats.drawsSeen;
     contextstate::ContextState live = contextstate::Snapshot ();
+
+    // ⚠️ DEPTH PROVENANCE SEES EVERY DRAW, NOT ONLY CAMERA-BEARING
+    // ONES, AND THAT IS THE POINT. The draw that ruins the depth buffer for us is
+    // a transparent build plane, and it has no reason to bind the camera windows
+    // the admission test below requires. Classifying after that test would miss
+    // exactly the draws this is looking for.
+    injection::depth::OnDraw (context, live.depthStencil, renderstate::ModelSceneGeneration ());
+
+    // ⚠️ DEPTH PROVENANCE SEES EVERY DRAW, NOT ONLY CAMERA-BEARING
+    // ONES, AND THAT IS THE POINT. The draw that ruins the depth buffer for us is
+    // a transparent build plane, and it has no reason to bind the camera windows
+    // the admission test below requires. Classifying after that test would miss
+    // exactly the draws this is looking for.
+    injection::depth::OnDraw (context, live.depthStencil, renderstate::ModelSceneGeneration ());
     const contextstate::ConstantBufferBinding& view = live.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = live.vsConstantBuffers[2];
 

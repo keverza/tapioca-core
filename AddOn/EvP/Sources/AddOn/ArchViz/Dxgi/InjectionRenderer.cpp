@@ -3,9 +3,12 @@
 
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 
+#include "ArchViz/Dxgi/PipelineStateGuard.hpp"
+
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
+#include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
@@ -457,6 +460,7 @@ void Shutdown ()
     ReleaseAndNull (g_vertices);
     ReleaseAndNull (g_layout);
     ghost::Shutdown ();
+    checkpoints::Shutdown ();
     ReleaseAndNull (g_ps);
     for (uint32_t variant = 0; variant < 4; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
@@ -483,47 +487,15 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
 
-    ID3D11VertexShader* savedVs = nullptr;
-    ID3D11PixelShader* savedPs = nullptr;
-    ID3D11InputLayout* savedLayout = nullptr;
-    ID3D11Buffer* savedVertexBuffer = nullptr;
-    // ⚠️ THE INDEX BINDING JOINS THE SAVED STATE BECAUSE THE GHOST
-    // MESH IS THE FIRST THING HERE TO USE ONE. The proof primitives are `Draw`,
-    // never `DrawIndexed`, so this slot was previously untouched -- and handing
-    // Archicad back our index buffer would corrupt whatever it drew next.
-    ID3D11Buffer* savedIndexBuffer = nullptr;
-    DXGI_FORMAT savedIndexFormat = DXGI_FORMAT_UNKNOWN;
-    UINT savedIndexOffset = 0;
-    UINT savedStride = 0;
-    UINT savedOffset = 0;
-    D3D11_PRIMITIVE_TOPOLOGY savedTopology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
-    ID3D11DepthStencilState* savedDepth = nullptr;
-    UINT savedStencilRef = 0;
-    ID3D11RasterizerState* savedRaster = nullptr;
-    ID3D11BlendState* savedBlend = nullptr;
-    FLOAT savedBlendFactor[4] = {};
-    UINT savedSampleMask = 0;
-    ID3D11Buffer* savedCb[2] = {};
-    UINT savedFirst[2] = {};
-    UINT savedNum[2] = {};
-    ID3D11RenderTargetView* savedRtv = nullptr;
-    ID3D11DepthStencilView* savedDsv = nullptr;
-    D3D11_VIEWPORT savedViewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
-    UINT savedViewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
-
-    context->VSGetShader (&savedVs, nullptr, nullptr);
-    context->PSGetShader (&savedPs, nullptr, nullptr);
-    context->IAGetInputLayout (&savedLayout);
-    context->IAGetVertexBuffers (0, 1, &savedVertexBuffer, &savedStride, &savedOffset);
-    context->IAGetIndexBuffer (&savedIndexBuffer, &savedIndexFormat, &savedIndexOffset);
-    context->IAGetPrimitiveTopology (&savedTopology);
-    context->OMGetDepthStencilState (&savedDepth, &savedStencilRef);
-    context->RSGetState (&savedRaster);
-    context->OMGetBlendState (&savedBlend, savedBlendFactor, &savedSampleMask);
-    context->RSGetViewports (&savedViewportCount, savedViewports);
-    context1->VSGetConstantBuffers1 (1, 2, savedCb, savedFirst, savedNum);
-    if (targetView != nullptr)
-        context->OMGetRenderTargets (1, &savedRtv, &savedDsv);
+    // ⚠️ EVERYTHING THIS DRAW DISTURBS, PUT BACK BY A DESTRUCTOR.
+    // See `PipelineStateGuard.hpp`. This was sixty hand-written lines here, and
+    // the same sixty in `InjectionProbes` and `DepthCheckpoints` -- and when the
+    // ghost mesh introduced the first `DrawIndexed` on this path, the index
+    // binding was added to ONE of the three. The other two would have handed
+    // Archicad back our index buffer.
+    const ScopedPipelineState saved (context, context1);
+    ID3D11RenderTargetView* const savedRtv = saved.SavedRenderTarget ();
+    ID3D11DepthStencilView* const savedDsv = saved.SavedDepthStencil ();
 
     // ⚠️ THE CAMERA WINDOWS ARE BOUND EXACTLY AS THE LATCHED DRAW HAD THEM --
     // buffer, firstConstant AND numConstants. The legacy setter would rebind the
@@ -635,40 +607,22 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // one line: a mesh bug cannot reach the instrument that would diagnose it.
     ghost::Draw (context, wanted, depthState != nullptr ? depthState : g_depthState, g_raster, g_blend);
 
-    // ---- put everything back ------------------------------------------------
-    if (targetView != nullptr)
-        context->OMSetRenderTargets (1, &savedRtv, savedDsv);
-    context1->VSSetConstantBuffers1 (1, 2, savedCb, savedFirst, savedNum);
-    context->VSSetShader (savedVs, nullptr, 0);
-    context->PSSetShader (savedPs, nullptr, 0);
-    context->IASetInputLayout (savedLayout);
-    context->IASetVertexBuffers (0, 1, &savedVertexBuffer, &savedStride, &savedOffset);
-    context->IASetPrimitiveTopology (savedTopology);
-    // ⚠️ AND THE INDEX BUFFER, WHICH ONLY THE GHOST MESH TOUCHES.
-    // The proof primitives are `Draw`, not `DrawIndexed`, so this binding never
-    // had to be preserved before -- and leaving Archicad with our index buffer
-    // bound would corrupt the next thing it drew.
-    context->IASetIndexBuffer (savedIndexBuffer, savedIndexFormat, savedIndexOffset);
-    context->OMSetDepthStencilState (savedDepth, savedStencilRef);
-    context->RSSetState (savedRaster);
-    context->OMSetBlendState (savedBlend, savedBlendFactor, savedSampleMask);
-    if (savedViewportCount > 0)
-        context->RSSetViewports (savedViewportCount, savedViewports);
+    // ---- the depth checkpoints ---------------------------------------------
+    // ⚠️ THE SAME TWO PRIMITIVES AGAINST EVERY MOMENT OF ARCHICAD'S
+    // FRAME. This is where run fifty answers the question run forty-nine could
+    // not: not "which draws look transparent" but "after which draw does the
+    // depth buffer stop being usable". It draws nothing the user can see -- the
+    // probes write to the back buffer through an occlusion query and are
+    // overwritten by nothing, because they run last.
+    if (targetView != nullptr) {
+        checkpoints::Evaluate (context, context1, targetView, sceneViewport.TopLeftX, sceneViewport.TopLeftY,
+                               sceneViewport.Width, sceneViewport.Height);
+    }
 
-    // ⚠️ EVERY `*Get*` RETURNED AN ADDREF'D POINTER. One leaked per frame would
-    // keep Archicad's own shaders, buffers and views alive past a resize.
-    for (int i = 0; i < 2; ++i)
-        ReleaseAndNull (savedCb[i]);
-    ReleaseAndNull (savedVs);
-    ReleaseAndNull (savedPs);
-    ReleaseAndNull (savedLayout);
-    ReleaseAndNull (savedIndexBuffer);
-    ReleaseAndNull (savedVertexBuffer);
-    ReleaseAndNull (savedDepth);
-    ReleaseAndNull (savedRaster);
-    ReleaseAndNull (savedBlend);
-    ReleaseAndNull (savedRtv);
-    ReleaseAndNull (savedDsv);
+    // ⚠️ NOTHING IS PUT BACK BY HAND ANY MORE. The guard's
+    // destructor restores every binding and releases every reference it took,
+    // on every path out of this function -- including the early returns a
+    // hand-written block keeps forgetting.
 }
 
 void SetPoint (Point point)

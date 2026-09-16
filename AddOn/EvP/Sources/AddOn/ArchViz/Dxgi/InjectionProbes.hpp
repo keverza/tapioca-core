@@ -60,7 +60,12 @@
 
 #include <cstdint>
 
+struct ID3D11BlendState;
+struct ID3D11DepthStencilState;
 struct ID3D11DeviceContext;
+struct ID3D11PixelShader;
+struct ID3D11RasterizerState;
+struct ID3D11VertexShader;
 struct ID3D11DeviceContext1;
 struct ID3D11RenderTargetView;
 struct ID3D11DepthStencilView;
@@ -120,9 +125,8 @@ void SetAnchor (float x, float y, float z, float sizeMetres);
 // RENDER THREAD, from the Present injection, with the back-buffer view it just
 // created. Sets its own render target, viewport and raster state, draws all
 // three probes with their own queries, and restores everything it touched.
-void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
-              ID3D11RenderTargetView* targetView, float viewportX, float viewportY,
-              float viewportWidth, float viewportHeight);
+void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11RenderTargetView* targetView,
+              float viewportX, float viewportY, float viewportWidth, float viewportHeight);
 
 // RENDER THREAD, from the census, at a draw of the SELECTED camera signature
 // that is predicted to be the last of its model frame -- so Archicad's depth
@@ -147,15 +151,30 @@ void RetainSceneDepthView (ID3D11DepthStencilView* view);
 // RENDER THREAD, from the Present injection, with the back-buffer view it just
 // created. Binds that target together with the RETAINED model depth view and
 // draws the two test primitives with depth test on and writes off.
-void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
-                       ID3D11RenderTargetView* targetView, float viewportX,
-                       float viewportY, float viewportWidth, float viewportHeight);
+void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11RenderTargetView* targetView,
+                       float viewportX, float viewportY, float viewportWidth, float viewportHeight);
 
 // MAIN THREAD. Where the two depth test primitives sit relative to the anchor,
 // along world Z. ⚠️ THESE ARE AN ASSUMPTION ABOUT THE MODEL AND ARE MEANT TO BE
 // CHANGED: "in front of" and "behind" only mean anything against the geometry
 // that is actually there.
 void SetDepthOffsets (float frontOffsetZ, float behindOffsetZ);
+
+// ⚠️ THE FRONT/BEHIND PAIR, LENT OUT RATHER THAN COPIED. The depth
+// checkpoints test the same two primitives against a different buffer, and a
+// second pair compiled somewhere else would answer a slightly different
+// question while looking like the same one. `valid` is false until the probe
+// pipeline has been created on Archicad's device.
+struct WorldProbePipeline {
+    ID3D11VertexShader* front = nullptr;
+    ID3D11VertexShader* behind = nullptr;
+    ID3D11PixelShader* pixel = nullptr;
+    ID3D11DepthStencilState* depthTest = nullptr;
+    ID3D11RasterizerState* raster = nullptr;
+    ID3D11BlendState* blend = nullptr;
+    bool valid = false;
+};
+WorldProbePipeline GetWorldProbePipeline ();
 
 // RENDER THREAD. Probe C is the production draw itself, so the renderer wraps
 // its own draw with these rather than this file repeating it -- a second copy of
@@ -172,7 +191,7 @@ void Shutdown ();
 void Reset ();
 
 struct ProbeStats {
-    uint64_t draws = 0;          // times the probe was issued
+    uint64_t draws = 0; // times the probe was issued
     uint64_t queriesIssued = 0;
     uint64_t queriesResolved = 0;
     uint64_t drawsWithSamples = 0;
@@ -180,37 +199,37 @@ struct ProbeStats {
 };
 
 struct Stats {
-    bool     ready = false;
+    bool ready = false;
     ProbeStats probe[kProbeCount];
 
     // ⚠️ THE BYTECODE HASHES ARE EVIDENCE, NOT DECORATION. "Probe B and the
     // production triangle use the same vertex shader" is an assumption until the
     // two hashes are printed side by side -- and if probe B passes while C fails,
     // the first question is whether they were the shaders we think they were.
-    uint64_t cameraVsHash = 0;      // VSMain, used by probe C
-    uint64_t probeVsHash = 0;       // VSProbeB
-    uint64_t rasterVsHash = 0;      // VSProbeA
+    uint64_t cameraVsHash = 0; // VSMain, used by probe C
+    uint64_t probeVsHash = 0;  // VSProbeB
+    uint64_t rasterVsHash = 0; // VSProbeA
 
     // ⚠️ THE DEPTH VIEW'S LIFETIME, TRACKED ONLY FOR THE SELECTED CANDIDATE.
     // Censusing every depth operation in the frame would be a second instrument
     // to debug; the only question is what happens to THIS view between the model
     // draw and the moment we use it.
     uint64_t depthInjections = 0;
-    uint64_t depthNoView = 0;        // nothing was bound: the point is wrong
-    uint64_t depthViewChanged = 0;   // a different view than the camera draw had
+    uint64_t depthNoView = 0;      // nothing was bound: the point is wrong
+    uint64_t depthViewChanged = 0; // a different view than the camera draw had
     uint64_t lastDepthView = 0;
 
     // Proof B2's own health: whether a retained view existed at Present at all.
     uint64_t presentDepthDraws = 0;
     uint64_t presentDepthNoView = 0;
-    char     lastError[192] = {};
+    char lastError[192] = {};
 };
 Stats GetStats ();
 
-}   // namespace probes
-}   // namespace injection
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace probes
+} // namespace injection
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

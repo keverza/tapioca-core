@@ -269,6 +269,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # its counters out. Restating the counter shape here would be a second
     # definition of it.
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/GhostMesh.hpp"),
+    # The depth-checkpoint diagnostic, armed and read by the same verb. Same
+    # reason as the rest of this block: the checkpoints are captured on
+    # Archicad's render thread and this verb only flips the switch and copies the
+    # table out.
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/DepthCheckpoints.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionCamera.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/RenderStateCapture.hpp"),
