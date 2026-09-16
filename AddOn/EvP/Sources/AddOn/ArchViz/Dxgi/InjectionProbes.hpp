@@ -63,6 +63,7 @@
 struct ID3D11DeviceContext;
 struct ID3D11DeviceContext1;
 struct ID3D11RenderTargetView;
+struct ID3D11DepthStencilView;
 
 namespace geomsrv {
 namespace archviz {
@@ -70,8 +71,45 @@ namespace dxgi {
 namespace injection {
 namespace probes {
 
-enum class Probe : uint32_t { RasterOutput = 0, CameraShader = 1, Production = 2 };
-constexpr size_t kProbeCount = 3;
+// ⚠️ PROOF A IS CLOSED. Probes A, B and C all rasterised and both world
+// triangles composited stably through navigation, so the camera, the transform,
+// the snapshot, the back-buffer selection and the input assembly are FROZEN. The
+// four probes below belong to Proof B, which asks one question and no others:
+// can a Tapioca primitive use ARCHICAD'S OWN depth buffer, so geometry in front
+// of the model survives and geometry behind it is rejected?
+//
+// ⚠️ AND IT IS ANSWERED WITH A CONTROL, NOT BY LOOKING FOR AN INTERSECTION. Two
+// primitives at known depths, each drawn twice -- once with depth off and once
+// with depth on -- turn "does occlusion look right" into four numbers:
+//
+//     depth OFF   both must rasterise        (they are on screen at all)
+//     depth ON    front survives, behind is rejected
+//
+// A pair that rasterises with depth off and behaves differently with depth on is
+// depth working. Anything else is named by which of the four is wrong.
+enum class Probe : uint32_t {
+    RasterOutput = 0,
+    CameraShader = 1,
+    Production = 2,
+    FrontDepthOff = 3,
+    BehindDepthOff = 4,
+    FrontDepthOn = 5,
+    BehindDepthOn = 6,
+
+    // ⚠️ PROOF B2: THE SAME DEPTH TEST, BUT AT PRESENT. Proof B passed inside
+    // Archicad's model pass, which only runs while the model is being
+    // re-rendered -- so the depth-tested primitives appear during navigation and
+    // vanish at rest, and later draws in the same frame paint over them. Present
+    // injection has the opposite problem: it is always visible and has no depth.
+    //
+    // These two ask whether we can have both: bind the model's OWN depth view
+    // alongside the back buffer at Present, and test against it there. If the
+    // view is still alive and still holds the model's depth at that point, the
+    // overlay is both persistent and correctly occluded.
+    PresentFrontDepth = 7,
+    PresentBehindDepth = 8,
+};
+constexpr size_t kProbeCount = 9;
 
 // MAIN THREAD. The world point probe B generates its vertices around, and the
 // side length. Baked into the probe shader at compile time, which is why
@@ -85,6 +123,39 @@ void SetAnchor (float x, float y, float z, float sizeMetres);
 void DrawAll (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
               ID3D11RenderTargetView* targetView, float viewportX, float viewportY,
               float viewportWidth, float viewportHeight);
+
+// RENDER THREAD, from the census, at a draw of the SELECTED camera signature
+// that is predicted to be the last of its model frame -- so Archicad's depth
+// buffer holds as much of the model as it is going to.
+//
+// ⚠️ IT USES WHATEVER RENDER TARGET AND DEPTH VIEW ARE BOUND RIGHT NOW, which
+// are Archicad's own, and it neither clears depth nor writes to it. Depth test
+// ON, depth WRITES OFF: the experiment can read Archicad's depth but can never
+// change a pixel of it, so a failed Proof B cannot corrupt the frame it is
+// measured in.
+void DrawDepthProof (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1);
+
+// RENDER THREAD, from the census, at the depth proof: keeps a reference to the
+// depth view the model pass was using, so Present can try to test against it.
+//
+// ⚠️ A REFERENCE, NOT A COPY, AND IT IS RELEASED WHEN REPLACED. Holding a view
+// of a resource Archicad may resize is exactly the mistake the back-buffer path
+// refuses to make, so this one is dropped at teardown and on every resize path
+// that reaches `Shutdown`.
+void RetainSceneDepthView (ID3D11DepthStencilView* view);
+
+// RENDER THREAD, from the Present injection, with the back-buffer view it just
+// created. Binds that target together with the RETAINED model depth view and
+// draws the two test primitives with depth test on and writes off.
+void DrawPresentDepth (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1,
+                       ID3D11RenderTargetView* targetView, float viewportX,
+                       float viewportY, float viewportWidth, float viewportHeight);
+
+// MAIN THREAD. Where the two depth test primitives sit relative to the anchor,
+// along world Z. ⚠️ THESE ARE AN ASSUMPTION ABOUT THE MODEL AND ARE MEANT TO BE
+// CHANGED: "in front of" and "behind" only mean anything against the geometry
+// that is actually there.
+void SetDepthOffsets (float frontOffsetZ, float behindOffsetZ);
 
 // RENDER THREAD. Probe C is the production draw itself, so the renderer wraps
 // its own draw with these rather than this file repeating it -- a second copy of
@@ -119,6 +190,19 @@ struct Stats {
     uint64_t cameraVsHash = 0;      // VSMain, used by probe C
     uint64_t probeVsHash = 0;       // VSProbeB
     uint64_t rasterVsHash = 0;      // VSProbeA
+
+    // ⚠️ THE DEPTH VIEW'S LIFETIME, TRACKED ONLY FOR THE SELECTED CANDIDATE.
+    // Censusing every depth operation in the frame would be a second instrument
+    // to debug; the only question is what happens to THIS view between the model
+    // draw and the moment we use it.
+    uint64_t depthInjections = 0;
+    uint64_t depthNoView = 0;        // nothing was bound: the point is wrong
+    uint64_t depthViewChanged = 0;   // a different view than the camera draw had
+    uint64_t lastDepthView = 0;
+
+    // Proof B2's own health: whether a retained view existed at Present at all.
+    uint64_t presentDepthDraws = 0;
+    uint64_t presentDepthNoView = 0;
     char     lastError[192] = {};
 };
 Stats GetStats ();

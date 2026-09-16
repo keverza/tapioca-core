@@ -5,6 +5,7 @@
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
+#include "ArchViz/Dxgi/InjectionProbes.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 
@@ -69,9 +70,11 @@ uint64_t g_lastModelSeen = 0;
 // distinct signature draws several times per model frame, and "which of them" is
 // counted per signature and reset when the model generation changes. A global
 // counter would number draws across different signatures and mean nothing.
-constexpr size_t kSignatureCounters = 16;
+constexpr size_t kSignatureCounters = 32;
 struct SignatureCounter {
-    uint64_t vertexShader = 0;
+    // ⚠️ KEYED EXACTLY AS THE GROUPS ARE, and therefore NOT on the vertex
+    // shader. A counter keyed more finely than the table it feeds would number
+    // draws the table cannot tell apart.
     uint64_t renderTarget = 0;
     uint64_t depthStencil = 0;
     uint64_t generation = 0;
@@ -82,6 +85,17 @@ SignatureCounter g_counters[kSignatureCounters];
 
 Selection g_selection;
 Eligibility g_eligibility;
+
+// ⚠️ THE DEPTH PROOF WANTS THE LATEST POINT INSIDE THE PASS, NOT THE CAMERA'S
+// OWN DRAW. The camera occurrence is usually the FIRST draw of its family, when
+// Archicad's depth buffer holds almost nothing -- injecting there would let the
+// BEHIND primitive through and read as "depth not working" when it only means
+// "nothing had been drawn yet". So the last occurrence of the previous model
+// frame is used as this frame's prediction, which self-corrects in one frame and
+// needs no lookahead.
+uint32_t g_selectionOccurrencesThisFrame = 0;
+uint32_t g_selectionOccurrencesLastFrame = 0;
+uint64_t g_selectionFrame = 0;
 
 template <typename T>
 void ReleaseAndNull (T*& object)
@@ -140,11 +154,18 @@ bool SameExtent (float a, float b)
 // ⚠️ `firstConstant` IS NOT PART OF THE KEY. Archicad binds successive windows of
 // one advancing ring, so the offset changes on every frame by design; keying on
 // it would make every frame its own group and the census would count nothing.
+// ⚠️ THE VERTEX SHADER IS RECORDED AND DELIBERATELY NOT KEYED ON. Run
+// thirty-nine added it and the table blew apart: 32 groups used and **4012 draws
+// overflowed**, every surviving group down to 2% coverage. The reason is in its
+// own rows -- groups 1, 2 and 3 had three DIFFERENT vertex shaders, the same
+// render target and depth view, and byte-identical camera metrics. Archicad
+// shares one camera across many shaders, so the shader identity fragments the
+// signature instead of sharpening it. It stays in the report, where knowing
+// which shader drew is useful, and out of the key, where it was fatal.
 bool Matches (const Group& group, const contextstate::ContextState& live,
               uint32_t occurrence)
 {
     return group.occurrenceIndex == occurrence &&
-           group.vertexShader == live.vertexShader &&
            group.renderTarget == live.renderTarget &&
            group.depthStencil == live.depthStencil &&
            SameExtent (group.viewportWidth, live.viewportWidth) &&
@@ -160,12 +181,25 @@ bool Matches (const Group& group, const contextstate::ContextState& live,
 // The locked group's signature, tested against what is bound right now. Same
 // fields as `Matches`, for the same reasons -- and `firstConstant` is absent from
 // both because Archicad's ring window advances every frame by design.
+// The signature alone, without the occurrence: the depth proof wants a
+// different draw of the same family than the camera snapshot does.
+bool MatchesSelectionSignature (const contextstate::ContextState& live)
+{
+    if (!g_selection.valid)
+        return false;
+    return g_selection.renderTarget == live.renderTarget &&
+           g_selection.depthStencil == live.depthStencil &&
+           SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
+           SameExtent (g_selection.viewportHeight, live.viewportHeight) &&
+           g_selection.viewBuffer == live.vsConstantBuffers[1].buffer &&
+           g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer;
+}
+
 bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurrence)
 {
     if (!g_selection.valid)
         return false;
     return g_selection.occurrenceIndex == occurrence &&
-           g_selection.vertexShader == live.vertexShader &&
            g_selection.renderTarget == live.renderTarget &&
            g_selection.depthStencil == live.depthStencil &&
            SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
@@ -444,7 +478,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     {
         SignatureCounter* counter = nullptr;
         for (size_t i = 0; i < kSignatureCounters; ++i) {
-            if (g_counters[i].used && g_counters[i].vertexShader == live.vertexShader &&
+            if (g_counters[i].used &&
                 g_counters[i].renderTarget == live.renderTarget &&
                 g_counters[i].depthStencil == live.depthStencil) {
                 counter = &g_counters[i];
@@ -457,7 +491,6 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
                     continue;
                 counter = &g_counters[i];
                 counter->used = true;
-                counter->vertexShader = live.vertexShader;
                 counter->renderTarget = live.renderTarget;
                 counter->depthStencil = live.depthStencil;
                 counter->generation = modelGeneration;
@@ -472,6 +505,26 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
             }
             occurrence = counter->count;
             ++counter->count;
+        }
+    }
+
+    // ---- the depth proof, at the predicted last draw of this family --------
+    if (g_selection.valid && MatchesSelectionSignature (live)) {
+        if (g_selectionFrame != modelGeneration) {
+            g_selectionFrame = modelGeneration;
+            g_selectionOccurrencesLastFrame = g_selectionOccurrencesThisFrame;
+            g_selectionOccurrencesThisFrame = 0;
+        }
+        ++g_selectionOccurrencesThisFrame;
+        if (g_selectionOccurrencesLastFrame > 0 &&
+            occurrence + 1 == g_selectionOccurrencesLastFrame) {
+            ID3D11DeviceContext1* context1 = nullptr;
+            if (SUCCEEDED (context->QueryInterface (__uuidof (ID3D11DeviceContext1),
+                                                    (void**) &context1)) &&
+                context1 != nullptr) {
+                injection::probes::DrawDepthProof (context, context1);
+                context1->Release ();
+            }
         }
     }
 

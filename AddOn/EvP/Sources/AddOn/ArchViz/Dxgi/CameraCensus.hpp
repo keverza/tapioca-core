@@ -58,7 +58,10 @@ namespace census {
 // ⚠️ THIRTY-TWO IS A CEILING, AND OVERFLOW IS REPORTED RATHER THAN WRAPPED. A
 // census that silently dropped the group it was looking for would be worse than
 // no census; `groupsOverflowed` says when the table filled.
-constexpr size_t kGroupCapacity = 32;
+// ⚠️ RAISED AFTER RUN THIRTY-NINE OVERFLOWED IT BY 4012 DRAWS. The cause was a
+// key that fragmented, and that is fixed; the headroom is so the next surprise
+// reports itself as a few dropped draws rather than a table of 2% coverage.
+constexpr size_t kGroupCapacity = 48;
 constexpr size_t kVariantCount = 8;
 
 enum class DrawKind : uint32_t {
@@ -214,7 +217,14 @@ struct Eligibility {
     // to the pixel; a few percent of the viewport is what an honest transform
     // looks like. The discriminating work is done by `minInsideClip` and by the
     // spread gate in the scorer, both of which a degenerate transform fails.
-    float    maxMedianCentreError = 0.25f;
+    // ⚠️ AND IT IS 0.60, NOT 0.25, BECAUSE THIS IS THE WEAK TERM AND THE HAND ON
+    // THE MOUSE IS NOT A ROBOT. Run thirty-nine's candidate was a genuinely
+    // correct camera -- 100% of anchors inside the clip volume, 100% finite
+    // triangles, a 1303 px2 primitive with a 70 px longest edge -- rejected at
+    // 0.275. The orbit target is wherever the user last clicked, not the anchor
+    // to the pixel. Off-screen is beyond 1.0, so 0.60 still refuses a wrong
+    // camera while the area, edge and inside-clip gates do the real work.
+    float    maxMedianCentreError = 0.60f;
     // ⚠️ THE WINNING INTERPRETATION MUST HOLD ACROSS THE SAMPLES, not merely win
     // once: this is the fraction of scored samples on which THAT interpretation
     // produced a valid projection. By construction it is the same number as the

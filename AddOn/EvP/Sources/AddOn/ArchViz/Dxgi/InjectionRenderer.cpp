@@ -5,6 +5,7 @@
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
+#include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
@@ -423,6 +424,7 @@ void Shutdown ()
     ReleaseAndNull (g_depthState);
     ShutdownCamera ();
     probes::Shutdown ();
+    depth::Shutdown ();
     ReleaseAndNull (g_screenVertices);
     ReleaseAndNull (g_screenPs);
     ReleaseAndNull (g_screenVs);
@@ -512,10 +514,16 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     else
         context1->VSSetConstantBuffers1 (1, 2, liveBuffers, liveFirst, liveNum);
 
+    // ⚠️ THE PRODUCTION OVERLAY NOW TESTS AGAINST ARCHICAD'S DEPTH, which is
+    // what proofs A and B were for. `Off` is the Proof A control and keeps the
+    // old behaviour exactly; `SceneReadOnly` is Proof B2's finding, the building
+    // occluding our geometry with nothing written back; `PrivateCopy` adds
+    // depth WRITES into a texture we own, so ghost surfaces occlude each other
+    // too -- and still not one write reaches Archicad's buffer.
+    ID3D11DepthStencilView* depthView = nullptr;
     if (targetView != nullptr) {
-        // Proof A at Present: no depth view at all, which is what depth-off means
-        // here and also stops us writing into a buffer we do not own.
-        context->OMSetRenderTargets (1, &targetView, nullptr);
+        depthView = depth::PrepareForInjection (context);
+        context->OMSetRenderTargets (1, &targetView, depthView);
     }
 
     D3D11_VIEWPORT sceneViewport = {};
@@ -562,7 +570,11 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     }
     context->VSSetShader (g_vs, nullptr, 0);
     context->PSSetShader (altColour ? g_screenPs : g_ps, nullptr, 0);
-    context->OMSetDepthStencilState (g_depthState, 0);
+    // The depth state belongs with the view: writes off for Archicad's own,
+    // writes on for our private copy, and neither is a preference.
+    ID3D11DepthStencilState* const depthState =
+            depthView != nullptr ? depth::StateForMode (context) : g_depthState;
+    context->OMSetDepthStencilState (depthState != nullptr ? depthState : g_depthState, 0);
     context->RSSetState (g_raster);
     const FLOAT blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     context->OMSetBlendState (g_blend, blendFactor, 0xffffffffu);
@@ -760,6 +772,16 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain,
                     // sample counts from one frame answer a question that three
                     // separate runs could not.
                     probes::DrawAll (context, context1, targetView,
+                            g_acceptedCamera.viewportX, g_acceptedCamera.viewportY,
+                            g_acceptedCamera.viewportWidth,
+                            g_acceptedCamera.viewportHeight);
+                    // ⚠️ PROOF B2, IN THE SAME FRAME AS THE CONTROL. Proof B
+                    // passed inside the model pass -- which only runs while the
+                    // model is redrawn, so its primitives vanish at rest and are
+                    // painted over by later draws in the same frame. This asks
+                    // whether the model's own depth view is still usable HERE,
+                    // where the overlay is always visible. One run, both answers.
+                    probes::DrawPresentDepth (context, context1, targetView,
                             g_acceptedCamera.viewportX, g_acceptedCamera.viewportY,
                             g_acceptedCamera.viewportWidth,
                             g_acceptedCamera.viewportHeight);

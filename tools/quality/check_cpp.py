@@ -235,22 +235,29 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # target, so it gets an explicit switch rather than starting whenever the
     # diagnostic hooks are armed -- and that switch has to name the renderer.
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
-    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionRenderer.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionRenderer.hpp"),
     # Stage 5's numeric witness, read by Tapioca.ViewerInjectionOracle. Same
     # reason as the renderer beside it: the per-Present rows are produced on
     # Archicad's render thread and this verb only copies them out. Restating the
     # row shape on this side of the boundary would create a second definition of
     # it, which is worse than the sideways include.
-    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionOracle.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionOracle.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
     # boundary is worse than the sideways include.
-    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/CameraCensus.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/CameraCensus.hpp"),
     # The three-probe diagnostic, read by the same verb. Same reason as the
     # renderer and the census beside it: the probe counters are produced on
     # Archicad's render thread and this verb only copies them out.
-    ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/InjectionProbes.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionProbes.hpp"),
+    # Stage 6's depth module, read by the same verbs: which buffer an injected
+    # draw tests against is a property of the mechanism, and restating it here
+    # would be a second definition of it.
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionDepth.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionCamera.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/RenderStateCapture.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/DeviceIdentity.hpp"),
     ("NativeCommands/ViewerGpuStateCommands.cpp", "ArchViz/Dxgi/PresentHook.hpp"),

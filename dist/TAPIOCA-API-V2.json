@@ -24117,6 +24117,20 @@
           },
           "probeReset": {
             "type": "boolean"
+          },
+          "depth": {
+            "type": "string",
+            "enum": [
+              "off",
+              "scene",
+              "private"
+            ]
+          },
+          "frontOffsetZ": {
+            "type": "number"
+          },
+          "behindOffsetZ": {
+            "type": "number"
           }
         },
         "additionalProperties": false
@@ -24235,6 +24249,42 @@
           "occurrenceModelFrames": {
             "type": "integer"
           },
+          "depthMode": {
+            "type": "string"
+          },
+          "depthPreparations": {
+            "type": "integer"
+          },
+          "depthCopies": {
+            "type": "integer"
+          },
+          "depthNoSceneView": {
+            "type": "integer"
+          },
+          "depthCopyRefused": {
+            "type": "integer"
+          },
+          "depthRebuilds": {
+            "type": "integer"
+          },
+          "depthWidth": {
+            "type": "integer"
+          },
+          "depthHeight": {
+            "type": "integer"
+          },
+          "depthFormat": {
+            "type": "integer"
+          },
+          "depthSamples": {
+            "type": "integer"
+          },
+          "depthPrivateReady": {
+            "type": "boolean"
+          },
+          "depthError": {
+            "type": "string"
+          },
           "probesReady": {
             "type": "boolean"
           },
@@ -24248,6 +24298,24 @@
             "type": "string"
           },
           "probeError": {
+            "type": "string"
+          },
+          "depthInjections": {
+            "type": "integer"
+          },
+          "depthNoView": {
+            "type": "integer"
+          },
+          "depthViewChanged": {
+            "type": "integer"
+          },
+          "presentDepthDraws": {
+            "type": "integer"
+          },
+          "presentDepthNoView": {
+            "type": "integer"
+          },
+          "lastDepthView": {
             "type": "string"
           },
           "probes": {
