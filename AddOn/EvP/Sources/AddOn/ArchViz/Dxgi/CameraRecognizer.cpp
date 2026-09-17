@@ -31,6 +31,8 @@ uint64_t g_selectionLastSeenModel = 0;
 // that never happens is a different fault depending on whether this is zero.
 uint32_t g_eligibleCandidates = 0;
 EligibilityDiagnosis g_gate;
+// Which single term the last evaluated draw missed, or -1. See `SoleMissWasViewport`.
+int g_lastSoleMiss = -1;
 
 BindingStats g_binding;
 FingerprintDiagnosis g_diagnosis;
@@ -126,6 +128,7 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
     // ⚠️ ONLY A SOLE MISS IS EVIDENCE. A draw that disagrees on six
     // terms is some other pass and says nothing; a draw that agrees on seven and
     // disagrees on one is the camera, and that one term is the bug.
+    g_lastSoleMiss = failures == 1 ? int (lastFailure) : -1;
     if (failures == 1) {
         ++g_diagnosis.soleMiss[lastFailure];
         if (!g_diagnosis.sampled[lastFailure]) {
@@ -172,6 +175,14 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
     return false;
 }
 
+// True when the draw just evaluated agreed on every fingerprint term except the
+// viewport. Reads the diagnosis `MatchesFingerprint` has just written, so it must
+// be called immediately after it and nowhere else.
+static bool SoleMissWasViewport ()
+{
+    return g_lastSoleMiss == int (kTermViewport);
+}
+
 // ⚠️ RE-ACQUIRE THE RUNTIME RESOURCES, DO NOT RE-DECIDE THE CAMERA.
 // This is the whole repair for run forty-five, and it is deliberately narrow: it
 // can only ever move the selection onto a draw that already matches the
@@ -189,8 +200,27 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         g_selectionLastSeenModel = modelGeneration;
         return;
     }
-    if (!MatchesFingerprint (live, kind, indexCount, occurrence))
+    if (!MatchesFingerprint (live, kind, indexCount, occurrence)) {
+        // ⚠️ A SOLE VIEWPORT MISS IS A RESIZE, AND IT IS THE ONE
+        // MISMATCH THAT CANNOT HEAL ITSELF. Every other term can come back --
+        // Archicad rebuilds views and the descriptors match again -- but the
+        // viewport rectangle IS part of the identity, so once the window changes
+        // size the fingerprint can never match anything again. The selection
+        // then sits there, valid and unreachable, while Present keeps drawing
+        // with the last snapshot: the overlay lands in the wrong place on the
+        // screen, which is exactly what a resize was reported to do.
+        //
+        // ⚠️ AND "SOLE MISS" IS WHAT MAKES THIS SAFE. Thousands of
+        // unrelated draws disagree on the viewport as well as on six other
+        // terms; only a draw that agrees on ALL SEVEN others is this camera
+        // family at a new size. That rule is already the fingerprint
+        // diagnosis's, and this is the first use of it to decide something.
+        if (SoleMissWasViewport ()) {
+            ++g_binding.resizeRelearns;
+            ClearSelection ();
+        }
         return;
+    }
     ++g_binding.logicalMatches;
 
     // ⚠️ ONLY WHEN THE PIN HAS GONE QUIET. A draw that matches the

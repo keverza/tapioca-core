@@ -554,21 +554,24 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     const UINT stride = sizeof (Vertex);
     const UINT offset = 0;
 
-    // ⚠️ PROBE A FIRST, AND IT USES NO CAMERA AT ALL. If the green corner wedge
-    // is not rock solid on every Present then the fault is the injection, the
-    // back buffer or the state restoration, and looking at the camera would be
-    // looking in the wrong place. Only once it is stable does the magenta
-    // world-space triangle beside it mean anything.
-    context->IASetInputLayout (g_layout);
-    context->IASetVertexBuffers (0, 1, &g_screenVertices, &stride, &offset);
-    context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    context->VSSetShader (g_screenVs, nullptr, 0);
-    context->PSSetShader (g_screenPs, nullptr, 0);
-    context->OMSetDepthStencilState (g_depthState, 0);
-    context->RSSetState (g_raster);
-    const FLOAT probeBlend[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    context->OMSetBlendState (g_blend, probeBlend, 0xffffffffu);
-    context->Draw (3, 0);
+    // ⚠️ PROBE A: THE GREEN CORNER WEDGE, WHICH USES NO CAMERA AT
+    // ALL. If it is not rock solid on every Present the fault is the injection,
+    // the back buffer or the state restoration, and the camera is the wrong
+    // place to look. It is an instrument and it is off unless a diagnostic asked
+    // -- see `SetProofPrimitives`. Leaving it unconditional put a green triangle
+    // in the corner of a production overlay.
+    if (g_proofPrimitives.load (std::memory_order_acquire)) {
+        context->IASetInputLayout (g_layout);
+        context->IASetVertexBuffers (0, 1, &g_screenVertices, &stride, &offset);
+        context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        context->VSSetShader (g_screenVs, nullptr, 0);
+        context->PSSetShader (g_screenPs, nullptr, 0);
+        context->OMSetDepthStencilState (g_depthState, 0);
+        context->RSSetState (g_raster);
+        const FLOAT probeBlend[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        context->OMSetBlendState (g_blend, probeBlend, 0xffffffffu);
+        context->Draw (3, 0);
+    }
 
     context->IASetInputLayout (g_layout);
     context->IASetVertexBuffers (0, 1, &g_vertices, &stride, &offset);
@@ -832,15 +835,16 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
                                          g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
                                          g_acceptedCamera.viewportHeight);
                     }
-                    // ⚠️ PROOF B2, IN THE SAME FRAME AS THE CONTROL. Proof B
-                    // passed inside the model pass -- which only runs while the
-                    // model is redrawn, so its primitives vanish at rest and are
-                    // painted over by later draws in the same frame. This asks
-                    // whether the model's own depth view is still usable HERE,
-                    // where the overlay is always visible. One run, both answers.
-                    probes::DrawPresentDepth (context, context1, targetView, g_acceptedCamera.viewportX,
-                                              g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
-                                              g_acceptedCamera.viewportHeight);
+                    // ⚠️ PROOF B2 -- the cyan FRONT and yellow BEHIND
+                    // primitives. Same switch, same reason: it asks whether the
+                    // model's own depth view is still usable at Present, which is
+                    // a settled question, and it was the last unconditional pair
+                    // of coloured triangles on a user's screen.
+                    if (g_proofPrimitives.load (std::memory_order_acquire)) {
+                        probes::DrawPresentDepth (context, context1, targetView, g_acceptedCamera.viewportX,
+                                                  g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
+                                                  g_acceptedCamera.viewportHeight);
+                    }
                     g_injected.fetch_add (1, std::memory_order_relaxed);
                     g_injectedPresent.fetch_add (1, std::memory_order_relaxed);
                 }

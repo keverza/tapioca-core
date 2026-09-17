@@ -870,6 +870,7 @@ Stats GetStats ()
     stats.logicalMatches = binding.logicalMatches;
     stats.rebinds = binding.rebinds;
     stats.rebindsRefused = binding.rebindsRefused;
+    stats.resizeRelearns = binding.resizeRelearns;
     stats.fingerprintValid = binding.fingerprintValid;
     stats.eligibleCandidates = EligibleCandidates ();
     stats.autoSelectAttempts = g_autoSelectAttempts;

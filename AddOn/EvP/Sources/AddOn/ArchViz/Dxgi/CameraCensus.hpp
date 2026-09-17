@@ -188,6 +188,7 @@ struct Stats {
     uint64_t logicalMatches = 0;
     uint64_t rebinds = 0;
     uint64_t rebindsRefused = 0;
+    uint64_t resizeRelearns = 0; // see CameraRecognizer::BindingStats
     bool fingerprintValid = false;
     // How many times the census chose for itself. See SetAutoSelect: nonzero
     // means production locked without anyone performing a measurement.
