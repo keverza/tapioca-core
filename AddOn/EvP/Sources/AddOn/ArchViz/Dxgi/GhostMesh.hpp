@@ -36,11 +36,14 @@
 // the context's own device. `SetAnchor`, `SetEnabled` and `Shutdown` are main
 // thread; nothing here may outlive Archicad's device.
 
+#include "ArchViz/Dxgi/OverlayStyle.hpp"
+
 #include <cstdint>
 
 struct ID3D11BlendState;
 struct ID3D11Buffer;
 struct ID3D11DepthStencilState;
+struct ID3D11DepthStencilView;
 struct ID3D11DeviceContext;
 struct ID3D11RasterizerState;
 
@@ -59,12 +62,28 @@ struct Vertex {
     float r, g, b;
 };
 
+// ⚠️ THREE PARTS IN ONE BUFFER, BECAUSE THEY MUST SHARE A CAMERA
+// AND A FRAME. Drawing the solid, the wireframe and the heatmap from separate
+// meshes would let them drift apart -- a different upload, a different phase, a
+// different transform -- and the whole question this rung asks is whether three
+// overlay KINDS behave correctly against ONE scene at ONE instant.
+enum class Part : uint32_t { Solid = 0, Wireframe = 1, Heatmap = 2, kCount = 3 };
+
 // Four boxes, each face a 2x2 grid: 48 triangles and 54 vertices per box.
 constexpr uint32_t kBoxCount = 4;
 constexpr uint32_t kVerticesPerBox = 6 * 9;
 constexpr uint32_t kIndicesPerBox = 6 * 4 * 6;
-constexpr uint32_t kMaxVertices = kBoxCount * kVerticesPerBox; // 216
-constexpr uint32_t kMaxIndices = kBoxCount * kIndicesPerBox;   // 576
+
+// The wireframe is the twelve edges of a box enclosing the solid scene; the
+// heatmap is a subdivided quad laid where a host surface would be.
+constexpr uint32_t kWireVertices = 8;
+constexpr uint32_t kWireIndices = 12 * 2;
+constexpr uint32_t kHeatGrid = 9; // 9x9 vertices
+constexpr uint32_t kHeatVertices = kHeatGrid * kHeatGrid;
+constexpr uint32_t kHeatIndices = (kHeatGrid - 1) * (kHeatGrid - 1) * 6;
+
+constexpr uint32_t kMaxVertices = kBoxCount * kVerticesPerBox + kWireVertices + kHeatVertices;
+constexpr uint32_t kMaxIndices = kBoxCount * kIndicesPerBox + kWireIndices + kHeatIndices;
 
 // MAIN THREAD. The scene is built around this point, in world metres.
 void SetAnchor (float x, float y, float z, float sizeMetres);
@@ -99,6 +118,46 @@ bool Animated ();
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11DepthStencilState* depthState,
            ID3D11RasterizerState* raster, ID3D11BlendState* blend);
 
+// RENDER THREAD. Draw ONE part under ONE style.
+//
+// ⚠️ THE STYLE DECIDES, NOT THIS FILE. `OverlayStyle` carries whether
+// the part occludes itself, whether it writes depth, how opaque it is, what it
+// becomes behind an occluder and how far it is biased towards the camera --
+// because solid ghosts, wireframes and heatmaps want three different answers and
+// compiling any one of them in here makes the other two impossible.
+//
+// ⚠️ ONE DEPTH VIEW, BECAUSE D3D11 BINDS ONE. Host occlusion and
+// self-occlusion cannot be two live buffers, so the overlay depth is SEEDED from
+// HostOccluderDepth and then written into: the inherited values hide the overlay
+// behind opaque host surfaces, and our own writes hide it behind itself. The
+// rest is draw ORDER -- solid first so it writes, then the wireframe testing
+// against those writes without adding its own, then the heatmap. That ordering
+// is why a wireframe is correctly hidden by a ghost cube and not by its own far
+// edges, and it is a property of the sequence rather than of any one state.
+//
+// `depthView` may be null, which is `HostOcclusionMode::None`: nothing occludes.
+// Returns the index count drawn, or 0.
+// RENDER THREAD. Rebuild and upload this frame's mesh. Returns the total index
+// count, or 0. Call once per frame before the parts are drawn.
+uint32_t Prepare (ID3D11DeviceContext* context);
+
+uint32_t DrawPart (ID3D11DeviceContext* context, uint32_t interpretation, Part part, const overlay::OverlayStyle& style,
+                   ID3D11DepthStencilView* depthView);
+
+// RENDER THREAD. Draw the mesh ALREADY UPLOADED this frame, without rebuilding
+// or re-uploading it.
+//
+// ⚠️ THE DEPTH DIAGNOSTIC DRAWS THIS ONCE PER ARCHICAD DRAW, AND
+// REBUILDING EACH TIME WOULD MEASURE THE WRONG THING. It would advance the
+// animation phase twenty-eight times within one frame, so every checkpoint would
+// be testing a slightly different mesh and the differences between them would
+// stop meaning "the depth buffer changed". The geometry has to be identical
+// across the whole comparison, which is what this exists to guarantee.
+//
+// Returns the index count drawn, or 0.
+uint32_t DrawCurrent (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11DepthStencilState* depthState,
+                      ID3D11RasterizerState* raster, ID3D11BlendState* blend);
+
 // MAIN THREAD, at teardown.
 void Shutdown ();
 
@@ -111,6 +170,20 @@ struct Stats {
     uint32_t indices = 0;
     uint32_t triangles = 0;
     uint32_t phase = 0;
+
+    // ⚠️ THE TWO NUMBERS THAT SEPARATE CLIPPING FROM OCCLUSION, and
+    // the user asked for exactly these rather than another diagnostic system.
+    // Both zero means the geometry never reached the raster -- near plane,
+    // transform or culling. The first non-zero and the second zero means it
+    // rasterised and something occluded it, which is a depth question and a
+    // different investigation entirely.
+    uint64_t pixelsHostDepthOff = 0;
+    uint64_t pixelsHostDepthOn = 0;
+    uint64_t pixelRounds = 0;
+
+    uint32_t solidIndices = 0;
+    uint32_t wireIndices = 0;
+    uint32_t heatIndices = 0;
     bool created = false;
     bool enabled = false;
     bool animated = false;

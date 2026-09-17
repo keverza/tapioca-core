@@ -214,6 +214,34 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
     ++g_binding.rebinds;
 }
 
+Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration)
+{
+    if (!g_selection.valid)
+        return learning ? Lifecycle::Learning : Lifecycle::Unknown;
+    // ⚠️ THE SAME STALENESS TEST `MaintainBinding` REBINDS ON, so the
+    // reported state and the behaviour cannot drift apart. One model generation
+    // of grace: a single frame in which the pinned family did not draw is a
+    // frame, not a loss.
+    if (g_selectionLastSeenModel != 0 && modelGeneration <= g_selectionLastSeenModel + 1)
+        return Lifecycle::Locked;
+    return Lifecycle::Reacquiring;
+}
+
+const char* LifecycleName (Lifecycle state)
+{
+    switch (state) {
+        case Lifecycle::Unknown:
+            return "Unknown";
+        case Lifecycle::Learning:
+            return "Learning";
+        case Lifecycle::Locked:
+            return "Locked";
+        case Lifecycle::Reacquiring:
+            return "Reacquiring";
+    }
+    return "Unknown";
+}
+
 // ⚠️ EVERY TERM COMES FROM THE COPIED GROUP. `CopyGroups`
 // already folds the slot's medians into it, so nothing here needs the census's
 // private sample buffers -- which is what let this file separate at all.

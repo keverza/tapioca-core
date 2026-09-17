@@ -240,6 +240,24 @@ struct FingerprintDiagnosis {
 };
 FingerprintDiagnosis GetFingerprintDiagnosis ();
 
+// ⚠️ THE LOCK IS A STATE, NOT AN EVENT, AND SAYING SO IS THE POINT.
+// Every run so far has asked "did phase A's camera survive?" at the end and got
+// one bit back, which cannot distinguish "never found" from "found and lost" from
+// "found, the view was rebuilt, and it is coming back" -- the last being ORDINARY
+// and already handled by `MaintainBinding`. A resize, a device reset and a window
+// rebuild all pass through `Reacquiring` and back to `Locked` on their own.
+//
+// Unknown      no camera has ever been selected
+// Learning     the census is scoring candidates; none chosen yet
+// Locked       a selection exists and its pinned resources are drawing
+// Reacquiring  a selection exists, the pin has gone quiet, the fingerprint holds
+enum class Lifecycle { Unknown, Learning, Locked, Reacquiring };
+
+// ANY THREAD. `learning` is the census's own enabled state; this file does not
+// own it, so the caller passes it rather than this reaching across for it.
+Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration);
+const char* LifecycleName (Lifecycle state);
+
 struct BindingStats {
     uint64_t selectionMatches = 0;
     uint64_t logicalMatches = 0;

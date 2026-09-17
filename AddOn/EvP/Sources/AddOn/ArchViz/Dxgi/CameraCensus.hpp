@@ -189,6 +189,12 @@ struct Stats {
     uint64_t rebinds = 0;
     uint64_t rebindsRefused = 0;
     bool fingerprintValid = false;
+
+    // ⚠️ THE LOCK AS A STATE: Unknown / Learning / Locked / Reacquiring.
+    // See `CameraRecognizer::Lifecycle`. One bit -- "did it survive" -- cannot
+    // tell "never found" from "found and lost" from "found, the view was
+    // rebuilt, and it is already coming back", and only the last is ordinary.
+    const char* lifecycle = "Unknown";
 };
 
 // MAIN THREAD. Off by default. Observation only: arming this draws nothing.

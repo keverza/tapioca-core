@@ -1,0 +1,175 @@
+#ifndef EVP_ARCHVIZ_DXGI_HOSTOCCLUDERS_HPP
+#define EVP_ARCHVIZ_DXGI_HOSTOCCLUDERS_HPP
+
+// The building's OPAQUE surfaces, re-rendered depth-only from Archicad's own GPU
+// camera, as the thing that hides the overlay (PLAT-RE155,
+// docs/architecture/api/HANDOFF-OverlayPatch.md stage 9).
+//
+// ⚠️ THIS IS THE SEPARATION FOUR RUNS PAID FOR. Runs forty-eight to fifty-one
+// each tried to make Archicad's own depth-stencil view answer "is the overlay
+// behind something", and each failed for the same reason in a new place:
+//
+//     forty-eight  26% of a primitive IN FRONT of the model was rejected
+//     forty-nine   all 2914 scene draws report `BlendEnable = TRUE`, so the
+//                  opaque/transparent boundary is not in the D3D state at all
+//     fifty        every sampled checkpoint read GOOD while the screen was wrong
+//     fifty-one    located it: after draw #2 the ghost loses 66% of its pixels
+//                  to a six-index quad that does not even write depth
+//
+// Archicad's buffer is the truth about Archicad's PIXELS. A transparent build
+// plane is in those pixels, and a designer does not mean it when they say
+// "behind the wall". No sampling moment can fix that, because the information
+// was never in the buffer.
+//
+// ⚠️ SO THE QUESTION IS ANSWERED WHERE THE ANSWER LIVES. The GPU hook says WHERE
+// the camera is and WHEN to compose. The model says WHAT is opaque --
+// `SurfaceMaterial::alpha` against `kOpaqueAlpha`, which `MaterialTable` already
+// measures from the real template and `SurfaceClassifier` already reasons about.
+// The classification therefore happens in `SceneCmdQueue`, which holds both the
+// element and the material table, and THIS file never sees a material at all: it
+// receives triangles that are already known to be opaque and renders them.
+//
+// ⚠️ THE CONCEPT IS ALREADY PROVEN IN THIS TREE. `ArchViz/OcclusionPrepass`
+// renders Archicad's model depth-only from the synced camera for the portable
+// overlay, for exactly this reason. What is new here is the opacity filter and
+// the fact that it runs on ARCHICAD'S OWN DEVICE, inside Archicad's frame, with
+// Archicad's own uploaded camera -- so there is no camera lag to add.
+//
+// ⚠️ AND THE LIMIT IS REAL: THIS OCCLUDES AGAINST ARCHICAD'S *MODEL*, NOT ITS
+// *PIXELS*. An element the extraction never saw cannot hide the overlay, and a
+// stale extraction hides it in the wrong place. That is a worse failure than
+// using the raw buffer in exactly one respect and better in every other, and it
+// is the trade this stage makes deliberately.
+//
+// THREAD SAFETY. `BeginBatch`/`AddOpaqueTriangles`/`EndBatch` run on the
+// extraction thread. `Prepare` runs on Archicad's render thread inside a detour.
+// ⚠️ THEY NEVER SHARE A LOCK. The producer builds a complete snapshot and
+// publishes it with one atomic exchange; the render thread takes ownership of it
+// with another. A mutex on the Present path would let a slow extraction stall
+// Archicad's frame, which is the one thing this whole rung may never do.
+
+#include <cstdint>
+
+struct ID3D11DepthStencilView;
+struct ID3D11DeviceContext;
+struct ID3D11DeviceContext1;
+
+namespace geomsrv {
+namespace archviz {
+namespace dxgi {
+namespace hostocclusion {
+
+// ---- extraction thread ------------------------------------------------------
+// MAIN/EXTRACTION THREAD. Start accumulating a new set of opaque host surfaces.
+// `full` discards what was there; otherwise the batch adds to it.
+void BeginBatch (bool full);
+
+// MAIN/EXTRACTION THREAD. Add one element's vertex block and return the base to
+// offset its indices by, or `kNoBase` when it would not fit.
+//
+// ⚠️ VERTICES ONCE PER ELEMENT, INDICES ONCE PER OPAQUE RANGE, AND THE
+// SPLIT IS NOT COSMETIC. An element is material-grouped into several ranges; the
+// first version of this took the whole vertex array alongside each range and so
+// copied every element's geometry once PER MATERIAL. On a real model that is a
+// multiple-times blow-up of both memory and extraction time, and it filled the
+// ceiling with duplicates of the same wall.
+//
+// Positions are world metres, xyz interleaved, in Archicad's own coordinates --
+// the same numbers `ElementUpload::vertices` carries, because the overlay's
+// camera is Archicad's and expects nothing else.
+constexpr uint32_t kNoBase = 0xffffffffu;
+uint32_t AddVertices (const float* xyz, uint32_t vertexCount);
+
+// MAIN/EXTRACTION THREAD. ⚠️ OPAQUE RANGES ONLY, AND THE CALLER HAS
+// ALREADY DECIDED THAT. See the header note: this file never sees a material.
+void AddOpaqueIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount);
+
+// MAIN/EXTRACTION THREAD. ⚠️ WHAT WAS REJECTED IS EVIDENCE TOO. A run
+// with zero opaque triangles and zero transparent ones means the extraction
+// produced nothing; zero opaque and many transparent means the classifier is
+// wrong or the model really is all glass. Those are different faults and a
+// single "no geometry" cannot tell them apart.
+void NoteTransparent (uint32_t indexCount);
+
+// MAIN/EXTRACTION THREAD. Publish what was accumulated. Until this is called the
+// render thread keeps using the previous snapshot, so a half-extracted building
+// never occludes anything.
+void EndBatch ();
+
+// MAIN THREAD. Forget the host entirely; the overlay stops being occluded.
+void Clear ();
+
+// ---- render thread ----------------------------------------------------------
+// RENDER THREAD, at the injection point, under `ScopedInjectionGuard`.
+//
+// Clears a private depth buffer to far, renders every opaque host triangle into
+// it with the injected camera, and returns the view. ⚠️ THE OVERLAY THEN DRAWS
+// INTO THIS SAME VIEW: the host's depth values are what hide it behind the
+// building, and its own writes are what hide it behind itself. One buffer, two
+// meanings, because D3D11 binds one depth-stencil view.
+//
+// Returns null when there is no host geometry, no camera, or the device objects
+// could not be made -- never a half-rendered buffer, because a partially drawn
+// occluder hides the overlay in a pattern that looks like a transform bug.
+ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation);
+
+// ⚠️ THREE GROUPS, AND MIXING THEM COST A RUN. Run fifty-six read
+// `batchEnds 130, opaqueTriangles 19760` beside `haveSnapshot false, triangles 0`
+// and concluded the publication had failed. It had not: those last two were
+// RENDER-THREAD upload counters, and the render thread only runs when injection
+// is active -- which the run had deliberately ordered AFTER extraction. The gate
+// was unreachable by construction and the wait ran to its full timeout.
+//
+// So the groups are named for the thread that writes them, and the question
+// "did the model reach the overlay" is answered ONLY by the producer group.
+struct Stats {
+    // ---- the extraction thread: what arrived ----------------------------
+    uint64_t extractionGeneration = 0; // ++ at each BeginBatch
+    uint64_t batchBegins = 0;
+    uint64_t batchEnds = 0;
+    uint64_t elementsReceived = 0;
+    uint64_t opaqueVerticesAdded = 0;
+    uint64_t opaqueIndicesAdded = 0;
+    uint64_t opaqueTriangles = 0;
+    uint64_t transparentTrianglesSkipped = 0;
+    uint64_t droppedOverCapacity = 0;
+    uint32_t pendingVertices = 0; // this batch, so far
+
+    // ---- the extraction thread: what was handed over --------------------
+    // ⚠️ `haveSnapshot` IS STICKY AND THAT IS DELIBERATE. `TakeAndUpload`
+    // exchanges the pending snapshot away, so "is one pending" goes false the
+    // moment the GPU accepts it -- which would read as the model having been
+    // lost at the exact moment it arrived.
+    uint64_t publishAttempted = 0;
+    uint64_t publishSucceeded = 0;
+    uint64_t publishedGeneration = 0;
+    uint32_t publishedVertices = 0;
+    uint32_t publishedIndices = 0;
+    uint32_t publishedTriangles = 0;
+    bool haveSnapshot = false;
+    char publishFailureReason[160] = {};
+
+    // ---- the render thread: what is on the GPU --------------------------
+    uint64_t uploads = 0;
+    uint64_t renders = 0;
+    uint64_t skippedNoCamera = 0;
+    uint64_t skippedNoGeometry = 0;
+    uint32_t vertices = 0;
+    uint32_t indices = 0;
+    uint32_t triangles = 0;
+    bool uploaded = false;
+    uint32_t width = 0, height = 0;
+    bool ready = false;
+    char lastError[160] = {};
+};
+Stats GetStats ();
+
+// MAIN THREAD, at teardown.
+void Shutdown ();
+
+} // namespace hostocclusion
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
+
+#endif

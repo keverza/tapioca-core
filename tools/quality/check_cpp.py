@@ -274,6 +274,16 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # Archicad's render thread and this verb only flips the switch and copies the
     # table out.
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/DepthCheckpoints.hpp"),
+    # The host occluder, read by the same verb. Same reason again: the building's
+    # opaque depth is rendered on Archicad's render thread and this verb only
+    # copies the counters out -- and whether a host snapshot exists at all is the
+    # one number that says whether host occlusion was tested.
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/HostOccluders.hpp"),
+    # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
+    # exists precisely so host extraction does NOT share a lifecycle with camera
+    # synchronisation -- opening the Diligent overlay to force one tore down the
+    # census and dropped the camera fingerprint (run fifty-four).
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/ExtractionThread.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionCamera.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/ContextStateTracker.hpp"),
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/RenderStateCapture.hpp"),

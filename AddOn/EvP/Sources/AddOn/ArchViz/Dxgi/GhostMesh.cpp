@@ -57,6 +57,26 @@ uint32_t g_indexCount = 0;
 // changes, and that is a different question from "can vertices move".
 bool g_topologyBuilt = false;
 
+// Where each part lives inside the one index buffer.
+uint32_t g_partFirstIndex[uint32_t (Part::kCount)] = {};
+uint32_t g_partIndexCount[uint32_t (Part::kCount)] = {};
+
+// ⚠️ THE STATES ARE OURS AND THE STYLE PICKS BETWEEN THEM. Three
+// depth behaviours and two rasterizer behaviours cover the three overlay kinds;
+// anything the style cannot express here is a gap in the policy, not a reason to
+// branch on the part.
+ID3D11DepthStencilState* g_depthTestWrite = nullptr;
+ID3D11DepthStencilState* g_depthTestOnly = nullptr;
+ID3D11DepthStencilState* g_depthNone = nullptr;
+ID3D11RasterizerState* g_rasterPlain = nullptr;
+ID3D11RasterizerState* g_rasterBiased = nullptr;
+
+// ⚠️ OPACITY THROUGH THE BLEND FACTOR, NOT A CONSTANT BUFFER. `b1`
+// and `b2` are Archicad's camera windows and nothing of ours may go near them;
+// a third cbuffer would be a third thing to bind, restore and get wrong. The
+// blend factor is a pipeline value that already exists for exactly this.
+ID3D11BlendState* g_blendOpacity = nullptr;
+
 template <typename T> void ReleaseAndNull (T*& object)
 {
     if (object != nullptr) {
@@ -219,10 +239,87 @@ void BuildScene (uint32_t phase)
             }
         }
     }
+    g_partFirstIndex[uint32_t (Part::Solid)] = 0;
+    g_partIndexCount[uint32_t (Part::Solid)] = g_topologyBuilt ? kBoxCount * kIndicesPerBox : g_indexCount;
+
+    // ---- the wireframe: the twelve edges of a box around the whole scene ----
+    // ⚠️ A LINE LIST, WHICH IS WHY IT CANNOT SHARE THE SOLID'S DRAW.
+    // It crosses the cubes and the bars, so it is the part that shows whether an
+    // analysis overlay is correctly hidden by ghost geometry AND by the building
+    // while still being drawn faded where a policy says it should be.
+    {
+        const uint32_t base = g_vertexCount;
+        const float half = 2.2f * g_anchorSize;
+        for (uint32_t corner = 0; corner < 8; ++corner) {
+            const float sx = (corner & 1) ? 1.0f : -1.0f;
+            const float sy = (corner & 2) ? 1.0f : -1.0f;
+            const float sz = (corner & 4) ? 1.0f : -1.0f;
+            Vertex& out = g_vertices[g_vertexCount++];
+            out.x = g_anchorX + sx * half;
+            out.y = g_anchorY + sy * half;
+            out.z = g_anchorZ + sz * half * 0.5f;
+            out.r = 0.15f;
+            out.g = 1.00f;
+            out.b = 0.55f;
+        }
+        if (!g_topologyBuilt) {
+            const uint32_t edges[24] = { 0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7 };
+            g_partFirstIndex[uint32_t (Part::Wireframe)] = g_indexCount;
+            for (uint32_t i = 0; i < kWireIndices; ++i)
+                g_indices[g_indexCount++] = base + edges[i];
+            g_partIndexCount[uint32_t (Part::Wireframe)] = kWireIndices;
+        }
+    }
+
+    // ---- the heatmap: a subdivided quad where a host surface would be -------
+    // ⚠️ COPLANAR ON PURPOSE. It sits on a plane through the anchor,
+    // which is the case a heatmap always has and the one that z-fights without a
+    // bias. If it stipples, the bias is wrong; if it disappears, the policy is.
+    {
+        const uint32_t base = g_vertexCount;
+        const float extent = 2.0f * g_anchorSize;
+        for (uint32_t row = 0; row < kHeatGrid; ++row) {
+            for (uint32_t col = 0; col < kHeatGrid; ++col) {
+                const float u = float (col) / float (kHeatGrid - 1);
+                const float v = float (row) / float (kHeatGrid - 1);
+                Vertex& out = g_vertices[g_vertexCount++];
+                out.x = g_anchorX + (u * 2.0f - 1.0f) * extent;
+                out.y = g_anchorY - 1.8f * g_anchorSize;
+                out.z = g_anchorZ + (v * 2.0f - 1.0f) * extent * 0.5f;
+                // A blue-to-red ramp, so a wrong orientation is obvious.
+                const float t = u * 0.6f + v * 0.4f;
+                out.r = t;
+                out.g = 0.25f + 0.35f * (1.0f - std::fabs (t - 0.5f) * 2.0f);
+                out.b = 1.0f - t;
+            }
+        }
+        if (!g_topologyBuilt) {
+            g_partFirstIndex[uint32_t (Part::Heatmap)] = g_indexCount;
+            for (uint32_t row = 0; row + 1 < kHeatGrid; ++row) {
+                for (uint32_t col = 0; col + 1 < kHeatGrid; ++col) {
+                    const uint32_t a = base + row * kHeatGrid + col;
+                    const uint32_t b = a + 1;
+                    const uint32_t d = a + kHeatGrid;
+                    const uint32_t e = d + 1;
+                    g_indices[g_indexCount++] = a;
+                    g_indices[g_indexCount++] = d;
+                    g_indices[g_indexCount++] = b;
+                    g_indices[g_indexCount++] = b;
+                    g_indices[g_indexCount++] = d;
+                    g_indices[g_indexCount++] = e;
+                }
+            }
+            g_partIndexCount[uint32_t (Part::Heatmap)] = kHeatIndices;
+        }
+    }
+
     if (!g_topologyBuilt)
         g_topologyBuilt = true;
     else
         g_indexCount = kMaxIndices;
+    g_stats.solidIndices = g_partIndexCount[uint32_t (Part::Solid)];
+    g_stats.wireIndices = g_partIndexCount[uint32_t (Part::Wireframe)];
+    g_stats.heatIndices = g_partIndexCount[uint32_t (Part::Heatmap)];
 
     ++g_stats.builds;
     g_stats.vertices = g_vertexCount;
@@ -330,6 +427,49 @@ bool EnsureCreated (ID3D11DeviceContext* context)
         return false;
     }
 
+    {
+        D3D11_DEPTH_STENCIL_DESC desc = {};
+        desc.DepthEnable = TRUE;
+        desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+        desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+        bool ok = SUCCEEDED (g_device->CreateDepthStencilState (&desc, &g_depthTestWrite));
+        desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+        ok = ok && SUCCEEDED (g_device->CreateDepthStencilState (&desc, &g_depthTestOnly));
+        desc.DepthEnable = FALSE;
+        ok = ok && SUCCEEDED (g_device->CreateDepthStencilState (&desc, &g_depthNone));
+
+        D3D11_RASTERIZER_DESC raster = {};
+        raster.FillMode = D3D11_FILL_SOLID;
+        raster.CullMode = D3D11_CULL_NONE;
+        raster.DepthClipEnable = TRUE;
+        raster.ScissorEnable = FALSE;
+        ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_rasterPlain));
+        // ⚠️ THE BIAS IS IN DEPTH-BUFFER UNITS, NOT METRES. For a 24
+        // bit buffer one unit is 1/2^24, so a style asking for 0.0005 of NDC is
+        // about eight thousand of them. `SlopeScaledDepthBias` handles the
+        // grazing angles a flat map on a wall will hit at the edges of view.
+        raster.DepthBias = 8000;
+        raster.SlopeScaledDepthBias = 1.5f;
+        raster.DepthBiasClamp = 0.01f;
+        ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_rasterBiased));
+
+        D3D11_BLEND_DESC blend = {};
+        blend.RenderTarget[0].BlendEnable = TRUE;
+        blend.RenderTarget[0].SrcBlend = D3D11_BLEND_BLEND_FACTOR;
+        blend.RenderTarget[0].DestBlend = D3D11_BLEND_INV_BLEND_FACTOR;
+        blend.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+        blend.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+        blend.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+        blend.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        ok = ok && SUCCEEDED (g_device->CreateBlendState (&blend, &g_blendOpacity));
+        if (!ok) {
+            g_createFailed = true;
+            Fail ("the ghost overlay states could not be created");
+            return false;
+        }
+    }
+
     if (!EnsureShaders ()) {
         g_createFailed = true;
         ReleaseAndNull (g_indexBuffer);
@@ -360,6 +500,8 @@ bool Upload (ID3D11DeviceContext* context, ID3D11Buffer* buffer, const void* dat
     return true;
 }
 
+} // namespace
+
 uint32_t Prepare (ID3D11DeviceContext* context)
 {
     if (!Enabled () || context == nullptr)
@@ -372,15 +514,13 @@ uint32_t Prepare (ID3D11DeviceContext* context)
 
     if (!Upload (context, g_vertexBuffer, g_vertices, sizeof (Vertex) * g_vertexCount))
         return 0;
-    // ⚠️ THE INDICES GO UP ONCE. Their content cannot change while the scene is
-    // four fixed boxes, and uploading them every frame would measure nothing
-    // except the upload.
+    // ⚠️ THE INDICES GO UP ONCE. Their content cannot change while the
+    // scene is a fixed set of parts, and uploading them every frame would measure
+    // nothing except the upload.
     if (first && !Upload (context, g_indexBuffer, g_indices, sizeof (uint32_t) * g_indexCount))
         return 0;
     return g_indexCount;
 }
-
-} // namespace
 
 void SetAnchor (float x, float y, float z, float sizeMetres)
 {
@@ -415,9 +555,61 @@ bool Animated ()
 void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11DepthStencilState* depthState,
            ID3D11RasterizerState* raster, ID3D11BlendState* blend)
 {
-    const uint32_t indices = Prepare (context);
-    if (indices == 0 || g_layout == nullptr || g_ps == nullptr)
+    if (Prepare (context) == 0)
         return;
+    DrawCurrent (context, interpretation, depthState, raster, blend);
+}
+
+uint32_t DrawPart (ID3D11DeviceContext* context, uint32_t interpretation, Part part, const overlay::OverlayStyle& style,
+                   ID3D11DepthStencilView* depthView)
+{
+    const uint32_t index = uint32_t (part);
+    if (context == nullptr || index >= uint32_t (Part::kCount) || !g_created)
+        return 0;
+    const uint32_t count = g_partIndexCount[index];
+    if (count == 0 || g_layout == nullptr || g_ps == nullptr)
+        return 0;
+
+    const uint32_t variant =
+        (interpretation < camerashader::kDeclarableVariants && g_vsVariant[interpretation] != nullptr) ? interpretation
+                                                                                                       : 0;
+    if (g_vsVariant[variant] == nullptr)
+        return 0;
+
+    // ⚠️ THE STYLE CHOOSES THE STATE; THIS FILE DOES NOT KNOW WHAT A
+    // WIREFRAME IS. `selfOcclusion` picks whether the depth test runs at all and
+    // `depthWrite` whether our own geometry joins the buffer -- which is the
+    // whole difference between a solid that hides itself and a wireframe that
+    // must not.
+    ID3D11DepthStencilState* depthState = g_depthNone;
+    if (depthView != nullptr && style.selfOcclusion)
+        depthState = style.depthWrite ? g_depthTestWrite : g_depthTestOnly;
+    context->OMSetDepthStencilState (depthState, 0);
+    context->RSSetState (style.depthBias > 0.0f ? g_rasterBiased : g_rasterPlain);
+
+    const FLOAT factor[4] = { style.opacity, style.opacity, style.opacity, style.opacity };
+    context->OMSetBlendState (g_blendOpacity, factor, 0xffffffffu);
+
+    const UINT stride = sizeof (Vertex);
+    const UINT offset = 0;
+    context->IASetInputLayout (g_layout);
+    context->IASetVertexBuffers (0, 1, &g_vertexBuffer, &stride, &offset);
+    context->IASetIndexBuffer (g_indexBuffer, DXGI_FORMAT_R32_UINT, 0);
+    context->IASetPrimitiveTopology (part == Part::Wireframe ? D3D11_PRIMITIVE_TOPOLOGY_LINELIST
+                                                             : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader (g_vsVariant[variant], nullptr, 0);
+    context->PSSetShader (g_ps, nullptr, 0);
+    context->DrawIndexed (count, g_partFirstIndex[index], 0);
+    ++g_stats.draws;
+    return count;
+}
+
+uint32_t DrawCurrent (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11DepthStencilState* depthState,
+                      ID3D11RasterizerState* raster, ID3D11BlendState* blend)
+{
+    const uint32_t indices = g_indexCount;
+    if (context == nullptr || indices == 0 || !g_created || g_layout == nullptr || g_ps == nullptr)
+        return 0;
 
     // ⚠️ VARIANTS 4 TO 7 ARE REVERSED MULTIPLICATION ORDERS, which no
     // cbuffer declaration can express. Falling back to 0 is the same refusal the
@@ -427,7 +619,7 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11DepthSte
         (interpretation < camerashader::kDeclarableVariants && g_vsVariant[interpretation] != nullptr) ? interpretation
                                                                                                        : 0;
     if (g_vsVariant[variant] == nullptr)
-        return;
+        return 0;
 
     const UINT stride = sizeof (Vertex);
     const UINT offset = 0;
@@ -447,10 +639,17 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11DepthSte
     }
     context->DrawIndexed (indices, 0, 0);
     ++g_stats.draws;
+    return indices;
 }
 
 void Shutdown ()
 {
+    ReleaseAndNull (g_blendOpacity);
+    ReleaseAndNull (g_rasterBiased);
+    ReleaseAndNull (g_rasterPlain);
+    ReleaseAndNull (g_depthNone);
+    ReleaseAndNull (g_depthTestOnly);
+    ReleaseAndNull (g_depthTestWrite);
     ReleaseAndNull (g_layout);
     ReleaseAndNull (g_ps);
     for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)

@@ -10,6 +10,8 @@
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
+#include "ArchViz/Dxgi/HostOccluders.hpp"
+#include "ArchViz/Dxgi/OverlayStyle.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
@@ -460,6 +462,7 @@ void Shutdown ()
     ReleaseAndNull (g_vertices);
     ReleaseAndNull (g_layout);
     ghost::Shutdown ();
+    hostocclusion::Shutdown ();
     checkpoints::Shutdown ();
     ReleaseAndNull (g_ps);
     for (uint32_t variant = 0; variant < 4; ++variant)
@@ -605,7 +608,35 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // composites and the mesh does not, the fault is in the mesh and nowhere
     // else. The pipeline behind it belongs to `GhostMesh`, which is why this is
     // one line: a mesh bug cannot reach the instrument that would diagnose it.
-    ghost::Draw (context, wanted, depthState != nullptr ? depthState : g_depthState, g_raster, g_blend);
+    // ⚠️ THREE OVERLAY KINDS, ONE CAMERA, ONE FRAME, AND THE ORDER
+    // IS THE POLICY. Solid first so its depth writes land; then the wireframe,
+    // which tests against those writes and adds none of its own, so it is hidden
+    // by a ghost cube but never by its own far edges; then the heatmap, biased
+    // towards the camera because it is coplanar with the surface it describes.
+    //
+    // ⚠️ AND THE DEPTH VIEW THEY TEST AGAINST IS SEEDED FROM THE HOST
+    // OCCLUDER, NOT BOUND AS A SECOND BUFFER. D3D11 binds one DSV; the inherited
+    // values are what hides the overlay behind the building and our own writes
+    // are what hides it behind itself.
+    // ⚠️ THE HOST OCCLUDER IS RENDERED FIRST AND THE OVERLAY DRAWS
+    // INTO ITS BUFFER. Opaque Archicad surfaces put their depth there; glass, the
+    // build plane and every helper contribute nothing, so they cannot hide the
+    // overlay -- which is the fault run forty-eight found and runs forty-nine to
+    // fifty-one narrowed to a six-index quad that does not even write depth.
+    //
+    // Falling back to `depthView` when there is no host snapshot means the
+    // overlay behaves exactly as it did before the extraction arrives, rather
+    // than becoming un-occludable without saying so.
+    ID3D11DepthStencilView* const hostView = hostocclusion::Prepare (context, context1, wanted);
+    ID3D11DepthStencilView* const overlayView = hostView != nullptr ? hostView : depthView;
+    if (targetView != nullptr)
+        context->OMSetRenderTargets (1, &targetView, overlayView);
+
+    if (ghost::Prepare (context) > 0) {
+        ghost::DrawPart (context, wanted, ghost::Part::Solid, overlay::SolidGhostStyle (), overlayView);
+        ghost::DrawPart (context, wanted, ghost::Part::Wireframe, overlay::WireframeStyle (), overlayView);
+        ghost::DrawPart (context, wanted, ghost::Part::Heatmap, overlay::HeatmapStyle (), overlayView);
+    }
 
     // ---- the depth checkpoints ---------------------------------------------
     // ⚠️ THE SAME TWO PRIMITIVES AGAINST EVERY MOMENT OF ARCHICAD'S
@@ -614,10 +645,10 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // depth buffer stop being usable". It draws nothing the user can see -- the
     // probes write to the back buffer through an occlusion query and are
     // overwritten by nothing, because they run last.
-    if (targetView != nullptr) {
-        checkpoints::Evaluate (context, context1, targetView, sceneViewport.TopLeftX, sceneViewport.TopLeftY,
-                               sceneViewport.Width, sceneViewport.Height);
-    }
+    // ⚠️ THE PROBING ITSELF HAPPENS MID-PASS NOW, after each Archicad
+    // draw, against the live depth buffer. All that is left here is collecting
+    // whatever occlusion results have become ready.
+    checkpoints::Resolve (context);
 
     // ⚠️ NOTHING IS PUT BACK BY HAND ANY MORE. The guard's
     // destructor restores every binding and releases every reference it took,

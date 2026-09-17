@@ -1,5 +1,7 @@
 #include "ArchViz/SceneCmdQueue.hpp"
 
+#include "ArchViz/Dxgi/HostOccluders.hpp"
+
 #include <algorithm>
 
 namespace geomsrv {
@@ -33,8 +35,65 @@ SceneCmdQueue& SceneCmdQueue::Get ()
     return instance;
 }
 
+namespace {
+
+// ⚠️ THE OPACITY DECISION LIVES HERE, WHERE THE MODEL IS, AND NOWHERE
+// ELSE. This is the one place that holds both an element's material-grouped
+// ranges and the material table those ranges index, so it is the only place that
+// can say "this triangle belongs to a wall and that one belongs to glass". The
+// D3D11 side is handed triangles that are ALREADY classified and never sees a
+// material -- which is the separation runs forty-eight to fifty-one paid for:
+//
+//     the GPU hook answers   WHERE is the camera, WHEN do we compose
+//     the model answers      WHAT is opaque
+//
+// ⚠️ AND IT IS `alpha`, NOT A NAME AND NOT A D3D BLEND STATE.
+// `SurfaceMaterial::alpha` is Archicad's own transparency, flipped to opacity by
+// `MaterialTable`, and `kOpaqueAlpha` is the threshold it already uses.
+// `SurfaceClassifier` documents at length why names may never decide a surface's
+// type; run forty-nine documents why blend state may not either -- all 2914
+// scene draws report `BlendEnable = TRUE`.
+const MaterialTable* g_hostMaterials = nullptr;
+
+void FeedOpaqueOccluders (const ElementUpload& upload)
+{
+    if (g_hostMaterials == nullptr || upload.vertices.empty () || upload.ranges.empty ())
+        return;
+
+    // ⚠️ THE VERTEX BLOCK GOES IN ONCE, NOT ONCE PER RANGE. An element is
+    // material-grouped into several ranges and the first version of this handed
+    // the whole vertex array to each of them, copying every wall as many times
+    // as it had materials.
+    const uint32_t base = dxgi::hostocclusion::AddVertices (upload.vertices.data (), uint32_t (upload.VertexCount ()));
+    if (base == dxgi::hostocclusion::kNoBase)
+        return;
+
+    // The ranges are already contiguous per material, so an opaque material is
+    // one contiguous run of indices and needs no per-triangle work.
+    for (const MaterialRange& range : upload.ranges) {
+        if (range.indexCount == 0)
+            continue;
+        if (size_t (range.firstIndex) + range.indexCount > upload.indices.size ())
+            continue;
+        const SurfaceMaterial& material = g_hostMaterials->Lookup (range.material);
+        if (material.alpha < kOpaqueAlpha) {
+            // Glass, a build plane, a helper: it may not hide us. Counted, so
+            // "no opaque geometry" can be told apart from "no geometry at all".
+            dxgi::hostocclusion::NoteTransparent (range.indexCount);
+            continue;
+        }
+        dxgi::hostocclusion::AddOpaqueIndices (base, upload.indices.data () + range.firstIndex, range.indexCount);
+    }
+}
+
+} // namespace
+
 void SceneCmdQueue::PushBeginBatch (bool full)
 {
+    // ⚠️ THE OCCLUDER BATCH FOLLOWS THE SCENE BATCH EXACTLY, so a
+    // full rebuild replaces the occluder rather than adding a second copy of the
+    // building to it.
+    dxgi::hostocclusion::BeginBatch (full);
     std::lock_guard<std::mutex> lock (mutex_);
     SceneCmd cmd;
     cmd.type = SceneCmdType::BeginBatch;
@@ -46,6 +105,9 @@ void SceneCmdQueue::PushUpsert (std::unique_ptr<ElementUpload> upload)
 {
     if (upload == nullptr)
         return; // nothing to hand over; a null node would be a consumer crash
+
+    // ⚠️ BEFORE THE MOVE, BECAUSE AFTER IT THERE IS NOTHING TO READ.
+    FeedOpaqueOccluders (*upload);
 
     std::lock_guard<std::mutex> lock (mutex_);
     pendingBytes_ += upload->Bytes ();
@@ -66,6 +128,10 @@ void SceneCmdQueue::PushRemove (const std::string& guid)
 
 void SceneCmdQueue::PushEndBatch ()
 {
+    // Publish the occluder snapshot in one exchange. Until this runs the render
+    // thread keeps the previous building, so a half-extracted model never
+    // occludes anything.
+    dxgi::hostocclusion::EndBatch ();
     std::lock_guard<std::mutex> lock (mutex_);
     SceneCmd cmd;
     cmd.type = SceneCmdType::EndBatch;
@@ -76,6 +142,14 @@ void SceneCmdQueue::PushMaterials (std::unique_ptr<MaterialTable> materials)
 {
     if (materials == nullptr)
         return; // same rule as PushUpsert: a null node would be a consumer crash
+
+    // ⚠️ THE TABLE IS RETAINED FOR THE CLASSIFIER, AND IT ARRIVES
+    // BEFORE THE ELEMENTS DO. `ExtractionThread` pushes materials first; an
+    // element that somehow arrived earlier is fed nothing rather than being
+    // guessed at, which is why `FeedOpaqueOccluders` returns on a null table.
+    static std::unique_ptr<MaterialTable> retained;
+    retained = std::make_unique<MaterialTable> (*materials);
+    g_hostMaterials = retained.get ();
 
     std::lock_guard<std::mutex> lock (mutex_);
     pendingBytes_ += materials->Bytes ();

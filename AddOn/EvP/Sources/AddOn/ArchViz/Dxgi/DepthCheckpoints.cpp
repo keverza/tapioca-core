@@ -4,6 +4,7 @@
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
+#include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
@@ -25,30 +26,33 @@ namespace {
 constexpr uint32_t kCameraWindowConstants = 16;
 
 struct Slot {
-    ID3D11Texture2D* texture = nullptr;
-    ID3D11DepthStencilView* view = nullptr;
-    ID3D11Query* frontQuery = nullptr;
-    ID3D11Query* behindQuery = nullptr;
-    bool queryPending = false;
+    ID3D11Query* front = nullptr;
+    ID3D11Query* behind = nullptr;
+    ID3D11Query* ghost = nullptr;
+    bool pending = false;
     Result result;
 };
 
 ID3D11Device* g_device = nullptr;
 Slot g_slots[kCapacity];
 Stats g_stats;
-D3D11_TEXTURE2D_DESC g_desc = {};
+
+// ⚠️ OUR OWN STATES, AND BOTH MASKS ARE ZERO. Depth writes off so the probe
+// cannot change what Archicad is drawing against; colour writes off so it cannot
+// put a pixel on screen. The occlusion query still counts the samples that would
+// have passed, which is the entire measurement.
+ID3D11DepthStencilState* g_testOnly = nullptr;
+ID3D11BlendState* g_noColour = nullptr;
 bool g_created = false;
 bool g_createFailed = false;
 
 std::atomic<bool> g_enabled { false };
-std::atomic<uint32_t> g_interval { 12 };
+std::atomic<uint32_t> g_interval { 10 };
 
-// Per-frame bookkeeping.
 uint64_t g_frameGeneration = 0;
 uint64_t g_modelFramesSeen = 0;
-bool g_instrumentingThisFrame = false;
-uint32_t g_capturedThisFrame = 0;
-uint32_t g_drawOrdinal = 0;
+bool g_instrumenting = false;
+uint32_t g_ordinal = 0;
 
 template <typename T> void ReleaseAndNull (T*& object)
 {
@@ -63,49 +67,11 @@ void Fail (const char* what)
     strncpy_s (g_stats.lastError, sizeof (g_stats.lastError), what, _TRUNCATE);
 }
 
-DXGI_FORMAT DepthViewFormat (DXGI_FORMAT resource)
+bool EnsureCreated (ID3D11DeviceContext* context)
 {
-    switch (resource) {
-        case DXGI_FORMAT_R32G8X24_TYPELESS:
-        case DXGI_FORMAT_D32_FLOAT_S8X24_UINT:
-            return DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
-        case DXGI_FORMAT_R32_TYPELESS:
-        case DXGI_FORMAT_D32_FLOAT:
-            return DXGI_FORMAT_D32_FLOAT;
-        case DXGI_FORMAT_R24G8_TYPELESS:
-        case DXGI_FORMAT_D24_UNORM_S8_UINT:
-            return DXGI_FORMAT_D24_UNORM_S8_UINT;
-        case DXGI_FORMAT_R16_TYPELESS:
-        case DXGI_FORMAT_D16_UNORM:
-            return DXGI_FORMAT_D16_UNORM;
-        default:
-            return resource;
-    }
-}
-
-void ReleaseSlots ()
-{
-    for (uint32_t i = 0; i < kCapacity; ++i) {
-        ReleaseAndNull (g_slots[i].view);
-        ReleaseAndNull (g_slots[i].texture);
-    }
-    g_created = false;
-    g_stats.ready = false;
-}
-
-// ⚠️ THE SAME DESCRIPTION AS ARCHICAD'S, BECAUSE `CopyResource` REQUIRES IT.
-// Only the bind flags are ours, and they are the minimum that lets the probes
-// test against it.
-bool EnsureCreated (ID3D11DeviceContext* context, ID3D11Texture2D* source)
-{
-    D3D11_TEXTURE2D_DESC desc = {};
-    source->GetDesc (&desc);
-    if (g_created && desc.Width == g_desc.Width && desc.Height == g_desc.Height && desc.Format == g_desc.Format &&
-        desc.SampleDesc.Count == g_desc.SampleDesc.Count) {
+    if (g_created)
         return true;
-    }
-    ReleaseSlots ();
-    if (g_createFailed)
+    if (g_createFailed || context == nullptr)
         return false;
     if (g_device == nullptr) {
         context->GetDevice (&g_device);
@@ -116,48 +82,35 @@ bool EnsureCreated (ID3D11DeviceContext* context, ID3D11Texture2D* source)
         }
     }
 
-    D3D11_TEXTURE2D_DESC ours = desc;
-    ours.Usage = D3D11_USAGE_DEFAULT;
-    ours.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-    ours.CPUAccessFlags = 0;
-    ours.MiscFlags = 0;
+    D3D11_DEPTH_STENCIL_DESC depthDesc = {};
+    depthDesc.DepthEnable = TRUE;
+    depthDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+    depthDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+    bool ok = SUCCEEDED (g_device->CreateDepthStencilState (&depthDesc, &g_testOnly));
 
-    D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc = {};
-    viewDesc.Format = DepthViewFormat (desc.Format);
-    viewDesc.ViewDimension =
-        desc.SampleDesc.Count > 1 ? D3D11_DSV_DIMENSION_TEXTURE2DMS : D3D11_DSV_DIMENSION_TEXTURE2D;
+    D3D11_BLEND_DESC blendDesc = {};
+    blendDesc.RenderTarget[0].RenderTargetWriteMask = 0;
+    ok = ok && SUCCEEDED (g_device->CreateBlendState (&blendDesc, &g_noColour));
 
     D3D11_QUERY_DESC queryDesc = {};
     queryDesc.Query = D3D11_QUERY_OCCLUSION;
-
-    bool ok = true;
     for (uint32_t i = 0; i < kCapacity && ok; ++i) {
-        ok = ok && SUCCEEDED (g_device->CreateTexture2D (&ours, nullptr, &g_slots[i].texture));
-        ok = ok && SUCCEEDED (g_device->CreateDepthStencilView (g_slots[i].texture, &viewDesc, &g_slots[i].view));
-        if (g_slots[i].frontQuery == nullptr)
-            ok = ok && SUCCEEDED (g_device->CreateQuery (&queryDesc, &g_slots[i].frontQuery));
-        if (g_slots[i].behindQuery == nullptr)
-            ok = ok && SUCCEEDED (g_device->CreateQuery (&queryDesc, &g_slots[i].behindQuery));
+        ok = ok && SUCCEEDED (g_device->CreateQuery (&queryDesc, &g_slots[i].front));
+        ok = ok && SUCCEEDED (g_device->CreateQuery (&queryDesc, &g_slots[i].behind));
+        ok = ok && SUCCEEDED (g_device->CreateQuery (&queryDesc, &g_slots[i].ghost));
     }
     if (!ok) {
-        // ⚠️ EIGHT FULL-RESOLUTION DEPTH TEXTURES IS REAL MEMORY, and failing to
-        // get it is a plausible outcome rather than a bug. It says so and stands
-        // down instead of leaving half a table behind.
-        Fail ("the depth checkpoint textures could not be created");
+        Fail ("the checkpoint queries could not be created");
         g_createFailed = true;
-        ReleaseSlots ();
         return false;
     }
-    g_desc = desc;
     g_created = true;
     g_stats.ready = true;
-    g_stats.width = desc.Width;
-    g_stats.height = desc.Height;
     return true;
 }
 
-// Everything about the draw that just executed, for the report to explain a
-// transition the probes have already located.
+// Everything about the draw that just executed, so the report can name the
+// boundary once the samples have located it.
 void RecordAttributes (ID3D11DeviceContext* context, Attributes& out, uint32_t drawKind, uint32_t indexCount,
                        uint32_t ordinal)
 {
@@ -211,34 +164,6 @@ void RecordAttributes (ID3D11DeviceContext* context, Attributes& out, uint32_t d
     ReleaseAndNull (depthState);
 }
 
-void ResolveQueries (ID3D11DeviceContext* context)
-{
-    for (uint32_t i = 0; i < kCapacity; ++i) {
-        Slot& slot = g_slots[i];
-        if (!slot.queryPending)
-            continue;
-        UINT64 front = 0;
-        UINT64 behind = 0;
-        // ⚠️ `DONOTFLUSH`, SO A PENDING QUERY COSTS ARCHICAD NOTHING. A result
-        // that is not ready is left for a later frame; this is a measurement and
-        // it may never stall the render thread to take one.
-        const HRESULT a = context->GetData (slot.frontQuery, &front, sizeof (front), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-        const HRESULT b = context->GetData (slot.behindQuery, &behind, sizeof (behind), D3D11_ASYNC_GETDATA_DONOTFLUSH);
-        if (a != S_OK || b != S_OK)
-            continue;
-        slot.queryPending = false;
-        g_stats.queriesResolved += 2;
-        ++slot.result.frontDraws;
-        ++slot.result.behindDraws;
-        slot.result.frontSamples += uint64_t (front);
-        slot.result.behindSamples += uint64_t (behind);
-        if (front > 0)
-            ++slot.result.frontSurvived;
-        if (behind > 0)
-            ++slot.result.behindSurvived;
-    }
-}
-
 } // namespace
 
 void SetEnabled (bool enabled)
@@ -254,32 +179,31 @@ bool Enabled ()
 
 void SetInterval (uint32_t interval)
 {
-    g_interval.store (interval < 1 ? 1u : interval, std::memory_order_release);
-    g_stats.interval = interval < 1 ? 1u : interval;
+    const uint32_t clamped = interval < 1 ? 1u : interval;
+    g_interval.store (clamped, std::memory_order_release);
+    g_stats.interval = clamped;
 }
 
 void Reset ()
 {
     for (uint32_t i = 0; i < kCapacity; ++i) {
         g_slots[i].result = Result {};
-        g_slots[i].queryPending = false;
+        g_slots[i].pending = false;
     }
-    const uint32_t interval = g_stats.interval;
-    const bool ready = g_stats.ready;
-    const bool enabled = g_stats.enabled;
-    const uint32_t width = g_stats.width;
-    const uint32_t height = g_stats.height;
+    const Stats keep = g_stats;
     g_stats = Stats {};
-    g_stats.interval = interval;
-    g_stats.ready = ready;
-    g_stats.enabled = enabled;
-    g_stats.width = width;
-    g_stats.height = height;
+    g_stats.interval = keep.interval;
+    g_stats.ready = keep.ready;
+    g_stats.enabled = keep.enabled;
 }
 
 void OnDrawCompleted (ID3D11DeviceContext* context, uint32_t drawKind, uint32_t indexCount, uint64_t modelGeneration)
 {
     if (!Enabled () || context == nullptr)
+        return;
+    // ⚠️ OUR OWN PROBE DRAWS REACH THIS SAME DETOUR. Without the guard's test the
+    // measurement would measure itself, recursively.
+    if (contextstate::Injecting ())
         return;
 
     ID3D11DepthStencilView* const sceneView = depth::SceneView ();
@@ -292,127 +216,129 @@ void OnDrawCompleted (ID3D11DeviceContext* context, uint32_t drawKind, uint32_t 
     if (modelGeneration != g_frameGeneration) {
         g_frameGeneration = modelGeneration;
         ++g_modelFramesSeen;
-        g_capturedThisFrame = 0;
-        g_drawOrdinal = 0;
-        // ⚠️ ONE FRAME IN `interval`, AND THE REST ARE UNTOUCHED. Eight
-        // whole-resource depth copies on every frame would change the thing
-        // being measured.
-        g_instrumentingThisFrame = (g_modelFramesSeen % g_interval.load (std::memory_order_acquire)) == 0;
-        if (g_instrumentingThisFrame)
+        g_stats.drawsLastFrame = g_ordinal;
+        g_ordinal = 0;
+        g_instrumenting = (g_modelFramesSeen % g_interval.load (std::memory_order_acquire)) == 0;
+        if (g_instrumenting)
             ++g_stats.framesInstrumented;
     }
-    if (!g_instrumentingThisFrame)
+    if (!g_instrumenting)
         return;
 
-    const uint32_t ordinal = g_drawOrdinal++;
-    if (g_capturedThisFrame >= kCapacity) {
+    const uint32_t ordinal = g_ordinal++;
+    if (ordinal >= kCapacity) {
         ++g_stats.overflowed;
+        return;
+    }
+    Slot& slot = g_slots[ordinal];
+    if (slot.pending)
+        return;
+
+    const probes::WorldProbePipeline pipeline = probes::GetWorldProbePipeline ();
+    if (!pipeline.valid) {
+        ++g_stats.skippedNoPipeline;
+        return;
+    }
+    ID3D11Buffer* const viewBuffer = ViewSnapshotBuffer ();
+    ID3D11Buffer* const projectionBuffer = ProjectionSnapshotBuffer ();
+    if (viewBuffer == nullptr || projectionBuffer == nullptr || !SnapshotValid ()) {
+        ++g_stats.skippedNoCamera;
         return;
     }
 
     contextstate::ScopedInjectionGuard guard;
-    ID3D11Resource* sourceResource = nullptr;
-    sceneView->GetResource (&sourceResource);
-    if (sourceResource == nullptr)
-        return;
-    ID3D11Texture2D* source = nullptr;
-    if (FAILED (sourceResource->QueryInterface (__uuidof (ID3D11Texture2D), (void**) &source)) || source == nullptr) {
-        ReleaseAndNull (sourceResource);
-        return;
-    }
-
-    if (EnsureCreated (context, source)) {
-        Slot& slot = g_slots[g_capturedThisFrame];
-        context->CopyResource (slot.texture, source);
-        RecordAttributes (context, slot.result.attributes, drawKind, indexCount, ordinal);
-        slot.result.attributes.renderTarget = live.renderTarget;
-        slot.result.attributes.depthStencil = live.depthStencil;
-        ++slot.result.captures;
-        ++g_stats.capturesIssued;
-        ++g_capturedThisFrame;
-        if (g_capturedThisFrame > g_stats.used)
-            g_stats.used = g_capturedThisFrame;
-    }
-    ReleaseAndNull (source);
-    ReleaseAndNull (sourceResource);
-}
-
-void Evaluate (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, ID3D11RenderTargetView* targetView,
-               float viewportX, float viewportY, float viewportWidth, float viewportHeight)
-{
-    if (!Enabled () || context == nullptr || context1 == nullptr || targetView == nullptr)
-        return;
-    ResolveQueries (context);
-    if (!g_instrumentingThisFrame || g_capturedThisFrame == 0 || !g_created)
+    if (!EnsureCreated (context))
         return;
 
-    const probes::WorldProbePipeline pipeline = probes::GetWorldProbePipeline ();
-    if (!pipeline.valid)
+    ID3D11DeviceContext1* context1 = nullptr;
+    if (FAILED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) || context1 == nullptr)
         return;
-    ID3D11Buffer* const viewBuffer = ViewSnapshotBuffer ();
-    ID3D11Buffer* const projectionBuffer = ProjectionSnapshotBuffer ();
-    if (viewBuffer == nullptr || projectionBuffer == nullptr || !SnapshotValid ())
-        return;
-    ++g_stats.evaluations;
 
-    // ⚠️ ONE GUARD, NOT SIXTY LINES OF `*Get*` AND `*Set*`. See
-    // `PipelineStateGuard.hpp`: three files carried that block and the index
-    // binding reached only one of them.
-    const ScopedPipelineState saved (context, context1);
+    {
+        const ScopedPipelineState saved (context, context1);
 
-    D3D11_VIEWPORT viewport = {};
-    viewport.TopLeftX = viewportX;
-    viewport.TopLeftY = viewportY;
-    viewport.Width = viewportWidth;
-    viewport.Height = viewportHeight;
-    viewport.MinDepth = 0.0f;
-    viewport.MaxDepth = 1.0f;
-    if (viewport.Width > 1.0f && viewport.Height > 1.0f)
-        context->RSSetViewports (1, &viewport);
-    context->RSSetState (pipeline.raster);
-    const FLOAT blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-    context->OMSetBlendState (pipeline.blend, blendFactor, 0xffffffffu);
-    context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D11Buffer* const noBuffer = nullptr;
-    const UINT zero = 0;
-    context->IASetInputLayout (nullptr);
-    context->IASetVertexBuffers (0, 1, &noBuffer, &zero, &zero);
-    ID3D11Buffer* const cameraBuffers[2] = { viewBuffer, projectionBuffer };
-    const UINT cameraFirst[2] = { 0, 0 };
-    const UINT cameraNum[2] = { kCameraWindowConstants, kCameraWindowConstants };
-    context1->VSSetConstantBuffers1 (1, 2, cameraBuffers, cameraFirst, cameraNum);
-    context->OMSetDepthStencilState (pipeline.depthTest, 0);
-    context->PSSetShader (pipeline.pixel, nullptr, 0);
+        // ⚠️ ARCHICAD'S OWN TARGETS, EXACTLY AS THEY ARE. The probe tests against
+        // the live depth buffer at this instant -- that is the whole point -- and
+        // writes to neither it nor the colour target.
+        const FLOAT blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        context->OMSetBlendState (g_noColour, blendFactor, 0xffffffffu);
+        context->OMSetDepthStencilState (g_testOnly, 0);
+        context->RSSetState (pipeline.raster);
+        context->PSSetShader (pipeline.pixel, nullptr, 0);
 
-    // ⚠️ THE SAME TWO PRIMITIVES AGAINST EVERY CHECKPOINT, DIFFERING IN NOTHING
-    // BUT THE DEPTH BOUND. That is what makes the table a measurement rather
-    // than a set of unrelated readings.
-    for (uint32_t i = 0; i < g_capturedThisFrame; ++i) {
-        Slot& slot = g_slots[i];
-        if (slot.queryPending)
-            continue;
-        context->OMSetRenderTargets (1, &targetView, slot.view);
+        ID3D11Buffer* const cameraBuffers[2] = { viewBuffer, projectionBuffer };
+        const UINT cameraFirst[2] = { 0, 0 };
+        const UINT cameraNum[2] = { kCameraWindowConstants, kCameraWindowConstants };
+        context1->VSSetConstantBuffers1 (1, 2, cameraBuffers, cameraFirst, cameraNum);
+
+        // ---- FRONT and BEHIND: the point test, kept for continuity ----------
+        ID3D11Buffer* const noBuffer = nullptr;
+        const UINT zero = 0;
+        context->IASetInputLayout (nullptr);
+        context->IASetVertexBuffers (0, 1, &noBuffer, &zero, &zero);
+        context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
         context->VSSetShader (pipeline.front, nullptr, 0);
-        context->Begin (slot.frontQuery);
+        context->Begin (slot.front);
         context->Draw (3, 0);
-        context->End (slot.frontQuery);
+        context->End (slot.front);
 
         context->VSSetShader (pipeline.behind, nullptr, 0);
-        context->Begin (slot.behindQuery);
+        context->Begin (slot.behind);
         context->Draw (3, 0);
-        context->End (slot.behindQuery);
+        context->End (slot.behind);
 
-        slot.queryPending = true;
-        g_stats.queriesIssued += 2;
+        // ---- GHOST: the spatial test, and the one that matters --------------
+        // ⚠️ THE WHOLE MESH, NOT A PRIMITIVE NEAR THE ANCHOR. Run fifty's point
+        // probes reported perfect behaviour at every checkpoint while the overlay
+        // was visibly wrong, because a build plane can leave the anchor alone and
+        // blank everything around it. This is the same geometry the user is
+        // looking at, so its sample count is the same question they are asking.
+        context->Begin (slot.ghost);
+        ghost::DrawCurrent (context, ExpectedInterpretation (), g_testOnly, pipeline.raster, g_noColour);
+        context->End (slot.ghost);
+
+        RecordAttributes (context, slot.result.attributes, drawKind, indexCount, ordinal);
+        slot.pending = true;
+        g_stats.queriesIssued += 3;
+        ++g_stats.roundsIssued;
+        if (ordinal + 1 > g_stats.used)
+            g_stats.used = ordinal + 1;
     }
-
-    // The guard restores and releases everything on the way out.
+    ReleaseAndNull (context1);
 }
 
-ID3D11DepthStencilView* ViewAt (uint32_t index)
+void Resolve (ID3D11DeviceContext* context)
 {
-    return index < kCapacity ? g_slots[index].view : nullptr;
+    if (context == nullptr)
+        return;
+    for (uint32_t i = 0; i < kCapacity; ++i) {
+        Slot& slot = g_slots[i];
+        if (!slot.pending)
+            continue;
+        UINT64 front = 0, behind = 0, ghost = 0;
+        // ⚠️ `DONOTFLUSH`, SO A PENDING QUERY COSTS ARCHICAD NOTHING. A result
+        // that is not ready is left for a later frame; a measurement may never
+        // stall the render thread to take one.
+        if (context->GetData (slot.front, &front, sizeof (front), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+            continue;
+        if (context->GetData (slot.behind, &behind, sizeof (behind), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+            continue;
+        if (context->GetData (slot.ghost, &ghost, sizeof (ghost), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+            continue;
+        slot.pending = false;
+        g_stats.queriesResolved += 3;
+        ++slot.result.rounds;
+        slot.result.frontSamples += uint64_t (front);
+        slot.result.behindSamples += uint64_t (behind);
+        slot.result.ghostSamples += uint64_t (ghost);
+        if (front > 0)
+            ++slot.result.frontSurvived;
+        if (behind > 0)
+            ++slot.result.behindSurvived;
+        if (ghost > 0)
+            ++slot.result.ghostSurvived;
+    }
 }
 
 Stats GetStats ()
@@ -433,17 +359,19 @@ uint32_t CopyResults (Result* out, uint32_t capacity)
 void Shutdown ()
 {
     for (uint32_t i = 0; i < kCapacity; ++i) {
-        ReleaseAndNull (g_slots[i].behindQuery);
-        ReleaseAndNull (g_slots[i].frontQuery);
+        ReleaseAndNull (g_slots[i].ghost);
+        ReleaseAndNull (g_slots[i].behind);
+        ReleaseAndNull (g_slots[i].front);
         g_slots[i] = Slot {};
     }
-    ReleaseSlots ();
+    ReleaseAndNull (g_noColour);
+    ReleaseAndNull (g_testOnly);
     ReleaseAndNull (g_device);
+    g_created = false;
     g_createFailed = false;
-    g_desc = D3D11_TEXTURE2D_DESC {};
     g_stats = Stats {};
-    g_instrumentingThisFrame = false;
-    g_capturedThisFrame = 0;
+    g_instrumenting = false;
+    g_ordinal = 0;
     g_modelFramesSeen = 0;
 }
 

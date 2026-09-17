@@ -800,6 +800,8 @@ Stats GetStats ()
     stats.rebinds = binding.rebinds;
     stats.rebindsRefused = binding.rebindsRefused;
     stats.fingerprintValid = binding.fingerprintValid;
+    stats.lifecycle =
+        LifecycleName (GetLifecycle (g_enabled.load (std::memory_order_acquire), renderstate::ModelSceneGeneration ()));
     return stats;
 }
 

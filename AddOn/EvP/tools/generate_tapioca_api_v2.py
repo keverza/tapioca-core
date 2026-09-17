@@ -218,7 +218,15 @@ from typing import Any
 # one failure that would make patch mode pointless: if the extraction ever
 # stopped welding coincident corners, every patch would be one triangle and the
 # whole migration would silently undo itself.
-EXPECTED_REGISTRY_COMMANDS = 213
+# 2026-09-17, the host occluder's own extraction trigger: +1 for
+# RequestHostGeometry. It exists so host geometry extraction does NOT share a
+# lifecycle with camera synchronisation. Run fifty-four forced an extraction by
+# opening the Diligent overlay, which changes the camera sync mode, whose
+# teardown calls census::Shutdown and drops the camera fingerprint phase A had
+# just selected -- so the run reported a rendering regression that was actually
+# a lifecycle collision. This verb starts the extraction worker directly and
+# touches no mode, no window and no recognizer state.
+EXPECTED_REGISTRY_COMMANDS = 214
 EXPECTED_LOCAL_COMMANDS = 19
 EXPECTED_TOTAL_COMMANDS = 232
 
