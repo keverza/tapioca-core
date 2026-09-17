@@ -84,6 +84,18 @@ struct OverlayStyle {
     float depthBias = 0.0f;
 };
 
+// ⚠️ THE BIASES ARE NAMED HERE BECAUSE THIS IS WHERE POLICY LIVES,
+// and `HostOverlay` compiles them into its shaders from these same constants
+// rather than keeping a second copy. The bias must be a compile-time literal
+// there -- b0, b1 and b2 all belong to Archicad, so there is no constant buffer
+// to put it in -- and two numbers meaning one thing is how a style silently
+// stops matching what is drawn.
+//
+// In NDC depth units, subtracted after projection. The wireframe's is the larger
+// of the two so an edge wins against the surface it lies on.
+constexpr float kHostHeatmapDepthBias = 0.00040f;
+constexpr float kHostWireframeDepthBias = 0.00075f;
+
 // The three kinds this rung has to demonstrate together, each with the policy
 // that makes it what it is.
 inline OverlayStyle SolidGhostStyle ()
@@ -109,6 +121,40 @@ inline OverlayStyle WireframeStyle ()
     // Behind a wall it fades rather than vanishing, because where a member goes
     // after it enters the wall is exactly what an analysis overlay is for.
     style.hiddenOpacity = 0.25f;
+    return style;
+}
+
+// ⚠️ THE HOST STYLES ARE SEPARATE FROM THE GHOST'S, because they
+// describe different geometry with different rules. A ghost wireframe outlines
+// something that does not exist yet and must be occluded by the building; a HOST
+// wireframe outlines the building itself, is coplanar with its own occluder, and
+// would vanish entirely without a bias.
+inline OverlayStyle HostWireframeStyle ()
+{
+    OverlayStyle style;
+    style.hostOcclusion = HostOcclusionMode::OpaqueHostSurfaces;
+    style.selfOcclusion = true;
+    style.depthWrite = false;
+    style.opacity = 0.9f;
+    // Hidden edges stay visible and faint: an outline overlay whose far side
+    // disappeared would read as half a building.
+    style.hiddenOpacity = 0.18f;
+    style.depthBias = kHostWireframeDepthBias;
+    return style;
+}
+
+inline OverlayStyle HostHeatmapStyle ()
+{
+    OverlayStyle style;
+    style.hostOcclusion = HostOcclusionMode::OpaqueHostSurfaces;
+    style.selfOcclusion = true;
+    style.depthWrite = false;
+    style.opacity = 0.75f;
+    // ⚠️ NOTHING BEHIND. A heatmap painted on the far side of a wall
+    // showing through the near side is not an analysis, it is a bug that looks
+    // like one.
+    style.hiddenOpacity = 0.0f;
+    style.depthBias = kHostHeatmapDepthBias;
     return style;
 }
 

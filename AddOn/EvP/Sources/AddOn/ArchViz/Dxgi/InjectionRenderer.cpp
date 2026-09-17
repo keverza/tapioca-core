@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
+#include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
@@ -462,6 +463,7 @@ void Shutdown ()
     ReleaseAndNull (g_vertices);
     ReleaseAndNull (g_layout);
     ghost::Shutdown ();
+    hostoverlay::Shutdown ();
     hostocclusion::Shutdown ();
     checkpoints::Shutdown ();
     ReleaseAndNull (g_ps);
@@ -632,10 +634,28 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     if (targetView != nullptr)
         context->OMSetRenderTargets (1, &targetView, overlayView);
 
+    // ⚠️ THE DRAW ORDER IS THE COMPOSITION; `HostOverlay.hpp` states
+    // it once and this is it. Solid ghost first because it is the only overlay
+    // that writes depth; host surfaces next; host edges last.
     if (ghost::Prepare (context) > 0) {
         ghost::DrawPart (context, wanted, ghost::Part::Solid, overlay::SolidGhostStyle (), overlayView);
-        ghost::DrawPart (context, wanted, ghost::Part::Wireframe, overlay::WireframeStyle (), overlayView);
-        ghost::DrawPart (context, wanted, ghost::Part::Heatmap, overlay::HeatmapStyle (), overlayView);
+        // The synthetic wireframe box and gradient grid: stand-ins from before
+        // the host geometry existed, off by default. See `ghost::SetStandIns`.
+        if (ghost::StandIns ()) {
+            ghost::DrawPart (context, wanted, ghost::Part::Wireframe, overlay::WireframeStyle (), overlayView);
+            ghost::DrawPart (context, wanted, ghost::Part::Heatmap, overlay::HeatmapStyle (), overlayView);
+        }
+    }
+
+    if (hostView != nullptr) {
+        if (hostoverlay::Enabled (hostoverlay::Kind::Heatmap)) {
+            hostoverlay::Draw (context, context1, wanted, hostoverlay::Kind::Heatmap, overlay::HostHeatmapStyle (),
+                               overlayView);
+        }
+        if (hostoverlay::Enabled (hostoverlay::Kind::Wireframe)) {
+            hostoverlay::Draw (context, context1, wanted, hostoverlay::Kind::Wireframe, overlay::HostWireframeStyle (),
+                               overlayView);
+        }
     }
 
     // ---- the depth checkpoints ---------------------------------------------

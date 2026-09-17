@@ -36,6 +36,10 @@ bool g_createFailed = false;
 
 std::atomic<bool> g_enabled { false };
 std::atomic<bool> g_animated { true };
+// ⚠️ OFF BY DEFAULT: see the header. The host geometry now supplies
+// the real wireframe and the real heatmap, and two gradients on one screen
+// answer nothing.
+std::atomic<bool> g_standIns { false };
 
 float g_anchorX = 0.0f;
 float g_anchorY = 0.0f;
@@ -539,6 +543,16 @@ void SetEnabled (bool enabled)
 bool Enabled ()
 {
     return g_enabled.load (std::memory_order_acquire);
+}
+
+void SetStandIns (bool enabled)
+{
+    g_standIns.store (enabled, std::memory_order_release);
+}
+
+bool StandIns ()
+{
+    return g_standIns.load (std::memory_order_acquire);
 }
 
 void SetAnimated (bool animated)

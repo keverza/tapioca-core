@@ -279,6 +279,15 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # copies the counters out -- and whether a host snapshot exists at all is the
     # one number that says whether host occlusion was tested.
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/HostOccluders.hpp"),
+    # The two host overlay kinds -- edges and scalar-coloured surfaces over
+    # Archicad's OWN extracted building. Same narrow boundary as HostOccluders
+    # above: the verb toggles them and reports their counters, nothing more.
+    ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/HostOverlay.hpp"),
+    # The extraction worker and the occluder it feeds, reached by the verb that
+    # exists precisely so host extraction does NOT share a lifecycle with camera
+    # synchronisation (run fifty-four).
+    ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/Dxgi/HostOccluders.hpp"),
+    ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/ExtractionThread.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the
@@ -1059,6 +1068,37 @@ def _check_architecture_document_temporaries(failures: list[str]) -> None:
             )
 
 
+def _check_architecture_command_schemas(failures: list[str]) -> None:
+    """Every R"json(...)json" literal must parse.
+
+    A command's request/response schemas are validated at CALL time, inside
+    Archicad, by the dispatcher. An unparseable one therefore costs a whole
+    diagnostic run to discover and reports itself as a refusal by the verb --
+    which reads as the feature being broken rather than the schema. Run
+    fifty-seven spent a run that way: a response schema carried backslash-escaped
+    quotes inside a raw string literal, so every `RequestHostGeometry` call was
+    rejected and the host occluder reported "unavailable" while it was in fact
+    rendering the building on all 3719 frames.
+    """
+    import json
+    import re
+
+    pattern = re.compile(r'R"json\((.*?)\)json"', re.S)
+    for path in sorted(ADDON_SRC.rglob("*.cpp")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in pattern.finditer(text):
+            body = match.group(1)
+            try:
+                json.loads(body)
+            except ValueError as error:
+                line = text.count("\n", 0, match.start()) + 1
+                failures.append(
+                    f"{path.relative_to(ADDON_SRC)}:{line} - a schema literal does "
+                    f"not parse as JSON ({error}). A raw string literal needs no "
+                    f"escapes: write \" and not backslash-quote."
+                )
+
+
 def _run_architecture(verbose: bool) -> int:
     failures: list[str] = []
     checks = [
@@ -1070,6 +1110,7 @@ def _run_architecture(verbose: bool) -> int:
         ("SUBOBJECT sub-objects never call the shell", _check_architecture_subobjects),
         ("REGISTRY  one provider per domain, all registered", _check_architecture_registry),
         ("CITATIONS entry-point docs cite symbols, not lines", _check_architecture_citations),
+        ("SCHEMAS   every command schema literal parses as JSON", _check_architecture_command_schemas),
         ("SRB       SRB-bound shader variables are never STATIC", _check_architecture_srb_variables),
         ("DANGLING  no handle taken out of a by-value graph snapshot", _check_architecture_document_temporaries),
     ]

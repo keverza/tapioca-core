@@ -50,6 +50,7 @@
 
 #include <cstdint>
 
+struct ID3D11Buffer;
 struct ID3D11DepthStencilView;
 struct ID3D11DeviceContext;
 struct ID3D11DeviceContext1;
@@ -112,6 +113,37 @@ void Clear ();
 // could not be made -- never a half-rendered buffer, because a partially drawn
 // occluder hides the overlay in a pattern that looks like a transform bug.
 ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation);
+
+// RENDER THREAD, after `Prepare` has returned non-null. The published building,
+// lent rather than copied, so an overlay can DRAW the same triangles the
+// occluder just put depth from.
+//
+// ⚠️ LENT, NOT HANDED OVER. These are this module's buffers and it
+// keeps owning them; a borrower binds them for one draw and adds no reference.
+// The pattern is `InjectionProbes::GetWorldProbePipeline`, and the reason is the
+// same: two modules that each built their own copy of Archicad's model would
+// drift apart the first time one of them changed its vertex format.
+//
+// ⚠️ `scalars` IS ONE FLOAT PER VERTEX IN A SECOND SLOT, NOT A
+// WIDER VERTEX. The occluder is a depth-only pass over a whole building and has
+// no use for the channel; interleaving it would move a third more bytes through
+// the most expensive draw on this path to feed the cheapest one.
+struct HostGeometry {
+    ID3D11Buffer* positions = nullptr; // float3, slot 0
+    ID3D11Buffer* scalars = nullptr;   // float, slot 1 -- see `ScalarField`
+    ID3D11Buffer* indices = nullptr;   // R32_UINT
+    uint32_t indexCount = 0;
+    bool valid = false;
+};
+HostGeometry GetGeometry ();
+
+// ⚠️ WHAT THE SCALAR MEANS, DECIDED WHERE THE MODEL IS, NOT IN A
+// SHADER. `Height` normalises world Z over the published snapshot's own range,
+// which is a defensible default and demonstrably not a placeholder colour ramp.
+// A real analysis field -- daylight, utilisation, thermal -- arrives the same
+// way: the extraction computes one float per vertex and nothing downstream
+// changes. That is the whole point of putting it on the producer side.
+enum class ScalarField { Height };
 
 // ⚠️ THREE GROUPS, AND MIXING THEM COST A RUN. Run fifty-six read
 // `batchEnds 130, opaqueTriangles 19760` beside `haveSnapshot false, triangles 0`

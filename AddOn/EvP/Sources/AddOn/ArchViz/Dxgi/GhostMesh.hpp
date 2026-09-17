@@ -100,6 +100,18 @@ bool Enabled ();
 // stalling" is tested. The displacement is deliberately small -- a few percent
 // of the anchor size -- so a camera-lock error is still obvious underneath it.
 void SetAnimated (bool animated);
+
+// MAIN THREAD. The synthetic wireframe box and the 9x9 gradient grid.
+//
+// ⚠️ THESE ARE STAND-INS AND ARE OFF BY DEFAULT NOW THAT THE HOST
+// GEOMETRY EXISTS. They were built so the three overlay kinds could be exercised
+// before anything had extracted Archicad's model; a wireframe overlay means the
+// outlines of the building that IS there, and a surface heatmap means the
+// building's OWN surfaces -- both of which `hostoverlay` now draws. They stay
+// switchable because they are the only self-occlusion test whose correct answer
+// is known before Archicad runs.
+void SetStandIns (bool enabled);
+bool StandIns ();
 bool Animated ();
 
 // RENDER THREAD, from the Present path, with the camera and the depth view

@@ -228,7 +228,11 @@ from typing import Any
 # touches no mode, no window and no recognizer state.
 EXPECTED_REGISTRY_COMMANDS = 214
 EXPECTED_LOCAL_COMMANDS = 19
-EXPECTED_TOTAL_COMMANDS = 232
+# 232 -> 233 with the same verb. The registry constant above was raised when
+# RequestHostGeometry was added and this one was not, which the generator only
+# reports when it is actually run -- the build had been passing on a stale
+# generated surface.
+EXPECTED_TOTAL_COMMANDS = 233
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

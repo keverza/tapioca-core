@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 213,
+      "nativeRegistry": 214,
       "dispatcherLocal": 19,
-      "total": 232
+      "total": 233
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -20211,6 +20211,111 @@
       }
     },
     {
+      "name": "Tapioca.RequestHostGeometry",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "full": {
+            "type": "boolean"
+          },
+          "start": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "alreadyRunning": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "extractionGeneration": {
+            "type": "integer"
+          },
+          "batchBegins": {
+            "type": "integer"
+          },
+          "batchEnds": {
+            "type": "integer"
+          },
+          "elementsReceived": {
+            "type": "integer"
+          },
+          "opaqueVerticesAdded": {
+            "type": "integer"
+          },
+          "opaqueIndicesAdded": {
+            "type": "integer"
+          },
+          "opaqueTriangles": {
+            "type": "integer"
+          },
+          "transparentTrianglesSkipped": {
+            "type": "integer"
+          },
+          "pendingVertices": {
+            "type": "integer"
+          },
+          "droppedOverCapacity": {
+            "type": "integer"
+          },
+          "publishAttempted": {
+            "type": "integer"
+          },
+          "publishSucceeded": {
+            "type": "integer"
+          },
+          "publishedGeneration": {
+            "type": "integer"
+          },
+          "publishedVertices": {
+            "type": "integer"
+          },
+          "publishedIndices": {
+            "type": "integer"
+          },
+          "publishedTriangles": {
+            "type": "integer"
+          },
+          "haveSnapshot": {
+            "type": "boolean"
+          },
+          "publishFailureReason": {
+            "type": "string"
+          },
+          "uploaded": {
+            "type": "boolean"
+          },
+          "vertices": {
+            "type": "integer"
+          },
+          "triangles": {
+            "type": "integer"
+          },
+          "renders": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "accepted",
+          "running",
+          "haveSnapshot"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.ReselectSelectionSet",
       "implementation": "native-registry",
       "inputScheme": {
@@ -23525,7 +23630,7 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 32
+            "maximum": 48
           },
           "x": {
             "type": "number"
@@ -23725,6 +23830,138 @@
           },
           "selected": {
             "type": "boolean"
+          },
+          "fingerprintValid": {
+            "type": "boolean"
+          },
+          "cameraLifecycle": {
+            "type": "string"
+          },
+          "selectionMatches": {
+            "type": "integer"
+          },
+          "logicalMatches": {
+            "type": "integer"
+          },
+          "rebinds": {
+            "type": "integer"
+          },
+          "rebindsRefused": {
+            "type": "integer"
+          },
+          "fingerprintEvaluated": {
+            "type": "integer"
+          },
+          "fingerprintTerms": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "missed": {
+                  "type": "integer"
+                },
+                "soleMiss": {
+                  "type": "integer"
+                },
+                "sampled": {
+                  "type": "boolean"
+                },
+                "observed0": {
+                  "type": "integer"
+                },
+                "observed1": {
+                  "type": "integer"
+                },
+                "observed2": {
+                  "type": "integer"
+                },
+                "observed3": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ]
+            }
+          },
+          "fingerprint": {
+            "type": "object",
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "occurrenceIndex": {
+                "type": "integer"
+              },
+              "viewportX": {
+                "type": "number"
+              },
+              "viewportY": {
+                "type": "number"
+              },
+              "viewportWidth": {
+                "type": "number"
+              },
+              "viewportHeight": {
+                "type": "number"
+              },
+              "drawKindMask": {
+                "type": "integer"
+              },
+              "indexCount": {
+                "type": "integer"
+              },
+              "viewNumConstants": {
+                "type": "integer"
+              },
+              "projectionNumConstants": {
+                "type": "integer"
+              },
+              "depthPresent": {
+                "type": "boolean"
+              },
+              "renderTargetWidth": {
+                "type": "integer"
+              },
+              "renderTargetHeight": {
+                "type": "integer"
+              },
+              "renderTargetFormat": {
+                "type": "integer"
+              },
+              "renderTargetSamples": {
+                "type": "integer"
+              },
+              "depthWidth": {
+                "type": "integer"
+              },
+              "depthHeight": {
+                "type": "integer"
+              },
+              "depthFormat": {
+                "type": "integer"
+              },
+              "depthSamples": {
+                "type": "integer"
+              },
+              "variant": {
+                "type": "integer"
+              },
+              "drawOrdinalFirst": {
+                "type": "integer"
+              },
+              "drawOrdinalLast": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valid"
+            ]
           },
           "cameraSource": {
             "type": "string"
@@ -24126,6 +24363,43 @@
               "private"
             ]
           },
+          "mesh": {
+            "type": "boolean"
+          },
+          "meshAnimate": {
+            "type": "boolean"
+          },
+          "meshStandIns": {
+            "type": "boolean"
+          },
+          "hostWireframe": {
+            "type": "boolean"
+          },
+          "hostHeatmap": {
+            "type": "boolean"
+          },
+          "depthSource": {
+            "type": "string",
+            "enum": [
+              "opaque",
+              "transparent",
+              "present"
+            ]
+          },
+          "provenanceReset": {
+            "type": "boolean"
+          },
+          "checkpoints": {
+            "type": "boolean"
+          },
+          "checkpointInterval": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 240
+          },
+          "checkpointReset": {
+            "type": "boolean"
+          },
           "frontOffsetZ": {
             "type": "number"
           },
@@ -24219,6 +24493,27 @@
           "selectedCameraValid": {
             "type": "boolean"
           },
+          "armState": {
+            "type": "string"
+          },
+          "fingerprintValid": {
+            "type": "boolean"
+          },
+          "cameraLifecycle": {
+            "type": "string"
+          },
+          "censusSelectionMatches": {
+            "type": "integer"
+          },
+          "censusLogicalMatches": {
+            "type": "integer"
+          },
+          "censusRebinds": {
+            "type": "integer"
+          },
+          "censusRebindsRefused": {
+            "type": "integer"
+          },
           "selectedGroupId": {
             "type": "integer"
           },
@@ -24305,6 +24600,297 @@
           },
           "depthError": {
             "type": "string"
+          },
+          "mesh": {
+            "type": "boolean"
+          },
+          "meshAnimate": {
+            "type": "boolean"
+          },
+          "meshCreated": {
+            "type": "boolean"
+          },
+          "meshBuilds": {
+            "type": "integer"
+          },
+          "meshUploads": {
+            "type": "integer"
+          },
+          "meshUploadFailures": {
+            "type": "integer"
+          },
+          "meshDraws": {
+            "type": "integer"
+          },
+          "meshVertices": {
+            "type": "integer"
+          },
+          "meshIndices": {
+            "type": "integer"
+          },
+          "meshTriangles": {
+            "type": "integer"
+          },
+          "meshPhase": {
+            "type": "integer"
+          },
+          "meshError": {
+            "type": "string"
+          },
+          "meshStandIns": {
+            "type": "boolean"
+          },
+          "hostWireframe": {
+            "type": "boolean"
+          },
+          "hostHeatmap": {
+            "type": "boolean"
+          },
+          "hostOverlayReady": {
+            "type": "boolean"
+          },
+          "hostWireframeDraws": {
+            "type": "integer"
+          },
+          "hostHeatmapDraws": {
+            "type": "integer"
+          },
+          "hostHiddenPassDraws": {
+            "type": "integer"
+          },
+          "hostOverlayTriangles": {
+            "type": "integer"
+          },
+          "hostOverlaySkippedNoGeometry": {
+            "type": "integer"
+          },
+          "hostOverlaySkippedNoCamera": {
+            "type": "integer"
+          },
+          "hostOverlayError": {
+            "type": "string"
+          },
+          "hostReady": {
+            "type": "boolean"
+          },
+          "hostHaveSnapshot": {
+            "type": "boolean"
+          },
+          "hostPublishedTriangles": {
+            "type": "integer"
+          },
+          "hostPublishSucceeded": {
+            "type": "integer"
+          },
+          "hostPublishFailure": {
+            "type": "string"
+          },
+          "hostUploads": {
+            "type": "integer"
+          },
+          "hostRenders": {
+            "type": "integer"
+          },
+          "hostVertices": {
+            "type": "integer"
+          },
+          "hostTriangles": {
+            "type": "integer"
+          },
+          "hostPendingVertices": {
+            "type": "integer"
+          },
+          "hostElementsReceived": {
+            "type": "integer"
+          },
+          "hostOpaqueTriangles": {
+            "type": "integer"
+          },
+          "hostTransparentTriangles": {
+            "type": "integer"
+          },
+          "hostBatchBegins": {
+            "type": "integer"
+          },
+          "hostBatchEnds": {
+            "type": "integer"
+          },
+          "hostSkippedNoCamera": {
+            "type": "integer"
+          },
+          "hostSkippedNoGeometry": {
+            "type": "integer"
+          },
+          "hostDroppedOverCapacity": {
+            "type": "integer"
+          },
+          "hostError": {
+            "type": "string"
+          },
+          "depthSource": {
+            "type": "string"
+          },
+          "provSceneDraws": {
+            "type": "integer"
+          },
+          "provOpaqueDraws": {
+            "type": "integer"
+          },
+          "provBlendedDraws": {
+            "type": "integer"
+          },
+          "provNoDepthWriteDraws": {
+            "type": "integer"
+          },
+          "provDepthTestOffDraws": {
+            "type": "integer"
+          },
+          "provOpaqueAfterTransition": {
+            "type": "integer"
+          },
+          "provTransitions": {
+            "type": "integer"
+          },
+          "provFramesWithoutOpaque": {
+            "type": "integer"
+          },
+          "provFramesWithoutTransition": {
+            "type": "integer"
+          },
+          "provCapturedAfterOpaque": {
+            "type": "integer"
+          },
+          "provCapturedAfterTransparent": {
+            "type": "integer"
+          },
+          "provCapturedAtPresent": {
+            "type": "integer"
+          },
+          "provServedStale": {
+            "type": "integer"
+          },
+          "provLastOpaqueDrawIndex": {
+            "type": "integer"
+          },
+          "provLastSceneDrawIndex": {
+            "type": "integer"
+          },
+          "checkpoints": {
+            "type": "boolean"
+          },
+          "checkpointReady": {
+            "type": "boolean"
+          },
+          "checkpointInterval": {
+            "type": "integer"
+          },
+          "checkpointFrames": {
+            "type": "integer"
+          },
+          "checkpointRounds": {
+            "type": "integer"
+          },
+          "checkpointDrawsLastFrame": {
+            "type": "integer"
+          },
+          "checkpointSkippedNoCamera": {
+            "type": "integer"
+          },
+          "checkpointSkippedNoPipeline": {
+            "type": "integer"
+          },
+          "checkpointOverflowed": {
+            "type": "integer"
+          },
+          "checkpointQueriesIssued": {
+            "type": "integer"
+          },
+          "checkpointQueriesResolved": {
+            "type": "integer"
+          },
+          "checkpointUsed": {
+            "type": "integer"
+          },
+          "checkpointError": {
+            "type": "string"
+          },
+          "checkpointRows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "checkpoint": {
+                  "type": "integer"
+                },
+                "drawOrdinal": {
+                  "type": "integer"
+                },
+                "drawKind": {
+                  "type": "integer"
+                },
+                "indexCount": {
+                  "type": "integer"
+                },
+                "topology": {
+                  "type": "integer"
+                },
+                "depthWrite": {
+                  "type": "boolean"
+                },
+                "depthTest": {
+                  "type": "boolean"
+                },
+                "depthFunc": {
+                  "type": "integer"
+                },
+                "blendEnable": {
+                  "type": "boolean"
+                },
+                "srcBlend": {
+                  "type": "integer"
+                },
+                "destBlend": {
+                  "type": "integer"
+                },
+                "vertexShader": {
+                  "type": "string"
+                },
+                "pixelShader": {
+                  "type": "string"
+                },
+                "blendState": {
+                  "type": "string"
+                },
+                "depthStencilState": {
+                  "type": "string"
+                },
+                "rounds": {
+                  "type": "integer"
+                },
+                "frontSurvived": {
+                  "type": "integer"
+                },
+                "behindSurvived": {
+                  "type": "integer"
+                },
+                "ghostSurvived": {
+                  "type": "integer"
+                },
+                "frontSamples": {
+                  "type": "integer"
+                },
+                "behindSamples": {
+                  "type": "integer"
+                },
+                "ghostSamples": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "checkpoint"
+              ]
+            }
           },
           "probesReady": {
             "type": "boolean"

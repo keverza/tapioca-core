@@ -11,6 +11,7 @@
 #include "NativeCommands/GraphCaptureCommands.hpp"
 #include "NativeCommands/ArchVizCommands.hpp"
 #include "NativeCommands/ViewerGpuStateCommands.hpp"
+#include "NativeCommands/HostGeometryCommands.hpp"
 #include "NativeCommands/ViewerInjectionCommands.hpp"
 #include "NativeCommands/ViewerSyncCommands.hpp"
 #include "NativeCommands/AttributeCommands.hpp"
@@ -126,6 +127,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetViewerSyncCommandRegistrations,
     &GetViewerGpuStateCommandRegistrations,
     &GetViewerInjectionCommandRegistrations,
+    &GetHostGeometryCommandRegistrations,
     &GetPreviewCommandRegistrations,
     &GetNodeGraphCommandRegistrations,
     &GetNodeGraphEditCommandRegistrations,

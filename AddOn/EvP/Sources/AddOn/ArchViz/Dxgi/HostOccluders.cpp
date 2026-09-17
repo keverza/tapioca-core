@@ -49,6 +49,7 @@ const char* const kHostShaderBody = "float4 VSHost (float3 position : POSITION) 
 // thread can see. That is what removes the mutex from Present.
 struct Snapshot {
     std::vector<float> positions; // xyz interleaved, world metres
+    std::vector<float> scalars;   // one per vertex; see `ScalarField`
     std::vector<uint32_t> indices;
 };
 
@@ -57,6 +58,7 @@ Snapshot* g_building = nullptr;
 
 ID3D11Device* g_device = nullptr;
 ID3D11Buffer* g_vertexBuffer = nullptr;
+ID3D11Buffer* g_scalarBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
 ID3D11VertexShader* g_vsVariant[camerashader::kDeclarableVariants] = {};
 ID3D11InputLayout* g_layout = nullptr;
@@ -205,6 +207,10 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     // inside Archicad's frame; the memory is the price of never doing that.
     ok = ok && SUCCEEDED (g_device->CreateBuffer (&vertexDesc, nullptr, &g_vertexBuffer));
 
+    D3D11_BUFFER_DESC scalarDesc = vertexDesc;
+    scalarDesc.ByteWidth = UINT (sizeof (float) * kMaxVertices);
+    ok = ok && SUCCEEDED (g_device->CreateBuffer (&scalarDesc, nullptr, &g_scalarBuffer));
+
     D3D11_BUFFER_DESC indexDesc = vertexDesc;
     indexDesc.ByteWidth = UINT (sizeof (uint32_t) * kMaxIndices);
     indexDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
@@ -296,6 +302,7 @@ bool TakeAndUpload (ID3D11DeviceContext* context)
 
     const bool ok =
         Upload (context, g_vertexBuffer, snapshot->positions.data (), sizeof (float) * snapshot->positions.size ()) &&
+        Upload (context, g_scalarBuffer, snapshot->scalars.data (), sizeof (float) * snapshot->scalars.size ()) &&
         Upload (context, g_indexBuffer, snapshot->indices.data (), sizeof (uint32_t) * snapshot->indices.size ());
     if (ok) {
         g_uploadedIndices = uint32_t (snapshot->indices.size ());
@@ -405,6 +412,29 @@ void EndBatch ()
     // render thread only ever takes ownership of what it finds; if it never ran,
     // the superseded snapshot is ours to free and freeing it here cannot race
     // with a consumer that has already exchanged it away.
+    // ⚠️ THE ANALYSIS FIELD IS COMPUTED HERE, ON THE PRODUCER, AND
+    // NOT IN A SHADER. Normalising needs the range, the range needs the whole
+    // published set, and this is the one moment that set is complete and
+    // immutable. Doing it per-frame on the GPU would need the range in a
+    // constant buffer -- and b0, b1 and b2 all belong to Archicad.
+    {
+        const size_t vertexCount = g_building->positions.size () / 3;
+        float lowest = 0.0f;
+        float highest = 0.0f;
+        for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
+            const float z = g_building->positions[vertex * 3 + 2];
+            if (vertex == 0 || z < lowest)
+                lowest = z;
+            if (vertex == 0 || z > highest)
+                highest = z;
+        }
+        // A flat model is not a division by zero, it is one colour.
+        const float span = (highest - lowest) > 1e-6f ? (highest - lowest) : 1.0f;
+        g_building->scalars.resize (vertexCount);
+        for (size_t vertex = 0; vertex < vertexCount; ++vertex)
+            g_building->scalars[vertex] = (g_building->positions[vertex * 3 + 2] - lowest) / span;
+    }
+
     g_stats.publishedVertices = uint32_t (g_building->positions.size () / 3);
     g_stats.publishedIndices = uint32_t (g_building->indices.size ());
     g_stats.publishedTriangles = g_stats.publishedIndices / 3;
@@ -497,6 +527,23 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
     return g_depthView;
 }
 
+HostGeometry GetGeometry ()
+{
+    HostGeometry geometry;
+    // ⚠️ ONLY AFTER AN UPLOAD. `g_uploadedIndices` is what the GPU
+    // actually holds; reporting the buffers before `TakeAndUpload` has run would
+    // lend a borrower an empty building and it would draw nothing while looking
+    // like it had drawn.
+    if (!g_created || g_uploadedIndices == 0)
+        return geometry;
+    geometry.positions = g_vertexBuffer;
+    geometry.scalars = g_scalarBuffer;
+    geometry.indices = g_indexBuffer;
+    geometry.indexCount = g_uploadedIndices;
+    geometry.valid = true;
+    return geometry;
+}
+
 Stats GetStats ()
 {
     return g_stats;
@@ -514,6 +561,7 @@ void Shutdown ()
     for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
     ReleaseAndNull (g_indexBuffer);
+    ReleaseAndNull (g_scalarBuffer);
     ReleaseAndNull (g_vertexBuffer);
     ReleaseAndNull (g_device);
     g_created = false;
