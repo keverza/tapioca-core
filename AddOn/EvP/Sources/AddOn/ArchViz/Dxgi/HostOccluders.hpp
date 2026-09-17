@@ -131,8 +131,18 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
 struct HostGeometry {
     ID3D11Buffer* positions = nullptr; // float3, slot 0
     ID3D11Buffer* scalars = nullptr;   // float, slot 1 -- see `ScalarField`
-    ID3D11Buffer* indices = nullptr;   // R32_UINT
+    ID3D11Buffer* indices = nullptr;   // R32_UINT, triangle list
     uint32_t indexCount = 0;
+
+    // ⚠️ THE EDGES ARE A SEPARATE INDEX BUFFER, NOT A FILL MODE.
+    // `D3D11_FILL_WIREFRAME` over a triangle list draws EVERY triangle edge,
+    // including the diagonal across each flat quad -- so a plain wall comes out
+    // as a mesh of triangles rather than a rectangle, which is the opposite of a
+    // reference overlay. These are FEATURE edges: boundaries, and creases whose
+    // dihedral angle exceeds `kCreaseCosine`. See `EndBatch`.
+    ID3D11Buffer* lines = nullptr; // R32_UINT, line list
+    uint32_t lineIndexCount = 0;
+
     bool valid = false;
 
     // ⚠️ WHICH WAY THE EXTRACTION WINDS ITS TRIANGLES, MEASURED
@@ -188,6 +198,21 @@ struct Stats {
     uint32_t publishedVertices = 0;
     uint32_t publishedIndices = 0;
     uint32_t publishedTriangles = 0;
+    uint32_t publishedLines = 0;  // feature edges; see `HostGeometry::lines`
+    uint32_t edgesConsidered = 0; // unique welded edges, before the crease test
+
+    // ⚠️ WHERE THE BUILDING IS, WHICH IS THE ONLY RELIABLE ANCHOR FOR
+    // THE CAMERA CENSUS. The census scores candidates by projecting a world-space
+    // triangle and needs a point that is certainly on screen when the user is
+    // looking at their model. Archicad's own orbit target would be ideal and IS
+    // NOT AVAILABLE IN AN AXONOMETRIC VIEW -- `Get3DProjectionSets` reports
+    // `isPersp == false`, there is no eye and no target at all, and the reader
+    // correctly returns "invalid". That is how run sixty-two spent itself in
+    // `Learning` with the anchor still at the world origin. The extracted model
+    // always has a centre.
+    bool boundsValid = false;
+    float boundsMin[3] = {};
+    float boundsMax[3] = {};
     // See `HostGeometry::frontCounterClockwise`. `signedVolume` is reported so a
     // near-zero magnitude -- an open mesh, where the sign means nothing -- can
     // be recognised rather than trusted.
@@ -202,6 +227,7 @@ struct Stats {
     uint64_t renders = 0;
     uint64_t skippedNoCamera = 0;
     uint64_t skippedNoGeometry = 0;
+    uint64_t skippedNoDepthTarget = 0; // no scene depth view to match; see Prepare
     uint32_t vertices = 0;
     uint32_t indices = 0;
     uint32_t triangles = 0;

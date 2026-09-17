@@ -84,8 +84,14 @@ struct Stats {
     uint64_t hiddenPassDraws = 0;
     uint64_t culledPasses = 0;
     uint64_t skippedNoGeometry = 0;
+    // ⚠️ WHY THE HOST OCCLUDER REFUSED, WHICH IS NOT THE SAME AS
+    // "no geometry". A composition gated three layers down reports "nothing
+    // drew"; the reader needs the layer that said no.
+    uint64_t skippedNoHostDepth = 0;
+    uint64_t skippedNoEdges = 0;
     uint64_t skippedNoCamera = 0;
     uint32_t trianglesDrawn = 0;
+    uint32_t linesDrawn = 0;
     bool ready = false;
     char lastError[160] = {};
 };

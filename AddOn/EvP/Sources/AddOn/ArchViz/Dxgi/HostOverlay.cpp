@@ -111,7 +111,13 @@ Stats g_stats;
 // ⚠️ ATOMICS, BECAUSE THE WRITER IS THE MAIN THREAD AND THE READER
 // IS ARCHICAD'S RENDER THREAD INSIDE A DETOUR. A lock on that path could stall
 // Archicad's frame, which is the one thing this rung may never do.
-std::atomic<bool> g_heatmapOn { true };
+// ⚠️ THE DEFAULT OVERLAY IS EDGES ONLY, AND THE HEATMAP IS OFF.
+// A reference overlay exists to be looked THROUGH: the user's own model has to
+// stay readable under it, and a filled surface map over every wall is a second
+// opaque layer that hides whatever an analysis overlay was drawn to show. Run
+// fifty-nine put it exactly: the ramp texture ended up behind a shaded overlay
+// and was hard to see. Analysis layers are opt-in; reference is the default.
+std::atomic<bool> g_heatmapOn { false };
 std::atomic<bool> g_wireframeOn { true };
 
 template <typename T> void ReleaseAndNull (T*& object)
@@ -238,7 +244,9 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     raster.DepthClipEnable = TRUE;
     ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_solidRaster));
 
-    raster.FillMode = D3D11_FILL_WIREFRAME;
+    // ⚠️ SOLID FILL FOR THE EDGE PASS, WHICH IS NOT A CONTRADICTION.
+    // The primitives ARE lines; `FILL_WIREFRAME` is what would turn triangles
+    // into lines, and there are no triangles in that draw to turn.
     ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_wireRaster));
 
     raster.FillMode = D3D11_FILL_SOLID;
@@ -309,8 +317,20 @@ void DrawPass (ID3D11DeviceContext* context, const Pipeline& pipeline, const hos
     else {
         context->IASetVertexBuffers (0, 1, &geometry.positions, &positionStride, &offset);
     }
-    context->IASetIndexBuffer (geometry.indices, DXGI_FORMAT_R32_UINT, 0);
-    context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    // ⚠️ THE WIREFRAME IS A LINE LIST OF FEATURE EDGES, NOT A
+    // TRIANGLE LIST IN WIREFRAME FILL. `FILL_WIREFRAME` draws every triangle
+    // edge, so a flat wall arrives as a lattice of triangles -- which is what
+    // "not triangulated, just for reference" rules out. The edges were selected
+    // on the producer, where a dihedral angle can be measured; see
+    // `hostocclusion::EndBatch`.
+    if (heatmap) {
+        context->IASetIndexBuffer (geometry.indices, DXGI_FORMAT_R32_UINT, 0);
+        context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    }
+    else {
+        context->IASetIndexBuffer (geometry.lines, DXGI_FORMAT_R32_UINT, 0);
+        context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+    }
     context->VSSetShader (pipeline.vs[variant], nullptr, 0);
     context->PSSetShader (pipeline.ps, nullptr, 0);
     context->OMSetDepthStencilState (depthState, 0);
@@ -318,7 +338,7 @@ void DrawPass (ID3D11DeviceContext* context, const Pipeline& pipeline, const hos
 
     const FLOAT factor[4] = { opacity, opacity, opacity, opacity };
     context->OMSetBlendState (g_blendOpacity, factor, 0xffffffffu);
-    context->DrawIndexed (geometry.indexCount, 0, 0);
+    context->DrawIndexed (heatmap ? geometry.indexCount : geometry.lineIndexCount, 0, 0);
 }
 
 } // namespace
@@ -334,6 +354,12 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     const hostocclusion::HostGeometry geometry = hostocclusion::GetGeometry ();
     if (!geometry.valid) {
         ++g_stats.skippedNoGeometry;
+        return;
+    }
+    // A model whose every edge is interior tessellation has no outline to draw,
+    // and an index count of zero is a draw call for nothing.
+    if (kind == Kind::Wireframe && geometry.lineIndexCount == 0) {
+        ++g_stats.skippedNoEdges;
         return;
     }
 
@@ -389,6 +415,7 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     else
         ++g_stats.wireframeDraws;
     g_stats.trianglesDrawn = geometry.indexCount / 3;
+    g_stats.linesDrawn = geometry.lineIndexCount / 2;
 }
 
 void SetEnabled (Kind kind, bool enabled)

@@ -17669,11 +17669,65 @@
           "overlayDraws": {
             "type": "integer"
           },
+          "presentInjections": {
+            "type": "integer"
+          },
+          "hostNoDepthTarget": {
+            "type": "integer"
+          },
+          "hostNoGeometry": {
+            "type": "integer"
+          },
+          "overlayNoEdges": {
+            "type": "integer"
+          },
+          "overlayNoCamera": {
+            "type": "integer"
+          },
+          "modelFramesSeen": {
+            "type": "integer"
+          },
+          "eligibleCandidates": {
+            "type": "integer"
+          },
+          "selectionValid": {
+            "type": "boolean"
+          },
+          "selectedGroup": {
+            "type": "integer"
+          },
+          "selectedOccurrence": {
+            "type": "integer"
+          },
+          "occurrenceLocked": {
+            "type": "boolean"
+          },
+          "cameraSource": {
+            "type": "string"
+          },
+          "armState": {
+            "type": "string"
+          },
+          "logicalMatches": {
+            "type": "integer"
+          },
+          "authoritativeSnapshots": {
+            "type": "integer"
+          },
+          "blockedAt": {
+            "type": "string"
+          },
           "lastError": {
             "type": "string"
           },
           "lastMessage": {
             "type": "string"
+          },
+          "view": {
+            "type": "string"
+          },
+          "portableRunning": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -24738,6 +24792,15 @@
           "hostCulledPasses": {
             "type": "integer"
           },
+          "hostOverlayLines": {
+            "type": "integer"
+          },
+          "hostOverlaySkippedNoEdges": {
+            "type": "integer"
+          },
+          "hostSkippedNoDepthTarget": {
+            "type": "integer"
+          },
           "hostOverlayTriangles": {
             "type": "integer"
           },
@@ -24773,6 +24836,12 @@
           },
           "hostSignedVolume": {
             "type": "number"
+          },
+          "hostPublishedLines": {
+            "type": "integer"
+          },
+          "hostEdgesConsidered": {
+            "type": "integer"
           },
           "hostUploads": {
             "type": "integer"

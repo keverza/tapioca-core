@@ -14,7 +14,7 @@
 #include "AddOnVersion.hpp"
 #include "Palette/ControlPalette.hpp"
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent 3D viewer palette
-#include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/OverlayController.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
@@ -232,39 +232,11 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
         // than a separate Close, and it cannot get out of step with the state.
         case ArchVizOverlayMenuResId:
             if (menuParams->menuItemRef.itemIndex == ArchVizOverlayMenuItemIndex) {
-                // ⚠️ THE INJECTED OVERLAY IS THE OVERLAY NOW, and the
-                // portable one is the fallback. It draws inside Archicad's own
-                // frame with Archicad's own uploaded camera, so it is welded
-                // rather than trailing by a frame -- which is the whole point of
-                // stages 5 to 10 and the only difference a user can see.
-                //
-                // ⚠️ AND HIDING IT DESTROYS NOTHING. `SetVisible`
-                // keeps the camera lock, the host snapshot and every compiled
-                // shader alive, so re-showing is instant. Only `Stop` tears down,
-                // and the menu never calls it.
-                namespace runtime = geomsrv::archviz::overlayruntime;
-                if (runtime::Running ()) {
-                    runtime::SetVisible (!runtime::Visible ());
-                    break;
-                }
-                const runtime::StartResult started = runtime::Start ();
-                if (started.ok)
-                    break;
-
-                // ⚠️ FAIL CLOSED, THEN FALL BACK. An Archicad the
-                // patch profile was not measured against refuses the hooks by
-                // design; the portable renderer still works there and is the
-                // answer. Anything retryable is NOT a fallback case -- the
-                // runtime is waiting and will arm itself.
-                if (!started.retryable) {
-                    geomsrv::archviz::ArchVizLog (std::string ("overlay: injected runtime refused (") +
-                                                  runtime::StartErrorName (started.code) + ") - " + started.message +
-                                                  "; falling back to the portable overlay");
-                    if (geomsrv::archviz::viewportoverlay::Current () != nullptr)
-                        ArchVizPanel::CloseDiligentOverlay ();
-                    else
-                        ArchVizPanel::OpenDiligentOverlay ();
-                }
+                // ⚠️ ONE CALL, AND THE ROUTING LIVES WITH THE VIEW
+                // KINDS IT ROUTES BETWEEN. This handler used to choose the
+                // renderer itself, which meant the choice was made where nothing
+                // knew what a floor plan is; see `OverlayController`.
+                geomsrv::archviz::overlaycontrol::Toggle ();
             }
             break;
         case NotebookMenuResId:
@@ -667,6 +639,11 @@ GSErrCode FreeData (void)
     // Raw Win32 windows of our own, same hazard as the observer above: a window
     // whose WndProc lives in this DLL must not survive the unload. Archicad
     // destroys its window tree at quit and would call into freed code.
+    // ⚠️ BOTH OVERLAY SESSIONS COME DOWN BEFORE THEIR WINDOWS DO,
+    // and the injected one holds Archicad's own context vtable. A detour left
+    // installed when this DLL unloads is Archicad calling into freed code -- the
+    // same rule the overlay windows below are torn down under.
+    geomsrv::archviz::overlaycontrol::StopAll ();
     geomsrv::ShutdownPlanOverlay ();
     // The 3D overlay's window and class, on exactly the same terms -- its
     // WndProc lives in this DLL too, and PlanOverlay's crashed Archicad on close

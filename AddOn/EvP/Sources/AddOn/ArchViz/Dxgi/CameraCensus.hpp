@@ -192,6 +192,12 @@ struct Stats {
     // How many times the census chose for itself. See SetAutoSelect: nonzero
     // means production locked without anyone performing a measurement.
     uint64_t autoSelections = 0;
+    // See `CameraRecognizer::EligibleCandidates`.
+    uint32_t eligibleCandidates = 0;
+    // ⚠️ HOW MANY TIMES THE GATE WAS EVEN RUN. `eligible == 0` with
+    // `attempts == 0` is not a gate refusal, it is a selection that was never
+    // attempted -- and those are different faults that looked identical.
+    uint64_t autoSelectAttempts = 0;
 
     // ⚠️ THE LOCK AS A STATE: Unknown / Learning / Locked / Reacquiring.
     // See `CameraRecognizer::Lifecycle`. One bit -- "did it survive" -- cannot

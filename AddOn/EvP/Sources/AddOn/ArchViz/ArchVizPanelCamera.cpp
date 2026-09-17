@@ -16,7 +16,7 @@
 
 #include "ArchViz/ArchVizPanel.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/AutoOrbit.hpp"
 #include "ArchViz/CameraSyncMode.hpp"
 #include "ArchViz/CameraWake.hpp"
@@ -30,7 +30,7 @@
 #include "ArchViz/Dxgi/SameFrameCamera.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 #include "ArchViz/NavLog.hpp"
-#include "ArchViz/PlanCameraMath.hpp"   // PredictPlanCamera — the `predict` mode
+#include "ArchViz/PlanCameraMath.hpp" // PredictPlanCamera — the `predict` mode
 #include "ArchViz/PlanViewCamera.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
@@ -47,21 +47,32 @@ namespace {
 const char* WindowKindName (API_WindowTypeID id)
 {
     switch (id) {
-        case APIWind_FloorPlanID:         return "FloorPlan";
-        case APIWind_SectionID:           return "Section";
-        case APIWind_ElevationID:         return "Elevation";
-        case APIWind_InteriorElevationID: return "InteriorElev";
-        case APIWind_DetailID:            return "Detail";
-        case APIWind_WorksheetID:         return "Worksheet";
-        case APIWind_3DModelID:           return "3D";
-        case APIWind_LayoutID:            return "Layout";
-        case APIWind_DrawingID:           return "Drawing";
-        case APIWind_MasterLayoutID:      return "MasterLayout";
-        default:                          return "other";
+        case APIWind_FloorPlanID:
+            return "FloorPlan";
+        case APIWind_SectionID:
+            return "Section";
+        case APIWind_ElevationID:
+            return "Elevation";
+        case APIWind_InteriorElevationID:
+            return "InteriorElev";
+        case APIWind_DetailID:
+            return "Detail";
+        case APIWind_WorksheetID:
+            return "Worksheet";
+        case APIWind_3DModelID:
+            return "3D";
+        case APIWind_LayoutID:
+            return "Layout";
+        case APIWind_DrawingID:
+            return "Drawing";
+        case APIWind_MasterLayoutID:
+            return "MasterLayout";
+        default:
+            return "other";
     }
 }
 
-}   // namespace
+} // namespace
 
 // Archicad's own 3D camera, as the viewport's starting view.
 //
@@ -119,8 +130,7 @@ geomsrv::archviz::CameraStart ArchVizPanel::ReadArchicadOverlayCamera ()
     if (geomsrv::archviz::CurrentWindowIsFloorPlan ()) {
         const vo::OverlayStats stats = vo::Stats ();
         if (stats.active && stats.width >= 2 && stats.height >= 2) {
-            geomsrv::archviz::CameraStart plan =
-                geomsrv::archviz::ReadPlanViewCamera (stats.width, stats.height);
+            geomsrv::archviz::CameraStart plan = geomsrv::archviz::ReadPlanViewCamera (stats.width, stats.height);
             if (plan.valid)
                 return plan;
             // ⚠️ FALLING THROUGH TO THE 3D CAMERA WOULD BE WORSE THAN NOTHING.
@@ -195,16 +205,14 @@ constexpr uint64_t kSettleMs = 250;
 // pixel of visible drift and well over the fit's own numerical wobble.
 constexpr double kMovedFraction = 0.01;
 
-bool CameraDiffers (const geomsrv::archviz::CameraStart& a,
-                    const geomsrv::archviz::CameraStart& b)
+bool CameraDiffers (const geomsrv::archviz::CameraStart& a, const geomsrv::archviz::CameraStart& b)
 {
     if (a.orthographic != b.orthographic)
         return true;
     if (a.orthographic) {
         const double scale = a.orthoHalfHeightMetres > 0.0 ? a.orthoHalfHeightMetres : 1.0;
         const double tolerance = scale * kMovedFraction;
-        return std::fabs (a.target[0] - b.target[0]) > tolerance ||
-               std::fabs (a.target[1] - b.target[1]) > tolerance ||
+        return std::fabs (a.target[0] - b.target[0]) > tolerance || std::fabs (a.target[1] - b.target[1]) > tolerance ||
                std::fabs (a.orthoHalfHeightMetres - b.orthoHalfHeightMetres) > tolerance ||
                std::fabs (a.planRotationRadians - b.planRotationRadians) > 1e-4;
     }
@@ -222,14 +230,13 @@ bool CameraDiffers (const geomsrv::archviz::CameraStart& a,
             std::fabs (double (a.target[axis]) - double (b.target[axis])) > tolerance)
             return true;
     }
-    return std::fabs (double (a.viewConeDegreesHorizontal) -
-                      double (b.viewConeDegreesHorizontal)) > 0.01;
+    return std::fabs (double (a.viewConeDegreesHorizontal) - double (b.viewConeDegreesHorizontal)) > 0.01;
 }
 
 void ApplyHideOnNavigation (const geomsrv::archviz::CameraStart& camera)
 {
     static geomsrv::archviz::CameraStart lastCamera;
-    static bool     haveLast = false;
+    static bool haveLast = false;
     static uint64_t lastChangeMs = 0;
 
     geomsrv::archviz::DiligentViewport& viewport = geomsrv::archviz::DiligentViewport::Get ();
@@ -264,7 +271,7 @@ void ApplyHideOnNavigation (const geomsrv::archviz::CameraStart& camera)
                 lastCamera = camera;
                 haveLast = true;
             }
-            return;   // the hook already blanked; nothing to lift yet
+            return; // the hook already blanked; nothing to lift yet
         }
         // ⚠️ SETTLED, BUT ONLY UNBLANK ON A GOOD READ. Lifting the blank while
         // the last sample was torn or unreadable would show the pose the overlay
@@ -336,8 +343,7 @@ uint64_t MicrosecondsNow ()
 {
     LARGE_INTEGER frequency = {};
     LARGE_INTEGER counter = {};
-    if (!::QueryPerformanceFrequency (&frequency) || frequency.QuadPart == 0 ||
-        !::QueryPerformanceCounter (&counter))
+    if (!::QueryPerformanceFrequency (&frequency) || frequency.QuadPart == 0 || !::QueryPerformanceCounter (&counter))
         return 0;
     return uint64_t (counter.QuadPart * 1000000ll / frequency.QuadPart);
 }
@@ -373,7 +379,7 @@ geomsrv::archviz::CameraStart ApplyPrediction (const geomsrv::archviz::CameraSta
 {
     static geomsrv::archviz::PlanCameraPredictor g_predictor;
     static uint64_t g_lastObservationMs = 0;
-    static double   g_horizonSeconds = 0.025;   // seeded near the measured interval
+    static double g_horizonSeconds = 0.025; // seeded near the measured interval
 
     const geomsrv::archviz::CameraSyncMode mode = geomsrv::archviz::CurrentCameraSyncMode ();
     // ⚠️ `HookDraw` IS IN THIS SET (PLAT-RE116), and its absence is what made the
@@ -382,9 +388,9 @@ geomsrv::archviz::CameraStart ApplyPrediction (const geomsrv::archviz::CameraSta
     // hands the reprojection a RAW observation and gets back exactly the poll
     // interval the whole ladder exists to remove. Compositing and prediction are
     // independent mechanisms and this mode wants both.
-    const bool predicting = (mode == geomsrv::archviz::CameraSyncMode::Predict ||
-                             mode == geomsrv::archviz::CameraSyncMode::WakePredict ||
-                             mode == geomsrv::archviz::CameraSyncMode::HookDraw);
+    const bool predicting =
+        (mode == geomsrv::archviz::CameraSyncMode::Predict || mode == geomsrv::archviz::CameraSyncMode::WakePredict ||
+         mode == geomsrv::archviz::CameraSyncMode::HookDraw);
     if (!predicting || !camera.orthographic || !camera.valid) {
         // ⚠️ THE PREDICTOR IS RESET, NOT JUST BYPASSED. A stale velocity from
         // minutes ago would be applied to the first frame after the mode comes
@@ -399,8 +405,7 @@ geomsrv::archviz::CameraStart ApplyPrediction (const geomsrv::archviz::CameraSta
     // sample gap to 15, 31 or 47 -- and the horizon derived from it would be
     // wrong by up to half a tick on every single frame.
     const uint64_t nowUs = MicrosecondsNow ();
-    const double elapsedSeconds =
-        (g_lastObservationMs == 0) ? 0.0 : double (nowUs - g_lastObservationMs) / 1000000.0;
+    const double elapsedSeconds = (g_lastObservationMs == 0) ? 0.0 : double (nowUs - g_lastObservationMs) / 1000000.0;
     g_lastObservationMs = nowUs;
 
     // The horizon IS the inter-sample interval -- that is what the measured lag
@@ -418,8 +423,7 @@ geomsrv::archviz::CameraStart ApplyPrediction (const geomsrv::archviz::CameraSta
     observed.rotationRadians = camera.planRotationRadians;
 
     const geomsrv::archviz::PlanCameraFit predicted = geomsrv::archviz::PredictPlanCamera (
-        g_predictor, observed, elapsedSeconds,
-        g_horizonSeconds * geomsrv::archviz::CurrentPredictionScale ());
+        g_predictor, observed, elapsedSeconds, g_horizonSeconds * geomsrv::archviz::CurrentPredictionScale ());
 
     geomsrv::archviz::CameraStart out = camera;
     out.target[0] = float (predicted.centreX);
@@ -470,7 +474,7 @@ void PollGpuStateOnce (const geomsrv::archviz::CameraStart& observed)
     if (!dxgi::ContextHookInstalled ()) {
         std::string installError;
         if (!dxgi::InstallContextHook (installError))
-            return;   // not yet, or refused -- the reason is in the stats
+            return; // not yet, or refused -- the reason is in the stats
     }
 
     // ⚠️ AND PUT THE DETOURS BACK IF THE RUNTIME TOOK THEM OUT, WHICH IT DOES.
@@ -494,8 +498,8 @@ void PollGpuStateOnce (const geomsrv::archviz::CameraStart& observed)
     // worse guess that is still better than scoring against a zero-sized
     // rectangle, which would divide the pixel error by nothing.
     const dxgi::renderstate::GpuViewport viewport =
-        (frame.sceneCandidate.width > 1.0f && frame.sceneCandidate.height > 1.0f)
-            ? frame.sceneCandidate : frame.largest;
+        (frame.sceneCandidate.width > 1.0f && frame.sceneCandidate.height > 1.0f) ? frame.sceneCandidate
+                                                                                  : frame.largest;
 
     // "Moved" is decided against the last observation this function saw, not
     // against the renderer's camera: the renderer may be blanked, predicted or
@@ -508,14 +512,14 @@ void PollGpuStateOnce (const geomsrv::archviz::CameraStart& observed)
             moved = std::fabs (double (observed.eye[axis] - g_previous.eye[axis])) > 1e-4 ||
                     std::fabs (double (observed.target[axis] - g_previous.target[axis])) > 1e-4;
         }
-        moved = moved || std::fabs (double (observed.viewConeDegreesHorizontal -
-                                            g_previous.viewConeDegreesHorizontal)) > 1e-4;
+        moved = moved ||
+                std::fabs (double (observed.viewConeDegreesHorizontal - g_previous.viewConeDegreesHorizontal)) > 1e-4;
     }
     g_previous = observed;
 
     if (observed.valid && !observed.orthographic) {
-        dxgi::viewmatrix::SetReference (observed.eye, observed.target,
-                                        observed.viewConeDegreesHorizontal, viewport, moved);
+        dxgi::viewmatrix::SetReference (observed.eye, observed.target, observed.viewConeDegreesHorizontal, viewport,
+                                        moved);
     }
 
     // ⚠️ STAGE 4 RUNS ON EVERY TICK, NOT EVERY EIGHTH, because what it measures
@@ -554,6 +558,24 @@ void PollGpuStateOnce (const geomsrv::archviz::CameraStart& observed)
 void PollCameraOnceImpl ()
 {
     if (!geomsrv::archviz::DiligentViewport::Get ().IsRunning ()) {
+        // ⚠️ THE GPU-STATE HOOK STILL NEEDS ITS TICK, AND THIS EARLY
+        // RETURN USED TO DENY IT ONE. `PollGpuStateOnce` is what INSTALLS the
+        // context hook -- it cannot be installed at arm time, because Archicad's
+        // own immediate context is only reachable through the swap chain the
+        // Present detour takes about sixty frames to identify -- and it is what
+        // REPAIRS the vtable every frame, which run eight proved is not optional:
+        // zero of twenty-seven slots survived a twelve-second orbit unrepaired.
+        //
+        // ⚠️ SO WITHOUT A PORTABLE VIEWPORT, THE INJECTED OVERLAY
+        // COULD NEVER GET A CONTEXT. That is the second half of the coupling --
+        // `SetCameraSyncMode` refused `hookdiag` outright without a viewport, and
+        // had it not, this would have armed a mode whose hook never installed.
+        // The injected overlay draws into ARCHICAD'S frame and has no viewport of
+        // its own; it must be able to run with none.
+        if (geomsrv::archviz::dxgi::ContextHookWanted ()) {
+            PollGpuStateOnce (geomsrv::archviz::CameraStart {});
+            return;
+        }
         ArchVizPanel::StopCameraSync ();
         return;
     }
@@ -617,18 +639,19 @@ void PollCameraOnceImpl ()
     if (nav::IsRunning ()) {
         if (!observed.valid) {
             nav::LogArchicadFailure (observed.orthographic ? "FloorPlan" : "3D", observed.source);
-        } else if (observed.orthographic) {
+        }
+        else if (observed.orthographic) {
             const double centre[2] = { observed.target[0], observed.target[1] };
-            nav::LogArchicadPlan ("FloorPlan", centre, observed.orthoHalfHeightMetres,
-                                  observed.planRotationRadians, readUs);
-        } else {
+            nav::LogArchicadPlan ("FloorPlan", centre, observed.orthoHalfHeightMetres, observed.planRotationRadians,
+                                  readUs);
+        }
+        else {
             // `distance` and `azimuth` are 0 here, unlike NavTimerProc's rows:
             // CameraStart does not carry them and both are derivable from eye and
             // target. The mode column already says which reader produced the row.
             const double eye[3] = { observed.eye[0], observed.eye[1], observed.eye[2] };
             const double tgt[3] = { observed.target[0], observed.target[1], observed.target[2] };
-            nav::LogArchicadPersp ("3D", eye, tgt, 0.0, 0.0, 0.0,
-                                   observed.viewConeDegreesHorizontal);
+            nav::LogArchicadPersp ("3D", eye, tgt, 0.0, 0.0, 0.0, observed.viewConeDegreesHorizontal);
         }
         // The Present hook's ring drains from here because this is the only
         // main-thread heartbeat that is already running while a hookdiag run is
@@ -676,7 +699,6 @@ void CALLBACK CameraSyncTimerProc (HWND, UINT, UINT_PTR, DWORD)
     PollCameraOnceImpl ();
 }
 
-
 void CALLBACK NavTimerProc (HWND, UINT, UINT_PTR, DWORD)
 {
     namespace nav = geomsrv::archviz::navlog;
@@ -688,13 +710,13 @@ void CALLBACK NavTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // (LayoutCommands.cpp carries the same warning, and it is plan §23's G11) —
     // so the answer is logged either way and the column says which it was. A
     // filter here would silently drop exactly the rows that prove the point.
-    API_WindowInfo   info = {};
-    const char*      kind = "?";
+    API_WindowInfo info = {};
+    const char* kind = "?";
     if (ACAPI_Window_GetCurrentWindow (&info) == NoError)
         kind = WindowKindName (info.typeID);
 
     API_3DProjectionInfo proj = {};
-    const GSErrCode      err  = ACAPI_View_Get3DProjectionSets (&proj);
+    const GSErrCode err = ACAPI_View_Get3DProjectionSets (&proj);
     if (err != NoError) {
         nav::LogArchicadFailure (kind, "ACAPI_View_Get3DProjectionSets err=" + std::to_string ((int) err));
         return;
@@ -706,7 +728,7 @@ void CALLBACK NavTimerProc (HWND, UINT, UINT_PTR, DWORD)
         // targetZ. Archicad splits each into a 2D coord plus a separate Z; there
         // is no API_Coord3D here, and reading pos as if it were one silently
         // drops the height.
-        const double eye[3] = { p.pos.x,    p.pos.y,    p.cameraZ };
+        const double eye[3] = { p.pos.x, p.pos.y, p.cameraZ };
         const double tgt[3] = { p.target.x, p.target.y, p.targetZ };
         // ⚠️ NO RADIAN CONVERSION. `azimuth` and `viewCone` are ALREADY IN
         // DEGREES, measured over 2603 samples 2026-08-06: viewCone came back a
@@ -720,9 +742,9 @@ void CALLBACK NavTimerProc (HWND, UINT, UINT_PTR, DWORD)
         // `rollAngle` was 0.000 in every sample, so its unit is UNVERIFIED; it
         // is passed through raw on the assumption that one struct does not mix
         // units. Do not treat that as measured.
-        nav::LogArchicadPersp (kind, eye, tgt, p.distance,
-                               p.azimuth, p.rollAngle, p.viewCone);
-    } else {
+        nav::LogArchicadPersp (kind, eye, tgt, p.distance, p.azimuth, p.rollAngle, p.viewCone);
+    }
+    else {
         const API_AxonoPars& a = proj.u.axono;
         double tm[12] = {};
         for (int i = 0; i < 12; ++i)
@@ -769,7 +791,7 @@ void ReleaseTimerResolution ()
     }
 }
 
-}   // namespace
+} // namespace
 
 void ArchVizPanel::PollCameraOnce ()
 {

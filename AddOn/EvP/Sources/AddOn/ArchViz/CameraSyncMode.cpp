@@ -5,7 +5,7 @@
 
 #include "ArchViz/AutoOrbit.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/CameraWake.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
@@ -26,8 +26,8 @@ namespace archviz {
 namespace {
 
 CameraSyncMode g_mode = CameraSyncMode::Off;
-uint32_t       g_intervalMs = 33;
-double         g_predictionScale = 1.0;
+uint32_t g_intervalMs = 33;
+double g_predictionScale = 1.0;
 // ⚠️ OFF BY DEFAULT (user, 2026-08-28), and it was on for one build. The argument
 // for on -- a dependent reading a mid-drag frame is shown a pose that is wrong by
 // construction -- is still true, but it was outweighed in practice: the blank
@@ -37,11 +37,11 @@ double         g_predictionScale = 1.0;
 // Archicad tool is active, which is not something this layer can see. An overlay
 // that vanishes while the user drags a selection box is worse than a slightly
 // stale one. `hideonnav` and the `hideOnNav` parameter both still reach it.
-bool           g_hideOnNav = false;
+bool g_hideOnNav = false;
 // Whether `hookdiag` also installs the GPU-state discovery hooks. See the
 // header: a switch on hookdiag rather than a ninth mode, refused everywhere else
 // rather than ignored.
-bool           g_gpuState = false;
+bool g_gpuState = false;
 
 // Does this mode install the wake hook? The hook is what lets `hideOnNav` blank
 // on the INPUT rather than on its consequence, and it is also what makes a mode
@@ -49,8 +49,8 @@ bool           g_gpuState = false;
 // it is written down once.
 bool InstallsWakeHook (CameraSyncMode mode)
 {
-    return mode == CameraSyncMode::HideOnNav || mode == CameraSyncMode::Wake ||
-           mode == CameraSyncMode::WakePredict || mode == CameraSyncMode::HookDraw;
+    return mode == CameraSyncMode::HideOnNav || mode == CameraSyncMode::Wake || mode == CameraSyncMode::WakePredict ||
+           mode == CameraSyncMode::HookDraw;
 }
 
 // Disarm whatever `g_mode` currently is. ⚠️ IT SWITCHES ON THE OLD MODE, not on
@@ -178,32 +178,64 @@ const char* NotYetBuilt (CameraSyncMode mode)
     return nullptr;
 }
 
-}   // namespace
+} // namespace
 
 bool ParseCameraSyncMode (const std::string& name, CameraSyncMode& mode)
 {
-    if (name == "off")      { mode = CameraSyncMode::Off;      return true; }
-    if (name == "legacy")   { mode = CameraSyncMode::Legacy;   return true; }
-    if (name == "hideonnav"){ mode = CameraSyncMode::HideOnNav;return true; }
-    if (name == "wake")     { mode = CameraSyncMode::Wake;     return true; }
-    if (name == "predict")  { mode = CameraSyncMode::Predict;  return true; }
-    if (name == "wakepredict") { mode = CameraSyncMode::WakePredict; return true; }
-    if (name == "hookdiag") { mode = CameraSyncMode::HookDiag; return true; }
-    if (name == "hookdraw") { mode = CameraSyncMode::HookDraw; return true; }
+    if (name == "off") {
+        mode = CameraSyncMode::Off;
+        return true;
+    }
+    if (name == "legacy") {
+        mode = CameraSyncMode::Legacy;
+        return true;
+    }
+    if (name == "hideonnav") {
+        mode = CameraSyncMode::HideOnNav;
+        return true;
+    }
+    if (name == "wake") {
+        mode = CameraSyncMode::Wake;
+        return true;
+    }
+    if (name == "predict") {
+        mode = CameraSyncMode::Predict;
+        return true;
+    }
+    if (name == "wakepredict") {
+        mode = CameraSyncMode::WakePredict;
+        return true;
+    }
+    if (name == "hookdiag") {
+        mode = CameraSyncMode::HookDiag;
+        return true;
+    }
+    if (name == "hookdraw") {
+        mode = CameraSyncMode::HookDraw;
+        return true;
+    }
     return false;
 }
 
 const char* CameraSyncModeName (CameraSyncMode mode)
 {
     switch (mode) {
-        case CameraSyncMode::Off:      return "off";
-        case CameraSyncMode::Legacy:   return "legacy";
-        case CameraSyncMode::HideOnNav:return "hideonnav";
-        case CameraSyncMode::Wake:     return "wake";
-        case CameraSyncMode::Predict:  return "predict";
-        case CameraSyncMode::WakePredict: return "wakepredict";
-        case CameraSyncMode::HookDiag: return "hookdiag";
-        case CameraSyncMode::HookDraw: return "hookdraw";
+        case CameraSyncMode::Off:
+            return "off";
+        case CameraSyncMode::Legacy:
+            return "legacy";
+        case CameraSyncMode::HideOnNav:
+            return "hideonnav";
+        case CameraSyncMode::Wake:
+            return "wake";
+        case CameraSyncMode::Predict:
+            return "predict";
+        case CameraSyncMode::WakePredict:
+            return "wakepredict";
+        case CameraSyncMode::HookDiag:
+            return "hookdiag";
+        case CameraSyncMode::HookDraw:
+            return "hookdraw";
     }
     return "?";
 }
@@ -226,14 +258,14 @@ bool IsExperimental (CameraSyncMode mode)
     return InstallsWakeHook (mode) || mode == CameraSyncMode::HookDiag;
 }
 
-bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predictionScale,
-                        bool hideOnNav, bool gpuState, std::string& error)
+bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predictionScale, bool hideOnNav, bool gpuState,
+                        std::string& error)
 {
     if (intervalMs < 10)
         intervalMs = 10;
     // Clamped, not refused: a scale outside this range is a typo, and refusing
     // the whole mode switch over one would strand the run.
-    if (!(predictionScale >= 0.0))   // also catches NaN
+    if (!(predictionScale >= 0.0)) // also catches NaN
         predictionScale = 1.0;
     if (predictionScale > 4.0)
         predictionScale = 4.0;
@@ -241,8 +273,7 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
 
     // ---- everything that can refuse happens BEFORE anything is torn down ----
     if (const char* missing = NotYetBuilt (mode)) {
-        error = std::string (missing) + "; the current mode ('" + CameraSyncModeName (g_mode) +
-                "') is unchanged";
+        error = std::string (missing) + "; the current mode ('" + CameraSyncModeName (g_mode) + "') is unchanged";
         return false;
     }
 
@@ -261,15 +292,30 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
         gpuState = false;
 
     if (IsExperimental (mode) && experimentguard::Blocked ()) {
-        error = experimentguard::WhyBlocked () + " -- the current mode ('" +
-                CameraSyncModeName (g_mode) + "') is unchanged";
+        error = experimentguard::WhyBlocked () + " -- the current mode ('" + CameraSyncModeName (g_mode) +
+                "') is unchanged";
         return false;
     }
 
-    if (mode != CameraSyncMode::Off && !DiligentViewport::Get ().IsRunning ()) {
+    // ⚠️ EVERY MODE BUT `hookdiag` MOVES THE PORTABLE VIEWPORT'S
+    // CAMERA, so with no viewport there is genuinely nothing to sync and refusing
+    // is right. `hookdiag` IS NOT ONE OF THOSE. Its hooks read Archicad's OWN
+    // D3D context, through a detour on Archicad's OWN swap chain, to drive the
+    // INJECTED overlay -- which has no Diligent viewport, no surface and no
+    // camera of its own to move.
+    //
+    // ⚠️ THIS GUARD IS WHY THE INJECTED OVERLAY COULD NEVER START ON
+    // ITS OWN. `InjectedOverlayRuntime::Start` arms `hookdiag` and was refused
+    // with "nothing to sync" on every attempt, so the only way to reach the
+    // injected path was to open the portable overlay FIRST -- which is exactly
+    // the lifecycle coupling stage 9d was written to remove, surviving in the one
+    // place nobody had looked. It also explains why every successful diagnostic
+    // run in this series began with the user opening the Tapioca Overlay by hand:
+    // that was not a convenience, it was mandatory.
+    if (mode != CameraSyncMode::Off && mode != CameraSyncMode::HookDiag && !DiligentViewport::Get ().IsRunning ()) {
         error = "no Diligent viewport or overlay is running, so there is nothing to sync; "
-                "the current mode ('" + std::string (CameraSyncModeName (g_mode)) +
-                "') is unchanged";
+                "the current mode ('" +
+                std::string (CameraSyncModeName (g_mode)) + "') is unchanged";
         return false;
     }
 
@@ -295,8 +341,8 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
     if (IsExperimental (mode) && !experimentguard::Arm (CameraSyncModeName (mode), error)) {
         // The guard refused to leave a breadcrumb, so the mechanism must not be
         // installed. We are already torn down, which is the safe resting place.
-        ArchVizLog ("camera sync mode: refused '" + std::string (CameraSyncModeName (mode)) +
-                    "' -- " + error + "; now off");
+        ArchVizLog ("camera sync mode: refused '" + std::string (CameraSyncModeName (mode)) + "' -- " + error +
+                    "; now off");
         return false;
     }
 
@@ -435,8 +481,7 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             dxgi::SetHostCompositeEnabled (true);
             camerawake::SetPollCallback (&ArchVizPanel::PollCameraOnce);
             camerawake::SetBlankOnInput (g_hideOnNav);
-            armed = camerawake::Install (error) &&
-                    dxgi::InstallPresentHook (error) &&
+            armed = camerawake::Install (error) && dxgi::InstallPresentHook (error) &&
                     ArchVizPanel::StartCameraSync (intervalMs);
             // ⚠️ OUR OWN OVERLAY WINDOW GOES AWAY WHILE THIS MODE IS ON. It keeps
             // rendering and presenting -- the mirror copies those frames -- but
@@ -462,18 +507,15 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
     if (!armed) {
         if (IsExperimental (mode))
             experimentguard::Disarm ();
-        error = "arming camera sync mode '" + std::string (CameraSyncModeName (mode)) +
-                "' failed; sync is now off";
+        error = "arming camera sync mode '" + std::string (CameraSyncModeName (mode)) + "' failed; sync is now off";
         ArchVizLog ("camera sync mode: " + error);
         return false;
     }
 
     g_mode = mode;
     g_intervalMs = intervalMs;
-    ArchVizLog ("camera sync mode: " + std::string (CameraSyncModeName (mode)) + " at " +
-                std::to_string (intervalMs) + " ms, hideOnNav " +
-                (g_hideOnNav ? "on" : "off") + ", gpuState " +
-                (g_gpuState ? "on" : "off"));
+    ArchVizLog ("camera sync mode: " + std::string (CameraSyncModeName (mode)) + " at " + std::to_string (intervalMs) +
+                " ms, hideOnNav " + (g_hideOnNav ? "on" : "off") + ", gpuState " + (g_gpuState ? "on" : "off"));
     return true;
 }
 
@@ -511,5 +553,5 @@ void ShutDownCameraSync ()
     experimentguard::Disarm ();
 }
 
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace archviz
+} // namespace geomsrv

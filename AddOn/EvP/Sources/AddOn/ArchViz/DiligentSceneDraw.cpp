@@ -6,8 +6,6 @@
 
 #include "ArchViz/DiligentSceneImpl.hpp"
 
-#include "ArchViz/Dxgi/InjectionRenderer.hpp"
-
 #include "ArchViz/GhPreviewGeometry.hpp"
 #include "Preview/GhPreviewCache.hpp"
 #include "Preview/GraphPreviewStore.hpp"
@@ -702,22 +700,20 @@ void DiligentScene::Draw (Diligent::IDeviceContext* context, Diligent::ITextureV
     constants.gradeParams[3] = impl_->aoView != nullptr ? impl_->aoIntensity : 0.0f;
 
     const bool drawSurfaces = impl_->renderMode != SceneRenderMode::Wireframe;
-    // ⚠️ THE PORTABLE WIREFRAME STANDS DOWN WHILE THE INJECTED
-    // OVERLAY IS DRAWING, and that is the deprecation rather than a deletion.
-    // This overlay takes its camera from an ACAPI read that happens AFTER
-    // Archicad has already drawn with it, so its lines trail the model by a
-    // frame and visibly jitter under navigation -- the fault this whole rung
-    // exists to remove. `hostoverlay` draws the same edges from Archicad's own
-    // uploaded transform, welded. Two wireframes of one building, one of them
-    // lagging, is worse than either alone.
+    // ⚠️ THE SUPPRESSION THAT WAS HERE WAS GLOBAL, AND IT SWITCHED
+    // OFF THE FLOOR PLAN. It read "if the injected overlay is Active, do not draw
+    // the portable wireframe" -- true of the 3D window and meaningless for a
+    // plan, whose linework comes out of this very pass. A 3D runtime left running
+    // while the user moved to a plan therefore blanked the plan overlay.
     //
-    // ⚠️ SUPPRESSED, NOT REMOVED, BECAUSE THIS IS STILL THE
-    // FALLBACK. The injected path refuses outright on any Archicad build it has
-    // not been pinned to; on those builds this is the only overlay there is, and
-    // `Active` is false, so the condition below simply does not fire.
-    const bool injectedOverlayLive = dxgi::injection::GetArmState () == dxgi::injection::ArmState::Active;
-    const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded && !injectedOverlayLive &&
+    // ⚠️ AND IT IS NOT NEEDED. `OverlayController` routes by view kind
+    // and never runs both renderers on one window, so there is nothing left to
+    // suppress. If a future caller does need this, it must ask
+    // `overlaycontrol::InjectedOwnsView (kind)` with the kind IT is drawing --
+    // never a global flag.
+    const bool drawWireframe = impl_->renderMode != SceneRenderMode::Shaded &&
                                (impl_->semanticWirePso != nullptr || impl_->wirePso != nullptr);
+    (impl_->semanticWirePso != nullptr || impl_->wirePso != nullptr);
 
     // Two passes over the same ranges: opaque first, then everything that
     // blends. Not a sort -- a partition, which needs no comparator and no

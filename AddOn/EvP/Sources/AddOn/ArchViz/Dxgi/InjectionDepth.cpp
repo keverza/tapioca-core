@@ -271,6 +271,21 @@ void RetainSceneView (ID3D11DepthStencilView* view)
         g_sceneView->AddRef ();
 }
 
+void CaptureBoundSceneView (ID3D11DeviceContext* context)
+{
+    if (context == nullptr)
+        return;
+    ID3D11RenderTargetView* boundTarget = nullptr;
+    ID3D11DepthStencilView* boundDepth = nullptr;
+    context->OMGetRenderTargets (1, &boundTarget, &boundDepth);
+    if (boundDepth != nullptr) {
+        RetainSceneView (boundDepth);
+        boundDepth->Release ();
+    }
+    if (boundTarget != nullptr)
+        boundTarget->Release ();
+}
+
 // ⚠️ ONE WHOLE-RESOURCE COPY, GPU TO GPU, AT WHATEVER MOMENT THE
 // SOURCE NAMES. It carries Archicad's depth into our texture so the building
 // still occludes, and from there every write is ours. What changed in run

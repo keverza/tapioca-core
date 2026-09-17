@@ -10,6 +10,7 @@
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/OverlayController.hpp"
 
 namespace geomsrv {
 
@@ -138,15 +139,22 @@ class OverlayRuntimeCommand : public MainThreadCommand {
             params.Get ("action", action);
         const std::string wanted (action.ToCStr (0, MaxUSize, CC_UTF8).Get ());
 
-        GS::ObjectState os;
-        os.Add ("ok", true);
-        os.Add ("code", GS::UniString (runtime::StartErrorName (runtime::StartError::None), CC_UTF8));
+        // ⚠️ THE RESULT IS DECIDED FIRST AND ADDED ONCE.
+        // `GS::ObjectState::Add` does NOT overwrite an existing key: the previous
+        // version wrote defaults and then "overrode" them inside the branch, so
+        // every single response reported `ok=true, code=None` whatever had
+        // happened -- including the one that prompted the rule that `None` must
+        // never reach a user. A field written twice is a field nobody can trust.
+        bool ok = true;
+        runtime::StartError code = runtime::StartError::None;
+        std::string message;
+        bool retryable = false;
         if (wanted == "start") {
             const runtime::StartResult started = runtime::Start ();
-            os.Add ("ok", started.ok);
-            os.Add ("code", GS::UniString (runtime::StartErrorName (started.code), CC_UTF8));
-            os.Add ("message", GS::UniString (started.message.c_str (), CC_UTF8));
-            os.Add ("retryable", started.retryable);
+            ok = started.ok;
+            code = started.code;
+            message = started.message;
+            retryable = started.retryable;
         }
         else if (wanted == "stop") {
             runtime::Stop ();
@@ -168,6 +176,16 @@ class OverlayRuntimeCommand : public MainThreadCommand {
         // into, and a second round trip through `MainThreadGate` to find out is a
         // second chance for the answer to have changed.
         runtime::Tick ();
+        GS::ObjectState os;
+        os.Add ("ok", ok);
+        os.Add ("code", GS::UniString (runtime::StartErrorName (code), CC_UTF8));
+        os.Add ("message", GS::UniString (message.c_str (), CC_UTF8));
+        os.Add ("retryable", retryable);
+
+        namespace control = av::overlaycontrol;
+        const control::Status routing = control::GetStatus ();
+        os.Add ("view", GS::UniString (control::ViewKindName (routing.view), CC_UTF8));
+        os.Add ("portableRunning", routing.portableRunning);
         const runtime::Health health = runtime::GetHealth ();
         os.Add ("running", health.running);
         os.Add ("visible", health.visible);
@@ -178,20 +196,36 @@ class OverlayRuntimeCommand : public MainThreadCommand {
         os.Add ("reacquisitions", (GS::Int32) health.reacquisitions);
         os.Add ("hostOpaqueTriangles", (GS::Int32) health.hostOpaqueTriangles);
         os.Add ("overlayDraws", (GS::Int32) health.overlayDraws);
+        os.Add ("presentInjections", (GS::Int32) health.presentInjections);
+        os.Add ("hostNoDepthTarget", (GS::Int32) health.hostNoDepthTarget);
+        os.Add ("hostNoGeometry", (GS::Int32) health.hostNoGeometry);
+        os.Add ("overlayNoEdges", (GS::Int32) health.overlayNoEdges);
+        os.Add ("overlayNoCamera", (GS::Int32) health.overlayNoCamera);
+        os.Add ("modelFramesSeen", (GS::Int32) health.modelFramesSeen);
+        os.Add ("eligibleCandidates", (GS::Int32) health.eligibleCandidates);
+        os.Add ("selectionValid", health.selectionValid);
+        os.Add ("selectedGroup", (GS::Int32) health.selectedGroup);
+        os.Add ("selectedOccurrence", (GS::Int32) health.selectedOccurrence);
+        os.Add ("occurrenceLocked", health.occurrenceLocked);
+        os.Add ("cameraSource", GS::UniString (health.cameraSource.c_str (), CC_UTF8));
+        os.Add ("armState", GS::UniString (health.armState.c_str (), CC_UTF8));
+        os.Add ("logicalMatches", (GS::Int32) health.logicalMatches);
+        os.Add ("authoritativeSnapshots", (GS::Int32) health.authoritativeSnapshots);
+        os.Add ("blockedAt", GS::UniString (health.blockedAt.c_str (), CC_UTF8));
         os.Add ("lastError", GS::UniString (runtime::StartErrorName (health.lastError), CC_UTF8));
         os.Add ("lastMessage", GS::UniString (health.lastMessage.c_str (), CC_UTF8));
         return os;
     }
 };
 
-const NativeCommandRegistration kHostGeometryCommandRegistrations[] = {
-    { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false,
-      R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"lastError":{"type":"string"},"lastMessage":{"type":"string"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
-    { "RequestHostGeometry", &MakeRegisteredNativeCommand<RequestHostGeometryCommand>, false,
-      R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"accepted":{"type":"boolean"},"alreadyRunning":{"type":"boolean"},"running":{"type":"boolean"},"extractionGeneration":{"type":"integer"},"batchBegins":{"type":"integer"},"batchEnds":{"type":"integer"},"elementsReceived":{"type":"integer"},"opaqueVerticesAdded":{"type":"integer"},"opaqueIndicesAdded":{"type":"integer"},"opaqueTriangles":{"type":"integer"},"transparentTrianglesSkipped":{"type":"integer"},"pendingVertices":{"type":"integer"},"droppedOverCapacity":{"type":"integer"},"publishAttempted":{"type":"integer"},"publishSucceeded":{"type":"integer"},"publishedGeneration":{"type":"integer"},"publishedVertices":{"type":"integer"},"publishedIndices":{"type":"integer"},"publishedTriangles":{"type":"integer"},"haveSnapshot":{"type":"boolean"},"publishFailureReason":{"type":"string"},"uploaded":{"type":"boolean"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"renders":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["accepted","running","haveSnapshot"]})json" },
-};
+const NativeCommandRegistration
+    kHostGeometryCommandRegistrations
+        [] = {
+            { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false, R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]}},"additionalProperties":false})json", R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"presentInjections":{"type":"integer"},"hostNoDepthTarget":{"type":"integer"},"hostNoGeometry":{"type":"integer"},"overlayNoEdges":{"type":"integer"},"overlayNoCamera":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"eligibleCandidates":{"type":"integer"},"selectionValid":{"type":"boolean"},"selectedGroup":{"type":"integer"},"selectedOccurrence":{"type":"integer"},"occurrenceLocked":{"type":"boolean"},"cameraSource":{"type":"string"},"armState":{"type":"string"},"logicalMatches":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"blockedAt":{"type":"string"},"lastError":{"type":"string"},"lastMessage":{"type":"string"},"view":{"type":"string"},"portableRunning":{"type":"boolean"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
+            { "RequestHostGeometry", &MakeRegisteredNativeCommand<RequestHostGeometryCommand>, false,
+              R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{"accepted":{"type":"boolean"},"alreadyRunning":{"type":"boolean"},"running":{"type":"boolean"},"extractionGeneration":{"type":"integer"},"batchBegins":{"type":"integer"},"batchEnds":{"type":"integer"},"elementsReceived":{"type":"integer"},"opaqueVerticesAdded":{"type":"integer"},"opaqueIndicesAdded":{"type":"integer"},"opaqueTriangles":{"type":"integer"},"transparentTrianglesSkipped":{"type":"integer"},"pendingVertices":{"type":"integer"},"droppedOverCapacity":{"type":"integer"},"publishAttempted":{"type":"integer"},"publishSucceeded":{"type":"integer"},"publishedGeneration":{"type":"integer"},"publishedVertices":{"type":"integer"},"publishedIndices":{"type":"integer"},"publishedTriangles":{"type":"integer"},"haveSnapshot":{"type":"boolean"},"publishFailureReason":{"type":"string"},"uploaded":{"type":"boolean"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"renders":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["accepted","running","haveSnapshot"]})json" },
+        };
 
 } // namespace
 

@@ -58,6 +58,14 @@ enum class StartError : uint32_t {
     // IS A NORMAL RUNTIME STATE AND NOT A FAILURE: the runtime keeps waiting and
     // arms itself when the viewport appears.
     WaitingFor3DContext,
+    // ⚠️ THE FRONT WINDOW IS NOT ARCHICAD'S 3D MODEL, AND A FLOOR
+    // PLAN IS NOT A SMALL 3D SCENE. This whole path finds the draw family that
+    // carries Archicad's 3D MODEL camera and composes against its depth buffer;
+    // a plan window has no such camera, no model depth and no perspective. The
+    // portable overlay measures the plan's own zoom into a top-down orthographic
+    // camera and draws there correctly, which is why it stays the renderer for
+    // plans rather than being a lesser version of this one.
+    Not3DWindow,
     BuildNotPinned, // fail closed: use the portable overlay
     HooksRefused,   // the mode would not accept the GPU-state slots
     DeviceUnsupported,
@@ -96,6 +104,39 @@ struct Health {
     uint64_t reacquisitions = 0;
     uint32_t hostOpaqueTriangles = 0;
     uint64_t overlayDraws = 0;
+    // Where the composition stopped, if it did. See `GetHealth`.
+    uint64_t presentInjections = 0;
+    uint64_t hostNoDepthTarget = 0;
+    uint64_t hostNoGeometry = 0;
+    uint64_t overlayNoEdges = 0;
+    uint64_t overlayNoCamera = 0;
+
+    // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
+    // runs were spent asking "why is nothing on screen" when the answer was a
+    // different stage each time and no single number distinguished them.
+    uint64_t modelFramesSeen = 0;
+    uint32_t eligibleCandidates = 0;
+    uint64_t selectionAttempts = 0;
+    // ⚠️ WHETHER DRAWS REACH THE TABLE AT ALL, which no previous
+    // chain could say. A gate cannot refuse a candidate that was never scored.
+    uint64_t drawsSeen = 0;
+    uint64_t drawsQualified = 0;
+    uint32_t groupsUsed = 0;
+    uint64_t groupsOverflowed = 0;
+    bool selectionValid = false;
+    uint32_t selectedGroup = 0;
+    uint32_t selectedOccurrence = 0;
+    bool occurrenceLocked = false;
+    std::string cameraSource;
+    std::string armState;
+    uint64_t logicalMatches = 0;
+    uint64_t authoritativeSnapshots = 0;
+    uint64_t presentsSeen = 0;
+
+    // ⚠️ THE FIRST STAGE THAT IS NOT SATISFIED, COMPUTED IN ONE PLACE
+    // FROM THE FIELDS ABOVE. "BLOCKED AT Selection" ends an investigation that
+    // otherwise costs a run per hypothesis.
+    std::string blockedAt;
     StartError lastError = StartError::None;
     std::string lastMessage;
 };

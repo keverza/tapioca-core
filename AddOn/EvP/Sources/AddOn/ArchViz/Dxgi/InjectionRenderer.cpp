@@ -530,6 +530,9 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // occluding our geometry with nothing written back; `PrivateCopy` adds
     // depth WRITES into a texture we own, so ghost surfaces occlude each other
     // too -- and still not one write reaches Archicad's buffer.
+    // Publish Archicad's depth view; see `depth::RetainSceneView`.
+    depth::CaptureBoundSceneView (context);
+
     ID3D11DepthStencilView* depthView = nullptr;
     if (targetView != nullptr) {
         depthView = depth::PrepareForInjection (context);
@@ -658,16 +661,9 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
         }
     }
 
-    // ---- the depth checkpoints ---------------------------------------------
-    // ⚠️ THE SAME TWO PRIMITIVES AGAINST EVERY MOMENT OF ARCHICAD'S
-    // FRAME. This is where run fifty answers the question run forty-nine could
-    // not: not "which draws look transparent" but "after which draw does the
-    // depth buffer stop being usable". It draws nothing the user can see -- the
-    // probes write to the back buffer through an occlusion query and are
-    // overwritten by nothing, because they run last.
-    // ⚠️ THE PROBING ITSELF HAPPENS MID-PASS NOW, after each Archicad
-    // draw, against the live depth buffer. All that is left here is collecting
-    // whatever occlusion results have become ready.
+    // Collect any checkpoint occlusion results that became ready. The
+    // diagnostic is disarmed by default and this costs one branch; see
+    // DepthCheckpoints.hpp for what it answered and why it is off.
     checkpoints::Resolve (context);
 
     // ⚠️ NOTHING IS PUT BACK BY HAND ANY MORE. The guard's

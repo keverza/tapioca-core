@@ -27,6 +27,10 @@ Fingerprint g_fingerprint;
 // pin has gone quiet; without that rule a second draw family sharing the same
 // logical shape would steal the binding back and forth every frame.
 uint64_t g_selectionLastSeenModel = 0;
+// How many groups cleared the eligibility gate on the last attempt. A promotion
+// that never happens is a different fault depending on whether this is zero.
+uint32_t g_eligibleCandidates = 0;
+EligibilityDiagnosis g_gate;
 
 BindingStats g_binding;
 FingerprintDiagnosis g_diagnosis;
@@ -245,30 +249,61 @@ const char* LifecycleName (Lifecycle state)
 // ⚠️ EVERY TERM COMES FROM THE COPIED GROUP. `CopyGroups`
 // already folds the slot's medians into it, so nothing here needs the census's
 // private sample buffers -- which is what let this file separate at all.
+// ⚠️ NO EARLY RETURN, AND THAT IS THE POINT -- the same rule
+// `MatchesFingerprint` already follows. A short-circuiting gate can only report
+// the FIRST term that failed, which for a camera still accumulating samples is
+// always `samples`, and never the one that actually decides.
 static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage, float& insideClip, float& agreement)
 {
     coverage = modelFrames > 0 ? float (double (group.modelFramesObserved) / double (modelFrames)) : 0.0f;
     insideClip = group.samplesScored > 0 ? float (double (group.anchorInside) / double (group.samplesScored)) : 0.0f;
     agreement = group.samplesScored > 0 ? float (double (group.trianglesFinite) / double (group.samplesScored)) : 0.0f;
-    if (group.samplesScored < g_eligibility.minSamples)
-        return false;
-    if (coverage < g_eligibility.minModelCoverage)
-        return false;
-    if (insideClip < g_eligibility.minInsideClip)
-        return false;
-    if (agreement < g_eligibility.minFiniteTriangles)
-        return false;
 
-    // ⚠️ THE TWO GATES A COLLAPSE CANNOT PASS. Everything above this line was
-    // satisfied for six runs by a transform that drew one pixel.
-    if (group.medianAreaPixels < g_eligibility.minMedianAreaPixels)
-        return false;
-    if (group.medianMaxEdgePixels < g_eligibility.minMedianMaxEdgePixels)
-        return false;
-
+    bool term[kGateTermCount];
+    term[kGateSamples] = group.samplesScored >= g_eligibility.minSamples;
+    term[kGateCoverage] = coverage >= g_eligibility.minModelCoverage;
+    term[kGateInsideClip] = insideClip >= g_eligibility.minInsideClip;
+    term[kGateFiniteTriangles] = agreement >= g_eligibility.minFiniteTriangles;
+    // The two a collapse cannot pass: everything above was satisfied for six
+    // runs by a transform that drew one pixel.
+    term[kGateAreaPixels] = group.medianAreaPixels >= g_eligibility.minMedianAreaPixels;
+    term[kGateEdgePixels] = group.medianMaxEdgePixels >= g_eligibility.minMedianMaxEdgePixels;
     // Centre error is the weak term: a human hand on a mouse does not put the
     // orbit target on the anchor to the pixel.
-    return !(group.errorSamples > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError);
+    term[kGateCentreError] = !(group.errorSamples > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError);
+
+    ++g_gate.evaluated;
+    uint32_t failures = 0;
+    uint32_t lastFailure = 0;
+    for (uint32_t i = 0; i < kGateTermCount; ++i) {
+        if (term[i])
+            continue;
+        ++g_gate.missed[i];
+        ++failures;
+        lastFailure = i;
+    }
+    if (failures == 1)
+        ++g_gate.soleMiss[lastFailure];
+
+    // ⚠️ THE CLOSEST CANDIDATE IS KEPT WITH ITS ACTUAL NUMBERS, so a
+    // refusal can be argued with rather than believed. Fewest failures wins;
+    // ties go to the one with the most samples, because that is the one whose
+    // measurements mean the most.
+    const bool closer = !g_gate.haveClosest || failures < g_gate.closestFailures ||
+                        (failures == g_gate.closestFailures && group.samplesScored > g_gate.closestSamples);
+    if (closer) {
+        g_gate.haveClosest = true;
+        g_gate.closestGroupId = group.groupId;
+        g_gate.closestFailures = failures;
+        g_gate.closestSamples = group.samplesScored;
+        g_gate.closestCoverage = coverage;
+        g_gate.closestInsideClip = insideClip;
+        g_gate.closestFinite = agreement;
+        g_gate.closestAreaPixels = group.medianAreaPixels;
+        g_gate.closestEdgePixels = group.medianMaxEdgePixels;
+        g_gate.closestCentreError = group.medianCentreError;
+    }
+    return failures == 0;
 }
 
 // ⚠️ THE TABLE ARRIVES AS A COPY AND THIS FILE NEVER TOUCHES
@@ -285,12 +320,17 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     float bestCoverage = 0.0f;
     float bestInside = 0.0f;
     float bestMedian = 0.0f;
+    g_eligibleCandidates = 0;
+    // Each attempt is judged on its own; a stale diagnosis from a previous
+    // attempt would name a term that has since been satisfied.
+    g_gate = EligibilityDiagnosis {};
     for (size_t i = 0; i < count; ++i) {
         float coverage = 0.0f;
         float insideClip = 0.0f;
         float agreement = 0.0f;
         if (!Qualifies (groups[i], modelFrames, coverage, insideClip, agreement))
             continue;
+        ++g_eligibleCandidates;
         const bool better = best == nullptr || coverage > bestCoverage + 0.01f ||
                             (coverage >= bestCoverage - 0.01f && insideClip > bestInside + 0.005f) ||
                             (coverage >= bestCoverage - 0.01f && insideClip >= bestInside - 0.005f &&
@@ -307,6 +347,9 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
         // nothing, rather than injecting with whatever drew last -- which is the
         // behaviour that produced six inconclusive runs.
         g_selection = Selection {};
+        // ⚠️ FAILING TO SELECT MUST ALSO FAIL THE SOURCE, or the
+        // injection would keep pointing at a selection that no longer exists.
+        injection::SetCameraSource (injection::CameraSource::Learner);
         return false;
     }
 
@@ -336,6 +379,25 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     chosen.medianAreaPixels = best->medianAreaPixels;
     chosen.medianMaxEdgePixels = best->medianMaxEdgePixels;
     g_selection = chosen;
+
+    // ⚠️ SELECTING A CANDIDATE AND POINTING THE INJECTION AT IT ARE
+    // ONE TRANSACTION, AND THEY LIVE HERE. They were two acts in two places:
+    // `ViewerCameraCensus {select:true}` called this and THEN set the source,
+    // while `SetAutoSelect` called this and did not. The runtime therefore
+    // reached a state that is not supposed to exist --
+    //
+    //     selection.valid = true, lifecycle = Locked
+    //     BUT cameraSource = Learner
+    //
+    // -- in which the recognizer truthfully reports a locked camera while the
+    // injection sources from the Learner, whose snapshot path stands down once a
+    // census group is chosen. No snapshot, no `Active`, no Present, and no skip
+    // counter anywhere to say so.
+    //
+    // ⚠️ SO NO CALLER SETS THE SOURCE ANY MORE. One implementation,
+    // reached by both the explicit command and the automatic promotion, is the
+    // only arrangement in which the two cannot drift apart again.
+    injection::SetCameraSource (injection::CameraSource::CensusSelectedGroup);
 
     // ⚠️ AND THE SAME DECISION IS RECORDED IN TERMS THAT OUTLIVE THE
     // RESOURCES. `chosen` is how to find the camera right now; this is what the
@@ -415,6 +477,38 @@ void NoteSnapshot ()
 FingerprintDiagnosis GetFingerprintDiagnosis ()
 {
     return g_diagnosis;
+}
+
+uint32_t EligibleCandidates ()
+{
+    return g_eligibleCandidates;
+}
+
+const char* GateTermName (uint32_t term)
+{
+    switch (term) {
+        case kGateSamples:
+            return "samples";
+        case kGateCoverage:
+            return "coverage";
+        case kGateInsideClip:
+            return "insideClip";
+        case kGateFiniteTriangles:
+            return "finiteTriangles";
+        case kGateAreaPixels:
+            return "areaPixels";
+        case kGateEdgePixels:
+            return "edgePixels";
+        case kGateCentreError:
+            return "centreError";
+        default:
+            return "?";
+    }
+}
+
+EligibilityDiagnosis GetEligibilityDiagnosis ()
+{
+    return g_gate;
 }
 
 BindingStats GetBindingStats ()

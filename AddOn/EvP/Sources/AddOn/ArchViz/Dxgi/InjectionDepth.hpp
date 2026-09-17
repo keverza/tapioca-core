@@ -95,7 +95,27 @@ Mode GetMode ();
 // ⚠️ A REFERENCE, RELEASED WHEN REPLACED AND AT TEARDOWN. Holding a view of a
 // resource Archicad may resize is the mistake the back-buffer path refuses; the
 // private copy is rebuilt whenever the source description changes.
+// ⚠️ PUBLISHED FROM THE PRODUCTION COMPOSE PATH, AND FOR A LONG
+// TIME IT WAS NOT. This had exactly one caller: `InjectionProbes::DrawDepthProof`,
+// a DIAGNOSTIC that only runs while the probes are armed. With the probes off --
+// which is what production is -- `SceneView ()` stayed null, so
+// `hostocclusion::EnsureDepthTarget` had no width, height, format or sample count
+// to match, `hostocclusion::Prepare` returned null, and BOTH host overlays were
+// skipped on every frame.
+//
+// ⚠️ THAT IS WHY RUN SIXTY-THREE REPORTED `CAMERA Locked` AND
+// `HOST Ready (112 opaque triangles)` AND DREW NOTHING. Every state the runtime
+// published was true. The composition was gated on a side effect of a test, which
+// is the same class of fault as the overlay needing the portable viewport to arm
+// (stage 11b) and the census needing a hand-typed anchor (stage 11c): a
+// production path quietly depending on a diagnostic having run first.
+//
 void RetainSceneView (ID3D11DepthStencilView* view);
+
+// RENDER THREAD. Read whatever depth view is bound right now and publish it.
+// `InjectionRenderer` calls this on every Present, before it rebinds targets:
+// owning the capture here is what stops it being a side effect of a test.
+void CaptureBoundSceneView (ID3D11DeviceContext* context);
 
 // ANY THREAD. The retained view, so other diagnostics can tell a draw into the
 // model's depth buffer from a draw into somebody else's.

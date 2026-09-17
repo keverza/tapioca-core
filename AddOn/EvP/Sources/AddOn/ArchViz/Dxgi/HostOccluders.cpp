@@ -10,9 +10,12 @@
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 #include <vector>
 
 namespace geomsrv {
@@ -51,6 +54,7 @@ struct Snapshot {
     std::vector<float> positions; // xyz interleaved, world metres
     std::vector<float> scalars;   // one per vertex; see `ScalarField`
     std::vector<uint32_t> indices;
+    std::vector<uint32_t> lineIndices; // feature edges, see `EndBatch`
     bool frontCounterClockwise = true;
     bool windingKnown = false;
 };
@@ -62,6 +66,7 @@ ID3D11Device* g_device = nullptr;
 ID3D11Buffer* g_vertexBuffer = nullptr;
 ID3D11Buffer* g_scalarBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
+ID3D11Buffer* g_lineBuffer = nullptr;
 ID3D11VertexShader* g_vsVariant[camerashader::kDeclarableVariants] = {};
 ID3D11InputLayout* g_layout = nullptr;
 ID3D11DepthStencilState* g_writeDepth = nullptr;
@@ -73,6 +78,7 @@ ID3D11DepthStencilView* g_depthView = nullptr;
 D3D11_TEXTURE2D_DESC g_depthDesc = {};
 
 uint32_t g_uploadedIndices = 0;
+uint32_t g_uploadedLineIndices = 0;
 bool g_created = false;
 bool g_createFailed = false;
 Stats g_stats;
@@ -83,6 +89,126 @@ Stats g_stats;
 // was attempted -- is about ONE batch, so it needs one batch's numbers.
 uint64_t g_batchElements = 0;
 uint64_t g_batchOpaqueIndices = 0;
+
+// ⚠️ EDGES ARE WELDED BY POSITION, NOT BY INDEX, AND THAT IS THE
+// WHOLE DIFFICULTY. An extraction that gives each triangle its own vertices --
+// which this one does, because a vertex carries a surface as well as a point --
+// shares no INDEX between the two triangles of a flat quad, so an index-keyed
+// edge map would find every edge unmatched, call all of them boundaries and emit
+// the mesh it was written to avoid. Quantising to a tenth of a millimetre welds
+// what a modeller would call the same point and nothing a modeller would not.
+constexpr double kWeldGrid = 1e4; // 0.1 mm
+
+// Two triangles meeting at less than this cosine are a CREASE and the edge shows;
+// flatter than this and the edge is interior tessellation and is dropped. ~20
+// degrees: a mitred corner survives, a triangulated flat wall does not.
+constexpr float kCreaseCosine = 0.94f;
+
+uint64_t WeldKey (const float* xyz)
+{
+    // Three quantised axes folded into one integer. Collisions are possible in
+    // principle and harmless in practice: the worst case is one extra edge.
+    const int64_t x = int64_t (std::llround (double (xyz[0]) * kWeldGrid));
+    const int64_t y = int64_t (std::llround (double (xyz[1]) * kWeldGrid));
+    const int64_t z = int64_t (std::llround (double (xyz[2]) * kWeldGrid));
+    uint64_t key = 1469598103934665603ull;
+    for (int64_t axis : { x, y, z }) {
+        key ^= uint64_t (axis);
+        key *= 1099511628211ull;
+    }
+    return key;
+}
+
+struct EdgeRecord {
+    uint32_t a = 0, b = 0; // representative indices, for the line list
+    float normal[3] = {};  // the first adjacent face
+    uint32_t faces = 0;
+    bool crease = false;
+};
+
+// EXTRACTION THREAD, inside `EndBatch`. Fills `out` with a line list of feature
+// edges: every edge used by exactly one triangle, plus every edge whose two
+// triangles disagree by more than `kCreaseCosine`.
+void BuildFeatureEdges (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
+                        std::vector<uint32_t>& out, uint32_t& consideredOut)
+{
+    out.clear ();
+    consideredOut = 0;
+    const size_t vertexCount = positions.size () / 3;
+    if (vertexCount == 0 || indices.size () < 3)
+        return;
+
+    std::unordered_map<uint64_t, EdgeRecord> edges;
+    edges.reserve (indices.size ());
+
+    for (size_t i = 0; i + 2 < indices.size (); i += 3) {
+        const uint32_t tri[3] = { indices[i], indices[i + 1], indices[i + 2] };
+        if (tri[0] >= vertexCount || tri[1] >= vertexCount || tri[2] >= vertexCount)
+            continue;
+        const float* const p0 = &positions[size_t (tri[0]) * 3];
+        const float* const p1 = &positions[size_t (tri[1]) * 3];
+        const float* const p2 = &positions[size_t (tri[2]) * 3];
+
+        const float u[3] = { p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2] };
+        const float v[3] = { p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2] };
+        float n[3] = { u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0] };
+        const float length = std::sqrt (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        // A degenerate triangle has no normal and cannot say whether an edge is
+        // a crease; its edges still count as adjacency so a sliver does not turn
+        // a flat wall into an outline.
+        if (length > 1e-12f) {
+            n[0] /= length;
+            n[1] /= length;
+            n[2] /= length;
+        }
+
+        const uint64_t keys[3] = { WeldKey (p0), WeldKey (p1), WeldKey (p2) };
+        for (int e = 0; e < 3; ++e) {
+            const int next = (e + 1) % 3;
+            uint64_t low = keys[e], high = keys[next];
+            if (low > high)
+                std::swap (low, high);
+            // Order-independent pair key, so both triangles hash to one entry.
+            const uint64_t key = low * 1099511628211ull ^ high;
+
+            auto found = edges.find (key);
+            if (found == edges.end ()) {
+                EdgeRecord record;
+                record.a = tri[e];
+                record.b = tri[next];
+                record.normal[0] = n[0];
+                record.normal[1] = n[1];
+                record.normal[2] = n[2];
+                record.faces = 1;
+                edges.emplace (key, record);
+                continue;
+            }
+            EdgeRecord& record = found->second;
+            ++record.faces;
+            if (length > 1e-12f) {
+                const float dot = record.normal[0] * n[0] + record.normal[1] * n[1] + record.normal[2] * n[2];
+                // ⚠️ THE ABSOLUTE VALUE, because extracted winding is
+                // not guaranteed and a face pair recorded the other way round
+                // reads as a 180-degree crease -- which would outline every
+                // triangle of a flat wall, the exact failure this replaces.
+                if (std::fabs (dot) < kCreaseCosine)
+                    record.crease = true;
+            }
+        }
+    }
+
+    consideredOut = uint32_t (edges.size ());
+    out.reserve (edges.size ());
+    for (const auto& entry : edges) {
+        const EdgeRecord& record = entry.second;
+        // One face: a boundary or a silhouette. More than two: non-manifold, and
+        // showing it is right -- it is a real feature of the model.
+        if (record.faces == 1 || record.faces > 2 || record.crease) {
+            out.push_back (record.a);
+            out.push_back (record.b);
+        }
+    }
+}
 
 template <typename T> void ReleaseAndNull (T*& object)
 {
@@ -218,6 +344,11 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     indexDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
     ok = ok && SUCCEEDED (g_device->CreateBuffer (&indexDesc, nullptr, &g_indexBuffer));
 
+    // ⚠️ TWO ENDPOINTS PER EDGE AND AT MOST ONE EDGE PER TRIANGLE
+    // SIDE, so the line list can never exceed the triangle list it came from.
+    // Sizing it the same is the cheapest bound that is certainly enough.
+    ok = ok && SUCCEEDED (g_device->CreateBuffer (&indexDesc, nullptr, &g_lineBuffer));
+
     if (!ok) {
         if (g_stats.lastError[0] == 0)
             Fail ("the host occluder pipeline could not be created");
@@ -305,9 +436,12 @@ bool TakeAndUpload (ID3D11DeviceContext* context)
     const bool ok =
         Upload (context, g_vertexBuffer, snapshot->positions.data (), sizeof (float) * snapshot->positions.size ()) &&
         Upload (context, g_scalarBuffer, snapshot->scalars.data (), sizeof (float) * snapshot->scalars.size ()) &&
-        Upload (context, g_indexBuffer, snapshot->indices.data (), sizeof (uint32_t) * snapshot->indices.size ());
+        Upload (context, g_indexBuffer, snapshot->indices.data (), sizeof (uint32_t) * snapshot->indices.size ()) &&
+        Upload (context, g_lineBuffer, snapshot->lineIndices.data (),
+                sizeof (uint32_t) * snapshot->lineIndices.size ());
     if (ok) {
         g_uploadedIndices = uint32_t (snapshot->indices.size ());
+        g_uploadedLineIndices = uint32_t (snapshot->lineIndices.size ());
         g_stats.vertices = uint32_t (snapshot->positions.size () / 3);
         g_stats.indices = g_uploadedIndices;
         g_stats.triangles = g_uploadedIndices / 3;
@@ -468,6 +602,25 @@ void EndBatch ()
         g_stats.frontCounterClockwise = g_building->frontCounterClockwise;
     }
 
+    // The published extent, for anyone who needs a point certainly on screen.
+    {
+        const std::vector<float>& p = g_building->positions;
+        const size_t vertexCount = p.size () / 3;
+        for (size_t vertex = 0; vertex < vertexCount; ++vertex) {
+            for (int axis = 0; axis < 3; ++axis) {
+                const float value = p[vertex * 3 + size_t (axis)];
+                if (vertex == 0 || value < g_stats.boundsMin[axis])
+                    g_stats.boundsMin[axis] = value;
+                if (vertex == 0 || value > g_stats.boundsMax[axis])
+                    g_stats.boundsMax[axis] = value;
+            }
+        }
+        g_stats.boundsValid = vertexCount > 0;
+    }
+
+    BuildFeatureEdges (g_building->positions, g_building->indices, g_building->lineIndices, g_stats.edgesConsidered);
+    g_stats.publishedLines = uint32_t (g_building->lineIndices.size () / 2);
+
     g_stats.publishedVertices = uint32_t (g_building->positions.size () / 3);
     g_stats.publishedIndices = uint32_t (g_building->indices.size ());
     g_stats.publishedTriangles = g_stats.publishedIndices / 3;
@@ -487,6 +640,7 @@ void Clear ()
     delete g_building;
     g_building = nullptr;
     g_uploadedIndices = 0;
+    g_uploadedLineIndices = 0;
     g_stats.haveSnapshot = false;
     g_stats.uploaded = false;
     g_stats.vertices = 0;
@@ -510,8 +664,14 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
         ++g_stats.skippedNoGeometry;
         return nullptr;
     }
-    if (!EnsureDepthTarget (context))
+    if (!EnsureDepthTarget (context)) {
+        // ⚠️ THE COMMONEST CAUSE IS THAT NOBODY HAS PUBLISHED
+        // ARCHICAD'S DEPTH VIEW YET. This module copies its width, height, format
+        // and sample count to make a matching private buffer; without one there
+        // is nothing to match and the whole host composition is skipped.
+        ++g_stats.skippedNoDepthTarget;
         return nullptr;
+    }
 
     ID3D11Buffer* const viewBuffer = injection::ViewSnapshotBuffer ();
     ID3D11Buffer* const projectionBuffer = injection::ProjectionSnapshotBuffer ();
@@ -573,6 +733,8 @@ HostGeometry GetGeometry ()
     geometry.scalars = g_scalarBuffer;
     geometry.indices = g_indexBuffer;
     geometry.indexCount = g_uploadedIndices;
+    geometry.lines = g_lineBuffer;
+    geometry.lineIndexCount = g_uploadedLineIndices;
     geometry.frontCounterClockwise = g_stats.frontCounterClockwise;
     geometry.windingKnown = g_stats.windingKnown;
     geometry.valid = true;
@@ -595,6 +757,7 @@ void Shutdown ()
     ReleaseAndNull (g_layout);
     for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
+    ReleaseAndNull (g_lineBuffer);
     ReleaseAndNull (g_indexBuffer);
     ReleaseAndNull (g_scalarBuffer);
     ReleaseAndNull (g_vertexBuffer);
@@ -602,6 +765,7 @@ void Shutdown ()
     g_created = false;
     g_createFailed = false;
     g_uploadedIndices = 0;
+    g_uploadedLineIndices = 0;
     g_depthDesc = D3D11_TEXTURE2D_DESC {};
     g_stats = Stats {};
     g_batchElements = 0;

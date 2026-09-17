@@ -69,8 +69,27 @@ std::atomic<bool> g_enabled { false };
 // See `SetAutoSelect`. Off by default so the diagnostic keeps choosing by hand
 // and showing its working; the production runtime turns it on.
 std::atomic<bool> g_autoSelect { false };
+
+// ⚠️ THIS IS COMPARED AGAINST `modelFramesSeen`, WHICH `ResetCounts`
+// SETS BACK TO ZERO -- AND FOR TWO WEEKS THIS DID NOT GO BACK WITH IT. After any
+// session that ran to N model frames it was left holding N, so the next session
+// needed `modelFramesSeen >= N + 30` from a counter that had just restarted at
+// zero. With N in the hundreds that is never, for the rest of the process.
+//
+// ⚠️ THAT IS EXACTLY "IT WORKED WHEN IT FIRST REPLACED THE OLD
+// OVERLAY MODE": the FIRST activation in a fresh Archicad selects, and every
+// later one silently never attempts. The census then reported `eligible=0`,
+// which was true and misleading -- the gate was never EVALUATED, because
+// `SelectCandidate` was never CALLED.
 uint64_t g_lastAutoSelectAttempt = 0;
-constexpr uint64_t kAutoSelectEveryModelFrames = 30;
+uint64_t g_autoSelectAttempts = 0;
+
+// ⚠️ FOUR FRAMES, NOT THIRTY, AND THE DEAD ZONE WAS THE OTHER HALF
+// OF THE FAULT. At thirty the FIRST attempt could not happen until the thirtieth
+// model frame; run sixty-six navigated for four seconds, reached twenty-eight,
+// and never tried at all. `SelectCandidate` is a stack copy of 48 groups and a
+// few compares -- cheap enough four-frame, and it stops entirely once locked.
+constexpr uint64_t kAutoSelectEveryModelFrames = 4;
 bool g_created = false;
 bool g_createFailed = false;
 uint64_t g_lastPresentSeen = 0;
@@ -409,6 +428,10 @@ void ResetCounts ()
     g_stats.enabled = enabled;
     g_lastPresentSeen = 0;
     g_lastModelSeen = 0;
+    // See the declaration: this is compared against `modelFramesSeen`, which the
+    // line above has just zeroed, so it has to go with it.
+    g_lastAutoSelectAttempt = 0;
+    g_autoSelectAttempts = 0;
     for (size_t i = 0; i < kSignatureCounters; ++i)
         g_counters[i] = SignatureCounter {};
 
@@ -514,9 +537,21 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         // ⚠️ AND ONLY WHILE THERE IS NO SELECTION, which is what makes
         // it self-healing rather than twitchy: once locked this costs one branch,
         // and if the lock is ever lost it starts again with no user action.
+        // ⚠️ THE COMPARISON IS AGAINST A COUNTER THAT RESTARTS, so
+        // a marker AHEAD of it can only mean the counter was reset behind us.
+        // Catching that here as well as in `ResetCounts` is deliberate: this is
+        // the line that failed silently for two weeks.
+        if (g_lastAutoSelectAttempt > g_stats.modelFramesSeen)
+            g_lastAutoSelectAttempt = 0;
         if (g_autoSelect.load (std::memory_order_acquire) && !GetBindingStats ().fingerprintValid &&
             g_stats.modelFramesSeen >= g_lastAutoSelectAttempt + kAutoSelectEveryModelFrames) {
             g_lastAutoSelectAttempt = g_stats.modelFramesSeen;
+            ++g_autoSelectAttempts;
+            // ⚠️ THE AUTOMATIC PROMOTION AND THE EXPLICIT COMMAND
+            // CALL THE SAME FUNCTION AND NOTHING ELSE. `SelectCandidate` commits
+            // the fingerprint, the occurrence, the interpretation AND the
+            // injection's camera source as one transaction; this used to add the
+            // last of those by hand and the automatic path used to omit it.
             if (SelectCandidate ())
                 ++g_stats.autoSelections;
         }
@@ -805,6 +840,10 @@ size_t CopyGroups (Group* out, size_t capacity)
 // still fails closed -- no eligible group means no selection and no injection.
 void SetAutoSelect (bool enabled)
 {
+    // Arming starts a fresh search: a marker from a previous session would put
+    // the first attempt an unbounded number of frames into the future.
+    if (enabled)
+        g_lastAutoSelectAttempt = 0;
     g_autoSelect.store (enabled, std::memory_order_release);
 }
 
@@ -832,6 +871,8 @@ Stats GetStats ()
     stats.rebinds = binding.rebinds;
     stats.rebindsRefused = binding.rebindsRefused;
     stats.fingerprintValid = binding.fingerprintValid;
+    stats.eligibleCandidates = EligibleCandidates ();
+    stats.autoSelectAttempts = g_autoSelectAttempts;
     stats.lifecycle =
         LifecycleName (GetLifecycle (g_enabled.load (std::memory_order_acquire), renderstate::ModelSceneGeneration ()));
     return stats;

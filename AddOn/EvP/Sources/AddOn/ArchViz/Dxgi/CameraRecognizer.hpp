@@ -267,6 +267,56 @@ struct BindingStats {
 };
 BindingStats GetBindingStats ();
 
+// ANY THREAD. How many groups cleared the eligibility gate on the last selection
+// attempt. ⚠️ A PROMOTION THAT NEVER HAPPENS IS TWO DIFFERENT FAULTS
+// AND THIS TELLS THEM APART: zero means no candidate qualified, so the gate or
+// the scoring anchor is the subject; more than zero with no selection means the
+// commit refused.
+uint32_t EligibleCandidates ();
+
+// ⚠️ WHICH TERM OF THE GATE REFUSED, AND WHAT THE CLOSEST CANDIDATE
+// ACTUALLY MEASURED. `Qualifies` short-circuits, so it can only ever report the
+// FIRST term that failed -- which for a camera still accumulating samples is
+// always `samples` and never the interesting one. This is the same lesson
+// `MatchesFingerprint` learned: evaluating every term costs a handful of
+// compares and buys a diagnosis that otherwise costs a run.
+//
+// Run sixty-six reported `eligible=0` at `frames=28` and could say nothing more.
+enum GateTerm : uint32_t {
+    kGateSamples = 0,
+    kGateCoverage,
+    kGateInsideClip,
+    kGateFiniteTriangles,
+    kGateAreaPixels,
+    kGateEdgePixels,
+    kGateCentreError,
+    kGateTermCount,
+};
+const char* GateTermName (uint32_t term);
+
+struct EligibilityDiagnosis {
+    uint32_t evaluated = 0;
+    uint32_t missed[kGateTermCount] = {};
+    // ⚠️ ONLY A SOLE MISS IS EVIDENCE, as with the fingerprint: a
+    // group failing six terms is some unrelated draw family; one failing exactly
+    // one is the camera, and that term is the subject.
+    uint32_t soleMiss[kGateTermCount] = {};
+
+    // The candidate that came closest -- fewest failures, then most samples --
+    // with the numbers it actually measured, so the gate can be argued with.
+    bool haveClosest = false;
+    uint32_t closestGroupId = 0;
+    uint32_t closestFailures = 0;
+    uint32_t closestSamples = 0;
+    float closestCoverage = 0.0f;
+    float closestInsideClip = 0.0f;
+    float closestFinite = 0.0f;
+    float closestAreaPixels = 0.0f;
+    float closestEdgePixels = 0.0f;
+    float closestCentreError = 0.0f;
+};
+EligibilityDiagnosis GetEligibilityDiagnosis ();
+
 // MAIN THREAD, from `census::ResetCounts`. Clears the COUNTERS and the memory of
 // where the pin was last seen. ⚠️ IT DOES NOT CLEAR THE FINGERPRINT
 // OR THE SELECTION, and that is the contract phase B depends on.
