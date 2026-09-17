@@ -134,6 +134,16 @@ struct HostGeometry {
     ID3D11Buffer* indices = nullptr;   // R32_UINT
     uint32_t indexCount = 0;
     bool valid = false;
+
+    // ⚠️ WHICH WAY THE EXTRACTION WINDS ITS TRIANGLES, MEASURED
+    // RATHER THAN ASSUMED. A consumer that wants to cull back faces -- a surface
+    // heatmap does, so the inside of the far wall does not paint over the near
+    // one -- has to know this, and guessing it wrong culls the ENTIRE building
+    // and looks exactly like the overlay being broken. See `EndBatch`: the
+    // signed volume of the published mesh answers it in one pass, on the
+    // producer, where the geometry is.
+    bool frontCounterClockwise = true;
+    bool windingKnown = false;
 };
 HostGeometry GetGeometry ();
 
@@ -178,6 +188,12 @@ struct Stats {
     uint32_t publishedVertices = 0;
     uint32_t publishedIndices = 0;
     uint32_t publishedTriangles = 0;
+    // See `HostGeometry::frontCounterClockwise`. `signedVolume` is reported so a
+    // near-zero magnitude -- an open mesh, where the sign means nothing -- can
+    // be recognised rather than trusted.
+    float signedVolume = 0.0f;
+    bool windingKnown = false;
+    bool frontCounterClockwise = true;
     bool haveSnapshot = false;
     char publishFailureReason[160] = {};
 

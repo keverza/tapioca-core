@@ -288,6 +288,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # synchronisation (run fifty-four).
     ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/Dxgi/HostOccluders.hpp"),
     ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/ExtractionThread.hpp"),
+    # The overlay runtime, driven by Tapioca.OverlayRuntime -- the product path
+    # the menu uses, reachable from a command so a regression run can exercise
+    # hide/show and read the health record without clicking a menu.
+    ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the

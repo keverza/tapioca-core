@@ -93,6 +93,12 @@ Pipeline g_wireframe;
 ID3D11Device* g_device = nullptr;
 ID3D11RasterizerState* g_solidRaster = nullptr;
 ID3D11RasterizerState* g_wireRaster = nullptr;
+// ⚠️ BOTH WINDINGS, BECAUSE THE ANSWER ARRIVES WITH THE GEOMETRY.
+// The publication measures which way the extraction winds and the draw picks the
+// matching state; building only one would mean recompiling on the render thread
+// the first time a model came out the other way.
+ID3D11RasterizerState* g_solidCullCcw = nullptr;
+ID3D11RasterizerState* g_solidCullCw = nullptr;
 ID3D11DepthStencilState* g_testNoWrite = nullptr;
 ID3D11DepthStencilState* g_testGreaterNoWrite = nullptr;
 ID3D11DepthStencilState* g_noTest = nullptr;
@@ -235,6 +241,14 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     raster.FillMode = D3D11_FILL_WIREFRAME;
     ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_wireRaster));
 
+    raster.FillMode = D3D11_FILL_SOLID;
+    raster.CullMode = D3D11_CULL_BACK;
+    raster.FrontCounterClockwise = TRUE;
+    ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_solidCullCcw));
+    raster.FrontCounterClockwise = FALSE;
+    ok = ok && SUCCEEDED (g_device->CreateRasterizerState (&raster, &g_solidCullCw));
+    raster.CullMode = D3D11_CULL_NONE;
+
     // Tests the buffer the occluder seeded; never writes to it. An analysis
     // overlay that wrote depth would occlude the overlay drawn after it.
     D3D11_DEPTH_STENCIL_DESC depth = {};
@@ -343,7 +357,15 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     context1->VSSetConstantBuffers1 (1, 2, cameraBuffers, cameraFirst, cameraNum);
 
     const bool heatmap = kind == Kind::Heatmap;
-    ID3D11RasterizerState* const raster = heatmap ? g_solidRaster : g_wireRaster;
+    // ⚠️ CULLING ONLY WHEN THE WINDING IS KNOWN. A near-zero signed
+    // volume means an open or inconsistent mesh, where the sign carries no
+    // information; drawing both sides then is wrong-looking rather than
+    // invisible, which is the right way round for a value nobody measured.
+    ID3D11RasterizerState* raster = heatmap ? g_solidRaster : g_wireRaster;
+    if (heatmap && style.cullBackFaces && geometry.windingKnown) {
+        raster = geometry.frontCounterClockwise ? g_solidCullCcw : g_solidCullCw;
+        ++g_stats.culledPasses;
+    }
 
     // ⚠️ THE HIDDEN PASS GOES FIRST, AND THE ORDER IS THE POINT. It draws what
     // is BEHIND the building; drawing it afterwards would let it blend over the
@@ -397,6 +419,8 @@ void Shutdown ()
     ReleaseAndNull (g_noTest);
     ReleaseAndNull (g_testGreaterNoWrite);
     ReleaseAndNull (g_testNoWrite);
+    ReleaseAndNull (g_solidCullCw);
+    ReleaseAndNull (g_solidCullCcw);
     ReleaseAndNull (g_wireRaster);
     ReleaseAndNull (g_solidRaster);
     ReleaseAndNull (g_device);

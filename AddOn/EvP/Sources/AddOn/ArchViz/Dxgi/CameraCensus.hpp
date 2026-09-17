@@ -189,6 +189,9 @@ struct Stats {
     uint64_t rebinds = 0;
     uint64_t rebindsRefused = 0;
     bool fingerprintValid = false;
+    // How many times the census chose for itself. See SetAutoSelect: nonzero
+    // means production locked without anyone performing a measurement.
+    uint64_t autoSelections = 0;
 
     // ⚠️ THE LOCK AS A STATE: Unknown / Learning / Locked / Reacquiring.
     // See `CameraRecognizer::Lifecycle`. One bit -- "did it survive" -- cannot
@@ -232,6 +235,24 @@ void ResetCounts ();
 // MAIN THREAD. Phase A's decision, forwarded to `CameraRecognizer` with a copy
 // of the measured table. Fails closed: no eligible group means no selection.
 bool SelectCandidate ();
+
+// MAIN THREAD. Let the census choose for itself, and choose again if the choice
+// is ever lost.
+//
+// ⚠️ THIS IS WHAT REMOVES THE TWELVE-SECOND CEREMONY FROM PRODUCTION.
+// The diagnostic orbits for a fixed interval, prints a ranking and calls
+// `SelectCandidate` by hand, because a REGRESSION test must show its working.
+// A user opening an overlay must not be asked to perform a measurement: the
+// census already scores every group on every model frame, so the moment one of
+// them clears the eligibility gate there is nothing left to wait for.
+//
+// ⚠️ AND IT IS WHAT MAKES THE LOCK SELF-HEALING. A selection that is
+// lost -- a 3D window recreated, a projection changed, a device replaced -- is
+// simply an absent selection again, and this re-runs. `MaintainBinding` already
+// handles the easier case where the fingerprint still matches and only the
+// pointers moved; this covers the case where even the fingerprint is gone.
+void SetAutoSelect (bool enabled);
+bool AutoSelect ();
 
 // ANY THREAD.
 size_t CopyGroups (Group* out, size_t capacity);

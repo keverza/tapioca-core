@@ -82,6 +82,18 @@ struct OverlayStyle {
     // and the result stipples. In NDC units, subtracted from the overlay's depth
     // so it wins.
     float depthBias = 0.0f;
+
+    // ⚠️ WHETHER THE FAR SIDE OF A SURFACE IS PAINTED TOO. Run
+    // fifty-eight saw the colour ramp on the INSIDE faces of the building, read
+    // through its glass: correct by the rule "colour the nearest opaque
+    // surface", and unreadable as a picture. Culling back faces leaves genuine
+    // interior surfaces coloured and drops the insides of the far walls.
+    //
+    // ⚠️ IT NEEDS THE EXTRACTION'S WINDING, WHICH IS MEASURED, NOT
+    // ASSUMED -- see `hostocclusion::HostGeometry::frontCounterClockwise`.
+    // Guessing it culls the whole building, which looks like the overlay being
+    // broken rather than like a culling choice.
+    bool cullBackFaces = false;
 };
 
 // ⚠️ THE BIASES ARE NAMED HERE BECAUSE THIS IS WHERE POLICY LIVES,
@@ -150,6 +162,7 @@ inline OverlayStyle HostHeatmapStyle ()
     style.selfOcclusion = true;
     style.depthWrite = false;
     style.opacity = 0.75f;
+    style.cullBackFaces = true;
     // ⚠️ NOTHING BEHIND. A heatmap painted on the far side of a wall
     // showing through the near side is not an analysis, it is a bug that looks
     // like one.

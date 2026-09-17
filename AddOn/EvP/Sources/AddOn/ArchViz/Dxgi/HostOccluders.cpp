@@ -51,6 +51,8 @@ struct Snapshot {
     std::vector<float> positions; // xyz interleaved, world metres
     std::vector<float> scalars;   // one per vertex; see `ScalarField`
     std::vector<uint32_t> indices;
+    bool frontCounterClockwise = true;
+    bool windingKnown = false;
 };
 
 std::atomic<Snapshot*> g_published { nullptr };
@@ -435,6 +437,37 @@ void EndBatch ()
             g_building->scalars[vertex] = (g_building->positions[vertex * 3 + 2] - lowest) / span;
     }
 
+    // ⚠️ THE WINDING, FROM THE SIGNED VOLUME, ON THE PRODUCER. Six
+    // times the volume of a closed mesh is the sum of `a . (b x c)` over its
+    // triangles; the SIGN says which way the faces point and needs no closed
+    // mesh to be informative, only a consistent one. An open mesh gives a small
+    // magnitude, so a near-zero total is reported as "unknown" and the consumer
+    // falls back to drawing both sides -- which is wrong-looking rather than
+    // invisible, and that is the right way round for a guess.
+    {
+        double sixVolume = 0.0;
+        const std::vector<float>& p = g_building->positions;
+        const std::vector<uint32_t>& ix = g_building->indices;
+        const size_t vertexCount = p.size () / 3;
+        for (size_t i = 0; i + 2 < ix.size (); i += 3) {
+            if (ix[i] >= vertexCount || ix[i + 1] >= vertexCount || ix[i + 2] >= vertexCount)
+                continue;
+            const float* const a = &p[size_t (ix[i]) * 3];
+            const float* const b = &p[size_t (ix[i + 1]) * 3];
+            const float* const c = &p[size_t (ix[i + 2]) * 3];
+            sixVolume += double (a[0]) * (double (b[1]) * c[2] - double (b[2]) * c[1]) -
+                         double (a[1]) * (double (b[0]) * c[2] - double (b[2]) * c[0]) +
+                         double (a[2]) * (double (b[0]) * c[1] - double (b[1]) * c[0]);
+        }
+        // A threshold in world units cubed: a millimetre-scale total over a
+        // building is noise, not a direction.
+        g_building->windingKnown = sixVolume > 1e-6 || sixVolume < -1e-6;
+        g_building->frontCounterClockwise = sixVolume > 0.0;
+        g_stats.signedVolume = float (sixVolume / 6.0);
+        g_stats.windingKnown = g_building->windingKnown;
+        g_stats.frontCounterClockwise = g_building->frontCounterClockwise;
+    }
+
     g_stats.publishedVertices = uint32_t (g_building->positions.size () / 3);
     g_stats.publishedIndices = uint32_t (g_building->indices.size ());
     g_stats.publishedTriangles = g_stats.publishedIndices / 3;
@@ -540,6 +573,8 @@ HostGeometry GetGeometry ()
     geometry.scalars = g_scalarBuffer;
     geometry.indices = g_indexBuffer;
     geometry.indexCount = g_uploadedIndices;
+    geometry.frontCounterClockwise = g_stats.frontCounterClockwise;
+    geometry.windingKnown = g_stats.windingKnown;
     geometry.valid = true;
     return geometry;
 }

@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 214,
+      "nativeRegistry": 215,
       "dispatcherLocal": 19,
-      "total": 233
+      "total": 234
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -17609,6 +17609,83 @@
       }
     },
     {
+      "name": "Tapioca.OverlayRuntime",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "hide",
+              "show",
+              "state"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "visible": {
+            "type": "boolean"
+          },
+          "waitingForContext": {
+            "type": "boolean"
+          },
+          "camera": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "autoSelections": {
+            "type": "integer"
+          },
+          "reacquisitions": {
+            "type": "integer"
+          },
+          "hostOpaqueTriangles": {
+            "type": "integer"
+          },
+          "overlayDraws": {
+            "type": "integer"
+          },
+          "lastError": {
+            "type": "string"
+          },
+          "lastMessage": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "running",
+          "camera",
+          "host"
+        ]
+      }
+    },
+    {
       "name": "Tapioca.OverlayTrackStats",
       "implementation": "native-registry",
       "inputScheme": {
@@ -24658,6 +24735,9 @@
           "hostHiddenPassDraws": {
             "type": "integer"
           },
+          "hostCulledPasses": {
+            "type": "integer"
+          },
           "hostOverlayTriangles": {
             "type": "integer"
           },
@@ -24684,6 +24764,15 @@
           },
           "hostPublishFailure": {
             "type": "string"
+          },
+          "hostWindingKnown": {
+            "type": "boolean"
+          },
+          "hostFrontCounterClockwise": {
+            "type": "boolean"
+          },
+          "hostSignedVolume": {
+            "type": "number"
           },
           "hostUploads": {
             "type": "integer"

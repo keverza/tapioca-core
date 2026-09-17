@@ -13,7 +13,9 @@
 #include "Palette/AboutDialog.hpp"
 #include "AddOnVersion.hpp"
 #include "Palette/ControlPalette.hpp"
-#include "ArchViz/ArchVizPanel.hpp"     // the Diligent 3D viewer palette
+#include "ArchViz/ArchVizPanel.hpp" // the Diligent 3D viewer palette
+#include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
 #include "ArchViz/CameraWake.hpp"       // the input hook — must never outlive the DLL
@@ -230,10 +232,39 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
         // than a separate Close, and it cannot get out of step with the state.
         case ArchVizOverlayMenuResId:
             if (menuParams->menuItemRef.itemIndex == ArchVizOverlayMenuItemIndex) {
-                if (geomsrv::archviz::viewportoverlay::Current () != nullptr)
-                    ArchVizPanel::CloseDiligentOverlay ();
-                else
-                    ArchVizPanel::OpenDiligentOverlay ();
+                // ⚠️ THE INJECTED OVERLAY IS THE OVERLAY NOW, and the
+                // portable one is the fallback. It draws inside Archicad's own
+                // frame with Archicad's own uploaded camera, so it is welded
+                // rather than trailing by a frame -- which is the whole point of
+                // stages 5 to 10 and the only difference a user can see.
+                //
+                // ⚠️ AND HIDING IT DESTROYS NOTHING. `SetVisible`
+                // keeps the camera lock, the host snapshot and every compiled
+                // shader alive, so re-showing is instant. Only `Stop` tears down,
+                // and the menu never calls it.
+                namespace runtime = geomsrv::archviz::overlayruntime;
+                if (runtime::Running ()) {
+                    runtime::SetVisible (!runtime::Visible ());
+                    break;
+                }
+                const runtime::StartResult started = runtime::Start ();
+                if (started.ok)
+                    break;
+
+                // ⚠️ FAIL CLOSED, THEN FALL BACK. An Archicad the
+                // patch profile was not measured against refuses the hooks by
+                // design; the portable renderer still works there and is the
+                // answer. Anything retryable is NOT a fallback case -- the
+                // runtime is waiting and will arm itself.
+                if (!started.retryable) {
+                    geomsrv::archviz::ArchVizLog (std::string ("overlay: injected runtime refused (") +
+                                                  runtime::StartErrorName (started.code) + ") - " + started.message +
+                                                  "; falling back to the portable overlay");
+                    if (geomsrv::archviz::viewportoverlay::Current () != nullptr)
+                        ArchVizPanel::CloseDiligentOverlay ();
+                    else
+                        ArchVizPanel::OpenDiligentOverlay ();
+                }
             }
             break;
         case NotebookMenuResId:

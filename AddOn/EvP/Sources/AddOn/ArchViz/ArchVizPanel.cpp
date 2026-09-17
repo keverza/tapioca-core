@@ -448,12 +448,18 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
         return;
     }
 
-    // ⚠️ WIREFRAME BY DEFAULT, AND IT IS THE POINT OF THE MODE RATHER THAN A
-    // STYLE. A shaded overlay covers Archicad's 3D window completely, so "do the
-    // two agree" -- the only question an overlay exists to answer -- stops being
-    // answerable at exactly the moment it is asked. The HUD's combo can switch it
-    // back for a look.
-    geomsrv::archviz::DiligentViewport::Get ().SetRenderMode (int (geomsrv::archviz::SceneRenderMode::Wireframe));
+    // ⚠️ THE USER'S VIEW STYLE IS NO LONGER CHANGED FOR US. This used
+    // to force `SceneRenderMode::Wireframe`, for a reason that was good while
+    // this was the ONLY renderer: a shaded portable overlay covers Archicad's 3D
+    // window completely, so "do the two agree" stops being answerable at exactly
+    // the moment it is asked.
+    //
+    // ⚠️ BUT THIS IS THE FALLBACK NOW, AND A FALLBACK MAY NOT
+    // REDECORATE ARCHICAD. The injected runtime is the primary overlay and needs
+    // no mode change at all; a user who lands here has landed on an unsupported
+    // build and should get their own view style back, not a wireframe one
+    // somebody chose for a renderer they did not ask for. The HUD's combo still
+    // offers wireframe for a look.
 
     // ⚠️ AND IF IT WAS ALREADY ON SCREEN, TAKE IT OFF. `Show` refuses while an
     // overlay runs, but a palette opened BEFORE the overlay started is already
@@ -502,12 +508,10 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
     // `legacy` needs no guard and cannot be refused for that reason.
     std::string syncError;
     if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::WakePredict, kOverlayCameraSyncMs, 1.0,
-                                              /*hideOnNav*/ false, /*gpuState*/ false,
-                                              syncError)) {
+                                              /*hideOnNav*/ false, /*gpuState*/ false, syncError)) {
         geomsrv::archviz::ArchVizLog ("overlay: wakepredict did not arm -- " + syncError + "; falling back to legacy");
         if (!geomsrv::archviz::SetCameraSyncMode (geomsrv::archviz::CameraSyncMode::Legacy, kOverlayCameraSyncMs, 1.0,
-                                                  /*hideOnNav*/ false, /*gpuState*/ false,
-                                                  syncError)) {
+                                                  /*hideOnNav*/ false, /*gpuState*/ false, syncError)) {
             geomsrv::archviz::ArchVizLog ("overlay: camera sync did not arm -- " + syncError);
         }
     }

@@ -226,13 +226,17 @@ from typing import Any
 # just selected -- so the run reported a rendering regression that was actually
 # a lifecycle collision. This verb starts the extraction worker directly and
 # touches no mode, no window and no recognizer state.
-EXPECTED_REGISTRY_COMMANDS = 214
+# 214 -> 215 with Tapioca.OverlayRuntime: start/hide/show/stop the PRODUCT
+# overlay and read its health. Distinct from ViewerInjectTriangle, which arms the
+# same machinery the DIAGNOSTIC way -- deterministic test mesh, depth sweep, probe
+# primitives. The menu path and the regression path must not be the same verb.
+EXPECTED_REGISTRY_COMMANDS = 215
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
 # reports when it is actually run -- the build had been passing on a stale
 # generated surface.
-EXPECTED_TOTAL_COMMANDS = 233
+EXPECTED_TOTAL_COMMANDS = 234
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

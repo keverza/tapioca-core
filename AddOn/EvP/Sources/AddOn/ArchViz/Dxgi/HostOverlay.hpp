@@ -82,6 +82,7 @@ struct Stats {
     uint64_t heatmapDraws = 0;
     uint64_t wireframeDraws = 0;
     uint64_t hiddenPassDraws = 0;
+    uint64_t culledPasses = 0;
     uint64_t skippedNoGeometry = 0;
     uint64_t skippedNoCamera = 0;
     uint32_t trianglesDrawn = 0;

@@ -9,6 +9,7 @@
 
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/InjectedOverlayRuntime.hpp"
 
 namespace geomsrv {
 
@@ -108,7 +109,85 @@ class RequestHostGeometryCommand : public MainThreadCommand {
     }
 };
 
+// ---------------------------------------------------------------------------
+// Tapioca.OverlayRuntime { action } -> { ok, code, ... }
+//
+// ⚠️ THE PRODUCT'S OVERLAY, NOT THE DIAGNOSTIC'S. `ViewerInjectTriangle`
+// arms the injection with a deterministic test mesh, a depth sweep and probe
+// primitives, because a regression command must show its working. This starts the
+// same machinery the way a user's menu click does: no phase A, no orbit
+// instruction, no ranking table, no hand-made selection.
+//
+// ⚠️ AND `hide` IS NOT `stop`. Hiding keeps the camera lock, the host
+// snapshot and every compiled shader; stopping releases the hooks. A caller that
+// used `stop` to mean `hide` would make re-showing slow enough to look broken.
+// ---------------------------------------------------------------------------
+class OverlayRuntimeCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "OverlayRuntime";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        namespace runtime = av::overlayruntime;
+
+        GS::UniString action ("state");
+        if (params.Contains ("action"))
+            params.Get ("action", action);
+        const std::string wanted (action.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+
+        GS::ObjectState os;
+        os.Add ("ok", true);
+        os.Add ("code", GS::UniString (runtime::StartErrorName (runtime::StartError::None), CC_UTF8));
+        if (wanted == "start") {
+            const runtime::StartResult started = runtime::Start ();
+            os.Add ("ok", started.ok);
+            os.Add ("code", GS::UniString (runtime::StartErrorName (started.code), CC_UTF8));
+            os.Add ("message", GS::UniString (started.message.c_str (), CC_UTF8));
+            os.Add ("retryable", started.retryable);
+        }
+        else if (wanted == "stop") {
+            runtime::Stop ();
+        }
+        else if (wanted == "hide") {
+            runtime::SetVisible (false);
+        }
+        else if (wanted == "show") {
+            runtime::SetVisible (true);
+        }
+        else if (wanted != "state") {
+            return NativeCommandResult::Failure (
+                EVP_FAIL ("unknown overlay runtime action '" + action + "'; expected start, stop, hide, show or state",
+                          "driving the overlay runtime"));
+        }
+
+        // ⚠️ THE STATE IS REPORTED ON EVERY ACTION, not only on
+        // `state`. A caller that starts the runtime needs to know what it started
+        // into, and a second round trip through `MainThreadGate` to find out is a
+        // second chance for the answer to have changed.
+        runtime::Tick ();
+        const runtime::Health health = runtime::GetHealth ();
+        os.Add ("running", health.running);
+        os.Add ("visible", health.visible);
+        os.Add ("waitingForContext", health.waitingForContext);
+        os.Add ("camera", GS::UniString (runtime::CameraStateName (health.camera), CC_UTF8));
+        os.Add ("host", GS::UniString (runtime::HostStateName (health.host), CC_UTF8));
+        os.Add ("autoSelections", (GS::Int32) health.autoSelections);
+        os.Add ("reacquisitions", (GS::Int32) health.reacquisitions);
+        os.Add ("hostOpaqueTriangles", (GS::Int32) health.hostOpaqueTriangles);
+        os.Add ("overlayDraws", (GS::Int32) health.overlayDraws);
+        os.Add ("lastError", GS::UniString (runtime::StartErrorName (health.lastError), CC_UTF8));
+        os.Add ("lastMessage", GS::UniString (health.lastMessage.c_str (), CC_UTF8));
+        return os;
+    }
+};
+
 const NativeCommandRegistration kHostGeometryCommandRegistrations[] = {
+    { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false,
+      R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"lastError":{"type":"string"},"lastMessage":{"type":"string"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
     { "RequestHostGeometry", &MakeRegisteredNativeCommand<RequestHostGeometryCommand>, false,
       R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"accepted":{"type":"boolean"},"alreadyRunning":{"type":"boolean"},"running":{"type":"boolean"},"extractionGeneration":{"type":"integer"},"batchBegins":{"type":"integer"},"batchEnds":{"type":"integer"},"elementsReceived":{"type":"integer"},"opaqueVerticesAdded":{"type":"integer"},"opaqueIndicesAdded":{"type":"integer"},"opaqueTriangles":{"type":"integer"},"transparentTrianglesSkipped":{"type":"integer"},"pendingVertices":{"type":"integer"},"droppedOverCapacity":{"type":"integer"},"publishAttempted":{"type":"integer"},"publishSucceeded":{"type":"integer"},"publishedGeneration":{"type":"integer"},"publishedVertices":{"type":"integer"},"publishedIndices":{"type":"integer"},"publishedTriangles":{"type":"integer"},"haveSnapshot":{"type":"boolean"},"publishFailureReason":{"type":"string"},"uploaded":{"type":"boolean"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"renders":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["accepted","running","haveSnapshot"]})json" },

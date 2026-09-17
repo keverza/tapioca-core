@@ -66,6 +66,11 @@ ID3D11Device* g_device = nullptr;
 Slot g_slots[kGroupCapacity];
 Stats g_stats;
 std::atomic<bool> g_enabled { false };
+// See `SetAutoSelect`. Off by default so the diagnostic keeps choosing by hand
+// and showing its working; the production runtime turns it on.
+std::atomic<bool> g_autoSelect { false };
+uint64_t g_lastAutoSelectAttempt = 0;
+constexpr uint64_t kAutoSelectEveryModelFrames = 30;
 bool g_created = false;
 bool g_createFailed = false;
 uint64_t g_lastPresentSeen = 0;
@@ -498,6 +503,23 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     if (modelGeneration != g_lastModelSeen) {
         g_lastModelSeen = modelGeneration;
         ++g_stats.modelFramesSeen;
+
+        // ⚠️ THE CENSUS CHOOSES FOR ITSELF, ON THE RENDER THREAD,
+        // ONCE A SECOND'S WORTH OF MODEL FRAMES. `SelectCandidate` is pure
+        // computation over a copy of the table -- no ACAPI, no allocation beyond
+        // its own stack copy, no lock -- so the thread that scores the groups can
+        // also be the one that picks. Attempting it on EVERY model frame would
+        // copy 48 groups per frame for an answer that cannot change that fast.
+        //
+        // ⚠️ AND ONLY WHILE THERE IS NO SELECTION, which is what makes
+        // it self-healing rather than twitchy: once locked this costs one branch,
+        // and if the lock is ever lost it starts again with no user action.
+        if (g_autoSelect.load (std::memory_order_acquire) && !GetBindingStats ().fingerprintValid &&
+            g_stats.modelFramesSeen >= g_lastAutoSelectAttempt + kAutoSelectEveryModelFrames) {
+            g_lastAutoSelectAttempt = g_stats.modelFramesSeen;
+            if (SelectCandidate ())
+                ++g_stats.autoSelections;
+        }
     }
     const renderstate::ScenePass pass = renderstate::CurrentScenePass ();
 
@@ -781,6 +803,16 @@ size_t CopyGroups (Group* out, size_t capacity)
 // ⚠️ PHASE A'S DECISION, MADE FROM A COPIED TABLE. The census
 // owns the measurements and hands them over; the recognizer owns the choice. It
 // still fails closed -- no eligible group means no selection and no injection.
+void SetAutoSelect (bool enabled)
+{
+    g_autoSelect.store (enabled, std::memory_order_release);
+}
+
+bool AutoSelect ()
+{
+    return g_autoSelect.load (std::memory_order_acquire);
+}
+
 bool SelectCandidate ()
 {
     Group groups[kGroupCapacity];
