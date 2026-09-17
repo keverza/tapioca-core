@@ -143,6 +143,22 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
 // not the other is itself the answer.
 enum class Point { ScenePass, Present, Both };
 void SetPoint (Point point);
+
+// MAIN THREAD. The stage-5 proof primitives: the magenta anchor triangle, the
+// clip-space wedge and the FRONT/BEHIND depth probes.
+//
+// ⚠️ THESE ARE INSTRUMENTS AND A USER MUST NEVER SEE THEM. They
+// exist to answer questions a picture cannot -- does the projection put the
+// anchor where the oracle says, does a primitive in front of the model survive
+// the depth test, does the output path rasterise at all -- and every one of those
+// questions is settled. They were drawn UNCONDITIONALLY, so promoting the
+// overlay to a menu item put a magenta triangle and two coloured wedges over the
+// user's model.
+//
+// Off by default, because production is the default. The diagnostic turns them
+// on for the runs that still need them.
+void SetProofPrimitives (bool enabled);
+bool ProofPrimitives ();
 Point GetPoint ();
 
 struct InjectionStats {

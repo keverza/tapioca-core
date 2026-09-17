@@ -11,6 +11,8 @@
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
+#include <windows.h>
+
 #include <cstdio>
 
 namespace geomsrv {
@@ -24,6 +26,13 @@ namespace runtime = overlayruntime;
 std::string g_lastCode = "None";
 std::string g_lastMessage;
 
+// ⚠️ WHETHER THE USER WANTS AN OVERLAY AT ALL, KEPT APART FROM WHICH
+// RENDERER IS SERVING IT. The menu toggles the intent; the front window decides
+// which renderer answers. Without that split, walking 3D -> plan -> 3D needs
+// three clicks and reads as the overlay failing twice.
+bool g_requested = false;
+ViewKind g_servingView = ViewKind::Unknown;
+
 void Narrate (const char* channel, const std::string& detail)
 {
     char line[256] = {};
@@ -34,6 +43,45 @@ void Narrate (const char* channel, const std::string& detail)
 bool PortableRunning ()
 {
     return viewportoverlay::Current () != nullptr;
+}
+
+// ⚠️ THE CONTROLLER NEEDS ITS OWN HEARTBEAT AND CANNOT BORROW THE
+// RUNTIME'S. The injected runtime's timer only runs while the INJECTED runtime
+// runs; a user serving a floor plan has no injected runtime at all, so the one
+// case that most needs a view watcher is the one with nothing ticking. Half a
+// second: this reads one ACAPI window id and compares an enum.
+UINT_PTR g_timer = 0;
+constexpr UINT kTickMs = 500;
+
+void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
+{
+    overlaycontrol::FollowView ();
+}
+
+void StartHeartbeat ()
+{
+    if (g_timer == 0)
+        g_timer = ::SetTimer (nullptr, 0, kTickMs, TickProc);
+}
+
+void StopHeartbeat ()
+{
+    if (g_timer != 0) {
+        ::KillTimer (nullptr, g_timer);
+        g_timer = 0;
+    }
+}
+
+// ⚠️ RENDERERS ONLY. `StopAll` clears the user's INTENT as well, and
+// `FollowView` must not -- it stops one renderer in order to start another, and
+// clearing intent mid-move would leave the overlay off with nobody having asked
+// for that.
+void StopRenderers ()
+{
+    if (runtime::Running ())
+        runtime::Stop ();
+    if (PortableRunning ())
+        ArchVizPanel::CloseDiligentOverlay ();
 }
 
 } // namespace
@@ -76,6 +124,33 @@ bool InjectedOwnsView (ViewKind kind)
     return runtime::Running () && runtime::Visible ();
 }
 
+// MAIN THREAD. Start the plan overlay.
+//
+// ⚠️ A FLOOR PLAN IS NOT 3D GEOMETRY AND MUST NOT BE BUILT FROM IT.
+// It is Archicad's 2D representation, reached through a different API entirely:
+// the `ACAPI_DrawingPrimitive_*` family, which calls back with the drawing
+// primitives an element actually contributes to the drawing.
+// `NativeCommands/PlanGeometryCommands.cpp` already does exactly this --
+// `GetWallPlanOutlines` and `GetPlanElementEdges` collect those primitives --
+// and `DiligentViewport::SetPlanAnchors` is the drawing half.
+//
+// ⚠️ AN EARLIER VERSION OF THIS FUNCTION ASKED FOR STOREY SLICES
+// INSTEAD. `StorySliceAccumulator` cuts the 3D MESH against storey planes and
+// unions the loops, which is a SECTION THROUGH THE MODEL and not a plan: no 2D
+// symbol, no wall reference line, no door or window break, and it agrees with
+// the drawing only where the two happen to coincide. Wrong mechanism, removed.
+void StartPlanOverlay ()
+{
+    Narrate ("2D RUNTIME", "starting the plan overlay");
+    ArchVizPanel::OpenDiligentOverlay ();
+    g_lastCode = "None";
+    g_lastMessage = "plan overlay requested; 2D outlines are not wired yet";
+    // ⚠️ AND IT SAYS SO. The window opens and follows the plan
+    // camera, which is the part that works; the wall outlines are not fed to it
+    // yet. Claiming otherwise in a log is how a half-finished path gets believed.
+    Narrate ("2D RUNTIME", "NOTE: wall outlines not yet fed from GetWallPlanOutlines");
+}
+
 void Toggle ()
 {
     const ViewKind view = CurrentView ();
@@ -92,10 +167,16 @@ void Toggle ()
 
             if (runtime::Running ()) {
                 runtime::Stop ();
+                g_requested = false;
+                g_servingView = ViewKind::Unknown;
+                StopHeartbeat ();
                 g_lastCode = "None";
                 g_lastMessage = "stopped by the menu";
                 return;
             }
+            g_requested = true;
+            g_servingView = view;
+            StartHeartbeat ();
             const runtime::StartResult started = runtime::Start ();
             g_lastCode = runtime::StartErrorName (started.code);
             g_lastMessage = started.message;
@@ -120,13 +201,16 @@ void Toggle ()
             // session that happens to be running keeps running, in its own window.
             if (PortableRunning ()) {
                 ArchVizPanel::CloseDiligentOverlay ();
+                g_requested = false;
+                g_servingView = ViewKind::Unknown;
+                StopHeartbeat ();
                 Narrate ("OVERLAY", "plan overlay closed");
                 return;
             }
-            Narrate ("2D RUNTIME", "starting the plan overlay");
-            ArchVizPanel::OpenDiligentOverlay ();
-            g_lastCode = "None";
-            g_lastMessage = "plan overlay requested";
+            g_requested = true;
+            g_servingView = view;
+            StartHeartbeat ();
+            StartPlanOverlay ();
             return;
         }
 
@@ -143,12 +227,47 @@ void Toggle ()
     }
 }
 
+// MAIN THREAD, from the runtime heartbeat. Keep the overlay on the window the
+// user is actually looking at.
+//
+// ⚠️ THE SESSION FOR THE VIEW BEING LEFT IS TORN DOWN. An injected
+// overlay holding Archicad own context vtable while the user works on a drawing
+// earns nothing and risks everything; a portable overlay left over a 3D window
+// is a second renderer on a window that already has one.
+void FollowView ()
+{
+    if (!g_requested)
+        return;
+    const ViewKind view = CurrentView ();
+    if (view == g_servingView || view == ViewKind::Unknown)
+        return; // unchanged, or a transient read -- tear nothing down over it
+
+    Narrate ("OVERLAY MENU", std::string ("view changed to ") + ViewKindName (view) + "; moving the overlay");
+    StopRenderers ();
+    g_servingView = view;
+    if (view == ViewKind::ThreeD) {
+        const runtime::StartResult started = runtime::Start ();
+        g_lastCode = runtime::StartErrorName (started.code);
+        g_lastMessage = started.message;
+        if (!started.ok)
+            Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
+    }
+    else if (view == ViewKind::FloorPlan) {
+        StartPlanOverlay ();
+    }
+    else {
+        Narrate ("OVERLAY", std::string ("no overlay is defined for the ") + ViewKindName (view));
+    }
+}
+
 void StopAll ()
 {
-    if (runtime::Running ())
-        runtime::Stop ();
-    if (PortableRunning ())
-        ArchVizPanel::CloseDiligentOverlay ();
+    // Intent as well as renderers: this is the teardown entry point, and a timer
+    // left armed in a DLL that is unloading is Windows calling into freed code.
+    g_requested = false;
+    g_servingView = ViewKind::Unknown;
+    StopHeartbeat ();
+    StopRenderers ();
 }
 
 Status GetStatus ()

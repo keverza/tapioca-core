@@ -54,6 +54,12 @@ void Toggle ();
 // MAIN THREAD. Turn off whatever is on, for teardown.
 void StopAll ();
 
+// MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
+// user is looking at: tear down the session for the view being left and start
+// the one the new view needs. Intent and renderer are tracked apart -- see the
+// implementation.
+void FollowView ();
+
 struct Status {
     ViewKind view = ViewKind::Unknown;
     bool injectedRunning = false; // the 3D session

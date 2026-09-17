@@ -24503,6 +24503,9 @@
           "meshStandIns": {
             "type": "boolean"
           },
+          "proofPrimitives": {
+            "type": "boolean"
+          },
           "hostWireframe": {
             "type": "boolean"
           },
@@ -24769,6 +24772,9 @@
             "type": "string"
           },
           "meshStandIns": {
+            "type": "boolean"
+          },
+          "proofPrimitives": {
             "type": "boolean"
           },
           "hostWireframe": {

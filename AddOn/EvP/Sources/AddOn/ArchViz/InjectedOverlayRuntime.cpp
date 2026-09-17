@@ -323,17 +323,30 @@ StartResult Arm ()
     // DRAW IS SNAPSHOTTED. The render thread promotes it to `Active` on
     // evidence, so enabling here cannot put a primitive on screen with a camera
     // nobody has.
-    // ⚠️ THE DIAGNOSTIC'S EXACT ARMING SET, DELIBERATELY, FOR THIS
-    // RECOVERY. `ViewerInjectTriangle` is the invocation that is PROVEN to put
-    // pixels on screen; the runtime kept a subset of it and spent six runs
-    // discovering the omissions one at a time. Matching it exactly removes the
-    // last variable. Trimming back to production defaults is the NEXT run's work,
-    // once the menu is known to compose.
-    ghost::SetEnabled (true);
-    ghost::SetAnimated (true);
+    // ⚠️ THE MENU OVERLAY DRAWS ONE THING: ARCHICAD'S OWN EDGES.
+    // That is the whole product default -- a reference layer you look THROUGH,
+    // over the model you are working on. It is also exactly enough to validate
+    // that the overlay is composing at all, which is what the default is FOR.
+    //
+    // ⚠️ EVERYTHING ELSE IS PER-COMMAND. The deterministic ghost
+    // mesh is a regression fixture with no meaning to a user; the surface
+    // heatmap is an ANALYSIS layer and analysis is something a command asks for.
+    // A menu item that silently draws both puts two opaque layers over the
+    // drawing and hides the thing the overlay exists to show -- run fifty-nine
+    // reported exactly that, the ramp lost behind a shaded overlay.
+    //
+    // The previous build armed the diagnostic's full set deliberately, to remove
+    // the last variable while the menu path was still not composing. It composes
+    // now, so the fixture comes off.
+    // ⚠️ AND THE PROOF PRIMITIVES ARE OFF. The magenta anchor triangle
+    // and the coloured probe wedges were drawn unconditionally, so promoting the
+    // overlay to a menu item put three instruments over the user model. They are
+    // settled questions and they belong to the diagnostic.
+    inj::SetProofPrimitives (false);
+    ghost::SetEnabled (false);
     ghost::SetStandIns (false);
     ho::SetEnabled (ho::Kind::Wireframe, true);
-    ho::SetEnabled (ho::Kind::Heatmap, true);
+    ho::SetEnabled (ho::Kind::Heatmap, false);
 
     inj::SetEnabled (true);
     inj::SetPoint (inj::Point::Present);

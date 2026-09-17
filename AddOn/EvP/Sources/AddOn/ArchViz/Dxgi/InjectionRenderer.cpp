@@ -172,6 +172,8 @@ std::atomic<uint64_t> g_skipNotReady { 0 };
 std::atomic<uint64_t> g_skipPassMismatch { 0 };
 std::atomic<uint64_t> g_skipWindowSize { 0 };
 std::atomic<uint64_t> g_skipReentrant { 0 };
+// See `SetProofPrimitives`: instruments, off unless a diagnostic asks.
+std::atomic<bool> g_proofPrimitives { false };
 std::atomic<int> g_point { int (Point::Present) };
 std::atomic<uint64_t> g_skipStaleCamera { 0 };
 std::atomic<uint64_t> g_backBufferFailures { 0 };
@@ -590,21 +592,18 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     context->RSSetState (g_raster);
     const FLOAT blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     context->OMSetBlendState (g_blend, blendFactor, 0xffffffffu);
-    // ⚠️ THE QUERY WRAPS THIS DRAW AND NOTHING ELSE. Depth is off and the pixel
-    // shader is opaque, so a triangle whose anchor projects inside the frustum
-    // MUST produce samples here. Zero samples with a correct projection is a
-    // different investigation from a wrong projection, and this is the number
-    // that separates them. The clip-space probe is deliberately not measured:
-    // it has never been in doubt and counting it would dilute this.
-    // ⚠️ PROBE C IS THIS DRAW, NOT A COPY OF IT. A second rendering of the
-    // production path through different code would not be the production path,
-    // and the whole point of the three probes is that only one thing differs
-    // between them.
-    oracle::BeginTriangleQuery (context);
-    probes::BeginProductionQuery (context);
-    context->Draw (3, 0);
-    probes::EndProductionQuery (context);
-    oracle::EndTriangleQuery (context);
+    // ⚠️ PROBE C IS THIS DRAW, NOT A COPY OF IT, and the oracle's
+    // query stays paired with the primitive it measures rather than counting a
+    // draw that did not happen. Why the three probes must differ in exactly one
+    // thing is in InjectionProbes.hpp; this is an instrument and it is off unless
+    // a diagnostic asked -- see `SetProofPrimitives`.
+    if (g_proofPrimitives.load (std::memory_order_acquire)) {
+        oracle::BeginTriangleQuery (context);
+        probes::BeginProductionQuery (context);
+        context->Draw (3, 0);
+        probes::EndProductionQuery (context);
+        oracle::EndTriangleQuery (context);
+    }
 
     // ---- the ghost mesh ----------------------------------------------------
     // ⚠️ AFTER THE PROOF PRIMITIVES AND WITH THE SAME CAMERA, THE SAME
@@ -670,6 +669,16 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // destructor restores every binding and releases every reference it took,
     // on every path out of this function -- including the early returns a
     // hand-written block keeps forgetting.
+}
+
+void SetProofPrimitives (bool enabled)
+{
+    g_proofPrimitives.store (enabled, std::memory_order_release);
+}
+
+bool ProofPrimitives ()
+{
+    return g_proofPrimitives.load (std::memory_order_acquire);
 }
 
 void SetPoint (Point point)
@@ -816,13 +825,13 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
                 }
                 if (targetView != nullptr) {
                     DrawWithCamera (context, context1, g_acceptedCamera, targetView, true, false);
-                    // ⚠️ A AND B GO THROUGH THE SAME BACK-BUFFER VIEW AS C, in the
-                    // same Present, under the same explicit raster state. Three
-                    // sample counts from one frame answer a question that three
-                    // separate runs could not.
-                    probes::DrawAll (context, context1, targetView, g_acceptedCamera.viewportX,
-                                     g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
-                                     g_acceptedCamera.viewportHeight);
+                    // A and B share C's back-buffer view and raster state, in one
+                    // Present; see InjectionProbes.hpp for why that matters.
+                    if (g_proofPrimitives.load (std::memory_order_acquire)) {
+                        probes::DrawAll (context, context1, targetView, g_acceptedCamera.viewportX,
+                                         g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
+                                         g_acceptedCamera.viewportHeight);
+                    }
                     // ⚠️ PROOF B2, IN THE SAME FRAME AS THE CONTROL. Proof B
                     // passed inside the model pass -- which only runs while the
                     // model is redrawn, so its primitives vanish at rest and are
