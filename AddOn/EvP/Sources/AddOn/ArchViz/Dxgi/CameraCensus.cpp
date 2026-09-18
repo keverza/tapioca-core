@@ -85,6 +85,43 @@ std::atomic<bool> g_autoSelect { false };
 uint64_t g_lastAutoSelectAttempt = 0;
 uint64_t g_autoSelectAttempts = 0;
 
+// ⚠️ A STILL VIEWPORT SCORES CANDIDATES AND COULD NOT
+// CHOOSE ONE. The auto-select below sits inside "the model generation advanced",
+// which is right for navigation and wrong for everything else:
+// `ACAPI_View_Redraw` makes Archicad re-issue its draws WITHOUT advancing the
+// generation, so a menu click on a still 3D window produced
+//
+//     CHAIN  frames=0 draws=14/19 groups=14/+0 attempts=0 eligible=1
+//
+// -- fourteen groups scored, ONE ALREADY ELIGIBLE, and not one selection
+// attempted. The overlay never composed, which is what "from the main menu
+// overlay does not compose" was.
+//
+// ⚠️ BOUNDED BY ATTEMPTS, NOT BY RATE, BECAUSE THERE IS
+// NO CLOCK HERE. While the generation is static there are no model frames to
+// count, so the budget is a few tries a few draws apart, refilled only when the
+// generation DOES advance. `SelectCandidate` is pure computation over a stack
+// copy of the table -- no ACAPI, no lock, no allocation beyond its own copy --
+// so six of them cost nothing beside being unable to start at all.
+const uint32_t kStaticSelectEveryDraws = 8;
+const uint32_t kMaxStaticSelects = 6;
+uint32_t g_drawsSinceStaticSelect = 0;
+uint32_t g_staticSelects = 0;
+
+// One place that attempts, two that may ask.
+//
+// ⚠️ THE AUTOMATIC PROMOTION AND THE EXPLICIT COMMAND
+// CALL THE SAME FUNCTION AND NOTHING ELSE. `SelectCandidate` commits the
+// fingerprint, the occurrence, the interpretation AND the injection camera
+// source as one transaction; this used to add the last of those by hand, and the
+// automatic path used to omit it.
+void AttemptAutoSelect ()
+{
+    ++g_autoSelectAttempts;
+    if (SelectCandidate ())
+        ++g_stats.autoSelections;
+}
+
 // ⚠️ FOUR FRAMES, NOT THIRTY, AND THE DEAD ZONE WAS THE OTHER HALF
 // OF THE FAULT. At thirty the FIRST attempt could not happen until the thirtieth
 // model frame; run sixty-six navigated for four seconds, reached twenty-eight,
@@ -537,17 +574,23 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         // the line that failed silently for two weeks.
         if (g_lastAutoSelectAttempt > g_stats.modelFramesSeen)
             g_lastAutoSelectAttempt = 0;
+        // A generation that advanced refills the static budget: navigation is
+        // working again and the still-viewport case is over.
+        g_staticSelects = 0;
+        g_drawsSinceStaticSelect = 0;
         if (g_autoSelect.load (std::memory_order_acquire) && !GetBindingStats ().fingerprintValid &&
             g_stats.modelFramesSeen >= g_lastAutoSelectAttempt + kAutoSelectEveryModelFrames) {
             g_lastAutoSelectAttempt = g_stats.modelFramesSeen;
-            ++g_autoSelectAttempts;
-            // ⚠️ THE AUTOMATIC PROMOTION AND THE EXPLICIT COMMAND
-            // CALL THE SAME FUNCTION AND NOTHING ELSE. `SelectCandidate` commits
-            // the fingerprint, the occurrence, the interpretation AND the
-            // injection's camera source as one transaction; this used to add the
-            // last of those by hand and the automatic path used to omit it.
-            if (SelectCandidate ())
-                ++g_stats.autoSelections;
+            AttemptAutoSelect ();
+        }
+    }
+    else if (g_autoSelect.load (std::memory_order_acquire) && !GetBindingStats ().fingerprintValid &&
+             g_staticSelects < kMaxStaticSelects) {
+        // The still-viewport path. See the budget above.
+        if (++g_drawsSinceStaticSelect >= kStaticSelectEveryDraws) {
+            g_drawsSinceStaticSelect = 0;
+            ++g_staticSelects;
+            AttemptAutoSelect ();
         }
     }
     const renderstate::ScenePass pass = renderstate::CurrentScenePass ();
