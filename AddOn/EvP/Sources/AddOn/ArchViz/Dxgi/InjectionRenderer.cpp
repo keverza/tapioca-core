@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
@@ -629,6 +630,7 @@ void BeginSession ()
     g_invalidGenerationMismatch.store (0, std::memory_order_relaxed);
     g_acceptedViewport.store (0, std::memory_order_relaxed);
     g_liveSceneViewport.store (0, std::memory_order_relaxed);
+    freshness::Reset ();
 
     g_acceptedCamera = contextstate::SceneDrawState {};
     g_acceptedCameraResizeEpoch = 0;
@@ -690,6 +692,12 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
     // which is precisely the thing that turned out to be two different cameras;
     // it must not be consulted, not even as a fallback, because a fallback that
     // fires occasionally is indistinguishable from the bug it replaced.
+    // The window's own size, before any decision uses it: one DXGI call, no
+    // buffer fetched. Scaling a window changes this WITHOUT Archicad redrawing
+    // its model, which is the one signal a Present has that nothing else reports.
+    // See CameraFreshness.hpp.
+    freshness::NoteTargetExtent (swapChain);
+
     const CameraSource source = GetCameraSource ();
     if (source == CameraSource::None)
         return;
@@ -732,6 +740,8 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         g_acceptedCamera = fresh;
         g_acceptedCameraResizeEpoch = census::GetBindingStats ().resizeRebinds;
         g_acceptedViewport.store (PackViewport (fresh.viewportWidth, fresh.viewportHeight), std::memory_order_relaxed);
+        // The window size this camera was measured for.
+        freshness::NoteAccepted ();
         g_lastInjectedModelGeneration = fresh.modelSceneGeneration;
         g_newScene.fetch_add (1, std::memory_order_relaxed);
         state = oracle::FrameState::NewScene;
@@ -783,6 +793,22 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         g_skipStaleCamera.fetch_add (1, std::memory_order_relaxed);
         draw = false;
     }
+
+    // ⚠️ ONLY THE HARD CASE IS SUPPRESSED, AND ORDINARY
+    // LATENESS IS NOT IT. A camera one frame behind in the SAME window is a
+    // sub-pixel slip; blanking those frames would trade it for visible flicker.
+    // A camera measured for a DIFFERENT WINDOW SIZE is the building drawn beside
+    // itself -- the run that produced the offset-wireframe screenshot read
+    // `vp=2176x1350 target=1221x987 LATE+15` -- and one blank frame is better.
+    if (draw && freshness::Stale ()) {
+        freshness::NoteSuppressed ();
+        draw = false;
+    }
+
+    // Age is recorded for every Present that had a camera to judge, refused or
+    // not: a refusal is exactly when the age is interesting.
+    if (snapshotUsable)
+        freshness::NoteAge (modelSceneGeneration, fresh.modelSceneGeneration);
 
     // ⚠️ THE ROW IS OPENED FOR EVERY TESTED PRESENT, INCLUDING THE REFUSED ONES.
     // A report that only records the Presents that went well cannot explain the

@@ -37,6 +37,27 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
+    "ArchViz/Dxgi/InjectionRenderer.cpp": (
+        1030,
+        "THE SEAM IS NAMED AND THIS IS A DEBT, NOT A LICENCE. The ~22 session counters, "
+        "BeginSession and GetInjectionStats are one coherent unit -- what this session has "
+        "counted and how it is reported -- and belong in Dxgi/InjectionTelemetry. That is "
+        "roughly 110 lines with no behavioural change and it is the NEXT structural commit. "
+        "The entry exists because the alternative was worse: the camera-freshness repair is "
+        "a user-visible regression fix and section 13 of OVERLAY-INVARIANTS.md forbids "
+        "mixing a repair with a refactor, so the refactor waits for its own commit rather "
+        "than riding in on this one. The previous entry for this file was DELETED when the "
+        "OverlayComposer seam was cut; this is a new debt for a different seam and it is "
+        "expected to be deleted the same way"
+    ),
+    "ArchViz/InjectedOverlayRuntime.cpp": (
+        1035,
+        "SAME COMMIT, SAME REASON, DIFFERENT SEAM. NarrateLive, NarrateGate and the LiveMark "
+        "deltas are the runtime's REPORTING and belong in ArchViz/OverlayRuntimeReport -- "
+        "roughly 130 lines, no behavioural change. This file has now grown twice for "
+        "reporting reasons, which is the signal that reporting is a separate concern rather "
+        "than part of the runtime. Paid in the same structural commit as the telemetry split"
+    ),
     "ArchViz/Dxgi/ViewMatrixCandidates.cpp": (
         995,
         "stage 3's DISCOVERY scorer and the tracked window table it reads. The census, "

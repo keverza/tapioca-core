@@ -16,6 +16,7 @@
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
@@ -57,6 +58,14 @@ bool g_hostRequested = false;
 // Whether THIS runtime armed the model watch, so stopping the overlay does not
 // stop a watch the portable viewport is relying on.
 bool g_modelWatchStarted = false;
+// ⚠️ HOW MANY REDRAWS THIS STALL HAS ALREADY ASKED FOR.
+// Present re-raises the request on every suppressed frame, so without a bound a
+// stall that Archicad cannot answer would ask forever at four requests a second.
+// The count resets the moment anything composes, because that IS the answer.
+uint64_t g_redrawRequests = 0;
+uint32_t g_redrawsThisStall = 0;
+uint64_t g_framesAtRedraw = 0;
+const uint32_t kMaxRedrawsPerStall = 2;
 uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
@@ -77,6 +86,7 @@ struct LiveMark {
     uint64_t sceneNew = 0;
     uint64_t sceneRepeat = 0;
     uint64_t sceneLate = 0;
+    uint64_t suppressed = 0;
 };
 LiveMark g_mark;
 std::string g_lastLive;
@@ -137,6 +147,14 @@ void Remember (StartError code, const std::string& message)
 
 CameraState ReadCameraState ()
 {
+    // ⚠️ A CAMERA MEASURED FOR A WINDOW THAT NO LONGER EXISTS
+    // IS REACQUIRING, WHATEVER THE LIFECYCLE SAYS. The lifecycle asks whether the
+    // pinned family has drawn recently -- and after a resize with no navigation
+    // NOTHING draws, so the model generation does not advance either and it
+    // reports `Locked` for a camera that cannot be used. Guidance section 5
+    // names this transition explicitly.
+    if (inj::freshness::Stale ())
+        return CameraState::Reacquiring;
     const cen::Stats stats = cen::GetStats ();
     const std::string lifecycle = stats.lifecycle != nullptr ? stats.lifecycle : "Unknown";
     if (lifecycle == "Locked")
@@ -190,7 +208,8 @@ void NarrateLive ()
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
                  "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
-                 "mismatch+%llu cam(new+%llu repeat+%llu LATE+%llu)",
+                 "mismatch+%llu cam(new+%llu repeat+%llu LATE+%llu) "
+                 "age(0=%llu 1=%llu 2=%llu 3+=%llu max=%u of %llu) suppressed+%llu redraw=%llu",
                  compose > g_mark.compose ? "composing" : "NOT COMPOSING",
                  (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
                  health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
@@ -205,7 +224,12 @@ void NarrateLive ()
                  (unsigned long long) (health.composeSizeMismatches - g_mark.mismatch),
                  (unsigned long long) (health.sceneNew - g_mark.sceneNew),
                  (unsigned long long) (health.sceneRepeat - g_mark.sceneRepeat),
-                 (unsigned long long) (health.sceneLate - g_mark.sceneLate));
+                 (unsigned long long) (health.sceneLate - g_mark.sceneLate), (unsigned long long) health.age0,
+                 (unsigned long long) health.age1, (unsigned long long) health.age2,
+                 (unsigned long long) health.age3plus, health.cameraAgeMax,
+                 (unsigned long long) health.cameraAgeSamples,
+                 (unsigned long long) (health.suppressedStaleViewport - g_mark.suppressed),
+                 (unsigned long long) health.redrawRequests);
 
     g_mark.present = present;
     g_mark.compose = compose;
@@ -219,6 +243,7 @@ void NarrateLive ()
     g_mark.sceneNew = health.sceneNew;
     g_mark.sceneRepeat = health.sceneRepeat;
     g_mark.sceneLate = health.sceneLate;
+    g_mark.suppressed = health.suppressedStaleViewport;
 
     // The leading word classifies the tick; comparing whole lines would narrate
     // every frame-count wobble, and comparing nothing would narrate four times a
@@ -226,7 +251,8 @@ void NarrateLive ()
     const std::string current (line);
     const bool classChanged = g_lastLive.empty () || g_lastLive.compare (0, 13, current, 0, 13) != 0;
     const bool quiet =
-        current.find ("stale+0 nodepth+0 nogeom+0 noedge+0 nocam+0 culled+0 mismatch+0") != std::string::npos;
+        current.find ("stale+0 nodepth+0 nogeom+0 noedge+0 nocam+0 culled+0 mismatch+0") != std::string::npos &&
+        current.find ("suppressed+0 ") != std::string::npos;
     ++g_liveTicks;
     if (classChanged || (!quiet && g_liveTicks >= 4) || g_liveTicks >= 20) {
         g_liveTicks = 0;
@@ -734,6 +760,41 @@ void Tick ()
     }
     g_lastDraws = draws;
 
+    // ⚠️ THE ONE REDRAW THAT ENDS THE STALL, ASKED FOR HERE
+    // AND NOWHERE ELSE. Scaling a window changes the swap chain without Archicad
+    // redrawing its model, so the camera stays measured for a window that no
+    // longer exists and NOTHING would ever produce a fresh one -- the overlay
+    // waits for the user to orbit, which is precisely what was reported. The
+    // render hook only sets an atomic; `ACAPI_View_Redraw` is an ACAPI call and
+    // ACAPI is main-thread only, and this is the main thread.
+    // ⚠️ THE 3D WINDOW, NOT WHICHEVER ONE IS IN FRONT.
+    // `ACAPI_View_Redraw` redraws the CURRENT window, so asking for it while a
+    // Floor Plan is frontmost would redraw the plan -- a different renderer, with
+    // its own overlay, for a staleness that is not its. Guidance section 13: a 3D
+    // state must never reach into the plan. If 3D is not in front there is
+    // nothing to realign yet; the request stays pending and this tries again when
+    // it is.
+    //
+    // ⚠️ AND AT MOST TWICE PER STALL, JUDGED BY MODEL FRAMES
+    // AND NOT BY TICKS. The heartbeat runs four times a second and Present
+    // re-raises the request on every suppressed frame, so a bound tied to the
+    // heartbeat would be a redraw storm. `modelFramesSeen` advancing IS Archicad
+    // having answered; while it does not advance, two attempts are the whole
+    // budget.
+    if (FrontWindowIs3D ()) {
+        const uint64_t frames = cen::GetStats ().modelFramesSeen;
+        if (frames != g_framesAtRedraw) {
+            g_framesAtRedraw = frames;
+            g_redrawsThisStall = 0;
+        }
+        if (inj::freshness::TakeRedrawRequest () && g_redrawsThisStall < kMaxRedrawsPerStall) {
+            ++g_redrawsThisStall;
+            ++g_redrawRequests;
+            g_framesAtRedraw = frames;
+            ACAPI_View_Redraw ();
+        }
+    }
+
     NarrateLive ();
 
     // ⚠️ WHILE REQUESTED BUT NOT DRAWING, THE CHAIN REPORTS ITSELF --
@@ -867,6 +928,15 @@ Health GetHealth ()
     health.sceneNew = injectionStats.newScene;
     health.sceneRepeat = injectionStats.repeatScene;
     health.sceneLate = injectionStats.invalidGenerationAdvanced;
+    const inj::freshness::Report fresh = inj::freshness::Snapshot ();
+    health.age0 = fresh.age0;
+    health.age1 = fresh.age1;
+    health.age2 = fresh.age2;
+    health.age3plus = fresh.age3plus;
+    health.cameraAgeMax = fresh.ageMax;
+    health.cameraAgeSamples = fresh.samples;
+    health.suppressedStaleViewport = fresh.suppressed;
+    health.redrawRequests = g_redrawRequests;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;
@@ -909,6 +979,9 @@ void Stop ()
     if (g_modelWatchStarted && !DiligentViewport::Get ().IsRunning ())
         modelwatch::Stop ();
     g_modelWatchStarted = false;
+    g_redrawRequests = 0;
+    g_redrawsThisStall = 0;
+    g_framesAtRedraw = 0;
     // ⚠️ AND STOP POINTING AT A SELECTION THAT IS ABOUT TO NOT
     // EXIST. Guidance section 4: selection and camera source move together, and
     // `selection=none source=CensusSelectedGroup` is a state that must never be

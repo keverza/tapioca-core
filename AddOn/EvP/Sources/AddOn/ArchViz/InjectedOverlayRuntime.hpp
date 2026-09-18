@@ -148,6 +148,20 @@ struct Health {
     uint64_t sceneRepeat = 0;
     uint64_t sceneLate = 0;
 
+    // See `injection::InjectionStats`. `cameraAgeMedian` of 0 is the acceptance
+    // target for ordinary navigation; `suppressedStaleViewport` counts Presents
+    // that drew NOTHING rather than draw the building offset from itself.
+    // ⚠️ BUCKETS, NOT A MEAN: a mean lets one stall hide a
+    // thousand good frames. `age0` is the overlay composed with a camera
+    // snapshotted for the frame being presented -- exactly on the building.
+    uint64_t age0 = 0, age1 = 0, age2 = 0, age3plus = 0;
+    uint32_t cameraAgeMax = 0;
+    uint64_t cameraAgeSamples = 0;
+    // Presents that drew NOTHING because the camera belonged to a window size
+    // that no longer exists, and the redraws asked for to end that.
+    uint64_t suppressedStaleViewport = 0;
+    uint64_t redrawRequests = 0;
+
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
     // runs were spent asking "why is nothing on screen" when the answer was a
     // different stage each time and no single number distinguished them.
