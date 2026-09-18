@@ -105,10 +105,10 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                                                                                    Diligent::IID_DeviceContextD3D11 };
             if (nativeContext != nullptr) {
                 if (ID3D11DeviceContext* d3dContext = nativeContext->GetD3D11DeviceContext ()) {
-                    // Diligent's InvalidateState only drops its OWN state cache;
-                    // SetRenderTargets(0,...) unbinds render targets but not the
-                    // shader resources, samplers and vertex buffers that also
-                    // hold references. ClearState is the documented one.
+                    // InvalidateState does NOT merely drop Diligent's cache: it nulls
+                    // six shader stages and the RTV on the native context, but
+                    // leaves shader resources and samplers BOUND. ClearState is
+                    // the one that releases everything. DILIGENT-BOUNDARY-PLAN.md.
                     d3dContext->ClearState ();
                     d3dContext->Flush ();
                 }
