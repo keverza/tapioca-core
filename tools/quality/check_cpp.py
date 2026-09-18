@@ -1073,6 +1073,59 @@ def _check_architecture_document_temporaries(failures: list[str]) -> None:
             )
 
 
+# Every translation unit that can break the overlay. Each must name the contract
+# in its own text, so an agent that opens the file to change it sees the
+# obligation before it edits a line -- a document in another directory is one
+# nobody opens.
+OVERLAY_CONTRACT_FILES = (
+    "ArchViz/Dxgi/CameraCensus.cpp",
+    "ArchViz/Dxgi/CameraRecognizer.cpp",
+    "ArchViz/Dxgi/HostOccluders.cpp",
+    "ArchViz/Dxgi/HostOverlay.cpp",
+    "ArchViz/Dxgi/InjectionCamera.cpp",
+    "ArchViz/Dxgi/InjectionDepth.cpp",
+    "ArchViz/Dxgi/InjectionRenderer.cpp",
+    "ArchViz/Dxgi/OverlayComposer.cpp",
+    "ArchViz/InjectedOverlayRuntime.cpp",
+    "ArchViz/OverlayController.cpp",
+)
+
+OVERLAY_CONTRACT_MARKER = "OVERLAY-INVARIANTS.md"
+
+
+def _check_overlay_contract(failures: list[str]) -> None:
+    """The overlay invariants must be cited where they can be violated.
+
+    Roughly sixty live Archicad runs produced a set of findings that cost at
+    least one run each and several of which cost six. They are recorded in
+    OVERLAY-INVARIANTS.md, and the recurring failure mode of this subsystem is
+    not ignorance of those findings but NOT KNOWING THEY EXIST: an agent opens
+    one file, makes a locally reasonable change, and reinstates an approach that
+    was already measured and rejected.
+
+    A pointer in every file that can break the overlay is the cheapest defence
+    that reaches the point of editing. This check also means a NEW overlay
+    translation unit cannot be added without deciding, deliberately, whether it
+    belongs to the contract.
+    """
+    for relative in OVERLAY_CONTRACT_FILES:
+        path = ADDON_SRC / relative
+        if not path.exists():
+            failures.append(
+                f"OVERLAY: {relative} is on the invariants contract list but does not exist. "
+                "Either restore it or remove it from OVERLAY_CONTRACT_FILES -- a contract "
+                "naming a file nobody has is not a contract."
+            )
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if OVERLAY_CONTRACT_MARKER not in text:
+            failures.append(
+                f"OVERLAY: {relative} does not cite {OVERLAY_CONTRACT_MARKER}. Add the "
+                "pointer to its header comment. This file can break the injected overlay, "
+                "and the invariants exist because each of them already cost a live run."
+            )
+
+
 def _check_architecture_command_schemas(failures: list[str]) -> None:
     """Every R"json(...)json" literal must parse.
 
@@ -1116,6 +1169,7 @@ def _run_architecture(verbose: bool) -> int:
         ("REGISTRY  one provider per domain, all registered", _check_architecture_registry),
         ("CITATIONS entry-point docs cite symbols, not lines", _check_architecture_citations),
         ("SCHEMAS   every command schema literal parses as JSON", _check_architecture_command_schemas),
+        ("OVERLAY   every overlay TU cites the invariants contract", _check_overlay_contract),
         ("SRB       SRB-bound shader variables are never STATIC", _check_architecture_srb_variables),
         ("DANGLING  no handle taken out of a by-value graph snapshot", _check_architecture_document_temporaries),
     ]
