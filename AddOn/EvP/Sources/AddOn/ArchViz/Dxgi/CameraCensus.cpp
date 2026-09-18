@@ -881,6 +881,7 @@ Stats GetStats ()
     stats.rebinds = binding.rebinds;
     stats.rebindsRefused = binding.rebindsRefused;
     stats.resizeRebinds = binding.resizeRebinds;
+    stats.modelEditRebinds = binding.modelEditRebinds;
     stats.lastMissMask = binding.lastMissMask;
     stats.fingerprintValid = binding.fingerprintValid;
     stats.eligibleCandidates = EligibleCandidates ();

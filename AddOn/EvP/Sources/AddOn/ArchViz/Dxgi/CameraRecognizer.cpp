@@ -38,6 +38,10 @@ EligibilityDiagnosis g_gate;
 int g_lastSoleMiss = -1;
 // Every term the last evaluated draw missed, one bit each. See `LooksLikeResize`.
 uint32_t g_lastMissMask = 0;
+// The model revision now, and the one the fingerprint was committed at. See
+// `NoteModelRevision`.
+uint32_t g_modelRevision = 0;
+uint32_t g_fingerprintRevision = 0;
 
 BindingStats g_binding;
 FingerprintDiagnosis g_diagnosis;
@@ -208,6 +212,38 @@ static const uint32_t kSizeTermMask = (1u << kTermViewport) | (1u << kTermRender
 // size terms and is not independent evidence of a different camera.
 static const uint32_t kAdoptableMask = kSizeTermMask | (1u << kTermOccurrence);
 
+// ⚠️ THE INDEX COUNT IS ADOPTABLE ONLY ONCE PER MODEL
+// REVISION, AND THE OCCURRENCE IS NOT ADOPTED AT ALL. A different draw of the
+// same family also differs only in index count, so without the revision gate
+// this would let the camera wander between draws. With it, the relaxation fires
+// exactly once per reported edit and every other term must still agree --
+// including the shader, the viewport, both target descriptions and the
+// constant-buffer window shape.
+//
+// The occurrence stays LOCKED (invariants section 1, item 6). It is allowed to
+// MISS here, because adding elements changes how many times the family draws,
+// but it is not overwritten: the per-frame counter restarts every frame, so the
+// locked index is present again on the next whole frame and the rebind lands on
+// the same draw it always did.
+static const uint32_t kModelEditMask = (1u << kTermIndexCount) | (1u << kTermOccurrence);
+
+static bool LooksLikeModelEdit ()
+{
+    if ((g_lastMissMask & (1u << kTermIndexCount)) == 0)
+        return false;
+    if ((g_lastMissMask & ~kModelEditMask) != 0)
+        return false;
+    return g_modelRevision != g_fingerprintRevision;
+}
+
+static void AdoptModelEdit (uint32_t indexCount)
+{
+    g_fingerprint.indexCount = indexCount;
+    g_fingerprintRevision = g_modelRevision;
+    g_selectionLastSeenModel = 0;
+    ++g_binding.modelEditRebinds;
+}
+
 static bool LooksLikeResize (const contextstate::ContextState& live)
 {
     if ((g_lastMissMask & kSizeTermMask) == 0 || (g_lastMissMask & ~kAdoptableMask) != 0)
@@ -284,9 +320,17 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         // including `indexCount`, the model's exact index count -- so it is this
         // camera at a new size and nothing else. See `AdoptResize` for why
         // relearning instead was the wrong repair.
-        if (!LooksLikeResize (live))
+        // ⚠️ A MODEL EDIT IS CHECKED FIRST, BECAUSE IT IS
+        // THE ONE THAT CANNOT HEAL AND THE ONE THAT FROZE A LIVE SESSION.
+        if (LooksLikeModelEdit ()) {
+            AdoptModelEdit (indexCount);
+        }
+        else if (LooksLikeResize (live)) {
+            AdoptResize (live, occurrence);
+        }
+        else {
             return;
-        AdoptResize (live, occurrence);
+        }
     }
     ++g_binding.logicalMatches;
 
@@ -476,6 +520,8 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     chosen.medianAreaPixels = best->medianAreaPixels;
     chosen.medianMaxEdgePixels = best->medianMaxEdgePixels;
     g_selection = chosen;
+    // The index count in this fingerprint belongs to THIS model revision.
+    g_fingerprintRevision = g_modelRevision;
 
     // ⚠️ SELECTING A CANDIDATE AND POINTING THE INJECTION AT IT ARE
     // ONE TRANSACTION, AND THEY LIVE HERE. They were two acts in two places:
@@ -537,6 +583,11 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     // of the family came last.
     injection::SetSelectedOccurrence (chosen.occurrenceIndex);
     return true;
+}
+
+void NoteModelRevision (uint32_t revision)
+{
+    g_modelRevision = revision;
 }
 
 void ClearSelection ()
@@ -622,7 +673,9 @@ void ResetBindingStats ()
     // instead of waiting out a staleness window.
     const bool valid = g_fingerprint.valid;
     const uint64_t rebinds = g_binding.resizeRebinds;
+    const uint64_t edits = g_binding.modelEditRebinds;
     g_binding = BindingStats {};
+    g_binding.modelEditRebinds = edits;
     // A resize that has already been adopted is not undone by a count reset, and
     // Present latches on this to refuse a stale camera.
     g_binding.resizeRebinds = rebinds;

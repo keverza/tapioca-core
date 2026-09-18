@@ -522,10 +522,6 @@ StartResult Start ()
         g_modelWatchStarted = modelwatch::Start (/*floorMs*/ 750);
     }
 
-    // The revision the host snapshot will be judged against. See
-    // `hostocclusion::SetModelRevision`.
-    host::SetModelRevision (modelwatch::Get ().geometryEdits);
-
     StartResult result;
     result.ok = true;
     if (g_armPending) {
@@ -715,6 +711,14 @@ void Tick ()
         }
     }
 
+    // ⚠️ EVERY TICK, NOT ONCE AT ARM. Stamping this in
+    // `Start` read `geometryEdits` before any edit had happened, so the whole
+    // revision chain reported `model=0 published=0 gpu=0` for the life of the
+    // session while the watch counted edits beside it.
+    const uint32_t revision = modelwatch::Get ().geometryEdits;
+    host::SetModelRevision (revision);
+    cen::NoteModelRevision (revision);
+
     const Health live = GetHealth ();
     report::Live (live);
     report::Watch (live);
@@ -843,6 +847,7 @@ Health GetHealth ()
     health.watchSkippedBusy = watch.skippedBusy;
     health.watchIntervalMs = watch.intervalMs;
     health.watchError = watch.lastError;
+    health.modelEditRebinds = census.modelEditRebinds;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;

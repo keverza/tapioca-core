@@ -218,10 +218,11 @@ void Watch (const Health& health)
     char line[320] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%s every %u ms: polls=%u edits=%u refreshes=%u envOnly=%u busy=%u | "
-                 "rev model=%u published=%u gpu=%u%s%s",
+                 "rev model=%u published=%u gpu=%u adopted=%llu%s%s",
                  health.watchRunning ? "watching" : "NOT WATCHING", health.watchIntervalMs, health.watchPolls,
                  health.watchEdits, health.watchRefreshes, health.watchEnvironmentOnly, health.watchSkippedBusy,
                  health.modelRevision, health.publishedRevision, health.gpuRevision,
+                 (unsigned long long) health.modelEditRebinds,
                  health.watchError.empty () ? "" : " | error: ", health.watchError.c_str ());
     const std::string current (line);
     if (current == g_lastWatch)

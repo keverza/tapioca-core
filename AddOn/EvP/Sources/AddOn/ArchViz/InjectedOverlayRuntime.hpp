@@ -183,6 +183,9 @@ struct Health {
     uint32_t watchEnvironmentOnly = 0;
     uint32_t watchSkippedBusy = 0;
     uint32_t watchIntervalMs = 0;
+    // How often a model edit was adopted in place rather than freezing the
+    // camera. See `census::BindingStats::modelEditRebinds`.
+    uint64_t modelEditRebinds = 0;
     std::string watchError;
 
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six

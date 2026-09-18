@@ -174,6 +174,21 @@ Fingerprint GetFingerprint ();
 // it. Returns false and changes nothing when none qualifies.
 bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames);
 void ClearSelection ();
+
+// MAIN THREAD, from the runtime heartbeat: the model revision Archicad is at.
+//
+// ⚠️ `indexCount` IS A FINGERPRINT TERM AND A MODEL EDIT
+// CHANGES IT. Creating a slab froze the overlay outright: the selected draw's
+// index count moved, `MatchesFingerprint` missed on `kTermIndexCount` forever
+// (`miss=0x09`), no draw could ever rebind, and Present kept composing with the
+// last accepted camera -- 110 model frames stale by the end. New geometry still
+// appeared, because extraction is a different service, so the overlay looked
+// alive and was not.
+//
+// This is the evidence that separates "the geometry changed" from "this is a
+// different camera". Without it the index count cannot be adopted safely,
+// because a DIFFERENT DRAW OF THE SAME FAMILY also differs only in index count.
+void NoteModelRevision (uint32_t revision);
 Selection GetSelection ();
 Fingerprint GetFingerprint ();
 Eligibility GetEligibility ();
@@ -269,6 +284,10 @@ struct BindingStats {
     // keep the camera, NOT to relearn. Nonzero is healthy after a resize;
     // growing while the window is still is not.
     uint64_t resizeRebinds = 0;
+    // ⚠️ HOW OFTEN A MODEL EDIT WAS ADOPTED IN PLACE. Nonzero
+    // after creating or deleting geometry is healthy; growing while the model is
+    // untouched means something else is moving the index count.
+    uint64_t modelEditRebinds = 0;
     // The terms the last evaluated draw missed, one bit per fingerprint term, so
     // a refusal to adopt can be read rather than inferred.
     uint32_t lastMissMask = 0;
