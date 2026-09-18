@@ -14,6 +14,7 @@
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
+#include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
@@ -318,6 +319,10 @@ StartResult Arm ()
     // numbers described a session that had ended.
     inj::BeginSession ();
     host::ResetRenderCounters ();
+    // Section 8: every `Start` resets what every `Stop` leaves behind. The
+    // BACKEND SELECTION IS DELIBERATELY NOT RESET here -- a caller sets it before
+    // starting, and clearing it would make the switch impossible to use.
+    dxgi::injecteddiligent::Detach ();
     cen::Reset ();
     cen::SetEnabled (true);
     cen::SetAutoSelect (true);
@@ -532,6 +537,22 @@ StartResult Start ()
     return result;
 }
 
+void SetOverlayBackend (bool diligent)
+{
+    namespace dil = dxgi::injecteddiligent;
+    const dil::Backend wanted = diligent ? dil::Backend::Diligent : dil::Backend::NativeD3D11;
+    if (dil::GetBackend () == wanted)
+        return;
+    // ⚠️ LET GO OF THE OLD ONE FIRST. Leaving Diligent
+    // attached while the native path draws is the "two renderers in one
+    // viewport" state section 12 forbids, and it would also keep a reference to
+    // a back buffer `ResizeBuffers` needs released.
+    dil::Detach ();
+    dil::SetBackend (wanted);
+    ArchVizLog (std::string ("overlay backend: ") +
+                (diligent ? "DILIGENT (attaching on the next composition)" : "native D3D11 (the regression oracle)"));
+}
+
 void SetVisible (bool visible)
 {
     g_visible = visible;
@@ -722,6 +743,7 @@ void Tick ()
     const Health live = GetHealth ();
     report::Live (live);
     report::Watch (live);
+    report::Backend (live);
 }
 
 // ⚠️ THE FIRST STAGE THAT IS NOT SATISFIED, IN ORDER, AND NOTHING
@@ -835,6 +857,18 @@ Health GetHealth ()
     health.cameraAgeSamples = fresh.samples;
     health.suppressedStaleViewport = fresh.suppressed;
     health.redrawRequests = g_redrawRequests;
+    const dxgi::injecteddiligent::Stats dil = dxgi::injecteddiligent::Snapshot ();
+    health.overlayBackend =
+        dxgi::injecteddiligent::GetBackend () == dxgi::injecteddiligent::Backend::Diligent ? "diligent" : "native";
+    health.diligentAttached = dil.attached;
+    health.diligentAttachMs = dil.attachMs;
+    health.diligentAttachFailures = dil.attachFailures;
+    health.diligentWraps = dil.wraps;
+    health.diligentWrapHits = dil.wrapHits;
+    health.diligentWrapFailures = dil.wrapFailures;
+    health.diligentDistinctBackBuffers = dil.distinctBackBuffers;
+    health.diligentWrapDropsOnResize = dil.wrapDropsOnResize;
+    health.diligentError = dil.lastError;
     health.modelRevision = hostStats.modelRevision;
     health.publishedRevision = hostStats.publishedRevision;
     health.gpuRevision = hostStats.gpuRevision;
@@ -910,6 +944,11 @@ void Stop ()
     // EXIST. Guidance section 4: selection and camera source move together, and
     // `selection=none source=CensusSelectedGroup` is a state that must never be
     // observable. It was, on every restart.
+    // ⚠️ AND LET GO OF ARCHICAD'S BACK BUFFER BEFORE THE
+    // HOOKS COME OUT. `ResizeBuffers` fails while a swap-chain view is alive
+    // (section 11), so a wrapper outliving the session would break the NEXT one
+    // in a way that looks nothing like its cause.
+    dxgi::injecteddiligent::Detach ();
     inj::SetCameraSource (inj::CameraSource::None);
     inj::SetEnabled (false);
     cen::SetAutoSelect (false);

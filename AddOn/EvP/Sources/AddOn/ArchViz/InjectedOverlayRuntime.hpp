@@ -167,6 +167,23 @@ struct Health {
     // published behind model means an edit was never extracted; gpu behind
     // published means it was extracted and never uploaded. See
     // `hostocclusion::SetModelRevision`.
+    // ⚠️ THE DILIGENT BOUNDARY, AND `attached` ALONE
+    // ANSWERS NOTHING. Guidance section 7: a cumulative total cannot answer a
+    // question about now. `distinctBackBuffers` against `wrapHits` says whether
+    // Archicad's chain rotates its buffers -- the fact that decides whether
+    // caching the wrapper is worth anything -- and `attachMs` is the one frame
+    // the attach costs, reported rather than left to be found as a stutter.
+    std::string overlayBackend = "native";
+    bool diligentAttached = false;
+    uint32_t diligentAttachMs = 0;
+    uint32_t diligentAttachFailures = 0;
+    uint32_t diligentWraps = 0;
+    uint32_t diligentWrapHits = 0;
+    uint32_t diligentWrapFailures = 0;
+    uint32_t diligentDistinctBackBuffers = 0;
+    uint32_t diligentWrapDropsOnResize = 0;
+    std::string diligentError;
+
     uint32_t modelRevision = 0;
     uint32_t publishedRevision = 0;
     uint32_t gpuRevision = 0;
@@ -237,6 +254,13 @@ StartResult Start ();
 // MAIN THREAD. Show or hide the overlay WITHOUT destroying anything. See the
 // header note.
 void SetVisible (bool visible);
+
+// Which renderer draws the overlay. False -- the proven hand-rolled D3D11 path --
+// is the default and stays the regression ORACLE; it is not deleted when Diligent
+// works, but when Diligent has been correct for longer than it has. Set it BEFORE
+// `Start`: the attach happens on the first composition, and switching mid-session
+// would leave one backend attached and the other drawing.
+void SetOverlayBackend (bool diligent);
 bool Visible ();
 bool Running ();
 

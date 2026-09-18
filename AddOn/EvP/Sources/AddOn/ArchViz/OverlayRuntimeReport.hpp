@@ -53,6 +53,10 @@ void Chain (const Health& health);
 // snapshot has caught up. One line per CHANGE, like everything else here.
 void Watch (const Health& health);
 
+// The Diligent boundary, and SILENT while the native backend is in use -- a line
+// that prints "not using Diligent" every tick is a line nobody reads.
+void Backend (const Health& health);
+
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();
 

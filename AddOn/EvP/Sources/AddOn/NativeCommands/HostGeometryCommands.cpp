@@ -145,6 +145,22 @@ class OverlayRuntimeCommand : public MainThreadCommand {
         // every single response reported `ok=true, code=None` whatever had
         // happened -- including the one that prompted the rule that `None` must
         // never reach a user. A field written twice is a field nobody can trust.
+        // ⚠️ SET BEFORE `start`, BECAUSE THAT IS THE ONLY
+        // MOMENT IT CAN TAKE EFFECT CLEANLY. The attach happens on the first
+        // composition; switching mid-session would leave one backend attached
+        // and the other drawing, which is exactly the "two renderers in one
+        // viewport" state section 12 forbids.
+        if (params.Contains ("backend")) {
+            GS::UniString backend;
+            params.Get ("backend", backend);
+            const std::string which (backend.ToCStr (0, MaxUSize, CC_UTF8).Get ());
+            if (which != "native" && which != "diligent")
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("unknown overlay backend '" + backend + "'; expected native or diligent",
+                              "selecting the overlay drawing backend"));
+            runtime::SetOverlayBackend (which == "diligent");
+        }
+
         bool ok = true;
         runtime::StartError code = runtime::StartError::None;
         std::string message;
@@ -221,6 +237,16 @@ class OverlayRuntimeCommand : public MainThreadCommand {
         // whether the camera is current, and `modelEditRebinds` is the one that
         // must NOT move during navigation.
         os.Add ("modelRevision", (GS::Int32) health.modelRevision);
+        os.Add ("overlayBackend", GS::UniString (health.overlayBackend.c_str (), CC_UTF8));
+        os.Add ("diligentAttached", health.diligentAttached);
+        os.Add ("diligentAttachMs", (GS::Int32) health.diligentAttachMs);
+        os.Add ("diligentAttachFailures", (GS::Int32) health.diligentAttachFailures);
+        os.Add ("diligentWraps", (GS::Int32) health.diligentWraps);
+        os.Add ("diligentWrapHits", (GS::Int32) health.diligentWrapHits);
+        os.Add ("diligentWrapFailures", (GS::Int32) health.diligentWrapFailures);
+        os.Add ("diligentDistinctBackBuffers", (GS::Int32) health.diligentDistinctBackBuffers);
+        os.Add ("diligentWrapDropsOnResize", (GS::Int32) health.diligentWrapDropsOnResize);
+        os.Add ("diligentError", GS::UniString (health.diligentError.c_str (), CC_UTF8));
         os.Add ("publishedRevision", (GS::Int32) health.publishedRevision);
         os.Add ("gpuRevision", (GS::Int32) health.gpuRevision);
         os.Add ("watchRunning", health.watchRunning);
@@ -259,9 +285,10 @@ class OverlayRuntimeCommand : public MainThreadCommand {
 const NativeCommandRegistration kHostGeometryCommandRegistrations[] = {
     { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false,
       R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]}},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"presentInjections":{"type":"integer"},"hostNoDepthTarget":{"type":"integer"},"hostNoGeometry":{"type":"integer"},"overlayNoEdges":{"type":"integer"},"overlayNoCamera":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"eligibleCandidates":{"type":"integer"},"selectionValid":{"type":"boolean"},"selectedGroup":{"type":"integer"},"selectedOccurrence":{"type":"integer"},"occurrenceLocked":{"type":"boolean"},"cameraSource":{"type":"string"},"armState":{"type":"string"},"logicalMatches":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"blockedAt":{"type":"string"},"lastError":{"type":"string"},"lastMessage":{"type":"string"},"view":{"type":"string"},"portableRunning":{"type":"boolean"},"modelRevision":{"type":"integer"},"publishedRevision":{"type":"integer"},"gpuRevision":{"type":"integer"},"watchRunning":{"type":"boolean"},"watchPolls":{"type":"integer"},"watchEdits":{"type":"integer"},"watchRefreshes":{"type":"integer"},"watchEnvironmentOnly":{"type":"integer"},"watchSkippedBusy":{"type":"integer"},"watchError":{"type":"string"},"modelEditRebinds":{"type":"integer"},"modelEditReselects":{"type":"integer"},"lastMissMask":{"type":"integer"},"rebinds":{"type":"integer"},"rebindsRefused":{"type":"integer"},"selectionMatches":{"type":"integer"},"pinMissMask":{"type":"integer"},"resizeRebinds":{"type":"integer"},"age0":{"type":"integer"},"age1":{"type":"integer"},"age2":{"type":"integer"},"age3plus":{"type":"integer"},"cameraAgeMax":{"type":"integer"},"suppressedStaleViewport":{"type":"integer"},"redrawRequests":{"type":"integer"},"acceptedViewportWidth":{"type":"integer"},"acceptedViewportHeight":{"type":"integer"},"targetWidth":{"type":"integer"},"targetHeight":{"type":"integer"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
+      R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"presentInjections":{"type":"integer"},"hostNoDepthTarget":{"type":"integer"},"hostNoGeometry":{"type":"integer"},"overlayNoEdges":{"type":"integer"},"overlayNoCamera":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"eligibleCandidates":{"type":"integer"},"selectionValid":{"type":"boolean"},"selectedGroup":{"type":"integer"},"selectedOccurrence":{"type":"integer"},"occurrenceLocked":{"type":"boolean"},"cameraSource":{"type":"string"},"armState":{"type":"string"},"logicalMatches":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"blockedAt":{"type":"string"},"lastError":{"type":"string"},"lastMessage":{"type":"string"},"view":{"type":"string"},"portableRunning":{"type":"boolean"},"modelRevision":{"type":"integer"},"overlayBackend":{"type":"string"},"diligentAttached":{"type":"boolean"},"diligentAttachMs":{"type":"integer"},"diligentAttachFailures":{"type":"integer"},"diligentWraps":{"type":"integer"},"diligentWrapHits":{"type":"integer"},"diligentWrapFailures":{"type":"integer"},"diligentDistinctBackBuffers":{"type":"integer"},"diligentWrapDropsOnResize":{"type":"integer"},"diligentError":{"type":"string"},"publishedRevision":{"type":"integer"},"gpuRevision":{"type":"integer"},"watchRunning":{"type":"boolean"},"watchPolls":{"type":"integer"},"watchEdits":{"type":"integer"},"watchRefreshes":{"type":"integer"},"watchEnvironmentOnly":{"type":"integer"},"watchSkippedBusy":{"type":"integer"},"watchError":{"type":"string"},"modelEditRebinds":{"type":"integer"},"modelEditReselects":{"type":"integer"},"lastMissMask":{"type":"integer"},"rebinds":{"type":"integer"},"rebindsRefused":{"type":"integer"},"selectionMatches":{"type":"integer"},"pinMissMask":{"type":"integer"},"resizeRebinds":{"type":"integer"},"age0":{"type":"integer"},"age1":{"type":"integer"},"age2":{"type":"integer"},"age3plus":{"type":"integer"},"cameraAgeMax":{"type":"integer"},"suppressedStaleViewport":{"type":"integer"},"redrawRequests":{"type":"integer"},"acceptedViewportWidth":{"type":"integer"},"acceptedViewportHeight":{"type":"integer"},"targetWidth":{"type":"integer"},"targetHeight":{"type":"integer"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
     { "RequestHostGeometry", &MakeRegisteredNativeCommand<RequestHostGeometryCommand>, false,
-      R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json", R"json({"type":"object","properties":{"accepted":{"type":"boolean"},"alreadyRunning":{"type":"boolean"},"running":{"type":"boolean"},"extractionGeneration":{"type":"integer"},"batchBegins":{"type":"integer"},"batchEnds":{"type":"integer"},"elementsReceived":{"type":"integer"},"opaqueVerticesAdded":{"type":"integer"},"opaqueIndicesAdded":{"type":"integer"},"opaqueTriangles":{"type":"integer"},"transparentTrianglesSkipped":{"type":"integer"},"pendingVertices":{"type":"integer"},"droppedOverCapacity":{"type":"integer"},"publishAttempted":{"type":"integer"},"publishSucceeded":{"type":"integer"},"publishedGeneration":{"type":"integer"},"publishedVertices":{"type":"integer"},"publishedIndices":{"type":"integer"},"publishedTriangles":{"type":"integer"},"haveSnapshot":{"type":"boolean"},"publishFailureReason":{"type":"string"},"uploaded":{"type":"boolean"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"renders":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["accepted","running","haveSnapshot"]})json" },
+      R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"accepted":{"type":"boolean"},"alreadyRunning":{"type":"boolean"},"running":{"type":"boolean"},"extractionGeneration":{"type":"integer"},"batchBegins":{"type":"integer"},"batchEnds":{"type":"integer"},"elementsReceived":{"type":"integer"},"opaqueVerticesAdded":{"type":"integer"},"opaqueIndicesAdded":{"type":"integer"},"opaqueTriangles":{"type":"integer"},"transparentTrianglesSkipped":{"type":"integer"},"pendingVertices":{"type":"integer"},"droppedOverCapacity":{"type":"integer"},"publishAttempted":{"type":"integer"},"publishSucceeded":{"type":"integer"},"publishedGeneration":{"type":"integer"},"publishedVertices":{"type":"integer"},"publishedIndices":{"type":"integer"},"publishedTriangles":{"type":"integer"},"haveSnapshot":{"type":"boolean"},"publishFailureReason":{"type":"string"},"uploaded":{"type":"boolean"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"renders":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["accepted","running","haveSnapshot"]})json" },
 };
 
 } // namespace

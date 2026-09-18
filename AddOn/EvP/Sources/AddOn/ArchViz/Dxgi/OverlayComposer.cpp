@@ -9,9 +9,12 @@
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
+#include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 
 #include <d3d11_1.h>
+
+#include <string>
 
 namespace geomsrv {
 namespace archviz {
@@ -93,6 +96,32 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // to size; see `hostocclusion::Prepare`.
     ++g_stats.passes;
     ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight);
+
+    // ---- the Diligent boundary, stage 2 of 5 -------------------------------
+    // ⚠️ IT ATTACHES AND WRAPS AND DRAWS NOTHING, AND
+    // THAT IS THE POINT OF THE STAGE. The two things that can break Archicad are
+    // attaching to its device and holding a reference to its back buffer. Both
+    // happen here; the draw does not, so a run that corrupts Archicad's frame
+    // has exactly one suspect instead of two. Stage 3 adds one triangle.
+    //
+    // ⚠️ AND IT RUNS ONLY WHEN THE BACKEND IS SELECTED.
+    // Default is `NativeD3D11`, so production composes exactly as it did before
+    // this file was touched; the regression command is what turns it on. Section
+    // 12b: composition stays at Present, and this changes WHAT draws, never
+    // where or when -- not even that, yet.
+    if (injecteddiligent::GetBackend () == injecteddiligent::Backend::Diligent) {
+        if (!injecteddiligent::Attached ()) {
+            ID3D11Device* device = nullptr;
+            context->GetDevice (&device);
+            std::string error;
+            injecteddiligent::Attach (device, context1, error);
+            if (device != nullptr)
+                device->Release ();
+        }
+        // The wrapper is the measurement: how often Archicad's back-buffer
+        // texture actually moves decides whether caching it is worth anything.
+        injecteddiligent::WrapRenderTarget (targetView);
+    }
 
     ID3D11DepthStencilView* const hostView =
         hostocclusion::Prepare (context, context1, wanted, g_stats.targetWidth, g_stats.targetHeight);

@@ -45,6 +45,7 @@ std::string g_lastLive;
 uint32_t g_liveTicks = 0;
 std::string g_lastChain;
 std::string g_lastWatch;
+std::string g_lastBackend;
 
 } // namespace
 
@@ -231,8 +232,28 @@ void Watch (const Health& health)
     Say ("WATCH", current);
 }
 
+void Backend (const Health& health)
+{
+    if (health.overlayBackend != "diligent")
+        return;
+    char line[320] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%s attach=%u ms failures=%u | wraps=%u hits=%u failed=%u distinct=%u "
+                 "dropped on resize=%u%s%s",
+                 health.diligentAttached ? "ATTACHED to Archicad's device" : "NOT ATTACHED", health.diligentAttachMs,
+                 health.diligentAttachFailures, health.diligentWraps, health.diligentWrapHits,
+                 health.diligentWrapFailures, health.diligentDistinctBackBuffers, health.diligentWrapDropsOnResize,
+                 health.diligentError.empty () ? "" : " | ", health.diligentError.c_str ());
+    const std::string current (line);
+    if (current == g_lastBackend)
+        return;
+    g_lastBackend = current;
+    Say ("DILIGENT", current);
+}
+
 void Reset ()
 {
+    g_lastBackend.clear ();
     g_lastWatch.clear ();
     g_mark = LiveMark {};
     g_lastLive.clear ();

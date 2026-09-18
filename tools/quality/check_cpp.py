@@ -48,7 +48,7 @@ OVERSIZED = {
         "mixing a repair with a refactor, so the refactor waits for its own commit rather "
         "than riding in on this one. The previous entry for this file was DELETED when the "
         "OverlayComposer seam was cut; this is a new debt for a different seam and it is "
-        "expected to be deleted the same way"
+        "expected to be deleted the same way",
     ),
     "ArchViz/Dxgi/ViewMatrixCandidates.cpp": (
         995,
@@ -60,7 +60,7 @@ OVERSIZED = {
         "extracted to Dxgi/SameFrameCamera along the seam between asking what the bytes "
         "could be and deciding which two of them describe the frame being drawn. This "
         "entry freezes what is left: the discovery scorer is evidence, not a growth "
-        "area, and the next feature extracts a seam rather than adding to it"
+        "area, and the next feature extracts a seam rather than adding to it",
     ),
     "ArchViz/ExtractionThread.cpp": (
         1011,
@@ -73,7 +73,7 @@ OVERSIZED = {
         "2026-08-24). What is left is the pass itself, and splitting THAT would create "
         "a second description of the gate protocol -- the same fault "
         "DiligentViewport.cpp's entry refuses for pass ordering. This entry freezes "
-        "its size; the next feature extracts a seam rather than growing it"
+        "its size; the next feature extracts a seam rather than growing it",
     ),
     "ArchViz/DiligentViewport.cpp": (
         1093,
@@ -1098,6 +1098,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/InjectionCamera.cpp",
     "ArchViz/Dxgi/InjectionDepth.cpp",
     "ArchViz/Dxgi/CameraFreshness.cpp",
+    "ArchViz/Dxgi/InjectedDiligentContext.cpp",
     "ArchViz/Dxgi/InjectionRenderer.cpp",
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
@@ -1168,7 +1169,7 @@ def _check_architecture_command_schemas(failures: list[str]) -> None:
                 failures.append(
                     f"{path.relative_to(ADDON_SRC)}:{line} - a schema literal does "
                     f"not parse as JSON ({error}). A raw string literal needs no "
-                    f"escapes: write \" and not backslash-quote."
+                    f'escapes: write " and not backslash-quote.'
                 )
 
 

@@ -3,6 +3,8 @@
 
 #include "ArchViz/Dxgi/PresentHook.hpp"
 
+#include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
+
 #include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
@@ -294,12 +296,21 @@ HRESULT STDMETHODCALLTYPE DetourResizeBuffers (IDXGISwapChain* swapChain, UINT b
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     g_resizeCalls.fetch_add (1, std::memory_order_relaxed);
-    // ⚠️ NOTHING TO INVALIDATE HERE, and that is by design. ResizeBuffers fails
-    // outright if any reference to a back buffer is outstanding, so a marker
-    // that cached a render-target view across frames would break every window
-    // resize in Archicad -- from inside Archicad's own resize call, where the
-    // error surfaces as its window failing to redraw. The marker takes and
-    // releases its reference inside one Present instead.
+    // ⚠️ RELEASE EVERY BACK-BUFFER REFERENCE BEFORE THE
+    // ORIGINAL RUNS. ResizeBuffers fails outright if any reference to a back
+    // buffer is outstanding -- from inside Archicad's own resize call, where the
+    // error surfaces as its window failing to redraw.
+    //
+    // The marker never needed this: it takes and releases its reference inside
+    // one Present. The Diligent backend does, because it CACHES a wrapper around
+    // Archicad's back-buffer texture and a cached wrapper is exactly such a
+    // reference. Dropping it here is what makes that cache legal; the wrappers
+    // are rebuilt on the next composition, which is the frame after this one.
+    //
+    // ⚠️ AND ONLY THE WRAPPERS. The device and the
+    // immediate context are not swap-chain resources and must survive a resize,
+    // or every resize would pay for a fresh attach.
+    injecteddiligent::DropWrappedTargets ();
     const ResizeBuffersFn original = g_originalResizeBuffers;
     const HRESULT hr = (original != nullptr)
         ? original (swapChain, bufferCount, width, height, format, flags) : S_OK;
