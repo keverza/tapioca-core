@@ -8,6 +8,8 @@
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
+#include "ArchViz/Dxgi/CameraRecognizer.hpp" // census::NoteModelRevision
+#include "ArchViz/Dxgi/HostOccluders.hpp"    // hostocclusion::SetModelRevision
 #include "Notify/ModelDiff.hpp"
 
 #include <windows.h>
@@ -185,6 +187,27 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // Tying it to StartPass would lose exactly the edits that arrive during a
     // busy moment -- which is most of them during a drag.
     ++gStats.geometryEdits;
+
+    // ⚠️ PUBLISHED HERE, NOT BY A COURIER ON ITS OWN CLOCK.
+    // The occluder stamps `publishedRevision` at BeginBatch from the revision it
+    // was last told, and it used to be told only by the overlay runtime's tick.
+    // The pass that BeginBatch belongs to is started three lines below -- inside
+    // this same tick -- so whenever the pass overtook the runtime tick, the batch
+    // stamped the PREVIOUS revision and the chain read `model=6 published=5`
+    // forever after, one behind and never catching up.
+    //
+    // ⚠️ AND THE GEOMETRY WAS ALWAYS CORRECT, WHICH IS WHY
+    // IT SURVIVED SO LONG. Run 19:45 published `17/21 elements, 4798 triangles`
+    // for exactly the edit the counter denied. Nothing was missing from the
+    // screen; the only broken thing was the number the regression test reads to
+    // decide whether anything is missing. A false FAIL costs as much as a false
+    // PASS here, because the next stage of this project uses that test as its
+    // oracle -- an oracle that cries wolf cannot referee a renderer migration.
+    //
+    // The runtime tick still publishes every tick. It is now a BACKSTOP for the
+    // case where the watch is not running, not the only path.
+    dxgi::hostocclusion::SetModelRevision (gStats.geometryEdits);
+    dxgi::census::NoteModelRevision (gStats.geometryEdits);
 
     // ⚠️ AND IF THE PASS CANNOT START, REMEMBER IT. Waiting
     // for the NEXT change would leave this one unextracted indefinitely on a
