@@ -301,6 +301,11 @@ struct BindingStats {
     // The terms the last evaluated draw missed, one bit per fingerprint term, so
     // a refusal to adopt can be read rather than inferred.
     uint32_t lastMissMask = 0;
+    // ⚠️ WHY THE PIN FAILED, PER TERM. `selectionMatches`
+    // counts the successes and said nothing about the two thirds that are not.
+    // Order is `PinTerm` in CameraRecognizer.cpp.
+    uint32_t pinMissMask = 0;
+    uint64_t pinMissed[8] = {};
     bool fingerprintValid = false;
 };
 BindingStats GetBindingStats ();

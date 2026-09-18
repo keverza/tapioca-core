@@ -217,6 +217,7 @@ struct Health {
     uint64_t rebinds = 0;
     uint64_t rebindsRefused = 0;
     uint64_t selectionMatches = 0;
+    uint32_t pinMissMask = 0;
     uint64_t authoritativeSnapshots = 0;
     uint64_t presentsSeen = 0;
 

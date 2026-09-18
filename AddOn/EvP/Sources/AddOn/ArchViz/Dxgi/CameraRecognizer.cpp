@@ -72,19 +72,56 @@ bool MatchesSelectionSignature (const contextstate::ContextState& live)
            g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer;
 }
 
+// ⚠️ WHICH PIN TERM FAILED, BECAUSE THE PIN FAILS TWO
+// FRAMES IN THREE AND NOBODY KNOWS WHY. A run measured `snapshots +60` against
+// `frames +174` with the camera Locked and the occurrence never moving: the
+// overlay is correct and a third of the time it is three or more frames old.
+// `age3+ 38%` is the same fact seen from Present.
+//
+// ⚠️ AND THE OBVIOUS SUSPECT IS ALREADY CONTRADICTED.
+// `MatchesSelection` compares both constant-buffer POINTERS, which
+// OverlayGuidance section 3 lists as a runtime identity -- but
+// `ContextHookDetours` records that Archicad 29 keeps its constants in ONE 8 MiB
+// ring and binds windows of it, so the pointer is probably CONSTANT and the
+// offset is what moves. Changing the predicate on that guess would be the third
+// occurrence repair made by reasoning instead of measurement, and the first two
+// each made it worse. So: count the terms, then decide.
+enum PinTerm : uint32_t {
+    kPinOccurrence = 0,
+    kPinRenderTarget,
+    kPinDepthStencil,
+    kPinViewport,
+    kPinViewBuffer,
+    kPinProjectionBuffer,
+    kPinWindows,
+    kPinTermCount
+};
+
 bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurrence)
 {
     if (!g_selection.valid)
         return false;
-    return g_selection.occurrenceIndex == occurrence && g_selection.renderTarget == live.renderTarget &&
-           g_selection.depthStencil == live.depthStencil &&
-           SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
-           SameExtent (g_selection.viewportHeight, live.viewportHeight) &&
-           SameExtent (g_selection.viewportX, live.viewportX) && SameExtent (g_selection.viewportY, live.viewportY) &&
-           g_selection.viewBuffer == live.vsConstantBuffers[1].buffer &&
-           g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer &&
-           g_selection.viewNumConstants == live.vsConstantBuffers[1].numConstants &&
-           g_selection.projectionNumConstants == live.vsConstantBuffers[2].numConstants;
+
+    bool term[kPinTermCount];
+    term[kPinOccurrence] = g_selection.occurrenceIndex == occurrence;
+    term[kPinRenderTarget] = g_selection.renderTarget == live.renderTarget;
+    term[kPinDepthStencil] = g_selection.depthStencil == live.depthStencil;
+    term[kPinViewport] = SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
+                         SameExtent (g_selection.viewportHeight, live.viewportHeight);
+    term[kPinViewBuffer] = g_selection.viewBuffer == live.vsConstantBuffers[1].buffer;
+    term[kPinProjectionBuffer] = g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer;
+    term[kPinWindows] = g_selection.viewNumConstants == live.vsConstantBuffers[1].numConstants &&
+                        g_selection.projectionNumConstants == live.vsConstantBuffers[2].numConstants;
+
+    uint32_t missMask = 0;
+    for (uint32_t i = 0; i < kPinTermCount; ++i) {
+        if (!term[i]) {
+            missMask |= 1u << i;
+            ++g_binding.pinMissed[i];
+        }
+    }
+    g_binding.pinMissMask = missMask;
+    return missMask == 0;
 }
 
 // ⚠️ THE LOGICAL MATCH, AND IT IS WHAT A PRODUCTION RECOGNIZER

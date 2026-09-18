@@ -853,6 +853,7 @@ Health GetHealth ()
     health.rebinds = binding.rebinds;
     health.rebindsRefused = binding.rebindsRefused;
     health.selectionMatches = binding.selectionMatches;
+    health.pinMissMask = binding.pinMissMask;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;
