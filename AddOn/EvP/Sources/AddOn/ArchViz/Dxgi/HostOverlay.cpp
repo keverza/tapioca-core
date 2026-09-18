@@ -91,18 +91,26 @@ const char* const kWireframeBody = "float4 VSWire (float3 position : POSITION) :
 // that. Both endpoints of an edge carry the same pair of normals, so both reach
 // the same verdict and a rejected edge collapses whole.
 //
-// ⚠️ AND ORTHOGRAPHIC IS DETECTED FROM `w`, NOT FROM THE
-// PROJECTION MATRIX. A parallel projection leaves `w == 1` for every vertex and
-// a perspective one puts view depth there. Reading that is convention-free;
-// picking apart `Projection` to find the same fact would need to know its layout
-// AND its handedness. Under a parallel projection every point is seen along the
-// same direction, so the eye vector is the view axis rather than the position.
+// ⚠️ ORTHOGRAPHIC IS A PROPERTY OF THE CAMERA, SO IT
+// IS READ FROM THE MATRIX AND NOT FROM A VERTEX. The first version tested
+// `abs (p.w - 1.0) < 1e-4`, reasoning that a parallel projection leaves `w == 1`
+// everywhere. True, and useless as a discriminator: under PERSPECTIVE `w` is the
+// view depth, so every vertex about one unit from the eye passes the same test
+// and is silhouetted as though the camera were parallel. On a metric model that
+// is a shell roughly a metre out, moving through the geometry as the camera
+// moves -- which is a defect that only ever shows itself while navigating.
+//
+// `Projection._44` is 1 for a parallel projection and 0 for a perspective one,
+// it is uniform across the draw, and HLSL matrix indexing is LOGICAL: it follows
+// the declared `row_major` / `column_major` layout, so the variant declarations
+// already make this correct without anyone here knowing the storage. Handedness
+// still does not enter, because the test below is a sign PRODUCT.
 const char* const kSilhouetteBody =
     "float4 VSSil (float3 position : POSITION, float3 na : NORMAL0, float3 nb : NORMAL1) : SV_POSITION\n"
     "{\n"
     "    float4 v = mul (float4 (position, 1.0), View);\n"
     "    float4 p = mul (v, Projection);\n"
-    "    float3 toEye = abs (p.w - 1.0) < 1e-4 ? float3 (0.0, 0.0, 1.0) : v.xyz;\n"
+    "    float3 toEye = abs (Projection._44 - 1.0) < 1e-4 ? float3 (0.0, 0.0, 1.0) : v.xyz;\n"
     "    float sa = dot (mul (float4 (na, 0.0), View).xyz, toEye);\n"
     "    float sb = dot (mul (float4 (nb, 0.0), View).xyz, toEye);\n"
     "    if (sa * sb > 0.0)\n"
