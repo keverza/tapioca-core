@@ -658,7 +658,7 @@ void Tick ()
     // would produce a fresh one -- the overlay waits for the user to orbit,
     // which is precisely what was reported. Who may ask, and how often, is
     // `OverlayRedrawBudget`.
-    redrawbudget::Consider ();
+    redrawbudget::Consider (cen::GetStats ().modelFramesSeen);
 
     // ⚠️ EVERY TICK, NOT ONCE AT ARM. Stamping this in
     // `Start` read `geometryEdits` before any edit had happened, so the whole

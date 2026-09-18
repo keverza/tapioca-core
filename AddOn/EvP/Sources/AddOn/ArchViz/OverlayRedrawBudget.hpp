@@ -36,7 +36,20 @@ bool FrontWindowIsServedSession ();
 
 // One heartbeat's worth of arbitration: spend a redraw if one is wanted, the
 // served window is in front, and the budget for this extent is not exhausted.
-void Consider ();
+//
+// ⚠️ `modelFramesSeen` IS THE COLD-START CASE AND IT IS
+// NOT THE SAME PROBLEM AS A STALE EXTENT. A resize leaves a camera measured for
+// a window that no longer exists; a cold start has no camera at all, because
+// Archicad only redraws its 3D window when something changes and a menu click
+// changes nothing. `CHAIN frames=0 draws=0/0 ... BLOCKED AT NoModelFrames` is
+// what that looks like, and it is what the Tapioca 3D Overlay menu item produced
+// every time: armed, correct, and waiting for a frame that was never coming.
+//
+// ⚠️ PRODUCTION MUST NOT DEPEND ON THE USER DOING WHAT
+// A DIAGNOSTIC INSTRUCTS (§9). The regression command works only because it
+// prints "NAVIGATE the 3D window for up to 30 s" and a person obeys it. The menu
+// item has no such luxury and should not need one.
+void Consider (uint64_t modelFramesSeen);
 
 // Cumulative, for the health record.
 uint64_t Requests ();
