@@ -55,6 +55,8 @@ void Rearm (uint32_t intervalMs);
 // honest call is the one that says "one pass" — this timer IS the liveness now.
 // See `SetKeepAlive`. Main thread, like everything in this file.
 bool gKeepAlive = false;
+// A change was seen while the worker was busy and still needs extracting.
+bool gPendingRefresh = false;
 
 bool StartPass ()
 {
@@ -66,15 +68,26 @@ bool StartPass ()
 
 void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
 {
-    // ⚠️ A PASS IN FLIGHT MEANS SKIP THE WHOLE TICK, diff included. Restarting
-    // the worker joins it first, so asking while it runs would stall the main
-    // thread; and the pass already running will see the newer model, so the
-    // change is not lost by waiting. Not counted as a poll -- it asked Archicad
-    // nothing.
-    if (ExtractionWorker::Get ().IsRunning ()) {
+    // ⚠️ A PASS IN FLIGHT DEFERS THE RE-EXTRACTION, NOT THE
+    // POLL. Skipping the whole tick was wrong in a way that took three runs to
+    // see. The reasoning behind it was sound about GEOMETRY -- the pass already
+    // running does observe the newer model, so nothing is lost on screen -- and
+    // it was silent about the COUNTER. `geometryEdits` never moved for an edit
+    // that arrived while the worker was busy.
+    //
+    // ⚠️ AND `geometryEdits` IS THE MODEL REVISION. It is what
+    // `hostocclusion::SetModelRevision` publishes and what the camera recognizer
+    // compares to decide that an index count moved because the MODEL moved. A
+    // missed bump means the recognizer never learns the model changed, which is
+    // an intermittent desync that depends on how fast the user edits -- and
+    // "sometimes it desyncs, sometimes it does not" is exactly how it was
+    // reported.
+    //
+    // Only `StartPass` joins the worker; `Poll` does not. So the poll runs, the
+    // counter moves, and the refresh is remembered for the next tick.
+    const bool busy = ExtractionWorker::Get ().IsRunning ();
+    if (busy)
         ++gStats.skippedBusy;
-        return;
-    }
 
     // Nothing to refresh once EVERY consumer has gone. Stops the timer rather
     // than polling ACAPI forever for a scene nobody is looking at.
@@ -128,8 +141,17 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
 
     // `firstCall` is the baseline being established, NOT an unchanged model --
     // re-extracting on it would rebuild the scene the viewer has only just built.
-    if (diff.firstCall || !diff.AnythingChanged ())
+    if (diff.firstCall || !diff.AnythingChanged ()) {
+        // A refresh deferred by a busy worker is taken as soon as one is free,
+        // without waiting for another edit to come along and ask again.
+        if (gPendingRefresh && StartPass ()) {
+            gPendingRefresh = false;
+            ++gStats.refreshes;
+            ArchVizLog ("model watch: re-extracting a change that arrived while the "
+                        "previous pass was still running");
+        }
         return;
+    }
 
     // ---- an environment-only change is NOT a reason to rebuild the model ----
     //
@@ -164,7 +186,13 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // busy moment -- which is most of them during a drag.
     ++gStats.geometryEdits;
 
+    // ⚠️ AND IF THE PASS CANNOT START, REMEMBER IT. Waiting
+    // for the NEXT change would leave this one unextracted indefinitely on a
+    // model nobody touches again.
+    gPendingRefresh = true;
+
     if (StartPass ()) {
+        gPendingRefresh = false;
         ++gStats.refreshes;
         ArchVizLog ("model watch: re-extracting -- " + std::to_string (diff.created.size ()) + " new, " +
                     std::to_string (diff.modified.size ()) + " modified, " + std::to_string (diff.deleted.size ()) +
