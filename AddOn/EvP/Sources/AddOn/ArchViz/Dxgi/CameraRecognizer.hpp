@@ -292,6 +292,11 @@ struct BindingStats {
     // CAMERA WAS RE-CHOSEN RATHER THAN GUESSED. Nonzero after creating or
     // deleting geometry is healthy. Climbing while the model is untouched means
     // the model-edit rule is firing on navigation and must be WITHDRAWN.
+    // ⚠️ HOW OFTEN AN EDIT SILENCED THE LOCKED OCCURRENCE
+    // LONG ENOUGH TO REPLACE IT. This is a REPLACEMENT, not a relearn: the
+    // fingerprint, the group and the interpretation all survive. Climbing while
+    // the model is untouched means the model-edit rule is firing on navigation
+    // and must be withdrawn.
     uint64_t modelEditReselects = 0;
     // The terms the last evaluated draw missed, one bit per fingerprint term, so
     // a refusal to adopt can be read rather than inferred.

@@ -42,6 +42,9 @@ uint32_t g_lastMissMask = 0;
 // `NoteModelRevision`.
 uint32_t g_modelRevision = 0;
 uint32_t g_fingerprintRevision = 0;
+// The model generation at which an edit made the locked occurrence suspect, or 0.
+// See `SuspectOccurrenceAfterModelEdit`.
+uint64_t g_occurrenceSuspectSince = 0;
 
 BindingStats g_binding;
 FingerprintDiagnosis g_diagnosis;
@@ -264,13 +267,45 @@ static void AdoptModelEdit (uint32_t indexCount)
     ++g_binding.modelEditRebinds;
 }
 
-// The occurrence moved as well, so there is nothing safe to adopt. Drop the
-// selection and let the census choose again from what it has measured.
-static void ReselectAfterModelEdit ()
+// ⚠️ AN EDIT MAKES THE OCCURRENCE SUSPECT; IT DOES NOT
+// MAKE THE CAMERA UNKNOWN. Dropping the selection sent the runtime to `Learning`,
+// and a fresh census selection needs MODEL FRAMES -- which do not arrive while
+// the user is looking at a still viewport. So an edit blanked the overlay until
+// something else happened to redraw the model: "manual move causes desync and
+// requires a wait or a new object in the scene", which is precisely what was
+// reported.
+//
+// ⚠️ SO WAIT FOR EVIDENCE INSTEAD OF GUESSING OR
+// DISCARDING. The index count is adopted immediately, because it has no rival
+// candidates. The occurrence is only marked SUSPECT: the pin keeps drawing, the
+// camera stays Locked, and nothing changes unless the OLD occurrence actually
+// stops appearing for `kOccurrenceGrace` model generations. Only then is the
+// occurrence of a fingerprint-matching draw taken -- by which point that draw has
+// demonstrated it is the family's live position rather than a rebuild artefact.
+//
+// That is what the two failed attempts were reaching for. Keeping the old index
+// forever left the camera stuck; taking the first post-edit draw's index gave
+// `occ136`; dropping the selection cost a relearn. Waiting two generations costs
+// two frames and needs no guess.
+static const uint64_t kOccurrenceGrace = 2;
+
+static void SuspectOccurrenceAfterModelEdit (uint32_t indexCount, uint64_t modelGeneration)
 {
+    if ((g_lastMissMask & (1u << kTermIndexCount)) != 0)
+        g_fingerprint.indexCount = indexCount;
     g_fingerprintRevision = g_modelRevision;
+    if (g_occurrenceSuspectSince == 0)
+        g_occurrenceSuspectSince = modelGeneration;
+}
+
+// The old occurrence has been silent long enough to be gone. Take the live one.
+static void AdoptSuspectOccurrence (uint32_t occurrence)
+{
+    g_fingerprint.occurrenceIndex = occurrence;
+    g_selection.occurrenceIndex = occurrence;
+    g_occurrenceSuspectSince = 0;
+    g_selectionLastSeenModel = 0;
     ++g_binding.modelEditReselects;
-    ClearSelection ();
 }
 
 static bool LooksLikeResize (const contextstate::ContextState& live)
@@ -335,6 +370,9 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
     if (MatchesSelection (live, occurrence)) {
         ++g_binding.selectionMatches;
         g_selectionLastSeenModel = modelGeneration;
+        // The pinned occurrence is still drawing, so whatever an edit did, it did
+        // not remove it. Nothing is suspect any more.
+        g_occurrenceSuspectSince = 0;
         return;
     }
     if (!MatchesFingerprint (live, kind, indexCount, occurrence)) {
@@ -353,10 +391,19 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         // THE ONE THAT CANNOT HEAL AND THE ONE THAT FROZE A LIVE SESSION.
         if (LooksLikeModelEdit ()) {
             if ((g_lastMissMask & (1u << kTermOccurrence)) != 0) {
-                ReselectAfterModelEdit ();
-                return;
+                SuspectOccurrenceAfterModelEdit (indexCount, modelGeneration);
+                // ⚠️ THE PIN IS STILL VALID UNTIL PROVEN
+                // OTHERWISE. Returning here keeps the camera Locked and the
+                // overlay drawing; only silence from the old occurrence moves it.
+                if (g_occurrenceSuspectSince == 0 || modelGeneration <= g_occurrenceSuspectSince + kOccurrenceGrace ||
+                    g_selectionLastSeenModel + kOccurrenceGrace >= modelGeneration) {
+                    return;
+                }
+                AdoptSuspectOccurrence (occurrence);
             }
-            AdoptModelEdit (indexCount);
+            else {
+                AdoptModelEdit (indexCount);
+            }
         }
         else if (LooksLikeResize (live)) {
             AdoptResize (live, occurrence);
