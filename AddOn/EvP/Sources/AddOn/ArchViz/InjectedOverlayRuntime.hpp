@@ -208,6 +208,15 @@ struct Health {
     std::string cameraSource;
     std::string armState;
     uint64_t logicalMatches = 0;
+    // ⚠️ HOW OFTEN THE PIN WAS RE-ACQUIRED, AND HOW OFTEN
+    // THAT WAS REFUSED. `MatchesSelection` compares COM pointers, so it breaks
+    // whenever Archicad rotates a buffer or recreates a target; the rebind is the
+    // repair, and `rebindsRefused` counts the times the staleness guard would not
+    // allow it yet. A run where snapshots stall while refusals climb is a
+    // throttle problem, not an identity problem, and the two need separating.
+    uint64_t rebinds = 0;
+    uint64_t rebindsRefused = 0;
+    uint64_t selectionMatches = 0;
     uint64_t authoritativeSnapshots = 0;
     uint64_t presentsSeen = 0;
 

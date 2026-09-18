@@ -849,6 +849,10 @@ Health GetHealth ()
     health.watchError = watch.lastError;
     health.modelEditRebinds = census.modelEditRebinds;
     health.modelEditReselects = census.modelEditReselects;
+    const cen::BindingStats binding = cen::GetBindingStats ();
+    health.rebinds = binding.rebinds;
+    health.rebindsRefused = binding.rebindsRefused;
+    health.selectionMatches = binding.selectionMatches;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;
