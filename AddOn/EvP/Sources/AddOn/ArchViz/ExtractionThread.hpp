@@ -137,6 +137,19 @@ class ExtractionWorker final {
         uint32_t total = 0;     // elements the model reported
         uint32_t extracted = 0; // elements that yielded geometry
         uint32_t empty = 0;     // elements with nothing drawable (ordinary)
+        // ⚠️ WHICH KINDS PRODUCED NOTHING, BECAUSE THE COUNT
+        // ALONE CANNOT TELL A 2D ELEMENT FROM A HOLE IN THE OVERLAY. A dimension
+        // or a label correctly yields no mesh; a morph or a railing yielding none
+        // is a whole element class missing from the reference wireframe. Slice
+        // local, merged under the pass mutex like every other counter here.
+        std::map<std::string, uint32_t> emptyByType;
+        // Merging belongs with the thing being merged into, not spelled out at
+        // every call site.
+        void MergeEmptyKinds (const std::map<std::string, uint32_t>& slice)
+        {
+            for (const auto& entry : slice)
+                emptyByType[entry.first] += entry.second;
+        }
         uint32_t pushed = 0;    // uploads handed to the queue
         uint32_t materials = 0; // surfaces in the pool
         uint64_t triangles = 0;

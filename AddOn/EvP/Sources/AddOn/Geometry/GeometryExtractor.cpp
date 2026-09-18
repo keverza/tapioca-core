@@ -356,6 +356,65 @@ std::string ElementGuidAt (const ModelerAPI::Model& model, int32_t index1Based)
     return ElemGuidString (elem);
 }
 
+std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Based)
+{
+    if (index1Based < 1 || index1Based > model.GetElementCount ())
+        return "none";
+
+    ModelerAPI::Element elem;
+    model.GetElement (static_cast<Int32> (index1Based), &elem);
+
+    API_Elem_Head header = {};
+    header.guid = GSGuid2APIGuid (elem.GetElemGuid ());
+    if (ACAPI_Element_GetHeader (&header) != NoError)
+        return "unknown";
+
+    switch (header.type.typeID) {
+        case API_WallID:
+            return "wall";
+        case API_SlabID:
+            return "slab";
+        case API_RoofID:
+            return "roof";
+        case API_ShellID:
+            return "shell";
+        case API_MeshID:
+            return "mesh";
+        case API_MorphID:
+            return "morph";
+        case API_BeamID:
+            return "beam";
+        case API_ColumnID:
+            return "column";
+        case API_ObjectID:
+            return "object";
+        case API_RailingID:
+            return "railing";
+        case API_StairID:
+            return "stair";
+        case API_CurtainWallID:
+            return "curtainwall";
+        case API_ZoneID:
+            return "zone";
+        // ⚠️ THESE FOUR ARE 2D AND PRODUCING NO MESH IS
+        // CORRECT. Naming them is the point: it is what separates "ordinary" from
+        // "a gap" in the count.
+        case API_DimensionID:
+            return "dimension";
+        case API_TextID:
+            return "text";
+        case API_LabelID:
+            return "label";
+        case API_HatchID:
+            return "fill";
+        default:
+            break;
+    }
+    char other[24] = {};
+    snprintf (other, sizeof (other), "type%d", int (header.type.typeID));
+    return other;
+}
+
 void ExpandElementAndParts (const API_Guid& guid, std::set<std::string>& out)
 {
     // One implementation, two callers: selection-scoped extraction and live

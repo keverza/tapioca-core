@@ -2,6 +2,7 @@
 #include "ACAPinc.h"
 
 #include "ArchViz/ExtractionThread.hpp"
+#include "ArchViz/ExtractionReport.hpp"
 #include "ArchViz/ArchVizLog.hpp"            // ArchVizLog
 #include "ArchViz/ExtractionEnvironment.hpp" // ReadMaterials, ReadEnvironment
 #include "ArchViz/ExtractionSubstance.hpp"   // ReadProjectSubstances, ObserveElementSubstances
@@ -86,6 +87,17 @@ constexpr size_t MaxPendingBytes = 96u * 1024u * 1024u;
 struct SliceState {
     std::atomic<int32_t> next { 1 }; // 1-BASED: ModelerAPI indices are
     std::atomic<uint32_t> empty { 0 };
+    // Slice local and touched only by the slice's own main-thread body, so a
+    // plain map is correct here where `empty` needs an atomic. Merged into
+    // `Progress::emptyByType` under the pass mutex.
+    std::map<std::string, uint32_t> emptyByType;
+    // ⚠️ ONE CALL, TWO FACTS: it drew nothing, and it was a
+    // <kind>. The count alone cannot tell a dimension from a missing morph.
+    void NoteEmpty (std::string kind)
+    {
+        empty.fetch_add (1);
+        ++emptyByType[std::move (kind)];
+    }
     std::atomic<int64_t> holdMs { 0 };
     std::atomic<bool> completed { false };
     std::vector<Mesh> meshes;
@@ -269,11 +281,7 @@ void ExtractionWorker::Run (Options opt)
         // re-extraction, so leaving the loop running with nothing armed would
         // re-extract the whole model forever. One pass, then stop, and say so.
         if (!opt.armObservers) {
-            ArchVizLog ("extraction: live sync is running as a SINGLE PASS — per-element "
-                        "change observers are disabled because attaching them writes a link "
-                        "into the project database and makes Archicad autosave continuously "
-                        "(PLAT-RE68). The scene will not follow edits; reopen the viewer to "
-                        "refresh it.");
+            extractionreport::SinglePassNotice ();
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.phase = "one pass (live refresh disabled: see archviz.log)";
         }
@@ -317,6 +325,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         // just started every time a wall moved.
         std::lock_guard<std::mutex> lock (mutex_);
         progress_.total = progress_.extracted = progress_.empty = progress_.pushed = 0;
+        progress_.emptyByType.clear ();
         progress_.triangles = 0;
         progress_.slices = 0;
         progress_.longestHoldMs = progress_.longestRoundTripMs = 0;
@@ -532,7 +541,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                         if (ExtractElementAt (*model, i, mesh))
                             st->meshes.push_back (std::move (mesh));
                         else
-                            st->empty.fetch_add (1); // a 2D-only element, ordinary
+                            st->NoteEmpty (ElementTypeNameAt (*model, i));
                     }
                     else {
                         // ⚠️ THE GUID FIRST, THE GEOMETRY ONLY IF IT MATCHES.
@@ -547,7 +556,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
                             if (ExtractElementAt (*model, i, mesh))
                                 st->meshes.push_back (std::move (mesh));
                             else
-                                st->empty.fetch_add (1);
+                                st->NoteEmpty (ElementTypeNameAt (*model, i));
                             st->matched.push_back (guid);
                         }
                     }
@@ -623,6 +632,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
             std::lock_guard<std::mutex> lock (mutex_);
             progress_.extracted += uint32_t (st->meshes.size ());
             progress_.empty += st->empty.load ();
+            progress_.MergeEmptyKinds (st->emptyByType);
             progress_.pushed += pushed;
             progress_.triangles += triangles;
             ++progress_.slices;
@@ -676,11 +686,8 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         int named = 0;
         SceneCmdQueue::Get ().PushMaterials (BuildSubstanceTable (surfaces, observations, substanceMemory_, named));
 
-        ArchVizLog ("extraction: substance join - " + std::to_string (named) + "/" + std::to_string (surfaces.size ()) +
-                    " surfaces named from " + std::to_string (substances->classified) + "/" +
-                    std::to_string (substances->total) + " classified building materials, " +
-                    std::to_string (observations.size ()) + " observations" +
-                    (substances->error.empty () ? std::string () : std::string (" (") + substances->error + ")"));
+        extractionreport::SubstanceJoin (named, surfaces.size (), substances->classified, substances->total,
+                                         observations.size (), substances->error);
     }
 
     // ---- the storey slices --------------------------------------------------
@@ -713,14 +720,7 @@ bool ExtractionWorker::RunPass (const Options& opt, bool full, const std::set<st
         if (progress_.phase == "extracting" || progress_.phase == "re-extracting")
             progress_.phase = progress_.done ? "idle" : "stopped";
 
-        ArchVizLog ("extraction: " + progress_.phase + (partial ? " (partial)" : " (full)") + " - " +
-                    std::to_string (progress_.pushed) + "/" +
-                    std::to_string (partial ? filter.size () : (size_t) progress_.total) + " elements, " +
-                    std::to_string (removed) + " removed, " + std::to_string (progress_.triangles) + " triangles, " +
-                    std::to_string (progress_.materials) + " surfaces, " + std::to_string (progress_.slices) +
-                    " slices, longest hold " + std::to_string (progress_.longestHoldMs) + " ms, acquire " +
-                    std::to_string (progress_.acquireMs) + " ms, total " + std::to_string (progress_.elapsedMs) +
-                    " ms");
+        extractionreport::Pass (progress_, partial, partial ? filter.size () : (size_t) progress_.total, removed);
     }
     return true;
 }

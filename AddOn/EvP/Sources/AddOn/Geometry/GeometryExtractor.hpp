@@ -6,7 +6,9 @@
 #include <set>
 #include <string>
 
-namespace ModelerAPI { class Model; }
+namespace ModelerAPI {
+class Model;
+}
 
 // MAIN THREAD ONLY. Walks the current 3D model and produces an immutable
 // Snapshot of per-element triangle meshes in world meters.
@@ -56,6 +58,22 @@ int32_t ModelElementCount (const ModelerAPI::Model& model);
 // is.
 // MAIN THREAD ONLY.
 bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh& mesh);
+
+// MAIN THREAD, beside `ExtractElementAt`: what KIND of element sits at this
+// index. A short lowercase name -- "wall", "slab", "railing" -- or "type<N>" for
+// one this does not spell.
+//
+// ⚠️ `pushed < total` IS NOT A COVERAGE REPORT AND MUST NOT
+// BE READ AS ONE. A pass reporting 13 of 18 says five elements produced no mesh
+// and NOTHING about whether that is a gap: a dimension, a label, a fill and a
+// zone stamp are 2D and correctly produce nothing, while a missing morph or
+// railing would be a real hole in the overlay. The two are indistinguishable
+// until the TYPE is recorded, and guessing between them is how an overlay ships
+// with a whole element class invisible.
+//
+// Costs one `ACAPI_Element_GetHeader` per element that produced no mesh, which
+// is by definition the small set.
+std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Based);
 
 // The GUID of the element at a 1-based index, WITHOUT tessellating it.
 //
