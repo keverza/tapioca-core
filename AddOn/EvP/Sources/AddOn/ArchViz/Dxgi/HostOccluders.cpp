@@ -59,6 +59,9 @@ struct Snapshot {
     std::vector<uint32_t> indices;            // OPAQUE only: what occludes
     std::vector<uint32_t> transparentIndices; // glass and helpers: drawn, never occluding
     std::vector<uint32_t> lineIndices;        // feature edges of BOTH, see `EndBatch`
+    // Expanded {position, normalA, normalB} pairs: curved edges whose outline is
+    // decided per frame. See `kCoplanarCosine`.
+    std::vector<float> silhouette;
     bool frontCounterClockwise = true;
     bool windingKnown = false;
 };
@@ -71,6 +74,7 @@ ID3D11Buffer* g_vertexBuffer = nullptr;
 ID3D11Buffer* g_scalarBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
 ID3D11Buffer* g_lineBuffer = nullptr;
+ID3D11Buffer* g_silhouetteBuffer = nullptr;
 ID3D11VertexShader* g_vsVariant[camerashader::kDeclarableVariants] = {};
 ID3D11InputLayout* g_layout = nullptr;
 ID3D11DepthStencilState* g_writeDepth = nullptr;
@@ -83,6 +87,7 @@ D3D11_TEXTURE2D_DESC g_depthDesc = {};
 
 uint32_t g_uploadedIndices = 0;
 uint32_t g_uploadedLineIndices = 0;
+uint32_t g_uploadedSilhouetteVertices = 0;
 bool g_created = false;
 bool g_createFailed = false;
 Stats g_stats;
@@ -112,6 +117,27 @@ constexpr double kWeldGrid = 1e4; // 0.1 mm
 // degrees: a mitred corner survives, a triangulated flat wall does not.
 constexpr float kCreaseCosine = 0.94f;
 
+// ⚠️ AND ABOVE THIS, THE TWO FACES ARE THE SAME PLANE AND
+// THE EDGE IS TESSELLATION. Between the two numbers lies a CURVED surface: a
+// cylinder segmented 24 ways bends 15 degrees per facet, which is nowhere near a
+// crease and nowhere near flat. Those edges are silhouette CANDIDATES -- drawn
+// only from the directions where one of their faces points away from the eye.
+//
+// ⚠️ THIS IS WHY A COLUMN ARRIVED AS TWO CIRCLES AND
+// NOTHING ELSE. Every edge down the side of a cylinder is below the crease
+// threshold, so the only edges that qualified were the cap rings at 90 degrees.
+// Lowering `kCreaseCosine` until the sides appeared would draw EVERY facet
+// boundary -- a barrel of longitudinal lines, which is the lattice this overlay
+// exists not to be. The outline of a curved surface is not a property of the
+// geometry; it depends on where you are standing, so it is decided per frame on
+// the GPU and not here.
+constexpr float kCoplanarCosine = 0.9999f;
+
+// Two endpoints per candidate edge, nine floats each (position and both face
+// normals). A ceiling like `kMaxVertices`, for the same reason, and overflow is
+// counted rather than wrapped.
+constexpr uint32_t kMaxSilhouetteEdges = 400u * 1000u;
+
 uint64_t WeldKey (const float* xyz)
 {
     // Three quantised axes folded into one integer. Collisions are possible in
@@ -130,6 +156,11 @@ uint64_t WeldKey (const float* xyz)
 struct EdgeRecord {
     uint32_t a = 0, b = 0; // representative indices, for the line list
     float normal[3] = {};  // the first adjacent face
+    // ⚠️ AND THE SECOND, WHICH THE CREASE TEST NEVER
+    // NEEDED. A dihedral angle is one number and `fabs (dot)` was enough for it.
+    // A silhouette is a question about BOTH faces and the eye -- "does exactly
+    // one of them face me" -- so both normals have to survive to the draw.
+    float second[3] = {};
     uint32_t faces = 0;
     bool crease = false;
 };
@@ -138,9 +169,10 @@ struct EdgeRecord {
 // edges: every edge used by exactly one triangle, plus every edge whose two
 // triangles disagree by more than `kCreaseCosine`.
 void BuildFeatureEdges (const std::vector<float>& positions, const std::vector<uint32_t>& indices,
-                        std::vector<uint32_t>& out, uint32_t& consideredOut)
+                        std::vector<uint32_t>& out, std::vector<float>& silhouetteOut, uint32_t& consideredOut)
 {
     out.clear ();
+    silhouetteOut.clear ();
     consideredOut = 0;
     const size_t vertexCount = positions.size () / 3;
     if (vertexCount == 0 || indices.size () < 3)
@@ -193,6 +225,11 @@ void BuildFeatureEdges (const std::vector<float>& positions, const std::vector<u
             }
             EdgeRecord& record = found->second;
             ++record.faces;
+            if (record.faces == 2) {
+                record.second[0] = n[0];
+                record.second[1] = n[1];
+                record.second[2] = n[2];
+            }
             if (length > 1e-12f) {
                 const float dot = record.normal[0] * n[0] + record.normal[1] * n[1] + record.normal[2] * n[2];
                 // ⚠️ THE ABSOLUTE VALUE, because extracted winding is
@@ -214,6 +251,30 @@ void BuildFeatureEdges (const std::vector<float>& positions, const std::vector<u
         if (record.faces == 1 || record.faces > 2 || record.crease) {
             out.push_back (record.a);
             out.push_back (record.b);
+            continue;
+        }
+        // ⚠️ EXACTLY TWO FACES, NOT A CREASE, AND NOT
+        // COPLANAR: A CURVED SURFACE. Carrying the whole edge rather than an
+        // index, because the two face normals belong to the EDGE and a shared
+        // vertex has as many of them as it has edges -- an index buffer cannot
+        // express that without splitting every vertex anyway.
+        const float same = std::fabs (record.normal[0] * record.second[0] + record.normal[1] * record.second[1] +
+                                      record.normal[2] * record.second[2]);
+        if (same >= kCoplanarCosine || silhouetteOut.size () >= size_t (kMaxSilhouetteEdges) * 18)
+            continue;
+        const uint32_t ends[2] = { record.a, record.b };
+        for (const uint32_t end : ends) {
+            const float* const p = &positions[size_t (end) * 3];
+            const float vertex[9] = { p[0],
+                                      p[1],
+                                      p[2],
+                                      record.normal[0],
+                                      record.normal[1],
+                                      record.normal[2],
+                                      record.second[0],
+                                      record.second[1],
+                                      record.second[2] };
+            silhouetteOut.insert (silhouetteOut.end (), vertex, vertex + 9);
         }
     }
 }
@@ -357,6 +418,11 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     // Sizing it the same is the cheapest bound that is certainly enough.
     ok = ok && SUCCEEDED (g_device->CreateBuffer (&indexDesc, nullptr, &g_lineBuffer));
 
+    // Nine floats per vertex, two vertices per candidate edge.
+    D3D11_BUFFER_DESC silhouetteDesc = vertexDesc;
+    silhouetteDesc.ByteWidth = UINT (sizeof (float) * 9 * 2 * kMaxSilhouetteEdges);
+    ok = ok && SUCCEEDED (g_device->CreateBuffer (&silhouetteDesc, nullptr, &g_silhouetteBuffer));
+
     if (!ok) {
         if (g_stats.lastError[0] == 0)
             Fail ("the host occluder pipeline could not be created");
@@ -453,10 +519,13 @@ bool TakeAndUpload (ID3D11DeviceContext* context)
         Upload (context, g_scalarBuffer, snapshot->scalars.data (), sizeof (float) * snapshot->scalars.size ()) &&
         Upload (context, g_indexBuffer, snapshot->indices.data (), sizeof (uint32_t) * snapshot->indices.size ()) &&
         Upload (context, g_lineBuffer, snapshot->lineIndices.data (),
-                sizeof (uint32_t) * snapshot->lineIndices.size ());
+                sizeof (uint32_t) * snapshot->lineIndices.size ()) &&
+        Upload (context, g_silhouetteBuffer, snapshot->silhouette.data (),
+                sizeof (float) * snapshot->silhouette.size ());
     if (ok) {
         g_uploadedIndices = uint32_t (snapshot->indices.size ());
         g_uploadedLineIndices = uint32_t (snapshot->lineIndices.size ());
+        g_uploadedSilhouetteVertices = uint32_t (snapshot->silhouette.size () / 9);
         g_stats.vertices = uint32_t (snapshot->positions.size () / 3);
         g_stats.indices = g_uploadedIndices;
         g_stats.triangles = g_uploadedIndices / 3;
@@ -659,7 +728,9 @@ void EndBatch ()
     // would draw the seam twice and mark it a boundary in both.
     std::vector<uint32_t> edgeInput = g_building->indices;
     edgeInput.insert (edgeInput.end (), g_building->transparentIndices.begin (), g_building->transparentIndices.end ());
-    BuildFeatureEdges (g_building->positions, edgeInput, g_building->lineIndices, g_stats.edgesConsidered);
+    BuildFeatureEdges (g_building->positions, edgeInput, g_building->lineIndices, g_building->silhouette,
+                       g_stats.edgesConsidered);
+    g_stats.publishedSilhouetteVertices = uint32_t (g_building->silhouette.size () / 9);
     g_stats.publishedLines = uint32_t (g_building->lineIndices.size () / 2);
 
     g_stats.publishedVertices = uint32_t (g_building->positions.size () / 3);
@@ -778,6 +849,8 @@ HostGeometry GetGeometry ()
     geometry.indexCount = g_uploadedIndices;
     geometry.lines = g_lineBuffer;
     geometry.lineIndexCount = g_uploadedLineIndices;
+    geometry.silhouette = g_silhouetteBuffer;
+    geometry.silhouetteVertexCount = g_uploadedSilhouetteVertices;
     geometry.frontCounterClockwise = g_stats.frontCounterClockwise;
     geometry.windingKnown = g_stats.windingKnown;
     geometry.valid = true;
@@ -817,6 +890,7 @@ void Shutdown ()
     for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
     ReleaseAndNull (g_lineBuffer);
+    ReleaseAndNull (g_silhouetteBuffer);
     ReleaseAndNull (g_indexBuffer);
     ReleaseAndNull (g_scalarBuffer);
     ReleaseAndNull (g_vertexBuffer);

@@ -113,6 +113,12 @@ struct Health {
     uint64_t overlayCulled = 0;
     uint64_t skippedStaleCamera = 0;
     uint32_t linesDrawn = 0;
+    // ⚠️ CREASE EDGES AND CURVED EDGES ARE DIFFERENT
+    // NUMBERS AND ONE CANNOT STAND FOR THE OTHER. A model of round columns has
+    // almost no creases and a great many curved edges; a model of flat walls is
+    // the reverse. Reporting only `linesDrawn` made a building of cylinders read
+    // as an overlay that had nothing to draw.
+    uint32_t silhouetteEdges = 0;
 
     // ⚠️ THE TWO RECTANGLES, BECAUSE THEIR DIFFERENCE IS THE
     // DESYNC. See `InjectionStats`: equal is healthy, different means the overlay

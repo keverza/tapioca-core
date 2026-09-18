@@ -195,6 +195,20 @@ struct HostGeometry {
     ID3D11Buffer* lines = nullptr; // R32_UINT, line list
     uint32_t lineIndexCount = 0;
 
+    // ⚠️ THE OUTLINE OF A CURVED SURFACE IS NOT IN THE
+    // GEOMETRY. A cylinder has no crease down its side -- every facet boundary is
+    // 15 degrees on a 24-segment column -- so the feature edges above find its two
+    // cap rings and nothing else, and a column arrives as two circles floating in
+    // space. Which side of it you can see depends on where you are standing, so
+    // it is decided per frame, in the vertex shader, from the two adjacent face
+    // normals this buffer carries beside each position.
+    //
+    // NOT indexed: the normals belong to the EDGE, and a vertex shared by several
+    // curved edges has a different pair for each. Nine floats per vertex, two
+    // vertices per edge, drawn as a plain line list.
+    ID3D11Buffer* silhouette = nullptr;
+    uint32_t silhouetteVertexCount = 0;
+
     bool valid = false;
 
     // ⚠️ WHICH WAY THE EXTRACTION WINDS ITS TRIANGLES, MEASURED
@@ -250,8 +264,11 @@ struct Stats {
     uint32_t publishedVertices = 0;
     uint32_t publishedIndices = 0;
     uint32_t publishedTriangles = 0;
-    uint32_t publishedLines = 0;  // feature edges; see `HostGeometry::lines`
-    uint32_t edgesConsidered = 0; // unique welded edges, before the crease test
+    uint32_t publishedLines = 0;
+    // Curved edges offered to the per-frame test. How many of them DRAW is a
+    // property of the camera and changes every frame, so it is not counted here.
+    uint32_t publishedSilhouetteVertices = 0; // feature edges; see `HostGeometry::lines`
+    uint32_t edgesConsidered = 0;             // unique welded edges, before the crease test
 
     // ⚠️ WHERE THE BUILDING IS, WHICH IS THE ONLY RELIABLE ANCHOR FOR
     // THE CAMERA CENSUS. The census scores candidates by projecting a world-space

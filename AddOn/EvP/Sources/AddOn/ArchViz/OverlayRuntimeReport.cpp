@@ -122,13 +122,13 @@ void Live (const Health& health)
     const uint64_t compose = health.overlayDraws;
     char line[420] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
+                 "%s present+%llu compose+%llu lines=%u curved=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
                  "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
                  "mismatch+%llu cam(new+%llu repeat+%llu LATE+%llu) "
                  "age(0=%llu 1=%llu 2=%llu 3+=%llu max=%u of %llu) suppressed+%llu redraw=%llu",
                  compose > g_mark.compose ? "composing" : "NOT COMPOSING",
                  (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
-                 health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
+                 health.linesDrawn, health.silhouetteEdges, health.hostOpaqueTriangles, CameraStateName (health.camera),
                  health.acceptedViewportWidth, health.acceptedViewportHeight, health.targetWidth, health.targetHeight,
                  health.composeDepthWidth, health.composeDepthHeight, (unsigned long long) health.resizeRebinds,
                  health.lastMissMask, (unsigned long long) (health.skippedStaleCamera - g_mark.stale),

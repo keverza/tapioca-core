@@ -838,6 +838,7 @@ Health GetHealth ()
     health.overlayNoCamera = overlayStats.skippedNoCamera;
     health.overlayCulled = overlayStats.culledPasses;
     health.linesDrawn = overlayStats.linesDrawn;
+    health.silhouetteEdges = overlayStats.silhouetteCandidates;
     health.skippedStaleCamera = injectionStats.skippedStaleCamera;
     health.acceptedViewportWidth = injectionStats.acceptedViewportWidth;
     health.acceptedViewportHeight = injectionStats.acceptedViewportHeight;

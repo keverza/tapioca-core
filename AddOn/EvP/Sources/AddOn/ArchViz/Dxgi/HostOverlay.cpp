@@ -77,6 +77,44 @@ const char* const kWireframeBody = "float4 VSWire (float3 position : POSITION) :
                                    "    return float4 (0.35, 0.95, 1.00, 1.0);\n"
                                    "}\n";
 
+// ⚠️ THE ONLY SHADER HERE THAT DECIDES WHETHER TO DRAW AT ALL.
+// A silhouette edge is one whose two adjacent faces disagree about facing the
+// eye, which is a question about the CAMERA and cannot be answered where the
+// geometry is built. Both face normals ride in with the vertex; the test is a
+// sign product, and a vertex that fails it is pushed behind the near plane where
+// the clipper discards it.
+//
+// ⚠️ THE SIGN PRODUCT IS WHY HANDEDNESS DOES NOT MATTER.
+// `sa * sb < 0` is unchanged if the view direction is negated, so nothing here
+// depends on whether Archicad looks down +z or -z -- which is just as well,
+// because the census measures the matrix LAYOUT and has never had to measure
+// that. Both endpoints of an edge carry the same pair of normals, so both reach
+// the same verdict and a rejected edge collapses whole.
+//
+// ⚠️ AND ORTHOGRAPHIC IS DETECTED FROM `w`, NOT FROM THE
+// PROJECTION MATRIX. A parallel projection leaves `w == 1` for every vertex and
+// a perspective one puts view depth there. Reading that is convention-free;
+// picking apart `Projection` to find the same fact would need to know its layout
+// AND its handedness. Under a parallel projection every point is seen along the
+// same direction, so the eye vector is the view axis rather than the position.
+const char* const kSilhouetteBody =
+    "float4 VSSil (float3 position : POSITION, float3 na : NORMAL0, float3 nb : NORMAL1) : SV_POSITION\n"
+    "{\n"
+    "    float4 v = mul (float4 (position, 1.0), View);\n"
+    "    float4 p = mul (v, Projection);\n"
+    "    float3 toEye = abs (p.w - 1.0) < 1e-4 ? float3 (0.0, 0.0, 1.0) : v.xyz;\n"
+    "    float sa = dot (mul (float4 (na, 0.0), View).xyz, toEye);\n"
+    "    float sb = dot (mul (float4 (nb, 0.0), View).xyz, toEye);\n"
+    "    if (sa * sb > 0.0)\n"
+    "        return float4 (0.0, 0.0, -2.0, 1.0);\n"
+    "    p.z -= DepthBias * p.w;\n"
+    "    return p;\n"
+    "}\n"
+    "float4 PSSil (float4 position : SV_POSITION) : SV_TARGET\n"
+    "{\n"
+    "    return float4 (0.35, 0.95, 1.00, 1.0);\n"
+    "}\n";
+
 // ⚠️ `DepthBias` IS A LITERAL BAKED INTO THE SOURCE, NOT A CONSTANT BUFFER.
 // b0, b1 and b2 all belong to Archicad on this path, and taking a fourth slot
 // would mean saving and restoring it around a draw that runs inside Archicad's
@@ -92,6 +130,7 @@ struct Pipeline {
 
 Pipeline g_heatmap;
 Pipeline g_wireframe;
+Pipeline g_silhouette;
 
 ID3D11Device* g_device = nullptr;
 ID3D11RasterizerState* g_solidRaster = nullptr;
@@ -238,6 +277,16 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     ok = ok && BuildPipeline (g_wireframe, kWireframeBody, overlay::kHostWireframeDepthBias, "VSWire", "PSWire",
                               wireElements, 1, "TapiocaHostWireframe");
 
+    // One interleaved stream: the position, then the two adjacent face normals
+    // the per-frame test needs. See `kSilhouetteBody`.
+    const D3D11_INPUT_ELEMENT_DESC silhouetteElements[3] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 1, DXGI_FORMAT_R32G32B32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    ok = ok && BuildPipeline (g_silhouette, kSilhouetteBody, overlay::kHostWireframeDepthBias, "VSSil", "PSSil",
+                              silhouetteElements, 3, "TapiocaHostSilhouette");
+
     D3D11_RASTERIZER_DESC raster = {};
     raster.FillMode = D3D11_FILL_SOLID;
     // ⚠️ NO CULLING, FOR THE SAME REASON THE OCCLUDER DOES NOT CULL: extracted
@@ -344,6 +393,38 @@ void DrawPass (ID3D11DeviceContext* context, const Pipeline& pipeline, const hos
     context->DrawIndexed (heatmap ? geometry.indexCount : geometry.lineIndexCount, 0, 0);
 }
 
+// ⚠️ THE SAME DEPTH STATE AND THE SAME OPACITY AS THE
+// EDGE PASS IT ACCOMPANIES, because it is the same wireframe. A curved outline
+// occluded differently from the creases meeting it would break at every join
+// between a flat face and a round one -- which on a column is the rim of the
+// cap, the first edge a viewer checks.
+void DrawSilhouettePass (ID3D11DeviceContext* context, const hostocclusion::HostGeometry& geometry, uint32_t variant,
+                         ID3D11DepthStencilState* depthState, ID3D11RasterizerState* raster, float opacity)
+{
+    if (geometry.silhouette == nullptr || geometry.silhouetteVertexCount == 0)
+        return;
+    if (g_silhouette.vs[variant] == nullptr || g_silhouette.ps == nullptr || g_silhouette.layout == nullptr)
+        return;
+
+    const UINT stride = sizeof (float) * 9;
+    const UINT offset = 0;
+    context->IASetInputLayout (g_silhouette.layout);
+    context->IASetVertexBuffers (0, 1, &geometry.silhouette, &stride, &offset);
+    // ⚠️ NOT INDEXED, AND THE INDEX BUFFER IS UNBOUND
+    // RATHER THAN LEFT BEHIND. `Draw` ignores it, but whatever runs next is
+    // indexed and would inherit it.
+    context->IASetIndexBuffer (nullptr, DXGI_FORMAT_R32_UINT, 0);
+    context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+    context->VSSetShader (g_silhouette.vs[variant], nullptr, 0);
+    context->PSSetShader (g_silhouette.ps, nullptr, 0);
+    context->OMSetDepthStencilState (depthState, 0);
+    context->RSSetState (raster);
+
+    const FLOAT factor[4] = { opacity, opacity, opacity, opacity };
+    context->OMSetBlendState (g_blendOpacity, factor, 0xffffffffu);
+    context->Draw (geometry.silhouetteVertexCount, 0);
+}
+
 } // namespace
 
 void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation, Kind kind,
@@ -361,7 +442,11 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     }
     // A model whose every edge is interior tessellation has no outline to draw,
     // and an index count of zero is a draw call for nothing.
-    if (kind == Kind::Wireframe && geometry.lineIndexCount == 0) {
+    // ⚠️ AND A CURVED MODEL CAN HAVE NO CREASE EDGES AT
+    // ALL. A sphere, or a run of round columns, produces cap rings and silhouette
+    // candidates and nothing else -- so refusing on `lineIndexCount == 0` alone
+    // would skip exactly the geometry the silhouette pass was added for.
+    if (kind == Kind::Wireframe && geometry.lineIndexCount == 0 && geometry.silhouetteVertexCount == 0) {
         ++g_stats.skippedNoEdges;
         return;
     }
@@ -403,6 +488,9 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     if (style.hiddenOpacity > 0.0f && depthView != nullptr) {
         DrawPass (context, pipeline, geometry, variant, heatmap, g_testGreaterNoWrite, raster,
                   style.opacity * style.hiddenOpacity);
+        if (!heatmap)
+            DrawSilhouettePass (context, geometry, variant, g_testGreaterNoWrite, raster,
+                                style.opacity * style.hiddenOpacity);
         ++g_stats.hiddenPassDraws;
     }
 
@@ -412,6 +500,8 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     // to fifty-one spent themselves on.
     const bool occlude = style.hostOcclusion != overlay::HostOcclusionMode::None && depthView != nullptr;
     DrawPass (context, pipeline, geometry, variant, heatmap, occlude ? g_testNoWrite : g_noTest, raster, style.opacity);
+    if (!heatmap)
+        DrawSilhouettePass (context, geometry, variant, occlude ? g_testNoWrite : g_noTest, raster, style.opacity);
 
     if (heatmap)
         ++g_stats.heatmapDraws;
@@ -419,6 +509,7 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
         ++g_stats.wireframeDraws;
     g_stats.trianglesDrawn = geometry.indexCount / 3;
     g_stats.linesDrawn = geometry.lineIndexCount / 2;
+    g_stats.silhouetteCandidates = geometry.silhouetteVertexCount / 2;
 }
 
 void SetEnabled (Kind kind, bool enabled)

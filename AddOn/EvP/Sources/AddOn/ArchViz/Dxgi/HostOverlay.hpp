@@ -92,6 +92,10 @@ struct Stats {
     uint64_t skippedNoCamera = 0;
     uint32_t trianglesDrawn = 0;
     uint32_t linesDrawn = 0;
+    // Curved edges OFFERED to the per-frame test. How many of them survive it is
+    // a property of where the camera is, changes every frame, and is deliberately
+    // not counted: a number that moves while nothing is wrong teaches nothing.
+    uint32_t silhouetteCandidates = 0;
     bool ready = false;
     char lastError[160] = {};
 };
