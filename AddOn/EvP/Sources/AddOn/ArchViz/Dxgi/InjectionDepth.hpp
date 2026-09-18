@@ -110,23 +110,22 @@ Mode GetMode ();
 // (stage 11b) and the census needing a hand-typed anchor (stage 11c): a
 // production path quietly depending on a diagnostic having run first.
 //
-// ⚠️ AND THE FIRST FIX DID NOT WORK WHILE LOOKING LIKE IT HAD.
-// `CaptureBoundSceneView` was added at Present so the capture would be owned by
-// the compose path -- but AT PRESENT ARCHICAD HAS ONLY THE BACK BUFFER BOUND.
-// The call found no depth view, returned silently, and the overlay went on
-// depending on the probe draw exactly as before; the comment here then asserted a
-// fix that the code did not deliver, which is worse than no comment. The caller
-// that works is `CameraCensus::OnDraw`, at the draw the authoritative camera
-// snapshot is taken from -- by construction the buffer the overlay must occlude
-// against. `captureNoDepth` counts the silent return, because a fourth silent
-// early return in this series is not an accident.
+// ⚠️ AND THE FIRST FIX DID NOT WORK WHILE LOOKING LIKE IT
+// HAD. A `CaptureBoundSceneView` was added at Present so the capture would be
+// owned by the compose path -- but AT PRESENT ARCHICAD HAS ONLY THE BACK BUFFER
+// BOUND. It found no depth view, returned silently, and the overlay went on
+// depending on the probe draw exactly as before, while the comment here asserted
+// a fix the code did not deliver. It has been deleted rather than repaired:
+// whatever is bound at Present is not the model's depth buffer, so a capture
+// there could only ever publish the wrong view or none.
+//
+// ⚠️ THE ONE CALLER IS `CameraCensus::OnDraw`, AT THE DRAW THE
+// AUTHORITATIVE CAMERA SNAPSHOT COMES FROM. That draw's depth buffer is by
+// construction the one the overlay must occlude against -- not a shadow map, not
+// a UI pass, not whatever happened to be bound last. Anything else publishing
+// here would clobber it.
 //
 void RetainSceneView (ID3D11DepthStencilView* view);
-
-// RENDER THREAD. Read whatever depth view is bound right now and publish it.
-// `InjectionRenderer` calls this on every Present, before it rebinds targets:
-// owning the capture here is what stops it being a side effect of a test.
-void CaptureBoundSceneView (ID3D11DeviceContext* context);
 
 // ANY THREAD. The retained view, so other diagnostics can tell a draw into the
 // model's depth buffer from a draw into somebody else's.
@@ -204,10 +203,8 @@ struct Stats {
     uint64_t viewBound = 0;
     uint64_t copies = 0;
     uint64_t noSceneView = 0;
-    uint64_t captureAttempts = 0; // `CaptureBoundSceneView` calls
-    uint64_t captureNoDepth = 0;  // ... that found nothing bound; see `RetainSceneView`
-    uint64_t copyRefused = 0;     // the source could not be copied from
-    uint64_t rebuilds = 0;        // the source description changed
+    uint64_t copyRefused = 0; // the source could not be copied from
+    uint64_t rebuilds = 0;    // the source description changed
     uint32_t width = 0, height = 0;
     uint32_t format = 0;
     uint32_t sampleCount = 0;

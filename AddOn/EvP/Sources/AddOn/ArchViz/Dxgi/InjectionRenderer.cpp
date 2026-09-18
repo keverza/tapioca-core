@@ -7,11 +7,13 @@
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
+#include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
+#include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
@@ -193,6 +195,9 @@ std::atomic<uint64_t> g_injectedScenePass { 0 };
 // until a NEW model scene supersedes it is what makes that possible; requiring a
 // camera from this very Present is what made it flicker.
 contextstate::SceneDrawState g_acceptedCamera;
+// The value of `census::BindingStats::resizeRelearns` when `g_acceptedCamera` was
+// taken. See the refusal in `InjectAtPresent`.
+uint64_t g_acceptedCameraResizeEpoch = 0;
 uint64_t g_lastInjectedModelGeneration = 0;
 
 std::atomic<uint64_t> g_newScene { 0 };
@@ -532,9 +537,6 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // occluding our geometry with nothing written back; `PrivateCopy` adds
     // depth WRITES into a texture we own, so ghost surfaces occlude each other
     // too -- and still not one write reaches Archicad's buffer.
-    // Publish Archicad's depth view; see `depth::RetainSceneView`.
-    depth::CaptureBoundSceneView (context);
-
     ID3D11DepthStencilView* depthView = nullptr;
     if (targetView != nullptr) {
         depthView = depth::PrepareForInjection (context);
@@ -608,65 +610,10 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
         oracle::EndTriangleQuery (context);
     }
 
-    // ---- the ghost mesh ----------------------------------------------------
-    // ⚠️ AFTER THE PROOF PRIMITIVES AND WITH THE SAME CAMERA, THE SAME
-    // DEPTH VIEW AND THE SAME DEPTH STATE. Everything that distinguishes this
-    // draw from the one above is the geometry itself, so if the triangle
-    // composites and the mesh does not, the fault is in the mesh and nowhere
-    // else. The pipeline behind it belongs to `GhostMesh`, which is why this is
-    // one line: a mesh bug cannot reach the instrument that would diagnose it.
-    // ⚠️ THREE OVERLAY KINDS, ONE CAMERA, ONE FRAME, AND THE ORDER
-    // IS THE POLICY. Solid first so its depth writes land; then the wireframe,
-    // which tests against those writes and adds none of its own, so it is hidden
-    // by a ghost cube but never by its own far edges; then the heatmap, biased
-    // towards the camera because it is coplanar with the surface it describes.
-    //
-    // ⚠️ AND THE DEPTH VIEW THEY TEST AGAINST IS SEEDED FROM THE HOST
-    // OCCLUDER, NOT BOUND AS A SECOND BUFFER. D3D11 binds one DSV; the inherited
-    // values are what hides the overlay behind the building and our own writes
-    // are what hides it behind itself.
-    // ⚠️ THE HOST OCCLUDER IS RENDERED FIRST AND THE OVERLAY DRAWS
-    // INTO ITS BUFFER. Opaque Archicad surfaces put their depth there; glass, the
-    // build plane and every helper contribute nothing, so they cannot hide the
-    // overlay -- which is the fault run forty-eight found and runs forty-nine to
-    // fifty-one narrowed to a six-index quad that does not even write depth.
-    //
-    // Falling back to `depthView` when there is no host snapshot means the
-    // overlay behaves exactly as it did before the extraction arrives, rather
-    // than becoming un-occludable without saying so.
-    ID3D11DepthStencilView* const hostView = hostocclusion::Prepare (context, context1, wanted);
-    ID3D11DepthStencilView* const overlayView = hostView != nullptr ? hostView : depthView;
-    if (targetView != nullptr)
-        context->OMSetRenderTargets (1, &targetView, overlayView);
-
-    // ⚠️ THE DRAW ORDER IS THE COMPOSITION; `HostOverlay.hpp` states
-    // it once and this is it. Solid ghost first because it is the only overlay
-    // that writes depth; host surfaces next; host edges last.
-    if (ghost::Prepare (context) > 0) {
-        ghost::DrawPart (context, wanted, ghost::Part::Solid, overlay::SolidGhostStyle (), overlayView);
-        // The synthetic wireframe box and gradient grid: stand-ins from before
-        // the host geometry existed, off by default. See `ghost::SetStandIns`.
-        if (ghost::StandIns ()) {
-            ghost::DrawPart (context, wanted, ghost::Part::Wireframe, overlay::WireframeStyle (), overlayView);
-            ghost::DrawPart (context, wanted, ghost::Part::Heatmap, overlay::HeatmapStyle (), overlayView);
-        }
-    }
-
-    if (hostView != nullptr) {
-        if (hostoverlay::Enabled (hostoverlay::Kind::Heatmap)) {
-            hostoverlay::Draw (context, context1, wanted, hostoverlay::Kind::Heatmap, overlay::HostHeatmapStyle (),
-                               overlayView);
-        }
-        if (hostoverlay::Enabled (hostoverlay::Kind::Wireframe)) {
-            hostoverlay::Draw (context, context1, wanted, hostoverlay::Kind::Wireframe, overlay::HostWireframeStyle (),
-                               overlayView);
-        }
-    }
-
-    // Collect any checkpoint occlusion results that became ready. The
-    // diagnostic is disarmed by default and this costs one branch; see
-    // DepthCheckpoints.hpp for what it answered and why it is off.
-    checkpoints::Resolve (context);
+    // ⚠️ WHAT THE OVERLAY IS MADE OF, AND IN WHAT ORDER, IS
+    // NOT THIS FILE'S BUSINESS ANY MORE. See Dxgi/OverlayComposer.hpp: the host
+    // occluder, the draw order and the depth policy moved there whole.
+    overlaycompose::Compose (context, context1, wanted, targetView, depthView);
 
     // ⚠️ NOTHING IS PUT BACK BY HAND ANY MORE. The guard's
     // destructor restores every binding and releases every reference it took,
@@ -759,6 +706,7 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         // NEW_SCENE: the model was re-rendered since we last drew, and it came
         // with its own camera. Take it.
         g_acceptedCamera = fresh;
+        g_acceptedCameraResizeEpoch = census::GetBindingStats ().resizeRelearns;
         g_lastInjectedModelGeneration = fresh.modelSceneGeneration;
         g_newScene.fetch_add (1, std::memory_order_relaxed);
         state = oracle::FrameState::NewScene;
@@ -794,6 +742,21 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
             g_invalidNoDrawThisGeneration.fetch_add (1, std::memory_order_relaxed);
         }
         draw = true;
+    }
+
+    // ⚠️ AND FAIL CLOSED ACROSS A RESIZE, WHICH IS THE HALF
+    // THE RE-LEARN DOES NOT COVER. The viewport is part of the fingerprint, so a
+    // resize drops the selection -- but `g_acceptedCamera` is still valid and
+    // still numerically fine, and REPEAT_SCENE would happily keep drawing with it
+    // for every frame until a new camera is locked. What the user sees is the
+    // overlay pinned to the old window rectangle: "no longer on top of geometry
+    // but in a random place". Drawing nothing is the honest answer to a question
+    // whose answer is out of date.
+    //
+    // Same thread as the detour that increments it, so a plain read is enough.
+    if (draw && census::GetBindingStats ().resizeRelearns != g_acceptedCameraResizeEpoch) {
+        g_skipStaleCamera.fetch_add (1, std::memory_order_relaxed);
+        draw = false;
     }
 
     // ⚠️ THE ROW IS OPENED FOR EVERY TESTED PRESENT, INCLUDING THE REFUSED ONES.

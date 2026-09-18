@@ -37,21 +37,6 @@ SOFT_CAP = 1000
 # path relative to Sources/AddOn -> (max lines allowed, why it is allowed)
 # A file here may NOT grow. Shrink the number when you shrink the file.
 OVERSIZED = {
-    "ArchViz/Dxgi/InjectionRenderer.cpp": (
-        1007,
-        "the Present composition, which is ONE sequence: latch the scene draw, bind "
-        "Archicad's own camera snapshot, publish its depth view, render the host "
-        "occluder, then compose the overlay layers into that depth in a fixed order. "
-        "Every step depends on the one before it and the order IS the correctness "
-        "argument -- runs 48 to 51 were spent establishing it. THIS ENTRY IS A DEBT, "
-        "NOT A LICENCE: the file crossed the cap three times in one session and was "
-        "brought back each time by deleting settled commentary, which is not "
-        "engineering. The seam to cut is `ComposeOverlay` -- the occluder-plus-layers "
-        "block -- into Dxgi/OverlayComposer, leaving this file the arming, latching "
-        "and Present bookkeeping. That is the next structural change on this path and "
-        "it must happen before the OverlayLayer API lands, because the layer registry "
-        "belongs on the far side of that seam"
-    ),
     "ArchViz/Dxgi/ViewMatrixCandidates.cpp": (
         995,
         "stage 3's DISCOVERY scorer and the tracked window table it reads. The census, "
