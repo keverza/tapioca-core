@@ -112,7 +112,20 @@ void Clear ();
 // Returns null when there is no host geometry, no camera, or the device objects
 // could not be made -- never a half-rendered buffer, because a partially drawn
 // occluder hides the overlay in a pattern that looks like a transform bug.
-ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation);
+// ⚠️ `targetWidth`/`targetHeight` ARE THE SURFACE THIS WILL BE
+// BOUND BESIDE, AND THEY ARE NOT OPTIONAL. D3D11 refuses a binding whose render
+// target and depth-stencil differ in size by even ONE PIXEL, and Archicad's
+// windowed swap chain measured 2450 wide against a 2449-wide 3D view. The
+// overlay then drew nothing while every counter said it had -- visible in full
+// screen, where the two happen to be equal, and invisible in a window.
+//
+// This buffer is OURS: the host geometry is rendered into it from the extracted
+// model with the injected camera, so nothing about it needs Archicad's
+// dimensions. Only the FORMAT and SAMPLE COUNT are taken from the scene view, so
+// the depth values remain comparable. Passing 0 keeps the old behaviour of
+// matching the scene view exactly.
+ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
+                                 uint32_t targetWidth, uint32_t targetHeight);
 
 // RENDER THREAD, after `Prepare` has returned non-null. The published building,
 // lent rather than copied, so an overlay can DRAW the same triangles the

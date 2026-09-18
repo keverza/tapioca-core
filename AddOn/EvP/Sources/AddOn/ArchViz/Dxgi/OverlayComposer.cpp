@@ -1,3 +1,6 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. Composition stays at Present, a resize rebinds
+// rather than relearns, and no production path may depend on a diagnostic.
 // See OverlayComposer.hpp.
 
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
@@ -81,23 +84,25 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // Falling back to `depthView` when there is no host snapshot means the
     // overlay behaves exactly as it did before the extraction arrives, rather
     // than becoming un-occludable without saying so.
-    ID3D11DepthStencilView* const hostView = hostocclusion::Prepare (context, context1, wanted);
-    ID3D11DepthStencilView* overlayView = hostView != nullptr ? hostView : depthView;
-
-    // ⚠️ AND THE DEPTH VIEW MUST BE THE SAME SIZE AS WHAT WE
-    // ARE DRAWING INTO, OR D3D11 REFUSES THE BINDING AND NOTHING LANDS. See
-    // `Stats::sizeMismatches`: the target here is the swap-chain back buffer and
-    // this depth is a copy of Archicad's SCENE depth, sized to the 3D view. They
-    // agree only when the view fills the window.
-    //
-    // ⚠️ THE FALLBACK IS DELIBERATELY WORSE THAN THE INTENT AND
-    // BETTER THAN THE BUG. Dropping the depth loses occlusion -- the overlay
-    // stops being hidden by the building -- but it is drawn, and a visible
-    // unoccluded overlay can be reasoned about while an invisible one cannot.
-    // The real repair is to compose where the sizes agree by construction; this
-    // is what makes the windowed case legible until then.
+    // ⚠️ MEASURE THE SURFACE FIRST, THEN ASK FOR A DEPTH THAT
+    // FITS IT. D3D11 refuses a binding whose render target and depth-stencil
+    // differ in size by even one pixel, and Archicad's windowed swap chain
+    // measured 2450 wide against a 2449-wide 3D view -- so the overlay drew
+    // nothing in a window while every counter said it had, and worked in full
+    // screen where the two happen to be equal. The host occluder's depth is ours
+    // to size; see `hostocclusion::Prepare`.
     ++g_stats.passes;
     ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight);
+
+    ID3D11DepthStencilView* const hostView =
+        hostocclusion::Prepare (context, context1, wanted, g_stats.targetWidth, g_stats.targetHeight);
+    ID3D11DepthStencilView* overlayView = hostView != nullptr ? hostView : depthView;
+
+    // ⚠️ AND STILL FAIL CLOSED IF THEY DISAGREE. `depthView` is
+    // the injection's own copy of Archicad's depth and is NOT resized here, so a
+    // frame that falls back to it can still mismatch. Dropping the depth loses
+    // occlusion and draws anyway: worse than the intent, better than an invisible
+    // overlay, and the count says which frame it was.
     ViewExtent (overlayView, g_stats.depthWidth, g_stats.depthHeight);
     if (overlayView != nullptr && g_stats.targetWidth != 0 &&
         (g_stats.targetWidth != g_stats.depthWidth || g_stats.targetHeight != g_stats.depthHeight)) {

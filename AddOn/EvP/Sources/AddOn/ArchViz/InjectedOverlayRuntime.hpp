@@ -127,7 +127,8 @@ struct Health {
     uint32_t targetWidth = 0, targetHeight = 0;
     uint32_t composeDepthWidth = 0, composeDepthHeight = 0;
     uint64_t composeSizeMismatches = 0;
-    uint64_t resizeRelearns = 0;
+    uint64_t resizeRebinds = 0;
+    uint32_t lastMissMask = 0;
 
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
     // runs were spent asking "why is nothing on screen" when the answer was a

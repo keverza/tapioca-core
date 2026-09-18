@@ -1,3 +1,6 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. Composition stays at Present, a resize rebinds
+// rather than relearns, and no production path may depend on a diagnostic.
 // ArchViz/Dxgi/InjectionRenderer -- see the header. Every rule about this file
 // is in that header's comments; this is the mechanism.
 
@@ -195,7 +198,7 @@ std::atomic<uint64_t> g_injectedScenePass { 0 };
 // until a NEW model scene supersedes it is what makes that possible; requiring a
 // camera from this very Present is what made it flicker.
 contextstate::SceneDrawState g_acceptedCamera;
-// The value of `census::BindingStats::resizeRelearns` when `g_acceptedCamera` was
+// The value of `census::BindingStats::resizeRebinds` when `g_acceptedCamera` was
 // taken. See the refusal in `InjectAtPresent`.
 uint64_t g_acceptedCameraResizeEpoch = 0;
 // Packed width << 16 | height. See `InjectionStats::acceptedViewportWidth`.
@@ -720,7 +723,7 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         // NEW_SCENE: the model was re-rendered since we last drew, and it came
         // with its own camera. Take it.
         g_acceptedCamera = fresh;
-        g_acceptedCameraResizeEpoch = census::GetBindingStats ().resizeRelearns;
+        g_acceptedCameraResizeEpoch = census::GetBindingStats ().resizeRebinds;
         g_acceptedViewport.store (PackViewport (fresh.viewportWidth, fresh.viewportHeight), std::memory_order_relaxed);
         g_lastInjectedModelGeneration = fresh.modelSceneGeneration;
         g_newScene.fetch_add (1, std::memory_order_relaxed);
@@ -769,7 +772,7 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
     // whose answer is out of date.
     //
     // Same thread as the detour that increments it, so a plain read is enough.
-    if (draw && census::GetBindingStats ().resizeRelearns != g_acceptedCameraResizeEpoch) {
+    if (draw && census::GetBindingStats ().resizeRebinds != g_acceptedCameraResizeEpoch) {
         g_skipStaleCamera.fetch_add (1, std::memory_order_relaxed);
         draw = false;
     }
@@ -808,17 +811,16 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
                     DrawWithCamera (context, context1, g_acceptedCamera, targetView, true, false);
                     // A and B share C's back-buffer view and raster state, in one
                     // Present; see InjectionProbes.hpp for why that matters.
+                    // ⚠️ AND PROOF B2 WITH IT -- the cyan FRONT
+                    // and yellow BEHIND primitives, which ask whether the model's
+                    // own depth view is still usable at Present. One switch: both
+                    // are instruments, both answer settled questions, and both
+                    // were once unconditional coloured triangles on a user's
+                    // screen.
                     if (g_proofPrimitives.load (std::memory_order_acquire)) {
                         probes::DrawAll (context, context1, targetView, g_acceptedCamera.viewportX,
                                          g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
                                          g_acceptedCamera.viewportHeight);
-                    }
-                    // ⚠️ PROOF B2 -- the cyan FRONT and yellow BEHIND
-                    // primitives. Same switch, same reason: it asks whether the
-                    // model's own depth view is still usable at Present, which is
-                    // a settled question, and it was the last unconditional pair
-                    // of coloured triangles on a user's screen.
-                    if (g_proofPrimitives.load (std::memory_order_acquire)) {
                         probes::DrawPresentDepth (context, context1, targetView, g_acceptedCamera.viewportX,
                                                   g_acceptedCamera.viewportY, g_acceptedCamera.viewportWidth,
                                                   g_acceptedCamera.viewportHeight);

@@ -1,3 +1,6 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. Composition stays at Present, a resize rebinds
+// rather than relearns, and no production path may depend on a diagnostic.
 // ArchViz/InjectedOverlayRuntime -- see the header. Every rule about this file is
 // in that header's comments; this is the mechanism.
 
@@ -14,6 +17,7 @@
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
+#include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/ArchVizLog.hpp"
@@ -50,6 +54,9 @@ bool g_visible = false;
 // drawn there is nothing to identify at all. `Tick` finishes the job.
 bool g_armPending = false;
 bool g_hostRequested = false;
+// Whether THIS runtime armed the model watch, so stopping the overlay does not
+// stop a watch the portable viewport is relying on.
+bool g_modelWatchStarted = false;
 uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
@@ -179,14 +186,14 @@ void NarrateLive ()
     char line[420] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
-                 "relearn=%llu | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
+                 "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
                  "mismatch+%llu",
                  compose > g_mark.compose ? "composing" : "NOT COMPOSING",
                  (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
                  health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
                  health.acceptedViewportWidth, health.acceptedViewportHeight, health.targetWidth, health.targetHeight,
-                 health.composeDepthWidth, health.composeDepthHeight, (unsigned long long) health.resizeRelearns,
-                 (unsigned long long) (health.skippedStaleCamera - g_mark.stale),
+                 health.composeDepthWidth, health.composeDepthHeight, (unsigned long long) health.resizeRebinds,
+                 health.lastMissMask, (unsigned long long) (health.skippedStaleCamera - g_mark.stale),
                  (unsigned long long) (health.hostNoDepthTarget - g_mark.noDepth),
                  (unsigned long long) (health.hostNoGeometry - g_mark.noGeometry),
                  (unsigned long long) (health.overlayNoEdges - g_mark.noEdges),
@@ -554,6 +561,22 @@ StartResult Start ()
         // to the project. See ExtractionThread.hpp.
         ExtractionWorker::Get ().Start (true, 12, 4, 600);
         g_hostRequested = true;
+
+        // ⚠️ AND FOLLOW THE MODEL FROM HERE ON, WHICH THE
+        // OVERLAY DID NOT. One extraction per session meant a wall drawn after
+        // the overlay started never appeared and an edited one kept its old
+        // shape -- the snapshot was taken at activation and never revisited.
+        //
+        // ⚠️ `modelwatch` IS THE ESTABLISHED MECHANISM AND IT IS
+        // NOT AN OBSERVER. `ACAPI_Element_AttachObserver` is a DATABASE WRITE
+        // (PLAT-RE68): a viewer that merely watches would dirty the project and
+        // make Archicad autosave. This polls Archicad's own difference generator
+        // from a low-priority main-thread timer that backs off under load, skips
+        // while a pass is in flight, and separates a genuine element edit from
+        // the environment moving -- so orbiting does not trigger a rebuild. See
+        // ModelWatch.hpp. The portable viewport has used it since PLAT-RE125;
+        // the injected runtime simply never armed it.
+        g_modelWatchStarted = modelwatch::Start (/*floorMs*/ 750);
     }
 
     StartResult result;
@@ -821,7 +844,8 @@ Health GetHealth ()
     health.acceptedViewportHeight = injectionStats.acceptedViewportHeight;
     health.sceneViewportWidth = injectionStats.liveSceneViewportWidth;
     health.sceneViewportHeight = injectionStats.liveSceneViewportHeight;
-    health.resizeRelearns = cen::GetBindingStats ().resizeRelearns;
+    health.resizeRebinds = cen::GetBindingStats ().resizeRebinds;
+    health.lastMissMask = cen::GetBindingStats ().lastMissMask;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;
@@ -858,6 +882,12 @@ void Stop ()
 {
     if (!g_running)
         return;
+    // ⚠️ ONLY IF WE ARMED IT, AND NOT WHILE THE PORTABLE
+    // VIEWPORT IS UP. `modelwatch::Start` is idempotent and shared; stopping a
+    // watch somebody else depends on would leave THEIR scene frozen instead.
+    if (g_modelWatchStarted && !DiligentViewport::Get ().IsRunning ())
+        modelwatch::Stop ();
+    g_modelWatchStarted = false;
     inj::SetEnabled (false);
     cen::SetAutoSelect (false);
     cen::SetEnabled (false);

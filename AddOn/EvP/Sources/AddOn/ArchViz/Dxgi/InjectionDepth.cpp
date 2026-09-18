@@ -1,3 +1,6 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. Composition stays at Present, a resize rebinds
+// rather than relearns, and no production path may depend on a diagnostic.
 // ArchViz/Dxgi/InjectionDepth -- see the header. Every rule about this file is
 // in that header's comments; this is the mechanism.
 

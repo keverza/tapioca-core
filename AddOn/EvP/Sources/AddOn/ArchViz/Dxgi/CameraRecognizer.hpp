@@ -263,11 +263,15 @@ struct BindingStats {
     uint64_t logicalMatches = 0;
     uint64_t rebinds = 0;
     uint64_t rebindsRefused = 0;
-    // ⚠️ HOW OFTEN A RESIZE FORCED A RE-LEARN. The viewport is part
-    // of the fingerprint, so a window resize makes the identity unmatchable and
-    // the selection has to be dropped rather than kept and drawn with. Nonzero
-    // is healthy after a resize; growing while the window is still is not.
-    uint64_t resizeRelearns = 0;
+    // ⚠️ HOW OFTEN A RESIZE WAS ADOPTED IN PLACE. The window
+    // size is part of the fingerprint, so a resize makes the identity
+    // unmatchable; the repair is to take the new size into the fingerprint and
+    // keep the camera, NOT to relearn. Nonzero is healthy after a resize;
+    // growing while the window is still is not.
+    uint64_t resizeRebinds = 0;
+    // The terms the last evaluated draw missed, one bit per fingerprint term, so
+    // a refusal to adopt can be read rather than inferred.
+    uint32_t lastMissMask = 0;
     bool fingerprintValid = false;
 };
 BindingStats GetBindingStats ();

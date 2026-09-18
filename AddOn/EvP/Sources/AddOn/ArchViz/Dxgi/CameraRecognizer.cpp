@@ -1,3 +1,6 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. Composition stays at Present, a resize rebinds
+// rather than relearns, and no production path may depend on a diagnostic.
 // ArchViz/Dxgi/CameraRecognizer -- see the header. Every rule about this file is
 // in that header's comments; this is the mechanism.
 
@@ -127,6 +130,7 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
         missMask |= 1u << i;
     }
     g_lastMissMask = missMask;
+    g_binding.lastMissMask = missMask;
     if (failures == 0)
         return true;
 
@@ -197,14 +201,51 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
 // too, this is a different target.
 static const uint32_t kSizeTermMask = (1u << kTermViewport) | (1u << kTermRenderTargetDesc) | (1u << kTermDepthDesc);
 
+// ⚠️ AND THE OCCURRENCE MOVES WITH THE SIZE, SO IT IS
+// ADOPTABLE TOO. `SameSignatureCounter` keys the per-frame occurrence counter on
+// the depth and target dimensions, so a resize allocates a FRESH counter that
+// restarts at zero -- the occurrence term therefore misses alongside the three
+// size terms and is not independent evidence of a different camera.
+static const uint32_t kAdoptableMask = kSizeTermMask | (1u << kTermOccurrence);
+
 static bool LooksLikeResize (const contextstate::ContextState& live)
 {
-    if (g_lastMissMask == 0 || (g_lastMissMask & ~kSizeTermMask) != 0)
+    if ((g_lastMissMask & kSizeTermMask) == 0 || (g_lastMissMask & ~kAdoptableMask) != 0)
         return false;
     return g_fingerprint.renderTargetFormat == live.renderTargetDesc.format &&
            g_fingerprint.renderTargetSamples == live.renderTargetDesc.sampleCount &&
            g_fingerprint.depthFormat == live.depthStencilDesc.format &&
            g_fingerprint.depthSamples == live.depthStencilDesc.sampleCount;
+}
+
+// ⚠️ TAKE THE NEW PIXEL SIZE INTO THE FINGERPRINT AND KEEP THE
+// CAMERA. Guidance section 5 freezes the lifecycle: on resize, resource
+// recreation or viewport reconstruction the camera goes Locked -> Reacquiring ->
+// Locked, and the subsystem is NOT relearned. Clearing the selection and the
+// group table instead made the overlay wait for THIRTY-TWO fresh model frames --
+// which only arrive while the user orbits, so a resize left the overlay desynced
+// until someone navigated. That is the behaviour this replaces.
+//
+// Nothing about the camera's identity changes here: the shader, the draw shape,
+// the index count, the constant-buffer window shape and the formats are all
+// still required to agree. Only the numbers that ARE the window size move.
+static void AdoptResize (const contextstate::ContextState& live, uint32_t occurrence)
+{
+    g_fingerprint.viewportX = live.viewportX;
+    g_fingerprint.viewportY = live.viewportY;
+    g_fingerprint.viewportWidth = live.viewportWidth;
+    g_fingerprint.viewportHeight = live.viewportHeight;
+    g_fingerprint.renderTargetWidth = live.renderTargetDesc.width;
+    g_fingerprint.renderTargetHeight = live.renderTargetDesc.height;
+    g_fingerprint.depthWidth = live.depthStencilDesc.width;
+    g_fingerprint.depthHeight = live.depthStencilDesc.height;
+    g_fingerprint.occurrenceIndex = occurrence;
+    g_selection.occurrenceIndex = occurrence;
+    // The pinned resources are wherever the new size put them, and we no longer
+    // know: force the rebind below to treat the pin as stale so it moves THIS
+    // frame rather than waiting out the staleness window.
+    g_selectionLastSeenModel = 0;
+    ++g_binding.resizeRebinds;
 }
 
 // ⚠️ RE-ACQUIRE THE RUNTIME RESOURCES, DO NOT RE-DECIDE THE CAMERA.
@@ -225,31 +266,20 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         return;
     }
     if (!MatchesFingerprint (live, kind, indexCount, occurrence)) {
-        // ⚠️ A SOLE VIEWPORT MISS IS A RESIZE, AND IT IS THE ONE
-        // MISMATCH THAT CANNOT HEAL ITSELF. Every other term can come back --
-        // Archicad rebuilds views and the descriptors match again -- but the
-        // viewport rectangle IS part of the identity, so once the window changes
-        // size the fingerprint can never match anything again. The selection
-        // then sits there, valid and unreachable, while Present keeps drawing
-        // with the last snapshot: the overlay lands in the wrong place on the
-        // screen, which is exactly what a resize was reported to do.
+        // ⚠️ A RESIZE CANNOT HEAL ITSELF, BECAUSE THE WINDOW
+        // SIZE IS PART OF THE IDENTITY. Once it changes, the fingerprint matches
+        // nothing ever again: the selection sits there valid and unreachable
+        // while Present keeps drawing with the last snapshot, and the overlay
+        // stays pinned to a rectangle that no longer exists.
         //
-        // ⚠️ AND "SOLE MISS" IS WHAT MAKES THIS SAFE. Thousands of
-        // unrelated draws disagree on the viewport as well as on six other
-        // terms; only a draw that agrees on ALL SEVEN others is this camera
-        // family at a new size. That rule is already the fingerprint
-        // diagnosis's, and this is the first use of it to decide something.
-        if (LooksLikeResize (live)) {
-            ++g_binding.resizeRelearns;
-            ClearSelection ();
-            // ⚠️ AND FORGET THE MEASUREMENTS, NOT ONLY THE
-            // CHOICE. Dropping the selection alone left the camera Reacquiring
-            // forever: the group table is capped and still full of groups keyed to
-            // the old viewport, so draws at the NEW size were refused a slot and
-            // nothing could ever become eligible again.
-            ForgetGroupsAfterResize ();
-        }
-        return;
+        // ⚠️ SO ADOPT THE NEW SIZE AND FALL THROUGH TO THE
+        // REBIND. The draw agreed on everything that is not the window size --
+        // including `indexCount`, the model's exact index count -- so it is this
+        // camera at a new size and nothing else. See `AdoptResize` for why
+        // relearning instead was the wrong repair.
+        if (!LooksLikeResize (live))
+            return;
+        AdoptResize (live, occurrence);
     }
     ++g_binding.logicalMatches;
 
@@ -584,7 +614,11 @@ void ResetBindingStats ()
     // "never seen" is what lets the first logical match re-acquire immediately
     // instead of waiting out a staleness window.
     const bool valid = g_fingerprint.valid;
+    const uint64_t rebinds = g_binding.resizeRebinds;
     g_binding = BindingStats {};
+    // A resize that has already been adopted is not undone by a count reset, and
+    // Present latches on this to refuse a stale camera.
+    g_binding.resizeRebinds = rebinds;
     g_binding.fingerprintValid = valid;
     g_diagnosis = FingerprintDiagnosis {};
     g_selectionLastSeenModel = 0;

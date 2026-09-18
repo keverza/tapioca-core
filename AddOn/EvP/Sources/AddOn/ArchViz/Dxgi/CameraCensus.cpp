@@ -1,3 +1,6 @@
+// ⚠️ BOUND BY OVERLAY-INVARIANTS.md -- sixty live runs bought those findings
+// and each cost at least one. Composition stays at Present, a resize rebinds
+// rather than relearns, and no production path may depend on a diagnostic.
 // ArchViz/Dxgi/CameraCensus -- see the header. Every rule about this file is in
 // that header's comments; this is the mechanism.
 
@@ -453,13 +456,6 @@ void Reset ()
     ClearSelection ();
 }
 
-void ForgetGroupsAfterResize ()
-{
-    // See the declaration. The caller has already dropped the selection, which is
-    // the half that was in place; this is the half that makes it recoverable.
-    ResetCounts ();
-}
-
 void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
 {
     if (context == nullptr || !g_enabled.load (std::memory_order_acquire))
@@ -884,7 +880,8 @@ Stats GetStats ()
     stats.logicalMatches = binding.logicalMatches;
     stats.rebinds = binding.rebinds;
     stats.rebindsRefused = binding.rebindsRefused;
-    stats.resizeRelearns = binding.resizeRelearns;
+    stats.resizeRebinds = binding.resizeRebinds;
+    stats.lastMissMask = binding.lastMissMask;
     stats.fingerprintValid = binding.fingerprintValid;
     stats.eligibleCandidates = EligibleCandidates ();
     stats.autoSelectAttempts = g_autoSelectAttempts;
