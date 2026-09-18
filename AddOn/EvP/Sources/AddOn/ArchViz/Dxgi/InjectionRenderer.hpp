@@ -157,6 +157,11 @@ void SetPoint (Point point);
 //
 // Off by default, because production is the default. The diagnostic turns them
 // on for the runs that still need them.
+// MAIN THREAD, from `InjectedOverlayRuntime::Arm`, before anything is enabled.
+// Zero every counter this session will report and forget the accepted camera.
+// ⚠️ SEE `injection::ResetCameraCounters` FOR WHAT THIS COST.
+void BeginSession ();
+
 void SetProofPrimitives (bool enabled);
 bool ProofPrimitives ();
 Point GetPoint ();

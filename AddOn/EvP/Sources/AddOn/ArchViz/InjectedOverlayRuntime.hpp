@@ -130,6 +130,24 @@ struct Health {
     uint64_t resizeRebinds = 0;
     uint32_t lastMissMask = 0;
 
+    // ⚠️ WHERE THE OVERLAY'S CAMERA COMES FROM, PER FRAME, AND
+    // THIS IS THE LAG. `newScene` is a Present that took a camera snapshotted for
+    // THIS model frame -- the overlay is exactly on the building. `repeatScene`
+    // is Archicad presenting without redrawing the model, where reusing the last
+    // camera is correct. `lateSnapshot` is the one that shows: the selected draw
+    // has not happened yet in the frame being presented, so Present composes with
+    // the PREVIOUS frame's camera and the overlay slips by one frame of
+    // navigation against the building underneath it.
+    //
+    // ⚠️ AND IT DISPLACES THE GHOST MESH BY EXACTLY THE SAME
+    // AMOUNT. `GhostMesh` binds no camera constants of its own -- it inherits
+    // what `DrawWithCamera` bound -- so the two cannot differ. The ghost is a
+    // shape floating in space with nothing behind it to line up against; the host
+    // wireframe must sit on Archicad's own building. Same error, one reference.
+    uint64_t sceneNew = 0;
+    uint64_t sceneRepeat = 0;
+    uint64_t sceneLate = 0;
+
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
     // runs were spent asking "why is nothing on screen" when the answer was a
     // different stage each time and no single number distinguished them.

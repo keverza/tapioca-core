@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
+#include "ArchViz/Dxgi/ProofShaderSource.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
@@ -76,36 +77,7 @@ namespace {
 //
 // which is exactly the oracle's variant numbering, so no translation is needed
 // between what is measured and what is drawn.
-// ⚠️ THE DECLARATIONS ARE IN `CameraShaderSource.hpp`, NOT HERE. The
-// ghost mesh reads the same `b1` and `b2` through the same two lines, and a
-// second copy of them in a second file is exactly how run thirty-three ended up
-// measuring one reading while drawing another. This file owns the BODIES of the
-// proof shaders and nothing about the camera contract.
-const char* const kProofShaderBody = "float4 VSMain (float3 position : POSITION) : SV_POSITION\n"
-                                     "{\n"
-                                     "    float4 p = float4 (position, 1.0);\n"
-                                     "    p = mul (p, View);\n"
-                                     "    p = mul (p, Projection);\n"
-                                     "    return p;\n"
-                                     "}\n"
-                                     "float4 PSMain () : SV_TARGET\n"
-                                     "{\n"
-                                     "    return float4 (1.0, 0.15, 0.85, 1.0);\n"
-                                     "}\n"
-                                     // ⚠️ PROBE A: NO CAMERA, NO CONSTANT BUFFERS, NO WORLD TRANSFORM. Its
-                                     // vertices are already in clip space, so it lands in the same corner of the screen
-                                     // on every Present no matter what any matrix says. That is the entire point: it
-                                     // separates "the injection or the back buffer is wrong" from "the camera is
-                                     // wrong", and those are different investigations. ⚠️ DO NOT DEBUG THE
-                                     // CAMERA UNTIL PROBE A IS ROCK SOLID.
-                                     "float4 VSScreen (float3 position : POSITION) : SV_POSITION\n"
-                                     "{\n"
-                                     "    return float4 (position, 1.0);\n"
-                                     "}\n"
-                                     "float4 PSScreen () : SV_TARGET\n"
-                                     "{\n"
-                                     "    return float4 (0.1, 1.0, 0.3, 1.0);\n"
-                                     "}\n";
+// The proof shader bodies are in ProofShaderSource.hpp.
 
 // ⚠️ HARD-CODED WORLD METRES, DELIBERATELY LARGE AND DELIBERATELY ASYMMETRIC.
 // The test is whether it stays welded to the model through a fast orbit, so it
@@ -632,6 +604,41 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     // destructor restores every binding and releases every reference it took,
     // on every path out of this function -- including the early returns a
     // hand-written block keeps forgetting.
+}
+
+void BeginSession ()
+{
+    g_injected.store (0, std::memory_order_relaxed);
+    g_skipNoDraw.store (0, std::memory_order_relaxed);
+    g_skipNoCamera.store (0, std::memory_order_relaxed);
+    g_skipNotReady.store (0, std::memory_order_relaxed);
+    g_skipPassMismatch.store (0, std::memory_order_relaxed);
+    g_skipWindowSize.store (0, std::memory_order_relaxed);
+    g_skipReentrant.store (0, std::memory_order_relaxed);
+    g_skipStaleCamera.store (0, std::memory_order_relaxed);
+    g_backBufferFailures.store (0, std::memory_order_relaxed);
+    g_skipInterpretation.store (0, std::memory_order_relaxed);
+    g_injectedPresent.store (0, std::memory_order_relaxed);
+    g_injectedScenePass.store (0, std::memory_order_relaxed);
+    g_newScene.store (0, std::memory_order_relaxed);
+    g_repeatScene.store (0, std::memory_order_relaxed);
+    g_invalidScene.store (0, std::memory_order_relaxed);
+    g_invalidNoSnapshot.store (0, std::memory_order_relaxed);
+    g_invalidNoDrawThisGeneration.store (0, std::memory_order_relaxed);
+    g_invalidGenerationAdvanced.store (0, std::memory_order_relaxed);
+    g_invalidGenerationMismatch.store (0, std::memory_order_relaxed);
+    g_acceptedViewport.store (0, std::memory_order_relaxed);
+    g_liveSceneViewport.store (0, std::memory_order_relaxed);
+
+    g_acceptedCamera = contextstate::SceneDrawState {};
+    g_acceptedCameraResizeEpoch = 0;
+    g_lastInjectedModelGeneration = 0;
+    ResetCameraCounters ();
+    // ⚠️ AND POINT AT NOBODY UNTIL SOMETHING IS CHOSEN.
+    // A restart reported `selection=none source=CensusSelectedGroup`, which
+    // guidance section 4 forbids outright: the injection was aimed at a selection
+    // that no longer existed. Selection is one transaction and so is its absence.
+    SetCameraSource (CameraSource::None);
 }
 
 void SetProofPrimitives (bool enabled)

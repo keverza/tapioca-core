@@ -74,6 +74,9 @@ struct LiveMark {
     uint64_t noCamera = 0;
     uint64_t culled = 0;
     uint64_t mismatch = 0;
+    uint64_t sceneNew = 0;
+    uint64_t sceneRepeat = 0;
+    uint64_t sceneLate = 0;
 };
 LiveMark g_mark;
 std::string g_lastLive;
@@ -187,7 +190,7 @@ void NarrateLive ()
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
                  "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
-                 "mismatch+%llu",
+                 "mismatch+%llu cam(new+%llu repeat+%llu LATE+%llu)",
                  compose > g_mark.compose ? "composing" : "NOT COMPOSING",
                  (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
                  health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
@@ -199,7 +202,10 @@ void NarrateLive ()
                  (unsigned long long) (health.overlayNoEdges - g_mark.noEdges),
                  (unsigned long long) (health.overlayNoCamera - g_mark.noCamera),
                  (unsigned long long) (health.overlayCulled - g_mark.culled),
-                 (unsigned long long) (health.composeSizeMismatches - g_mark.mismatch));
+                 (unsigned long long) (health.composeSizeMismatches - g_mark.mismatch),
+                 (unsigned long long) (health.sceneNew - g_mark.sceneNew),
+                 (unsigned long long) (health.sceneRepeat - g_mark.sceneRepeat),
+                 (unsigned long long) (health.sceneLate - g_mark.sceneLate));
 
     g_mark.present = present;
     g_mark.compose = compose;
@@ -210,6 +216,9 @@ void NarrateLive ()
     g_mark.noCamera = health.overlayNoCamera;
     g_mark.culled = health.overlayCulled;
     g_mark.mismatch = health.composeSizeMismatches;
+    g_mark.sceneNew = health.sceneNew;
+    g_mark.sceneRepeat = health.sceneRepeat;
+    g_mark.sceneLate = health.sceneLate;
 
     // The leading word classifies the tick; comparing whole lines would narrate
     // every frame-count wobble, and comparing nothing would narrate four times a
@@ -388,6 +397,15 @@ StartResult Arm ()
     // `g_lastAutoSelectAttempt` across `ResetCounts`, and now the census table
     // across an arm. A diagnostic never sees any of them, because it resets
     // everything on the way in.
+    // ⚠️ EVERY COUNTER THIS SESSION WILL BE JUDGED BY, AND
+    // THE CAMERA SOURCE WITH THEM. A restart reported `snapshots=466
+    // present=2959` one second in, and `BlockedAt` walks the chain in order:
+    // a stale `presentInjections` carried it past `Present:NeverInjected` and
+    // reported `Compose:NoDrawAndNoReason` for a session in which Present had
+    // never injected once. The chain was not wrong about the numbers; the
+    // numbers described a session that had ended.
+    inj::BeginSession ();
+    host::ResetRenderCounters ();
     cen::Reset ();
     cen::SetEnabled (true);
     cen::SetAutoSelect (true);
@@ -846,6 +864,9 @@ Health GetHealth ()
     health.sceneViewportHeight = injectionStats.liveSceneViewportHeight;
     health.resizeRebinds = cen::GetBindingStats ().resizeRebinds;
     health.lastMissMask = cen::GetBindingStats ().lastMissMask;
+    health.sceneNew = injectionStats.newScene;
+    health.sceneRepeat = injectionStats.repeatScene;
+    health.sceneLate = injectionStats.invalidGenerationAdvanced;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;
@@ -888,6 +909,11 @@ void Stop ()
     if (g_modelWatchStarted && !DiligentViewport::Get ().IsRunning ())
         modelwatch::Stop ();
     g_modelWatchStarted = false;
+    // ⚠️ AND STOP POINTING AT A SELECTION THAT IS ABOUT TO NOT
+    // EXIST. Guidance section 4: selection and camera source move together, and
+    // `selection=none source=CensusSelectedGroup` is a state that must never be
+    // observable. It was, on every restart.
+    inj::SetCameraSource (inj::CameraSource::None);
     inj::SetEnabled (false);
     cen::SetAutoSelect (false);
     cen::SetEnabled (false);

@@ -44,7 +44,7 @@ namespace injection {
 // matching the group the census committed to. `None` draws nothing at all,
 // which is what a run with no identified camera must do.
 enum class CameraSource { None, Learner, CensusSelectedGroup };
-void         SetCameraSource (CameraSource source);
+void SetCameraSource (CameraSource source);
 CameraSource GetCameraSource ();
 
 // ⚠️ THE AUTHORITATIVE CAMERA WHEN A CENSUS GROUP IS SELECTED. Present reads
@@ -52,13 +52,13 @@ CameraSource GetCameraSource ();
 // paths stand down completely while a group is selected, because "mostly the
 // selected group" is the same bug this rung has already spent five runs on.
 struct SelectedCameraState {
-    bool     valid = false;
+    bool valid = false;
     uint32_t groupId = 0;
     uint64_t snapshotGeneration = 0;
     uint64_t modelSceneGeneration = 0;
     uint64_t sourceDrawSequence = 0;
-    float    viewportX = 0.0f, viewportY = 0.0f;
-    float    viewportWidth = 0.0f, viewportHeight = 0.0f;
+    float viewportX = 0.0f, viewportY = 0.0f;
+    float viewportWidth = 0.0f, viewportHeight = 0.0f;
 };
 SelectedCameraState GetSelectedCamera ();
 
@@ -75,8 +75,7 @@ void SnapshotCamera (ID3D11DeviceContext* context);
 // with that check: the selected camera was never snapshotted, every Present
 // classified INVALID_SCENE, and the log showed 0 injections with 0 skips. The
 // guard nests, so the copy re-enters it safely.
-void SnapshotSelectedDraw (ID3D11DeviceContext* context,
-                           const contextstate::SceneDrawState& draw, uint32_t groupId);
+void SnapshotSelectedDraw (ID3D11DeviceContext* context, const contextstate::SceneDrawState& draw, uint32_t groupId);
 
 // ⚠️ THE CONVENTION THE SHADER IMPLEMENTS, AND THE ONE THE CENSUS LEARNED, HELD
 // SIDE BY SIDE SO THEY CANNOT SILENTLY DIFFER. When a group is selected and its
@@ -89,10 +88,10 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context,
 // the census selected is bound, so this REPORTS what is bound rather than
 // promising it.
 uint32_t ShaderInterpretation ();
-void     SetShaderInterpretation (uint32_t variant);
-void     SetExpectedInterpretation (uint32_t variant);   // 0xffffffff clears it
+void SetShaderInterpretation (uint32_t variant);
+void SetExpectedInterpretation (uint32_t variant); // 0xffffffff clears it
 uint32_t ExpectedInterpretation ();
-bool     InterpretationAgrees ();
+bool InterpretationAgrees ();
 
 // ⚠️ THE SELECTED GROUP DRAWS SEVERAL TIMES PER MODEL FRAME, AND ONLY ONE OF
 // THOSE DRAWS CARRIES THE VISIBLE MODEL'S CAMERA. Run thirty-four's snapshot
@@ -114,20 +113,20 @@ constexpr size_t kOccurrenceCapacity = 8;
 struct OccurrenceStats {
     uint32_t index = 0;
     uint64_t draws = 0;
-    uint64_t modelFrames = 0;      // model generations this occurrence appeared in
-    uint32_t samples = 0;          // readbacks that landed and were scored
-    uint32_t insideClip = 0;       // ... of those, with a valid projection
-    float    medianCentreError = 0.0f;
-    float    meanCentreError = 0.0f;
-    float    worstCentreError = 0.0f;
-    float    meanSpreadPixels = 0.0f;   // see CameraCensus::Group
-    float    viewportWidth = 0.0f, viewportHeight = 0.0f;
+    uint64_t modelFrames = 0; // model generations this occurrence appeared in
+    uint32_t samples = 0;     // readbacks that landed and were scored
+    uint32_t insideClip = 0;  // ... of those, with a valid projection
+    float medianCentreError = 0.0f;
+    float meanCentreError = 0.0f;
+    float worstCentreError = 0.0f;
+    float meanSpreadPixels = 0.0f; // see CameraCensus::Group
+    float viewportWidth = 0.0f, viewportHeight = 0.0f;
     uint64_t lastDrawSequence = 0;
 };
 
 // ANY THREAD. Newest statistics for every occurrence seen.
-size_t   CopyOccurrences (OccurrenceStats* out, size_t capacity);
-uint64_t OccurrenceModelFrames ();      // the coverage denominator
+size_t CopyOccurrences (OccurrenceStats* out, size_t capacity);
+uint64_t OccurrenceModelFrames (); // the coverage denominator
 
 // MAIN THREAD. Clear the occurrence table without touching the lock.
 void ResetOccurrences ();
@@ -139,20 +138,20 @@ void ResetOccurrences ();
 // ⚠️ THE CENSUS CHOOSES THE OCCURRENCE NOW, because the camera identity is
 // atomic -- signature AND occurrence, scored together. This records what it
 // chose; the local scoring below stays only as a report.
-void     SetSelectedOccurrence (uint32_t index);
+void SetSelectedOccurrence (uint32_t index);
 
-bool     SelectOccurrence ();
-void     ClearOccurrenceLock ();
-bool     OccurrenceLocked ();
+bool SelectOccurrence ();
+void ClearOccurrenceLock ();
+bool OccurrenceLocked ();
 uint32_t LockedOccurrence ();
 
 // ---- what the renderer needs to bind and to report -------------------------
 ID3D11Buffer* ViewSnapshotBuffer ();
 ID3D11Buffer* ProjectionSnapshotBuffer ();
-bool          SnapshotValid ();
+bool SnapshotValid ();
 contextstate::SceneDrawState SnapshotDraw ();
-uint64_t      SnapshotModelGeneration ();
-uint64_t      SnapshotDrawSequence ();
+uint64_t SnapshotModelGeneration ();
+uint64_t SnapshotDrawSequence ();
 
 struct CameraStats {
     uint64_t qualifyingCameraDraws = 0;
@@ -163,7 +162,7 @@ struct CameraStats {
     uint64_t selectedGroupSnapshots = 0;
     uint32_t selectedGroupId = 0;
     uint64_t selectedSnapshotGeneration = 0;
-    bool     snapshotValid = false;
+    bool snapshotValid = false;
 
     // ⚠️ THE INVARIANT THIS EXISTS TO ENFORCE: ONE authoritative camera snapshot
     // per model generation, not six. `authoritativeSnapshots` counts writes to
@@ -173,17 +172,30 @@ struct CameraStats {
     uint64_t occurrenceDraws = 0;
     uint64_t authoritativeSnapshots = 0;
     uint64_t occurrenceModelFrames = 0;
-    bool     occurrenceLocked = false;
+    bool occurrenceLocked = false;
     uint32_t lockedOccurrence = 0;
 };
 CameraStats GetCameraStats ();
 
+// MAIN THREAD, at the start of an overlay session. Zero the counters WITHOUT
+// releasing the device objects -- `ShutdownCamera` is the teardown, this is the
+// restart.
+//
+// ⚠️ A COUNTER THAT OUTLIVES ITS SESSION MAKES THE NEXT ONE
+// LIE. `snapshots=466 present=2959` were still being reported one second after a
+// fresh `OVERLAY MENU requested`, and because `BlockedAt` walks the chain in
+// order and stops at the first unsatisfied stage, a stale `presentInjections`
+// carried it PAST `Present:NeverInjected` and landed it on
+// `Compose:NoDrawAndNoReason` -- naming the wrong stage for a session in which
+// Present had never injected at all. Invariants section 8.
+void ResetCameraCounters ();
+
 // MAIN THREAD, at teardown. Nothing here may outlive Archicad's device.
 void ShutdownCamera ();
 
-}   // namespace injection
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace injection
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

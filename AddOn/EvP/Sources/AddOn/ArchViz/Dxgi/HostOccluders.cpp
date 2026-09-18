@@ -757,6 +757,16 @@ Stats GetStats ()
     return g_stats;
 }
 
+void ResetRenderCounters ()
+{
+    g_stats.uploads = 0;
+    g_stats.renders = 0;
+    g_stats.skippedNoCamera = 0;
+    g_stats.skippedNoGeometry = 0;
+    g_stats.skippedNoDepthTarget = 0;
+    g_stats.lastError[0] = '\0';
+}
+
 void Shutdown ()
 {
     Clear ();

@@ -636,6 +636,25 @@ CameraStats GetCameraStats ()
     return stats;
 }
 
+void ResetCameraCounters ()
+{
+    g_qualifyingCameraDraws.store (0, std::memory_order_relaxed);
+    g_viewCopies.store (0, std::memory_order_relaxed);
+    g_projectionCopies.store (0, std::memory_order_relaxed);
+    g_snapshotsTaken.store (0, std::memory_order_relaxed);
+    g_selectedGroupDraws.store (0, std::memory_order_relaxed);
+    g_selectedGroupSnapshots.store (0, std::memory_order_relaxed);
+    g_occurrenceDraws.store (0, std::memory_order_relaxed);
+    g_authoritativeSnapshots.store (0, std::memory_order_relaxed);
+    g_occurrenceModelFrames = 0;
+    g_occurrenceModelGeneration = 0;
+    // ⚠️ AND THE SNAPSHOT WITH THEM. A snapshot taken for the
+    // previous session's camera is not evidence about this one, and leaving it
+    // valid lets Present draw one frame with a camera nothing has re-verified.
+    g_snapshotValid = false;
+    g_snapshotModelGeneration = 0;
+}
+
 void ShutdownCamera ()
 {
     for (size_t i = 0; i < kOccurrenceCapacity; ++i) {

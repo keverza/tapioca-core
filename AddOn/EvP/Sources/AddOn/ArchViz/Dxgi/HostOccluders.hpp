@@ -127,6 +127,14 @@ void Clear ();
 ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
                                  uint32_t targetWidth, uint32_t targetHeight);
 
+// MAIN THREAD, at the start of an overlay session. Zero ONLY the render-thread
+// refusal counters. ⚠️ THE PUBLISHED SNAPSHOT DELIBERATELY
+// SURVIVES: the building has not changed because the overlay was toggled, and
+// re-extracting it would cost a full model walk for nothing. What must not
+// survive is a refusal from the previous session, which `BlockedAt` would report
+// as this one's.
+void ResetRenderCounters ();
+
 // RENDER THREAD, after `Prepare` has returned non-null. The published building,
 // lent rather than copied, so an overlay can DRAW the same triangles the
 // occluder just put depth from.

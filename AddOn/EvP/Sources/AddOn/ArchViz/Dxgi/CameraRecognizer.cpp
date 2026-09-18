@@ -239,8 +239,15 @@ static void AdoptResize (const contextstate::ContextState& live, uint32_t occurr
     g_fingerprint.renderTargetHeight = live.renderTargetDesc.height;
     g_fingerprint.depthWidth = live.depthStencilDesc.width;
     g_fingerprint.depthHeight = live.depthStencilDesc.height;
-    g_fingerprint.occurrenceIndex = occurrence;
-    g_selection.occurrenceIndex = occurrence;
+    // ⚠️ THE OCCURRENCE IS NOT ADOPTED, AND TAKING IT WAS
+    // WRONG. Guidance section 4 locks the occurrence as part of the selection
+    // transaction. The draw that first reports the new size is whichever one the
+    // resize happened to interrupt -- the log showed a camera locked at `occ2`
+    // re-emerging as `occ0` -- so adopting it re-points the camera at a
+    // DIFFERENT draw of the same family. The per-frame counter restarts at zero
+    // for every frame anyway, so the family's numbering is unchanged by a resize
+    // and the locked index is still the right one once a whole frame has passed.
+    (void) occurrence;
     // The pinned resources are wherever the new size put them, and we no longer
     // know: force the rebind below to treat the pin as stale so it moves THIS
     // frame rather than waiting out the staleness window.
