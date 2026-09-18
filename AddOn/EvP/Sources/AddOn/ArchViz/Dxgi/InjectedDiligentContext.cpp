@@ -236,12 +236,16 @@ Stats Snapshot ()
     return Get ().stats;
 }
 
-void Reset ()
+void ResetCounters ()
 {
     Detach ();
-    State& s = Get ();
-    s.stats = Stats {};
-    s.backend = Backend::NativeD3D11;
+    Get ().stats = Stats {};
+}
+
+void Reset ()
+{
+    ResetCounters ();
+    Get ().backend = Backend::NativeD3D11;
 }
 
 } // namespace injecteddiligent

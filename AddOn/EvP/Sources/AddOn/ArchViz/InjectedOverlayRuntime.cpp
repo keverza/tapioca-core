@@ -294,7 +294,7 @@ StartResult Arm ()
     // Section 8: every `Start` resets what every `Stop` leaves behind. The
     // BACKEND SELECTION IS DELIBERATELY NOT RESET here -- a caller sets it before
     // starting, and clearing it would make the switch impossible to use.
-    dxgi::injecteddiligent::Reset ();
+    dxgi::injecteddiligent::ResetCounters ();
     cen::Reset ();
     cen::SetEnabled (true);
     cen::SetAutoSelect (true);

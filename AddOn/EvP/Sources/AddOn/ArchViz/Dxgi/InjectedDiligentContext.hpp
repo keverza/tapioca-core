@@ -159,6 +159,17 @@ Stats Snapshot ();
 // default for a menu item.
 void Reset ();
 
+// ⚠️ WHAT `Start` CALLS, AND THE DIFFERENCE IS THE WHOLE
+// POINT. `Reset` clears the backend SELECTION as well, which is right at `Stop`
+// -- a choice must not outlive the session that made it -- and catastrophic at
+// `Start`, because the caller sets the backend and THEN starts. Calling `Reset`
+// there wiped the selection microseconds after it was made, so
+// `backend=diligent` started natively and reported `attached=false attempts=0`
+// while the overlay drew perfectly through the other path.
+//
+// Counters only. The selection survives, because the caller has just made it.
+void ResetCounters ();
+
 } // namespace injecteddiligent
 } // namespace dxgi
 } // namespace archviz
