@@ -138,9 +138,15 @@ struct Stats {
 };
 Stats Snapshot ();
 
-// ⚠️ EVERY `Start` RESETS WHAT EVERY `Stop` LEAVES BEHIND (§8).
-// Four faults in this series were one bug wearing different clothes: state that
-// described session N still sitting there during session N+1.
+// ⚠️ EVERY `Start` RESETS WHAT EVERY `Stop` LEAVES
+// BEHIND (§8), AND `Detach` IS NOT ENOUGH. Detaching clears `attached` and
+// leaves `wraps`, `wrapHits` and `attachMs` describing the PREVIOUS session --
+// so "wrapped Archicad's back buffer" would pass on last session's evidence,
+// which is the exact shape of the four faults §8 exists for.
+//
+// ⚠️ IT KEEPS THE BACKEND SELECTION ON PURPOSE. The
+// caller chooses the backend and THEN starts; clearing the choice here would
+// make the switch impossible to use.
 void Reset ();
 
 } // namespace injecteddiligent
