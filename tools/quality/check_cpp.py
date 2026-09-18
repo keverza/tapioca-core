@@ -1173,6 +1173,69 @@ def _check_architecture_command_schemas(failures: list[str]) -> None:
                 )
 
 
+def _check_architecture_command_params(failures: list[str]) -> None:
+    """A parameter the handler reads must be declared in the input schema.
+
+    Request schemas here are "additionalProperties": false, so the dispatcher
+    rejects an undeclared parameter BEFORE the handler runs. The caller sees
+    `SchemaValidationFailed` and every assertion downstream of it fails for a
+    reason that has nothing to do with the feature.
+
+    That cost a run: `Tapioca.OverlayRuntime` grew a `backend` parameter, the
+    handler read it, the response schema listed the new fields it produced, and
+    the REQUEST schema was never touched. Four consecutive regression runs
+    reported "runtime started FAIL" and the overlay was never asked to start.
+
+    Same family as the unparseable-schema check above, and the same lesson: a
+    schema is validated at call time, inside Archicad, so a mistake in one costs
+    a live run and disguises itself as the feature being broken.
+    """
+    import json
+    import re
+
+    registration = re.compile(
+        r'\{\s*"(?P<verb>\w+)",\s*&MakeRegisteredNativeCommand<(?P<cls>\w+)>,\s*'
+        r'(?:true|false),\s*R"json\((?P<schema>.*?)\)json"',
+        re.S,
+    )
+    class_head = re.compile(r"^class\s+(\w+)\s*:", re.M)
+    reads = re.compile(r'params\.(?:Get|Contains)\s*\(\s*"([^"]+)"')
+
+    for path in sorted(ADDON_SRC.rglob("*.cpp")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "MakeRegisteredNativeCommand<" not in text:
+            continue
+
+        # Each class body runs to the next class head, which is enough to
+        # attribute a `params.Get` to the handler that performs it.
+        heads = list(class_head.finditer(text))
+        bodies = {
+            head.group(1): text[head.end() : (heads[i + 1].start() if i + 1 < len(heads) else len(text))]
+            for i, head in enumerate(heads)
+        }
+
+        for match in registration.finditer(text):
+            try:
+                schema = json.loads(match.group("schema"))
+            except ValueError:
+                continue  # the check above owns that failure
+            if schema.get("additionalProperties") is not False:
+                continue
+            declared = set(schema.get("properties", {}))
+            body = bodies.get(match.group("cls"))
+            if body is None:
+                continue
+            line = text.count(chr(10), 0, match.start()) + 1
+            for name in sorted(set(reads.findall(body)) - declared):
+                failures.append(
+                    f"{path.relative_to(ADDON_SRC)}:{line} - {match.group('verb')} reads the "
+                    f"parameter '{name}' that its REQUEST schema does not declare, and the "
+                    f"schema refuses anything undeclared. Every call passing it is rejected "
+                    f"before the handler runs, and the caller sees SchemaValidationFailed "
+                    f"rather than the feature failing."
+                )
+
+
 def _run_architecture(verbose: bool) -> int:
     failures: list[str] = []
     checks = [
@@ -1183,6 +1246,7 @@ def _run_architecture(verbose: bool) -> int:
         ("PALETTE   no method straddles both sub-objects", _check_architecture_palette),
         ("SUBOBJECT sub-objects never call the shell", _check_architecture_subobjects),
         ("REGISTRY  one provider per domain, all registered", _check_architecture_registry),
+        ("PARAMS    a handler reads only what its request schema declares", _check_architecture_command_params),
         ("CITATIONS entry-point docs cite symbols, not lines", _check_architecture_citations),
         ("SCHEMAS   every command schema literal parses as JSON", _check_architecture_command_schemas),
         ("OVERLAY   every overlay TU cites the invariants contract", _check_overlay_contract),
