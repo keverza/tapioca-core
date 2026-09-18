@@ -288,6 +288,11 @@ struct BindingStats {
     // after creating or deleting geometry is healthy; growing while the model is
     // untouched means something else is moving the index count.
     uint64_t modelEditRebinds = 0;
+    // ⚠️ HOW OFTEN AN EDIT MOVED THE OCCURRENCE AND THE
+    // CAMERA WAS RE-CHOSEN RATHER THAN GUESSED. Nonzero after creating or
+    // deleting geometry is healthy. Climbing while the model is untouched means
+    // the model-edit rule is firing on navigation and must be WITHDRAWN.
+    uint64_t modelEditReselects = 0;
     // The terms the last evaluated draw missed, one bit per fingerprint term, so
     // a refusal to adopt can be read rather than inferred.
     uint32_t lastMissMask = 0;

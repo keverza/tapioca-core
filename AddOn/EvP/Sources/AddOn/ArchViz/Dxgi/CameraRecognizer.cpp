@@ -234,32 +234,43 @@ static bool LooksLikeModelEdit ()
     return g_modelRevision != g_fingerprintRevision;
 }
 
-// ⚠️ THE OCCURRENCE IS RE-LOCKED HERE, NOT ABANDONED. The
-// first attempt at this adopted only the index count and left the locked index
-// standing, on the reasoning that the per-frame counter restarts every frame so
-// the old index must still exist. THE RUN DISPROVED IT: after the edits the
-// camera sat in `Reacquiring` with `miss=0x01` -- the occurrence ALONE, every
-// other term agreeing -- and `age3+` climbed past 2400 with a max of 311 frames.
-// Adding elements changes how many times the family draws AND where in that
-// sequence our draw falls, so the locked index can genuinely cease to exist.
+// ⚠️ THE OCCURRENCE IS NEVER INVENTED. TWO ATTEMPTS
+// PROVED BOTH EXTREMES WRONG.
 //
-// Re-locking is what `SelectCandidate` does; doing it here is the same
-// transaction for the same reason, and it is gated on the model revision so it
-// happens ONCE PER REPORTED EDIT and never during navigation. If
-// `modelEditRebinds` ever climbs while the model is untouched, this rule is too
-// permissive and must be withdrawn rather than tuned.
-static void AdoptModelEdit (const contextstate::ContextState& live, uint32_t indexCount, uint32_t occurrence)
+// Keeping the old index (stage 22) left the camera stuck with `miss=0x01` --
+// the occurrence alone -- because an edit changes where in the frame our draw
+// falls. Adopting the first post-edit draw's index (stage 23) was worse: the
+// log read `Locked g4 occ42`, then `occ0`, then `occ136`, against an original
+// lock of `occ2`. Those are arbitrary draws, and the ones that only happen while
+// Archicad rebuilds -- so the snapshot arrived once per EDIT and never during
+// navigation. That is precisely the reported symptom: place an element and the
+// overlay syncs, move the camera and it does not follow.
+//
+// ⚠️ AN OCCURRENCE IS A MEASURED CHOICE, NOT THE FIRST
+// THING TO ARRIVE. `SelectCandidate` picks it from samples, coverage and centre
+// error. So an edit that moves it does not get a guess: the selection is
+// DROPPED, and the auto-selector re-chooses on the measurements the census has
+// been accumulating all along. Those groups already hold their samples, so this
+// is a re-selection within a few model frames, not a relearn from zero.
+//
+// The index count IS adoptable on its own, because an index count has no
+// alternative candidates to be confused with -- only a position in the frame
+// does.
+static void AdoptModelEdit (uint32_t indexCount)
 {
-    if ((g_lastMissMask & (1u << kTermIndexCount)) != 0)
-        g_fingerprint.indexCount = indexCount;
-    if ((g_lastMissMask & (1u << kTermOccurrence)) != 0) {
-        g_fingerprint.occurrenceIndex = occurrence;
-        g_selection.occurrenceIndex = occurrence;
-    }
+    g_fingerprint.indexCount = indexCount;
     g_fingerprintRevision = g_modelRevision;
     g_selectionLastSeenModel = 0;
     ++g_binding.modelEditRebinds;
-    (void) live;
+}
+
+// The occurrence moved as well, so there is nothing safe to adopt. Drop the
+// selection and let the census choose again from what it has measured.
+static void ReselectAfterModelEdit ()
+{
+    g_fingerprintRevision = g_modelRevision;
+    ++g_binding.modelEditReselects;
+    ClearSelection ();
 }
 
 static bool LooksLikeResize (const contextstate::ContextState& live)
@@ -341,7 +352,11 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         // ⚠️ A MODEL EDIT IS CHECKED FIRST, BECAUSE IT IS
         // THE ONE THAT CANNOT HEAL AND THE ONE THAT FROZE A LIVE SESSION.
         if (LooksLikeModelEdit ()) {
-            AdoptModelEdit (live, indexCount, occurrence);
+            if ((g_lastMissMask & (1u << kTermOccurrence)) != 0) {
+                ReselectAfterModelEdit ();
+                return;
+            }
+            AdoptModelEdit (indexCount);
         }
         else if (LooksLikeResize (live)) {
             AdoptResize (live, occurrence);
@@ -692,8 +707,10 @@ void ResetBindingStats ()
     const bool valid = g_fingerprint.valid;
     const uint64_t rebinds = g_binding.resizeRebinds;
     const uint64_t edits = g_binding.modelEditRebinds;
+    const uint64_t reselects = g_binding.modelEditReselects;
     g_binding = BindingStats {};
     g_binding.modelEditRebinds = edits;
+    g_binding.modelEditReselects = reselects;
     // A resize that has already been adopted is not undone by a count reset, and
     // Present latches on this to refuse a stale camera.
     g_binding.resizeRebinds = rebinds;

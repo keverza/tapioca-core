@@ -848,6 +848,7 @@ Health GetHealth ()
     health.watchIntervalMs = watch.intervalMs;
     health.watchError = watch.lastError;
     health.modelEditRebinds = census.modelEditRebinds;
+    health.modelEditReselects = census.modelEditReselects;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;

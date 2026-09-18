@@ -186,6 +186,7 @@ struct Health {
     // How often a model edit was adopted in place rather than freezing the
     // camera. See `census::BindingStats::modelEditRebinds`.
     uint64_t modelEditRebinds = 0;
+    uint64_t modelEditReselects = 0;
     std::string watchError;
 
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
