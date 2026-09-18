@@ -33,6 +33,8 @@ uint32_t g_eligibleCandidates = 0;
 EligibilityDiagnosis g_gate;
 // Which single term the last evaluated draw missed, or -1. See `SoleMissWasViewport`.
 int g_lastSoleMiss = -1;
+// Every term the last evaluated draw missed, one bit each. See `LooksLikeResize`.
+uint32_t g_lastMissMask = 0;
 
 BindingStats g_binding;
 FingerprintDiagnosis g_diagnosis;
@@ -115,13 +117,16 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
     ++g_diagnosis.evaluated;
     uint32_t failures = 0;
     uint32_t lastFailure = 0;
+    uint32_t missMask = 0;
     for (uint32_t i = 0; i < kFingerprintTermCount; ++i) {
         if (term[i])
             continue;
         ++g_diagnosis.missed[i];
         ++failures;
         lastFailure = i;
+        missMask |= 1u << i;
     }
+    g_lastMissMask = missMask;
     if (failures == 0)
         return true;
 
@@ -175,12 +180,31 @@ static bool MatchesFingerprint (const contextstate::ContextState& live, DrawKind
     return false;
 }
 
-// True when the draw just evaluated agreed on every fingerprint term except the
-// viewport. Reads the diagnosis `MatchesFingerprint` has just written, so it must
-// be called immediately after it and nowhere else.
-static bool SoleMissWasViewport ()
+// ⚠️ A RESIZE MOVES THREE TERMS AT ONCE, AND ASKING FOR A
+// SOLE VIEWPORT MISS IS WHY THE RE-LEARN NEVER FIRED. The window's pixel size is
+// carried by the viewport rectangle, by the back buffer's description AND by the
+// depth buffer's description -- they are resized together, so a resize produces
+// THREE failures and `failures == 1` was never true. The reported symptom was
+// exactly that: the overlay froze at the old rectangle instead of re-learning.
+//
+// ⚠️ AND THE SAFETY THE SOLE-MISS RULE PROVIDED IS KEPT, NOT
+// DROPPED. The misses must be a SUBSET of the three size-bearing terms, so every
+// other term still has to agree -- including `indexCount`, which is the model's
+// exact index count, and `occurrenceIndex`. A pass that agrees on those and
+// differs only in pixel size is this camera at a new window size and nothing
+// else. Formats and sample counts are checked explicitly because they live
+// inside the same coarse terms and do NOT change with the window: if they moved
+// too, this is a different target.
+static const uint32_t kSizeTermMask = (1u << kTermViewport) | (1u << kTermRenderTargetDesc) | (1u << kTermDepthDesc);
+
+static bool LooksLikeResize (const contextstate::ContextState& live)
 {
-    return g_lastSoleMiss == int (kTermViewport);
+    if (g_lastMissMask == 0 || (g_lastMissMask & ~kSizeTermMask) != 0)
+        return false;
+    return g_fingerprint.renderTargetFormat == live.renderTargetDesc.format &&
+           g_fingerprint.renderTargetSamples == live.renderTargetDesc.sampleCount &&
+           g_fingerprint.depthFormat == live.depthStencilDesc.format &&
+           g_fingerprint.depthSamples == live.depthStencilDesc.sampleCount;
 }
 
 // ⚠️ RE-ACQUIRE THE RUNTIME RESOURCES, DO NOT RE-DECIDE THE CAMERA.
@@ -215,7 +239,7 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         // terms; only a draw that agrees on ALL SEVEN others is this camera
         // family at a new size. That rule is already the fingerprint
         // diagnosis's, and this is the first use of it to decide something.
-        if (SoleMissWasViewport ()) {
+        if (LooksLikeResize (live)) {
             ++g_binding.resizeRelearns;
             ClearSelection ();
             // ⚠️ AND FORGET THE MEASUREMENTS, NOT ONLY THE

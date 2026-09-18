@@ -178,6 +178,17 @@ struct InjectionStats {
     uint64_t skippedStaleCamera = 0;
     uint64_t backBufferFailures = 0;
 
+    // ⚠️ THE TWO RECTANGLES WHOSE DIFFERENCE IS THE DESYNC.
+    // `accepted*` is the viewport the camera Present draws with was measured in;
+    // `liveScene*` is the viewport Archicad drew the model in on the most recent
+    // qualifying draw. Equal is healthy. Different means the overlay is being
+    // projected into a window that no longer exists, which is what a resize looks
+    // like from the user's side: geometry frozen somewhere unrelated. Packed as
+    // width << 16 | height and published by Present, so reading them costs one
+    // atomic load and no lock.
+    uint32_t acceptedViewportWidth = 0, acceptedViewportHeight = 0;
+    uint32_t liveSceneViewportWidth = 0, liveSceneViewportHeight = 0;
+
     // The two injection points, counted apart: one fires per scene departure and
     // the other per Present, so a shared counter is a meaningless ratio.
     uint64_t injectedPresent = 0;

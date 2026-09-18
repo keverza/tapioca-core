@@ -110,6 +110,16 @@ struct Health {
     uint64_t hostNoGeometry = 0;
     uint64_t overlayNoEdges = 0;
     uint64_t overlayNoCamera = 0;
+    uint64_t overlayCulled = 0;
+    uint64_t skippedStaleCamera = 0;
+    uint32_t linesDrawn = 0;
+
+    // ⚠️ THE TWO RECTANGLES, BECAUSE THEIR DIFFERENCE IS THE
+    // DESYNC. See `InjectionStats`: equal is healthy, different means the overlay
+    // is projected into a window that no longer exists.
+    uint32_t acceptedViewportWidth = 0, acceptedViewportHeight = 0;
+    uint32_t sceneViewportWidth = 0, sceneViewportHeight = 0;
+    uint64_t resizeRelearns = 0;
 
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
     // runs were spent asking "why is nothing on screen" when the answer was a

@@ -198,6 +198,16 @@ contextstate::SceneDrawState g_acceptedCamera;
 // The value of `census::BindingStats::resizeRelearns` when `g_acceptedCamera` was
 // taken. See the refusal in `InjectAtPresent`.
 uint64_t g_acceptedCameraResizeEpoch = 0;
+// Packed width << 16 | height. See `InjectionStats::acceptedViewportWidth`.
+std::atomic<uint32_t> g_acceptedViewport { 0 };
+std::atomic<uint32_t> g_liveSceneViewport { 0 };
+
+uint32_t PackViewport (float width, float height)
+{
+    const uint32_t w = width > 0.0f ? uint32_t (width) : 0u;
+    const uint32_t h = height > 0.0f ? uint32_t (height) : 0u;
+    return ((w & 0xffffu) << 16) | (h & 0xffffu);
+}
 uint64_t g_lastInjectedModelGeneration = 0;
 
 std::atomic<uint64_t> g_newScene { 0 };
@@ -694,6 +704,10 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
     // three sample counts the whole run exists to obtain. The classification is
     // still recorded on every row, so the frame-state semantics can be repaired
     // afterwards on evidence rather than guessed at now.
+    if (freshIsUsable) {
+        g_liveSceneViewport.store (PackViewport (fresh.viewportWidth, fresh.viewportHeight), std::memory_order_relaxed);
+    }
+
     const bool snapshotUsable = SnapshotValid ();
     if (!snapshotUsable) {
         g_invalidNoSnapshot.fetch_add (1, std::memory_order_relaxed);
@@ -707,6 +721,7 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         // with its own camera. Take it.
         g_acceptedCamera = fresh;
         g_acceptedCameraResizeEpoch = census::GetBindingStats ().resizeRelearns;
+        g_acceptedViewport.store (PackViewport (fresh.viewportWidth, fresh.viewportHeight), std::memory_order_relaxed);
         g_lastInjectedModelGeneration = fresh.modelSceneGeneration;
         g_newScene.fetch_add (1, std::memory_order_relaxed);
         state = oracle::FrameState::NewScene;
@@ -930,6 +945,12 @@ InjectionStats GetInjectionStats ()
     stats.skippedReentrant = g_skipReentrant.load (std::memory_order_relaxed);
     stats.skippedStaleCamera = g_skipStaleCamera.load (std::memory_order_relaxed);
     stats.backBufferFailures = g_backBufferFailures.load (std::memory_order_relaxed);
+    const uint32_t accepted = g_acceptedViewport.load (std::memory_order_relaxed);
+    const uint32_t liveScene = g_liveSceneViewport.load (std::memory_order_relaxed);
+    stats.acceptedViewportWidth = accepted >> 16;
+    stats.acceptedViewportHeight = accepted & 0xffffu;
+    stats.liveSceneViewportWidth = liveScene >> 16;
+    stats.liveSceneViewportHeight = liveScene & 0xffffu;
     stats.newScene = g_newScene.load (std::memory_order_relaxed);
     stats.repeatScene = g_repeatScene.load (std::memory_order_relaxed);
     stats.invalidScene = g_invalidScene.load (std::memory_order_relaxed);

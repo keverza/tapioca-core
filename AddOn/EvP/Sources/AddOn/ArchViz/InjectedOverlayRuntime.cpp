@@ -52,6 +52,22 @@ uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
 uint64_t g_lastDraws = 0;
+// ⚠️ PREVIOUS TOTALS, SO THE REPORT CAN SUBTRACT. A cumulative
+// counter answers "did this ever happen", and every question worth asking after
+// the overlay starts is "is it happening NOW". See `NarrateLive`.
+struct LiveMark {
+    uint64_t present = 0;
+    uint64_t compose = 0;
+    uint64_t stale = 0;
+    uint64_t noDepth = 0;
+    uint64_t noGeometry = 0;
+    uint64_t noEdges = 0;
+    uint64_t noCamera = 0;
+    uint64_t culled = 0;
+};
+LiveMark g_mark;
+std::string g_lastLive;
+uint32_t g_liveTicks = 0;
 bool g_anchored = false;
 std::string g_anchorHow;
 std::string g_lastChain;
@@ -136,6 +152,64 @@ void Narrate (const char* channel, const std::string& detail)
     char line[256] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE, "%-12s %s", channel, detail.c_str ());
     ArchVizLog (line);
+}
+
+// ⚠️ WHAT IS HAPPENING NOW, WHICH NO CUMULATIVE COUNTER CAN
+// SAY. A run reported `OVERLAY DRAWING (85 lines)` and the user saw nothing on
+// screen -- both true: one pass had composed, and then the chain went silent
+// because `blockedAt` only reports while `overlayDraws == 0`. Totals cannot
+// distinguish "composing every frame" from "composed once, minutes ago", and
+// that difference was the whole question.
+//
+// So: deltas since the last tick, and a line whenever the ANSWER changes --
+// composing or not, a refusal that was zero becoming nonzero, the two viewports
+// disagreeing -- plus one every five seconds so a healthy run still leaves a
+// heartbeat to read. Never one per tick.
+void NarrateLive ()
+{
+    const Health health = GetHealth ();
+    if (!health.running)
+        return;
+
+    const uint64_t present = health.presentInjections;
+    const uint64_t compose = health.overlayDraws;
+    char line[320] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u scene=%ux%u relearn=%llu | "
+                 "stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu",
+                 compose > g_mark.compose ? "composing" : "NOT COMPOSING",
+                 (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
+                 health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
+                 health.acceptedViewportWidth, health.acceptedViewportHeight, health.sceneViewportWidth,
+                 health.sceneViewportHeight, (unsigned long long) health.resizeRelearns,
+                 (unsigned long long) (health.skippedStaleCamera - g_mark.stale),
+                 (unsigned long long) (health.hostNoDepthTarget - g_mark.noDepth),
+                 (unsigned long long) (health.hostNoGeometry - g_mark.noGeometry),
+                 (unsigned long long) (health.overlayNoEdges - g_mark.noEdges),
+                 (unsigned long long) (health.overlayNoCamera - g_mark.noCamera),
+                 (unsigned long long) (health.overlayCulled - g_mark.culled));
+
+    g_mark.present = present;
+    g_mark.compose = compose;
+    g_mark.stale = health.skippedStaleCamera;
+    g_mark.noDepth = health.hostNoDepthTarget;
+    g_mark.noGeometry = health.hostNoGeometry;
+    g_mark.noEdges = health.overlayNoEdges;
+    g_mark.noCamera = health.overlayNoCamera;
+    g_mark.culled = health.overlayCulled;
+
+    // The leading word classifies the tick; comparing whole lines would narrate
+    // every frame-count wobble, and comparing nothing would narrate four times a
+    // second.
+    const std::string current (line);
+    const bool classChanged = g_lastLive.empty () || g_lastLive.compare (0, 13, current, 0, 13) != 0;
+    const bool quiet = current.find ("stale+0 nodepth+0 nogeom+0 noedge+0 nocam+0 culled+0") != std::string::npos;
+    ++g_liveTicks;
+    if (classChanged || (!quiet && g_liveTicks >= 4) || g_liveTicks >= 20) {
+        g_liveTicks = 0;
+        g_lastLive = current;
+        Narrate ("LIVE", current);
+    }
 }
 
 void NarrateGate ()
@@ -570,7 +644,25 @@ void Tick ()
     // diagnostic command that had itself crashed. A menu path that can fail must
     // narrate itself; a state that never changes costs one comparison.
     if (camera != g_lastCamera) {
-        Narrate ("CAMERA", CameraStateName (camera));
+        // ⚠️ AND WHEN IT LOCKS, SAY WHAT IT LOCKED ON TO. The
+        // gate reports the candidates it REFUSED and then fell silent about the
+        // one it accepted, so "it locked and drew nothing visible" had no way to
+        // become "it locked on to the wrong group". These are the numbers the
+        // decision was made from, in the viewport it was measured in.
+        if (camera == CameraState::Locked) {
+            const cen::Selection chosen = cen::GetSelection ();
+            char detail[220] = {};
+            _snprintf_s (detail, sizeof (detail), _TRUNCATE,
+                         "Locked g%u occ%u interp%u vp=%.0fx%.0f@%.0f,%.0f samples=%u coverage=%.0f%% "
+                         "inside=%.0f%% centre=%.3f",
+                         chosen.groupId, chosen.occurrenceIndex, chosen.variant, chosen.viewportWidth,
+                         chosen.viewportHeight, chosen.viewportX, chosen.viewportY, chosen.samples,
+                         chosen.modelCoverage * 100.0f, chosen.insideClip * 100.0f, chosen.medianCentreError);
+            Narrate ("CAMERA", detail);
+        }
+        else {
+            Narrate ("CAMERA", CameraStateName (camera));
+        }
         g_lastCamera = camera;
     }
     const HostState hostState = ReadHostState ();
@@ -593,6 +685,8 @@ void Tick ()
             Narrate ("OVERLAY", "stopped drawing");
     }
     g_lastDraws = draws;
+
+    NarrateLive ();
 
     // ⚠️ WHILE REQUESTED BUT NOT DRAWING, THE CHAIN REPORTS ITSELF --
     // ONE LINE PER CHANGE, NEVER PER TICK. A state that has not moved is not
@@ -713,6 +807,14 @@ Health GetHealth ()
     health.hostNoGeometry = hostStats.skippedNoGeometry;
     health.overlayNoEdges = overlayStats.skippedNoEdges;
     health.overlayNoCamera = overlayStats.skippedNoCamera;
+    health.overlayCulled = overlayStats.culledPasses;
+    health.linesDrawn = overlayStats.linesDrawn;
+    health.skippedStaleCamera = injectionStats.skippedStaleCamera;
+    health.acceptedViewportWidth = injectionStats.acceptedViewportWidth;
+    health.acceptedViewportHeight = injectionStats.acceptedViewportHeight;
+    health.sceneViewportWidth = injectionStats.liveSceneViewportWidth;
+    health.sceneViewportHeight = injectionStats.liveSceneViewportHeight;
+    health.resizeRelearns = cen::GetBindingStats ().resizeRelearns;
 
     const cen::Selection selection = cen::GetSelection ();
     health.modelFramesSeen = census.modelFramesSeen;
@@ -762,6 +864,12 @@ void Stop ()
     g_lastCamera = CameraState::Unavailable;
     g_lastHost = HostState::Idle;
     g_lastDraws = 0;
+    // Same fault class as `g_hostRequested` and `g_lastAutoSelectAttempt`: a mark
+    // that outlives the session it describes makes the first tick of the next one
+    // report a delta it did not measure.
+    g_mark = LiveMark {};
+    g_lastLive.clear ();
+    g_liveTicks = 0;
     // ⚠️ THE REQUEST FLAG IS A PROPERTY OF ONE SESSION AND MUST NOT
     // OUTLIVE IT. `g_hostRequested` guards against asking for the same extraction
     // twice inside a session; left set across `Stop`, it meant the SECOND
