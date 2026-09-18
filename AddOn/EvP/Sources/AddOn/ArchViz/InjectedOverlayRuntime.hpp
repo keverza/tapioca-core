@@ -119,6 +119,14 @@ struct Health {
     // is projected into a window that no longer exists.
     uint32_t acceptedViewportWidth = 0, acceptedViewportHeight = 0;
     uint32_t sceneViewportWidth = 0, sceneViewportHeight = 0;
+
+    // ⚠️ THE SURFACE BEING DRAWN INTO AND THE DEPTH BEING
+    // TESTED AGAINST. D3D11 refuses a binding whose render target and depth view
+    // differ in size, so unequal here means the composition did not land however
+    // many lines it reported. See `overlaycompose::Stats::sizeMismatches`.
+    uint32_t targetWidth = 0, targetHeight = 0;
+    uint32_t composeDepthWidth = 0, composeDepthHeight = 0;
+    uint64_t composeSizeMismatches = 0;
     uint64_t resizeRelearns = 0;
 
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six

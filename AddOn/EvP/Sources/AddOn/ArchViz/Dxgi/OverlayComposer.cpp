@@ -14,6 +14,39 @@ namespace geomsrv {
 namespace archviz {
 namespace dxgi {
 namespace overlaycompose {
+namespace {
+
+Stats g_stats;
+
+// The pixel extent behind a view, or 0x0 when it cannot be asked. Two COM calls,
+// once per Present, to answer a question that decides whether anything is drawn.
+void ViewExtent (ID3D11View* view, uint32_t& width, uint32_t& height)
+{
+    width = 0;
+    height = 0;
+    if (view == nullptr)
+        return;
+    ID3D11Resource* resource = nullptr;
+    view->GetResource (&resource);
+    if (resource == nullptr)
+        return;
+    ID3D11Texture2D* texture = nullptr;
+    if (SUCCEEDED (resource->QueryInterface (__uuidof (ID3D11Texture2D), (void**) &texture)) && texture != nullptr) {
+        D3D11_TEXTURE2D_DESC desc = {};
+        texture->GetDesc (&desc);
+        width = desc.Width;
+        height = desc.Height;
+        texture->Release ();
+    }
+    resource->Release ();
+}
+
+} // namespace
+
+Stats GetStats ()
+{
+    return g_stats;
+}
 
 void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
               ID3D11RenderTargetView* targetView, ID3D11DepthStencilView* depthView)
@@ -49,7 +82,29 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
     // overlay behaves exactly as it did before the extraction arrives, rather
     // than becoming un-occludable without saying so.
     ID3D11DepthStencilView* const hostView = hostocclusion::Prepare (context, context1, wanted);
-    ID3D11DepthStencilView* const overlayView = hostView != nullptr ? hostView : depthView;
+    ID3D11DepthStencilView* overlayView = hostView != nullptr ? hostView : depthView;
+
+    // ⚠️ AND THE DEPTH VIEW MUST BE THE SAME SIZE AS WHAT WE
+    // ARE DRAWING INTO, OR D3D11 REFUSES THE BINDING AND NOTHING LANDS. See
+    // `Stats::sizeMismatches`: the target here is the swap-chain back buffer and
+    // this depth is a copy of Archicad's SCENE depth, sized to the 3D view. They
+    // agree only when the view fills the window.
+    //
+    // ⚠️ THE FALLBACK IS DELIBERATELY WORSE THAN THE INTENT AND
+    // BETTER THAN THE BUG. Dropping the depth loses occlusion -- the overlay
+    // stops being hidden by the building -- but it is drawn, and a visible
+    // unoccluded overlay can be reasoned about while an invisible one cannot.
+    // The real repair is to compose where the sizes agree by construction; this
+    // is what makes the windowed case legible until then.
+    ++g_stats.passes;
+    ViewExtent (targetView, g_stats.targetWidth, g_stats.targetHeight);
+    ViewExtent (overlayView, g_stats.depthWidth, g_stats.depthHeight);
+    if (overlayView != nullptr && g_stats.targetWidth != 0 &&
+        (g_stats.targetWidth != g_stats.depthWidth || g_stats.targetHeight != g_stats.depthHeight)) {
+        ++g_stats.sizeMismatches;
+        overlayView = nullptr;
+    }
+
     if (targetView != nullptr)
         context->OMSetRenderTargets (1, &targetView, overlayView);
 

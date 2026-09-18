@@ -33,6 +33,23 @@ namespace overlaycompose {
 void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
               ID3D11RenderTargetView* targetView, ID3D11DepthStencilView* depthView);
 
+struct Stats {
+    uint64_t passes = 0;
+    // ⚠️ HOW OFTEN THE DEPTH VIEW WAS THE WRONG SIZE FOR THE
+    // SURFACE BEING DRAWN INTO. D3D11 requires every bound render target and the
+    // depth-stencil to have IDENTICAL dimensions; when they do not, the runtime
+    // refuses the binding and the draw does not land where the caller believes.
+    // The overlay composes into the swap-chain BACK BUFFER at Present, while the
+    // host occluder's private depth is a copy of ARCHICAD'S SCENE DEPTH, which is
+    // sized to the 3D view. Those agree only when the 3D view happens to fill the
+    // window -- which is why the overlay was reported visible in full screen and
+    // invisible in a window, with the log truthfully saying it had drawn.
+    uint64_t sizeMismatches = 0;
+    uint32_t targetWidth = 0, targetHeight = 0;
+    uint32_t depthWidth = 0, depthHeight = 0;
+};
+Stats GetStats ();
+
 } // namespace overlaycompose
 } // namespace dxgi
 } // namespace archviz

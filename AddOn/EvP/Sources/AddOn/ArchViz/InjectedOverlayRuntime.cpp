@@ -13,6 +13,7 @@
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
+#include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/ArchVizLog.hpp"
@@ -36,6 +37,7 @@ namespace cen = dxgi::census;
 namespace inj = dxgi::injection;
 namespace host = dxgi::hostocclusion;
 namespace ho = dxgi::hostoverlay;
+namespace composer = dxgi::overlaycompose;
 namespace ghost = dxgi::ghost;
 namespace depth = dxgi::injection::depth;
 
@@ -64,6 +66,7 @@ struct LiveMark {
     uint64_t noEdges = 0;
     uint64_t noCamera = 0;
     uint64_t culled = 0;
+    uint64_t mismatch = 0;
 };
 LiveMark g_mark;
 std::string g_lastLive;
@@ -173,21 +176,23 @@ void NarrateLive ()
 
     const uint64_t present = health.presentInjections;
     const uint64_t compose = health.overlayDraws;
-    char line[320] = {};
+    char line[420] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u scene=%ux%u relearn=%llu | "
-                 "stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu",
+                 "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
+                 "relearn=%llu | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
+                 "mismatch+%llu",
                  compose > g_mark.compose ? "composing" : "NOT COMPOSING",
                  (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
                  health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
-                 health.acceptedViewportWidth, health.acceptedViewportHeight, health.sceneViewportWidth,
-                 health.sceneViewportHeight, (unsigned long long) health.resizeRelearns,
+                 health.acceptedViewportWidth, health.acceptedViewportHeight, health.targetWidth, health.targetHeight,
+                 health.composeDepthWidth, health.composeDepthHeight, (unsigned long long) health.resizeRelearns,
                  (unsigned long long) (health.skippedStaleCamera - g_mark.stale),
                  (unsigned long long) (health.hostNoDepthTarget - g_mark.noDepth),
                  (unsigned long long) (health.hostNoGeometry - g_mark.noGeometry),
                  (unsigned long long) (health.overlayNoEdges - g_mark.noEdges),
                  (unsigned long long) (health.overlayNoCamera - g_mark.noCamera),
-                 (unsigned long long) (health.overlayCulled - g_mark.culled));
+                 (unsigned long long) (health.overlayCulled - g_mark.culled),
+                 (unsigned long long) (health.composeSizeMismatches - g_mark.mismatch));
 
     g_mark.present = present;
     g_mark.compose = compose;
@@ -197,13 +202,15 @@ void NarrateLive ()
     g_mark.noEdges = health.overlayNoEdges;
     g_mark.noCamera = health.overlayNoCamera;
     g_mark.culled = health.overlayCulled;
+    g_mark.mismatch = health.composeSizeMismatches;
 
     // The leading word classifies the tick; comparing whole lines would narrate
     // every frame-count wobble, and comparing nothing would narrate four times a
     // second.
     const std::string current (line);
     const bool classChanged = g_lastLive.empty () || g_lastLive.compare (0, 13, current, 0, 13) != 0;
-    const bool quiet = current.find ("stale+0 nodepth+0 nogeom+0 noedge+0 nocam+0 culled+0") != std::string::npos;
+    const bool quiet =
+        current.find ("stale+0 nodepth+0 nogeom+0 noedge+0 nocam+0 culled+0 mismatch+0") != std::string::npos;
     ++g_liveTicks;
     if (classChanged || (!quiet && g_liveTicks >= 4) || g_liveTicks >= 20) {
         g_liveTicks = 0;
@@ -815,6 +822,12 @@ Health GetHealth ()
     health.sceneViewportWidth = injectionStats.liveSceneViewportWidth;
     health.sceneViewportHeight = injectionStats.liveSceneViewportHeight;
     health.resizeRelearns = cen::GetBindingStats ().resizeRelearns;
+    const composer::Stats composeStats = composer::GetStats ();
+    health.targetWidth = composeStats.targetWidth;
+    health.targetHeight = composeStats.targetHeight;
+    health.composeDepthWidth = composeStats.depthWidth;
+    health.composeDepthHeight = composeStats.depthHeight;
+    health.composeSizeMismatches = composeStats.sizeMismatches;
 
     const cen::Selection selection = cen::GetSelection ();
     health.modelFramesSeen = census.modelFramesSeen;
