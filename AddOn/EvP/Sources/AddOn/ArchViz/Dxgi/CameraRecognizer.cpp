@@ -104,8 +104,25 @@ bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurren
 
     bool term[kPinTermCount];
     term[kPinOccurrence] = g_selection.occurrenceIndex == occurrence;
-    term[kPinRenderTarget] = g_selection.renderTarget == live.renderTarget;
-    term[kPinDepthStencil] = g_selection.depthStencil == live.depthStencil;
+    // ⚠️ DESCRIPTIONS, NOT POINTERS, AND THE MEASUREMENT
+    // IS WHY. The pin missed on `occurrence+renderTarget+depthStencil` and only
+    // 64% of model frames produced a snapshot; the other 36% composed with an
+    // older camera, which is `age3+` and the residual desync being reported.
+    // Archicad rotates its offscreen 3D target, so those two pointers change
+    // between frames, and `MaintainBinding` can only re-acquire them once every
+    // two model generations -- a repair rate-limited below the rate of breakage.
+    //
+    // ⚠️ AND THIS RESTORES FROZEN FINDING 5 RATHER THAN
+    // RELAXING IT: "camera identity is a SEMANTIC fingerprint, never COM pointer
+    // identity". The pin was the one place still holding raw pointers. The
+    // description -- width, height, format, sample count -- is what identifies
+    // the surface, and it is what the fingerprint has always compared.
+    term[kPinRenderTarget] = g_selection.renderTargetWidth == live.renderTargetDesc.width &&
+                             g_selection.renderTargetHeight == live.renderTargetDesc.height &&
+                             g_selection.renderTargetFormat == live.renderTargetDesc.format;
+    term[kPinDepthStencil] = g_selection.depthWidth == live.depthStencilDesc.width &&
+                             g_selection.depthHeight == live.depthStencilDesc.height &&
+                             g_selection.depthFormat == live.depthStencilDesc.format;
     term[kPinViewport] = SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
                          SameExtent (g_selection.viewportHeight, live.viewportHeight);
     term[kPinViewBuffer] = g_selection.viewBuffer == live.vsConstantBuffers[1].buffer;
@@ -464,6 +481,12 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
 
     g_selection.renderTarget = live.renderTarget;
     g_selection.depthStencil = live.depthStencil;
+    g_selection.renderTargetWidth = live.renderTargetDesc.width;
+    g_selection.renderTargetHeight = live.renderTargetDesc.height;
+    g_selection.renderTargetFormat = live.renderTargetDesc.format;
+    g_selection.depthWidth = live.depthStencilDesc.width;
+    g_selection.depthHeight = live.depthStencilDesc.height;
+    g_selection.depthFormat = live.depthStencilDesc.format;
     g_selection.viewportX = live.viewportX;
     g_selection.viewportY = live.viewportY;
     g_selection.viewportWidth = live.viewportWidth;

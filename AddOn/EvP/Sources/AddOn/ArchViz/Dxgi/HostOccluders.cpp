@@ -54,10 +54,11 @@ const char* const kHostShaderBody = "float4 VSHost (float3 position : POSITION) 
 // with a single atomic exchange; nothing ever writes to a snapshot the render
 // thread can see. That is what removes the mutex from Present.
 struct Snapshot {
-    std::vector<float> positions; // xyz interleaved, world metres
-    std::vector<float> scalars;   // one per vertex; see `ScalarField`
-    std::vector<uint32_t> indices;
-    std::vector<uint32_t> lineIndices; // feature edges, see `EndBatch`
+    std::vector<float> positions;             // xyz interleaved, world metres
+    std::vector<float> scalars;               // one per vertex; see `ScalarField`
+    std::vector<uint32_t> indices;            // OPAQUE only: what occludes
+    std::vector<uint32_t> transparentIndices; // glass and helpers: drawn, never occluding
+    std::vector<uint32_t> lineIndices;        // feature edges of BOTH, see `EndBatch`
     bool frontCounterClockwise = true;
     bool windingKnown = false;
 };
@@ -480,6 +481,11 @@ void BeginBatch (bool full)
     if (full) {
         g_building->positions.clear ();
         g_building->indices.clear ();
+        // ⚠️ APPENDED TO, THEREFORE CLEARED HERE. Leaving
+        // this out would keep every historical glass triangle in the edge build,
+        // so the wireframe would accumulate the ghosts of surfaces that had since
+        // been deleted or turned opaque.
+        g_building->transparentIndices.clear ();
     }
     ++g_stats.extractionGeneration;
     // Stamped at the START of the batch: an edit that arrives mid-extraction is
@@ -516,6 +522,15 @@ uint32_t AddVertices (const float* xyz, uint32_t vertexCount)
 void NoteTransparent (uint32_t indexCount)
 {
     g_stats.transparentTrianglesSkipped += indexCount / 3;
+}
+
+void AddTransparentIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount)
+{
+    if (g_building == nullptr || indices == nullptr || indexCount == 0)
+        return;
+    g_building->transparentIndices.reserve (g_building->transparentIndices.size () + indexCount);
+    for (uint32_t i = 0; i < indexCount; ++i)
+        g_building->transparentIndices.push_back (vertexBase + indices[i]);
 }
 
 void AddOpaqueIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount)
@@ -638,7 +653,13 @@ void EndBatch ()
         g_stats.boundsValid = vertexCount > 0;
     }
 
-    BuildFeatureEdges (g_building->positions, g_building->indices, g_building->lineIndices, g_stats.edgesConsidered);
+    // ⚠️ THE EDGES ARE BUILT FROM EVERYTHING, THE
+    // OCCLUDER FROM OPAQUE ALONE. Welding across both sets is deliberate: a glass
+    // pane meeting an opaque wall shares that edge, and building them separately
+    // would draw the seam twice and mark it a boundary in both.
+    std::vector<uint32_t> edgeInput = g_building->indices;
+    edgeInput.insert (edgeInput.end (), g_building->transparentIndices.begin (), g_building->transparentIndices.end ());
+    BuildFeatureEdges (g_building->positions, edgeInput, g_building->lineIndices, g_stats.edgesConsidered);
     g_stats.publishedLines = uint32_t (g_building->lineIndices.size () / 2);
 
     g_stats.publishedVertices = uint32_t (g_building->positions.size () / 3);

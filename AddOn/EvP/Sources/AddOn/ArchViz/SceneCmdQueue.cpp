@@ -77,9 +77,13 @@ void FeedOpaqueOccluders (const ElementUpload& upload)
             continue;
         const SurfaceMaterial& material = g_hostMaterials->Lookup (range.material);
         if (material.alpha < kOpaqueAlpha) {
-            // Glass, a build plane, a helper: it may not hide us. Counted, so
-            // "no opaque geometry" can be told apart from "no geometry at all".
+            // Glass, a build plane, a helper: it may not hide us -- and it is
+            // still part of the building, so it keeps its feature edges. See
+            // `AddTransparentIndices`. Counted as well, so "no opaque geometry"
+            // can still be told apart from "no geometry at all".
             dxgi::hostocclusion::NoteTransparent (range.indexCount);
+            dxgi::hostocclusion::AddTransparentIndices (base, upload.indices.data () + range.firstIndex,
+                                                        range.indexCount);
             continue;
         }
         dxgi::hostocclusion::AddOpaqueIndices (base, upload.indices.data () + range.firstIndex, range.indexCount);

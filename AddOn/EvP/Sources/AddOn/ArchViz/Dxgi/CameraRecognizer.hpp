@@ -99,6 +99,10 @@ struct Selection {
     uint64_t depthStencil = 0;
     float viewportX = 0.0f, viewportY = 0.0f;
     float viewportWidth = 0.0f, viewportHeight = 0.0f;
+    // See `MatchesSelection`: the surfaces are identified by description,
+    // because their pointers change between frames.
+    uint32_t renderTargetWidth = 0, renderTargetHeight = 0, renderTargetFormat = 0;
+    uint32_t depthWidth = 0, depthHeight = 0, depthFormat = 0;
     uint64_t viewBuffer = 0;
     uint32_t viewNumConstants = 0;
     uint64_t projectionBuffer = 0;

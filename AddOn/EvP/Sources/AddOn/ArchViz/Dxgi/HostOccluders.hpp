@@ -85,6 +85,20 @@ uint32_t AddVertices (const float* xyz, uint32_t vertexCount);
 // ALREADY DECIDED THAT. See the header note: this file never sees a material.
 void AddOpaqueIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount);
 
+// EXTRACTION THREAD. Triangles of a TRANSPARENT surface: glass, a build plane, a
+// helper.
+//
+// ⚠️ THEY DO NOT OCCLUDE AND THEY ARE STILL THE BUILDING.
+// Invariant 9 excludes transparent surfaces from OCCLUSION -- it does not say
+// they are not there. Dropping them entirely meant that turning a slab to glass
+// removed it from the reference wireframe as well: the geometry existed in
+// Archicad, the user could see it, and the overlay drew nothing where it was.
+//
+// So the split is between the two USES, not at the input: the occluder renders
+// opaque triangles only, and the feature-edge pass that makes the wireframe sees
+// opaque and transparent alike.
+void AddTransparentIndices (uint32_t vertexBase, const uint32_t* indices, uint32_t indexCount);
+
 // MAIN/EXTRACTION THREAD. ⚠️ WHAT WAS REJECTED IS EVIDENCE TOO. A run
 // with zero opaque triangles and zero transparent ones means the extraction
 // produced nothing; zero opaque and many transparent means the classifier is
