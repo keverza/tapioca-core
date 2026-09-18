@@ -91,8 +91,6 @@ enum PinTerm : uint32_t {
     kPinRenderTarget,
     kPinDepthStencil,
     kPinViewport,
-    kPinViewBuffer,
-    kPinProjectionBuffer,
     kPinWindows,
     kPinTermCount
 };
@@ -125,8 +123,29 @@ bool MatchesSelection (const contextstate::ContextState& live, uint32_t occurren
                              g_selection.depthFormat == live.depthStencilDesc.format;
     term[kPinViewport] = SameExtent (g_selection.viewportWidth, live.viewportWidth) &&
                          SameExtent (g_selection.viewportHeight, live.viewportHeight);
-    term[kPinViewBuffer] = g_selection.viewBuffer == live.vsConstantBuffers[1].buffer;
-    term[kPinProjectionBuffer] = g_selection.projectionBuffer == live.vsConstantBuffers[2].buffer;
+    // ⚠️ THE CONSTANT-BUFFER POINTERS ARE GONE, AND
+    // MEASUREMENT IS WHY. A run on a 39340-triangle project produced a snapshot
+    // for 16 of 157 model frames -- 10%, against 91% and 93% on lighter ones --
+    // with `last pin miss: occurrence+viewBuffer` and the logical fingerprint
+    // matching ten times in twenty seconds. The overlay was then composing three
+    // or more generations behind on 42% of frames, which is what "lower
+    // performance" looks like from the outside.
+    //
+    // ⚠️ AND THIS RESTORES FROZEN FINDING 5 RATHER THAN
+    // RELAXING IT, for the second time: "camera identity is a SEMANTIC
+    // fingerprint, never COM pointer identity". The render target and depth
+    // stencil were converted from pointers to descriptions in a5fdfed and the
+    // snapshot rate went from 64% to 91%; these two were the last raw pointers
+    // left in the pin, and they fail for the same reason. `ContextHookDetours`
+    // records that Archicad 29 keeps its constants in ONE 8 MiB ring and binds
+    // WINDOWS of it -- so which buffer object the window happens to live in is
+    // an allocation detail, and on a heavier scene it rotates.
+    //
+    // What identifies the camera window semantically is its SIZE, which
+    // `kPinWindows` already compares, alongside the occurrence, the viewport and
+    // both surface descriptions. Nothing here weakens to compensate: the terms
+    // that remain are the ones that describe the draw rather than the memory it
+    // was assembled in.
     term[kPinWindows] = g_selection.viewNumConstants == live.vsConstantBuffers[1].numConstants &&
                         g_selection.projectionNumConstants == live.vsConstantBuffers[2].numConstants;
 
