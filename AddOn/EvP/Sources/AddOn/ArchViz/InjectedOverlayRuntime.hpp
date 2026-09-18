@@ -162,6 +162,29 @@ struct Health {
     uint64_t suppressedStaleViewport = 0;
     uint64_t redrawRequests = 0;
 
+    // ⚠️ THE THREE REVISIONS, WHICH NAME THE STAGE THAT
+    // STOPPED. model == published == gpu is the overlay being the building;
+    // published behind model means an edit was never extracted; gpu behind
+    // published means it was extracted and never uploaded. See
+    // `hostocclusion::SetModelRevision`.
+    uint32_t modelRevision = 0;
+    uint32_t publishedRevision = 0;
+    uint32_t gpuRevision = 0;
+
+    // ⚠️ AND WHETHER THE WATCH IS EVEN LOOKING. A whole log
+    // once contained `model watch: armed` and not one `re-extracting`, while the
+    // model demonstrably changed. "Armed" is not "working": these separate a
+    // watch that never polled from one that polled and saw nothing from one that
+    // saw an edit and could not start a pass.
+    bool watchRunning = false;
+    uint32_t watchPolls = 0;
+    uint32_t watchEdits = 0;
+    uint32_t watchRefreshes = 0;
+    uint32_t watchEnvironmentOnly = 0;
+    uint32_t watchSkippedBusy = 0;
+    uint32_t watchIntervalMs = 0;
+    std::string watchError;
+
     // ⚠️ THE CHAIN, IN ORDER, SO A FAILURE NAMES ITS OWN STAGE. Six
     // runs were spent asking "why is nothing on screen" when the answer was a
     // different stage each time and no single number distinguished them.

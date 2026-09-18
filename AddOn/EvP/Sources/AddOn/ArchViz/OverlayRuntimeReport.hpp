@@ -49,6 +49,10 @@ void Live (const Health& health);
 // measurements the gate was applied to, so a threshold can be argued with.
 void Chain (const Health& health);
 
+// Whether the model watch is looking, what it has seen, and whether the host
+// snapshot has caught up. One line per CHANGE, like everything else here.
+void Watch (const Health& health);
+
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();
 

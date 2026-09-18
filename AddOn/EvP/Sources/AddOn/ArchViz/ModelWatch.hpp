@@ -74,6 +74,22 @@ struct Stats {
 bool Start (uint32_t floorMs = 750);
 void Stop ();
 
+// MAIN THREAD. Keep the watch alive for a consumer that is NOT the portable
+// Diligent viewport.
+//
+// ⚠️ THE TICK USED TO STOP ITSELF THE MOMENT THAT VIEWPORT
+// WAS DOWN, AND THE INJECTED OVERLAY HAS NO SUCH VIEWPORT -- it composes into
+// Archicad's own swap chain. So the watch armed, ticked once, found no viewport
+// and killed itself: a whole log contained `model watch: armed` and not one
+// `re-extracting` while the model went from 112 triangles to 96. Only the
+// extraction that a VIEW SWITCH happens to trigger ever picked an edit up.
+//
+// That is the same fault as the overlay needing the portable viewport to arm and
+// the depth target being published by a diagnostic: a production path inheriting
+// a precondition only another component supplied. See OVERLAY-INVARIANTS.md
+// section 9.
+void SetKeepAlive (bool keepAlive);
+
 // Re-extract the model NOW, whatever the diff says. This is the manual Refresh:
 // it exists because a poll can only report what Archicad's generator considers a
 // change, and "the picture looks wrong, rebuild it" is a request no change

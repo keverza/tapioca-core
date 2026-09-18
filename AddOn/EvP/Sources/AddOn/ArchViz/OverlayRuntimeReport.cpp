@@ -44,6 +44,7 @@ LiveMark g_mark;
 std::string g_lastLive;
 uint32_t g_liveTicks = 0;
 std::string g_lastChain;
+std::string g_lastWatch;
 
 } // namespace
 
@@ -205,8 +206,33 @@ void Chain (const Health& health)
     }
 }
 
+void Watch (const Health& health)
+{
+    // ⚠️ "ARMED" IS NOT "WORKING", AND A WHOLE RUN PROVED IT.
+    // The log read `model watch: armed, polling every 750 ms` and then not one
+    // `re-extracting` line, while the model went from 112 triangles to 96. Only
+    // the extraction triggered by a VIEW SWITCH ever picked the edit up. These
+    // numbers separate the three ways that happens: the watch never polled, it
+    // polled and the generator reported nothing, or it saw an edit and the pass
+    // could not start.
+    char line[320] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%s every %u ms: polls=%u edits=%u refreshes=%u envOnly=%u busy=%u | "
+                 "rev model=%u published=%u gpu=%u%s%s",
+                 health.watchRunning ? "watching" : "NOT WATCHING", health.watchIntervalMs, health.watchPolls,
+                 health.watchEdits, health.watchRefreshes, health.watchEnvironmentOnly, health.watchSkippedBusy,
+                 health.modelRevision, health.publishedRevision, health.gpuRevision,
+                 health.watchError.empty () ? "" : " | error: ", health.watchError.c_str ());
+    const std::string current (line);
+    if (current == g_lastWatch)
+        return;
+    g_lastWatch = current;
+    Say ("WATCH", current);
+}
+
 void Reset ()
 {
+    g_lastWatch.clear ();
     g_mark = LiveMark {};
     g_lastLive.clear ();
     g_liveTicks = 0;

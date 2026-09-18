@@ -135,6 +135,23 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
 // as this one's.
 void ResetRenderCounters ();
 
+// MAIN THREAD, from the runtime heartbeat: the model revision Archicad is
+// currently at. `modelwatch::Stats::geometryEdits` is that number -- monotonic,
+// bumped once per reported element change, and deliberately NOT bumped by
+// navigation.
+//
+// ⚠️ THE THREE REVISIONS ARE THE WHOLE DIAGNOSIS. A batch
+// stamps the value it began with, publication carries it, and the GPU upload
+// records it again:
+//
+//     model=42 published=42 gpu=42   the overlay is the building
+//     model=42 published=41 gpu=41   an edit was never extracted
+//     model=42 published=42 gpu=41   extracted but not uploaded
+//
+// Without them "the overlay looks old" is a conversation; with them it is a
+// line in the log that names which stage stopped.
+void SetModelRevision (uint32_t revision);
+
 // RENDER THREAD, after `Prepare` has returned non-null. The published building,
 // lent rather than copied, so an overlay can DRAW the same triangles the
 // occluder just put depth from.
@@ -249,6 +266,10 @@ struct Stats {
     uint64_t skippedNoCamera = 0;
     uint64_t skippedNoGeometry = 0;
     uint64_t skippedNoDepthTarget = 0; // no scene depth view to match; see Prepare
+    // See `SetModelRevision`. Equal is healthy; falling behind names the stage.
+    uint32_t modelRevision = 0;
+    uint32_t publishedRevision = 0;
+    uint32_t gpuRevision = 0;
     uint32_t vertices = 0;
     uint32_t indices = 0;
     uint32_t triangles = 0;

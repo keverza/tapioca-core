@@ -53,6 +53,9 @@ void Rearm (uint32_t intervalMs);
 // Start a fresh single pass. ⚠️ NOT StartLive: with observers off, the live loop
 // runs one pass and exits anyway (ExtractionThread's PLAT-RE68 branch), so the
 // honest call is the one that says "one pass" — this timer IS the liveness now.
+// See `SetKeepAlive`. Main thread, like everything in this file.
+bool gKeepAlive = false;
+
 bool StartPass ()
 {
     if (ExtractionWorker::Get ().IsRunning ())
@@ -73,9 +76,14 @@ void CALLBACK WatchTimerProc (HWND, UINT, UINT_PTR, DWORD)
         return;
     }
 
-    // Nothing to refresh once the viewport has gone. Stops the timer rather than
-    // polling ACAPI forever for a window nobody is looking at.
-    if (!DiligentViewport::Get ().IsRunning ()) {
+    // Nothing to refresh once EVERY consumer has gone. Stops the timer rather
+    // than polling ACAPI forever for a scene nobody is looking at.
+    //
+    // ⚠️ AND THE PORTABLE VIEWPORT IS NOT THE ONLY CONSUMER.
+    // Testing only `DiligentViewport::IsRunning` made this tick suicide on its
+    // first fire whenever the caller was the injected overlay, which has no such
+    // viewport. See `SetKeepAlive`.
+    if (!DiligentViewport::Get ().IsRunning () && !gKeepAlive) {
         Stop ();
         return;
     }
@@ -214,6 +222,11 @@ bool Start (uint32_t floorMs)
                     "No observers are attached and nothing is written to the project.");
     }
     return true;
+}
+
+void SetKeepAlive (bool keepAlive)
+{
+    gKeepAlive = keepAlive;
 }
 
 void Stop ()

@@ -85,6 +85,10 @@ uint32_t g_uploadedLineIndices = 0;
 bool g_created = false;
 bool g_createFailed = false;
 Stats g_stats;
+// The model revision this batch began at, carried to publication. See
+// `SetModelRevision`.
+std::atomic<uint32_t> g_modelRevision { 0 };
+uint32_t g_batchRevision = 0;
 
 // ⚠️ THE CUMULATIVE COUNTERS CANNOT CHECK THE INVARIANT. `opaqueTriangles`
 // counts every batch this session; `indices` holds one. The publication rule --
@@ -456,6 +460,8 @@ bool TakeAndUpload (ID3D11DeviceContext* context)
         g_stats.indices = g_uploadedIndices;
         g_stats.triangles = g_uploadedIndices / 3;
         ++g_stats.uploads;
+        // What is now ON THE GPU, as distinct from what has been published.
+        g_stats.gpuRevision = g_stats.publishedRevision;
         // ⚠️ THIS SAYS THE GPU HAS IT, NOT THAT THE MODEL ARRIVED. See the
         // header: `haveSnapshot` belongs to the producer and is set at
         // `EndBatch`, because this line cannot run until injection is active.
@@ -476,6 +482,10 @@ void BeginBatch (bool full)
         g_building->indices.clear ();
     }
     ++g_stats.extractionGeneration;
+    // Stamped at the START of the batch: an edit that arrives mid-extraction is
+    // NOT in this snapshot, and claiming it would make the report lie in the one
+    // direction that matters.
+    g_batchRevision = g_modelRevision.load (std::memory_order_relaxed);
     ++g_stats.batchBegins;
     g_batchElements = 0;
     g_batchOpaqueIndices = 0;
@@ -635,6 +645,7 @@ void EndBatch ()
     g_stats.publishedIndices = uint32_t (g_building->indices.size ());
     g_stats.publishedTriangles = g_stats.publishedIndices / 3;
     g_stats.publishedGeneration = g_stats.extractionGeneration;
+    g_stats.publishedRevision = g_batchRevision;
 
     Snapshot* const previous = g_published.exchange (g_building, std::memory_order_acq_rel);
     delete previous;
@@ -755,6 +766,12 @@ HostGeometry GetGeometry ()
 Stats GetStats ()
 {
     return g_stats;
+}
+
+void SetModelRevision (uint32_t revision)
+{
+    g_modelRevision.store (revision, std::memory_order_relaxed);
+    g_stats.modelRevision = revision;
 }
 
 void ResetRenderCounters ()

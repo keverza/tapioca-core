@@ -506,8 +506,25 @@ StartResult Start ()
         // the environment moving -- so orbiting does not trigger a rebuild. See
         // ModelWatch.hpp. The portable viewport has used it since PLAT-RE125;
         // the injected runtime simply never armed it.
+    }
+
+    // ⚠️ ARMED BECAUSE THE OVERLAY IS RUNNING, NOT BECAUSE AN
+    // EXTRACTION WAS REQUESTED. These are two different decisions and tying them
+    // together meant the watch was skipped on every activation that found a
+    // snapshot already published -- which is every activation after the first,
+    // because the building deliberately survives `Stop`. The overlay then
+    // followed no edits at all for the rest of the process.
+    if (!g_modelWatchStarted) {
+        // ⚠️ KEEP-ALIVE BEFORE START, NOT AFTER. The first
+        // tick can arrive before the next statement runs, and that tick is
+        // exactly the one that used to stop the watch.
+        modelwatch::SetKeepAlive (true);
         g_modelWatchStarted = modelwatch::Start (/*floorMs*/ 750);
     }
+
+    // The revision the host snapshot will be judged against. See
+    // `hostocclusion::SetModelRevision`.
+    host::SetModelRevision (modelwatch::Get ().geometryEdits);
 
     StartResult result;
     result.ok = true;
@@ -698,7 +715,9 @@ void Tick ()
         }
     }
 
-    report::Live (GetHealth ());
+    const Health live = GetHealth ();
+    report::Live (live);
+    report::Watch (live);
 }
 
 // ⚠️ THE FIRST STAGE THAT IS NOT SATISFIED, IN ORDER, AND NOTHING
@@ -812,6 +831,18 @@ Health GetHealth ()
     health.cameraAgeSamples = fresh.samples;
     health.suppressedStaleViewport = fresh.suppressed;
     health.redrawRequests = g_redrawRequests;
+    health.modelRevision = hostStats.modelRevision;
+    health.publishedRevision = hostStats.publishedRevision;
+    health.gpuRevision = hostStats.gpuRevision;
+    const modelwatch::Stats watch = modelwatch::Get ();
+    health.watchRunning = watch.running;
+    health.watchPolls = watch.polls;
+    health.watchEdits = watch.geometryEdits;
+    health.watchRefreshes = watch.refreshes;
+    health.watchEnvironmentOnly = watch.environmentOnly;
+    health.watchSkippedBusy = watch.skippedBusy;
+    health.watchIntervalMs = watch.intervalMs;
+    health.watchError = watch.lastError;
     const composer::Stats composeStats = composer::GetStats ();
     health.targetWidth = composeStats.targetWidth;
     health.targetHeight = composeStats.targetHeight;
@@ -851,8 +882,13 @@ void Stop ()
     // ⚠️ ONLY IF WE ARMED IT, AND NOT WHILE THE PORTABLE
     // VIEWPORT IS UP. `modelwatch::Start` is idempotent and shared; stopping a
     // watch somebody else depends on would leave THEIR scene frozen instead.
-    if (g_modelWatchStarted && !DiligentViewport::Get ().IsRunning ())
-        modelwatch::Stop ();
+    if (g_modelWatchStarted) {
+        modelwatch::SetKeepAlive (false);
+        // Still not stopped while the portable viewport is up: that is its watch
+        // too, and stopping it would leave THEIR scene frozen instead.
+        if (!DiligentViewport::Get ().IsRunning ())
+            modelwatch::Stop ();
+    }
     g_modelWatchStarted = false;
     g_redrawRequests = 0;
     g_redrawsThisEpoch = 0;
