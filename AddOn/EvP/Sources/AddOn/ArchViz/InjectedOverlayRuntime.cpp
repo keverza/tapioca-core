@@ -64,9 +64,18 @@ bool g_modelWatchStarted = false;
 // stall that Archicad cannot answer would ask forever at four requests a second.
 // The count resets the moment anything composes, because that IS the answer.
 uint64_t g_redrawRequests = 0;
-uint32_t g_redrawsThisStall = 0;
-uint64_t g_framesAtRedraw = 0;
-const uint32_t kMaxRedrawsPerStall = 2;
+uint32_t g_redrawsThisEpoch = 0;
+uint32_t g_redrawEpoch = 0;
+bool g_redrawGaveUp = false;
+// ⚠️ THE 3D WINDOW THIS SESSION SERVES, NOT WHICHEVER ONE IS
+// IN FRONT. `APIdefs_Database.h` says `typeID` identifies the Floor Plan and 3D
+// Model databases and `index` is the window index, so the pair is the session
+// identity. Resizing one 3D window and switching away before the heartbeat fires
+// must not send that repair to whatever is in front now.
+API_WindowTypeID g_servedWindowType = APIWind_3DModelID;
+Int32 g_servedWindowIndex = 0;
+bool g_servedWindowKnown = false;
+const uint32_t kMaxRedrawsPerEpoch = 2;
 uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
@@ -212,6 +221,27 @@ bool FrontWindowIs3D ()
     if (ACAPI_Window_GetCurrentWindow (&info) != NoError)
         return false;
     return info.typeID == APIWind_3DModelID;
+}
+
+// MAIN THREAD. Is the window in front the SAME 3D session this runtime serves?
+// ⚠️ BEING SOME 3D WINDOW IS NOT ENOUGH. A repair raised by
+// one session must never be delivered to another, and `ACAPI_View_Redraw` acts
+// on whatever is CURRENT. The first 3D window seen while serving is the one this
+// session owns; anything else waits.
+bool FrontWindowIsServedSession ()
+{
+    API_WindowInfo info = {};
+    if (ACAPI_Window_GetCurrentWindow (&info) != NoError)
+        return false;
+    if (info.typeID != APIWind_3DModelID)
+        return false;
+    if (!g_servedWindowKnown) {
+        g_servedWindowType = info.typeID;
+        g_servedWindowIndex = info.index;
+        g_servedWindowKnown = true;
+        return true;
+    }
+    return info.typeID == g_servedWindowType && info.index == g_servedWindowIndex;
 }
 
 // ⚠️ THE OVERLAY IS ARMED IN ONE PLACE AND `Tick` MAY RUN IT AGAIN.
@@ -637,17 +667,34 @@ void Tick ()
     // heartbeat would be a redraw storm. `modelFramesSeen` advancing IS Archicad
     // having answered; while it does not advance, two attempts are the whole
     // budget.
-    if (FrontWindowIs3D ()) {
-        const uint64_t frames = cen::GetStats ().modelFramesSeen;
-        if (frames != g_framesAtRedraw) {
-            g_framesAtRedraw = frames;
-            g_redrawsThisStall = 0;
+    {
+        // ⚠️ THE BUDGET BELONGS TO THE EXTENT, NOT TO MODEL
+        // FRAMES. Resetting on "model generations advanced" buys another attempt
+        // every time a redraw advances the generation WITHOUT producing a camera
+        // for this extent, and a window redrawing for unrelated reasons buys
+        // attempts forever -- which is a redraw storm wearing a bound. A new
+        // extent is a new problem and gets a fresh budget; the same extent twice
+        // unresolved is a failure, and it is reported as one.
+        const uint32_t epoch = inj::freshness::TargetEpoch ();
+        if (epoch != g_redrawEpoch) {
+            g_redrawEpoch = epoch;
+            g_redrawsThisEpoch = 0;
+            g_redrawGaveUp = false;
         }
-        if (inj::freshness::TakeRedrawRequest () && g_redrawsThisStall < kMaxRedrawsPerStall) {
-            ++g_redrawsThisStall;
-            ++g_redrawRequests;
-            g_framesAtRedraw = frames;
-            ACAPI_View_Redraw ();
+        if (!inj::freshness::Stale ()) {
+            g_redrawsThisEpoch = 0;
+            g_redrawGaveUp = false;
+        }
+        if (inj::freshness::TakeRedrawRequest () && FrontWindowIsServedSession () && !g_redrawGaveUp) {
+            if (g_redrawsThisEpoch < kMaxRedrawsPerEpoch) {
+                ++g_redrawsThisEpoch;
+                ++g_redrawRequests;
+                ACAPI_View_Redraw ();
+            }
+            else {
+                g_redrawGaveUp = true;
+                report::Say ("CAMERA", "redraw twice requested and no camera accepted for the current window size");
+            }
         }
     }
 
@@ -808,8 +855,10 @@ void Stop ()
         modelwatch::Stop ();
     g_modelWatchStarted = false;
     g_redrawRequests = 0;
-    g_redrawsThisStall = 0;
-    g_framesAtRedraw = 0;
+    g_redrawsThisEpoch = 0;
+    g_redrawEpoch = 0;
+    g_redrawGaveUp = false;
+    g_servedWindowKnown = false;
     // ⚠️ AND STOP POINTING AT A SELECTION THAT IS ABOUT TO NOT
     // EXIST. Guidance section 4: selection and camera source move together, and
     // `selection=none source=CensusSelectedGroup` is a state that must never be

@@ -51,7 +51,12 @@ std::string g_lastChain;
 // TRANSITION, never per tick. If it stops, the last line is the diagnosis.
 void Say (const char* channel, const std::string& detail)
 {
-    char line[256] = {};
+    // ⚠️ 512, BECAUSE 256 SILENTLY ATE THE ANSWER. The LIVE
+    // line grew past the buffer and `_TRUNCATE` cut it exactly where
+    // `suppressed+` and `redraw=` begin -- the two numbers the resize acceptance
+    // criteria are read from. A report that truncates its own conclusion is worse
+    // than one that never printed it, because it looks complete. See the header.
+    char line[512] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE, "%-12s %s", channel, detail.c_str ());
     ArchVizLog (line);
 }
