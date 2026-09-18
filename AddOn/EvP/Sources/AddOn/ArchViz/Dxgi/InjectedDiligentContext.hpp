@@ -144,9 +144,19 @@ Stats Snapshot ();
 // so "wrapped Archicad's back buffer" would pass on last session's evidence,
 // which is the exact shape of the four faults §8 exists for.
 //
-// ⚠️ IT KEEPS THE BACKEND SELECTION ON PURPOSE. The
-// caller chooses the backend and THEN starts; clearing the choice here would
-// make the switch impossible to use.
+// ⚠️ AND THE BACKEND SELECTION GOES WITH IT, WHICH IS
+// THE CORRECTION OF A JUDGEMENT MADE HERE AND MEASURED WRONG. Keeping the choice
+// across a reset looked like the only way to make the switch usable -- the
+// caller selects, then starts. What it actually did was let a DIAGNOSTIC'S
+// choice outlive the diagnostic: after one `backend=diligent` run, the Tapioca
+// 3D Overlay menu item -- which names no backend and has no way to -- started in
+// Diligent mode for the rest of the Archicad session, and the user reported the
+// menu overlay as broken. Section 8 exactly: state that described session N
+// still sitting there during session N+1.
+//
+// The switch stays usable because the CALLER sets it on every start. A caller
+// that does not name a backend gets the proven one, which is the only safe
+// default for a menu item.
 void Reset ();
 
 } // namespace injecteddiligent

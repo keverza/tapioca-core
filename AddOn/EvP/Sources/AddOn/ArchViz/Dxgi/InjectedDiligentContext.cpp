@@ -240,9 +240,8 @@ void Reset ()
 {
     Detach ();
     State& s = Get ();
-    const Backend chosen = s.backend; // see the header: the CHOICE survives
     s.stats = Stats {};
-    s.backend = chosen;
+    s.backend = Backend::NativeD3D11;
 }
 
 } // namespace injecteddiligent

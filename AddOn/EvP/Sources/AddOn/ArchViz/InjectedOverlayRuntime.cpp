@@ -742,6 +742,11 @@ void Tick ()
 
     const Health live = GetHealth ();
     report::Live (live);
+    // ⚠️ THE CHAIN, WHICH 5cf72fa TOOK AWAY WHILE
+    // SAYING IT CHANGED NOTHING -- and GATE is reached only through it, so
+    // "no eligible candidate" could not say whether the gate refused or had
+    // never seen enough samples. Silent while drawing, and only on a CHANGE.
+    report::Chain (live);
     report::Watch (live);
     report::Backend (live);
 }
@@ -863,6 +868,7 @@ Health GetHealth ()
         dxgi::injecteddiligent::GetBackend () == dxgi::injecteddiligent::Backend::Diligent ? "diligent" : "native";
     health.diligentAttached = dil.attached;
     health.diligentAttachMs = dil.attachMs;
+    health.diligentAttachAttempts = dil.attachAttempts;
     health.diligentAttachFailures = dil.attachFailures;
     health.diligentWraps = dil.wraps;
     health.diligentWrapHits = dil.wrapHits;
@@ -949,7 +955,9 @@ void Stop ()
     // HOOKS COME OUT. `ResizeBuffers` fails while a swap-chain view is alive
     // (section 11), so a wrapper outliving the session would break the NEXT one
     // in a way that looks nothing like its cause.
-    dxgi::injecteddiligent::Detach ();
+    // ⚠️ RESET, NOT DETACH: THE BACKEND CHOICE ENDS
+    // WITH THE SESSION THAT MADE IT, or the next menu click inherits it.
+    dxgi::injecteddiligent::Reset ();
     inj::SetCameraSource (inj::CameraSource::None);
     inj::SetEnabled (false);
     cen::SetAutoSelect (false);

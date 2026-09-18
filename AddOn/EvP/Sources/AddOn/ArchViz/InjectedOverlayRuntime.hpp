@@ -182,6 +182,11 @@ struct Health {
     std::string overlayBackend = "native";
     bool diligentAttached = false;
     uint32_t diligentAttachMs = 0;
+    // ⚠️ ATTEMPTS AS WELL AS FAILURES, BECAUSE
+    // `attached=false failures=0` READ AS A FAULT AND WAS NOT ONE. It meant the
+    // attach had never been REACHED -- it happens inside the composition, and
+    // nothing composed. Section 7's rule, in the one place I had left it out.
+    uint32_t diligentAttachAttempts = 0;
     uint32_t diligentAttachFailures = 0;
     uint32_t diligentWraps = 0;
     uint32_t diligentWrapHits = 0;

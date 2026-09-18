@@ -238,12 +238,13 @@ void Backend (const Health& health)
         return;
     char line[320] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "%s attach=%u ms failures=%u | wraps=%u hits=%u failed=%u distinct=%u "
+                 "%s attach=%u ms attempts=%u failures=%u | wraps=%u hits=%u failed=%u distinct=%u "
                  "dropped on resize=%u%s%s",
                  health.diligentAttached ? "ATTACHED to Archicad's device" : "NOT ATTACHED", health.diligentAttachMs,
-                 health.diligentAttachFailures, health.diligentWraps, health.diligentWrapHits,
-                 health.diligentWrapFailures, health.diligentDistinctBackBuffers, health.diligentWrapDropsOnResize,
-                 health.diligentError.empty () ? "" : " | ", health.diligentError.c_str ());
+                 health.diligentAttachAttempts, health.diligentAttachFailures, health.diligentWraps,
+                 health.diligentWrapHits, health.diligentWrapFailures, health.diligentDistinctBackBuffers,
+                 health.diligentWrapDropsOnResize, health.diligentError.empty () ? "" : " | ",
+                 health.diligentError.c_str ());
     const std::string current (line);
     if (current == g_lastBackend)
         return;
