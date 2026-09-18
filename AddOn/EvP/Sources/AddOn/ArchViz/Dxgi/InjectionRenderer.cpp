@@ -173,7 +173,20 @@ std::atomic<uint64_t> g_injectedScenePass { 0 };
 contextstate::SceneDrawState g_acceptedCamera;
 // The value of `census::BindingStats::resizeRebinds` when `g_acceptedCamera` was
 // taken. See the refusal in `InjectAtPresent`.
-uint64_t g_acceptedCameraResizeEpoch = 0;
+// ⚠️ THE RESIZE-REBIND LATCH IS GONE, AND IT IS WHAT MADE
+// THE OVERLAY VANISH FOR GOOD. It compared `census::resizeRebinds` against the
+// value latched when the camera was accepted and refused to draw while they
+// differed. That counter ONLY EVER GROWS, and the value it is compared against
+// is only refreshed when a NEW CAMERA IS ACCEPTED -- so the moment a resize
+// rebound the fingerprint and the camera could not immediately re-lock, the
+// refusal became permanent. The log shows exactly that: `rebind=2 stale+23`
+// with `vp=3432x1803 target=3432x1803`, the two viewports in perfect agreement
+// and the overlay drawing nothing.
+//
+// `freshness::Stale` does the same job correctly, by comparing the SAME
+// QUANTITY at two times rather than a counter against a snapshot of itself, so
+// it clears as soon as the window stops changing. One fail-closed test, not
+// two, and the one that can recover.
 // Packed width << 16 | height. See `InjectionStats::acceptedViewportWidth`.
 std::atomic<uint32_t> g_acceptedViewport { 0 };
 std::atomic<uint32_t> g_liveSceneViewport { 0 };
@@ -633,7 +646,6 @@ void BeginSession ()
     freshness::Reset ();
 
     g_acceptedCamera = contextstate::SceneDrawState {};
-    g_acceptedCameraResizeEpoch = 0;
     g_lastInjectedModelGeneration = 0;
     ResetCameraCounters ();
     // ⚠️ AND POINT AT NOBODY UNTIL SOMETHING IS CHOSEN.
@@ -738,7 +750,6 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         // NEW_SCENE: the model was re-rendered since we last drew, and it came
         // with its own camera. Take it.
         g_acceptedCamera = fresh;
-        g_acceptedCameraResizeEpoch = census::GetBindingStats ().resizeRebinds;
         g_acceptedViewport.store (PackViewport (fresh.viewportWidth, fresh.viewportHeight), std::memory_order_relaxed);
         // The window size this camera was measured for.
         freshness::NoteAccepted ();
@@ -777,21 +788,6 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
             g_invalidNoDrawThisGeneration.fetch_add (1, std::memory_order_relaxed);
         }
         draw = true;
-    }
-
-    // ⚠️ AND FAIL CLOSED ACROSS A RESIZE, WHICH IS THE HALF
-    // THE RE-LEARN DOES NOT COVER. The viewport is part of the fingerprint, so a
-    // resize drops the selection -- but `g_acceptedCamera` is still valid and
-    // still numerically fine, and REPEAT_SCENE would happily keep drawing with it
-    // for every frame until a new camera is locked. What the user sees is the
-    // overlay pinned to the old window rectangle: "no longer on top of geometry
-    // but in a random place". Drawing nothing is the honest answer to a question
-    // whose answer is out of date.
-    //
-    // Same thread as the detour that increments it, so a plain read is enough.
-    if (draw && census::GetBindingStats ().resizeRebinds != g_acceptedCameraResizeEpoch) {
-        g_skipStaleCamera.fetch_add (1, std::memory_order_relaxed);
-        draw = false;
     }
 
     // ⚠️ ONLY THE HARD CASE IS SUPPRESSED, AND ORDINARY

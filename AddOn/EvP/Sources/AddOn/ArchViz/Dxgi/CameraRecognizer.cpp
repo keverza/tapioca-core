@@ -229,19 +229,37 @@ static const uint32_t kModelEditMask = (1u << kTermIndexCount) | (1u << kTermOcc
 
 static bool LooksLikeModelEdit ()
 {
-    if ((g_lastMissMask & (1u << kTermIndexCount)) == 0)
-        return false;
-    if ((g_lastMissMask & ~kModelEditMask) != 0)
+    if (g_lastMissMask == 0 || (g_lastMissMask & ~kModelEditMask) != 0)
         return false;
     return g_modelRevision != g_fingerprintRevision;
 }
 
-static void AdoptModelEdit (uint32_t indexCount)
+// ⚠️ THE OCCURRENCE IS RE-LOCKED HERE, NOT ABANDONED. The
+// first attempt at this adopted only the index count and left the locked index
+// standing, on the reasoning that the per-frame counter restarts every frame so
+// the old index must still exist. THE RUN DISPROVED IT: after the edits the
+// camera sat in `Reacquiring` with `miss=0x01` -- the occurrence ALONE, every
+// other term agreeing -- and `age3+` climbed past 2400 with a max of 311 frames.
+// Adding elements changes how many times the family draws AND where in that
+// sequence our draw falls, so the locked index can genuinely cease to exist.
+//
+// Re-locking is what `SelectCandidate` does; doing it here is the same
+// transaction for the same reason, and it is gated on the model revision so it
+// happens ONCE PER REPORTED EDIT and never during navigation. If
+// `modelEditRebinds` ever climbs while the model is untouched, this rule is too
+// permissive and must be withdrawn rather than tuned.
+static void AdoptModelEdit (const contextstate::ContextState& live, uint32_t indexCount, uint32_t occurrence)
 {
-    g_fingerprint.indexCount = indexCount;
+    if ((g_lastMissMask & (1u << kTermIndexCount)) != 0)
+        g_fingerprint.indexCount = indexCount;
+    if ((g_lastMissMask & (1u << kTermOccurrence)) != 0) {
+        g_fingerprint.occurrenceIndex = occurrence;
+        g_selection.occurrenceIndex = occurrence;
+    }
     g_fingerprintRevision = g_modelRevision;
     g_selectionLastSeenModel = 0;
     ++g_binding.modelEditRebinds;
+    (void) live;
 }
 
 static bool LooksLikeResize (const contextstate::ContextState& live)
@@ -323,7 +341,7 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         // ⚠️ A MODEL EDIT IS CHECKED FIRST, BECAUSE IT IS
         // THE ONE THAT CANNOT HEAL AND THE ONE THAT FROZE A LIVE SESSION.
         if (LooksLikeModelEdit ()) {
-            AdoptModelEdit (indexCount);
+            AdoptModelEdit (live, indexCount, occurrence);
         }
         else if (LooksLikeResize (live)) {
             AdoptResize (live, occurrence);
