@@ -211,6 +211,38 @@ class OverlayRuntimeCommand : public MainThreadCommand {
         os.Add ("armState", GS::UniString (health.armState.c_str (), CC_UTF8));
         os.Add ("logicalMatches", (GS::Int32) health.logicalMatches);
         os.Add ("authoritativeSnapshots", (GS::Int32) health.authoritativeSnapshots);
+
+        // ⚠️ THE NUMBERS A REGRESSION RUN ASSERTS ON, AND
+        // NOTHING ELSE CAN SEE THEM. Every fault in this series was diagnosed
+        // from the log after the fact; a command that can read these decides
+        // pass or fail while the session is still open. The three revisions name
+        // which stage a stale overlay stopped at, the watch counters separate
+        // "not looking" from "looking and seeing nothing", the age buckets say
+        // whether the camera is current, and `modelEditRebinds` is the one that
+        // must NOT move during navigation.
+        os.Add ("modelRevision", (GS::Int32) health.modelRevision);
+        os.Add ("publishedRevision", (GS::Int32) health.publishedRevision);
+        os.Add ("gpuRevision", (GS::Int32) health.gpuRevision);
+        os.Add ("watchRunning", health.watchRunning);
+        os.Add ("watchPolls", (GS::Int32) health.watchPolls);
+        os.Add ("watchEdits", (GS::Int32) health.watchEdits);
+        os.Add ("watchRefreshes", (GS::Int32) health.watchRefreshes);
+        os.Add ("watchEnvironmentOnly", (GS::Int32) health.watchEnvironmentOnly);
+        os.Add ("watchSkippedBusy", (GS::Int32) health.watchSkippedBusy);
+        os.Add ("watchError", GS::UniString (health.watchError.c_str (), CC_UTF8));
+        os.Add ("modelEditRebinds", (GS::Int32) health.modelEditRebinds);
+        os.Add ("resizeRebinds", (GS::Int32) health.resizeRebinds);
+        os.Add ("age0", (GS::Int32) health.age0);
+        os.Add ("age1", (GS::Int32) health.age1);
+        os.Add ("age2", (GS::Int32) health.age2);
+        os.Add ("age3plus", (GS::Int32) health.age3plus);
+        os.Add ("cameraAgeMax", (GS::Int32) health.cameraAgeMax);
+        os.Add ("suppressedStaleViewport", (GS::Int32) health.suppressedStaleViewport);
+        os.Add ("redrawRequests", (GS::Int32) health.redrawRequests);
+        os.Add ("acceptedViewportWidth", (GS::Int32) health.acceptedViewportWidth);
+        os.Add ("acceptedViewportHeight", (GS::Int32) health.acceptedViewportHeight);
+        os.Add ("targetWidth", (GS::Int32) health.targetWidth);
+        os.Add ("targetHeight", (GS::Int32) health.targetHeight);
         os.Add ("blockedAt", GS::UniString (health.blockedAt.c_str (), CC_UTF8));
         os.Add ("lastError", GS::UniString (runtime::StartErrorName (health.lastError), CC_UTF8));
         os.Add ("lastMessage", GS::UniString (health.lastMessage.c_str (), CC_UTF8));
@@ -221,7 +253,7 @@ class OverlayRuntimeCommand : public MainThreadCommand {
 const NativeCommandRegistration
     kHostGeometryCommandRegistrations
         [] = {
-            { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false, R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]}},"additionalProperties":false})json", R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"presentInjections":{"type":"integer"},"hostNoDepthTarget":{"type":"integer"},"hostNoGeometry":{"type":"integer"},"overlayNoEdges":{"type":"integer"},"overlayNoCamera":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"eligibleCandidates":{"type":"integer"},"selectionValid":{"type":"boolean"},"selectedGroup":{"type":"integer"},"selectedOccurrence":{"type":"integer"},"occurrenceLocked":{"type":"boolean"},"cameraSource":{"type":"string"},"armState":{"type":"string"},"logicalMatches":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"blockedAt":{"type":"string"},"lastError":{"type":"string"},"lastMessage":{"type":"string"},"view":{"type":"string"},"portableRunning":{"type":"boolean"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
+            { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false, R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]}},"additionalProperties":false})json", R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"presentInjections":{"type":"integer"},"hostNoDepthTarget":{"type":"integer"},"hostNoGeometry":{"type":"integer"},"overlayNoEdges":{"type":"integer"},"overlayNoCamera":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"eligibleCandidates":{"type":"integer"},"selectionValid":{"type":"boolean"},"selectedGroup":{"type":"integer"},"selectedOccurrence":{"type":"integer"},"occurrenceLocked":{"type":"boolean"},"cameraSource":{"type":"string"},"armState":{"type":"string"},"logicalMatches":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"blockedAt":{"type":"string"},"lastError":{"type":"string"},"lastMessage":{"type":"string"},"view":{"type":"string"},"portableRunning":{"type":"boolean"},"modelRevision":{"type":"integer"},"publishedRevision":{"type":"integer"},"gpuRevision":{"type":"integer"},"watchRunning":{"type":"boolean"},"watchPolls":{"type":"integer"},"watchEdits":{"type":"integer"},"watchRefreshes":{"type":"integer"},"watchEnvironmentOnly":{"type":"integer"},"watchSkippedBusy":{"type":"integer"},"watchError":{"type":"string"},"modelEditRebinds":{"type":"integer"},"resizeRebinds":{"type":"integer"},"age0":{"type":"integer"},"age1":{"type":"integer"},"age2":{"type":"integer"},"age3plus":{"type":"integer"},"cameraAgeMax":{"type":"integer"},"suppressedStaleViewport":{"type":"integer"},"redrawRequests":{"type":"integer"},"acceptedViewportWidth":{"type":"integer"},"acceptedViewportHeight":{"type":"integer"},"targetWidth":{"type":"integer"},"targetHeight":{"type":"integer"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
             { "RequestHostGeometry", &MakeRegisteredNativeCommand<RequestHostGeometryCommand>, false,
               R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json",
               R"json({"type":"object","properties":{"accepted":{"type":"boolean"},"alreadyRunning":{"type":"boolean"},"running":{"type":"boolean"},"extractionGeneration":{"type":"integer"},"batchBegins":{"type":"integer"},"batchEnds":{"type":"integer"},"elementsReceived":{"type":"integer"},"opaqueVerticesAdded":{"type":"integer"},"opaqueIndicesAdded":{"type":"integer"},"opaqueTriangles":{"type":"integer"},"transparentTrianglesSkipped":{"type":"integer"},"pendingVertices":{"type":"integer"},"droppedOverCapacity":{"type":"integer"},"publishAttempted":{"type":"integer"},"publishSucceeded":{"type":"integer"},"publishedGeneration":{"type":"integer"},"publishedVertices":{"type":"integer"},"publishedIndices":{"type":"integer"},"publishedTriangles":{"type":"integer"},"haveSnapshot":{"type":"boolean"},"publishFailureReason":{"type":"string"},"uploaded":{"type":"boolean"},"vertices":{"type":"integer"},"triangles":{"type":"integer"},"renders":{"type":"integer"},"lastError":{"type":"string"}},"additionalProperties":false,"required":["accepted","running","haveSnapshot"]})json" },
