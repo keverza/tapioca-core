@@ -71,6 +71,13 @@ bool ExtractElementAt (const ModelerAPI::Model& model, int32_t index1Based, Mesh
 // until the TYPE is recorded, and guessing between them is how an overlay ships
 // with a whole element class invisible.
 //
+// ⚠️ A LEADING `+` MEANS A PART OF A COMPOSITE
+// ELEMENT, AND THAT IS A THIRD CATEGORY, NOT A DECORATION. A railing, a stair
+// and a curtain wall each appear in the model AS WELL AS every part they own,
+// and the mesh lives on the parts. So an empty `+railing baluster set` is
+// ordinary in the way an empty `dimension` is ordinary, and only a caller that
+// knows the difference can say which empties are a gap.
+//
 // Costs one `ACAPI_Element_GetHeader` per element that produced no mesh, which
 // is by definition the small set.
 std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Based);

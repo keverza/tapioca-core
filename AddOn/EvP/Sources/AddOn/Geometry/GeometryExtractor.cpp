@@ -407,6 +407,57 @@ std::string ElementTypeNameAt (const ModelerAPI::Model& model, int32_t index1Bas
             return "label";
         case API_HatchID:
             return "fill";
+        // ⚠️ AND A THIRD CATEGORY THE FIRST VERSION OF THIS
+        // TABLE DID NOT HAVE: A CONTAINER'S PART. A railing, a stair and a
+        // curtain wall are COMPOSITE -- the owner and every part appear
+        // separately in the model, and the mesh is on the parts. A baluster SET
+        // and a railing PATTERN are organisational and correctly have no mesh of
+        // their own, so they are no more a gap than a dimension is; a BEAM with
+        // no mesh is one.
+        //
+        // Marked with a leading `+` so the caller can tell the three apart, and
+        // it matters: a run on a 356-element project listed `type61 x18,
+        // type62 x18` -- baluster sets and patterns that never had a mesh --
+        // beside `beam x1, column x1`, which were real holes in the overlay. The
+        // two read identically.
+        case API_CurtainWallSegmentID:
+            return "+curtain wall segment";
+        case API_CurtainWallFrameID:
+            return "+curtain wall frame";
+        case API_CurtainWallPanelID:
+            return "+curtain wall panel";
+        case API_CurtainWallJunctionID:
+            return "+curtain wall junction";
+        case API_CurtainWallAccessoryID:
+            return "+curtain wall accessory";
+        case API_RiserID:
+            return "+stair riser";
+        case API_TreadID:
+            return "+stair tread";
+        case API_StairStructureID:
+            return "+stair structure";
+        case API_RailingPostID:
+            return "+railing post";
+        case API_RailingInnerPostID:
+            return "+railing inner post";
+        case API_RailingBalusterID:
+            return "+railing baluster";
+        case API_RailingPanelID:
+            return "+railing panel";
+        case API_RailingSegmentID:
+            return "+railing segment";
+        case API_RailingNodeID:
+            return "+railing node";
+        case API_RailingBalusterSetID:
+            return "+railing baluster set";
+        case API_RailingPatternID:
+            return "+railing pattern";
+        case API_RailingToprailEndID:
+            return "+railing toprail end";
+        case API_SkylightID:
+            return "skylight";
+        case API_ChangeMarkerID:
+            return "change marker";
         default:
             break;
     }
