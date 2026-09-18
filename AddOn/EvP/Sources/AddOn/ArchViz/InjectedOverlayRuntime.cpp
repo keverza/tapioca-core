@@ -18,6 +18,7 @@
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/OverlayRedrawBudget.hpp"
 #include "ArchViz/OverlayRuntimeReport.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/ModelWatch.hpp"
@@ -64,19 +65,11 @@ bool g_modelWatchStarted = false;
 // Present re-raises the request on every suppressed frame, so without a bound a
 // stall that Archicad cannot answer would ask forever at four requests a second.
 // The count resets the moment anything composes, because that IS the answer.
-uint64_t g_redrawRequests = 0;
-uint32_t g_redrawsThisEpoch = 0;
-uint32_t g_redrawEpoch = 0;
-bool g_redrawGaveUp = false;
 // ⚠️ THE 3D WINDOW THIS SESSION SERVES, NOT WHICHEVER ONE IS
 // IN FRONT. `APIdefs_Database.h` says `typeID` identifies the Floor Plan and 3D
 // Model databases and `index` is the window index, so the pair is the session
 // identity. Resizing one 3D window and switching away before the heartbeat fires
 // must not send that repair to whatever is in front now.
-API_WindowTypeID g_servedWindowType = APIWind_3DModelID;
-Int32 g_servedWindowIndex = 0;
-bool g_servedWindowKnown = false;
-const uint32_t kMaxRedrawsPerEpoch = 2;
 uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
@@ -222,27 +215,6 @@ bool FrontWindowIs3D ()
     if (ACAPI_Window_GetCurrentWindow (&info) != NoError)
         return false;
     return info.typeID == APIWind_3DModelID;
-}
-
-// MAIN THREAD. Is the window in front the SAME 3D session this runtime serves?
-// ⚠️ BEING SOME 3D WINDOW IS NOT ENOUGH. A repair raised by
-// one session must never be delivered to another, and `ACAPI_View_Redraw` acts
-// on whatever is CURRENT. The first 3D window seen while serving is the one this
-// session owns; anything else waits.
-bool FrontWindowIsServedSession ()
-{
-    API_WindowInfo info = {};
-    if (ACAPI_Window_GetCurrentWindow (&info) != NoError)
-        return false;
-    if (info.typeID != APIWind_3DModelID)
-        return false;
-    if (!g_servedWindowKnown) {
-        g_servedWindowType = info.typeID;
-        g_servedWindowIndex = info.index;
-        g_servedWindowKnown = true;
-        return true;
-    }
-    return info.typeID == g_servedWindowType && info.index == g_servedWindowIndex;
 }
 
 // ⚠️ THE OVERLAY IS ARMED IN ONE PLACE AND `Tick` MAY RUN IT AGAIN.
@@ -680,57 +652,13 @@ void Tick ()
     }
     g_lastDraws = draws;
 
-    // ⚠️ THE ONE REDRAW THAT ENDS THE STALL, ASKED FOR HERE
-    // AND NOWHERE ELSE. Scaling a window changes the swap chain without Archicad
-    // redrawing its model, so the camera stays measured for a window that no
-    // longer exists and NOTHING would ever produce a fresh one -- the overlay
-    // waits for the user to orbit, which is precisely what was reported. The
-    // render hook only sets an atomic; `ACAPI_View_Redraw` is an ACAPI call and
-    // ACAPI is main-thread only, and this is the main thread.
-    // ⚠️ THE 3D WINDOW, NOT WHICHEVER ONE IS IN FRONT.
-    // `ACAPI_View_Redraw` redraws the CURRENT window, so asking for it while a
-    // Floor Plan is frontmost would redraw the plan -- a different renderer, with
-    // its own overlay, for a staleness that is not its. Guidance section 13: a 3D
-    // state must never reach into the plan. If 3D is not in front there is
-    // nothing to realign yet; the request stays pending and this tries again when
-    // it is.
-    //
-    // ⚠️ AND AT MOST TWICE PER STALL, JUDGED BY MODEL FRAMES
-    // AND NOT BY TICKS. The heartbeat runs four times a second and Present
-    // re-raises the request on every suppressed frame, so a bound tied to the
-    // heartbeat would be a redraw storm. `modelFramesSeen` advancing IS Archicad
-    // having answered; while it does not advance, two attempts are the whole
-    // budget.
-    {
-        // ⚠️ THE BUDGET BELONGS TO THE EXTENT, NOT TO MODEL
-        // FRAMES. Resetting on "model generations advanced" buys another attempt
-        // every time a redraw advances the generation WITHOUT producing a camera
-        // for this extent, and a window redrawing for unrelated reasons buys
-        // attempts forever -- which is a redraw storm wearing a bound. A new
-        // extent is a new problem and gets a fresh budget; the same extent twice
-        // unresolved is a failure, and it is reported as one.
-        const uint32_t epoch = inj::freshness::TargetEpoch ();
-        if (epoch != g_redrawEpoch) {
-            g_redrawEpoch = epoch;
-            g_redrawsThisEpoch = 0;
-            g_redrawGaveUp = false;
-        }
-        if (!inj::freshness::Stale ()) {
-            g_redrawsThisEpoch = 0;
-            g_redrawGaveUp = false;
-        }
-        if (inj::freshness::TakeRedrawRequest () && FrontWindowIsServedSession () && !g_redrawGaveUp) {
-            if (g_redrawsThisEpoch < kMaxRedrawsPerEpoch) {
-                ++g_redrawsThisEpoch;
-                ++g_redrawRequests;
-                ACAPI_View_Redraw ();
-            }
-            else {
-                g_redrawGaveUp = true;
-                report::Say ("CAMERA", "redraw twice requested and no camera accepted for the current window size");
-            }
-        }
-    }
+    // ⚠️ THE ONE REDRAW THAT ENDS THE STALL. Scaling a
+    // window changes the swap chain without Archicad redrawing its model, so
+    // the camera stays measured for a window that no longer exists and NOTHING
+    // would produce a fresh one -- the overlay waits for the user to orbit,
+    // which is precisely what was reported. Who may ask, and how often, is
+    // `OverlayRedrawBudget`.
+    redrawbudget::Consider ();
 
     // ⚠️ EVERY TICK, NOT ONCE AT ARM. Stamping this in
     // `Start` read `geometryEdits` before any edit had happened, so the whole
@@ -862,7 +790,7 @@ Health GetHealth ()
     health.cameraAgeMax = fresh.ageMax;
     health.cameraAgeSamples = fresh.samples;
     health.suppressedStaleViewport = fresh.suppressed;
-    health.redrawRequests = g_redrawRequests;
+    health.redrawRequests = redrawbudget::Requests ();
     const dxgi::injecteddiligent::Stats dil = dxgi::injecteddiligent::Snapshot ();
     health.overlayBackend =
         dxgi::injecteddiligent::GetBackend () == dxgi::injecteddiligent::Backend::Diligent ? "diligent" : "native";
@@ -942,11 +870,7 @@ void Stop ()
             modelwatch::Stop ();
     }
     g_modelWatchStarted = false;
-    g_redrawRequests = 0;
-    g_redrawsThisEpoch = 0;
-    g_redrawEpoch = 0;
-    g_redrawGaveUp = false;
-    g_servedWindowKnown = false;
+    redrawbudget::Reset ();
     // ⚠️ AND STOP POINTING AT A SELECTION THAT IS ABOUT TO NOT
     // EXIST. Guidance section 4: selection and camera source move together, and
     // `selection=none source=CensusSelectedGroup` is a state that must never be
@@ -955,8 +879,10 @@ void Stop ()
     // HOOKS COME OUT. `ResizeBuffers` fails while a swap-chain view is alive
     // (section 11), so a wrapper outliving the session would break the NEXT one
     // in a way that looks nothing like its cause.
-    // ⚠️ RESET, NOT DETACH: THE BACKEND CHOICE ENDS
-    // WITH THE SESSION THAT MADE IT, or the next menu click inherits it.
+    // ⚠️ RESET AT STOP, COUNTERS ONLY AT START. The
+    // choice ends with the session that made it, or the next menu click inherits
+    // it; but the caller sets it just BEFORE starting, so clearing it there
+    // would wipe it microseconds after it was made.
     dxgi::injecteddiligent::Reset ();
     inj::SetCameraSource (inj::CameraSource::None);
     inj::SetEnabled (false);
