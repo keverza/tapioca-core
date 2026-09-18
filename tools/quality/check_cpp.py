@@ -50,14 +50,6 @@ OVERSIZED = {
         "OverlayComposer seam was cut; this is a new debt for a different seam and it is "
         "expected to be deleted the same way"
     ),
-    "ArchViz/InjectedOverlayRuntime.cpp": (
-        1035,
-        "SAME COMMIT, SAME REASON, DIFFERENT SEAM. NarrateLive, NarrateGate and the LiveMark "
-        "deltas are the runtime's REPORTING and belong in ArchViz/OverlayRuntimeReport -- "
-        "roughly 130 lines, no behavioural change. This file has now grown twice for "
-        "reporting reasons, which is the signal that reporting is a separate concern rather "
-        "than part of the runtime. Paid in the same structural commit as the telemetry split"
-    ),
     "ArchViz/Dxgi/ViewMatrixCandidates.cpp": (
         995,
         "stage 3's DISCOVERY scorer and the tracked window table it reads. The census, "
@@ -1105,10 +1097,12 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/HostOverlay.cpp",
     "ArchViz/Dxgi/InjectionCamera.cpp",
     "ArchViz/Dxgi/InjectionDepth.cpp",
+    "ArchViz/Dxgi/CameraFreshness.cpp",
     "ArchViz/Dxgi/InjectionRenderer.cpp",
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
+    "ArchViz/OverlayRuntimeReport.cpp",
 )
 
 OVERLAY_CONTRACT_MARKER = "OVERLAY-INVARIANTS.md"

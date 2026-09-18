@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/OverlayRuntimeReport.hpp"
 #include "ArchViz/Dxgi/OverlayComposer.hpp"
 #include "ArchViz/ModelWatch.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
@@ -70,27 +71,6 @@ uint64_t g_reacquisitions = 0;
 CameraState g_lastCamera = CameraState::Unavailable;
 HostState g_lastHost = HostState::Idle;
 uint64_t g_lastDraws = 0;
-// ⚠️ PREVIOUS TOTALS, SO THE REPORT CAN SUBTRACT. A cumulative
-// counter answers "did this ever happen", and every question worth asking after
-// the overlay starts is "is it happening NOW". See `NarrateLive`.
-struct LiveMark {
-    uint64_t present = 0;
-    uint64_t compose = 0;
-    uint64_t stale = 0;
-    uint64_t noDepth = 0;
-    uint64_t noGeometry = 0;
-    uint64_t noEdges = 0;
-    uint64_t noCamera = 0;
-    uint64_t culled = 0;
-    uint64_t mismatch = 0;
-    uint64_t sceneNew = 0;
-    uint64_t sceneRepeat = 0;
-    uint64_t sceneLate = 0;
-    uint64_t suppressed = 0;
-};
-LiveMark g_mark;
-std::string g_lastLive;
-uint32_t g_liveTicks = 0;
 bool g_anchored = false;
 std::string g_anchorHow;
 std::string g_lastChain;
@@ -174,130 +154,6 @@ HostState ReadHostState ()
     if (ExtractionWorker::Get ().IsRunning () || stats.batchBegins > stats.batchEnds)
         return HostState::Extracting;
     return HostState::Idle;
-}
-
-// The overlay's own channel log, in the format the reader needs: one line per
-// TRANSITION, never per tick. If it stops, the last line is the diagnosis.
-void Narrate (const char* channel, const std::string& detail)
-{
-    char line[256] = {};
-    _snprintf_s (line, sizeof (line), _TRUNCATE, "%-12s %s", channel, detail.c_str ());
-    ArchVizLog (line);
-}
-
-// ⚠️ WHAT IS HAPPENING NOW, WHICH NO CUMULATIVE COUNTER CAN
-// SAY. A run reported `OVERLAY DRAWING (85 lines)` and the user saw nothing on
-// screen -- both true: one pass had composed, and then the chain went silent
-// because `blockedAt` only reports while `overlayDraws == 0`. Totals cannot
-// distinguish "composing every frame" from "composed once, minutes ago", and
-// that difference was the whole question.
-//
-// So: deltas since the last tick, and a line whenever the ANSWER changes --
-// composing or not, a refusal that was zero becoming nonzero, the two viewports
-// disagreeing -- plus one every five seconds so a healthy run still leaves a
-// heartbeat to read. Never one per tick.
-void NarrateLive ()
-{
-    const Health health = GetHealth ();
-    if (!health.running)
-        return;
-
-    const uint64_t present = health.presentInjections;
-    const uint64_t compose = health.overlayDraws;
-    char line[420] = {};
-    _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "%s present+%llu compose+%llu lines=%u host=%u cam=%s vp=%ux%u target=%ux%u depth=%ux%u "
-                 "rebind=%llu miss=0x%02x | stale+%llu nodepth+%llu nogeom+%llu noedge+%llu nocam+%llu culled+%llu "
-                 "mismatch+%llu cam(new+%llu repeat+%llu LATE+%llu) "
-                 "age(0=%llu 1=%llu 2=%llu 3+=%llu max=%u of %llu) suppressed+%llu redraw=%llu",
-                 compose > g_mark.compose ? "composing" : "NOT COMPOSING",
-                 (unsigned long long) (present - g_mark.present), (unsigned long long) (compose - g_mark.compose),
-                 health.linesDrawn, health.hostOpaqueTriangles, CameraStateName (health.camera),
-                 health.acceptedViewportWidth, health.acceptedViewportHeight, health.targetWidth, health.targetHeight,
-                 health.composeDepthWidth, health.composeDepthHeight, (unsigned long long) health.resizeRebinds,
-                 health.lastMissMask, (unsigned long long) (health.skippedStaleCamera - g_mark.stale),
-                 (unsigned long long) (health.hostNoDepthTarget - g_mark.noDepth),
-                 (unsigned long long) (health.hostNoGeometry - g_mark.noGeometry),
-                 (unsigned long long) (health.overlayNoEdges - g_mark.noEdges),
-                 (unsigned long long) (health.overlayNoCamera - g_mark.noCamera),
-                 (unsigned long long) (health.overlayCulled - g_mark.culled),
-                 (unsigned long long) (health.composeSizeMismatches - g_mark.mismatch),
-                 (unsigned long long) (health.sceneNew - g_mark.sceneNew),
-                 (unsigned long long) (health.sceneRepeat - g_mark.sceneRepeat),
-                 (unsigned long long) (health.sceneLate - g_mark.sceneLate), (unsigned long long) health.age0,
-                 (unsigned long long) health.age1, (unsigned long long) health.age2,
-                 (unsigned long long) health.age3plus, health.cameraAgeMax,
-                 (unsigned long long) health.cameraAgeSamples,
-                 (unsigned long long) (health.suppressedStaleViewport - g_mark.suppressed),
-                 (unsigned long long) health.redrawRequests);
-
-    g_mark.present = present;
-    g_mark.compose = compose;
-    g_mark.stale = health.skippedStaleCamera;
-    g_mark.noDepth = health.hostNoDepthTarget;
-    g_mark.noGeometry = health.hostNoGeometry;
-    g_mark.noEdges = health.overlayNoEdges;
-    g_mark.noCamera = health.overlayNoCamera;
-    g_mark.culled = health.overlayCulled;
-    g_mark.mismatch = health.composeSizeMismatches;
-    g_mark.sceneNew = health.sceneNew;
-    g_mark.sceneRepeat = health.sceneRepeat;
-    g_mark.sceneLate = health.sceneLate;
-    g_mark.suppressed = health.suppressedStaleViewport;
-
-    // The leading word classifies the tick; comparing whole lines would narrate
-    // every frame-count wobble, and comparing nothing would narrate four times a
-    // second.
-    const std::string current (line);
-    const bool classChanged = g_lastLive.empty () || g_lastLive.compare (0, 13, current, 0, 13) != 0;
-    const bool quiet =
-        current.find ("stale+0 nodepth+0 nogeom+0 noedge+0 nocam+0 culled+0 mismatch+0") != std::string::npos &&
-        current.find ("suppressed+0 ") != std::string::npos;
-    ++g_liveTicks;
-    if (classChanged || (!quiet && g_liveTicks >= 4) || g_liveTicks >= 20) {
-        g_liveTicks = 0;
-        g_lastLive = current;
-        Narrate ("LIVE", current);
-    }
-}
-
-void NarrateGate ()
-{
-    const cen::EligibilityDiagnosis gate = cen::GetEligibilityDiagnosis ();
-    if (!gate.haveClosest) {
-        Narrate ("GATE", "no candidate groups were scored at all");
-        return;
-    }
-    const cen::Eligibility want = cen::GetEligibility ();
-    char line[320] = {};
-    _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "closest g%u fails %u: samples %u/%u coverage %.0f%%/%.0f%% inside %.0f%%/%.0f%% "
-                 "finite %.0f%%/%.0f%% area %.0f/%.0f px2 edge %.0f/%.0f px centre %.3f/%.2f",
-                 gate.closestGroupId, gate.closestFailures, gate.closestSamples, want.minSamples,
-                 gate.closestCoverage * 100.0f, want.minModelCoverage * 100.0f, gate.closestInsideClip * 100.0f,
-                 want.minInsideClip * 100.0f, gate.closestFinite * 100.0f, want.minFiniteTriangles * 100.0f,
-                 gate.closestAreaPixels, want.minMedianAreaPixels, gate.closestEdgePixels, want.minMedianMaxEdgePixels,
-                 gate.closestCentreError, want.maxMedianCentreError);
-    Narrate ("GATE", line);
-
-    // Which term refused across ALL groups, and which refused ALONE -- the
-    // second is the evidence, as it is for the fingerprint.
-    char terms[256] = {};
-    size_t used = 0;
-    for (uint32_t i = 0; i < cen::kGateTermCount; ++i) {
-        if (gate.missed[i] == 0)
-            continue;
-        char one[64] = {};
-        _snprintf_s (one, sizeof (one), _TRUNCATE, "%s%s %u/%u", used == 0 ? "" : ", ", cen::GateTermName (i),
-                     gate.soleMiss[i], gate.missed[i]);
-        const size_t length = strlen (one);
-        if (used + length + 1 >= sizeof (terms))
-            break;
-        memcpy (terms + used, one, length + 1);
-        used += length;
-    }
-    if (used > 0)
-        Narrate ("GATE", std::string ("refused (sole/total): ") + terms);
 }
 
 // MAIN THREAD. Point the census's scorer at something certainly on screen.
@@ -390,7 +246,7 @@ StartResult Arm ()
             result.code = StartError::HooksRefused;
             result.retryable = true;
         }
-        Narrate ("HOOK", std::string ("REFUSED (") + StartErrorName (result.code) + ") - " + result.message);
+        report::Say ("HOOK", std::string ("REFUSED (") + StartErrorName (result.code) + ") - " + result.message);
         return result;
     }
 
@@ -407,9 +263,9 @@ StartResult Arm ()
     // no ranking table, no hand-made selection. See `census::SetAutoSelect`.
     std::string how;
     if (PointAnchorAtView (how))
-        Narrate ("CAMERA", "anchor acquired from the " + how);
+        report::Say ("CAMERA", "anchor acquired from the " + how);
     else
-        Narrate ("CAMERA", "NO ANCHOR YET - " + how + "; the census cannot score until there is one");
+        report::Say ("CAMERA", "NO ANCHOR YET - " + how + "; the census cannot score until there is one");
     // ⚠️ THE TABLE IS CLEARED BEFORE LEARNING, AS THE DIAGNOSTIC HAS
     // ALWAYS DONE. `ViewerCameraCensus {enabled, reset, clearSelection}` is the
     // working invocation; `Arm` enabled the census and never reset it, so a
@@ -482,7 +338,7 @@ StartResult Arm ()
     inj::SetEnabled (true);
     inj::SetPoint (inj::Point::Present);
 
-    Narrate ("HOOK", "ready");
+    report::Say ("HOOK", "ready");
     StartResult result;
     result.ok = true;
     return result;
@@ -558,7 +414,7 @@ StartResult Start ()
     // smaller 3D scene, and arming a camera census against one would spend a
     // user's frames looking for a model camera that does not exist.
     if (!FrontWindowIs3D ()) {
-        Narrate ("OVERLAY MENU", "refused: the front window is not Archicad's 3D model");
+        report::Say ("OVERLAY MENU", "refused: the front window is not Archicad's 3D model");
         StartResult result;
         result.code = StartError::Not3DWindow;
         result.message = "the front window is not Archicad's 3D model; the portable overlay "
@@ -702,8 +558,8 @@ void Tick ()
         std::string how;
         const bool anchored = PointAnchorAtView (how);
         if (anchored != g_anchored || (anchored && how != g_anchorHow)) {
-            Narrate ("CAMERA", anchored ? ("anchor acquired from the " + how)
-                                        : ("NO ANCHOR - " + how + "; the census cannot score"));
+            report::Say ("CAMERA", anchored ? ("anchor acquired from the " + how)
+                                            : ("NO ANCHOR - " + how + "; the census cannot score"));
             g_anchored = anchored;
             g_anchorHow = how;
         }
@@ -732,17 +588,17 @@ void Tick ()
                          chosen.groupId, chosen.occurrenceIndex, chosen.variant, chosen.viewportWidth,
                          chosen.viewportHeight, chosen.viewportX, chosen.viewportY, chosen.samples,
                          chosen.modelCoverage * 100.0f, chosen.insideClip * 100.0f, chosen.medianCentreError);
-            Narrate ("CAMERA", detail);
+            report::Say ("CAMERA", detail);
         }
         else {
-            Narrate ("CAMERA", CameraStateName (camera));
+            report::Say ("CAMERA", CameraStateName (camera));
         }
         g_lastCamera = camera;
     }
     const HostState hostState = ReadHostState ();
     if (hostState != g_lastHost) {
-        Narrate ("HOST", std::string (HostStateName (hostState)) + " (" +
-                             std::to_string (host::GetStats ().publishedTriangles) + " opaque triangles)");
+        report::Say ("HOST", std::string (HostStateName (hostState)) + " (" +
+                                 std::to_string (host::GetStats ().publishedTriangles) + " opaque triangles)");
         g_lastHost = hostState;
     }
     // The one number that says whether anything is on screen at all.
@@ -754,9 +610,9 @@ void Tick ()
         // uploaded no feature edges is still a pass. This is the number that
         // separates composing from composing something.
         if (draws > 0)
-            Narrate ("OVERLAY", "DRAWING (" + std::to_string (ho::GetStats ().linesDrawn) + " lines)");
+            report::Say ("OVERLAY", "DRAWING (" + std::to_string (ho::GetStats ().linesDrawn) + " lines)");
         else
-            Narrate ("OVERLAY", "stopped drawing");
+            report::Say ("OVERLAY", "stopped drawing");
     }
     g_lastDraws = draws;
 
@@ -795,35 +651,7 @@ void Tick ()
         }
     }
 
-    NarrateLive ();
-
-    // ⚠️ WHILE REQUESTED BUT NOT DRAWING, THE CHAIN REPORTS ITSELF --
-    // ONE LINE PER CHANGE, NEVER PER TICK. A state that has not moved is not
-    // news; a state that has is the whole diagnosis.
-    const Health health = GetHealth ();
-    if (health.overlayDraws == 0) {
-        char line[256] = {};
-        _snprintf_s (line, sizeof (line), _TRUNCATE,
-                     "frames=%llu draws=%llu/%llu groups=%u/+%llu attempts=%llu eligible=%u selection=%s "
-                     "source=%s arm=%s matches=%llu snapshots=%llu present=%llu",
-                     (unsigned long long) health.modelFramesSeen, (unsigned long long) health.drawsQualified,
-                     (unsigned long long) health.drawsSeen, health.groupsUsed,
-                     (unsigned long long) health.groupsOverflowed, (unsigned long long) health.selectionAttempts,
-                     health.eligibleCandidates, health.selectionValid ? "valid" : "none", health.cameraSource.c_str (),
-                     health.armState.c_str (), (unsigned long long) health.logicalMatches,
-                     (unsigned long long) health.authoritativeSnapshots, (unsigned long long) health.presentInjections);
-        if (g_lastChain != line) {
-            g_lastChain = line;
-            Narrate ("CHAIN", line);
-            Narrate ("BLOCKED AT", health.blockedAt);
-            // ⚠️ AND WHEN THE GATE IS WHAT REFUSED, WHICH TERM AND ON
-            // WHAT NUMBERS. `eligible=0` names a stage and not a cause; these are
-            // the measurements the gate was applied to, so the threshold can be
-            // argued with instead of guessed at.
-            if (!health.selectionValid && health.eligibleCandidates == 0)
-                NarrateGate ();
-        }
-    }
+    report::Live (GetHealth ());
 }
 
 // ⚠️ THE FIRST STAGE THAT IS NOT SATISFIED, IN ORDER, AND NOTHING
@@ -1009,9 +837,7 @@ void Stop ()
     // Same fault class as `g_hostRequested` and `g_lastAutoSelectAttempt`: a mark
     // that outlives the session it describes makes the first tick of the next one
     // report a delta it did not measure.
-    g_mark = LiveMark {};
-    g_lastLive.clear ();
-    g_liveTicks = 0;
+    report::Reset ();
     // ⚠️ THE REQUEST FLAG IS A PROPERTY OF ONE SESSION AND MUST NOT
     // OUTLIVE IT. `g_hostRequested` guards against asking for the same extraction
     // twice inside a session; left set across `Stop`, it meant the SECOND
@@ -1019,7 +845,7 @@ void Stop ()
     // its whole window with a perfectly working extractor, because an earlier
     // session in the same Archicad had already used up the one request.
     g_hostRequested = false;
-    Narrate ("OVERLAY", "stopped, hooks released");
+    report::Say ("OVERLAY", "stopped, hooks released");
     // ⚠️ THE HOST SNAPSHOT IS DELIBERATELY KEPT. It is the model, not overlay
     // state, it costs nothing while nothing draws, and the next `Start` then has
     // a building immediately instead of re-walking one.

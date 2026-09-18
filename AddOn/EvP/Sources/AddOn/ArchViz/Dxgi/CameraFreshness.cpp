@@ -69,6 +69,11 @@ void NoteAge (uint64_t presentGeneration, uint64_t snapshotGeneration)
     }
 }
 
+uint32_t TargetEpoch ()
+{
+    return g_targetExtent.load (std::memory_order_relaxed);
+}
+
 bool TakeRedrawRequest ()
 {
     return g_needsRedraw.exchange (false, std::memory_order_acq_rel);

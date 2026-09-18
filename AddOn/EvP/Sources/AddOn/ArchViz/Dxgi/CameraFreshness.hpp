@@ -63,6 +63,18 @@ void NoteSuppressed ();
 // RENDER THREAD, once per Present that had a camera to judge.
 void NoteAge (uint64_t presentGeneration, uint64_t snapshotGeneration);
 
+// ANY THREAD. The window extent the composition is currently trying to reach,
+// packed width << 16 | height, or 0 before the first Present.
+//
+// ⚠️ THIS IS THE RETRY EPOCH AND MODEL FRAMES ARE NOT.
+// Bounding retries by "model generations advanced" is wrong: a redraw that
+// advances the generation WITHOUT producing a camera accepted for this extent
+// would reset the budget and buy another attempt, and a window that keeps
+// redrawing for unrelated reasons would buy attempts forever. The attempt budget
+// belongs to the extent being repaired, so two failures for THIS extent are two
+// failures full stop.
+uint32_t TargetEpoch ();
+
 // MAIN THREAD. True once per raised request -- COALESCED, so a hundred suppressed
 // Presents produce one. The caller decides whether it is allowed to act on it.
 bool TakeRedrawRequest ();
