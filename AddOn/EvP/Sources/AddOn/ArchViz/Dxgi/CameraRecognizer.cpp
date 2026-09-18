@@ -218,6 +218,12 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
         if (SoleMissWasViewport ()) {
             ++g_binding.resizeRelearns;
             ClearSelection ();
+            // ⚠️ AND FORGET THE MEASUREMENTS, NOT ONLY THE
+            // CHOICE. Dropping the selection alone left the camera Reacquiring
+            // forever: the group table is capped and still full of groups keyed to
+            // the old viewport, so draws at the NEW size were refused a slot and
+            // nothing could ever become eligible again.
+            ForgetGroupsAfterResize ();
         }
         return;
     }

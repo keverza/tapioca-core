@@ -278,9 +278,16 @@ void CaptureBoundSceneView (ID3D11DeviceContext* context)
     ID3D11RenderTargetView* boundTarget = nullptr;
     ID3D11DepthStencilView* boundDepth = nullptr;
     context->OMGetRenderTargets (1, &boundTarget, &boundDepth);
+    ++g_stats.captureAttempts;
     if (boundDepth != nullptr) {
         RetainSceneView (boundDepth);
         boundDepth->Release ();
+    }
+    else {
+        // Expected at Present, where Archicad binds the back buffer alone. Counted
+        // rather than ignored: this returning silently every frame is what let the
+        // header claim a fix that had not landed.
+        ++g_stats.captureNoDepth;
     }
     if (boundTarget != nullptr)
         boundTarget->Release ();

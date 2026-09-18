@@ -171,6 +171,9 @@ void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* de
     // put three COM calls on a hot path to learn something that did not change.
     const uint64_t colourId = uint64_t (uintptr_t (colour));
     const uint64_t depthId = uint64_t (uintptr_t (depth));
+    // Unconditional, and it costs one store. The DESCRIPTION is what is expensive
+    // to re-derive and what the guard below protects; the pointer is not.
+    g_state.depthStencilView = depth;
     if (colourId != g_state.renderTarget || !g_state.renderTargetDesc.present) {
         g_state.renderTarget = colourId;
         DescribeView (colour, g_state.renderTargetDesc);

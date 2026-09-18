@@ -95,8 +95,8 @@ Mode GetMode ();
 // ⚠️ A REFERENCE, RELEASED WHEN REPLACED AND AT TEARDOWN. Holding a view of a
 // resource Archicad may resize is the mistake the back-buffer path refuses; the
 // private copy is rebuilt whenever the source description changes.
-// ⚠️ PUBLISHED FROM THE PRODUCTION COMPOSE PATH, AND FOR A LONG
-// TIME IT WAS NOT. This had exactly one caller: `InjectionProbes::DrawDepthProof`,
+// ⚠️ PUBLISHED FROM THE PRODUCTION SCENE PASS, AND IT TOOK
+// TWO ATTEMPTS. This first had exactly one caller: `InjectionProbes::DrawDepthProof`,
 // a DIAGNOSTIC that only runs while the probes are armed. With the probes off --
 // which is what production is -- `SceneView ()` stayed null, so
 // `hostocclusion::EnsureDepthTarget` had no width, height, format or sample count
@@ -109,6 +109,17 @@ Mode GetMode ();
 // is the same class of fault as the overlay needing the portable viewport to arm
 // (stage 11b) and the census needing a hand-typed anchor (stage 11c): a
 // production path quietly depending on a diagnostic having run first.
+//
+// ⚠️ AND THE FIRST FIX DID NOT WORK WHILE LOOKING LIKE IT HAD.
+// `CaptureBoundSceneView` was added at Present so the capture would be owned by
+// the compose path -- but AT PRESENT ARCHICAD HAS ONLY THE BACK BUFFER BOUND.
+// The call found no depth view, returned silently, and the overlay went on
+// depending on the probe draw exactly as before; the comment here then asserted a
+// fix that the code did not deliver, which is worse than no comment. The caller
+// that works is `CameraCensus::OnDraw`, at the draw the authoritative camera
+// snapshot is taken from -- by construction the buffer the overlay must occlude
+// against. `captureNoDepth` counts the silent return, because a fourth silent
+// early return in this series is not an accident.
 //
 void RetainSceneView (ID3D11DepthStencilView* view);
 
@@ -193,8 +204,10 @@ struct Stats {
     uint64_t viewBound = 0;
     uint64_t copies = 0;
     uint64_t noSceneView = 0;
-    uint64_t copyRefused = 0; // the source could not be copied from
-    uint64_t rebuilds = 0;    // the source description changed
+    uint64_t captureAttempts = 0; // `CaptureBoundSceneView` calls
+    uint64_t captureNoDepth = 0;  // ... that found nothing bound; see `RetainSceneView`
+    uint64_t copyRefused = 0;     // the source could not be copied from
+    uint64_t rebuilds = 0;        // the source description changed
     uint32_t width = 0, height = 0;
     uint32_t format = 0;
     uint32_t sampleCount = 0;

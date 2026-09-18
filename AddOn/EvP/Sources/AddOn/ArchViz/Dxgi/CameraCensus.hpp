@@ -239,6 +239,20 @@ void Shutdown ();
 // exists to produce, and phase B would have to relearn a settled question.
 void ResetCounts ();
 
+// RENDER THREAD, from `CameraRecognizer::MaintainBinding`, when a sole viewport
+// miss has identified a window resize.
+//
+// ⚠️ DROPPING THE SELECTION IS NOT ENOUGH ON A RESIZE, AND THE
+// LOG SAID SO. The table is capped and every group in it is keyed to the OLD
+// viewport, so a full table refuses the draws at the new size a slot: the run
+// reported `groups=48/+8` and then a `CAMERA Reacquiring` that never came back.
+// Forgetting the measurements is what lets the new size be learned at all.
+//
+// Safe off the main thread although `ResetCounts` is not: it touches only plain
+// aggregates and preserves the staging buffers, and this runs on the same thread
+// as `OnDraw`, inside it.
+void ForgetGroupsAfterResize ();
+
 // MAIN THREAD. Phase A's decision, forwarded to `CameraRecognizer` with a copy
 // of the measured table. Fails closed: no eligible group means no selection.
 bool SelectCandidate ();

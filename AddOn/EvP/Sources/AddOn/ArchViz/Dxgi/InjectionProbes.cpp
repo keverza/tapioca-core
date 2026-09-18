@@ -553,10 +553,11 @@ void DrawDepthProof (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     g_stats.lastDepthView = dsvId;
     // Proof B2 needs this view at Present; keep a reference while it is current.
     RetainSceneDepthView (boundDsv);
-    // ⚠️ AND THE PRODUCTION PATH GETS IT TOO. Proof B2 showed this view is still
-    // valid at Present, so the real overlay -- not just the probes -- can test
-    // against it there. See InjectionDepth.hpp.
-    depth::RetainSceneView (boundDsv);
+    // ⚠️ AND IT NO LONGER PUBLISHES FOR PRODUCTION. This line
+    // called `depth::RetainSceneView`, which made the host overlay's depth target
+    // A SIDE EFFECT OF A DIAGNOSTIC DRAW: with the probes off the view stayed
+    // null, `hostocclusion::Prepare` returned null, and both host overlays were
+    // skipped on every frame. `CameraCensus::OnDraw` publishes it now.
 
     // ---- save what this touches -------------------------------------------
     ID3D11VertexShader* savedVs = nullptr;

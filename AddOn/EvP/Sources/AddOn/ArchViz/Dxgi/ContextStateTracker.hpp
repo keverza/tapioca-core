@@ -103,6 +103,14 @@ struct ContextState {
 
     uint64_t renderTarget = 0;
     uint64_t depthStencil = 0;
+    // ⚠️ THE VIEW ITSELF, BECAUSE AN ID CANNOT BE AddRef'd AND
+    // PRODUCTION HAS TO RETAIN ONE. `hostocclusion` builds its private depth
+    // buffer by copying this view's width, height, format and sample count, so
+    // the compose path needs the pointer and not just the identity the
+    // fingerprint compares. Raw and unowned: it is read inside the draw detour
+    // that captured it, while Archicad still has it bound, and whoever keeps it
+    // past that takes a reference of their own.
+    ID3D11DepthStencilView* depthStencilView = nullptr;
     ViewDescriptor renderTargetDesc;
     ViewDescriptor depthStencilDesc;
 

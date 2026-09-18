@@ -5,7 +5,6 @@
 
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
-#include "ArchViz/Dxgi/InjectionDepth.hpp"
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
@@ -16,7 +15,6 @@
 #include <d3d11_1.h>
 
 #include <atomic>
-#include <cmath>
 #include <cmath>
 #include <cstring>
 
@@ -455,6 +453,13 @@ void Reset ()
     ClearSelection ();
 }
 
+void ForgetGroupsAfterResize ()
+{
+    // See the declaration. The caller has already dropped the selection, which is
+    // the half that was in place; this is the half that makes it recoverable.
+    ResetCounts ();
+}
+
 void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
 {
     if (context == nullptr || !g_enabled.load (std::memory_order_acquire))
@@ -467,13 +472,6 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
 
     ++g_stats.drawsSeen;
     contextstate::ContextState live = contextstate::Snapshot ();
-
-    // ⚠️ DEPTH PROVENANCE SEES EVERY DRAW, NOT ONLY CAMERA-BEARING
-    // ONES, AND THAT IS THE POINT. The draw that ruins the depth buffer for us is
-    // a transparent build plane, and it has no reason to bind the camera windows
-    // the admission test below requires. Classifying after that test would miss
-    // exactly the draws this is looking for.
-    injection::depth::OnDraw (context, live.depthStencil, renderstate::ModelSceneGeneration ());
 
     // ⚠️ DEPTH PROVENANCE SEES EVERY DRAW, NOT ONLY CAMERA-BEARING
     // ONES, AND THAT IS THE POINT. The draw that ruins the depth buffer for us is
@@ -607,6 +605,12 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     MaintainBinding (live, kind, indexCount, occurrence, modelGeneration);
 
     // ---- the depth proof, at the predicted last draw of this family --------
+    // ⚠️ AND IT IS THE FIFTH PROOF PRIMITIVE, FOUND LAST.
+    // Four were gated and this one was not, so a production overlay still drew a
+    // cyan and a yellow triangle -- but ONLY WHILE THE MODEL WAS BEING REDRAWN,
+    // because this runs in the scene pass. "Coloured triangles during navigation
+    // and nothing at rest" was the shape of the report, and it is the shape of
+    // this call site.
     if (MatchesSelectionSignature (live)) {
         if (g_selectionFrame != modelGeneration) {
             g_selectionFrame = modelGeneration;
@@ -614,7 +618,8 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
             g_selectionOccurrencesThisFrame = 0;
         }
         ++g_selectionOccurrencesThisFrame;
-        if (g_selectionOccurrencesLastFrame > 0 && occurrence + 1 == g_selectionOccurrencesLastFrame) {
+        if (injection::ProofPrimitives () && g_selectionOccurrencesLastFrame > 0 &&
+            occurrence + 1 == g_selectionOccurrencesLastFrame) {
             ID3D11DeviceContext1* context1 = nullptr;
             if (SUCCEEDED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) &&
                 context1 != nullptr) {
@@ -639,6 +644,15 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         draw.vertexShader = live.vertexShader;
         draw.renderTarget = live.renderTarget;
         draw.depthStencil = live.depthStencil;
+        // ⚠️ AND THIS IS WHERE THE OVERLAY GETS ITS DEPTH BUFFER.
+        // It belongs HERE and nowhere else: this draw is the one the authoritative
+        // camera snapshot is taken from, so its depth buffer is BY CONSTRUCTION
+        // the buffer the overlay has to occlude against -- not a shadow map, not a
+        // UI pass, not whatever happened to be bound last. Publishing it anywhere
+        // that only runs for a diagnostic is what left the host overlay skipped on
+        // every frame while every state it published said "ready".
+        if (live.depthStencilView != nullptr)
+            injection::depth::RetainSceneView (live.depthStencilView);
         draw.viewportX = live.viewportX;
         draw.viewportY = live.viewportY;
         draw.viewportWidth = live.viewportWidth;

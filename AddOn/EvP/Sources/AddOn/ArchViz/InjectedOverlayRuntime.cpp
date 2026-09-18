@@ -227,7 +227,6 @@ bool PointAnchorAtView (std::string& how)
 }
 
 // MAIN THREAD. Is Archicad's 3D model window the one in front?
-// MAIN THREAD. Is Archicad's 3D model window the one in front?
 bool FrontWindowIs3D ()
 {
     API_WindowInfo info = {};
@@ -582,8 +581,17 @@ void Tick ()
     }
     // The one number that says whether anything is on screen at all.
     const uint64_t draws = ho::GetStats ().wireframeDraws + ho::GetStats ().heatmapDraws;
-    if ((draws > 0) != (g_lastDraws > 0))
-        Narrate ("OVERLAY", draws > 0 ? "DRAWING" : "stopped drawing");
+    if ((draws > 0) != (g_lastDraws > 0)) {
+        // ⚠️ AND SAY HOW MANY LINES, BECAUSE "DRAWING" WAS NOT
+        // ENOUGH. A run reported DRAWING while the screen showed nothing but probe
+        // triangles: `wireframeDraws` counts passes ISSUED, and a pass that
+        // uploaded no feature edges is still a pass. This is the number that
+        // separates composing from composing something.
+        if (draws > 0)
+            Narrate ("OVERLAY", "DRAWING (" + std::to_string (ho::GetStats ().linesDrawn) + " lines)");
+        else
+            Narrate ("OVERLAY", "stopped drawing");
+    }
     g_lastDraws = draws;
 
     // ⚠️ WHILE REQUESTED BUT NOT DRAWING, THE CHAIN REPORTS ITSELF --
