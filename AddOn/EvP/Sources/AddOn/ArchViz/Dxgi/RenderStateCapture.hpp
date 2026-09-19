@@ -168,7 +168,26 @@ struct ScenePass {
     // scene is recognised by its SOURCE RESOURCE, never by an RTV pointer.
     uint64_t colorResource = 0;
     GpuViewport viewport;
-    uint32_t draws = 0;            // draw calls seen while its target was bound
+    uint32_t draws = 0; // draw calls seen while its target was bound
+    // ⚠️ HOW OFTEN THE CAMERA WINDOW MOVED WITHIN THIS
+    // ONE PASS, and which draw it last moved at. The overlay reads the camera
+    // from ONE draw of the pass -- the selected occurrence, typically an early
+    // one -- and then draws geometry that Archicad rendered across ALL of them.
+    // If the window is constant for the pass, that is sound and which occurrence
+    // was chosen cannot matter. If it moves, the overlay is using the camera of
+    // a different part of the frame from the geometry it draws, and no compose
+    // point can fix that because the wrong camera was read before composition
+    // was ever reached.
+    //
+    // ⚠️ A WINDOW THAT DID NOT MOVE IS NOT PROOF THE
+    // CAMERA DID NOT. Archicad can rewrite a window in place through `Map` or
+    // `UpdateSubresource`; the offset is the address, not the contents. Zero
+    // changes here narrows the question to an in-place rewrite, it does not
+    // close it.
+    uint32_t cameraWindowChanges = 0;
+    uint32_t cameraWindowLastChangeDraw = 0;
+    uint64_t cameraWindowFirst = 0; // view firstConstant << 32 | projection
+    uint64_t cameraWindowLast = 0;
     bool boundaryHit = false;      // the colour target was bound away afterwards
     uint32_t opsAfterBoundary = 0; // copies/resolves between boundary and Present
     uint32_t drawsAfterBoundary = 0;

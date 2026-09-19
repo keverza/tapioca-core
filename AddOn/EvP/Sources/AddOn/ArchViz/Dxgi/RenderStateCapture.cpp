@@ -216,8 +216,24 @@ bool OnDraw ()
         // from a gizmo pass on a host where neither is busy.
         {
             const contextstate::ContextState live = contextstate::Snapshot ();
-            if (live.vsConstantBuffers[1].IsBound () && live.vsConstantBuffers[2].IsBound ())
+            if (live.vsConstantBuffers[1].IsBound () && live.vsConstantBuffers[2].IsBound ()) {
                 g_currentPass.drawsHadCamera = true;
+                // ⚠️ THE WINDOW PAIR IS THE CAMERA'S ADDRESS.
+                // Archicad keeps its constants in one ring and binds windows of
+                // it, so a pair of first-constant offsets identifies which 256
+                // bytes this draw multiplied by. See ScenePass.
+                const uint64_t window = (uint64_t (live.vsConstantBuffers[1].firstConstant) << 32) |
+                                        uint64_t (live.vsConstantBuffers[2].firstConstant);
+                if (g_currentPass.cameraWindowFirst == 0 && g_currentPass.cameraWindowChanges == 0) {
+                    g_currentPass.cameraWindowFirst = window;
+                    g_currentPass.cameraWindowLast = window;
+                }
+                else if (window != g_currentPass.cameraWindowLast) {
+                    g_currentPass.cameraWindowLast = window;
+                    ++g_currentPass.cameraWindowChanges;
+                    g_currentPass.cameraWindowLastChangeDraw = g_currentPass.draws;
+                }
+            }
         }
         // ⚠️ LATCHED AT THE DRAW, NOT AT THE BOUNDARY. Archicad may legally
         // change shader and constant-buffer state between its final scene draw

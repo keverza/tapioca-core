@@ -439,18 +439,21 @@ void FramePath ()
     // it, not at Present.
     const rs::ScenePass pass = rs::LastCompletedScenePass ();
     const rs::LatchCensus latch = rs::GetLatchCensus ();
-    char sceneLine[520] = {};
+    char sceneLine[640] = {};
     _snprintf_s (sceneLine, sizeof (sceneLine), _TRUNCATE,
                  "pass#%llu frame=%llu rtv=%llx dsv=%llx colour=%llx | draws=%u camera=%s "
                  "| boundary=%s opsAfter=%u drawsAfter=%u returns=%u drawsAfterReturn=%u | consumed=%s epoch=%llu"
-                 " | latch: byCopy=%llu byDeparture=%llu copiesInPass=%llu",
+                 " | latch: byCopy=%llu byDeparture=%llu copiesInPass=%llu"
+                 " | camera in pass: moved=%u lastAtDraw=%u first=%llx last=%llx",
                  (unsigned long long) pass.generation, (unsigned long long) pass.presentFrameId,
                  (unsigned long long) pass.colorTarget, (unsigned long long) pass.depthTarget,
                  (unsigned long long) pass.colorResource, pass.draws, pass.drawsHadCamera ? "yes" : "NO",
                  pass.boundaryHit ? "hit" : "NOT HIT", pass.opsAfterBoundary, pass.drawsAfterBoundary,
                  pass.targetReturns, pass.drawsAfterReturn, pass.sceneConsumed ? "yes" : "no",
                  (unsigned long long) pass.targetEpoch, (unsigned long long) latch.consumedByCopy,
-                 (unsigned long long) latch.consumedByDeparture, (unsigned long long) latch.copiesSeenInPass);
+                 (unsigned long long) latch.consumedByDeparture, (unsigned long long) latch.copiesSeenInPass,
+                 pass.cameraWindowChanges, pass.cameraWindowLastChangeDraw, (unsigned long long) pass.cameraWindowFirst,
+                 (unsigned long long) pass.cameraWindowLast);
     const std::string scene (sceneLine);
     if (scene != g_lastScenePass) {
         g_lastScenePass = scene;
