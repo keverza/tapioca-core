@@ -184,6 +184,14 @@ struct ScenePass {
     // `UpdateSubresource`; the offset is the address, not the contents. Zero
     // changes here narrows the question to an in-place rewrite, it does not
     // close it.
+    // ⚠️ AND THE SAME QUESTION FOR b0, WHICH IS THE ONLY
+    // OTHER VERTEX SLOT ARCHICAD BINDS. If b1 turns out to be per-draw -- a
+    // world-view rather than a view -- then the pure view has to be somewhere,
+    // and a slot that is CONSTANT across the pass the way b2 is would be it.
+    uint32_t b0WindowChanges = 0;
+    uint64_t b0WindowFirst = 0;
+    uint32_t b0NumConstants = 0;
+    bool b0Bound = false;
     uint32_t cameraWindowChanges = 0;
     uint32_t cameraWindowLastChangeDraw = 0;
     uint64_t cameraWindowFirst = 0; // view firstConstant << 32 | projection

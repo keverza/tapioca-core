@@ -216,6 +216,17 @@ bool OnDraw ()
         // from a gizmo pass on a host where neither is busy.
         {
             const contextstate::ContextState live = contextstate::Snapshot ();
+            if (live.vsConstantBuffers[0].IsBound ()) {
+                const uint64_t b0 = uint64_t (live.vsConstantBuffers[0].firstConstant);
+                if (!g_currentPass.b0Bound) {
+                    g_currentPass.b0Bound = true;
+                    g_currentPass.b0WindowFirst = b0;
+                    g_currentPass.b0NumConstants = live.vsConstantBuffers[0].numConstants;
+                }
+                else if (b0 != g_currentPass.b0WindowFirst) {
+                    ++g_currentPass.b0WindowChanges;
+                }
+            }
             if (live.vsConstantBuffers[1].IsBound () && live.vsConstantBuffers[2].IsBound ()) {
                 g_currentPass.drawsHadCamera = true;
                 // ⚠️ THE WINDOW PAIR IS THE CAMERA'S ADDRESS.
