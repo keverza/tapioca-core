@@ -295,13 +295,24 @@ void Sync ()
     // multiplies by -- and NOTHING downstream reports that, because every
     // composition counter stays perfectly healthy while the overlay holds the
     // last camera it was given. See `freshness::NoteAuthoritativeSnapshot`.
-    const uint32_t pinMiss = cen::GetBindingStats ().pinMissMask;
-    char line[460] = {};
+    const cen::BindingStats binding = cen::GetBindingStats ();
+    const uint32_t pinMiss = binding.pinMissMask;
+    // ⚠️ WHICH CAMERA IT SETTLED ON, EVERY SECOND, NOT ONLY
+    // AT THE TRANSITION. `CAMERA Locked ...` is printed once, when the state word
+    // changes -- so a selection UPGRADED inside the settling window, which
+    // leaves the state word at `Locked`, would swap the pin under the overlay
+    // and print nothing at all. The occurrence and its coverage are the two
+    // numbers that decided the run: in the two logs this was written from, the
+    // same binary locked occ3 at 97% when the overlay tracked and occ8 at 89%
+    // when it lagged.
+    const cen::Selection pin = cen::GetSelection ();
+    char line[560] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%s | BYTES: snapshots=%llu, %u ms since the last one, worst gap %u ms, pinMiss=0x%02x "
                  "| content: decodes=%llu changes=%llu, %u ms since capture "
                  "| adopted=%llu same=%llu FRESH_NOT_ADOPTED=%llu, run now=%llu worst=%llu "
-                 "| recovery: run=%llu after %u ms, signature %s, pass %s, window %s",
+                 "| recovery: run=%llu after %u ms, signature %s, pass %s, window %s "
+                 "| pin: occ%u cov=%.0f%% inside=%.0f%% upgrades=%u",
                  cam.msSinceSnapshot > 500 ? "BYTES STALLED" : (cam.camFreshNotAdopted > 0 ? "desync seen" : "in sync"),
                  (unsigned long long) cam.snapshots, cam.msSinceSnapshot, cam.msSinceSnapshotMax, pinMiss,
                  (unsigned long long) cam.contentDecodes, (unsigned long long) cam.contentChanges,
@@ -309,7 +320,8 @@ void Sync ()
                  (unsigned long long) cam.camFreshNotAdopted, (unsigned long long) cam.freshRunCurrent,
                  (unsigned long long) cam.freshRunMax, (unsigned long long) cam.recoveryRunLength, cam.recoveryMs,
                  cam.recoverySignatureChanged ? "MOVED" : "held", cam.recoveryPassMoved ? "MOVED" : "held",
-                 cam.recoveryWindowMoved ? "MOVED" : "held");
+                 cam.recoveryWindowMoved ? "MOVED" : "held", pin.occurrenceIndex, pin.modelCoverage * 100.0f,
+                 pin.insideClip * 100.0f, binding.selectionUpgrades);
 
     // ⚠️ KEYED ON THE STATE WORD AND RATE-LIMITED, THE
     // WAY `Live` IS. `ms since the last one` advances on every tick by

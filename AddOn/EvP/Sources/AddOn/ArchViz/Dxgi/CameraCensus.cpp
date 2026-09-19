@@ -595,13 +595,13 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         // working again and the still-viewport case is over.
         g_staticSelects = 0;
         g_drawsSinceStaticSelect = 0;
-        if (g_autoSelect.load (std::memory_order_acquire) && !GetBindingStats ().fingerprintValid &&
+        if (g_autoSelect.load (std::memory_order_acquire) && WantsSelectionAttempt (g_stats.modelFramesSeen) &&
             g_stats.modelFramesSeen >= g_lastAutoSelectAttempt + kAutoSelectEveryModelFrames) {
             g_lastAutoSelectAttempt = g_stats.modelFramesSeen;
             AttemptAutoSelect ();
         }
     }
-    else if (g_autoSelect.load (std::memory_order_acquire) && !GetBindingStats ().fingerprintValid &&
+    else if (g_autoSelect.load (std::memory_order_acquire) && WantsSelectionAttempt (g_stats.modelFramesSeen) &&
              g_staticSelects < kMaxStaticSelects) {
         // The still-viewport path. See the budget above.
         if (++g_drawsSinceStaticSelect >= kStaticSelectEveryDraws) {

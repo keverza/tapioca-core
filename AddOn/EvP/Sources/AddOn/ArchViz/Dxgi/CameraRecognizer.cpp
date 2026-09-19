@@ -30,6 +30,12 @@ Fingerprint g_fingerprint;
 // pin has gone quiet; without that rule a second draw family sharing the same
 // logical shape would steal the binding back and forth every frame.
 uint64_t g_selectionLastSeenModel = 0;
+
+// ⚠️ HOW LONG THE TABLE MAY KEEP CHANGING ITS MIND, in model
+// frames after the first commit. See `WantsSelectionAttempt`.
+const uint64_t kSettleModelFrames = 64;
+uint64_t g_firstSelectionModelFrames = 0;
+uint32_t g_selectionUpgrades = 0;
 // How many groups cleared the eligibility gate on the last attempt. A promotion
 // that never happens is a different fault depending on whether this is zero.
 uint32_t g_eligibleCandidates = 0;
@@ -620,6 +626,14 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     float bestCoverage = 0.0f;
     float bestInside = 0.0f;
     float bestMedian = 0.0f;
+    // ⚠️ THE INCUMBENT IS RE-MEASURED, NOT REMEMBERED. Its
+    // stored `modelCoverage` was computed over the handful of model frames that
+    // existed when it was picked; comparing a challenger scored over hundreds
+    // against that number would promote noise every time. Both sides of the
+    // comparison are read from THIS table, on THIS attempt.
+    bool haveIncumbent = false;
+    float incumbentCoverage = 0.0f;
+    float incumbentInside = 0.0f;
     g_eligibleCandidates = 0;
     // Each attempt is judged on its own; a stale diagnosis from a previous
     // attempt would name a term that has since been satisfied.
@@ -628,7 +642,13 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
         float coverage = 0.0f;
         float insideClip = 0.0f;
         float agreement = 0.0f;
-        if (!Qualifies (groups[i], modelFrames, coverage, insideClip, agreement))
+        const bool qualified = Qualifies (groups[i], modelFrames, coverage, insideClip, agreement);
+        if (g_selection.valid && groups[i].groupId == g_selection.groupId) {
+            haveIncumbent = true;
+            incumbentCoverage = coverage;
+            incumbentInside = insideClip;
+        }
+        if (!qualified)
             continue;
         ++g_eligibleCandidates;
         const bool better = best == nullptr || coverage > bestCoverage + 0.01f ||
@@ -643,6 +663,14 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
         }
     }
     if (best == nullptr) {
+        // ⚠️ AN ATTEMPT THAT FINDS NOTHING MAY NOT UNDO ONE
+        // THAT FOUND SOMETHING. Before the settling window this function was
+        // only ever called with no selection, so clearing here cost nothing.
+        // It is now called again while one is live, and a single frame in which
+        // no group happened to qualify would otherwise throw away a good pin
+        // and send the overlay back for 32 fresh model frames (section 3).
+        if (g_selection.valid)
+            return true;
         // ⚠️ FAIL CLOSED. A run that could not identify the camera injects
         // nothing, rather than injecting with whatever drew last -- which is the
         // behaviour that produced six inconclusive runs.
@@ -651,6 +679,29 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
         // injection would keep pointing at a selection that no longer exists.
         injection::SetCameraSource (injection::CameraSource::Learner);
         return false;
+    }
+
+    // ⚠️ AND A LIVE SELECTION IS ONLY REPLACED BY A
+    // CLEARLY BETTER ONE. Every lock in both logs of the run this was written
+    // for reads `samples=32`, which is exactly `minSamples`: the winner was
+    // always whichever group crossed the evidence threshold FIRST, and coverage
+    // at that instant is measured over a handful of model frames. The same
+    // binary picked occ3 at 97% in the run the user called correct and occ8 at
+    // 89% in the run it lagged -- 89% clears `minModelCoverage` of 80%, so the
+    // session was committed to a family absent from one frame in nine.
+    //
+    // ⚠️ COVERAGE DECIDES AND CENTRE ERROR DOES NOT. Centre
+    // error is the weak term -- a hand on a mouse does not put the orbit target
+    // on the anchor to the pixel -- and ranking upgrades on it would swap the
+    // pin back and forth on noise. Two points of coverage, or a point of clip
+    // containment at equal coverage, is a real difference in how often the
+    // camera can be read at all.
+    if (g_selection.valid) {
+        const bool upgrade = !haveIncumbent || bestCoverage > incumbentCoverage + 0.02f ||
+                             (bestCoverage >= incumbentCoverage - 0.01f && bestInside > incumbentInside + 0.01f);
+        if (!upgrade || best->groupId == g_selection.groupId)
+            return true;
+        ++g_selectionUpgrades;
     }
 
     Selection chosen;
@@ -731,6 +782,9 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     g_fingerprint = print;
     g_binding.fingerprintValid = true;
     g_selectionLastSeenModel = 0;
+    if (g_firstSelectionModelFrames == 0)
+        g_firstSelectionModelFrames = modelFrames > 0 ? modelFrames : 1;
+    g_binding.selectionUpgrades = g_selectionUpgrades;
 
     // ⚠️ THE SHADER IS TOLD WHAT WAS LEARNED, AND REFUSES IF IT CANNOT HONOUR IT.
     // This is the link that was missing for run thirty-three: the census proved
@@ -742,6 +796,27 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     // of the family came last.
     injection::SetSelectedOccurrence (chosen.occurrenceIndex);
     return true;
+}
+
+// ⚠️ THE FIRST GROUP TO REACH 32 SAMPLES USED TO WIN THE
+// SESSION. `AttemptAutoSelect` was gated on `!fingerprintValid`, so the moment
+// anything qualified the census stopped choosing -- permanently, for that run.
+// Which group that was is a race between draw order and the 32-sample
+// threshold, which is why the same binary produced an overlay locked to the
+// geometry in one run and lagging in the next with no code change between them.
+//
+// ⚠️ SO THE WINDOW CLOSES; IT DOES NOT STAY OPEN. After
+// `kSettleModelFrames` the answer is final and this costs one branch again,
+// which is the property the original gate was protecting. Re-ranking forever
+// would make the pin a moving target and hand every later diagnosis a variable
+// nobody asked for (section 13, one variable per run).
+bool WantsSelectionAttempt (uint64_t modelFrames)
+{
+    if (!g_binding.fingerprintValid)
+        return true;
+    if (g_firstSelectionModelFrames == 0)
+        return false;
+    return modelFrames < g_firstSelectionModelFrames + kSettleModelFrames;
 }
 
 void NoteModelRevision (uint32_t revision)
@@ -758,6 +833,11 @@ void ClearSelection ()
     g_fingerprint = Fingerprint {};
     g_binding.fingerprintValid = false;
     g_selectionLastSeenModel = 0;
+    // A new learning phase gets a new settling window (section 8: no session
+    // state outlives the session that learned it).
+    g_firstSelectionModelFrames = 0;
+    g_selectionUpgrades = 0;
+    g_binding.selectionUpgrades = 0;
     injection::SetExpectedInterpretation (0xffffffffu);
 }
 

@@ -177,6 +177,11 @@ Fingerprint GetFingerprint ();
 // MAIN THREAD. Choose the best ELIGIBLE group from a copied table and lock on to
 // it. Returns false and changes nothing when none qualifies.
 bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames);
+
+// RENDER THREAD. Whether the census should attempt a selection on this model
+// frame: always while there is no fingerprint, and for a bounded window after
+// the first commit so a clearly better camera can still take the pin.
+bool WantsSelectionAttempt (uint64_t modelFrames);
 void ClearSelection ();
 
 // MAIN THREAD, from the runtime heartbeat: the model revision Archicad is at.
@@ -278,6 +283,11 @@ Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration);
 const char* LifecycleName (Lifecycle state);
 
 struct BindingStats {
+    // ⚠️ HOW MANY TIMES THE SETTLING WINDOW FOUND A BETTER
+    // CAMERA THAN THE ONE IT HAD. Zero means the first group to reach 32
+    // samples was also the best one; anything above zero is a run that would
+    // have spent the session on a worse pin. See `WantsSelectionAttempt`.
+    uint32_t selectionUpgrades = 0;
     uint64_t selectionMatches = 0;
     uint64_t logicalMatches = 0;
     uint64_t rebinds = 0;
