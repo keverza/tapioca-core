@@ -9,6 +9,7 @@
 #include <dxgi.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <windows.h> // GetTickCount64 -- one read of a shared page, no syscall
 
@@ -480,9 +481,18 @@ EpochGateReport GetEpochGate ()
 void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint64_t generation, const float view[16],
                         const float projection[16])
 {
+    // ⚠️ KEYED ON THE GROUP *AND* THE KIND OF
+    // PROJECTION, NOT ON THE ID ALONE. Group ids are run-local and RECYCLED when
+    // a slot is reused, and one group legitimately carries both a camera and a
+    // screen map because the identity is the ring buffer rather than the window
+    // in it. Keyed on the id alone this kept whichever matrix happened to arrive
+    // first and then attributed it to every later group wearing that id -- which
+    // is exactly how stage 61 concluded the overlay was drawing with a screen
+    // map when the divide counters say it was not.
+    const bool divides = std::fabs (projection[11]) > 0.5f;
     for (size_t i = 0; i < g_ledgerUsed; ++i) {
-        if (g_ledger[i].groupId == groupId)
-            return; // the FIRST decode, so the set can be compared as one reading
+        if (g_ledger[i].groupId == groupId && (std::fabs (g_ledger[i].projection[11]) > 0.5f) == divides)
+            return; // the first decode OF THIS KIND, so a set can be read as one
     }
     if (g_ledgerUsed >= kMatrixLedgerCapacity)
         return;
