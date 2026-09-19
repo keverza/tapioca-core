@@ -332,6 +332,11 @@ Report Snapshot ()
     return report;
 }
 
+// The matrix ledger. See CameraFreshness.hpp.
+const size_t kMatrixLedgerCapacity = 24;
+GroupMatrices g_ledger[kMatrixLedgerCapacity];
+size_t g_ledgerUsed = 0;
+
 // The scene epoch gate. See CameraFreshness.hpp.
 std::atomic<uint64_t> g_cameraEpoch { 0 };
 std::atomic<uint64_t> g_presentedEpoch { 0 };
@@ -344,6 +349,7 @@ std::atomic<bool> g_gateEnabled { false };
 
 void Reset ()
 {
+    g_ledgerUsed = 0;
     // Section 10: a run that inherits the previous one's gate is a run whose
     // evidence nobody can trust.
     g_gateEnabled.store (false, std::memory_order_release);
@@ -469,6 +475,39 @@ EpochGateReport GetEpochGate ()
     report.presentedEpoch = g_presentedEpoch.load (std::memory_order_relaxed);
     report.enabled = g_gateEnabled.load (std::memory_order_relaxed);
     return report;
+}
+
+void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint64_t generation, const float view[16],
+                        const float projection[16])
+{
+    for (size_t i = 0; i < g_ledgerUsed; ++i) {
+        if (g_ledger[i].groupId == groupId)
+            return; // the FIRST decode, so the set can be compared as one reading
+    }
+    if (g_ledgerUsed >= kMatrixLedgerCapacity)
+        return;
+    GroupMatrices& entry = g_ledger[g_ledgerUsed];
+    entry.groupId = groupId;
+    entry.occurrence = occurrence;
+    entry.generation = generation;
+    for (size_t i = 0; i < 16; ++i) {
+        entry.view[i] = view[i];
+        entry.projection[i] = projection[i];
+    }
+    ++g_ledgerUsed;
+}
+
+size_t GetGroupMatrices (GroupMatrices* out, size_t capacity)
+{
+    const size_t count = g_ledgerUsed < capacity ? g_ledgerUsed : capacity;
+    for (size_t i = 0; i < count; ++i)
+        out[i] = g_ledger[i];
+    return count;
+}
+
+size_t GroupMatrixCount ()
+{
+    return g_ledgerUsed;
 }
 
 } // namespace freshness

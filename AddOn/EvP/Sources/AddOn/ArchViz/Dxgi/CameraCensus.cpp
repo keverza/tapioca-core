@@ -380,19 +380,19 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     viewport.width = slot.group.viewportWidth;
     viewport.height = slot.group.viewportHeight;
 
-    // ⚠️ THE SAME SCORER THE ORACLE USES, INCLUDING ITS VALIDITY GATE. Two copies
-    // of this arithmetic would eventually disagree about which interpretation
-    // won, which is the one question both of them exist to answer.
+    // ⚠️ THE SAME SCORER THE ORACLE USES, INCLUDING ITS VALIDITY
+    // GATE. Two copies of this arithmetic would eventually disagree about which
+    // interpretation won -- the one question both of them exist to answer.
     injection::oracle::VariantScore scores[kVariantCount];
     injection::oracle::ScoreVariants (view, projection, viewport, scores);
     RecordSample (slot, scores);
 
     // ⚠️ THE ONE PLACE ARCHICAD'S CAMERA EXISTS AS
-    // VALUES RATHER THAN AS A BINDING, AND THE SELECTED GROUP'S SAMPLE IS THE
-    // ONLY ONE THAT DESCRIBES WHAT THE OVERLAY IS SUPPOSED TO BE DRAWING WITH.
-    // Signing it here costs a hash over 36 floats that are already in registers;
-    // there is no second readback and nothing is mapped at Present.
-    // `freshness::NoteCameraContent` carries why identity could not answer this.
+    // VALUES RATHER THAN AS A BINDING. The ledger keeps the first decode of each
+    // group so two can be compared as VALUES; the signature is the selected
+    // group's alone. No second readback, nothing mapped at Present.
+    injection::freshness::NoteGroupMatrices (slot.group.groupId, slot.group.occurrenceIndex,
+                                             renderstate::ModelSceneGeneration (), view, projection);
     if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
         slot.group.groupId == GetSelection ().groupId)
         injection::freshness::NoteCameraContent (view, projection, viewport.x, viewport.y, viewport.width,

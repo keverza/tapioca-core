@@ -211,6 +211,46 @@ void NoteAuthoritativeSnapshot ();
 // the previous run.
 
 // ---------------------------------------------------------------------------
+// The matrix ledger
+// ---------------------------------------------------------------------------
+//
+// ⚠️ EVERY MEASUREMENT SO FAR HAS BEEN INDIRECT. Centre
+// error, spread, inside-clip and the variant scores all describe what a matrix
+// DOES to an approximate anchor. None of them says what the matrix IS, and the
+// question now on the table -- do the four draws of a model pass bind four
+// different transforms, or one matrix written four times -- is answered by
+// sixteen floats and not by a score.
+//
+// ⚠️ THE CENSUS ALREADY HAS THEM AS VALUES. Its readback
+// maps the staged view and projection windows to score the variants, and its
+// own comment calls that "THE ONE PLACE ARCHICAD'S CAMERA EXISTS AS VALUES
+// RATHER THAN AS A BINDING". This keeps a copy of the first decode of each
+// group so two groups can be compared side by side; there is no second readback
+// and nothing new is mapped.
+//
+// ⚠️ AND THE GENERATION TRAVELS WITH THEM, because two
+// matrices read in different model frames are not comparable -- the camera
+// moved between them. Only rows sharing a generation answer the question.
+
+struct GroupMatrices {
+    uint32_t groupId = 0;
+    uint32_t occurrence = 0;
+    uint64_t generation = 0;
+    float view[16] = {};
+    float projection[16] = {};
+};
+
+// RENDER THREAD, from the census readback. Keeps the FIRST decode per group.
+void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint64_t generation, const float view[16],
+                        const float projection[16]);
+
+// MAIN THREAD. Copies out up to `capacity` entries; returns how many.
+size_t GetGroupMatrices (GroupMatrices* out, size_t capacity);
+
+// MAIN THREAD. How many are held, so a reporter can print each one once.
+size_t GroupMatrixCount ();
+
+// ---------------------------------------------------------------------------
 // The scene epoch gate
 // ---------------------------------------------------------------------------
 //

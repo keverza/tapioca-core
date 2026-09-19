@@ -25,6 +25,7 @@ namespace cen = dxgi::census;
 
 // Last decision narrated, so a decision that has not changed costs a compare.
 uint32_t g_lastBindSerial = 0;
+size_t g_matricesSaid = 0;
 std::string g_lastEpochGate;
 
 namespace {
@@ -342,9 +343,49 @@ void EpochGate ()
     Say ("EPOCH", current);
 }
 
+// ⚠️ THE MATRICES THEMSELVES, ONCE EACH. Every other
+// number in this file describes what a matrix DOES to an approximate anchor.
+// None of them says what it IS, and "do the draws of one pass bind four
+// transforms or one matrix written four times" is answered by sixteen floats.
+//
+// ⚠️ ONLY ROWS SHARING A GENERATION ARE COMPARABLE. Two
+// matrices read in different model frames differ because the camera moved
+// between them, which says nothing. `gen=` is printed so a reader can discard
+// the pairs that cannot be compared.
+void Matrices ()
+{
+    const size_t held = dxgi::injection::freshness::GroupMatrixCount ();
+    if (held <= g_matricesSaid)
+        return;
+    dxgi::injection::freshness::GroupMatrices rows[24];
+    const size_t count = dxgi::injection::freshness::GetGroupMatrices (rows, 24);
+    for (size_t i = g_matricesSaid; i < count; ++i) {
+        const dxgi::injection::freshness::GroupMatrices& row = rows[i];
+        char line[420] = {};
+        _snprintf_s (line, sizeof (line), _TRUNCATE,
+                     "g%u occ%u gen=%llu VIEW %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | "
+                     "%.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f",
+                     row.groupId, row.occurrence, (unsigned long long) row.generation, row.view[0], row.view[1],
+                     row.view[2], row.view[3], row.view[4], row.view[5], row.view[6], row.view[7], row.view[8],
+                     row.view[9], row.view[10], row.view[11], row.view[12], row.view[13], row.view[14], row.view[15]);
+        Say ("MATRIX", line);
+        _snprintf_s (line, sizeof (line), _TRUNCATE,
+                     "g%u occ%u gen=%llu PROJ %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | "
+                     "%.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f",
+                     row.groupId, row.occurrence, (unsigned long long) row.generation, row.projection[0],
+                     row.projection[1], row.projection[2], row.projection[3], row.projection[4], row.projection[5],
+                     row.projection[6], row.projection[7], row.projection[8], row.projection[9], row.projection[10],
+                     row.projection[11], row.projection[12], row.projection[13], row.projection[14],
+                     row.projection[15]);
+        Say ("MATRIX", line);
+    }
+    g_matricesSaid = count;
+}
+
 void Sync ()
 {
     CameraBind ();
+    Matrices ();
     EpochGate ();
     const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
     // ⚠️ THE PIN, BECAUSE IT IS WHAT GATES THE BYTES.
@@ -528,6 +569,7 @@ void Variants ()
 
 void Reset ()
 {
+    g_matricesSaid = 0;
     g_lastBindSerial = 0;
     g_lastSync.clear ();
     g_syncTicks = 0;
