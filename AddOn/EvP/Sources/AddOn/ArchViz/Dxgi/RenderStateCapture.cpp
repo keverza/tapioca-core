@@ -405,6 +405,38 @@ LatchCensus GetLatchCensus ()
     return census;
 }
 
+CompositeDraw g_composite;
+
+void NoteDirectDraw (uint32_t vertexCount)
+{
+    // A fullscreen quad is four vertices, or six for two triangles. Anything
+    // larger is geometry and not a composite.
+    if (vertexCount > 6 || g_currentPass.generation == 0)
+        return;
+    const contextstate::ContextState live = contextstate::Snapshot ();
+    const uint64_t b0 = live.vsConstantBuffers[0].IsBound () ? uint64_t (live.vsConstantBuffers[0].firstConstant) + 1
+                                                             : 0;
+    const uint64_t b1 = live.vsConstantBuffers[1].IsBound () ? uint64_t (live.vsConstantBuffers[1].firstConstant) + 1
+                                                             : 0;
+    const uint64_t b2 = live.vsConstantBuffers[2].IsBound () ? uint64_t (live.vsConstantBuffers[2].firstConstant) + 1
+                                                             : 0;
+    ++g_composite.draws;
+    if (b0 != g_composite.b0Window || b1 != g_composite.b1Window || b2 != g_composite.b2Window)
+        ++g_composite.windowChanges;
+    g_composite.vertexCount = vertexCount;
+    g_composite.b0Window = b0;
+    g_composite.b1Window = b1;
+    g_composite.b2Window = b2;
+    g_composite.b0Bound = b0 != 0;
+    g_composite.b1Bound = b1 != 0;
+    g_composite.b2Bound = b2 != 0;
+}
+
+CompositeDraw GetCompositeDraw ()
+{
+    return g_composite;
+}
+
 uint64_t SceneConsumedCount ()
 {
     return g_sceneConsumedCount;

@@ -536,6 +536,7 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::Direct, count);
+        renderstate::NoteDirectDraw (count);
     }
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
     if (original != nullptr)

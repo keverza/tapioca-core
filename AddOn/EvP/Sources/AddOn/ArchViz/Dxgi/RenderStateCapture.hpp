@@ -250,6 +250,38 @@ ScenePass CurrentScenePass ();
 // How many times a scene colour has been consumed by a copy or resolve. This is
 // the online trigger's own count, and the number stage 5 watches to know the
 // trigger fires exactly once per rendered scene.
+// ⚠️ THE FULLSCREEN DRAW THAT FOLLOWS THE MODEL, and
+// the constants it binds. Intel GPA's orbit and zoom captures both show the
+// same shape: four DrawIndexed for the model into the scene target, then a
+// non-indexed `Draw 4, 0` into that SAME colour target with NO depth bound,
+// then gizmos. A four-vertex draw with no depth is a fullscreen quad.
+//
+// ⚠️ AND IT IS THE ONLY CANDIDATE LEFT FOR A SMOOTH
+// PREVIEW. The model's constants move once per model pass -- measured at one
+// pass per 3.8 Presents -- yet Archicad's own preview moves smoothly while the
+// overlay moves in visible steps, and the step grows with distance from the
+// orbit pivot. That is what re-projecting a cached scene image would look like:
+// render the model occasionally, then warp it every frame with a camera the
+// model draws never see. If THIS draw's constants move at Present rate while
+// the model's move at pass rate, that camera is the one the overlay needs.
+//
+// Counting only. `windowChanges` is how many times the bound window pair moved.
+struct CompositeDraw {
+    uint64_t draws = 0;
+    uint64_t windowChanges = 0;
+    uint32_t vertexCount = 0;
+    uint64_t b0Window = 0;
+    uint64_t b1Window = 0;
+    uint64_t b2Window = 0;
+    bool b0Bound = false;
+    bool b1Bound = false;
+    bool b2Bound = false;
+};
+CompositeDraw GetCompositeDraw ();
+
+// RENDER THREAD, from the non-indexed draw detour, before it is forwarded.
+void NoteDirectDraw (uint32_t vertexCount);
+
 uint64_t SceneConsumedCount ();
 
 // ⚠️ WHETHER THERE IS ANYWHERE TO LATCH ON TO.

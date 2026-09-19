@@ -26,6 +26,7 @@ namespace cen = dxgi::census;
 // Last decision narrated, so a decision that has not changed costs a compare.
 uint32_t g_lastBindSerial = 0;
 size_t g_matricesSaid = 0;
+std::string g_lastComposite;
 std::string g_lastEpochGate;
 
 namespace {
@@ -382,9 +383,33 @@ void Matrices ()
     g_matricesSaid = count;
 }
 
+// ⚠️ DOES THE COMPOSITE MOVE FASTER THAN THE MODEL?
+// If it does, Archicad is re-projecting a cached scene image every frame with a
+// camera the model draws never bind -- which is what a smooth preview against a
+// stepping overlay looks like. RenderStateCapture.hpp carries the reasoning.
+void Composite ()
+{
+    const dxgi::renderstate::CompositeDraw c = dxgi::renderstate::GetCompositeDraw ();
+    if (c.draws == 0)
+        return;
+    char line[240] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "draws=%llu verts=%u windowChanges=%llu | b0 %s%llx b1 %s%llx b2 %s%llx",
+                 (unsigned long long) c.draws, c.vertexCount, (unsigned long long) c.windowChanges,
+                 c.b0Bound ? "" : "unbound ", (unsigned long long) (c.b0Window ? c.b0Window - 1 : 0),
+                 c.b1Bound ? "" : "unbound ", (unsigned long long) (c.b1Window ? c.b1Window - 1 : 0),
+                 c.b2Bound ? "" : "unbound ", (unsigned long long) (c.b2Window ? c.b2Window - 1 : 0));
+    const std::string current (line);
+    if (current == g_lastComposite)
+        return;
+    g_lastComposite = current;
+    Say ("COMPOSITE", current);
+}
+
 void Sync ()
 {
     CameraBind ();
+    Composite ();
     Matrices ();
     EpochGate ();
     const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
