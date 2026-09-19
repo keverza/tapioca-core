@@ -86,22 +86,6 @@ void SetMarkerLadder (bool enabled);
 // always on; this enables ENFORCEMENT, which skips the composite when the
 // camera and the presented image came from different scene passes. Off by
 // default and at every arm (section 10).
-// ⚠️ AIM THE ANCHOR AT A KNOWN ARCHICAD POINT, in
-// world metres. InjectionRenderer.hpp has said since it was written that the
-// sharpest form of this proof "puts a vertex on a known Archicad point or
-// edge: a one-pixel error is then obvious, where a large primitive floating in
-// space can drift several pixels and still look attached" -- and until now
-// nothing could aim it. The anchor was always taken from the view target or the
-// model centre, both of which are approximations, which is why `centre error`
-// has never been a registration measurement and must not be read as one.
-//
-// This separates two faults that every counter so far has confused:
-//   the anchor lands ON the corner   -> world coordinates are innocent and the
-//                                       fault is camera timing or raster mapping
-//   it lands OFF by a fixed vector   -> an origin or rebasing difference between
-//                                       what we extract and what Archicad draws
-void SetOverlayAnchor (double x, double y, double z, double sizeMetres);
-
 void SetEpochGate (bool enabled);
 bool EpochGateEnabled ();
 struct EpochGateCounts {
