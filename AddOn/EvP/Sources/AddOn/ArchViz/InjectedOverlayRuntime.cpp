@@ -848,6 +848,9 @@ Health GetHealth ()
     health.cameraAgeMax = fresh.ageMax;
     health.cameraAgeSamples = fresh.samples;
     health.suppressedStaleViewport = fresh.suppressed;
+    health.repeatHeld = fresh.repeatHeld;
+    health.repeatPassMoved = fresh.repeatPassMoved;
+    health.repeatWindowMoved = fresh.repeatWindowMoved;
     health.redrawRequests = redrawbudget::Requests ();
     health.redrawWaitMaxMs = fresh.redrawWaitMaxMs;
     health.redrawsTaken = fresh.redrawsTaken;

@@ -101,6 +101,39 @@ uint32_t TargetEpoch ();
 // OVERLAY-INVARIANTS.md section 9, and the wait is the number that says so.
 bool TakeRedrawRequest ();
 
+// RENDER THREAD, once per Present the renderer classified REPEAT_SCENE.
+//
+// ⚠️ REPEAT_SCENE MAKES A CLAIM ABOUT ARCHICAD AND NOTHING
+// TESTED IT. It asserts Archicad "presented without re-rendering the model -- a
+// UI repaint, a palette, a cursor -- so the geometry on screen is the geometry
+// this camera drew", and on the strength of that the renderer DISCARDS the fresh
+// camera and draws with the previous one. That is sound if and only if
+// `modelSceneGeneration` advances on every model pass. If it ever misses one,
+// the overlay is drawn with the previous frame's transform over a building that
+// has moved -- which from outside is the overlay lagging, or, at orbit speed,
+// the overlay not being there.
+//
+// ⚠️ AND NO EXISTING COUNTER CAN SEE IT, INCLUDING THE
+// ONE THAT LOOKS LIKE IT SHOULD. `age0` compares the present generation against
+// the snapshot generation; a generation that did not advance makes both the same
+// stale number and the age reads 0 -- perfectly fresh, by a measure that is
+// asking the wrong question. The 2026-09-19 menu run read `age0 99.5%` and
+// `cam(new+6 repeat+22)` on the frames the overlay was reported missing from.
+//
+// So the claim is partitioned, per event, by what the newest snapshot says at
+// the instant the decision is taken:
+//
+//   held        same scene pass, same camera window -- the claim is TRUE
+//   passMoved   a LATER scene pass has been snapshotted: Archicad DID re-render
+//   windowMoved same pass, but `b1`/`b2` point at a different window of the
+//               constant ring, which finding 3 calls the camera's address
+//
+// `passMoved` above zero during navigation falsifies REPEAT_SCENE outright.
+// `held` alone leaves the classification correct and sends the question on to
+// the composite output. `usable` false means there was no snapshot to judge
+// against and the Present is counted in none of the three.
+void NoteRepeatScene (bool usable, bool passMoved, bool windowMoved);
+
 struct Report {
     // ⚠️ BUCKETS, NOT A MEAN. A mean lets one forty-frame
     // stall hide a thousand good frames, and the question is what the STEADY
@@ -122,6 +155,12 @@ struct Report {
     // overlay that stayed blank.
     uint32_t redrawWaitMaxMs = 0;
     uint64_t redrawsTaken = 0;
+
+    // See `NoteRepeatScene`. These three partition every REPEAT_SCENE Present
+    // that had a snapshot to be judged against.
+    uint64_t repeatHeld = 0;
+    uint64_t repeatPassMoved = 0;
+    uint64_t repeatWindowMoved = 0;
 };
 Report Snapshot ();
 

@@ -154,6 +154,17 @@ struct Health {
     uint64_t sceneRepeat = 0;
     uint64_t sceneLate = 0;
 
+    // ⚠️ REPEAT_SCENE'S CLAIM, TESTED PER PRESENT. See
+    // `freshness::NoteRepeatScene`, which carries the reasoning. `passMoved`
+    // above zero during navigation means Archicad re-rendered and the fresh
+    // camera was discarded anyway -- the overlay drawn with the previous frame's
+    // transform over a building that has moved. `age0` reads PERFECT while that
+    // happens, because a generation that did not advance makes the present and
+    // the snapshot the same stale number.
+    uint64_t repeatHeld = 0;
+    uint64_t repeatPassMoved = 0;
+    uint64_t repeatWindowMoved = 0;
+
     // See `injection::InjectionStats`. `cameraAgeMedian` of 0 is the acceptance
     // target for ordinary navigation; `suppressedStaleViewport` counts Presents
     // that drew NOTHING rather than draw the building offset from itself.

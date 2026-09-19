@@ -765,6 +765,12 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         // Present injection paints the CURRENT back buffer and nothing survives
         // into the next one, so it has to be drawn again every time.
         g_repeatScene.fetch_add (1, std::memory_order_relaxed);
+        // This branch's claim, tested where it is made. See CameraFreshness.hpp.
+        const auto& held = g_acceptedCamera;
+        const bool passMoved = fresh.scenePassGeneration != held.scenePassGeneration;
+        const bool windowMoved = fresh.vsConstantBuffers[1].firstConstant != held.vsConstantBuffers[1].firstConstant ||
+                                 fresh.vsConstantBuffers[2].firstConstant != held.vsConstantBuffers[2].firstConstant;
+        freshness::NoteRepeatScene (fresh.valid, passMoved, windowMoved);
         state = oracle::FrameState::RepeatScene;
         draw = true;
     }

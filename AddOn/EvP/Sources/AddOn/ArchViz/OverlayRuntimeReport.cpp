@@ -255,14 +255,21 @@ void Backend (const Health& health)
 
 void Pulse (const Health& health)
 {
-    char line[320] = {};
+    char line[400] = {};
+    // `blankPresents`, not "raised": the request is COALESCED, so the two numbers
+    // count different things and the first reading of this line took the
+    // difference for fourteen lost requests. `suppressedStaleViewport` is
+    // Presents that drew nothing; `redrawsTaken` is requests consumed.
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "ticks=%llu (timer %llu, caller %llu) asked every 250 ms, worst gap=%u ms, over 1 s=%llu | "
-                 "redraw request: raised=%llu taken=%llu worst wait=%u ms",
+                 "redraw: blankPresents=%llu requestsTaken=%llu worst wait=%u ms | "
+                 "repeat(held %llu, PASS MOVED %llu, window moved %llu)",
                  (unsigned long long) health.ticks, (unsigned long long) health.timerTicks,
                  (unsigned long long) (health.ticks - health.timerTicks), health.tickGapMaxMs,
                  (unsigned long long) health.tickGapsOverASecond, (unsigned long long) health.suppressedStaleViewport,
-                 (unsigned long long) health.redrawsTaken, health.redrawWaitMaxMs);
+                 (unsigned long long) health.redrawsTaken, health.redrawWaitMaxMs,
+                 (unsigned long long) health.repeatHeld, (unsigned long long) health.repeatPassMoved,
+                 (unsigned long long) health.repeatWindowMoved);
     const std::string current (line);
     if (current == g_lastPulse)
         return;

@@ -34,6 +34,11 @@ std::atomic<uint64_t> g_requestRaisedMs { 0 };
 std::atomic<uint32_t> g_requestWaitMaxMs { 0 };
 std::atomic<uint64_t> g_requestsTaken { 0 };
 
+// REPEAT_SCENE's claim, partitioned. See the header.
+std::atomic<uint64_t> g_repeatHeld { 0 };
+std::atomic<uint64_t> g_repeatPassMoved { 0 };
+std::atomic<uint64_t> g_repeatWindowMoved { 0 };
+
 } // namespace
 
 void NoteTargetExtent (IDXGISwapChain* swapChain)
@@ -81,6 +86,18 @@ void NoteAge (uint64_t presentGeneration, uint64_t snapshotGeneration)
     }
 }
 
+void NoteRepeatScene (bool usable, bool passMoved, bool windowMoved)
+{
+    if (!usable)
+        return;
+    if (passMoved)
+        g_repeatPassMoved.fetch_add (1, std::memory_order_relaxed);
+    else if (windowMoved)
+        g_repeatWindowMoved.fetch_add (1, std::memory_order_relaxed);
+    else
+        g_repeatHeld.fetch_add (1, std::memory_order_relaxed);
+}
+
 uint32_t TargetEpoch ()
 {
     return g_targetExtent.load (std::memory_order_relaxed);
@@ -115,6 +132,9 @@ Report Snapshot ()
     report.suppressed = g_suppressed.load (std::memory_order_relaxed);
     report.redrawWaitMaxMs = g_requestWaitMaxMs.load (std::memory_order_relaxed);
     report.redrawsTaken = g_requestsTaken.load (std::memory_order_relaxed);
+    report.repeatHeld = g_repeatHeld.load (std::memory_order_relaxed);
+    report.repeatPassMoved = g_repeatPassMoved.load (std::memory_order_relaxed);
+    report.repeatWindowMoved = g_repeatWindowMoved.load (std::memory_order_relaxed);
     return report;
 }
 
@@ -131,6 +151,9 @@ void Reset ()
     g_requestRaisedMs.store (0, std::memory_order_relaxed);
     g_requestWaitMaxMs.store (0, std::memory_order_relaxed);
     g_requestsTaken.store (0, std::memory_order_relaxed);
+    g_repeatHeld.store (0, std::memory_order_relaxed);
+    g_repeatPassMoved.store (0, std::memory_order_relaxed);
+    g_repeatWindowMoved.store (0, std::memory_order_relaxed);
 }
 
 } // namespace freshness
