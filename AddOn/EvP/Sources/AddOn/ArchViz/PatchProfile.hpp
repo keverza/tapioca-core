@@ -84,27 +84,27 @@ namespace archviz {
 namespace patchprofile {
 
 struct ModuleIdentity {
-    std::string name;      // "d3d11.dll", lower case
-    std::string version;   // file version, or "?" when the module carries none
-    std::string sha256;    // lower-case hex
-    uint64_t    sizeBytes = 0;
+    std::string name;    // "d3d11.dll", lower case
+    std::string version; // file version, or "?" when the module carries none
+    std::string sha256;  // lower-case hex
+    uint64_t sizeBytes = 0;
 };
 
 // One patched vtable slot, described by what was IN it rather than by its index.
 struct TargetIdentity {
-    std::string name;      // "ID3D11DeviceContext::RSSetViewports"
-    std::string module;    // the module the slot points into
-    uint64_t    rva = 0;   // offset within that module
-    std::string prologue;  // first kPrologueBytes bytes, lower-case hex
+    std::string name;     // "ID3D11DeviceContext::RSSetViewports"
+    std::string module;   // the module the slot points into
+    uint64_t rva = 0;     // offset within that module
+    std::string prologue; // first kPrologueBytes bytes, lower-case hex
 };
 
 struct Identity {
-    bool                        valid = false;
-    std::string                 why;        // when !valid
-    std::string                 hostPath;   // full path to Archicad.exe
-    std::string                 hostVersion;
-    std::string                 hostSha256;
-    uint64_t                    hostSizeBytes = 0;
+    bool valid = false;
+    std::string why;      // when !valid
+    std::string hostPath; // full path to Archicad.exe
+    std::string hostVersion;
+    std::string hostSha256;
+    uint64_t hostSizeBytes = 0;
     std::vector<ModuleIdentity> modules;
     std::vector<TargetIdentity> targets;
 };
@@ -154,6 +154,36 @@ std::string PinFilePath ();
 // difference, and on no pin at all.
 bool Verify (std::string& error);
 
+// ⚠️ WHY A VERIFY FAILED, BECAUSE "RE-PINNABLE" AND
+// "DO NOT TOUCH" ARE NOT THE SAME ANSWER AND THE BOOLEAN COULD NOT TELL THEM
+// APART. On 2026-09-19 a Microsoft Visual C++ redistributable repair moved
+// `dxgi.dll` from 10.0.19041.7663 to .7725. The profile refused every arm for
+// the rest of the day, and the overlay was dead with a message nobody was
+// watching for -- while `d3d11.dll`, which hosts ALL TWENTY-SEVEN targets, had
+// not changed by a single byte, and `dxgi.dll` hosts NONE of them.
+//
+// ⚠️ THE TARGETS ARE THE CONTRACT AND THE MODULE HASH IS
+// A PROXY FOR THEM. Each target carries its module, its RVA and the first bytes
+// of the function itself. If all twenty-seven still sit at the same offset with
+// the same prologue, the vtable is intact -- that is not weaker evidence than a
+// module hash, it is the evidence the module hash was standing in for. A proxy
+// must not outrank the thing it stands for.
+//
+// So the order is inverted: targets first, then only those modules that
+// actually host one. A module hosting no target is not consulted at all.
+enum class Verdict {
+    Ok,                       // pinned and running agree
+    StaleModuleTargetsIntact, // a hosting module moved; every target still verifies
+    Refuse                    // something that matters changed
+};
+
+// ⚠️ `StaleModuleTargetsIntact` IS A REPAIR THE CALLER MAY
+// TAKE, NOT ONE THIS FILE TAKES. Rewriting the pin is a decision with a
+// consequence -- the profile stops describing the build it was tested on -- and
+// it belongs to whoever is about to install, in the open, with a log line, not
+// buried in a predicate named `Verify`.
+Verdict VerifyDetailed (std::string& error);
+
 // Write this session's identity as the pin. The explicit, user-driven act
 // described above; nothing calls it automatically.
 bool Pin (std::string& error);
@@ -166,8 +196,8 @@ std::string PinnedSummary ();
 // The same, for what is actually running.
 std::string CurrentSummary ();
 
-}   // namespace patchprofile
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace patchprofile
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -3,7 +3,7 @@
 
 #include "ArchViz/Dxgi/ContextHook.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
 #include "ArchViz/Dxgi/ContextHookSelfTest.hpp"
@@ -44,26 +44,26 @@ using namespace hookshared;
 namespace {
 
 void** g_vtable = nullptr;
-std::atomic<bool> g_installed {false};
-std::atomic<bool> g_wanted {false};
-std::atomic<bool> g_pinned {false};
-std::string       g_lastError;
+std::atomic<bool> g_installed { false };
+std::atomic<bool> g_wanted { false };
+std::atomic<bool> g_pinned { false };
+std::string g_lastError;
 
 // ⚠️ SET WITHOUT AN ADDED REFERENCE, exactly as the filter is. The install only
 // ever READS the vtable pointer out of the context and compares object pointers
 // afterwards; it never calls through either of these. Holding a reference would
 // keep Archicad's device alive past its own teardown, and dropping one later
 // would be a release from whichever thread happened to disarm the mode.
-std::atomic<uint64_t> g_discoveredContext {0};
-std::atomic<uint64_t> g_discoveredDevice {0};
+std::atomic<uint64_t> g_discoveredContext { 0 };
+std::atomic<uint64_t> g_discoveredDevice { 0 };
 
 // ⚠️ A REFUSED INSTALL IS LATCHED. The camera tick retries while the mode is
 // armed and the hook is down, and a refusal that did not latch would create a
 // D3D11 device and hash two system DLLs on every tick -- sixty times a second,
 // to reach the same refusal. Cleared by `RetryContextHookInstall`, which pinning
 // a profile calls, because pinning is the thing that changes the answer.
-std::atomic<bool> g_installRefused {false};
-std::atomic<uint64_t> g_repairs {0};
+std::atomic<bool> g_installRefused { false };
+std::atomic<uint64_t> g_repairs { 0 };
 
 // ⚠️ HOW MANY THREADS ARE INSIDE `RepairContextHook` RIGHT NOW, and it exists for
 // exactly one interleaving, which would be silent and fatal. Teardown restores
@@ -74,9 +74,9 @@ std::atomic<uint64_t> g_repairs {0};
 // forwards to nullptr, which the detours correctly decline to call, so Archicad
 // would go on running and quietly stop drawing. Nothing would log, and the
 // vtable would stay patched for the life of the process.
-std::atomic<int32_t> g_repairing {0};
+std::atomic<int32_t> g_repairing { 0 };
 
-std::atomic<uint32_t> g_proof {uint32_t (Proof::None)};
+std::atomic<uint32_t> g_proof { uint32_t (Proof::None) };
 
 // ---- the vtable write ------------------------------------------------------
 // ⚠️ THE VTABLE LIVES IN READ-ONLY MEMORY, so the swap needs VirtualProtect
@@ -111,8 +111,7 @@ void* SwapVtableEntry (void** vtable, size_t index, void* replacement)
 bool ApplyDetours (void** vtable)
 {
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
-        g_original[i].store (SwapVtableEntry (vtable, kSlotIndex[i], kDetour[i]),
-                std::memory_order_relaxed);
+        g_original[i].store (SwapVtableEntry (vtable, kSlotIndex[i], kDetour[i]), std::memory_order_relaxed);
     }
     return true;
 }
@@ -149,8 +148,7 @@ bool SelfTest (selftest::Throwaway& throwaway, std::string& error)
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
         if (g_selfTestSeen[i].load (std::memory_order_relaxed) == 0) {
             error = std::string ("the vtable self-test never reached the detour for ") +
-                    ContextSlotName (ContextSlot (i)) + " (slot " +
-                    std::to_string (kSlotIndex[i]) +
+                    ContextSlotName (ContextSlot (i)) + " (slot " + std::to_string (kSlotIndex[i]) +
                     "); the index is wrong for this d3d11.dll and patching it would write "
                     "into an unrelated slot. Nothing is installed";
             return false;
@@ -159,15 +157,19 @@ bool SelfTest (selftest::Throwaway& throwaway, std::string& error)
     return true;
 }
 
-}   // namespace
+} // namespace
 
 const char* ProofName (Proof proof)
 {
     switch (proof) {
-        case Proof::None:      return "none";
-        case Proof::AbiAndPin: return "ABI order + module + distinct slots + pinned bytes";
-        case Proof::SharedImplementation: return "the above, and the slots are known functions";
-        case Proof::ProvenByCall:         return "the above, and every detour was called";
+        case Proof::None:
+            return "none";
+        case Proof::AbiAndPin:
+            return "ABI order + module + distinct slots + pinned bytes";
+        case Proof::SharedImplementation:
+            return "the above, and the slots are known functions";
+        case Proof::ProvenByCall:
+            return "the above, and every detour was called";
     }
     return "?";
 }
@@ -175,35 +177,62 @@ const char* ProofName (Proof proof)
 const char* ContextSlotName (ContextSlot slot)
 {
     switch (slot) {
-        case ContextSlot::RSSetViewports:        return "RSSetViewports";
-        case ContextSlot::RSSetScissorRects:     return "RSSetScissorRects";
-        case ContextSlot::OMSetRenderTargets:    return "OMSetRenderTargets";
-        case ContextSlot::VSSetConstantBuffers:  return "VSSetConstantBuffers";
-        case ContextSlot::PSSetConstantBuffers:  return "PSSetConstantBuffers";
-        case ContextSlot::GSSetConstantBuffers:  return "GSSetConstantBuffers";
-        case ContextSlot::Map:                   return "Map";
-        case ContextSlot::Unmap:                 return "Unmap";
-        case ContextSlot::UpdateSubresource:     return "UpdateSubresource";
-        case ContextSlot::ClearRenderTargetView: return "ClearRenderTargetView";
-        case ContextSlot::ClearDepthStencilView: return "ClearDepthStencilView";
-        case ContextSlot::DrawIndexed:           return "DrawIndexed";
-        case ContextSlot::Draw:                  return "Draw";
-        case ContextSlot::DrawIndexedInstanced:  return "DrawIndexedInstanced";
-        case ContextSlot::CopyResource:          return "CopyResource";
-        case ContextSlot::ExecuteCommandList:    return "ExecuteCommandList";
-        case ContextSlot::DrawInstanced:         return "DrawInstanced";
-        case ContextSlot::DrawAuto:              return "DrawAuto";
+        case ContextSlot::RSSetViewports:
+            return "RSSetViewports";
+        case ContextSlot::RSSetScissorRects:
+            return "RSSetScissorRects";
+        case ContextSlot::OMSetRenderTargets:
+            return "OMSetRenderTargets";
+        case ContextSlot::VSSetConstantBuffers:
+            return "VSSetConstantBuffers";
+        case ContextSlot::PSSetConstantBuffers:
+            return "PSSetConstantBuffers";
+        case ContextSlot::GSSetConstantBuffers:
+            return "GSSetConstantBuffers";
+        case ContextSlot::Map:
+            return "Map";
+        case ContextSlot::Unmap:
+            return "Unmap";
+        case ContextSlot::UpdateSubresource:
+            return "UpdateSubresource";
+        case ContextSlot::ClearRenderTargetView:
+            return "ClearRenderTargetView";
+        case ContextSlot::ClearDepthStencilView:
+            return "ClearDepthStencilView";
+        case ContextSlot::DrawIndexed:
+            return "DrawIndexed";
+        case ContextSlot::Draw:
+            return "Draw";
+        case ContextSlot::DrawIndexedInstanced:
+            return "DrawIndexedInstanced";
+        case ContextSlot::CopyResource:
+            return "CopyResource";
+        case ContextSlot::ExecuteCommandList:
+            return "ExecuteCommandList";
+        case ContextSlot::DrawInstanced:
+            return "DrawInstanced";
+        case ContextSlot::DrawAuto:
+            return "DrawAuto";
         case ContextSlot::DrawIndexedInstancedIndirect:
             return "DrawIndexedInstancedIndirect";
-        case ContextSlot::DrawInstancedIndirect: return "DrawInstancedIndirect";
-        case ContextSlot::Dispatch:              return "Dispatch";
-        case ContextSlot::DispatchIndirect:      return "DispatchIndirect";
-        case ContextSlot::CopySubresourceRegion: return "CopySubresourceRegion";
-        case ContextSlot::ResolveSubresource:    return "ResolveSubresource";
-        case ContextSlot::VSSetConstantBuffers1: return "VSSetConstantBuffers1";
-        case ContextSlot::PSSetConstantBuffers1: return "PSSetConstantBuffers1";
-        case ContextSlot::UpdateSubresource1:    return "UpdateSubresource1";
-        case ContextSlot::Count:                 return "?";
+        case ContextSlot::DrawInstancedIndirect:
+            return "DrawInstancedIndirect";
+        case ContextSlot::Dispatch:
+            return "Dispatch";
+        case ContextSlot::DispatchIndirect:
+            return "DispatchIndirect";
+        case ContextSlot::CopySubresourceRegion:
+            return "CopySubresourceRegion";
+        case ContextSlot::ResolveSubresource:
+            return "ResolveSubresource";
+        case ContextSlot::VSSetConstantBuffers1:
+            return "VSSetConstantBuffers1";
+        case ContextSlot::PSSetConstantBuffers1:
+            return "PSSetConstantBuffers1";
+        case ContextSlot::UpdateSubresource1:
+            return "UpdateSubresource1";
+        case ContextSlot::Count:
+            return "?";
     }
     return "?";
 }
@@ -217,8 +246,7 @@ const char* ContextSlotName (ContextSlot slot)
 // perfectly good table that nobody dispatched through and recorded nothing.
 static void** ArchicadContextVtable (std::string& error)
 {
-    ID3D11DeviceContext* target =
-        (ID3D11DeviceContext*) DiscoveredArchicadContext ();
+    ID3D11DeviceContext* target = (ID3D11DeviceContext*) DiscoveredArchicadContext ();
     if (target == nullptr) {
         error = "Archicad's immediate context has not been identified yet; it is found "
                 "from its swap chain in the present detour and that needs about 60 frames "
@@ -253,8 +281,7 @@ bool FingerprintContextTargets (std::string& error)
     patchprofile::RecordModule (L"d3d11.dll");
     patchprofile::RecordModule (L"dxgi.dll");
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
-        const std::string name = std::string ("ID3D11DeviceContext::") +
-                                 ContextSlotName (ContextSlot (i));
+        const std::string name = std::string ("ID3D11DeviceContext::") + ContextSlotName (ContextSlot (i));
         patchprofile::RecordTarget (name.c_str (), vtable[kSlotIndex[i]]);
     }
     return true;
@@ -282,7 +309,34 @@ bool InstallContextHook (std::string& error)
         g_lastError = error;
         return false;
     }
-    if (!patchprofile::Verify (error)) {
+    const patchprofile::Verdict verdict = patchprofile::VerifyDetailed (error);
+    if (verdict == patchprofile::Verdict::StaleModuleTargetsIntact) {
+        // ⚠️ THE PROFILE HEALS ITSELF WHEN THE EVIDENCE
+        // SAYS IT IS SAFE, AND SAYS SO LOUDLY. Every one of the twenty-seven
+        // targets was just read out of the LIVE vtable and matched its pinned
+        // offset and its pinned first bytes; the only thing that moved is the
+        // hash of a module hosting them. Refusing that is what left the overlay
+        // dead for a day after a redistributable repair bumped `dxgi.dll` --
+        // which hosts none of the targets at all.
+        //
+        // ⚠️ IT IS LOGGED AS A REPAIR, NOT AS A SUCCESS.
+        // The profile now describes a build nobody has deliberately tested, and
+        // a reader who later asks "when did the pin change" must be able to find
+        // the moment and the reason in one grep.
+        std::string pinError;
+        if (patchprofile::Pin (pinError)) {
+            ArchVizLog ("context hook: RE-PINNED AUTOMATICALLY -- " + error +
+                        ". The profile has been rewritten for the build running now");
+        }
+        else {
+            ArchVizLog ("context hook: the targets verify but the profile could not be "
+                        "rewritten (" +
+                        pinError +
+                        "); installing anyway on the strength "
+                        "of the target check");
+        }
+    }
+    else if (verdict != patchprofile::Verdict::Ok) {
         g_pinned.store (false, std::memory_order_release);
         g_lastError = error;
         g_installRefused.store (true, std::memory_order_release);
@@ -301,8 +355,7 @@ bool InstallContextHook (std::string& error)
     // lands on the same implementation, and therefore the same vtable. This is
     // the whole repair of the 2026-09-13 run.
     selftest::Throwaway throwaway;
-    if (!selftest::Create (device->GetCreationFlags (), int (device->GetFeatureLevel ()),
-                           throwaway, error)) {
+    if (!selftest::Create (device->GetCreationFlags (), int (device->GetFeatureLevel ()), throwaway, error)) {
         g_lastError = error;
         g_installRefused.store (true, std::memory_order_release);
         ArchVizLog ("context hook: " + error);
@@ -333,12 +386,10 @@ bool InstallContextHook (std::string& error)
         std::snprintf (detail, sizeof (detail),
                        "context hook: Archicad context %p table %p, throwaway table %p "
                        "(creation flags 0x%08x, feature level 0x%04x) -- %s",
-                       (void*) target, (void*) vtable, (void*) throwaway.vtable,
-                       unsigned (device->GetCreationFlags ()),
+                       (void*) target, (void*) vtable, (void*) throwaway.vtable, unsigned (device->GetCreationFlags ()),
                        unsigned (device->GetFeatureLevel ()),
                        sameTable ? "same table"
-                                 : (sameFunctions ? "different table, same functions"
-                                                  : "different implementation"));
+                                 : (sameFunctions ? "different table, same functions" : "different implementation"));
         ArchVizLog (detail);
     }
 
@@ -357,8 +408,7 @@ bool InstallContextHook (std::string& error)
     }
     g_vtable = vtable;
 
-    Proof proof = sameTable ? Proof::ProvenByCall
-                            : (sameFunctions ? Proof::SharedImplementation : Proof::AbiAndPin);
+    Proof proof = sameTable ? Proof::ProvenByCall : (sameFunctions ? Proof::SharedImplementation : Proof::AbiAndPin);
 
     // ⚠️ THE CALL-TEST ONLY MEANS ANYTHING WHEN THE THROWAWAY SHARES THE TABLE WE
     // JUST PATCHED. On a different table our detours are not in its slots, so
@@ -371,8 +421,7 @@ bool InstallContextHook (std::string& error)
         // The drain applies to a failed install too: the swap was live for the
         // length of the self-test, so Archicad's thread may be inside a detour
         // right now.
-        for (int attempt = 0; attempt < 1000 && g_inFlight.load (std::memory_order_acquire) > 0;
-             ++attempt)
+        for (int attempt = 0; attempt < 1000 && g_inFlight.load (std::memory_order_acquire) > 0; ++attempt)
             Sleep (1);
         g_vtable = nullptr;
         throwaway.Release ();
@@ -412,8 +461,8 @@ bool InstallContextHook (std::string& error)
     // deliberately, one at a time, with the frame clock watched.
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
         const ContextSlot slot = ContextSlot (i);
-        const bool hot = (slot == ContextSlot::Map || slot == ContextSlot::Unmap ||
-                          slot == ContextSlot::UpdateSubresource);
+        const bool hot =
+            (slot == ContextSlot::Map || slot == ContextSlot::Unmap || slot == ContextSlot::UpdateSubresource);
         g_slotEnabled[i].store (!hot, std::memory_order_relaxed);
     }
 
@@ -427,8 +476,7 @@ bool InstallContextHook (std::string& error)
     g_lastError.clear ();
     g_installed.store (true, std::memory_order_release);
     ArchVizLog ("context hook: installed on Archicad's own context vtable, " +
-                std::to_string (size_t (ContextSlot::Count)) + " slots; proof = " +
-                ProofName (proof) +
+                std::to_string (size_t (ContextSlot::Count)) + " slots; proof = " + ProofName (proof) +
                 " (DISCOVERY ONLY -- it records what Archicad tells the GPU and draws "
                 "nothing)");
     return true;
@@ -571,8 +619,7 @@ void NominateArchicadContextFrom (IDXGISwapChain* swapChain)
     // (PLAT-RE150) -- would show up as Archicad failing to redraw on a window
     // resize, with nothing pointing at us.
     ID3D11Texture2D* backBuffer = nullptr;
-    if (FAILED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) ||
-        backBuffer == nullptr)
+    if (FAILED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) || backBuffer == nullptr)
         return;
     ID3D11Device* device = nullptr;
     backBuffer->GetDevice (&device);
@@ -637,8 +684,7 @@ void SetContextSlotEnabled (ContextSlot slot, bool enabled)
 
 bool ContextSlotEnabled (ContextSlot slot)
 {
-    return slot < ContextSlot::Count &&
-           g_slotEnabled[size_t (slot)].load (std::memory_order_acquire);
+    return slot < ContextSlot::Count && g_slotEnabled[size_t (slot)].load (std::memory_order_acquire);
 }
 
 size_t DrainContextEvents (ContextEvent* out, size_t max)
@@ -707,6 +753,6 @@ void FlushContextLogIfFilling ()
         eventring::Flush ();
 }
 
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

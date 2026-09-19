@@ -5,7 +5,7 @@
 
 #include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
@@ -47,29 +47,27 @@ constexpr size_t kResizeBuffersIndex = 13;
 constexpr size_t kPresent1Index = 22;
 
 using PresentFn = HRESULT (STDMETHODCALLTYPE*) (IDXGISwapChain*, UINT, UINT);
-using Present1Fn = HRESULT (STDMETHODCALLTYPE*) (IDXGISwapChain1*, UINT, UINT,
-                                                 const DXGI_PRESENT_PARAMETERS*);
-using ResizeBuffersFn = HRESULT (STDMETHODCALLTYPE*) (IDXGISwapChain*, UINT, UINT, UINT,
-                                                      DXGI_FORMAT, UINT);
+using Present1Fn = HRESULT (STDMETHODCALLTYPE*) (IDXGISwapChain1*, UINT, UINT, const DXGI_PRESENT_PARAMETERS*);
+using ResizeBuffersFn = HRESULT (STDMETHODCALLTYPE*) (IDXGISwapChain*, UINT, UINT, UINT, DXGI_FORMAT, UINT);
 
-PresentFn       g_originalPresent = nullptr;
-Present1Fn      g_originalPresent1 = nullptr;
+PresentFn g_originalPresent = nullptr;
+Present1Fn g_originalPresent1 = nullptr;
 ResizeBuffersFn g_originalResizeBuffers = nullptr;
 
 void** g_vtable = nullptr;
-std::atomic<bool> g_installed {false};
+std::atomic<bool> g_installed { false };
 
 // ⚠️ THE DRAIN COUNTER. Incremented on entry to every detour and decremented on
 // exit; Remove restores the pointers and then spins until it reads zero. Without
 // it, a Present already inside the detour returns into a DLL that has unloaded.
-std::atomic<int32_t> g_inFlight {0};
+std::atomic<int32_t> g_inFlight { 0 };
 
-std::atomic<uint64_t> g_presentCalls {0};
-std::atomic<uint64_t> g_present1Calls {0};
-std::atomic<uint64_t> g_resizeCalls {0};
+std::atomic<uint64_t> g_presentCalls { 0 };
+std::atomic<uint64_t> g_present1Calls { 0 };
+std::atomic<uint64_t> g_resizeCalls { 0 };
 
 // Our overlay's swap chain, so a row can say whose frame it was. See the header.
-std::atomic<uint64_t> g_ownSwapChain {0};
+std::atomic<uint64_t> g_ownSwapChain { 0 };
 
 // ---- the sample ring -------------------------------------------------------
 // Fixed size, overwritten oldest-first, no allocation on the render thread. A
@@ -84,15 +82,14 @@ struct PresentSample {
 };
 constexpr size_t kRingSize = 4096;
 PresentSample g_ring[kRingSize] = {};
-std::atomic<uint64_t> g_ringReserved {0};    // slots handed out
-std::atomic<uint64_t> g_ringPublished {0};   // slots fully written
+std::atomic<uint64_t> g_ringReserved { 0 };  // slots handed out
+std::atomic<uint64_t> g_ringPublished { 0 }; // slots fully written
 
 uint64_t MicrosecondsNow ()
 {
     LARGE_INTEGER frequency = {};
     LARGE_INTEGER counter = {};
-    if (!QueryPerformanceFrequency (&frequency) || frequency.QuadPart == 0 ||
-        !QueryPerformanceCounter (&counter))
+    if (!QueryPerformanceFrequency (&frequency) || frequency.QuadPart == 0 || !QueryPerformanceCounter (&counter))
         return 0;
     return uint64_t (counter.QuadPart * 1000000ll / frequency.QuadPart);
 }
@@ -102,17 +99,34 @@ uint64_t MicrosecondsNow ()
 // published entries. Eight is far more surfaces than Archicad has ever shown.
 constexpr size_t kWindowCacheSize = 8;
 struct ChainWindow {
-    std::atomic<uint64_t> chain {0};
-    std::atomic<uint64_t> window {0};
+    std::atomic<uint64_t> chain { 0 };
+    std::atomic<uint64_t> window { 0 };
     // Cumulative since Install, unlike the ring's view, which wraps. A chain that
     // presented busily for two seconds and then stopped is invisible in the ring
     // and obvious here.
-    std::atomic<uint64_t> presents {0};
-    std::atomic<uint32_t> width {0};
-    std::atomic<uint32_t> height {0};
-    std::atomic<uint32_t> format {0};
+    std::atomic<uint64_t> presents { 0 };
+    std::atomic<uint32_t> width { 0 };
+    std::atomic<uint32_t> height { 0 };
+    std::atomic<uint32_t> format { 0 };
 };
 ChainWindow g_windowCache[kWindowCacheSize];
+
+// The file name out of a full path, for a message a user can act on. Returns a
+// static buffer; render-thread callers do not use it.
+std::string ModuleLeafName (const wchar_t* path)
+{
+    if (path == nullptr || path[0] == 0)
+        return std::string ("an unknown module");
+    std::wstring wide (path);
+    const size_t slash = wide.find_last_of (L"\/");
+    if (slash != std::wstring::npos)
+        wide = wide.substr (slash + 1);
+    std::string narrow;
+    narrow.reserve (wide.size ());
+    for (wchar_t c : wide)
+        narrow.push_back (c < 128 ? char (c) : '?');
+    return narrow;
+}
 
 // RENDER THREAD. Asks GetDesc at most ONCE per chain -- see the header for why
 // per-frame is forbidden.
@@ -123,7 +137,7 @@ void RememberChainWindow (IDXGISwapChain* swapChain)
         const uint64_t seen = entry.chain.load (std::memory_order_acquire);
         if (seen == key) {
             entry.presents.fetch_add (1, std::memory_order_relaxed);
-            return;                      // already asked
+            return; // already asked
         }
         if (seen != 0)
             continue;
@@ -136,8 +150,7 @@ void RememberChainWindow (IDXGISwapChain* swapChain)
         entry.width.store (desc.BufferDesc.Width, std::memory_order_relaxed);
         entry.height.store (desc.BufferDesc.Height, std::memory_order_relaxed);
         entry.format.store (uint32_t (desc.BufferDesc.Format), std::memory_order_relaxed);
-        entry.window.store (uint64_t (uintptr_t (desc.OutputWindow)),
-                            std::memory_order_release);
+        entry.window.store (uint64_t (uintptr_t (desc.OutputWindow)), std::memory_order_release);
         entry.presents.store (1, std::memory_order_relaxed);
         entry.chain.store (key, std::memory_order_release);
         return;
@@ -171,7 +184,7 @@ void RecordPresent (IDXGISwapChain* swapChain, UINT syncInterval)
 // Archicad's own frames, counted. ⚠️ NOT `g_presentCalls`, WHICH COUNTS EVERY
 // CHAIN. The frame id has to name one presenter or a GPU-state row and a present
 // row cannot be joined, and joining them is the entire content of stage 4.
-std::atomic<uint64_t> g_archicadFrames {0};
+std::atomic<uint64_t> g_archicadFrames { 0 };
 
 // RENDER THREAD. Close the frame for the GPU-state capture (PLAT-RE153/RE154).
 //
@@ -218,8 +231,7 @@ void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
             ID3D11DeviceContext* context = nullptr;
             device->GetImmediateContext (&context);
             if (context != nullptr) {
-                injection::InjectAtPresent (context, swapChain,
-                        renderstate::ModelSceneGeneration ());
+                injection::InjectAtPresent (context, swapChain, renderstate::ModelSceneGeneration ());
                 context->Release ();
             }
             device->Release ();
@@ -271,8 +283,8 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     return hr;
 }
 
-HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncInterval,
-                                          UINT flags, const DXGI_PRESENT_PARAMETERS* parameters)
+HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncInterval, UINT flags,
+                                          const DXGI_PRESENT_PARAMETERS* parameters)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     if ((flags & DXGI_PRESENT_TEST) == 0) {
@@ -284,15 +296,13 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
         CaptureGpuStateIfTarget (swapChain);
     }
     const Present1Fn original = g_originalPresent1;
-    const HRESULT hr = (original != nullptr)
-        ? original (swapChain, syncInterval, flags, parameters) : S_OK;
+    const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags, parameters) : S_OK;
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }
 
-HRESULT STDMETHODCALLTYPE DetourResizeBuffers (IDXGISwapChain* swapChain, UINT bufferCount,
-                                               UINT width, UINT height, DXGI_FORMAT format,
-                                               UINT flags)
+HRESULT STDMETHODCALLTYPE DetourResizeBuffers (IDXGISwapChain* swapChain, UINT bufferCount, UINT width, UINT height,
+                                               DXGI_FORMAT format, UINT flags)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     g_resizeCalls.fetch_add (1, std::memory_order_relaxed);
@@ -312,8 +322,7 @@ HRESULT STDMETHODCALLTYPE DetourResizeBuffers (IDXGISwapChain* swapChain, UINT b
     // or every resize would pay for a fresh attach.
     injecteddiligent::DropWrappedTargets ();
     const ResizeBuffersFn original = g_originalResizeBuffers;
-    const HRESULT hr = (original != nullptr)
-        ? original (swapChain, bufferCount, width, height, format, flags) : S_OK;
+    const HRESULT hr = (original != nullptr) ? original (swapChain, bufferCount, width, height, format, flags) : S_OK;
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }
@@ -337,8 +346,7 @@ bool WithWritableVtable (void** vtable, size_t count, bool (*action) (void**), s
     DWORD previousProtection = 0;
     const SIZE_T bytes = count * sizeof (void*);
     if (!VirtualProtect (vtable, bytes, PAGE_READWRITE, &previousProtection)) {
-        error = "VirtualProtect on the DXGI vtable failed with GetLastError " +
-                std::to_string (GetLastError ());
+        error = "VirtualProtect on the DXGI vtable failed with GetLastError " + std::to_string (GetLastError ());
         return false;
     }
     const bool ok = action (vtable);
@@ -351,8 +359,7 @@ bool ApplyDetours (void** vtable)
 {
     g_originalPresent = (PresentFn) SwapVtableEntry (vtable, kPresentIndex, &DetourPresent);
     g_originalPresent1 = (Present1Fn) SwapVtableEntry (vtable, kPresent1Index, &DetourPresent1);
-    g_originalResizeBuffers = (ResizeBuffersFn) SwapVtableEntry (
-        vtable, kResizeBuffersIndex, &DetourResizeBuffers);
+    g_originalResizeBuffers = (ResizeBuffersFn) SwapVtableEntry (vtable, kResizeBuffersIndex, &DetourResizeBuffers);
     return true;
 }
 
@@ -378,8 +385,7 @@ bool DiscoverVtable (void*** outVtable, std::string& error)
 {
     // A message-only window cannot host a swap chain, so this is an ordinary
     // window that is never shown.
-    HWND window = CreateWindowExW (0, L"STATIC", L"", WS_OVERLAPPED, 0, 0, 1, 1,
-                                   nullptr, nullptr, nullptr, nullptr);
+    HWND window = CreateWindowExW (0, L"STATIC", L"", WS_OVERLAPPED, 0, 0, 1, 1, nullptr, nullptr, nullptr, nullptr);
     if (window == nullptr) {
         error = "could not create the throwaway window for DXGI vtable discovery";
         return false;
@@ -396,12 +402,11 @@ bool DiscoverVtable (void*** outVtable, std::string& error)
     desc.Windowed = TRUE;
     desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
-    IDXGISwapChain*      swapChain = nullptr;
-    ID3D11Device*        device = nullptr;
+    IDXGISwapChain* swapChain = nullptr;
+    ID3D11Device* device = nullptr;
     ID3D11DeviceContext* context = nullptr;
-    const HRESULT hr = D3D11CreateDeviceAndSwapChain (
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
-        &desc, &swapChain, &device, nullptr, &context);
+    const HRESULT hr = D3D11CreateDeviceAndSwapChain (nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0,
+                                                      D3D11_SDK_VERSION, &desc, &swapChain, &device, nullptr, &context);
 
     if (FAILED (hr) || swapChain == nullptr) {
         DestroyWindow (window);
@@ -417,9 +422,9 @@ bool DiscoverVtable (void*** outVtable, std::string& error)
     // arbitrary pointer in someone else's module -- a crash with no diagnosis.
     // A module check is cheap and turns that into a clean refusal.
     HMODULE owningModule = nullptr;
-    const bool located = GetModuleHandleExW (
-        GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-        reinterpret_cast<LPCWSTR> ((*outVtable)[kPresentIndex]), &owningModule) != 0;
+    const bool located =
+        GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR> ((*outVtable)[kPresentIndex]), &owningModule) != 0;
 
     wchar_t modulePath[MAX_PATH] = {};
     if (located && owningModule != nullptr)
@@ -435,13 +440,26 @@ bool DiscoverVtable (void*** outVtable, std::string& error)
     std::wstring path (modulePath);
     std::transform (path.begin (), path.end (), path.begin (), ::towlower);
     if (path.find (L"dxgi.dll") == std::wstring::npos) {
-        error = "the Present slot does not belong to dxgi.dll; refusing to patch it";
+        // ⚠️ THIS IS A CAPTURE TOOL, AND THE MESSAGE HAS TO
+        // SAY SO. The slot pointing somewhere other than `dxgi.dll` means another
+        // product has already replaced it -- Intel GPA and RenderDoc both do
+        // exactly this, and both leave it replaced for the life of the process.
+        // The 2026-09-19 16:24 run refused 169 TIMES in ninety seconds, arming
+        // and disarming the experiment guard on every one, because the retry
+        // loop treated a permanent condition as a transient one and the message
+        // named a DLL rather than a cause.
+        error = "the Present slot points into " + std::string (ModuleLeafName (modulePath)) +
+                " rather than dxgi.dll, so another product has already hooked it -- "
+                "a graphics capture tool such as Intel GPA or RenderDoc does exactly "
+                "this. Close it and RESTART Archicad: the replacement survives the "
+                "tool being closed, so Archicad has to be restarted to get its own "
+                "Present back. Refusing to patch on top of it";
         return false;
     }
     return true;
 }
 
-}   // namespace
+} // namespace
 
 bool InstallPresentHook (std::string& error)
 {
@@ -646,10 +664,9 @@ void FlushPresentLog ()
             continue;
         const uint64_t agoMs = (nowUs - sample.timestampUs) / 1000ull;
         const uint64_t sessionMs = (nowSessionMs > agoMs) ? (nowSessionMs - agoMs) : 0;
-        const bool ours = (sample.swapChain != 0 &&
-                           sample.swapChain == g_ownSwapChain.load (std::memory_order_acquire));
-        navlog::LogPresent (sessionMs, sample.swapChain, sample.timestampUs,
-                            sample.syncInterval, ours);
+        const bool ours =
+            (sample.swapChain != 0 && sample.swapChain == g_ownSwapChain.load (std::memory_order_acquire));
+        navlog::LogPresent (sessionMs, sample.swapChain, sample.timestampUs, sample.syncInterval, ours);
     }
     g_ringPublished.store (0, std::memory_order_release);
     g_ringReserved.store (0, std::memory_order_release);
@@ -669,6 +686,6 @@ void FlushPresentLogIfFilling ()
         FlushPresentLog ();
 }
 
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

@@ -3,8 +3,8 @@
 
 #include "ArchViz/PatchProfile.hpp"
 
-#include "ArchViz/ArchVizLog.hpp"   // ArchVizLog
-#include "Python/PathUtils.hpp"     // EvpDataDir, PathExists, ReadTextFile, WriteTextFile
+#include "ArchViz/ArchVizLog.hpp" // ArchVizLog
+#include "Python/PathUtils.hpp"   // EvpDataDir, PathExists, ReadTextFile, WriteTextFile
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -20,8 +20,8 @@
 #include <sstream>
 #include <vector>
 
-#pragma comment (lib, "bcrypt.lib")
-#pragma comment (lib, "version.lib")
+#pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "version.lib")
 
 namespace geomsrv {
 namespace archviz {
@@ -30,7 +30,7 @@ namespace patchprofile {
 namespace {
 
 Identity g_current;
-bool     g_computed = false;
+bool g_computed = false;
 
 // UTF-8 out of a UniString, the way PathUtils does it. The no-argument
 // `ToCStr()` is a different (locale) conversion; do not substitute it.
@@ -41,8 +41,7 @@ std::string Utf8 (const GS::UniString& text)
 
 std::string LowerAscii (std::string text)
 {
-    std::transform (text.begin (), text.end (), text.begin (),
-                    [] (unsigned char c) { return char (::tolower (c)); });
+    std::transform (text.begin (), text.end (), text.begin (), [] (unsigned char c) { return char (::tolower (c)); });
     return text;
 }
 
@@ -69,14 +68,12 @@ std::string HexOf (const unsigned char* bytes, size_t count)
 // `Get-FileHash` on the same file -- a hash only this add-on can compute is a
 // number nobody can check. Windows' own implementation is the one those tools
 // use.
-bool HashFile (const std::wstring& path, std::string& hashHex, uint64_t& sizeBytes,
-               std::string& error)
+bool HashFile (const std::wstring& path, std::string& hashHex, uint64_t& sizeBytes, std::string& error)
 {
-    HANDLE file = ::CreateFileW (path.c_str (), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                 nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE file = ::CreateFileW (path.c_str (), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        error = "could not open the file for hashing (GetLastError " +
-                std::to_string (::GetLastError ()) + ")";
+        error = "could not open the file for hashing (GetLastError " + std::to_string (::GetLastError ()) + ")";
         return false;
     }
 
@@ -89,22 +86,19 @@ bool HashFile (const std::wstring& path, std::string& hashHex, uint64_t& sizeByt
     std::vector<unsigned char> hashObject;
     bool ok = false;
     do {
-        if (!BCRYPT_SUCCESS (::BCryptOpenAlgorithmProvider (&algorithm, BCRYPT_SHA256_ALGORITHM,
-                                                            nullptr, 0))) {
+        if (!BCRYPT_SUCCESS (::BCryptOpenAlgorithmProvider (&algorithm, BCRYPT_SHA256_ALGORITHM, nullptr, 0))) {
             error = "BCryptOpenAlgorithmProvider(SHA256) failed";
             break;
         }
         DWORD objectSize = 0;
         DWORD written = 0;
-        if (!BCRYPT_SUCCESS (::BCryptGetProperty (algorithm, BCRYPT_OBJECT_LENGTH,
-                                                  (PUCHAR) &objectSize, sizeof (objectSize),
-                                                  &written, 0))) {
+        if (!BCRYPT_SUCCESS (::BCryptGetProperty (algorithm, BCRYPT_OBJECT_LENGTH, (PUCHAR) &objectSize,
+                                                  sizeof (objectSize), &written, 0))) {
             error = "BCryptGetProperty(OBJECT_LENGTH) failed";
             break;
         }
         hashObject.resize (objectSize);
-        if (!BCRYPT_SUCCESS (::BCryptCreateHash (algorithm, &hash, hashObject.data (), objectSize,
-                                                 nullptr, 0, 0))) {
+        if (!BCRYPT_SUCCESS (::BCryptCreateHash (algorithm, &hash, hashObject.data (), objectSize, nullptr, 0, 0))) {
             error = "BCryptCreateHash failed";
             break;
         }
@@ -113,8 +107,7 @@ bool HashFile (const std::wstring& path, std::string& hashHex, uint64_t& sizeByt
         for (;;) {
             DWORD read = 0;
             if (!::ReadFile (file, buffer.data (), DWORD (buffer.size ()), &read, nullptr)) {
-                error = "ReadFile failed while hashing (GetLastError " +
-                        std::to_string (::GetLastError ()) + ")";
+                error = "ReadFile failed while hashing (GetLastError " + std::to_string (::GetLastError ()) + ")";
                 break;
             }
             if (read == 0) {
@@ -164,10 +157,8 @@ std::string FileVersionOf (const std::wstring& path)
     if (!::VerQueryValueW (block.data (), L"\\", (LPVOID*) &fixed, &fixedSize) || fixed == nullptr)
         return "?";
     char text[64] = {};
-    std::snprintf (text, sizeof (text), "%u.%u.%u.%u",
-                   unsigned (HIWORD (fixed->dwFileVersionMS)),
-                   unsigned (LOWORD (fixed->dwFileVersionMS)),
-                   unsigned (HIWORD (fixed->dwFileVersionLS)),
+    std::snprintf (text, sizeof (text), "%u.%u.%u.%u", unsigned (HIWORD (fixed->dwFileVersionMS)),
+                   unsigned (LOWORD (fixed->dwFileVersionMS)), unsigned (HIWORD (fixed->dwFileVersionLS)),
                    unsigned (LOWORD (fixed->dwFileVersionLS)));
     return std::string (text);
 }
@@ -183,11 +174,10 @@ std::string NarrowPath (const std::wstring& wide)
 {
     if (wide.empty ())
         return std::string ();
-    const int needed = ::WideCharToMultiByte (CP_UTF8, 0, wide.c_str (), int (wide.size ()),
-                                              nullptr, 0, nullptr, nullptr);
+    const int needed =
+        ::WideCharToMultiByte (CP_UTF8, 0, wide.c_str (), int (wide.size ()), nullptr, 0, nullptr, nullptr);
     std::string narrow (size_t (needed), '\0');
-    ::WideCharToMultiByte (CP_UTF8, 0, wide.c_str (), int (wide.size ()), narrow.data (), needed,
-                           nullptr, nullptr);
+    ::WideCharToMultiByte (CP_UTF8, 0, wide.c_str (), int (wide.size ()), narrow.data (), needed, nullptr, nullptr);
     return narrow;
 }
 
@@ -238,12 +228,11 @@ void ComputeCurrent ()
         return;
     }
     g_current.valid = true;
-    ArchVizLog ("patch profile: host " + g_current.hostVersion + " sha256 " +
-                g_current.hostSha256.substr (0, 16) + "...");
+    ArchVizLog ("patch profile: host " + g_current.hostVersion + " sha256 " + g_current.hostSha256.substr (0, 16) +
+                "...");
 }
 
-const ModuleIdentity* FindModule (const std::vector<ModuleIdentity>& modules,
-                                  const std::string& name)
+const ModuleIdentity* FindModule (const std::vector<ModuleIdentity>& modules, const std::string& name)
 {
     for (const ModuleIdentity& module : modules) {
         if (module.name == name)
@@ -252,8 +241,7 @@ const ModuleIdentity* FindModule (const std::vector<ModuleIdentity>& modules,
     return nullptr;
 }
 
-const TargetIdentity* FindTarget (const std::vector<TargetIdentity>& targets,
-                                  const std::string& name)
+const TargetIdentity* FindTarget (const std::vector<TargetIdentity>& targets, const std::string& name)
 {
     for (const TargetIdentity& target : targets) {
         if (target.name == name)
@@ -302,11 +290,13 @@ bool LoadPin (Identity& pinned, std::string& error)
                 rest.erase (0, 1);
             pinned.hostPath = rest;
             pinned.valid = true;
-        } else if (kind == "module") {
+        }
+        else if (kind == "module") {
             ModuleIdentity module;
             fields >> module.name >> module.sha256 >> module.sizeBytes >> module.version;
             pinned.modules.push_back (module);
-        } else if (kind == "target") {
+        }
+        else if (kind == "target") {
             TargetIdentity target;
             std::string rva;
             fields >> target.name >> target.module >> rva >> target.prologue;
@@ -316,14 +306,15 @@ bool LoadPin (Identity& pinned, std::string& error)
     }
 
     if (!pinned.valid) {
-        error = "the patch profile at " + Utf8 (path) + " has no host line; it is not a "
+        error = "the patch profile at " + Utf8 (path) +
+                " has no host line; it is not a "
                 "profile this build wrote. Delete it and pin again";
         return false;
     }
     return true;
 }
 
-}   // namespace
+} // namespace
 
 const Identity& Current ()
 {
@@ -336,7 +327,7 @@ void RecordModule (const wchar_t* moduleName)
     ComputeCurrent ();
     HMODULE module = ::GetModuleHandleW (moduleName);
     if (module == nullptr)
-        return;   // not loaded; nothing patches it, so nothing to pin
+        return; // not loaded; nothing patches it, so nothing to pin
     const std::wstring path = ModulePath (module);
     if (path.empty ())
         return;
@@ -353,8 +344,7 @@ void RecordModule (const wchar_t* moduleName)
         // CANNOT BE HASHED MUST STILL REACH `Verify`, where an empty hash can
         // never match a pinned one and the install refuses. Dropping it here
         // would make an unreadable system DLL look like a module nobody patches.
-        ArchVizLog ("patch profile: " + name + " could not be hashed (" + error +
-                    "); it will not verify");
+        ArchVizLog ("patch profile: " + name + " could not be hashed (" + error + "); it will not verify");
     }
     g_current.modules.push_back (identity);
 }
@@ -369,13 +359,14 @@ void RecordTarget (const char* name, const void* fn)
     target.name = name;
 
     HMODULE owner = nullptr;
-    if (::GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                  GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                              reinterpret_cast<LPCWSTR> (fn), &owner) != 0 && owner != nullptr) {
+    if (::GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                              reinterpret_cast<LPCWSTR> (fn), &owner) != 0 &&
+        owner != nullptr) {
         target.module = LeafNameLower (ModulePath (owner));
-        target.rva = uint64_t (reinterpret_cast<const unsigned char*> (fn) -
-                               reinterpret_cast<const unsigned char*> (owner));
-    } else {
+        target.rva =
+            uint64_t (reinterpret_cast<const unsigned char*> (fn) - reinterpret_cast<const unsigned char*> (owner));
+    }
+    else {
         // ⚠️ NO OWNING MODULE IS ITSELF A FINDING, not a reason to skip the
         // target. A vtable slot pointing at memory that belongs to no loaded
         // module is either a thunk somebody else installed or a wrong index --
@@ -414,11 +405,16 @@ std::string PinFilePath ()
 
 bool Verify (std::string& error)
 {
+    return VerifyDetailed (error) == Verdict::Ok;
+}
+
+Verdict VerifyDetailed (std::string& error)
+{
     const Identity& current = Current ();
     if (!current.valid) {
         error = "this Archicad's identity could not be read (" + current.why +
                 "), so the GPU-state hooks cannot be pinned to it and will not install";
-        return false;
+        return Verdict::Refuse;
     }
 
     Identity pinned;
@@ -427,37 +423,21 @@ bool Verify (std::string& error)
         // first, on the machine where the mode simply did not arm, and "no
         // profile is pinned" without the next step is a dead end.
         error += ". Run Tapioca.ViewerPatchProfile {pin: true} on the exact Archicad "
-                 "build you have tested, which writes " + PinFilePath () +
+                 "build you have tested, which writes " +
+                 PinFilePath () +
                  "; until then the GPU-state hooks stay off and camera sync falls back "
                  "to the portable path";
-        return false;
+        return Verdict::Refuse;
     }
 
     if (pinned.hostSha256 != current.hostSha256) {
-        error = "this Archicad is not the pinned build -- pinned " + pinned.hostVersion +
-                " (sha256 " + pinned.hostSha256.substr (0, 16) + "...), running " +
-                current.hostVersion + " (sha256 " + current.hostSha256.substr (0, 16) +
+        error = "this Archicad is not the pinned build -- pinned " + pinned.hostVersion + " (sha256 " +
+                pinned.hostSha256.substr (0, 16) + "...), running " + current.hostVersion + " (sha256 " +
+                current.hostSha256.substr (0, 16) +
                 "...). The GPU-state hooks read Archicad's own GPU buffers and their "
                 "layout is build-specific, so they will not install. Camera sync falls "
                 "back to the portable path, which still works";
-        return false;
-    }
-
-    for (const ModuleIdentity& module : current.modules) {
-        const ModuleIdentity* pin = FindModule (pinned.modules, module.name);
-        if (pin == nullptr) {
-            error = module.name + " is patched by these hooks but is not in the pinned "
-                    "profile; re-pin on this machine";
-            return false;
-        }
-        if (module.sha256.empty () || pin->sha256 != module.sha256) {
-            error = module.name + " has changed since the profile was pinned -- pinned " +
-                    pin->version + ", running " + module.version +
-                    ". A Windows update moves these, and a vtable index that was right "
-                    "for one build can write into an unrelated slot of another, so the "
-                    "hooks will not install. Re-pin after testing this build";
-            return false;
-        }
+        return Verdict::Refuse;
     }
 
     // ⚠️ NO TARGETS RECORDED IS A REFUSAL, NOT A PASS, and the first live run
@@ -471,45 +451,98 @@ bool Verify (std::string& error)
                 "would check the executable's hash and nothing about the vtable slots being "
                 "patched. Arm 'hookdiag' with gpuState so Archicad's own context can be "
                 "found, then ask again";
-        return false;
+        return Verdict::Refuse;
     }
 
     for (const TargetIdentity& target : current.targets) {
         const TargetIdentity* pin = FindTarget (pinned.targets, target.name);
         if (pin == nullptr) {
             error = target.name + " is about to be patched but is not in the pinned "
-                    "profile; re-pin on this machine";
-            return false;
+                                  "profile; re-pin on this machine";
+            return Verdict::Refuse;
         }
         if (pin->module != target.module || pin->rva != target.rva) {
-            error = target.name + " no longer sits where the profile pinned it (" +
-                    pin->module + "+0x" + std::to_string (pin->rva) + " then, " +
-                    target.module + "+0x" + std::to_string (target.rva) +
+            error = target.name + " no longer sits where the profile pinned it (" + pin->module + "+0x" +
+                    std::to_string (pin->rva) + " then, " + target.module + "+0x" + std::to_string (target.rva) +
                     " now); refusing to patch a slot whose meaning may have changed";
-            return false;
+            return Verdict::Refuse;
         }
         if (pin->prologue != target.prologue) {
             // ⚠️ THIS IS THE CHECK THAT CATCHES SOMEBODY ELSE'S INLINE DETOUR.
             // A hot-patch trampoline rewrites exactly these bytes, and two
             // products hooking one function is precisely the race the vtable
             // technique was chosen to avoid. Refusing is the whole point.
-            error = target.name + "'s first bytes differ from the pinned profile (" +
-                    pin->prologue + " then, " + target.prologue +
-                    " now). Either the module was rebuilt or another product has "
-                    "already patched this function; refusing to add a second hook";
-            return false;
+            //
+            // ⚠️ AND THE OTHER PRODUCT IS NAMED FIRST NOW,
+            // BECAUSE IT IS THE COMMON CASE. Intel GPA and RenderDoc both do
+            // exactly this, and a user who has just taken a capture reads "the
+            // module was rebuilt" and goes looking for a Windows update that did
+            // not happen. A rebuilt module moves the RVA as well; a detour
+            // usually does not, which is why this branch is reached.
+            error = target.name + "'s first bytes differ from the pinned profile (" + pin->prologue + " then, " +
+                    target.prologue +
+                    " now). Another product has almost certainly patched this "
+                    "function already -- a graphics capture tool such as Intel GPA "
+                    "or RenderDoc does exactly this. Close it and restart Archicad. "
+                    "If none is running, the module was rebuilt and a re-pin is the fix";
+            return Verdict::Refuse;
         }
     }
 
-    return true;
+    // ---- and only NOW the modules, and only those that host a target --------
+    //
+    // ⚠️ A MODULE THAT HOSTS NO TARGET IS NOT CONSULTED.
+    // `dxgi.dll` is recorded in the profile and hosts zero of the twenty-seven
+    // slots; letting its hash veto the install is how a redistributable repair
+    // killed the overlay for a day while every function being patched sat
+    // untouched at the same offset with the same bytes.
+    bool staleHostingModule = false;
+    std::string staleDetail;
+    for (const ModuleIdentity& module : current.modules) {
+        bool hostsTarget = false;
+        for (const TargetIdentity& target : current.targets) {
+            if (target.module == module.name) {
+                hostsTarget = true;
+                break;
+            }
+        }
+        if (!hostsTarget)
+            continue;
+
+        const ModuleIdentity* pin = FindModule (pinned.modules, module.name);
+        if (pin == nullptr) {
+            error = module.name + " hosts hook targets but is not in the pinned "
+                                  "profile; re-pin on this machine";
+            return Verdict::Refuse;
+        }
+        if (module.sha256.empty () || pin->sha256 != module.sha256) {
+            staleHostingModule = true;
+            staleDetail +=
+                (staleDetail.empty () ? "" : ", ") + module.name + " " + pin->version + " -> " + module.version;
+        }
+    }
+
+    if (staleHostingModule) {
+        // ⚠️ NOT A REFUSAL. Every target in this module was
+        // just checked at its recorded offset against its recorded first bytes
+        // and matched. The vtable is intact; the module is merely a different
+        // build of the same functions. Report it so the caller can re-pin in the
+        // open rather than refuse in the dark.
+        error = staleDetail + " changed since the profile was pinned, but all " +
+                std::to_string (current.targets.size ()) +
+                " hook targets still sit at their pinned offsets with their pinned "
+                "first bytes, so the vtable is intact";
+        return Verdict::StaleModuleTargetsIntact;
+    }
+
+    return Verdict::Ok;
 }
 
 bool Pin (std::string& error)
 {
     const Identity& current = Current ();
     if (!current.valid) {
-        error = "this Archicad's identity could not be read (" + current.why +
-                "), so there is nothing to pin";
+        error = "this Archicad's identity could not be read (" + current.why + "), so there is nothing to pin";
         return false;
     }
     if (current.targets.empty ()) {
@@ -541,27 +574,25 @@ bool Pin (std::string& error)
            "# Hashes are SHA-256 and can be reproduced with:\n"
            "#   Get-FileHash -Algorithm SHA256 <file>\n"
            "version 1\n";
-    out << "host " << current.hostSha256 << ' ' << current.hostSizeBytes << ' '
-        << current.hostVersion << ' ' << current.hostPath << '\n';
+    out << "host " << current.hostSha256 << ' ' << current.hostSizeBytes << ' ' << current.hostVersion << ' '
+        << current.hostPath << '\n';
     for (const ModuleIdentity& module : current.modules) {
-        out << "module " << module.name << ' ' << module.sha256 << ' ' << module.sizeBytes
-            << ' ' << module.version << '\n';
+        out << "module " << module.name << ' ' << module.sha256 << ' ' << module.sizeBytes << ' ' << module.version
+            << '\n';
     }
     for (const TargetIdentity& target : current.targets) {
         char rva[32] = {};
         std::snprintf (rva, sizeof (rva), "%llx", (unsigned long long) target.rva);
-        out << "target " << target.name << ' ' << target.module << ' ' << rva << ' '
-            << target.prologue << '\n';
+        out << "target " << target.name << ' ' << target.module << ' ' << rva << ' ' << target.prologue << '\n';
     }
 
     GS::UniString writeError;
     if (!evp::WriteTextFile (path, out.str ().c_str (), writeError)) {
-        error = "the patch profile could not be written to " + Utf8 (path) + " (" +
-                Utf8 (writeError) + ")";
+        error = "the patch profile could not be written to " + Utf8 (path) + " (" + Utf8 (writeError) + ")";
         return false;
     }
-    ArchVizLog ("patch profile: pinned " + current.hostVersion + " with " +
-                std::to_string (current.targets.size ()) + " targets to " + Utf8 (path));
+    ArchVizLog ("patch profile: pinned " + current.hostVersion + " with " + std::to_string (current.targets.size ()) +
+                " targets to " + Utf8 (path));
     return true;
 }
 
@@ -572,8 +603,8 @@ std::string PinnedSummary ()
     if (!LoadPin (pinned, error))
         return std::string ();
     return pinned.hostVersion + " (sha256 " + pinned.hostSha256.substr (0, 16) + "..., " +
-           std::to_string (pinned.modules.size ()) + " modules, " +
-           std::to_string (pinned.targets.size ()) + " targets)";
+           std::to_string (pinned.modules.size ()) + " modules, " + std::to_string (pinned.targets.size ()) +
+           " targets)";
 }
 
 std::string CurrentSummary ()
@@ -582,10 +613,10 @@ std::string CurrentSummary ()
     if (!current.valid)
         return "unknown (" + current.why + ")";
     return current.hostVersion + " (sha256 " + current.hostSha256.substr (0, 16) + "..., " +
-           std::to_string (current.modules.size ()) + " modules, " +
-           std::to_string (current.targets.size ()) + " targets)";
+           std::to_string (current.modules.size ()) + " modules, " + std::to_string (current.targets.size ()) +
+           " targets)";
 }
 
-}   // namespace patchprofile
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace patchprofile
+} // namespace archviz
+} // namespace geomsrv
