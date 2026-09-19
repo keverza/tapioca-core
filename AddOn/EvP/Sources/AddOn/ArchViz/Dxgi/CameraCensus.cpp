@@ -120,10 +120,10 @@ uint32_t g_staticSelects = 0;
 // fingerprint, the occurrence, the interpretation AND the injection camera
 // source as one transaction; this used to add the last of those by hand, and the
 // automatic path used to omit it.
-void AttemptAutoSelect ()
+void AttemptAutoSelect (bool allowUncalibrated)
 {
     ++g_autoSelectAttempts;
-    if (SelectCandidate ())
+    if (SelectCandidate (allowUncalibrated))
         ++g_stats.autoSelections;
 }
 
@@ -598,7 +598,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         if (g_autoSelect.load (std::memory_order_acquire) && WantsSelectionAttempt (g_stats.modelFramesSeen) &&
             g_stats.modelFramesSeen >= g_lastAutoSelectAttempt + kAutoSelectEveryModelFrames) {
             g_lastAutoSelectAttempt = g_stats.modelFramesSeen;
-            AttemptAutoSelect ();
+            AttemptAutoSelect (false);
         }
     }
     else if (g_autoSelect.load (std::memory_order_acquire) && WantsSelectionAttempt (g_stats.modelFramesSeen) &&
@@ -607,7 +607,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         if (++g_drawsSinceStaticSelect >= kStaticSelectEveryDraws) {
             g_drawsSinceStaticSelect = 0;
             ++g_staticSelects;
-            AttemptAutoSelect ();
+            AttemptAutoSelect (true);
         }
     }
     const renderstate::ScenePass pass = renderstate::CurrentScenePass ();
@@ -964,11 +964,11 @@ bool AutoSelect ()
     return g_autoSelect.load (std::memory_order_acquire);
 }
 
-bool SelectCandidate ()
+bool SelectCandidate (bool allowUncalibrated)
 {
     Group groups[kGroupCapacity];
     const size_t count = CopyGroups (groups, kGroupCapacity);
-    return SelectCandidate (groups, count, g_stats.modelFramesSeen);
+    return SelectCandidate (groups, count, g_stats.modelFramesSeen, allowUncalibrated);
 }
 
 Stats GetStats ()

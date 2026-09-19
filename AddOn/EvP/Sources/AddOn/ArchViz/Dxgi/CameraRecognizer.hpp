@@ -176,7 +176,10 @@ Fingerprint GetFingerprint ();
 
 // MAIN THREAD. Choose the best ELIGIBLE group from a copied table and lock on to
 // it. Returns false and changes nothing when none qualifies.
-bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames);
+// ⚠️ IT REFUSES TO COMMIT BEFORE THE CALIBRATION WINDOW
+// HAS CLOSED. `allowUncalibrated` is the one exception, for a viewport that is
+// producing no model frames at all; the pin it takes is provisional.
+bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, bool allowUncalibrated = false);
 
 // RENDER THREAD. Whether the census should attempt a selection on this model
 // frame: always while there is no fingerprint, and for a bounded window after
@@ -282,12 +285,42 @@ enum class Lifecycle { Unknown, Learning, Locked, Reacquiring };
 Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration);
 const char* LifecycleName (Lifecycle state);
 
+// Why the binder decided what it decided, for the `CAMERA_BIND` line.
+enum class BindReason : uint32_t {
+    Calibrating,       // still watching; nothing committed
+    NoCandidate,       // the window closed and nothing qualified
+    HighestCoverage,   // a calibrated decision
+    StationaryFallback // provisional: no model frames to calibrate over
+};
+const char* BindReasonName (BindReason reason);
+
+// ⚠️ ONE COMPACT LINE PER DECISION, SO TWO RUNS CAN BE
+// COMPARED MECHANICALLY. The overlay tracking or lagging turned on which draw
+// family was pinned, and the only record of that was a transition line printed
+// once, with no runner-up, no candidate count and no statement of why.
+struct BindReport {
+    uint32_t serial = 0; // bumped on every decision, including a refusal
+    bool selected = false;
+    BindReason reason = BindReason::Calibrating;
+    uint32_t groupId = 0;
+    uint32_t occurrenceIndex = 0;
+    uint32_t variant = 0;
+    float coverage = 0.0f;
+    float insideClip = 0.0f;
+    float centreError = 0.0f;
+    uint32_t candidates = 0;
+    uint64_t calibrationFrames = 0;
+    uint64_t calibrationTarget = 0;
+    float runnerUpCoverage = 0.0f;
+};
+BindReport GetBindReport ();
+
 struct BindingStats {
-    // ⚠️ HOW MANY TIMES THE SETTLING WINDOW FOUND A BETTER
-    // CAMERA THAN THE ONE IT HAD. Zero means the first group to reach 32
-    // samples was also the best one; anything above zero is a run that would
-    // have spent the session on a worse pin. See `WantsSelectionAttempt`.
-    uint32_t selectionUpgrades = 0;
+    // ⚠️ WHETHER THE PIN WAS DECIDED BY A COMPLETED
+    // CALIBRATION. False means it is provisional -- taken so a stationary
+    // viewport is not blind -- and will be re-decided once there are model
+    // frames to decide it over.
+    bool calibrated = false;
     uint64_t selectionMatches = 0;
     uint64_t logicalMatches = 0;
     uint64_t rebinds = 0;

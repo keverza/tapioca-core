@@ -23,6 +23,9 @@ namespace report {
 
 namespace cen = dxgi::census;
 
+// Last decision narrated, so a decision that has not changed costs a compare.
+uint32_t g_lastBindSerial = 0;
+
 namespace {
 
 // ⚠️ PREVIOUS TOTALS, SO THE REPORT CAN SUBTRACT. A cumulative
@@ -286,8 +289,36 @@ void Pulse (const Health& health)
     Say ("PULSE", current);
 }
 
+// ⚠️ THE ONE LINE TWO RUNS ARE COMPARED ON. Which draw
+// family got pinned decided whether the overlay tracked or lagged, and the only
+// record of it was `CAMERA Locked ...`, printed once, with no candidate count,
+// no runner-up and no statement of why that one won. A decision nobody can
+// argue with is a decision nobody can check.
+//
+// ⚠️ KEYED ON THE SERIAL, WHICH THE BINDER BUMPS ON EVERY
+// DECISION INCLUDING A REFUSAL. A refusal is evidence: "the window is still
+// open" and "the window closed and nothing qualified" are different faults and
+// used to look identical from outside.
+void CameraBind ()
+{
+    const cen::BindReport bind = cen::GetBindReport ();
+    if (bind.serial == g_lastBindSerial)
+        return;
+    g_lastBindSerial = bind.serial;
+    char line[300] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "candidate=g%u interp=%u occurrence=%u coverage=%.0f%% valid=%.0f%% centre=%.3f "
+                 "candidates=%u runnerUp=%.0f%% calibrationFrame=%llu/%llu selected=%s reason=%s",
+                 bind.groupId, bind.variant, bind.occurrenceIndex, bind.coverage * 100.0f, bind.insideClip * 100.0f,
+                 bind.centreError, bind.candidates, bind.runnerUpCoverage * 100.0f,
+                 (unsigned long long) bind.calibrationFrames, (unsigned long long) bind.calibrationTarget,
+                 bind.selected ? "yes" : "no", cen::BindReasonName (bind.reason));
+    Say ("CAMERA_BIND", line);
+}
+
 void Sync ()
 {
+    CameraBind ();
     const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
     // ⚠️ THE PIN, BECAUSE IT IS WHAT GATES THE BYTES.
     // `CopyCameraWindows` runs only for a draw that passed `MatchesSelection`,
@@ -312,7 +343,7 @@ void Sync ()
                  "| content: decodes=%llu changes=%llu, %u ms since capture "
                  "| adopted=%llu same=%llu FRESH_NOT_ADOPTED=%llu, run now=%llu worst=%llu "
                  "| recovery: run=%llu after %u ms, signature %s, pass %s, window %s "
-                 "| pin: occ%u cov=%.0f%% inside=%.0f%% upgrades=%u",
+                 "| pin: occ%u cov=%.0f%% inside=%.0f%% %s",
                  cam.msSinceSnapshot > 500 ? "BYTES STALLED" : (cam.camFreshNotAdopted > 0 ? "desync seen" : "in sync"),
                  (unsigned long long) cam.snapshots, cam.msSinceSnapshot, cam.msSinceSnapshotMax, pinMiss,
                  (unsigned long long) cam.contentDecodes, (unsigned long long) cam.contentChanges,
@@ -321,7 +352,7 @@ void Sync ()
                  (unsigned long long) cam.freshRunMax, (unsigned long long) cam.recoveryRunLength, cam.recoveryMs,
                  cam.recoverySignatureChanged ? "MOVED" : "held", cam.recoveryPassMoved ? "MOVED" : "held",
                  cam.recoveryWindowMoved ? "MOVED" : "held", pin.occurrenceIndex, pin.modelCoverage * 100.0f,
-                 pin.insideClip * 100.0f, binding.selectionUpgrades);
+                 pin.insideClip * 100.0f, binding.calibrated ? "calibrated" : "PROVISIONAL");
 
     // ⚠️ KEYED ON THE STATE WORD AND RATE-LIMITED, THE
     // WAY `Live` IS. `ms since the last one` advances on every tick by
@@ -462,6 +493,7 @@ void Variants ()
 
 void Reset ()
 {
+    g_lastBindSerial = 0;
     g_lastSync.clear ();
     g_syncTicks = 0;
     g_lastChains.clear ();

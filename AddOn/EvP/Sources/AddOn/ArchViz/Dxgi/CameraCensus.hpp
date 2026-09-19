@@ -265,7 +265,7 @@ void ResetCounts ();
 
 // MAIN THREAD. Phase A's decision, forwarded to `CameraRecognizer` with a copy
 // of the measured table. Fails closed: no eligible group means no selection.
-bool SelectCandidate ();
+bool SelectCandidate (bool allowUncalibrated = false);
 
 // MAIN THREAD. Let the census choose for itself, and choose again if the choice
 // is ever lost.

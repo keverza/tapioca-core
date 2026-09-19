@@ -31,11 +31,13 @@ Fingerprint g_fingerprint;
 // logical shape would steal the binding back and forth every frame.
 uint64_t g_selectionLastSeenModel = 0;
 
-// ⚠️ HOW LONG THE TABLE MAY KEEP CHANGING ITS MIND, in model
-// frames after the first commit. See `WantsSelectionAttempt`.
-const uint64_t kSettleModelFrames = 64;
-uint64_t g_firstSelectionModelFrames = 0;
-uint32_t g_selectionUpgrades = 0;
+// ⚠️ HOW LONG THE CANDIDATES ARE WATCHED BEFORE ANY OF
+// THEM IS CHOSEN. See `SelectCandidate`.
+const uint64_t kCalibrationModelFrames = 96;
+// Whether the committed pin was decided by a completed calibration. A pin taken
+// before that is PROVISIONAL and will be re-decided; see below.
+bool g_calibrated = false;
+BindReport g_bind;
 // How many groups cleared the eligibility gate on the last attempt. A promotion
 // that never happens is a different fault depending on whether this is zero.
 uint32_t g_eligibleCandidates = 0;
@@ -616,8 +618,9 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
 // THE CENSUS'S SLOTS. That is what makes the seam real rather than a file move:
 // the decision is a pure function of the measurements plus the gate, and it
 // could be re-run against a recorded table with no Archicad at all.
-bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
+bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, bool allowUncalibrated)
 {
+    const bool calibrated = modelFrames >= kCalibrationModelFrames;
 
     // ⚠️ ELIGIBILITY FIRST, RANK SECOND, AND NEVER THE OTHER WAY. Ranking by
     // error alone put a group with ONE sample and no coverage ahead of the real
@@ -626,14 +629,11 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     float bestCoverage = 0.0f;
     float bestInside = 0.0f;
     float bestMedian = 0.0f;
-    // ⚠️ THE INCUMBENT IS RE-MEASURED, NOT REMEMBERED. Its
-    // stored `modelCoverage` was computed over the handful of model frames that
-    // existed when it was picked; comparing a challenger scored over hundreds
-    // against that number would promote noise every time. Both sides of the
-    // comparison are read from THIS table, on THIS attempt.
-    bool haveIncumbent = false;
-    float incumbentCoverage = 0.0f;
-    float incumbentInside = 0.0f;
+    uint32_t bestVariant = 0;
+    // The best coverage among the candidates that did NOT win, so a decision
+    // can be argued with: a runner-up within a point of the winner is a
+    // different situation from one twenty points behind.
+    float runnerUpCoverage = 0.0f;
     g_eligibleCandidates = 0;
     // Each attempt is judged on its own; a stale diagnosis from a previous
     // attempt would name a term that has since been satisfied.
@@ -642,35 +642,51 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
         float coverage = 0.0f;
         float insideClip = 0.0f;
         float agreement = 0.0f;
-        const bool qualified = Qualifies (groups[i], modelFrames, coverage, insideClip, agreement);
-        if (g_selection.valid && groups[i].groupId == g_selection.groupId) {
-            haveIncumbent = true;
-            incumbentCoverage = coverage;
-            incumbentInside = insideClip;
-        }
-        if (!qualified)
+        if (!Qualifies (groups[i], modelFrames, coverage, insideClip, agreement))
             continue;
         ++g_eligibleCandidates;
-        const bool better = best == nullptr || coverage > bestCoverage + 0.01f ||
-                            (coverage >= bestCoverage - 0.01f && insideClip > bestInside + 0.005f) ||
-                            (coverage >= bestCoverage - 0.01f && insideClip >= bestInside - 0.005f &&
-                             groups[i].medianCentreError < bestMedian);
+        // ⚠️ COVERAGE, THEN CLIP CONTAINMENT, THEN THE
+        // CANONICAL INTERPRETATION, AND ERROR ONLY LAST. Centre error is the
+        // weak term -- a hand on a mouse does not put the orbit target on the
+        // anchor to the pixel -- so ranking on it promotes noise. Variant 0
+        // (View x Projection) is what every run the overlay tracked in chose;
+        // preferring it at equal measurement makes a tie deterministic instead
+        // of leaving it to table order.
+        const bool tiedOnShape = coverage >= bestCoverage - 0.01f && insideClip >= bestInside - 0.005f;
+        const bool canonical = groups[i].winningVariant == 0 && bestVariant != 0;
+        const bool better =
+            best == nullptr || coverage > bestCoverage + 0.01f ||
+            (coverage >= bestCoverage - 0.01f && insideClip > bestInside + 0.005f) || (tiedOnShape && canonical) ||
+            (tiedOnShape && groups[i].winningVariant == bestVariant && groups[i].medianCentreError < bestMedian);
         if (better) {
+            if (best != nullptr && bestCoverage > runnerUpCoverage)
+                runnerUpCoverage = bestCoverage;
             best = &groups[i];
             bestCoverage = coverage;
             bestInside = insideClip;
             bestMedian = groups[i].medianCentreError;
+            bestVariant = groups[i].winningVariant;
+        }
+        else if (coverage > runnerUpCoverage) {
+            runnerUpCoverage = coverage;
         }
     }
+    g_bind.candidates = g_eligibleCandidates;
+    g_bind.calibrationFrames = modelFrames;
+    g_bind.calibrationTarget = kCalibrationModelFrames;
+    g_bind.runnerUpCoverage = runnerUpCoverage;
+
     if (best == nullptr) {
         // ⚠️ AN ATTEMPT THAT FINDS NOTHING MAY NOT UNDO ONE
-        // THAT FOUND SOMETHING. Before the settling window this function was
-        // only ever called with no selection, so clearing here cost nothing.
-        // It is now called again while one is live, and a single frame in which
-        // no group happened to qualify would otherwise throw away a good pin
-        // and send the overlay back for 32 fresh model frames (section 3).
+        // THAT FOUND SOMETHING. This used to be reachable only with no
+        // selection, so clearing cost nothing. It is now reachable while a
+        // provisional pin is live, and one frame in which no group happened to
+        // qualify would throw it away for 32 fresh model frames (section 3).
         if (g_selection.valid)
             return true;
+        g_bind.selected = false;
+        g_bind.reason = BindReason::NoCandidate;
+        ++g_bind.serial;
         // ⚠️ FAIL CLOSED. A run that could not identify the camera injects
         // nothing, rather than injecting with whatever drew last -- which is the
         // behaviour that produced six inconclusive runs.
@@ -681,27 +697,42 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
         return false;
     }
 
-    // ⚠️ AND A LIVE SELECTION IS ONLY REPLACED BY A
-    // CLEARLY BETTER ONE. Every lock in both logs of the run this was written
-    // for reads `samples=32`, which is exactly `minSamples`: the winner was
-    // always whichever group crossed the evidence threshold FIRST, and coverage
-    // at that instant is measured over a handful of model frames. The same
-    // binary picked occ3 at 97% in the run the user called correct and occ8 at
-    // 89% in the run it lagged -- 89% clears `minModelCoverage` of 80%, so the
-    // session was committed to a family absent from one frame in nine.
+    // ⚠️ OBSERVE EVERY CANDIDATE FOR A FIXED WINDOW, THEN
+    // COMMIT ONCE. This used to commit the instant anything qualified: every
+    // `CAMERA Locked` line in the logs that produced this reads `samples=32`,
+    // which is exactly `minSamples`. The winner was therefore whichever group
+    // crossed the evidence threshold FIRST, with coverage measured over a
+    // handful of model frames and `minModelCoverage` set at 0.80 -- so the same
+    // binary chose occ3 at 97% in one run and occ8 at 89% in the next, and
+    // which one won was a race between draw order and a counter.
     //
-    // ⚠️ COVERAGE DECIDES AND CENTRE ERROR DOES NOT. Centre
-    // error is the weak term -- a hand on a mouse does not put the orbit target
-    // on the anchor to the pixel -- and ranking upgrades on it would swap the
-    // pin back and forth on noise. Two points of coverage, or a point of clip
-    // containment at equal coverage, is a real difference in how often the
-    // camera can be read at all.
-    if (g_selection.valid) {
-        const bool upgrade = !haveIncumbent || bestCoverage > incumbentCoverage + 0.02f ||
-                             (bestCoverage >= incumbentCoverage - 0.01f && bestInside > incumbentInside + 0.01f);
-        if (!upgrade || best->groupId == g_selection.groupId)
-            return true;
-        ++g_selectionUpgrades;
+    // ⚠️ AN UPGRADE WINDOW WAS NOT ENOUGH AND IS GONE. It
+    // still locked early and then corrected, which is a race with a repair
+    // bolted on: the pin, the interpretation and every measurement taken
+    // against them differ between the early phase and the late one, and no
+    // later experiment can tell those apart. Waiting removes the race instead
+    // of compensating for it.
+    // ⚠️ A PROVISIONAL PIN MUST ACTUALLY BE RE-DECIDED,
+    // and the guard has to be `g_calibrated` rather than "a selection exists".
+    // Keyed on the latter, the stationary path would take a provisional pin,
+    // `g_selection.valid` would be true ever after, and the calibrated decision
+    // this whole change exists for would return early and never happen.
+    if (g_calibrated && !allowUncalibrated)
+        return true;
+    if (!calibrated) {
+        // ⚠️ EXCEPT WHEN THERE ARE NO MODEL FRAMES TO WAIT
+        // FOR. A viewport nobody has navigated produces none at all, and the
+        // logs show exactly that at every start: "asked the 3D window to redraw
+        // three times and it produced no model frames". Refusing outright would
+        // leave a stationary session with no overlay forever, so the still path
+        // may take a PROVISIONAL pin -- and `g_calibrated` stays false, so the
+        // first `kCalibrationModelFrames` of real navigation re-decide it.
+        if (!allowUncalibrated) {
+            g_bind.selected = false;
+            g_bind.reason = BindReason::Calibrating;
+            ++g_bind.serial;
+            return false;
+        }
     }
 
     Selection chosen;
@@ -782,9 +813,17 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames)
     g_fingerprint = print;
     g_binding.fingerprintValid = true;
     g_selectionLastSeenModel = 0;
-    if (g_firstSelectionModelFrames == 0)
-        g_firstSelectionModelFrames = modelFrames > 0 ? modelFrames : 1;
-    g_binding.selectionUpgrades = g_selectionUpgrades;
+    g_calibrated = calibrated;
+    g_binding.calibrated = calibrated;
+    g_bind.selected = true;
+    g_bind.groupId = chosen.groupId;
+    g_bind.occurrenceIndex = chosen.occurrenceIndex;
+    g_bind.variant = chosen.variant;
+    g_bind.coverage = bestCoverage;
+    g_bind.insideClip = bestInside;
+    g_bind.centreError = best->medianCentreError;
+    g_bind.reason = calibrated ? BindReason::HighestCoverage : BindReason::StationaryFallback;
+    ++g_bind.serial;
 
     // ⚠️ THE SHADER IS TOLD WHAT WAS LEARNED, AND REFUSES IF IT CANNOT HONOUR IT.
     // This is the link that was missing for run thirty-three: the census proved
@@ -814,9 +853,30 @@ bool WantsSelectionAttempt (uint64_t modelFrames)
 {
     if (!g_binding.fingerprintValid)
         return true;
-    if (g_firstSelectionModelFrames == 0)
-        return false;
-    return modelFrames < g_firstSelectionModelFrames + kSettleModelFrames;
+    // A provisional pin keeps being re-decided until there is enough evidence
+    // to decide it properly; a calibrated one is final, and the gate costs one
+    // branch again (section 13, one variable per run).
+    return !g_calibrated;
+}
+
+BindReport GetBindReport ()
+{
+    return g_bind;
+}
+
+const char* BindReasonName (BindReason reason)
+{
+    switch (reason) {
+        case BindReason::Calibrating:
+            return "calibrating";
+        case BindReason::NoCandidate:
+            return "noCandidate";
+        case BindReason::HighestCoverage:
+            return "highestCoverage";
+        case BindReason::StationaryFallback:
+            return "stationaryFallback";
+    }
+    return "unknown";
 }
 
 void NoteModelRevision (uint32_t revision)
@@ -835,9 +895,9 @@ void ClearSelection ()
     g_selectionLastSeenModel = 0;
     // A new learning phase gets a new settling window (section 8: no session
     // state outlives the session that learned it).
-    g_firstSelectionModelFrames = 0;
-    g_selectionUpgrades = 0;
-    g_binding.selectionUpgrades = 0;
+    g_calibrated = false;
+    g_binding.calibrated = false;
+    g_bind = BindReport {};
     injection::SetExpectedInterpretation (0xffffffffu);
 }
 

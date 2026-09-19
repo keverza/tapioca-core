@@ -759,7 +759,10 @@ class ViewerCameraCensusCommand : public MainThreadCommand {
                 // owns every consequence of choosing a candidate, including this
                 // one; setting it from a caller is what let the automatic path
                 // implement half the transaction. One implementation, two callers.
-                selected = cen::SelectCandidate ();
+                // `true`: a selection asked for BY HAND is not subject to the
+                // calibration window, which exists to stop the automatic path
+                // committing to whichever group qualified first.
+                selected = cen::SelectCandidate (true);
             }
         }
 
