@@ -9,6 +9,7 @@
 
 #include "ArchViz/OverlayController.hpp"
 
+#include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
 
@@ -269,6 +270,15 @@ void FollowView ()
 void Mark (const std::string& note)
 {
     Narrate ("MARK", note.empty () ? std::string ("(empty)") : note);
+}
+
+void SetOverlayAnchor (double x, double y, double z, double sizeMetres)
+{
+    dxgi::census::SetAnchor (float (x), float (y), float (z), float (sizeMetres));
+    char note[160] = {};
+    _snprintf_s (note, sizeof (note), _TRUNCATE, "anchor aimed at (%.4f, %.4f, %.4f), %.3f m across", x, y, z,
+                 sizeMetres);
+    Narrate ("CAMERA", std::string (note));
 }
 
 void SetEpochGate (bool enabled)
