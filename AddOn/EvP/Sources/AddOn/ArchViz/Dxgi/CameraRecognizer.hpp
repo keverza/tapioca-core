@@ -380,6 +380,32 @@ enum GateTerm : uint32_t {
     kGateAreaPixels,
     kGateEdgePixels,
     kGateCentreError,
+    // ⚠️ THE PROJECTION HAS TO BE A CAMERA, AND THIS IS
+    // THE TERM EVERY OTHER ONE WAS BEING GAMED BY. Measured 2026-09-19 21:19:
+    // Archicad binds TWO different projections in the 3D window against ONE
+    // shared view, and the census was choosing the wrong one.
+    //
+    //   1.3034  0  0  0 | 0  2.6023  0  0 | 0 0 -1.0002 -1 | 0 0 -0.0389  0
+    //       the camera. m[2][3] = -1, so w' = -z and the divide happens. Its
+    //       m[3][2] tracked the zoom across the run (-0.0389 .. -0.0457).
+    //
+    //   0.0012  0  0  0 | 0 -0.0024  0  0 | 0 0 -1       0 | -1 1  0       1
+    //       a PIXEL-TO-NDC SCREEN MAP -- 2/w, -2/h, translate (-1, 1), and no
+    //       divide at all. The same shape invariant 13 records for the Floor
+    //       Plan. Archicad binds it for gizmos and 2D work. It is not a camera.
+    //
+    // ⚠️ AND IT WON ON EVERY OTHER TERM BECAUSE IT
+    // SHRINKS. A screen map sends the whole model into a small NDC region, so
+    // `insideClip` read 130 of 130 where the real camera read 8 of 120 -- and
+    // `minInsideClip` of 0.95 then rejected the camera and kept the map.
+    // Invariant 12 froze exactly that warning for the variant tie-break, "a
+    // projection that shrinks the model towards the middle improves every other
+    // term", and the same failure was live one level up in the GROUP gate.
+    //
+    // The overlay drew with a correct view and a screen-space projection, which
+    // is why it was always nearly right, never registered, and could not be
+    // repaired at any compose point or by any occurrence.
+    kGateProjectionDivides,
     kGateTermCount,
 };
 const char* GateTermName (uint32_t term);

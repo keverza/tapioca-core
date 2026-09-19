@@ -554,9 +554,8 @@ const char* LifecycleName (Lifecycle state)
     return "Unknown";
 }
 
-// ⚠️ EVERY TERM COMES FROM THE COPIED GROUP. `CopyGroups`
-// already folds the slot's medians into it, so nothing here needs the census's
-// private sample buffers -- which is what let this file separate at all.
+// ⚠️ EVERY TERM COMES FROM THE COPIED GROUP: `CopyGroups`
+// folds the slot's medians in, so nothing here needs the census's buffers.
 // ⚠️ NO EARLY RETURN, AND THAT IS THE POINT -- the same rule
 // `MatchesFingerprint` already follows. A short-circuiting gate can only report
 // the FIRST term that failed, which for a camera still accumulating samples is
@@ -572,13 +571,13 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
     term[kGateCoverage] = coverage >= g_eligibility.minModelCoverage;
     term[kGateInsideClip] = insideClip >= g_eligibility.minInsideClip;
     term[kGateFiniteTriangles] = agreement >= g_eligibility.minFiniteTriangles;
-    // The two a collapse cannot pass: everything above was satisfied for six
-    // runs by a transform that drew one pixel.
+    // The two a collapse cannot pass; six runs were lost to a one-pixel draw.
     term[kGateAreaPixels] = group.medianAreaPixels >= g_eligibility.minMedianAreaPixels;
     term[kGateEdgePixels] = group.medianMaxEdgePixels >= g_eligibility.minMedianMaxEdgePixels;
-    // Centre error is the weak term: a human hand on a mouse does not put the
-    // orbit target on the anchor to the pixel.
+    // Centre error is the weak term; see the tie-break note in the header.
     term[kGateCentreError] = !(group.errorSamples > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError);
+    // A screen map is not a camera; the header carries the two matrices.
+    term[kGateProjectionDivides] = group.projectionDivides;
 
     ++g_gate.evaluated;
     uint32_t failures = 0;
@@ -593,10 +592,9 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
     if (failures == 1)
         ++g_gate.soleMiss[lastFailure];
 
-    // ⚠️ THE CLOSEST CANDIDATE IS KEPT WITH ITS ACTUAL NUMBERS, so a
-    // refusal can be argued with rather than believed. Fewest failures wins;
-    // ties go to the one with the most samples, because that is the one whose
-    // measurements mean the most.
+    // ⚠️ THE CLOSEST CANDIDATE IS KEPT WITH ITS ACTUAL NUMBERS,
+    // so a refusal can be argued with. Fewest failures wins; ties go to the one
+    // with the most samples, whose measurements mean the most.
     const bool closer = !g_gate.haveClosest || failures < g_gate.closestFailures ||
                         (failures == g_gate.closestFailures && group.samplesScored > g_gate.closestSamples);
     if (closer) {
@@ -948,6 +946,8 @@ const char* GateTermName (uint32_t term)
             return "edgePixels";
         case kGateCentreError:
             return "centreError";
+        case kGateProjectionDivides:
+            return "projectionDivides";
         default:
             return "?";
     }

@@ -142,6 +142,13 @@ struct Group {
     // How many of those produced a best VALID variant, which is the denominator
     // the centre-error gate uses. Folded in by `CopyGroups`.
     uint32_t errorSamples = 0;
+    // ⚠️ DOES THIS GROUP'S PROJECTION DIVIDE BY DEPTH?
+    // A perspective matrix puts -1 in m[2][3] so w' = -z; a pixel-to-NDC
+    // screen map leaves it 0 and w' stays 1. Archicad binds BOTH kinds in the
+    // 3D window -- the real camera for the model, and a screen map for gizmos
+    // and 2D work -- and the run this was written from found the overlay drawing
+    // with the screen map. See `kGateProjectionDivides`.
+    bool projectionDivides = false;
     uint32_t winningVariant = 0;
     uint32_t winningVariantValid = 0; // samples where THAT variant was valid
 
