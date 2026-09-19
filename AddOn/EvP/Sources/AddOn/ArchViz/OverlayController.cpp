@@ -9,6 +9,7 @@
 
 #include "ArchViz/OverlayController.hpp"
 
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
@@ -268,6 +269,29 @@ void FollowView ()
 void Mark (const std::string& note)
 {
     Narrate ("MARK", note.empty () ? std::string ("(empty)") : note);
+}
+
+void SetEpochGate (bool enabled)
+{
+    dxgi::injection::freshness::SetEpochGate (enabled);
+}
+
+bool EpochGateEnabled ()
+{
+    return dxgi::injection::freshness::EpochGate ();
+}
+
+EpochGateCounts EpochGate ()
+{
+    const dxgi::injection::freshness::EpochGateReport report = dxgi::injection::freshness::GetEpochGate ();
+    EpochGateCounts counts;
+    counts.matched = report.matched;
+    counts.mismatched = report.mismatched;
+    counts.suppressed = report.suppressed;
+    counts.behindMax = report.behindMax;
+    counts.aheadMax = report.aheadMax;
+    counts.enabled = report.enabled;
+    return counts;
 }
 
 void SetMarkerLadder (bool enabled)

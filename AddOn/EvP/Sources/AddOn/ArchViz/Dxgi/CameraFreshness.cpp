@@ -332,8 +332,28 @@ Report Snapshot ()
     return report;
 }
 
+// The scene epoch gate. See CameraFreshness.hpp.
+std::atomic<uint64_t> g_cameraEpoch { 0 };
+std::atomic<uint64_t> g_presentedEpoch { 0 };
+std::atomic<uint64_t> g_gateMatched { 0 };
+std::atomic<uint64_t> g_gateMismatched { 0 };
+std::atomic<uint64_t> g_gateSuppressed { 0 };
+std::atomic<uint64_t> g_gateBehindMax { 0 };
+std::atomic<uint64_t> g_gateAheadMax { 0 };
+std::atomic<bool> g_gateEnabled { false };
+
 void Reset ()
 {
+    // Section 10: a run that inherits the previous one's gate is a run whose
+    // evidence nobody can trust.
+    g_gateEnabled.store (false, std::memory_order_release);
+    g_cameraEpoch.store (0, std::memory_order_release);
+    g_presentedEpoch.store (0, std::memory_order_release);
+    g_gateMatched.store (0, std::memory_order_relaxed);
+    g_gateMismatched.store (0, std::memory_order_relaxed);
+    g_gateSuppressed.store (0, std::memory_order_relaxed);
+    g_gateBehindMax.store (0, std::memory_order_relaxed);
+    g_gateAheadMax.store (0, std::memory_order_relaxed);
     for (uint32_t i = 0; i < kBuckets; ++i)
         g_histogram[i].store (0, std::memory_order_relaxed);
     g_ageMax.store (0, std::memory_order_relaxed);
@@ -376,6 +396,79 @@ void Reset ()
     g_recoverySignatureChanged.store (false, std::memory_order_relaxed);
     g_recoveryPassMoved.store (false, std::memory_order_relaxed);
     g_recoveryWindowMoved.store (false, std::memory_order_relaxed);
+}
+
+// ---------------------------------------------------------------------------
+// The scene epoch gate. See CameraFreshness.hpp.
+// ---------------------------------------------------------------------------
+
+void NoteCameraEpoch (uint64_t sceneGeneration)
+{
+    g_cameraEpoch.store (sceneGeneration, std::memory_order_release);
+}
+
+bool EpochGateAllows (uint64_t presentedGeneration)
+{
+    g_presentedEpoch.store (presentedGeneration, std::memory_order_release);
+    const uint64_t camera = g_cameraEpoch.load (std::memory_order_acquire);
+    // ⚠️ BEFORE THE FIRST OF EITHER THERE IS NOTHING TO
+    // COMPARE, and a gate that refuses on absent evidence would suppress the
+    // overlay for the whole of a session that never produced a scene pass --
+    // which is the stationary case, not a fault.
+    if (camera == 0 || presentedGeneration == 0) {
+        g_gateMatched.fetch_add (1, std::memory_order_relaxed);
+        return true;
+    }
+    if (camera == presentedGeneration) {
+        g_gateMatched.fetch_add (1, std::memory_order_relaxed);
+        return true;
+    }
+    g_gateMismatched.fetch_add (1, std::memory_order_relaxed);
+    // ⚠️ BEHIND AND AHEAD ARE DIFFERENT FAULTS AND ARE
+    // COUNTED APART. Behind is the overlay drawing an older camera than the
+    // image -- the lag. Ahead is the overlay drawing a camera from a pass whose
+    // pixels have not been presented yet, which would mean the image on screen
+    // is not the pass we think it is, and no amount of camera work fixes that.
+    if (camera < presentedGeneration) {
+        const uint64_t behind = presentedGeneration - camera;
+        uint64_t worst = g_gateBehindMax.load (std::memory_order_relaxed);
+        while (behind > worst && !g_gateBehindMax.compare_exchange_weak (worst, behind))
+            ;
+    }
+    else {
+        const uint64_t ahead = camera - presentedGeneration;
+        uint64_t worst = g_gateAheadMax.load (std::memory_order_relaxed);
+        while (ahead > worst && !g_gateAheadMax.compare_exchange_weak (worst, ahead))
+            ;
+    }
+    if (!g_gateEnabled.load (std::memory_order_acquire))
+        return true;
+    g_gateSuppressed.fetch_add (1, std::memory_order_relaxed);
+    return false;
+}
+
+void SetEpochGate (bool enabled)
+{
+    g_gateEnabled.store (enabled, std::memory_order_release);
+}
+
+bool EpochGate ()
+{
+    return g_gateEnabled.load (std::memory_order_acquire);
+}
+
+EpochGateReport GetEpochGate ()
+{
+    EpochGateReport report;
+    report.matched = g_gateMatched.load (std::memory_order_relaxed);
+    report.mismatched = g_gateMismatched.load (std::memory_order_relaxed);
+    report.suppressed = g_gateSuppressed.load (std::memory_order_relaxed);
+    report.behindMax = g_gateBehindMax.load (std::memory_order_relaxed);
+    report.aheadMax = g_gateAheadMax.load (std::memory_order_relaxed);
+    report.cameraEpoch = g_cameraEpoch.load (std::memory_order_relaxed);
+    report.presentedEpoch = g_presentedEpoch.load (std::memory_order_relaxed);
+    report.enabled = g_gateEnabled.load (std::memory_order_relaxed);
+    return report;
 }
 
 } // namespace freshness

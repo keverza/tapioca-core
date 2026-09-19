@@ -685,7 +685,8 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
     // inconclusive runs were made of.
     if (GetArmState () != ArmState::Active)
         return;
-    if (GetPoint () == Point::ScenePass)
+    // Short-circuit is the order the gate needs. See CameraFreshness.hpp.
+    if (GetPoint () == Point::ScenePass || !freshness::EpochGateAllows (modelSceneGeneration))
         return;
     if (contextstate::Injecting ()) {
         g_skipReentrant.fetch_add (1, std::memory_order_relaxed);

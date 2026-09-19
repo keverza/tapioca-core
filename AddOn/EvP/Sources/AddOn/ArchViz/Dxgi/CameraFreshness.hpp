@@ -209,6 +209,57 @@ void NoteAuthoritativeSnapshot ();
 // useful metadata and they are recorded beside this, but none of them is a
 // substitute for camera equality -- believing that one of them was is what cost
 // the previous run.
+
+// ---------------------------------------------------------------------------
+// The scene epoch gate
+// ---------------------------------------------------------------------------
+//
+// ⚠️ THE QUESTION IT ANSWERS. The overlay captures its camera
+// inside Archicad's scene pass and composites at Present. Those are different
+// points in the frame, so the camera it draws with is only correct if no newer
+// scene pass has been produced in between -- and NOTHING measured that. Every
+// composition counter stays healthy while the overlay draws a correct picture
+// of the wrong moment, which from outside is exactly "it lags behind".
+//
+// ⚠️ AND IT IS A STRUCTURAL COMPARISON, NOT A TIMING ONE.
+// The camera is stamped with the generation of the scene pass it was READ FROM;
+// the Present is stamped with the generation of the scene pass that produced
+// the image being posted. Equal means the camera, the depth buffer and the
+// pixels all came from one pass. "Recent enough" would let unrelated timing
+// decide correctness, which is the fault, not the test.
+//
+// ⚠️ COUNTING IS ALWAYS ON; ENFORCING IS OFF BY DEFAULT
+// (section 10). With the gate off this changes nothing that is drawn and still
+// reports how often the overlay WOULD have been suppressed, so the measurement
+// costs no run. With it on, a mismatch skips the composite -- the overlay then
+// flickers at the model's own rate instead of lagging, which is the visible
+// form of the same answer.
+
+// RENDER THREAD, from `CopyCameraWindows`: the camera bytes just copied were
+// read during this scene-pass generation.
+void NoteCameraEpoch (uint64_t sceneGeneration);
+
+// RENDER THREAD, from `InjectAtPresent`: the image about to be presented was
+// produced by this scene-pass generation. Returns whether the composite may
+// proceed -- always true while the gate is off. Counts either way.
+bool EpochGateAllows (uint64_t presentedGeneration);
+
+// MAIN THREAD. Off by default, and reset at every arm.
+void SetEpochGate (bool enabled);
+bool EpochGate ();
+
+struct EpochGateReport {
+    uint64_t matched = 0;    // camera and image from one pass
+    uint64_t mismatched = 0; // they were not
+    uint64_t suppressed = 0; // ... and the gate was on, so nothing was drawn
+    uint64_t behindMax = 0;  // worst generations the camera was BEHIND the image
+    uint64_t aheadMax = 0;   // worst it was AHEAD -- a different fault entirely
+    uint64_t cameraEpoch = 0;
+    uint64_t presentedEpoch = 0;
+    bool enabled = false;
+};
+EpochGateReport GetEpochGate ();
+
 struct Report {
     // ⚠️ BUCKETS, NOT A MEAN. A mean lets one forty-frame
     // stall hide a thousand good frames, and the question is what the STEADY

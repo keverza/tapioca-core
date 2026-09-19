@@ -9,6 +9,7 @@
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
+#include "ArchViz/Dxgi/RenderStateCapture.hpp"
 
 #include <d3d11_1.h>
 
@@ -273,6 +274,12 @@ void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneD
     contextstate::ScopedInjectionGuard guard;
     if (!EnsureCameraCreated (context))
         return;
+
+    // ⚠️ THE EPOCH IS STAMPED WHERE THE BYTES ARE READ, not
+    // where they are used. That is the whole point of the gate: these 256 bytes
+    // belong to THIS scene pass, and Present can then say whether the image it
+    // is about to post came from the same one. See CameraFreshness.hpp.
+    freshness::NoteCameraEpoch (dxgi::renderstate::ModelSceneGeneration ());
 
     // ⚠️ BYTE COORDINATES, BECAUSE THESE ARE BUFFERS AND NOT TEXTURES. `left` and
     // `right` are byte offsets into the ring; `top`/`bottom`/`front`/`back` are

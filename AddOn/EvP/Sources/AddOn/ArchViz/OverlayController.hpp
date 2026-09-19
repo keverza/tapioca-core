@@ -81,6 +81,22 @@ void Mark (const std::string& note);
 // the include gate refuses a NativeCommands file reaching sideways into
 // ArchViz/Dxgi, and the controller is already the operator's front door.
 void SetMarkerLadder (bool enabled);
+
+// ⚠️ THE SCENE EPOCH GATE (CameraFreshness.hpp). Counting is
+// always on; this enables ENFORCEMENT, which skips the composite when the
+// camera and the presented image came from different scene passes. Off by
+// default and at every arm (section 10).
+void SetEpochGate (bool enabled);
+bool EpochGateEnabled ();
+struct EpochGateCounts {
+    uint64_t matched = 0;
+    uint64_t mismatched = 0;
+    uint64_t suppressed = 0;
+    uint64_t behindMax = 0;
+    uint64_t aheadMax = 0;
+    bool enabled = false;
+};
+EpochGateCounts EpochGate ();
 bool MarkerLadderEnabled ();
 
 // What the ladder painted, per rung, carried across the NativeCommands boundary

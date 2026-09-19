@@ -25,6 +25,7 @@ namespace cen = dxgi::census;
 
 // Last decision narrated, so a decision that has not changed costs a compare.
 uint32_t g_lastBindSerial = 0;
+std::string g_lastEpochGate;
 
 namespace {
 
@@ -316,9 +317,35 @@ void CameraBind ()
     Say ("CAMERA_BIND", line);
 }
 
+// ⚠️ THE CAMERA AND THE IMAGE, SAID APART. Every other
+// counter reports that composition happened; this one reports whether what was
+// composed belonged to the frame it was composed into. See CameraFreshness.hpp.
+void EpochGate ()
+{
+    const dxgi::injection::freshness::EpochGateReport gate = dxgi::injection::freshness::GetEpochGate ();
+    const uint64_t total = gate.matched + gate.mismatched;
+    if (total == 0)
+        return;
+    char line[240] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%s | matched=%llu mismatched=%llu (%.0f%%) suppressed=%llu | worst behind=%llu ahead=%llu "
+                 "| camera epoch=%llu presented=%llu",
+                 gate.enabled ? "ENFORCING" : "counting only", (unsigned long long) gate.matched,
+                 (unsigned long long) gate.mismatched, 100.0 * double (gate.mismatched) / double (total),
+                 (unsigned long long) gate.suppressed, (unsigned long long) gate.behindMax,
+                 (unsigned long long) gate.aheadMax, (unsigned long long) gate.cameraEpoch,
+                 (unsigned long long) gate.presentedEpoch);
+    const std::string current (line);
+    if (current == g_lastEpochGate)
+        return;
+    g_lastEpochGate = current;
+    Say ("EPOCH", current);
+}
+
 void Sync ()
 {
     CameraBind ();
+    EpochGate ();
     const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
     // ⚠️ THE PIN, BECAUSE IT IS WHAT GATES THE BYTES.
     // `CopyCameraWindows` runs only for a draw that passed `MatchesSelection`,
