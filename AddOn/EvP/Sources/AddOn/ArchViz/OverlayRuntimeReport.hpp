@@ -79,6 +79,31 @@ void Pulse (const Health& health);
 // answer it, because a constant buffer can be rewritten in place.
 void Sync ();
 
+// ---------------------------------------------------------------------------
+// WHERE ARCHICAD'S 3D FRAME ACTUALLY COMES FROM, per mode. On a CHANGE.
+//
+// ⚠️ NORMAL, ORBIT AND EXPLORE ARE TO BE TREATED AS
+// THREE SEPARATE PIPELINES UNTIL PROVEN OTHERWISE. Extending the stationary
+// model-pass signature to the navigation tools is what has failed repeatedly:
+// geometry stays resident while navigation changes only camera state, and the
+// tools may render through a different target, a different context or a
+// different swap chain entirely. The overlay vanishing under Orbit and Explore
+// -- with every composition refusal counter at ZERO, so it is still being drawn
+// -- is what that would look like.
+//
+// ⚠️ AND NONE OF THIS IS NEW CAPTURE. `RenderStateCapture`
+// already records the whole graph -- the scene pass' colour and depth targets,
+// its draw count, whether its colour was bound away afterwards, how many copies
+// or resolves happened between that boundary and Present, whether the pass was
+// consumed, and the learned stable signature -- and `PresentHook` already keeps
+// an inventory of EVERY swap chain with its window, size and present count. Two
+// runs were spent reasoning about a frame path that was sitting unreported.
+//
+// The three lines are `CHAINS`, `SCENEPASS` and `SIGNATURE`. Run the same
+// motion three times -- stationary, Orbit, Explore -- and read them as three
+// columns.
+void FramePath ();
+
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();
 

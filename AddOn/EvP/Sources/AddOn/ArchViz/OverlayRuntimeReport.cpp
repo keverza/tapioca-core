@@ -8,6 +8,8 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/PresentHook.hpp"
+#include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchVizLog.hpp"
 
@@ -50,6 +52,9 @@ std::string g_lastBackend;
 std::string g_lastPulse;
 std::string g_lastSync;
 uint32_t g_syncTicks = 0;
+std::string g_lastChains;
+std::string g_lastScenePass;
+std::string g_lastSignature;
 
 } // namespace
 
@@ -322,10 +327,90 @@ void Sync ()
     Say ("SYNC", current);
 }
 
+void FramePath ()
+{
+    namespace rs = dxgi::renderstate;
+
+    // ---- every swap chain, not only the one learned while stationary --------
+    //
+    // ⚠️ IF ORBIT PRESENTS ON ANOTHER CHAIN, THIS LINE
+    // SAYS SO AND NOTHING ELSE IN THE TREE DOES. `nominated` is the one the
+    // overlay composites into; a chain whose `presents` climbs while the
+    // nominated one's does not is the explanation, immediately.
+    dxgi::ChainInfo chains[8] = {};
+    const size_t chainCount = dxgi::GetChainInventory (chains, 8);
+    std::string chainLine;
+    for (size_t i = 0; i < chainCount; ++i) {
+        char one[160] = {};
+        _snprintf_s (one, sizeof (one), _TRUNCATE, "%s#%llx hwnd=%llx %ux%u fmt=%u presents=%llu%s%s",
+                     i == 0 ? "" : "  |  ", (unsigned long long) chains[i].swapChain,
+                     (unsigned long long) chains[i].window, chains[i].width, chains[i].height, chains[i].format,
+                     (unsigned long long) chains[i].presents, chains[i].ours ? " OURS" : "",
+                     chains[i].nominated ? " <- NOMINATED" : "");
+        chainLine += one;
+    }
+    if (chainLine.empty ())
+        chainLine = "none seen yet";
+    if (chainLine != g_lastChains) {
+        g_lastChains = chainLine;
+        Say ("CHAINS", chainLine);
+    }
+
+    // ---- the scene pass, which is the graph itself -------------------------
+    //
+    // ⚠️ READ IT BACKWARDS FROM PRESENT, WHICH IS WHAT
+    // THESE FIELDS ARE FOR. `boundary` is the colour target being bound away --
+    // the last moment the scene's own colour, depth and viewport are still the
+    // bound state. `opsAfter` counts the copies and resolves between that and
+    // Present: ZERO means the pass rendered straight into the presented back
+    // buffer (what run twenty-one measured while stationary), NON-ZERO means
+    // there is a resolve or composite in between and the overlay belongs before
+    // it, not at Present.
+    const rs::ScenePass pass = rs::LastCompletedScenePass ();
+    char sceneLine[400] = {};
+    _snprintf_s (sceneLine, sizeof (sceneLine), _TRUNCATE,
+                 "pass#%llu frame=%llu rtv=%llx dsv=%llx colour=%llx | draws=%u camera=%s "
+                 "| boundary=%s opsAfter=%u drawsAfter=%u returns=%u drawsAfterReturn=%u | consumed=%s epoch=%llu",
+                 (unsigned long long) pass.generation, (unsigned long long) pass.presentFrameId,
+                 (unsigned long long) pass.colorTarget, (unsigned long long) pass.depthTarget,
+                 (unsigned long long) pass.colorResource, pass.draws, pass.drawsHadCamera ? "yes" : "NO",
+                 pass.boundaryHit ? "hit" : "NOT HIT", pass.opsAfterBoundary, pass.drawsAfterBoundary,
+                 pass.targetReturns, pass.drawsAfterReturn, pass.sceneConsumed ? "yes" : "no",
+                 (unsigned long long) pass.targetEpoch);
+    const std::string scene (sceneLine);
+    if (scene != g_lastScenePass) {
+        g_lastScenePass = scene;
+        Say ("SCENEPASS", scene);
+    }
+
+    // ---- and what the frame as a whole did ---------------------------------
+    const rs::FrameState frame = rs::LatestFrame ();
+    const rs::SceneSignature signature = rs::GetSceneSignature ();
+    char signatureLine[400] = {};
+    _snprintf_s (signatureLine, sizeof (signatureLine), _TRUNCATE,
+                 "learned=%s colour=%llx dsv=%llx %.0fx%.0f draws=%u stable=%u of %u watched, candidates=%u "
+                 "| frame%llu: scene rtv=%llx dsv=%llx, last rtv=%llx dsv=%llx, binds=%u viewports=%u distinct=%u",
+                 signature.learned ? "yes" : "NO", (unsigned long long) signature.colorResource,
+                 (unsigned long long) signature.depthTarget, signature.viewportWidth, signature.viewportHeight,
+                 signature.draws, signature.stableFrames, signature.framesWatched, signature.candidatesThisFrame,
+                 (unsigned long long) frame.frameId, (unsigned long long) frame.sceneColorTarget,
+                 (unsigned long long) frame.sceneDepthTarget, (unsigned long long) frame.lastColorTarget,
+                 (unsigned long long) frame.lastDepthTarget, frame.targetBinds, frame.viewportSets,
+                 frame.distinctCount);
+    const std::string sig (signatureLine);
+    if (sig != g_lastSignature) {
+        g_lastSignature = sig;
+        Say ("SIGNATURE", sig);
+    }
+}
+
 void Reset ()
 {
     g_lastSync.clear ();
     g_syncTicks = 0;
+    g_lastChains.clear ();
+    g_lastScenePass.clear ();
+    g_lastSignature.clear ();
     g_lastPulse.clear ();
     g_lastBackend.clear ();
     g_lastWatch.clear ();
