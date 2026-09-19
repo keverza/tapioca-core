@@ -9,6 +9,8 @@
 
 #include "ArchViz/OverlayController.hpp"
 
+#include "ArchViz/Dxgi/MarkerLadder.hpp"
+
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
@@ -266,6 +268,32 @@ void FollowView ()
 void Mark (const std::string& note)
 {
     Narrate ("MARK", note.empty () ? std::string ("(empty)") : note);
+}
+
+void SetMarkerLadder (bool enabled)
+{
+    dxgi::markerladder::SetEnabled (enabled);
+    Narrate ("LADDER", enabled ? std::string ("armed -- A red, B yellow, C green, E magenta, "
+                                              "top to bottom down the left edge")
+                               : std::string ("off"));
+}
+
+bool MarkerLadderEnabled ()
+{
+    return dxgi::markerladder::Enabled ();
+}
+
+LadderCounts MarkerLadderCounts ()
+{
+    const dxgi::markerladder::Stats stats = dxgi::markerladder::GetStats ();
+    LadderCounts out;
+    out.enabled = dxgi::markerladder::Enabled ();
+    out.a = stats.painted[size_t (dxgi::markerladder::Rung::AfterModelDraw)];
+    out.b = stats.painted[size_t (dxgi::markerladder::Rung::SceneBoundary)];
+    out.c = stats.painted[size_t (dxgi::markerladder::Rung::NextTarget)];
+    out.e = stats.painted[size_t (dxgi::markerladder::Rung::BeforePresent)];
+    out.failures = stats.failures;
+    return out;
 }
 
 void StopAll ()

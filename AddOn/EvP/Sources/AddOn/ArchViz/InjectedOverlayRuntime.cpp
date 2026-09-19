@@ -15,6 +15,7 @@
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
+#include "ArchViz/Dxgi/MarkerLadder.hpp"
 #include "ArchViz/Dxgi/GhostMesh.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
@@ -953,6 +954,9 @@ void Stop ()
     // it; but the caller sets it just BEFORE starting, so clearing it there
     // would wipe it microseconds after it was made.
     dxgi::injecteddiligent::Reset ();
+    // Section 8: a proof primitive that survived a Stop would paint into the
+    // next session, which nobody armed.
+    dxgi::markerladder::SetEnabled (false);
     inj::SetCameraSource (inj::CameraSource::None);
     inj::SetEnabled (false);
     cen::SetAutoSelect (false);

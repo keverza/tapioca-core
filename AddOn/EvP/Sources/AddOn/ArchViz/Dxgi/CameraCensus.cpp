@@ -7,6 +7,7 @@
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/MarkerLadder.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 
@@ -711,6 +712,19 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         for (size_t i = 0; i < contextstate::kConstantBufferSlots; ++i)
             draw.vsConstantBuffers[i] = live.vsConstantBuffers[i];
         injection::SnapshotSelectedDraw (context, draw, GetSelection ().groupId);
+
+        // ⚠️ RUNG A. This draw IS the recognised model draw
+        // -- it passed the pin, and its camera is the one the overlay composes
+        // with -- so the target bound right here is the surface the overlay
+        // believes it is drawing onto. If A never reaches the screen, that
+        // belief is what is wrong. No-op unless the ladder is armed.
+        if (markerladder::Enabled ()) {
+            ID3D11RenderTargetView* bound = markerladder::BoundTarget (context);
+            if (bound != nullptr) {
+                markerladder::Paint (context, bound, markerladder::Rung::AfterModelDraw);
+                bound->Release ();
+            }
+        }
         NoteSnapshot ();
     }
 

@@ -1100,6 +1100,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/CameraFreshness.cpp",
     "ArchViz/Dxgi/InjectedDiligentContext.cpp",
     "ArchViz/Dxgi/InjectionRenderer.cpp",
+    "ArchViz/Dxgi/MarkerLadder.cpp",
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",

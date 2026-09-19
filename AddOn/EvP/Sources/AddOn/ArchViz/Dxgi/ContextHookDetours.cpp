@@ -9,6 +9,7 @@
 // Archicad's render thread with it.
 
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
+#include "ArchViz/Dxgi/MarkerLadder.hpp"
 
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
@@ -293,6 +294,25 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
             // sweep is comparing has to be taken all the same.
             injection::depth::OnScenePassEnd (context, renderstate::ModelSceneGeneration ());
             injection::InjectIfReady (context);
+
+            // ⚠️ RUNGS B AND C, AND THIS IS THE ONE MOMENT
+            // BOTH ARE REACHABLE. The scene colour target is still bound -- that
+            // is what B paints -- and `first` is the target Archicad is switching
+            // TO, which is what C paints. One instant, two surfaces, and the
+            // difference between them on screen is the whole question: does what
+            // we put in Archicad's scene target survive to the display, or only
+            // what we put in the target it moves on to.
+            //
+            // Both are no-ops unless the ladder is explicitly armed
+            // (MarkerLadder.hpp, section 10).
+            if (markerladder::Enabled ()) {
+                ID3D11RenderTargetView* scene = markerladder::BoundTarget (context);
+                if (scene != nullptr) {
+                    markerladder::Paint (context, scene, markerladder::Rung::SceneBoundary);
+                    scene->Release ();
+                }
+                markerladder::Paint (context, first, markerladder::Rung::NextTarget);
+            }
         }
 
         contextstate::OnRenderTargets (first, depth);

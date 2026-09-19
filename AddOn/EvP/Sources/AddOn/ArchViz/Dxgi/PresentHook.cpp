@@ -8,6 +8,7 @@
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
+#include "ArchViz/Dxgi/MarkerLadder.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/ConstantBufferCapture.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
@@ -269,6 +270,19 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
         CompositeOverlayIfTarget (swapChain);
+        // ⚠️ RUNG E, AFTER THE OVERLAY COMPOSITE AND
+        // BEFORE THE PRESENT IS FORWARDED. The back buffer is still writable and
+        // everything Archicad and we meant to put in it is already there, so a
+        // patch that does not appear on screen was not lost on its way to the
+        // buffer -- it was put somewhere that is not displayed.
+        //
+        // ⚠️ AND IT IS IN BOTH DETOURS, BECAUSE THERE ARE
+        // TWO. `Present1` has its own counter here and its own path; a rung that
+        // existed only in `Present` would go silent the moment Archicad chose the
+        // other one, and "the marker vanished" would read as the fault rather
+        // than as the instrument.
+        if (markerladder::Enabled () && uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
+            markerladder::PaintSwapChain (swapChain, markerladder::Rung::BeforePresent);
         // ⚠️ AFTER THE COMPOSITE, NOT BEFORE. The frame the capture is closing is
         // the one Archicad is about to present, and the composite is part of it;
         // closing first would attribute our own blit to the NEXT frame.
@@ -293,6 +307,19 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
         CompositeOverlayIfTarget (swapChain);
+        // ⚠️ RUNG E, AFTER THE OVERLAY COMPOSITE AND
+        // BEFORE THE PRESENT IS FORWARDED. The back buffer is still writable and
+        // everything Archicad and we meant to put in it is already there, so a
+        // patch that does not appear on screen was not lost on its way to the
+        // buffer -- it was put somewhere that is not displayed.
+        //
+        // ⚠️ AND IT IS IN BOTH DETOURS, BECAUSE THERE ARE
+        // TWO. `Present1` has its own counter here and its own path; a rung that
+        // existed only in `Present` would go silent the moment Archicad chose the
+        // other one, and "the marker vanished" would read as the fault rather
+        // than as the instrument.
+        if (markerladder::Enabled () && uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
+            markerladder::PaintSwapChain (swapChain, markerladder::Rung::BeforePresent);
         CaptureGpuStateIfTarget (swapChain);
     }
     const Present1Fn original = g_originalPresent1;

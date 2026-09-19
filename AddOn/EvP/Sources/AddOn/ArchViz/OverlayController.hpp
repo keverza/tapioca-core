@@ -30,6 +30,7 @@
 // THREAD. Every entry point is MAIN THREAD.
 
 #include <cstdint>
+#include <cstdint>
 #include <string>
 
 namespace geomsrv {
@@ -72,6 +73,24 @@ void StopAll ();
 //
 // It writes one line and touches nothing else. Marking is not a mode.
 void Mark (const std::string& note);
+
+// MAIN THREAD. Arm or disarm the marker ladder (ArchViz/Dxgi/MarkerLadder.hpp).
+//
+// ⚠️ IT IS A PROOF PRIMITIVE, SO IT IS OFF UNLESS SOMEONE
+// ASKS (section 10), AND IT ROUTES THROUGH HERE FOR THE SAME REASON `Mark` DOES:
+// the include gate refuses a NativeCommands file reaching sideways into
+// ArchViz/Dxgi, and the controller is already the operator's front door.
+void SetMarkerLadder (bool enabled);
+bool MarkerLadderEnabled ();
+
+// What the ladder painted, per rung, carried across the NativeCommands boundary
+// so the command never has to reach into ArchViz/Dxgi itself.
+struct LadderCounts {
+    bool enabled = false;
+    uint64_t a = 0, b = 0, c = 0, e = 0;
+    uint64_t failures = 0;
+};
+LadderCounts MarkerLadderCounts ();
 
 // MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
 // user is looking at: tear down the session for the view being left and start
