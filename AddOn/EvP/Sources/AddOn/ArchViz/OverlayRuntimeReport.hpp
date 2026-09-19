@@ -104,6 +104,22 @@ void Sync ();
 // columns.
 void FramePath ();
 
+// The eight interpretations of the SELECTED group, side by side. On a CHANGE.
+//
+// ⚠️ THE WINNER IS CHOSEN ON CENTRE ERROR AND THE SCREEN
+// IS DECIDED BY SCALE, AND NOTHING HAS EVER SHOWN THE TWO TOGETHER. The
+// 2026-09-19 16:57 run locked `interp2` -- `View x Projection-transposed` --
+// with `coverage=100% inside=100% centre=0.005`, and drew the model at about a
+// tenth of its size. Every existing term rewards that: shrinking the projection
+// puts MORE samples inside the clip volume so coverage and insideClip IMPROVE,
+// a scale about the centre leaves the centre alone so centreError is
+// unaffected, and areaPixels and edgePixels are minima rather than targets.
+//
+// ⚠️ SO THIS REPORTS AND DOES NOT SCORE. It is the
+// distribution a scale term would be built from. A threshold chosen without it
+// in front of us is how the census acquired its other seven.
+void Variants ();
+
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();
 

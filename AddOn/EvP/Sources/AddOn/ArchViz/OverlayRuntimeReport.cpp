@@ -55,6 +55,7 @@ uint32_t g_syncTicks = 0;
 std::string g_lastChains;
 std::string g_lastScenePass;
 std::string g_lastSignature;
+std::string g_lastVariants;
 
 } // namespace
 
@@ -404,6 +405,49 @@ void FramePath ()
     }
 }
 
+void Variants ()
+{
+    const cen::Selection chosen = cen::GetSelection ();
+    if (!chosen.valid)
+        return;
+
+    static cen::Group groups[cen::kGroupCapacity];
+    const size_t count = cen::CopyGroups (groups, cen::kGroupCapacity);
+    const cen::Group* selected = nullptr;
+    for (size_t i = 0; i < count; ++i) {
+        if (groups[i].groupId == chosen.groupId) {
+            selected = &groups[i];
+            break;
+        }
+    }
+    if (selected == nullptr)
+        return;
+
+    // ⚠️ THE WINNER IS MARKED, BECAUSE THE POINT IS THE
+    // COMPARISON. A column of eight numbers says nothing; the same column with
+    // "this is the one being drawn with" against one row is the measurement.
+    char line[460] = {};
+    size_t used = 0;
+    for (size_t variant = 0; variant < cen::kVariantCount && used + 56 < sizeof (line); ++variant) {
+        char one[64] = {};
+        _snprintf_s (one, sizeof (one), _TRUNCATE, "%sv%u%s n=%u err=%.3f spread=%.0fpx", used == 0 ? "" : "  ",
+                     unsigned (variant), variant == selected->winningVariant ? "*" : "",
+                     selected->variantValid[variant], selected->variantMeanCentreError[variant],
+                     selected->variantMeanSpreadPixels[variant]);
+        const size_t length = strlen (one);
+        if (used + length + 1 >= sizeof (line))
+            break;
+        memcpy (line + used, one, length + 1);
+        used += length;
+    }
+
+    const std::string current (std::string ("g") + std::to_string (chosen.groupId) + " (* = drawn with)  " + line);
+    if (current == g_lastVariants)
+        return;
+    g_lastVariants = current;
+    Say ("VARIANTS", current);
+}
+
 void Reset ()
 {
     g_lastSync.clear ();
@@ -411,6 +455,7 @@ void Reset ()
     g_lastChains.clear ();
     g_lastScenePass.clear ();
     g_lastSignature.clear ();
+    g_lastVariants.clear ();
     g_lastPulse.clear ();
     g_lastBackend.clear ();
     g_lastWatch.clear ();

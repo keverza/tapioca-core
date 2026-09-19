@@ -55,6 +55,9 @@ struct Slot {
     uint32_t errorNext = 0;
     double errorSum = 0.0;
     double variantErrorSum[kVariantCount] = {};
+    // See `Group::variantMeanSpreadPixels`. Accumulated for EVERY valid variant,
+    // not only the winner, because the comparison between them is the question.
+    double variantSpreadSum[kVariantCount] = {};
     float areas[kErrorSamples] = {};
     float edges[kErrorSamples] = {};
     uint32_t triangleCount = 0;
@@ -296,6 +299,7 @@ void RecordSample (Slot& slot, const injection::oracle::VariantScore* scores)
             continue;
         ++group.variantValid[variant];
         slot.variantErrorSum[variant] += double (scores[variant].centreError);
+        slot.variantSpreadSum[variant] += double (scores[variant].spreadPixels);
         if (!haveBest || scores[variant].centreError < bestError) {
             haveBest = true;
             bestError = scores[variant].centreError;
@@ -902,6 +906,13 @@ size_t CopyGroups (Group* out, size_t capacity)
         }
         group.winningVariant = bestVariant;
         group.winningVariantValid = bestValid;
+        for (size_t variant = 0; variant < kVariantCount; ++variant) {
+            const uint32_t valid = group.variantValid[variant];
+            group.variantMeanSpreadPixels[variant] =
+                valid > 0 ? float (slot.variantSpreadSum[variant] / double (valid)) : 0.0f;
+            group.variantMeanCentreError[variant] =
+                valid > 0 ? float (slot.variantErrorSum[variant] / double (valid)) : 0.0f;
+        }
         group.medianCentreError = Median (slot);
         group.meanCentreError = slot.errorCount > 0 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
         group.meanSpreadPixels = slot.spreadCount > 0 ? float (slot.spreadSum / double (slot.spreadCount)) : 0.0f;

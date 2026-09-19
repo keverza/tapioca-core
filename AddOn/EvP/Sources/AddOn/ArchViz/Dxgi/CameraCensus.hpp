@@ -162,6 +162,27 @@ struct Group {
     // pixel was invisible for six runs while every other number looked perfect.
     float meanSpreadPixels = 0.0f;
     uint32_t variantValid[kVariantCount] = {};
+
+    // ⚠️ HOW BIG THE PRIMITIVE IS ON SCREEN UNDER EACH
+    // INTERPRETATION, AND NOTHING HAS EVER LOOKED. The winner is chosen by
+    // validity and then by mean CENTRE ERROR, and the 2026-09-19 16:57 run
+    // locked `interp2` -- `View x Projection-transposed` -- with
+    // `coverage=100% inside=100% centre=0.005` while drawing the model at about
+    // a tenth of its size.
+    //
+    // ⚠️ EVERY EXISTING TERM REWARDS THAT. A projection
+    // that shrinks the model puts MORE samples inside the clip volume, so
+    // `coverage` and `insideClip` both IMPROVE; a scale about the centre leaves
+    // the centre where it was, so `centreError` is unaffected; and `areaPixels`
+    // and `edgePixels` carry MINIMA rather than targets, which a large model
+    // clears at a tenth. The gate has no scale term at all.
+    //
+    // ⚠️ REPORTED, NOT YET SCORED ON. This is the
+    // distribution the missing term would be built from, and a threshold picked
+    // without it in front of us is how the census acquired its other seven.
+    // Nothing selects on this field; it exists to be read.
+    float variantMeanSpreadPixels[kVariantCount] = {};
+    float variantMeanCentreError[kVariantCount] = {};
 };
 
 struct Stats {
