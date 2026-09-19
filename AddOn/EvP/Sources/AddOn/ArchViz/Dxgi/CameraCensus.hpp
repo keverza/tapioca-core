@@ -142,13 +142,21 @@ struct Group {
     // How many of those produced a best VALID variant, which is the denominator
     // the centre-error gate uses. Folded in by `CopyGroups`.
     uint32_t errorSamples = 0;
-    // ⚠️ DOES THIS GROUP'S PROJECTION DIVIDE BY DEPTH?
-    // A perspective matrix puts -1 in m[2][3] so w' = -z; a pixel-to-NDC
-    // screen map leaves it 0 and w' stays 1. Archicad binds BOTH kinds in the
-    // 3D window -- the real camera for the model, and a screen map for gizmos
-    // and 2D work -- and the run this was written from found the overlay drawing
-    // with the screen map. See `kGateProjectionDivides`.
-    bool projectionDivides = false;
+    // ⚠️ HOW MANY OF THIS GROUP'S READBACKS SAW A
+    // PROJECTION THAT DIVIDES BY DEPTH, and how many were looked at. NOT a
+    // bool, because ONE GROUP CONTAINS BOTH KINDS: the identity is keyed on the
+    // projection BUFFER and its constant count, and `projectionFirstConstant`
+    // is recorded "last seen; the ring window advances" -- deliberately not part
+    // of it. Archicad keeps every constant in one ring, so the real camera and a
+    // pixel-to-NDC screen map arrive on the same buffer with the same 16
+    // constants and land in the same group.
+    //
+    // ⚠️ SO A PER-READBACK FLAG FLICKERS AND THE GATE
+    // CATCHES WHATEVER THE LAST ONE SAW. Measured: the run after the gate
+    // landed still selected a group whose matrix was the screen map. A group is
+    // a camera only if EVERY sample of it was one.
+    uint32_t projectionSamples = 0;
+    uint32_t projectionDivideSamples = 0;
     uint32_t winningVariant = 0;
     uint32_t winningVariantValid = 0; // samples where THAT variant was valid
 

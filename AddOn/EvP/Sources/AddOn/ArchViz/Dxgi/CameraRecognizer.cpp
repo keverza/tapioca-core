@@ -576,8 +576,8 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
     term[kGateEdgePixels] = group.medianMaxEdgePixels >= g_eligibility.minMedianMaxEdgePixels;
     // Centre error is the weak term; see the tie-break note in the header.
     term[kGateCentreError] = !(group.errorSamples > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError);
-    // A screen map is not a camera; the header carries the two matrices.
-    term[kGateProjectionDivides] = group.projectionDivides;
+    term[kGateProjectionDivides] =
+        group.projectionSamples > 0 && group.projectionDivideSamples == group.projectionSamples;
 
     ++g_gate.evaluated;
     uint32_t failures = 0;

@@ -380,9 +380,9 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     viewport.width = slot.group.viewportWidth;
     viewport.height = slot.group.viewportHeight;
 
-    // ⚠️ THE SAME SCORER THE ORACLE USES. Two copies would
-    // disagree about which interpretation won -- the question both answer.
-    slot.group.projectionDivides = std::fabs (projection[11]) > 0.5f; // w' = -z, not 1
+    // ⚠️ THE SAME SCORER THE ORACLE USES; two copies would disagree.
+    slot.group.projectionSamples += 1;
+    slot.group.projectionDivideSamples += std::fabs (projection[11]) > 0.5f ? 1 : 0;
     injection::oracle::VariantScore scores[kVariantCount];
     injection::oracle::ScoreVariants (view, projection, viewport, scores);
     RecordSample (slot, scores);
