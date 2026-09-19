@@ -754,6 +754,7 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
         // The window size this camera was measured for.
         freshness::NoteAccepted ();
         g_lastInjectedModelGeneration = fresh.modelSceneGeneration;
+        freshness::NoteCameraAdopted ();
         g_newScene.fetch_add (1, std::memory_order_relaxed);
         state = oracle::FrameState::NewScene;
         draw = true;

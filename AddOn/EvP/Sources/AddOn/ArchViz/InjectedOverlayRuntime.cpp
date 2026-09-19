@@ -735,6 +735,7 @@ void Tick ()
     report::Watch (live);
     report::Backend (live);
     report::Pulse (live);
+    report::Sync ();
 }
 
 // ⚠️ THE FIRST STAGE THAT IS NOT SATISFIED, IN ORDER, AND NOTHING

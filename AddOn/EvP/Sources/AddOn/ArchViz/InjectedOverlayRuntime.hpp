@@ -165,6 +165,13 @@ struct Health {
     uint64_t repeatPassMoved = 0;
     uint64_t repeatWindowMoved = 0;
 
+    // ⚠️ CAMERA CONTENT IS NOT COPIED THROUGH HERE, AND
+    // THAT IS DELIBERATE. `freshness::Snapshot ()` owns it; the report and the
+    // command read it straight from there, the way `report::Gate` already reads
+    // the census. Sixteen more fields on a struct that is already a hundred long
+    // buys a second place for them to go stale, and this file is at its size cap
+    // because of exactly that habit.
+
     // See `injection::InjectionStats`. `cameraAgeMedian` of 0 is the acceptance
     // target for ordinary navigation; `suppressedStaleViewport` counts Presents
     // that drew NOTHING rather than draw the building offset from itself.

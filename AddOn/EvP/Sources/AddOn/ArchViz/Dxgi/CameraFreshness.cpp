@@ -9,6 +9,7 @@
 #include <dxgi.h>
 
 #include <atomic>
+#include <cstring>
 #include <windows.h> // GetTickCount64 -- one read of a shared page, no syscall
 
 namespace geomsrv {
@@ -38,6 +39,85 @@ std::atomic<uint64_t> g_requestsTaken { 0 };
 std::atomic<uint64_t> g_repeatHeld { 0 };
 std::atomic<uint64_t> g_repeatPassMoved { 0 };
 std::atomic<uint64_t> g_repeatWindowMoved { 0 };
+
+// ---- camera CONTENT ------------------------------------------------------
+//
+// ⚠️ ALL OF THESE ARE WRITTEN FROM ONE THREAD.
+// `NoteCameraContent` runs inside the census readback, `NoteCameraAdopted` and
+// `NoteRepeatScene` inside Present -- all on Archicad's render thread, and the
+// census holds `ScopedInjectionGuard` while it resolves. They are atomic so the
+// MAIN thread can read a coherent `Snapshot`, not to make the writes safe
+// against each other.
+std::atomic<uint64_t> g_contentSignature { 0 };
+std::atomic<uint64_t> g_contentSerial { 0 };  // increments on every DECODE
+std::atomic<uint64_t> g_contentChanges { 0 }; // ... of those, that differed
+std::atomic<uint64_t> g_contentChangedMs { 0 };
+std::atomic<uint64_t> g_contentDecodedMs { 0 };
+
+std::atomic<uint64_t> g_acceptedSignature { 0 };
+std::atomic<uint64_t> g_acceptedSerial { 0 };
+std::atomic<uint64_t> g_acceptedMs { 0 };
+
+std::atomic<uint64_t> g_camAdopted { 0 };
+std::atomic<uint64_t> g_camSame { 0 };
+std::atomic<uint64_t> g_camFreshNotAdopted { 0 };
+std::atomic<uint64_t> g_serialLagMax { 0 };
+std::atomic<uint32_t> g_msSinceLatestCaptureMax { 0 };
+std::atomic<uint32_t> g_msSinceAcceptedChangedMax { 0 };
+
+std::atomic<uint64_t> g_freshRunCurrent { 0 };
+std::atomic<uint64_t> g_freshRunMax { 0 };
+// What was true across the run currently open, so the recovery can say what
+// changed when it ended.
+std::atomic<uint64_t> g_freshRunStartMs { 0 };
+std::atomic<uint64_t> g_freshRunStartSignature { 0 };
+std::atomic<bool> g_freshRunPassMoved { false };
+std::atomic<bool> g_freshRunWindowMoved { false };
+
+std::atomic<uint64_t> g_recoveryRunLength { 0 };
+std::atomic<uint32_t> g_recoveryMs { 0 };
+std::atomic<bool> g_recoverySignatureChanged { false };
+std::atomic<bool> g_recoveryPassMoved { false };
+std::atomic<bool> g_recoveryWindowMoved { false };
+
+void RaiseTo (std::atomic<uint64_t>& high, uint64_t value)
+{
+    uint64_t seen = high.load (std::memory_order_relaxed);
+    while (value > seen && !high.compare_exchange_weak (seen, value, std::memory_order_relaxed)) {
+    }
+}
+
+void RaiseTo32 (std::atomic<uint32_t>& high, uint32_t value)
+{
+    uint32_t seen = high.load (std::memory_order_relaxed);
+    while (value > seen && !high.compare_exchange_weak (seen, value, std::memory_order_relaxed)) {
+    }
+}
+
+// ⚠️ THE RUN IS CLOSED WHERE IT ENDS, NOT WHERE IT IS
+// NOTICED. Every exit from FRESH_NOT_ADOPTED comes through here, so the
+// recovery record describes the run that actually ended rather than whichever
+// one happened to be open when the report was printed.
+void CloseFreshRun ()
+{
+    const uint64_t run = g_freshRunCurrent.exchange (0, std::memory_order_relaxed);
+    if (run == 0)
+        return;
+    RaiseTo (g_freshRunMax, run);
+    if (run >= g_recoveryRunLength.load (std::memory_order_relaxed)) {
+        g_recoveryRunLength.store (run, std::memory_order_relaxed);
+        const uint64_t began = g_freshRunStartMs.load (std::memory_order_relaxed);
+        g_recoveryMs.store (began == 0 ? 0u : uint32_t (::GetTickCount64 () - began), std::memory_order_relaxed);
+        g_recoverySignatureChanged.store (g_contentSignature.load (std::memory_order_relaxed) !=
+                                              g_freshRunStartSignature.load (std::memory_order_relaxed),
+                                          std::memory_order_relaxed);
+        g_recoveryPassMoved.store (g_freshRunPassMoved.load (std::memory_order_relaxed), std::memory_order_relaxed);
+        g_recoveryWindowMoved.store (g_freshRunWindowMoved.load (std::memory_order_relaxed), std::memory_order_relaxed);
+    }
+    g_freshRunPassMoved.store (false, std::memory_order_relaxed);
+    g_freshRunWindowMoved.store (false, std::memory_order_relaxed);
+    g_freshRunStartMs.store (0, std::memory_order_relaxed);
+}
 
 } // namespace
 
@@ -96,6 +176,83 @@ void NoteRepeatScene (bool usable, bool passMoved, bool windowMoved)
         g_repeatWindowMoved.fetch_add (1, std::memory_order_relaxed);
     else
         g_repeatHeld.fetch_add (1, std::memory_order_relaxed);
+
+    // ⚠️ AND THE SAME PRESENT IS CLASSIFIED BY CONTENT,
+    // WHICH IS THE ONLY ONE OF THE TWO THAT CAN SEE A BUFFER REWRITTEN IN PLACE.
+    // This branch is by definition a Present that KEPT the accepted camera, so
+    // the question is whether it should have.
+    const uint64_t latest = g_contentSignature.load (std::memory_order_relaxed);
+    const uint64_t accepted = g_acceptedSignature.load (std::memory_order_relaxed);
+    const uint64_t now = ::GetTickCount64 ();
+    RaiseTo (g_serialLagMax,
+             g_contentSerial.load (std::memory_order_relaxed) - g_acceptedSerial.load (std::memory_order_relaxed));
+    const uint64_t decoded = g_contentDecodedMs.load (std::memory_order_relaxed);
+    if (decoded != 0)
+        RaiseTo32 (g_msSinceLatestCaptureMax, uint32_t (now - decoded));
+    const uint64_t acceptedMs = g_acceptedMs.load (std::memory_order_relaxed);
+    if (acceptedMs != 0)
+        RaiseTo32 (g_msSinceAcceptedChangedMax, uint32_t (now - acceptedMs));
+
+    if (accepted == 0 || latest == accepted) {
+        g_camSame.fetch_add (1, std::memory_order_relaxed);
+        CloseFreshRun ();
+        return;
+    }
+    g_camFreshNotAdopted.fetch_add (1, std::memory_order_relaxed);
+    if (g_freshRunCurrent.fetch_add (1, std::memory_order_relaxed) == 0) {
+        g_freshRunStartMs.store (now, std::memory_order_relaxed);
+        g_freshRunStartSignature.store (latest, std::memory_order_relaxed);
+    }
+    if (passMoved)
+        g_freshRunPassMoved.store (true, std::memory_order_relaxed);
+    if (windowMoved)
+        g_freshRunWindowMoved.store (true, std::memory_order_relaxed);
+}
+
+void NoteCameraContent (const float* view16, const float* projection16, float vpX, float vpY, float vpW, float vpH)
+{
+    if (view16 == nullptr || projection16 == nullptr)
+        return;
+
+    // FNV-1a over the raw bit patterns. The bytes were copied verbatim out of
+    // Archicad's ring, so equal content is bit-equal content and there is no
+    // floating-point noise to quantise away.
+    uint64_t hash = 1469598103934665603ull;
+    const auto eat = [&hash] (float value) {
+        uint32_t bits = 0;
+        std::memcpy (&bits, &value, sizeof (bits));
+        for (int byte = 0; byte < 4; ++byte) {
+            hash ^= uint64_t ((bits >> (byte * 8)) & 0xffu);
+            hash *= 1099511628211ull;
+        }
+    };
+    for (int i = 0; i < 16; ++i)
+        eat (view16[i]);
+    for (int i = 0; i < 16; ++i)
+        eat (projection16[i]);
+    eat (vpX);
+    eat (vpY);
+    eat (vpW);
+    eat (vpH);
+    if (hash == 0)
+        hash = 1; // 0 means "nothing decoded yet" everywhere below
+
+    const uint64_t now = ::GetTickCount64 ();
+    g_contentSerial.fetch_add (1, std::memory_order_relaxed);
+    g_contentDecodedMs.store (now, std::memory_order_relaxed);
+    if (g_contentSignature.exchange (hash, std::memory_order_relaxed) != hash) {
+        g_contentChanges.fetch_add (1, std::memory_order_relaxed);
+        g_contentChangedMs.store (now, std::memory_order_relaxed);
+    }
+}
+
+void NoteCameraAdopted ()
+{
+    g_camAdopted.fetch_add (1, std::memory_order_relaxed);
+    g_acceptedSignature.store (g_contentSignature.load (std::memory_order_relaxed), std::memory_order_relaxed);
+    g_acceptedSerial.store (g_contentSerial.load (std::memory_order_relaxed), std::memory_order_relaxed);
+    g_acceptedMs.store (::GetTickCount64 (), std::memory_order_relaxed);
+    CloseFreshRun ();
 }
 
 uint32_t TargetEpoch ()
@@ -135,6 +292,22 @@ Report Snapshot ()
     report.repeatHeld = g_repeatHeld.load (std::memory_order_relaxed);
     report.repeatPassMoved = g_repeatPassMoved.load (std::memory_order_relaxed);
     report.repeatWindowMoved = g_repeatWindowMoved.load (std::memory_order_relaxed);
+    report.camAdopted = g_camAdopted.load (std::memory_order_relaxed);
+    report.camSame = g_camSame.load (std::memory_order_relaxed);
+    report.camFreshNotAdopted = g_camFreshNotAdopted.load (std::memory_order_relaxed);
+    report.captureSerial = g_contentSerial.load (std::memory_order_relaxed);
+    report.contentDecodes = g_contentSerial.load (std::memory_order_relaxed);
+    report.contentChanges = g_contentChanges.load (std::memory_order_relaxed);
+    report.serialLagMax = g_serialLagMax.load (std::memory_order_relaxed);
+    report.msSinceLatestCaptureMax = g_msSinceLatestCaptureMax.load (std::memory_order_relaxed);
+    report.msSinceAcceptedChangedMax = g_msSinceAcceptedChangedMax.load (std::memory_order_relaxed);
+    report.freshRunMax = g_freshRunMax.load (std::memory_order_relaxed);
+    report.freshRunCurrent = g_freshRunCurrent.load (std::memory_order_relaxed);
+    report.recoveryRunLength = g_recoveryRunLength.load (std::memory_order_relaxed);
+    report.recoveryMs = g_recoveryMs.load (std::memory_order_relaxed);
+    report.recoverySignatureChanged = g_recoverySignatureChanged.load (std::memory_order_relaxed);
+    report.recoveryPassMoved = g_recoveryPassMoved.load (std::memory_order_relaxed);
+    report.recoveryWindowMoved = g_recoveryWindowMoved.load (std::memory_order_relaxed);
     return report;
 }
 
@@ -154,6 +327,31 @@ void Reset ()
     g_repeatHeld.store (0, std::memory_order_relaxed);
     g_repeatPassMoved.store (0, std::memory_order_relaxed);
     g_repeatWindowMoved.store (0, std::memory_order_relaxed);
+    g_contentSignature.store (0, std::memory_order_relaxed);
+    g_contentSerial.store (0, std::memory_order_relaxed);
+    g_contentChanges.store (0, std::memory_order_relaxed);
+    g_contentChangedMs.store (0, std::memory_order_relaxed);
+    g_contentDecodedMs.store (0, std::memory_order_relaxed);
+    g_acceptedSignature.store (0, std::memory_order_relaxed);
+    g_acceptedSerial.store (0, std::memory_order_relaxed);
+    g_acceptedMs.store (0, std::memory_order_relaxed);
+    g_camAdopted.store (0, std::memory_order_relaxed);
+    g_camSame.store (0, std::memory_order_relaxed);
+    g_camFreshNotAdopted.store (0, std::memory_order_relaxed);
+    g_serialLagMax.store (0, std::memory_order_relaxed);
+    g_msSinceLatestCaptureMax.store (0, std::memory_order_relaxed);
+    g_msSinceAcceptedChangedMax.store (0, std::memory_order_relaxed);
+    g_freshRunCurrent.store (0, std::memory_order_relaxed);
+    g_freshRunMax.store (0, std::memory_order_relaxed);
+    g_freshRunStartMs.store (0, std::memory_order_relaxed);
+    g_freshRunStartSignature.store (0, std::memory_order_relaxed);
+    g_freshRunPassMoved.store (false, std::memory_order_relaxed);
+    g_freshRunWindowMoved.store (false, std::memory_order_relaxed);
+    g_recoveryRunLength.store (0, std::memory_order_relaxed);
+    g_recoveryMs.store (0, std::memory_order_relaxed);
+    g_recoverySignatureChanged.store (false, std::memory_order_relaxed);
+    g_recoveryPassMoved.store (false, std::memory_order_relaxed);
+    g_recoveryWindowMoved.store (false, std::memory_order_relaxed);
 }
 
 } // namespace freshness

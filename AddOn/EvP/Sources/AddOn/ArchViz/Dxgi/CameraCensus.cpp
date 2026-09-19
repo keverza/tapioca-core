@@ -6,6 +6,7 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 
@@ -380,6 +381,17 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     injection::oracle::VariantScore scores[kVariantCount];
     injection::oracle::ScoreVariants (view, projection, viewport, scores);
     RecordSample (slot, scores);
+
+    // ⚠️ THE ONE PLACE ARCHICAD'S CAMERA EXISTS AS
+    // VALUES RATHER THAN AS A BINDING, AND THE SELECTED GROUP'S SAMPLE IS THE
+    // ONLY ONE THAT DESCRIBES WHAT THE OVERLAY IS SUPPOSED TO BE DRAWING WITH.
+    // Signing it here costs a hash over 36 floats that are already in registers;
+    // there is no second readback and nothing is mapped at Present.
+    // `freshness::NoteCameraContent` carries why identity could not answer this.
+    if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
+        slot.group.groupId == GetSelection ().groupId)
+        injection::freshness::NoteCameraContent (view, projection, viewport.x, viewport.y, viewport.width,
+                                                 viewport.height);
 }
 
 void ResolveSome (ID3D11DeviceContext* context)

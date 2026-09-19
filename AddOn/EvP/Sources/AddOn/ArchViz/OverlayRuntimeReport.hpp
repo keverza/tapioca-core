@@ -69,6 +69,16 @@ void Backend (const Health& health);
 // matter. This is the line that decides whether it does.
 void Pulse (const Health& health);
 
+// Camera CONTENT against the camera actually composed with. On a CHANGE.
+//
+// ⚠️ THIS IS THE LINE THE FAST-PAN FREEZE IS READ
+// FROM, AND IT IS SEPARATE FROM `PULSE` BECAUSE IT ANSWERS A DIFFERENT
+// QUESTION. `PULSE` says who kept the runtime alive; this says whether the
+// overlay is composing with the camera Archicad is drawing with. Identity
+// counters -- `repeat(held ...)`, the buffer window, the scene pass -- cannot
+// answer it, because a constant buffer can be rewritten in place.
+void Sync ();
+
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();
 

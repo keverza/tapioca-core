@@ -134,6 +134,58 @@ bool TakeRedrawRequest ();
 // against and the Present is counted in none of the three.
 void NoteRepeatScene (bool usable, bool passMoved, bool windowMoved);
 
+// ---------------------------------------------------------------------------
+// CAMERA CONTENT, which is a different question from every other one in this
+// file and from every counter in the tree.
+//
+// ⚠️ `repeat(held N, PASS MOVED 0, window moved 0)` DOES
+// NOT MEAN THE CAMERA DID NOT MOVE. It means the scene-pass generation and the
+// constant-buffer window identity did not move. A D3D11 constant buffer can be
+// REWRITTEN IN PLACE at the same resource and the same offset, and the 2026-09-19
+// fast-pan reproduction is what that looks like from outside: Archicad's model
+// reaches the new view, the overlay stays rendered at the previous camera, and it
+// stays there after the pan ends until some other interaction repairs it. 2353
+// `held` frames were recorded across that session. `held` was measuring identity
+// and the question was content.
+//
+// ⚠️ SO THE SIGNATURE IS TAKEN FROM DECODED VALUES,
+// NOT FROM BINDINGS, AND IT COSTS NOTHING BECAUSE THE DECODE ALREADY HAPPENS.
+// `CameraCensus::TryResolve` maps the staged copy with
+// `D3D11_MAP_FLAG_DO_NOT_WAIT` and already holds `view[16]`, `projection[16]` and
+// the viewport on the CPU in order to score the variants. `NoteCameraContent` is
+// called from exactly there, for the SELECTED group only. No new readback, no
+// `Map` at Present, no synchronisation -- InjectionCamera.hpp's rule that the
+// composition path copies GPU-to-GPU stands untouched.
+//
+// The hash is over the raw bit patterns. There is no floating-point noise to
+// quantise away: the bytes are copied verbatim out of Archicad's ring, so equal
+// content is bit-equal content.
+void NoteCameraContent (const float* view16, const float* projection16, float vpX, float vpY, float vpW, float vpH);
+
+// RENDER THREAD, when the renderer takes a fresh camera for composition
+// (`NEW_SCENE`). Stamps the accepted camera with the content signature and the
+// capture serial that were current at that instant.
+void NoteCameraAdopted ();
+
+// ⚠️ AND EVERY PRESENT IS CLASSIFIED AGAINST THAT
+// STAMP, WHICH IS THE WHOLE INSTRUMENT:
+//
+//   ADOPTED            this Present took a fresh camera
+//   SAME               latest content signature == the accepted one; the overlay
+//                      is drawing what Archicad is drawing
+//   FRESH_NOT_ADOPTED  the signature has MOVED and the overlay is still composing
+//                      with the camera it accepted earlier
+//
+// `FRESH_NOT_ADOPTED` above zero during a visible freeze is the adoption bug,
+// stated as a measurement. A signature that never changes while Archicad visibly
+// pans is a CAPTURE bug instead, and sends the next instrument to the buffer
+// write path. The two are distinguishable only because the content is signed.
+//
+// ⚠️ KEPT DELIBERATELY APART FROM
+// `modelSceneGeneration`, `scenePassGeneration` AND THE WINDOW OFFSET. Those are
+// useful metadata and they are recorded beside this, but none of them is a
+// substitute for camera equality -- believing that one of them was is what cost
+// the previous run.
 struct Report {
     // ⚠️ BUCKETS, NOT A MEAN. A mean lets one forty-frame
     // stall hide a thousand good frames, and the question is what the STEADY
@@ -161,6 +213,36 @@ struct Report {
     uint64_t repeatHeld = 0;
     uint64_t repeatPassMoved = 0;
     uint64_t repeatWindowMoved = 0;
+
+    // ---- camera CONTENT, see `NoteCameraContent` --------------------------
+    uint64_t camAdopted = 0;
+    uint64_t camSame = 0;
+    uint64_t camFreshNotAdopted = 0;
+    // Captures Archicad has produced, and decodes that reached the CPU. A
+    // `contentDecodes` that stops climbing while the view visibly moves is a
+    // capture fault and not an adoption fault.
+    uint64_t captureSerial = 0;
+    uint64_t contentDecodes = 0;
+    uint64_t contentChanges = 0;
+    // How far behind the accepted camera fell, at its worst.
+    uint64_t serialLagMax = 0;
+    uint32_t msSinceLatestCaptureMax = 0;
+    uint32_t msSinceAcceptedChangedMax = 0;
+    // ⚠️ THE LONGEST UNBROKEN RUN, BECAUSE A TOTAL
+    // CANNOT DESCRIBE A FREEZE. Six hundred scattered FRESH_NOT_ADOPTED frames
+    // are a wobble; six hundred consecutive ones are the screenshot.
+    uint64_t freshRunMax = 0;
+    uint64_t freshRunCurrent = 0;
+
+    // ⚠️ WHAT CHANGED AT THE MOMENT THE OVERLAY
+    // RECOVERED. The reproduction says the freeze persists until "another
+    // interaction" repairs it, so the repair is the evidence: these describe the
+    // longest run that ENDED, and which of the candidate causes moved when it did.
+    uint64_t recoveryRunLength = 0;
+    uint32_t recoveryMs = 0;
+    bool recoverySignatureChanged = false;
+    bool recoveryPassMoved = false;
+    bool recoveryWindowMoved = false;
 };
 Report Snapshot ();
 

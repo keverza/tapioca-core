@@ -7,6 +7,7 @@
 #include "ArchViz/OverlayRuntimeReport.hpp"
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 #include "ArchVizLog.hpp"
 
@@ -47,6 +48,7 @@ std::string g_lastChain;
 std::string g_lastWatch;
 std::string g_lastBackend;
 std::string g_lastPulse;
+std::string g_lastSync;
 
 } // namespace
 
@@ -277,8 +279,32 @@ void Pulse (const Health& health)
     Say ("PULSE", current);
 }
 
+void Sync ()
+{
+    const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
+    char line[400] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "%s adopted=%llu same=%llu FRESH_NOT_ADOPTED=%llu | decodes=%llu changes=%llu serialLagMax=%llu "
+                 "| ms since capture=%u since adopt=%u | freeze run now=%llu worst=%llu "
+                 "| recovery: run=%llu after %u ms, signature %s, pass %s, window %s",
+                 cam.camFreshNotAdopted > 0 ? "DESYNC SEEN" : "in sync", (unsigned long long) cam.camAdopted,
+                 (unsigned long long) cam.camSame, (unsigned long long) cam.camFreshNotAdopted,
+                 (unsigned long long) cam.contentDecodes, (unsigned long long) cam.contentChanges,
+                 (unsigned long long) cam.serialLagMax, cam.msSinceLatestCaptureMax, cam.msSinceAcceptedChangedMax,
+                 (unsigned long long) cam.freshRunCurrent, (unsigned long long) cam.freshRunMax,
+                 (unsigned long long) cam.recoveryRunLength, cam.recoveryMs,
+                 cam.recoverySignatureChanged ? "MOVED" : "held", cam.recoveryPassMoved ? "MOVED" : "held",
+                 cam.recoveryWindowMoved ? "MOVED" : "held");
+    const std::string current (line);
+    if (current == g_lastSync)
+        return;
+    g_lastSync = current;
+    Say ("SYNC", current);
+}
+
 void Reset ()
 {
+    g_lastSync.clear ();
     g_lastPulse.clear ();
     g_lastBackend.clear ();
     g_lastWatch.clear ();
