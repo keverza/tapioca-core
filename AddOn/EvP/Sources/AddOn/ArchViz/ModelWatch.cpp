@@ -5,7 +5,7 @@
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog -- one log for the whole viewer
 #include "ArchViz/DiligentViewport.hpp"
-#include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment
+#include "ArchViz/ExtractionEnvironment.hpp" // ReadEnvironment, ForgetEnvironmentLog
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/SceneCmdQueue.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp" // census::NoteModelRevision
@@ -252,6 +252,9 @@ bool Start (uint32_t floorMs)
     gBaseline = std::make_unique<modeldiff::Baseline> (modeldiff::Scope::Model);
     gStats = Stats {};
     gCeilingLogged = false;
+    // The sun's log is deduplicated across reads, and its memory of what it last
+    // wrote is session state like the baseline beside it. See the header.
+    ForgetEnvironmentLog ();
 
     Rearm (gFloorMs);
     if (!gStats.running)

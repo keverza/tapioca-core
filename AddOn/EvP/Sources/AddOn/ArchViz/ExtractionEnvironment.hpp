@@ -49,7 +49,19 @@ std::unique_ptr<MaterialTable> ReadMaterials (const ModelerAPI::Model& model);
 // hand-typed sun with a different one.
 bool ReadEnvironment (EnvironmentUpload& out);
 
-}   // namespace archviz
-}   // namespace geomsrv
+// Forget what the sun last LOGGED, so the next read records it again. MAIN
+// THREAD.
+//
+// ⚠️ IT RESETS A LOG, NOT A VALUE. `ReadEnvironment` still reads and
+// still delivers the sun on every call; this only decides whether the reading is
+// written down. It exists because OVERLAY-INVARIANTS.md section 8 is about state
+// that describes session N still sitting there during session N+1 -- and a
+// dedup cache that survives a restart makes the SECOND session the one with no
+// record of what sun it started under, which is the session a fault is usually
+// reported from. `ModelWatch::Start` calls it beside its own fresh baseline.
+void ForgetEnvironmentLog ();
+
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

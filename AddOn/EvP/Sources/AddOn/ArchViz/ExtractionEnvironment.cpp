@@ -20,10 +20,77 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace geomsrv {
 namespace archviz {
+
+namespace {
+
+// ⚠️ THE SUN IS READ ON EVERY ENVIRONMENT-ONLY POLL, AND
+// LOGGING EVERY READING BURIED THE LOG. `ModelWatch`'s environment-only branch
+// already carries the rule -- "COUNTED, NOT LOGGED ... a line each would bury
+// the events that matter in the one log the whole viewer shares" -- and it
+// states that at the CALL SITE while this callee wrote three or four lines
+// unconditionally. Archicad raises `isEnvironmentChanged` whenever the 3D
+// window's projection moves, which is every time the user navigates, so the
+// watch arrived here about 1.2 times a second for as long as the overlay ran.
+//
+// ⚠️ THE MEASUREMENT, BECAUSE "IT IS A BIT CHATTY" WOULD
+// NOT HAVE JUSTIFIED TOUCHING IT. The 2026-09-18 log holds 2007 of these blocks
+// and exactly ONE distinct value between them: 6018 byte-identical lines, 36% of
+// everything the viewer recorded that day, and 62% of the lines written during
+// the menu-driven overlay session inside it. Each line is two data-directory
+// resolutions, a directory-chain creation and an open/append/close
+// (ArchVizLog.cpp) on the MAIN thread -- the thread the user is navigating with,
+// and the one the "lower performance than before" report is about.
+//
+// ⚠️ AND THE SUPPRESSION SAYS HOW MUCH IT SUPPRESSED.
+// Section 7 of OVERLAY-INVARIANTS.md: nothing on this path declines silently.
+// The count rides on the next line actually written, so a reader can always tell
+// a sun that was read once from a sun that was read two thousand times.
+std::string g_lastEnvironmentLog;
+uint64_t g_environmentReadsSuppressed = 0;
+
+// The block, written only when it differs from the block before it.
+//
+// ⚠️ THE KEY IS THE TEXT ITSELF, not a field-by-field
+// comparison of `EnvironmentUpload`. A comparison has to be kept in step with
+// the struct and silently stops noticing whatever field is added next; the
+// rendered text changes if and only if something that gets LOGGED changed, which
+// is the exact question being asked.
+void SayEnvironmentOnChange (const std::vector<std::string>& lines)
+{
+    std::string joined;
+    for (const std::string& line : lines) {
+        joined += line;
+        joined += '\n';
+    }
+    if (joined == g_lastEnvironmentLog) {
+        ++g_environmentReadsSuppressed;
+        return;
+    }
+
+    g_lastEnvironmentLog = joined;
+    for (size_t i = 0; i < lines.size (); ++i) {
+        if (i == 0 && g_environmentReadsSuppressed > 0)
+            ArchVizLog (lines[i] + "  |  the previous reading was unchanged across " +
+                        std::to_string (g_environmentReadsSuppressed) + " further reads, not logged");
+        else
+            ArchVizLog (lines[i]);
+    }
+    g_environmentReadsSuppressed = 0;
+}
+
+} // namespace
+
+void ForgetEnvironmentLog ()
+{
+    g_lastEnvironmentLog.clear ();
+    g_environmentReadsSuppressed = 0;
+}
 
 // The model's surface pool -> MaterialTable. MAIN THREAD (it is ModelerAPI).
 //
@@ -155,6 +222,11 @@ bool ReadEnvironment (EnvironmentUpload& out)
     // The calendar's own answer, for comparison ONLY. A project whose stored sun
     // was typed by hand will differ here, and that difference is information --
     // it is the difference this function used to silently prefer.
+    // ⚠️ COLLECTED, NOT WRITTEN. Every line this function can
+    // produce goes into one block that is emitted together or not at all, so the
+    // change test below sees the whole reading rather than a line of it.
+    std::vector<std::string> lines;
+
     API_PlaceInfo computed = place;
     if (ACAPI_GeoLocation_CalcSunOnPlace (&computed) == NoError) {
         out.computedAzimuthDegrees = static_cast<float> (computed.sunAngXY * kRadToDeg);
@@ -163,13 +235,13 @@ bool ReadEnvironment (EnvironmentUpload& out)
         const double azDelta = std::abs ((computed.sunAngXY - place.sunAngXY) * kRadToDeg);
         const double altDelta = std::abs ((computed.sunAngZ - place.sunAngZ) * kRadToDeg);
         if (azDelta > 0.5 || altDelta > 0.5)
-            ArchVizLog ("ArchViz sun ⚠ the STORED sun and the one this project's date/time imply "
-                        "DISAGREE (azimuth by " +
-                        std::to_string (azDelta) + " deg, altitude by " + std::to_string (altDelta) +
-                        " deg). The stored one is used, because it is "
-                        "what Archicad's own 3D window shades with -- this is the ordinary state "
-                        "of a project whose sun was typed into the dialog rather than computed "
-                        "from a date.");
+            lines.push_back ("ArchViz sun ⚠ the STORED sun and the one this project's date/time imply "
+                             "DISAGREE (azimuth by " +
+                             std::to_string (azDelta) + " deg, altitude by " + std::to_string (altDelta) +
+                             " deg). The stored one is used, because it is "
+                             "what Archicad's own 3D window shades with -- this is the ordinary state "
+                             "of a project whose sun was typed into the dialog rather than computed "
+                             "from a date.");
     }
 
     // ⚠️ THIS CONVERSION NEEDS NO `north` TERM, AND ADDING ONE IS THE STANDING
@@ -188,28 +260,31 @@ bool ReadEnvironment (EnvironmentUpload& out)
     double bearing = (place.north - sunAngXY) * kRadToDeg;
     bearing -= 360.0 * std::floor (bearing / 360.0);
     out.bearingDegrees = static_cast<float> (bearing);
-    ArchVizLog ("ArchViz sun IN USE, from " + sunSource + ": sunAngXY=" + std::to_string (sunAngXY * kRadToDeg) +
-                " deg (model space, CCW from +X)"
-                ", sunAngZ=" +
-                std::to_string (sunAngZ * kRadToDeg) + " deg, north=" + std::to_string (out.northDegrees) +
-                " deg -> compass bearing " + std::to_string (bearing) + " deg, model-space dir (" +
-                std::to_string (out.sunX) + ", " + std::to_string (out.sunY) + ", " + std::to_string (out.sunZ) + ")");
-    ArchVizLog ("ArchViz sun NOT in use, for comparison -- the PLACE settings' stored pair: "
-                "sunAngXY=" +
-                std::to_string (place.sunAngXY * kRadToDeg) +
-                " deg, sunAngZ=" + std::to_string (place.sunAngZ * kRadToDeg) +
-                " deg. This is what the viewer used "
-                "before PLAT-RE67 and is NOT what the 3D window shades with unless it matches "
-                "the line above.");
-    ArchVizLog ("ArchViz place: lat " + std::to_string (place.latitude) + ", long " + std::to_string (place.longitude) +
-                ", altitude " + std::to_string (place.altitude) + " m, " + std::to_string (place.year) + "-" +
-                std::to_string (place.month) + "-" + std::to_string (place.day) + " " + std::to_string (place.hour) +
-                ":" + std::to_string (place.minute) + (place.sumTime ? " (summer time)" : "") + ", tz " +
-                std::to_string (place.timeZoneInMinutes) + " min" +
-                (out.haveComputedSun
-                     ? ("  |  the date/time would imply azimuth " + std::to_string (out.computedAzimuthDegrees) +
-                        " deg, altitude " + std::to_string (out.computedAltitudeDegrees) + " deg")
-                     : std::string ()));
+    lines.push_back ("ArchViz sun IN USE, from " + sunSource + ": sunAngXY=" + std::to_string (sunAngXY * kRadToDeg) +
+                     " deg (model space, CCW from +X)"
+                     ", sunAngZ=" +
+                     std::to_string (sunAngZ * kRadToDeg) + " deg, north=" + std::to_string (out.northDegrees) +
+                     " deg -> compass bearing " + std::to_string (bearing) + " deg, model-space dir (" +
+                     std::to_string (out.sunX) + ", " + std::to_string (out.sunY) + ", " + std::to_string (out.sunZ) +
+                     ")");
+    lines.push_back ("ArchViz sun NOT in use, for comparison -- the PLACE settings' stored pair: "
+                     "sunAngXY=" +
+                     std::to_string (place.sunAngXY * kRadToDeg) +
+                     " deg, sunAngZ=" + std::to_string (place.sunAngZ * kRadToDeg) +
+                     " deg. This is what the viewer used "
+                     "before PLAT-RE67 and is NOT what the 3D window shades with unless it matches "
+                     "the line above.");
+    lines.push_back ("ArchViz place: lat " + std::to_string (place.latitude) + ", long " +
+                     std::to_string (place.longitude) + ", altitude " + std::to_string (place.altitude) + " m, " +
+                     std::to_string (place.year) + "-" + std::to_string (place.month) + "-" +
+                     std::to_string (place.day) + " " + std::to_string (place.hour) + ":" +
+                     std::to_string (place.minute) + (place.sumTime ? " (summer time)" : "") + ", tz " +
+                     std::to_string (place.timeZoneInMinutes) + " min" +
+                     (out.haveComputedSun
+                          ? ("  |  the date/time would imply azimuth " + std::to_string (out.computedAzimuthDegrees) +
+                             " deg, altitude " + std::to_string (out.computedAltitudeDegrees) + " deg")
+                          : std::string ()));
+    SayEnvironmentOnChange (lines);
     return true;
 }
 
