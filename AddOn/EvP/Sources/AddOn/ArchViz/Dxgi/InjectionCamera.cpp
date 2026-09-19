@@ -6,6 +6,7 @@
 
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 
@@ -304,6 +305,10 @@ void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneD
     g_snapshotDrawSequence = draw.drawSequence;
     g_snapshotDraw = draw;
     g_snapshotValid = true;
+    // The bytes the shader reads have just moved. `freshness` carries why this,
+    // and not the NEW_SCENE/REPEAT_SCENE classification, is what decides whether
+    // the overlay is on the building.
+    freshness::NoteAuthoritativeSnapshot ();
     const uint64_t sequence = g_snapshotsTaken.fetch_add (1, std::memory_order_relaxed) + 1;
 
     // ⚠️ THE DIAGNOSTIC COPY IS OF OUR COPY, NEVER OF ARCHICAD'S RING. It is one

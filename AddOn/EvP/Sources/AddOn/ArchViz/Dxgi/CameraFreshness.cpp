@@ -74,6 +74,10 @@ std::atomic<uint64_t> g_freshRunStartSignature { 0 };
 std::atomic<bool> g_freshRunPassMoved { false };
 std::atomic<bool> g_freshRunWindowMoved { false };
 
+std::atomic<uint64_t> g_snapshots { 0 };
+std::atomic<uint64_t> g_lastSnapshotMs { 0 };
+std::atomic<uint32_t> g_msSinceSnapshotMax { 0 };
+
 std::atomic<uint64_t> g_recoveryRunLength { 0 };
 std::atomic<uint32_t> g_recoveryMs { 0 };
 std::atomic<bool> g_recoverySignatureChanged { false };
@@ -246,6 +250,19 @@ void NoteCameraContent (const float* view16, const float* projection16, float vp
     }
 }
 
+void NoteAuthoritativeSnapshot ()
+{
+    g_snapshots.fetch_add (1, std::memory_order_relaxed);
+    const uint64_t now = ::GetTickCount64 ();
+    const uint64_t previous = g_lastSnapshotMs.exchange (now, std::memory_order_relaxed);
+    // ⚠️ THE GAP IS MEASURED WHEN IT CLOSES, NOT WHILE
+    // IT IS OPEN. A gap that is still running has no length yet, and taking the
+    // maximum of a running gap on every Present would report the session's age.
+    // The live one is reported separately, from `Snapshot`.
+    if (previous != 0)
+        RaiseTo32 (g_msSinceSnapshotMax, uint32_t (now - previous));
+}
+
 void NoteCameraAdopted ()
 {
     g_camAdopted.fetch_add (1, std::memory_order_relaxed);
@@ -303,6 +320,10 @@ Report Snapshot ()
     report.msSinceAcceptedChangedMax = g_msSinceAcceptedChangedMax.load (std::memory_order_relaxed);
     report.freshRunMax = g_freshRunMax.load (std::memory_order_relaxed);
     report.freshRunCurrent = g_freshRunCurrent.load (std::memory_order_relaxed);
+    report.snapshots = g_snapshots.load (std::memory_order_relaxed);
+    const uint64_t lastSnapshot = g_lastSnapshotMs.load (std::memory_order_relaxed);
+    report.msSinceSnapshot = lastSnapshot == 0 ? 0u : uint32_t (::GetTickCount64 () - lastSnapshot);
+    report.msSinceSnapshotMax = g_msSinceSnapshotMax.load (std::memory_order_relaxed);
     report.recoveryRunLength = g_recoveryRunLength.load (std::memory_order_relaxed);
     report.recoveryMs = g_recoveryMs.load (std::memory_order_relaxed);
     report.recoverySignatureChanged = g_recoverySignatureChanged.load (std::memory_order_relaxed);
@@ -347,6 +368,9 @@ void Reset ()
     g_freshRunStartSignature.store (0, std::memory_order_relaxed);
     g_freshRunPassMoved.store (false, std::memory_order_relaxed);
     g_freshRunWindowMoved.store (false, std::memory_order_relaxed);
+    g_snapshots.store (0, std::memory_order_relaxed);
+    g_lastSnapshotMs.store (0, std::memory_order_relaxed);
+    g_msSinceSnapshotMax.store (0, std::memory_order_relaxed);
     g_recoveryRunLength.store (0, std::memory_order_relaxed);
     g_recoveryMs.store (0, std::memory_order_relaxed);
     g_recoverySignatureChanged.store (false, std::memory_order_relaxed);

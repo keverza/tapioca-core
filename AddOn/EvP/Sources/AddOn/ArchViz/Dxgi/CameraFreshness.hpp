@@ -167,6 +167,29 @@ void NoteCameraContent (const float* view16, const float* projection16, float vp
 // capture serial that were current at that instant.
 void NoteCameraAdopted ();
 
+// RENDER THREAD, from `CopyCameraWindows`, when the 256 bytes the shader reads
+// are actually refreshed.
+//
+// ⚠️ THIS IS THE ONE THAT DECIDES WHAT IS ON SCREEN, AND
+// IT IS NOT THE ADOPTION CLASSIFICATION. `NEW_SCENE` / `REPEAT_SCENE` chooses
+// what goes into `g_acceptedCamera`, which is METADATA -- a viewport, a
+// generation, a draw sequence. The projection the shader actually multiplies by
+// lives in the snapshot buffers, and `CopyCameraWindows` overwrites those on
+// EVERY QUALIFYING DRAW regardless of how the Present was classified.
+//
+// ⚠️ SO `FRESH_NOT_ADOPTED` DOES NOT PROVE THE OVERLAY
+// DREW WITH A STALE CAMERA. It proves the accepted METADATA was stale. The
+// bytes are gated further up, by the chain
+//
+//     census draw -> MatchesSelection (the PIN) -> SnapshotSelectedDraw
+//                 -> occurrence locked -> CopyCameraWindows
+//
+// and any link failing stops the refresh with nothing downstream reporting it.
+// A freeze is therefore visible here and nowhere else: during one, this stops
+// being called while the census keeps decoding fresh content, because the census
+// matches a GROUP and this needs the PIN.
+void NoteAuthoritativeSnapshot ();
+
 // ⚠️ AND EVERY PRESENT IS CLASSIFIED AGAINST THAT
 // STAMP, WHICH IS THE WHOLE INSTRUMENT:
 //
@@ -238,6 +261,15 @@ struct Report {
     // RECOVERED. The reproduction says the freeze persists until "another
     // interaction" repairs it, so the repair is the evidence: these describe the
     // longest run that ENDED, and which of the candidate causes moved when it did.
+    // ⚠️ WHEN THE BYTES LAST MOVED, WHICH IS THE
+    // ONLY DIRECT MEASURE OF WHAT IS ON SCREEN. `msSinceSnapshotMax` in the
+    // seconds, against a `contentChanges` that kept climbing, is the pin
+    // dropping out -- the overlay holding the last camera it was given while
+    // Archicad went somewhere else.
+    uint64_t snapshots = 0;
+    uint32_t msSinceSnapshot = 0;
+    uint32_t msSinceSnapshotMax = 0;
+
     uint64_t recoveryRunLength = 0;
     uint32_t recoveryMs = 0;
     bool recoverySignatureChanged = false;

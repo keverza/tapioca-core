@@ -49,6 +49,7 @@ std::string g_lastWatch;
 std::string g_lastBackend;
 std::string g_lastPulse;
 std::string g_lastSync;
+uint32_t g_syncTicks = 0;
 
 } // namespace
 
@@ -282,29 +283,49 @@ void Pulse (const Health& health)
 void Sync ()
 {
     const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
-    char line[400] = {};
+    // ⚠️ THE PIN, BECAUSE IT IS WHAT GATES THE BYTES.
+    // `CopyCameraWindows` runs only for a draw that passed `MatchesSelection`,
+    // so a pin that stops matching stops the refresh of the 256 bytes the shader
+    // multiplies by -- and NOTHING downstream reports that, because every
+    // composition counter stays perfectly healthy while the overlay holds the
+    // last camera it was given. See `freshness::NoteAuthoritativeSnapshot`.
+    const uint32_t pinMiss = cen::GetBindingStats ().pinMissMask;
+    char line[460] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "%s adopted=%llu same=%llu FRESH_NOT_ADOPTED=%llu | decodes=%llu changes=%llu serialLagMax=%llu "
-                 "| ms since capture=%u since adopt=%u | freeze run now=%llu worst=%llu "
+                 "%s | BYTES: snapshots=%llu, %u ms since the last one, worst gap %u ms, pinMiss=0x%02x "
+                 "| content: decodes=%llu changes=%llu, %u ms since capture "
+                 "| adopted=%llu same=%llu FRESH_NOT_ADOPTED=%llu, run now=%llu worst=%llu "
                  "| recovery: run=%llu after %u ms, signature %s, pass %s, window %s",
-                 cam.camFreshNotAdopted > 0 ? "DESYNC SEEN" : "in sync", (unsigned long long) cam.camAdopted,
-                 (unsigned long long) cam.camSame, (unsigned long long) cam.camFreshNotAdopted,
+                 cam.msSinceSnapshot > 500 ? "BYTES STALLED" : (cam.camFreshNotAdopted > 0 ? "desync seen" : "in sync"),
+                 (unsigned long long) cam.snapshots, cam.msSinceSnapshot, cam.msSinceSnapshotMax, pinMiss,
                  (unsigned long long) cam.contentDecodes, (unsigned long long) cam.contentChanges,
-                 (unsigned long long) cam.serialLagMax, cam.msSinceLatestCaptureMax, cam.msSinceAcceptedChangedMax,
-                 (unsigned long long) cam.freshRunCurrent, (unsigned long long) cam.freshRunMax,
-                 (unsigned long long) cam.recoveryRunLength, cam.recoveryMs,
+                 cam.msSinceLatestCaptureMax, (unsigned long long) cam.camAdopted, (unsigned long long) cam.camSame,
+                 (unsigned long long) cam.camFreshNotAdopted, (unsigned long long) cam.freshRunCurrent,
+                 (unsigned long long) cam.freshRunMax, (unsigned long long) cam.recoveryRunLength, cam.recoveryMs,
                  cam.recoverySignatureChanged ? "MOVED" : "held", cam.recoveryPassMoved ? "MOVED" : "held",
                  cam.recoveryWindowMoved ? "MOVED" : "held");
+
+    // ⚠️ KEYED ON THE STATE WORD AND RATE-LIMITED, THE
+    // WAY `Live` IS. `ms since the last one` advances on every tick by
+    // construction, so comparing whole lines would narrate four times a second
+    // for the life of the session and comparing nothing would narrate never.
     const std::string current (line);
-    if (current == g_lastSync)
+    const size_t bar = current.find (" |");
+    const std::string state (current.substr (0, bar == std::string::npos ? current.size () : bar));
+    const bool stateChanged = g_lastSync.empty () || state != g_lastSync;
+    const bool quiet = state == "in sync";
+    ++g_syncTicks;
+    if (!stateChanged && !(!quiet && g_syncTicks >= 4) && g_syncTicks < 20)
         return;
-    g_lastSync = current;
+    g_syncTicks = 0;
+    g_lastSync = state;
     Say ("SYNC", current);
 }
 
 void Reset ()
 {
     g_lastSync.clear ();
+    g_syncTicks = 0;
     g_lastPulse.clear ();
     g_lastBackend.clear ();
     g_lastWatch.clear ();
