@@ -557,6 +557,31 @@ class SetPlanAnchorsCommand : public MainThreadCommand {
         GS::Array<GS::ObjectState> elements;
         params.Get ("elements", elements); // the schema already requires this field
 
+        // ⚠️ `allWalls` EXISTS BECAUSE THE PLAN OVERLAY HAD
+        // NO WAY TO FILL ITSELF. `OverlayController::StartPlanOverlay` has printed
+        // "NOTE: wall outlines not yet fed from GetWallPlanOutlines" on every
+        // single start since it was written: the window opens, follows the plan
+        // camera and draws nothing, because the only route to the drawing half
+        // took a list of guids somebody had to supply -- and a user opening the
+        // overlay from the menu has no list.
+        //
+        // ⚠️ AND IT IS A FILTERED READ, NOT "EVERY WALL IN
+        // THE PROJECT". `APIFilt_OnActFloor` restricts it to the storey being
+        // drawn; an anchor for a wall on another floor is a line with nothing
+        // under it, which is precisely the register error this layer exists to
+        // catch, manufactured by the layer itself.
+        bool allWalls = false;
+        params.Get ("allWalls", allWalls);
+
+        GS::Array<API_Guid> collected;
+        if (allWalls) {
+            const API_ElemType wallType (API_WallID);
+            const GSErrCode listed = ACAPI_Element_GetElemList (wallType, &collected, APIFilt_OnActFloor);
+            if (listed != NoError)
+                return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_Element_GetElemList", listed,
+                                                                     "listing the walls on the storey being drawn"));
+        }
+
         bool enabled = true;
         params.Get ("enabled", enabled);
 
@@ -597,16 +622,32 @@ class SetPlanAnchorsCommand : public MainThreadCommand {
         std::vector<std::vector<float>> ringArcs;
         GS::Int32 walls = 0;
 
-        for (const GS::ObjectState& item : elements) {
-            GS::ObjectState elementIdIn;
-            GS::UniString guidString;
-            if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString) ||
-                guidString.IsEmpty ()) {
-                return NativeCommandResult::Failure ("every element needs elementId.guid");
+        // ⚠️ ONE LOOP OVER ONE LIST OF GUIDS, WHICHEVER
+        // WAY THEY ARRIVED. Two loops with the same body is how the `elements`
+        // path and the `allWalls` path would come to disagree about holes, arcs
+        // or which types are skipped, and the skipping rule below is subtle
+        // enough to be worth having exactly once.
+        GS::Array<API_Guid> guids;
+        if (allWalls) {
+            guids = collected;
+        }
+        else {
+            for (const GS::ObjectState& item : elements) {
+                GS::ObjectState elementIdIn;
+                GS::UniString guidString;
+                if (!item.Get ("elementId", elementIdIn) || !elementIdIn.Get ("guid", guidString) ||
+                    guidString.IsEmpty ()) {
+                    return NativeCommandResult::Failure ("every element needs elementId.guid");
+                }
+                guids.Push (APIGuidFromString (guidString.ToCStr ().Get ()));
             }
+        }
+
+        for (const API_Guid& guid : guids) {
+            const GS::UniString guidString = APIGuidToString (guid);
 
             API_Element wallElement = {};
-            wallElement.header.guid = APIGuidFromString (guidString.ToCStr ().Get ());
+            wallElement.header.guid = guid;
             // A guid that is not a wall is SKIPPED, not refused: the natural
             // caller is "the current selection", and refusing the whole batch
             // because one door was selected would make the feature unusable.
@@ -765,6 +806,7 @@ constexpr const char kSetPlanAnchorsInput[] = R"json({
     "type":"object",
     "properties":{
         "elements":{"$ref":"#Elements"},
+        "allWalls":{"type":"boolean"},
         "enabled":{"type":"boolean"},
         "widthPixels":{"type":"number","minimum":0.5,"maximum":16},
         "color":{"type":"string","minLength":8,"maxLength":8},
