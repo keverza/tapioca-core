@@ -394,11 +394,11 @@ void Composite ()
         return;
     char line[240] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "draws=%llu verts=%u windowChanges=%llu | b0 %s%llx b1 %s%llx b2 %s%llx",
-                 (unsigned long long) c.draws, c.vertexCount, (unsigned long long) c.windowChanges,
-                 c.b0Bound ? "" : "unbound ", (unsigned long long) (c.b0Window ? c.b0Window - 1 : 0),
-                 c.b1Bound ? "" : "unbound ", (unsigned long long) (c.b1Window ? c.b1Window - 1 : 0),
-                 c.b2Bound ? "" : "unbound ", (unsigned long long) (c.b2Window ? c.b2Window - 1 : 0));
+                 "draws=%llu verts=%u windowChanges=%llu | b0 %s%llx b1 %s%llx b2 %s%llx", (unsigned long long) c.draws,
+                 c.vertexCount, (unsigned long long) c.windowChanges, c.b0Bound ? "" : "unbound ",
+                 (unsigned long long) (c.b0Window ? c.b0Window - 1 : 0), c.b1Bound ? "" : "unbound ",
+                 (unsigned long long) (c.b1Window ? c.b1Window - 1 : 0), c.b2Bound ? "" : "unbound ",
+                 (unsigned long long) (c.b2Window ? c.b2Window - 1 : 0));
     const std::string current (line);
     if (current == g_lastComposite)
         return;
