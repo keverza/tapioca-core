@@ -278,14 +278,6 @@ Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration);
 const char* LifecycleName (Lifecycle state);
 
 struct BindingStats {
-    // ⚠️ THE WORST RUN OF CONSECUTIVE MODEL GENERATIONS THE
-    // PINNED FAMILY DID NOT DRAW IN, which is the number the lock grace has to
-    // cover. A selection at 89% occurrence coverage is absent from roughly one
-    // frame in nine, so runs of two arrive several times a second while
-    // navigating -- and until the grace was widened, each of those dropped the
-    // lock and froze the overlay until it re-locked. If this exceeds the grace,
-    // the grace is wrong and this is what says so.
-    uint64_t longestAbsenceRun = 0;
     uint64_t selectionMatches = 0;
     uint64_t logicalMatches = 0;
     uint64_t rebinds = 0;

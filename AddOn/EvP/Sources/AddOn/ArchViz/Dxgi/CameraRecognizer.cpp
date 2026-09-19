@@ -29,15 +29,6 @@ Fingerprint g_fingerprint;
 // makes re-acquisition safe. A fingerprint match only re-pins when the current
 // pin has gone quiet; without that rule a second draw family sharing the same
 // logical shape would steal the binding back and forth every frame.
-// How many model generations the pinned family may be absent for before the
-// lock is called lost. See `GetLifecycle`.
-const uint64_t kLockGraceGenerations = 3;
-
-// The worst run of consecutive generations it WAS absent for, so the constant
-// above can be checked against the thing it is meant to cover.
-uint64_t g_absenceRunNow = 0;
-uint64_t g_absenceRunLongest = 0;
-
 uint64_t g_selectionLastSeenModel = 0;
 // How many groups cleared the eligibility gate on the last attempt. A promotion
 // that never happens is a different fault depending on whether this is zero.
@@ -523,57 +514,19 @@ void MaintainBinding (const contextstate::ContextState& live, DrawKind kind, uin
     g_selection.viewNumConstants = live.vsConstantBuffers[1].numConstants;
     g_selection.projectionBuffer = live.vsConstantBuffers[2].buffer;
     g_selection.projectionNumConstants = live.vsConstantBuffers[2].numConstants;
-    // The family drew, so whatever absence run was open has ended.
-    if (g_absenceRunNow > g_absenceRunLongest)
-        g_absenceRunLongest = g_absenceRunNow;
-    g_absenceRunNow = 0;
     g_selectionLastSeenModel = modelGeneration;
     ++g_binding.rebinds;
-    g_binding.longestAbsenceRun = g_absenceRunLongest;
 }
 
 Lifecycle GetLifecycle (bool learning, uint64_t modelGeneration)
 {
-    if (g_selection.valid && g_selectionLastSeenModel != 0 && modelGeneration > g_selectionLastSeenModel) {
-        g_absenceRunNow = modelGeneration - g_selectionLastSeenModel;
-        if (g_absenceRunNow > g_absenceRunLongest)
-            g_absenceRunLongest = g_absenceRunNow;
-    }
     if (!g_selection.valid)
         return learning ? Lifecycle::Learning : Lifecycle::Unknown;
     // ⚠️ THE SAME STALENESS TEST `MaintainBinding` REBINDS ON, so the
-    // reported state and the behaviour cannot drift apart. Some model
-    // generations of grace: a frame in which the pinned family did not draw is a
+    // reported state and the behaviour cannot drift apart. One model generation
+    // of grace: a single frame in which the pinned family did not draw is a
     // frame, not a loss.
-    //
-    // ⚠️ AND ONE GENERATION WAS NOT ENOUGH, WHICH IS WHY
-    // THE OVERLAY FROZE DURING NAVIGATION AND SNAPPED ON STOP. The selected
-    // occurrence is "which draw of this signature within this model frame", and
-    // `coverage` is the fraction of model frames it appears in at all. A
-    // selection at 89% coverage is ABSENT FROM ROUGHLY ONE FRAME IN NINE, so
-    // runs of two consecutive absences arrive several times a second at
-    // navigation frame rates -- and with one generation of grace each of those
-    // dropped the lock:
-    //
-    //     Locked -> Reacquiring -> the pin stops matching -> no byte copy ->
-    //     the overlay holds the camera it already had -> it snaps back when the
-    //     lock returns
-    //
-    // Measured. The run the overlay was CORRECT in locked occurrences at 94% and
-    // 97% coverage and stayed `Locked` throughout, with snapshots climbing in
-    // hundreds per navigation burst. The run it froze in locked one at 89% and
-    // oscillated `Locked` / `Reacquiring` while moving, with snapshots climbing
-    // TWO at a time and gaps of five to forty-three seconds between them. No code
-    // changed between those runs; the model did.
-    //
-    // ⚠️ THREE IS PROVISIONAL AND THE MEASUREMENT BESIDE
-    // IT SAYS WHETHER IT IS ENOUGH. `longestAbsenceRun` records the worst run of
-    // consecutive model generations the pinned family did not draw in. If it
-    // exceeds this grace, this number is wrong and the log says so rather than
-    // leaving the overlay to freeze silently; if it stays well under, the grace
-    // can come back down. Three generations is ~100 ms of staleness at
-    // navigation rates against the SECONDS a full reacquisition costs.
-    if (g_selectionLastSeenModel != 0 && modelGeneration <= g_selectionLastSeenModel + kLockGraceGenerations)
+    if (g_selectionLastSeenModel != 0 && modelGeneration <= g_selectionLastSeenModel + 1)
         return Lifecycle::Locked;
     return Lifecycle::Reacquiring;
 }

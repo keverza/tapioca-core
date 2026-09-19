@@ -295,19 +295,17 @@ void Sync ()
     // multiplies by -- and NOTHING downstream reports that, because every
     // composition counter stays perfectly healthy while the overlay holds the
     // last camera it was given. See `freshness::NoteAuthoritativeSnapshot`.
-    const cen::BindingStats binding = cen::GetBindingStats ();
-    const uint32_t pinMiss = binding.pinMissMask;
+    const uint32_t pinMiss = cen::GetBindingStats ().pinMissMask;
     char line[460] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "%s | BYTES: snapshots=%llu, %u ms since the last one, worst gap %u ms, pinMiss=0x%02x "
-                 "| content: decodes=%llu changes=%llu, %u ms since capture, absence run worst=%llu "
+                 "| content: decodes=%llu changes=%llu, %u ms since capture "
                  "| adopted=%llu same=%llu FRESH_NOT_ADOPTED=%llu, run now=%llu worst=%llu "
                  "| recovery: run=%llu after %u ms, signature %s, pass %s, window %s",
                  cam.msSinceSnapshot > 500 ? "BYTES STALLED" : (cam.camFreshNotAdopted > 0 ? "desync seen" : "in sync"),
                  (unsigned long long) cam.snapshots, cam.msSinceSnapshot, cam.msSinceSnapshotMax, pinMiss,
                  (unsigned long long) cam.contentDecodes, (unsigned long long) cam.contentChanges,
-                 cam.msSinceLatestCaptureMax, (unsigned long long) binding.longestAbsenceRun,
-                 (unsigned long long) cam.camAdopted, (unsigned long long) cam.camSame,
+                 cam.msSinceLatestCaptureMax, (unsigned long long) cam.camAdopted, (unsigned long long) cam.camSame,
                  (unsigned long long) cam.camFreshNotAdopted, (unsigned long long) cam.freshRunCurrent,
                  (unsigned long long) cam.freshRunMax, (unsigned long long) cam.recoveryRunLength, cam.recoveryMs,
                  cam.recoverySignatureChanged ? "MOVED" : "held", cam.recoveryPassMoved ? "MOVED" : "held",
