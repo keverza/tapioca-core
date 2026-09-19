@@ -76,7 +76,10 @@ struct GpuViewport {
     float minDepth = 0.0f;
     float maxDepth = 0.0f;
 
-    float Area () const { return width * height; }
+    float Area () const
+    {
+        return width * height;
+    }
 };
 
 // How many distinct viewports one frame's histogram holds. Eight is more passes
@@ -85,28 +88,28 @@ struct GpuViewport {
 constexpr size_t kMaxDistinctViewports = 8;
 
 struct FrameState {
-    bool        valid = false;
-    uint64_t    frameId = 0;
-    uint64_t    timestampUs = 0;
+    bool valid = false;
+    uint64_t frameId = 0;
+    uint64_t timestampUs = 0;
 
-    GpuViewport largest;          // biggest area seen this frame
-    GpuViewport sceneCandidate;   // whatever was current at the last depth clear
-    uint64_t    sceneColorTarget = 0;
-    uint64_t    sceneDepthTarget = 0;
+    GpuViewport largest;        // biggest area seen this frame
+    GpuViewport sceneCandidate; // whatever was current at the last depth clear
+    uint64_t sceneColorTarget = 0;
+    uint64_t sceneDepthTarget = 0;
 
-    GpuViewport lastViewport;     // current at Present; usually a UI pass
-    uint64_t    lastColorTarget = 0;
-    uint64_t    lastDepthTarget = 0;
+    GpuViewport lastViewport; // current at Present; usually a UI pass
+    uint64_t lastColorTarget = 0;
+    uint64_t lastDepthTarget = 0;
 
-    int32_t     scissorLeft = 0;
-    int32_t     scissorTop = 0;
-    int32_t     scissorRight = 0;
-    int32_t     scissorBottom = 0;
+    int32_t scissorLeft = 0;
+    int32_t scissorTop = 0;
+    int32_t scissorRight = 0;
+    int32_t scissorBottom = 0;
 
-    uint32_t    viewportSets = 0;
-    uint32_t    targetBinds = 0;
-    uint32_t    colourClears = 0;
-    uint32_t    depthClears = 0;
+    uint32_t viewportSets = 0;
+    uint32_t targetBinds = 0;
+    uint32_t colourClears = 0;
+    uint32_t depthClears = 0;
 
     // ⚠️ HOW MANY FRAMES AGO THE SCENE VIEWPORT WAS ACTUALLY SEEN, and it is not
     // a diagnostic nicety. `sceneCandidate` is sampled at a depth clear, and
@@ -117,11 +120,11 @@ struct FrameState {
     // says how stale it is: 0 means this frame drew the scene, a large number
     // means nothing has drawn a 3D pass for a while, and only the second is the
     // finding the old message was trying to report.
-    uint32_t    sceneCandidateAgeFrames = 0;
+    uint32_t sceneCandidateAgeFrames = 0;
 
-    uint32_t    distinctCount = 0;
+    uint32_t distinctCount = 0;
     GpuViewport distinct[kMaxDistinctViewports];
-    uint32_t    distinctHits[kMaxDistinctViewports] = {};
+    uint32_t distinctHits[kMaxDistinctViewports] = {};
 };
 
 // ---- the scene pass (stage 4/5) --------------------------------------------
@@ -156,19 +159,19 @@ struct FrameState {
 // the evidence that injecting there lands before them, and a zero count means
 // the boundary is at or after the post chain and stage 5 must move earlier.
 struct ScenePass {
-    uint64_t    generation = 0;      // 0 until the first depth clear
-    uint64_t    presentFrameId = 0;  // which Present interval it lived in
-    uint64_t    colorTarget = 0;      // the RTV
-    uint64_t    depthTarget = 0;      // the DSV
+    uint64_t generation = 0;     // 0 until the first depth clear
+    uint64_t presentFrameId = 0; // which Present interval it lived in
+    uint64_t colorTarget = 0;    // the RTV
+    uint64_t depthTarget = 0;    // the DSV
     // ⚠️ THE TEXTURE BEHIND THE RTV, AND IT IS NOT THE SAME QUESTION. Several
     // views can address one texture, so a copy or resolve that consumes the
     // scene is recognised by its SOURCE RESOURCE, never by an RTV pointer.
-    uint64_t    colorResource = 0;
+    uint64_t colorResource = 0;
     GpuViewport viewport;
-    uint32_t    draws = 0;           // draw calls seen while its target was bound
-    bool        boundaryHit = false; // the colour target was bound away afterwards
-    uint32_t    opsAfterBoundary = 0;// copies/resolves between boundary and Present
-    uint32_t    drawsAfterBoundary = 0;
+    uint32_t draws = 0;            // draw calls seen while its target was bound
+    bool boundaryHit = false;      // the colour target was bound away afterwards
+    uint32_t opsAfterBoundary = 0; // copies/resolves between boundary and Present
+    uint32_t drawsAfterBoundary = 0;
 
     // ⚠️ HOW MANY TIMES ARCHICAD CAME BACK TO THIS TARGET AFTER "LEAVING" IT.
     // The candidate injection boundary is the switch away from the scene target,
@@ -177,8 +180,8 @@ struct ScenePass {
     // more draws -- so treating the first switch as the end of the scene would
     // have injected into the middle of it. A non-zero count here means the
     // boundary to use is a later switch, not this one.
-    uint32_t    targetReturns = 0;
-    uint32_t    drawsAfterReturn = 0;
+    uint32_t targetReturns = 0;
+    uint32_t drawsAfterReturn = 0;
 
     // ⚠️ A PASS AND A TARGET SEGMENT ARE DIFFERENT THINGS, and run eighteen is
     // why both are counted. `generation` is one logical 3D render within a
@@ -186,12 +189,12 @@ struct ScenePass {
     // RE-ENTERS the scene RTV/DSV. A pass can contain several epochs, and an
     // early departure from the target is not "the boundary" merely because the
     // pass object later reopens.
-    uint64_t    targetEpoch = 0;
-    uint64_t    drawsThisEpoch = 0;
+    uint64_t targetEpoch = 0;
+    uint64_t drawsThisEpoch = 0;
 
     // Whether something has already consumed this pass's colour texture. The
     // first consumer is the scene-completion trigger; later ones are post.
-    bool        sceneConsumed = false;
+    bool sceneConsumed = false;
 
     // ⚠️ WHETHER THIS PASS'S DRAWS CARRIED A CAMERA, which turns out to be the
     // only discriminator that works on this host. Run twenty-three: the busiest
@@ -200,16 +203,16 @@ struct ScenePass {
     // pass with substantially more draws than the others" identifies nothing
     // here. What separates the 3D pass from a gizmo pass is that its draws bind
     // a view AND a projection in the windows stage 3 identified.
-    bool        drawsHadCamera = false;
+    bool drawsHadCamera = false;
 
     // The bindings that were live when this pass BEGAN -- inherited, not waited
     // for. See ContextStateTracker.hpp: a camera constant bound once and never
     // rebound is invisible to anything that only records events after the depth
     // clear, which is the likeliest reason the view matrix has been found once
     // in four runs while the projection is found every time.
-    uint64_t    vsShaderAtPassStart = 0;
-    uint64_t    vsBuffer[14] = {};
-    uint32_t    vsFirstConstant[14] = {};
+    uint64_t vsShaderAtPassStart = 0;
+    uint64_t vsBuffer[14] = {};
+    uint32_t vsFirstConstant[14] = {};
 };
 
 // The most recently STARTED pass, and the most recently COMPLETED one. A
@@ -221,6 +224,25 @@ ScenePass CurrentScenePass ();
 // the online trigger's own count, and the number stage 5 watches to know the
 // trigger fires exactly once per rendered scene.
 uint64_t SceneConsumedCount ();
+
+// ⚠️ WHETHER THERE IS ANYWHERE TO LATCH ON TO.
+// `sceneConsumed` is set by two unrelated paths and the log could not tell them
+// apart, which matters because only one of them is a place an overlay could be
+// injected into the finished scene image: a copy whose source IS the scene
+// colour, intercepted before it is forwarded. The other is the render-target
+// departure, by which time the scene may already have been consumed.
+//
+// Run twenty-one measured zero of thirty-six copies sourcing the scene. If
+// `consumedByCopy` stays zero this confirms it and no in-pass injection at a
+// copy is possible; if it is non-zero that finding has expired and the latch
+// point is real. `copiesSeenInPass` separates "no copy sourced the scene" from
+// "no copy happened".
+struct LatchCensus {
+    uint64_t consumedByCopy = 0;
+    uint64_t consumedByDeparture = 0;
+    uint64_t copiesSeenInPass = 0;
+};
+LatchCensus GetLatchCensus ();
 
 // ⚠️ THE GENERATION THE DRAWS OF THE FRAME BEING BUILT ARE STAMPED WITH, which
 // is the id of the LAST present, not of the one about to happen. A camera latched
@@ -280,12 +302,12 @@ bool SceneCompletesAt (uint64_t newColorTarget);
 // Why a departure was or was not taken, so the proof can count refusals rather
 // than only successes.
 struct DepartureStats {
-    uint64_t departuresSeen = 0;       // left a target that had draws in it
-    uint64_t acceptedAsScene = 0;      // ... and the pass looked like the 3D scene
-    uint64_t rejectedTooFewDraws = 0;  // ... and it did not
-    uint64_t rejectedAlreadyDone = 0;  // this pass had already been injected into
-    uint32_t drawThreshold = 0;        // what "enough draws" currently means
-    uint32_t busiestPassDraws = 0;     // the most draws any one pass has had
+    uint64_t departuresSeen = 0;      // left a target that had draws in it
+    uint64_t acceptedAsScene = 0;     // ... and the pass looked like the 3D scene
+    uint64_t rejectedTooFewDraws = 0; // ... and it did not
+    uint64_t rejectedAlreadyDone = 0; // this pass had already been injected into
+    uint32_t drawThreshold = 0;       // what "enough draws" currently means
+    uint32_t busiestPassDraws = 0;    // the most draws any one pass has had
 };
 DepartureStats GetDepartureStats ();
 
@@ -305,13 +327,13 @@ DepartureStats GetDepartureStats ();
 //
 // Phase 2 recognises that signature online at a departure and injects there.
 struct SceneSignature {
-    bool     learned = false;
+    bool learned = false;
     uint64_t colorResource = 0;
     uint64_t depthTarget = 0;
-    float    viewportWidth = 0.0f;
-    float    viewportHeight = 0.0f;
-    uint32_t draws = 0;          // what that pass typically draws
-    uint32_t stableFrames = 0;   // consecutive frames agreeing on this signature
+    float viewportWidth = 0.0f;
+    float viewportHeight = 0.0f;
+    uint32_t draws = 0;        // what that pass typically draws
+    uint32_t stableFrames = 0; // consecutive frames agreeing on this signature
     uint32_t framesWatched = 0;
     uint32_t candidatesThisFrame = 0;
 };
@@ -343,14 +365,14 @@ size_t DrainFrames (FrameState* out, size_t max);
 
 struct CaptureStats {
     uint64_t framesClosed = 0;
-    uint64_t framesDropped = 0;   // ring overrun before the main thread drained
+    uint64_t framesDropped = 0; // ring overrun before the main thread drained
     // The last closed frame's two candidates, so a diagnostic can print the
     // answer without the caller reassembling it.
     GpuViewport largest;
     GpuViewport sceneCandidate;
     // How stale that candidate is, in frames. See FrameState's field.
-    uint32_t    sceneCandidateAgeFrames = 0;
-    uint32_t    distinctCount = 0;
+    uint32_t sceneCandidateAgeFrames = 0;
+    uint32_t distinctCount = 0;
 };
 CaptureStats GetCaptureStats ();
 
@@ -361,9 +383,9 @@ void Reset ();
 // Write drained frames to the nav log as `source=gpuframe` rows. MAIN THREAD.
 void FlushFrameLog ();
 
-}   // namespace renderstate
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace renderstate
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

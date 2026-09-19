@@ -26,8 +26,20 @@ namespace renderstate {
 namespace {
 
 // ---- the scene pass --------------------------------------------------------
-std::atomic<uint64_t> g_scenePassGeneration {0};
+std::atomic<uint64_t> g_scenePassGeneration { 0 };
 uint64_t g_sceneConsumedCount = 0;
+// ⚠️ WHICH OF THE TWO PATHS SAID "CONSUMED", because
+// they are not interchangeable and one log flag could not tell them apart.
+// `consumed` is set BOTH by a copy whose source is the scene colour AND by the
+// render-target departure that accepts a pass as the scene. Only the FIRST is a
+// latch point -- a place where the scene is finished, the consumer has not run
+// yet, and anything drawn lands in the image about to be presented. Run
+// twenty-one measured zero of thirty-six copies sourcing the scene, and if that
+// still holds then every `consumed=yes` in the log is the departure path and
+// there is nothing to hang an in-pass injection on.
+uint64_t g_consumedByCopy = 0;
+uint64_t g_consumedByDeparture = 0;
+uint64_t g_copiesSeenInPass = 0;
 uint64_t g_modelSceneGeneration = 0;
 uint64_t g_modelPassOfGeneration = 0;
 DepartureStats g_departures;
@@ -41,7 +53,7 @@ constexpr uint32_t kStableFramesRequired = 2;
 // render passes than any capture has shown in one Archicad frame.
 constexpr size_t kMaxPassesPerFrame = 16;
 ScenePass g_framePasses[kMaxPassesPerFrame];
-size_t    g_framePassCount = 0;
+size_t g_framePassCount = 0;
 
 // ⚠️ A FLOOR UNDER THE LEARNED THRESHOLD. A frame in which Archicad genuinely
 // draws almost nothing must not make a four-draw gizmo pass look like the
@@ -68,8 +80,7 @@ uint64_t ResourceBehind (ID3D11RenderTargetView* view)
 
 ScenePass g_currentPass;
 ScenePass g_lastCompletedPass;
-uint64_t  g_presentFrameId = 0;
-
+uint64_t g_presentFrameId = 0;
 
 // The frame being accumulated. Plain, one writer -- see the header for why that
 // is a reasoned choice rather than an oversight.
@@ -86,18 +97,17 @@ GpuViewport g_currentViewport;
 // between camera ticks that drain it.
 constexpr size_t kRingSize = 256;
 FrameState g_ring[kRingSize] = {};
-std::atomic<uint64_t> g_reserved {0};
-std::atomic<uint64_t> g_published {0};
-std::atomic<uint64_t> g_drained {0};
-std::atomic<uint64_t> g_framesClosed {0};
-std::atomic<uint64_t> g_framesDropped {0};
+std::atomic<uint64_t> g_reserved { 0 };
+std::atomic<uint64_t> g_published { 0 };
+std::atomic<uint64_t> g_drained { 0 };
+std::atomic<uint64_t> g_framesClosed { 0 };
+std::atomic<uint64_t> g_framesDropped { 0 };
 
 uint64_t MicrosecondsNow ()
 {
     LARGE_INTEGER frequency = {};
     LARGE_INTEGER counter = {};
-    if (!QueryPerformanceFrequency (&frequency) || frequency.QuadPart == 0 ||
-        !QueryPerformanceCounter (&counter))
+    if (!QueryPerformanceFrequency (&frequency) || frequency.QuadPart == 0 || !QueryPerformanceCounter (&counter))
         return 0;
     return uint64_t (counter.QuadPart * 1000000ll / frequency.QuadPart);
 }
@@ -123,13 +133,13 @@ void CountDistinct (const GpuViewport& viewport)
         }
     }
     if (g_current.distinctCount >= kMaxDistinctViewports)
-        return;   // the histogram saturates; the counts above stay honest
+        return; // the histogram saturates; the counts above stay honest
     g_current.distinct[g_current.distinctCount] = viewport;
     g_current.distinctHits[g_current.distinctCount] = 1;
     ++g_current.distinctCount;
 }
 
-}   // namespace
+} // namespace
 
 void OnViewport (const D3D11_VIEWPORT& viewport)
 {
@@ -168,13 +178,12 @@ void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* de
     // the scene pass is over, its camera is still the last one bound, and its
     // depth buffer is still intact. Everything after this and before Present is
     // what stage 5 has to prove it lands in front of.
-    if (g_currentPass.generation != 0 && !g_currentPass.boundaryHit &&
-        g_currentPass.draws > 0 && previous == g_currentPass.colorTarget &&
-        g_boundColour != g_currentPass.colorTarget) {
+    if (g_currentPass.generation != 0 && !g_currentPass.boundaryHit && g_currentPass.draws > 0 &&
+        previous == g_currentPass.colorTarget && g_boundColour != g_currentPass.colorTarget) {
         g_currentPass.boundaryHit = true;
         g_lastCompletedPass = g_currentPass;
-    } else if (g_currentPass.generation != 0 && g_currentPass.boundaryHit &&
-               g_boundColour == g_currentPass.colorTarget) {
+    }
+    else if (g_currentPass.generation != 0 && g_currentPass.boundaryHit && g_boundColour == g_currentPass.colorTarget) {
         // ⚠️ IT CAME BACK. The switch we called a boundary was not the end of the
         // scene, and anything injected there would have landed in the middle of
         // it. The pass reopens, and the count is what says the boundary to use is
@@ -218,11 +227,9 @@ bool OnDraw ()
         // ⚠️ "IN THE MODEL PASS" MEANS THIS PASS MATCHES THE LEARNED SIGNATURE,
         // not merely that it cleared depth. Until phase 1 has learned one,
         // nothing is in the model pass and nothing is latched -- fail closed.
-        const bool inModelPass =
-                g_signature.learned &&
-                g_currentPass.colorResource == g_signature.colorResource &&
-                SameExtent (g_currentPass.viewport.width, g_signature.viewportWidth) &&
-                SameExtent (g_currentPass.viewport.height, g_signature.viewportHeight);
+        const bool inModelPass = g_signature.learned && g_currentPass.colorResource == g_signature.colorResource &&
+                                 SameExtent (g_currentPass.viewport.width, g_signature.viewportWidth) &&
+                                 SameExtent (g_currentPass.viewport.height, g_signature.viewportHeight);
         // ⚠️ ONE INCREMENT PER MODEL PASS, AT ITS FIRST CAMERA-BEARING DRAW. A
         // generation per draw would make every later draw of the same scene look
         // like a new scene; a generation per Present is the mistake this replaces.
@@ -230,9 +237,9 @@ bool OnDraw ()
             g_modelPassOfGeneration = g_currentPass.generation;
             ++g_modelSceneGeneration;
         }
-        const bool latchedCamera = contextstate::OnSceneDraw (g_currentPass.generation,
-                g_currentPass.targetEpoch, g_currentPass.drawsThisEpoch,
-                g_modelSceneGeneration, inModelPass);
+        const bool latchedCamera =
+            contextstate::OnSceneDraw (g_currentPass.generation, g_currentPass.targetEpoch,
+                                       g_currentPass.drawsThisEpoch, g_modelSceneGeneration, inModelPass);
         // ⚠️ TRUE MEANS "SNAPSHOT THE CAMERA THIS DRAW JUST BECAME THE SOURCE OF",
         // and the answer comes from the latch itself rather than from a second
         // predicate here. Run twenty-eight still reported exactly twice the truth
@@ -298,13 +305,11 @@ bool SceneCompletesAt (uint64_t newColorTarget)
         return false;
     }
     g_departures.drawThreshold = (g_signature.draws > 1) ? (g_signature.draws / 2) : 1;
-    const bool matches =
-            g_currentPass.colorResource == g_signature.colorResource &&
-            g_currentPass.depthTarget == g_signature.depthTarget &&
-            SameExtent (g_currentPass.viewport.width, g_signature.viewportWidth) &&
-            SameExtent (g_currentPass.viewport.height, g_signature.viewportHeight) &&
-            g_currentPass.drawsHadCamera &&
-            g_currentPass.draws >= g_departures.drawThreshold;
+    const bool matches = g_currentPass.colorResource == g_signature.colorResource &&
+                         g_currentPass.depthTarget == g_signature.depthTarget &&
+                         SameExtent (g_currentPass.viewport.width, g_signature.viewportWidth) &&
+                         SameExtent (g_currentPass.viewport.height, g_signature.viewportHeight) &&
+                         g_currentPass.drawsHadCamera && g_currentPass.draws >= g_departures.drawThreshold;
     if (!matches) {
         ++g_departures.rejectedTooFewDraws;
         return false;
@@ -314,6 +319,7 @@ bool SceneCompletesAt (uint64_t newColorTarget)
     if (g_lastCompletedPass.generation == g_currentPass.generation)
         g_lastCompletedPass.sceneConsumed = true;
     ++g_sceneConsumedCount;
+    ++g_consumedByDeparture;
     ++g_departures.acceptedAsScene;
     return true;
 }
@@ -348,6 +354,9 @@ bool OnCopyOrResolve (uint64_t sourceResource)
     // address one texture; and a scene consumed twice is one scene, so the
     // trigger fires on the FIRST consumer and not on every later copy of the
     // same bytes.
+    // Every copy Archicad makes while a pass is open, so "no copy sourced the
+    // scene" can be told from "no copy happened at all".
+    ++g_copiesSeenInPass;
     if (sourceResource == 0 || sourceResource != g_currentPass.colorResource)
         return false;
     if (g_currentPass.sceneConsumed)
@@ -356,7 +365,17 @@ bool OnCopyOrResolve (uint64_t sourceResource)
     if (g_lastCompletedPass.generation == g_currentPass.generation)
         g_lastCompletedPass.sceneConsumed = true;
     ++g_sceneConsumedCount;
+    ++g_consumedByCopy;
     return true;
+}
+
+LatchCensus GetLatchCensus ()
+{
+    LatchCensus census;
+    census.consumedByCopy = g_consumedByCopy;
+    census.consumedByDeparture = g_consumedByDeparture;
+    census.copiesSeenInPass = g_copiesSeenInPass;
+    return census;
 }
 
 uint64_t SceneConsumedCount ()
@@ -393,9 +412,9 @@ void OnClearRenderTarget (ID3D11RenderTargetView* view)
 // The last frame that actually drew a 3D pass, carried across frames that do
 // not. See `sceneCandidateAgeFrames` in the header for why.
 GpuViewport g_lastScene;
-uint64_t    g_lastSceneColour = 0;
-uint64_t    g_lastSceneDepth = 0;
-uint32_t    g_lastSceneAge = 0;
+uint64_t g_lastSceneColour = 0;
+uint64_t g_lastSceneDepth = 0;
+uint32_t g_lastSceneAge = 0;
 
 void OnClearDepthStencil (ID3D11DepthStencilView* view)
 {
@@ -449,8 +468,7 @@ void OnPresent (uint64_t frameId)
     // A pass that never had its target bound away still ended -- at Present.
     // Recording it as completed is what stops a frame whose UI draws into the
     // same target from losing its pass entirely.
-    if (g_currentPass.generation != 0 && !g_currentPass.boundaryHit &&
-        g_currentPass.draws > 0) {
+    if (g_currentPass.generation != 0 && !g_currentPass.boundaryHit && g_currentPass.draws > 0) {
         g_lastCompletedPass = g_currentPass;
     }
 
@@ -500,17 +518,18 @@ void OnPresent (uint64_t frameId)
 
         if (best == nullptr) {
             g_signature.stableFrames = 0;
-        } else if (g_signature.colorResource == best->colorResource &&
-                   g_signature.depthTarget == best->depthTarget &&
-                   SameExtent (g_signature.viewportWidth, best->viewport.width) &&
-                   SameExtent (g_signature.viewportHeight, best->viewport.height)) {
+        }
+        else if (g_signature.colorResource == best->colorResource && g_signature.depthTarget == best->depthTarget &&
+                 SameExtent (g_signature.viewportWidth, best->viewport.width) &&
+                 SameExtent (g_signature.viewportHeight, best->viewport.height)) {
             if (g_signature.stableFrames < 0xffffffffu)
                 ++g_signature.stableFrames;
             // Track the typical draw count rather than the first one seen.
             g_signature.draws = (g_signature.draws + best->draws) / 2;
             if (g_signature.stableFrames >= kStableFramesRequired)
                 g_signature.learned = true;
-        } else {
+        }
+        else {
             // A different signature: start counting again from this one.
             g_signature.colorResource = best->colorResource;
             g_signature.depthTarget = best->depthTarget;
@@ -534,7 +553,8 @@ void OnPresent (uint64_t frameId)
     if (reserved - drained < kRingSize) {
         g_ring[reserved % kRingSize] = g_current;
         g_published.fetch_add (1, std::memory_order_release);
-    } else {
+    }
+    else {
         // ⚠️ COUNTED, NOT SILENT. A dropped frame record is indistinguishable
         // from a frame Archicad did not draw, and "the viewport stopped
         // changing" is exactly the conclusion a resize test would draw from it.
@@ -632,13 +652,10 @@ void FlushFrameLog ()
                 continue;
             const uint64_t agoMs = (nowUs - frame.timestampUs) / 1000ull;
             const uint64_t sessionMs = (nowSessionMs > agoMs) ? (nowSessionMs - agoMs) : 0;
-            navlog::LogGpuFrame (sessionMs, frame.frameId,
-                                 frame.largest.x, frame.largest.y,
-                                 frame.largest.width, frame.largest.height,
-                                 frame.sceneCandidate.x, frame.sceneCandidate.y,
-                                 frame.sceneCandidate.width, frame.sceneCandidate.height,
-                                 frame.sceneCandidate.minDepth, frame.sceneCandidate.maxDepth,
-                                 frame.sceneColorTarget, frame.sceneDepthTarget,
+            navlog::LogGpuFrame (sessionMs, frame.frameId, frame.largest.x, frame.largest.y, frame.largest.width,
+                                 frame.largest.height, frame.sceneCandidate.x, frame.sceneCandidate.y,
+                                 frame.sceneCandidate.width, frame.sceneCandidate.height, frame.sceneCandidate.minDepth,
+                                 frame.sceneCandidate.maxDepth, frame.sceneColorTarget, frame.sceneDepthTarget,
                                  frame.viewportSets, frame.distinctCount, frame.depthClears);
         }
         if (count < 64)
@@ -646,7 +663,7 @@ void FlushFrameLog ()
     }
 }
 
-}   // namespace renderstate
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace renderstate
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
