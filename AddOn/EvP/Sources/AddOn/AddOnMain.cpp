@@ -652,5 +652,9 @@ GSErrCode FreeData (void)
     // Detach the project-event handler so the add-on can unload cleanly.
     ACAPI_ProjectOperation_CatchProjectEvent (
         APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close | APINotify_Quit, nullptr);
+    // LAST, because everything above it may still narrate its own teardown. The
+    // viewer log holds one handle for the session; this is where it goes back.
+    // Reopening is lazy, so a line after this point is still written.
+    geomsrv::archviz::ArchVizLogClose ();
     return NoError;
 }
