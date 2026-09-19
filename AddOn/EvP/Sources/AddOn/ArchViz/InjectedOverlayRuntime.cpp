@@ -92,8 +92,42 @@ std::string g_lastMessage;
 UINT_PTR g_timer = 0;
 constexpr UINT kTickMs = 250;
 
+// ⚠️ WHO DELIVERS THE HEARTBEAT IS A MEASUREMENT, NOT A
+// DETAIL, BECAUSE THE MENU AND THE COMMAND BEHAVE DIFFERENTLY AND ARM
+// IDENTICALLY. The 2026-09-18 log carries `camera sync mode: hookdiag at 33 ms,
+// hideOnNav off, gpuState on` for BOTH, sixty-seven times, so the difference is
+// not in the arming. It is here: `Tick` has two callers -- this timer, and
+// `Tapioca.OverlayRuntime`, which a diagnostic polls in a loop. The menu has
+// only the timer.
+//
+// ⚠️ AND A `WM_TIMER` IS THE LOWEST-PRIORITY MESSAGE
+// WINDOWS HAS. `CameraWake.hpp` wrote that down after measuring it: "synthesised
+// only when the queue has nothing else in it ... during a drag Archicad's queue
+// is never empty, so the timer is served last however short its interval". A
+// heartbeat that stops during navigation is a heartbeat that stops exactly when
+// the overlay is being asked to follow something -- and `OverlayRedrawBudget::
+// Consider`, the only thing that ends a suppressed frame, rides on it.
+//
+// ⚠️ `timerTicks` AGAINST `ticks` IS SECTION 9 AS A
+// NUMBER. "Production must not depend on a diagnostic having run": if a session
+// is healthy only while something else is polling the command, the two counters
+// say so outright instead of leaving it to be argued from symptoms.
+uint64_t g_ticks = 0;
+uint64_t g_timerTicks = 0;
+uint64_t g_lastTickMs = 0;
+uint32_t g_tickGapMaxMs = 0;
+uint64_t g_tickGapsOverASecond = 0;
+
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
+    // ⚠️ THE SAME GUARD `Tick` USES, BECAUSE THE SPLIT MUST
+    // NOT GO NEGATIVE. `StopHeartbeat` kills the timer but a WM_TIMER already in
+    // the queue still arrives, and `Tick` returns early on it -- so counting it
+    // here unconditionally would leave `timerTicks > ticks` and the report's
+    // `ticks - timerTicks` would print an unsigned underflow as the caller's
+    // share.
+    if (g_running)
+        ++g_timerTicks;
     Tick ();
 }
 
@@ -433,6 +467,13 @@ StartResult Start ()
     const StartResult armed = Arm ();
     g_running = true;
     g_visible = true;
+    // Same fault class as `report::Reset` on the way out: a gap measured across
+    // the pause BETWEEN two sessions is not a gap this session suffered.
+    g_ticks = 0;
+    g_timerTicks = 0;
+    g_lastTickMs = 0;
+    g_tickGapMaxMs = 0;
+    g_tickGapsOverASecond = 0;
     StartHeartbeat ();
     g_armPending = !armed.ok;
     if (!armed.ok) {
@@ -551,6 +592,22 @@ void Tick ()
 {
     if (!g_running)
         return;
+
+    // ⚠️ THE GAP IS MEASURED WHOEVER CLOSED IT. The
+    // question is not how often the timer fired, it is how long the runtime went
+    // unattended -- so a tick the command supplied counts as a tick, and the
+    // gap it closed is a gap that did not happen. `timerTicks` beside `ticks` is
+    // what separates the two.
+    const uint64_t nowMs = ::GetTickCount64 ();
+    if (g_lastTickMs != 0) {
+        const uint64_t gap = nowMs - g_lastTickMs;
+        if (gap > g_tickGapMaxMs)
+            g_tickGapMaxMs = uint32_t (gap);
+        if (gap >= 1000)
+            ++g_tickGapsOverASecond;
+    }
+    g_lastTickMs = nowMs;
+    ++g_ticks;
 
     // ⚠️ WAITING FOR THE 3D VIEWPORT IS A STATE, NOT A FAILURE, AND THIS IS WHAT
     // ENDS IT. A user who opens the overlay before the 3D window has drawn gets
@@ -677,6 +734,7 @@ void Tick ()
     report::Chain (live);
     report::Watch (live);
     report::Backend (live);
+    report::Pulse (live);
 }
 
 // ⚠️ THE FIRST STAGE THAT IS NOT SATISFIED, IN ORDER, AND NOTHING
@@ -791,6 +849,12 @@ Health GetHealth ()
     health.cameraAgeSamples = fresh.samples;
     health.suppressedStaleViewport = fresh.suppressed;
     health.redrawRequests = redrawbudget::Requests ();
+    health.redrawWaitMaxMs = fresh.redrawWaitMaxMs;
+    health.redrawsTaken = fresh.redrawsTaken;
+    health.ticks = g_ticks;
+    health.timerTicks = g_timerTicks;
+    health.tickGapMaxMs = g_tickGapMaxMs;
+    health.tickGapsOverASecond = g_tickGapsOverASecond;
     const dxgi::injecteddiligent::Stats dil = dxgi::injecteddiligent::Snapshot ();
     health.overlayBackend =
         dxgi::injecteddiligent::GetBackend () == dxgi::injecteddiligent::Backend::Diligent ? "diligent" : "native";

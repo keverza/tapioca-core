@@ -9,6 +9,7 @@
 #include <dxgi.h>
 
 #include <atomic>
+#include <windows.h> // GetTickCount64 -- one read of a shared page, no syscall
 
 namespace geomsrv {
 namespace archviz {
@@ -27,6 +28,11 @@ const uint32_t kBuckets = 4; // 0, 1, 2, 3-or-more
 std::atomic<uint64_t> g_histogram[kBuckets];
 std::atomic<uint32_t> g_ageMax { 0 };
 std::atomic<uint64_t> g_samples { 0 };
+
+// When the OUTSTANDING request was raised, 0 if none is. See the header.
+std::atomic<uint64_t> g_requestRaisedMs { 0 };
+std::atomic<uint32_t> g_requestWaitMaxMs { 0 };
+std::atomic<uint64_t> g_requestsTaken { 0 };
 
 } // namespace
 
@@ -56,7 +62,13 @@ bool Stale ()
 void NoteSuppressed ()
 {
     g_suppressed.fetch_add (1, std::memory_order_relaxed);
-    g_needsRedraw.store (true, std::memory_order_release);
+    // ⚠️ THE CLOCK STARTS ON THE FIRST SUPPRESSED PRESENT,
+    // NOT ON THE LAST. The request is coalesced, so a hundred blank frames raise
+    // one request; timestamping each of them would reset the clock every frame
+    // and report a wait of nearly zero for a stall that lasted seconds -- which
+    // is the measurement saying what it was built to detect cannot happen.
+    if (!g_needsRedraw.exchange (true, std::memory_order_acq_rel))
+        g_requestRaisedMs.store (::GetTickCount64 (), std::memory_order_relaxed);
 }
 
 void NoteAge (uint64_t presentGeneration, uint64_t snapshotGeneration)
@@ -76,7 +88,19 @@ uint32_t TargetEpoch ()
 
 bool TakeRedrawRequest ()
 {
-    return g_needsRedraw.exchange (false, std::memory_order_acq_rel);
+    if (!g_needsRedraw.exchange (false, std::memory_order_acq_rel))
+        return false;
+
+    const uint64_t raised = g_requestRaisedMs.exchange (0, std::memory_order_relaxed);
+    if (raised != 0) {
+        const uint64_t waited = ::GetTickCount64 () - raised;
+        uint32_t seen = g_requestWaitMaxMs.load (std::memory_order_relaxed);
+        while (uint32_t (waited) > seen &&
+               !g_requestWaitMaxMs.compare_exchange_weak (seen, uint32_t (waited), std::memory_order_relaxed)) {
+        }
+    }
+    g_requestsTaken.fetch_add (1, std::memory_order_relaxed);
+    return true;
 }
 
 Report Snapshot ()
@@ -89,6 +113,8 @@ Report Snapshot ()
     report.ageMax = g_ageMax.load (std::memory_order_relaxed);
     report.samples = g_samples.load (std::memory_order_relaxed);
     report.suppressed = g_suppressed.load (std::memory_order_relaxed);
+    report.redrawWaitMaxMs = g_requestWaitMaxMs.load (std::memory_order_relaxed);
+    report.redrawsTaken = g_requestsTaken.load (std::memory_order_relaxed);
     return report;
 }
 
@@ -102,6 +128,9 @@ void Reset ()
     g_acceptedExtent.store (0, std::memory_order_relaxed);
     g_needsRedraw.store (false, std::memory_order_relaxed);
     g_suppressed.store (0, std::memory_order_relaxed);
+    g_requestRaisedMs.store (0, std::memory_order_relaxed);
+    g_requestWaitMaxMs.store (0, std::memory_order_relaxed);
+    g_requestsTaken.store (0, std::memory_order_relaxed);
 }
 
 } // namespace freshness

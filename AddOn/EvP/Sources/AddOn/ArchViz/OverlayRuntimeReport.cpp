@@ -46,6 +46,7 @@ uint32_t g_liveTicks = 0;
 std::string g_lastChain;
 std::string g_lastWatch;
 std::string g_lastBackend;
+std::string g_lastPulse;
 
 } // namespace
 
@@ -252,8 +253,26 @@ void Backend (const Health& health)
     Say ("DILIGENT", current);
 }
 
+void Pulse (const Health& health)
+{
+    char line[320] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "ticks=%llu (timer %llu, caller %llu) asked every 250 ms, worst gap=%u ms, over 1 s=%llu | "
+                 "redraw request: raised=%llu taken=%llu worst wait=%u ms",
+                 (unsigned long long) health.ticks, (unsigned long long) health.timerTicks,
+                 (unsigned long long) (health.ticks - health.timerTicks), health.tickGapMaxMs,
+                 (unsigned long long) health.tickGapsOverASecond, (unsigned long long) health.suppressedStaleViewport,
+                 (unsigned long long) health.redrawsTaken, health.redrawWaitMaxMs);
+    const std::string current (line);
+    if (current == g_lastPulse)
+        return;
+    g_lastPulse = current;
+    Say ("PULSE", current);
+}
+
 void Reset ()
 {
+    g_lastPulse.clear ();
     g_lastBackend.clear ();
     g_lastWatch.clear ();
     g_mark = LiveMark {};

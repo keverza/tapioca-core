@@ -168,6 +168,26 @@ struct Health {
     uint64_t suppressedStaleViewport = 0;
     uint64_t redrawRequests = 0;
 
+    // ⚠️ WHO KEPT THE RUNTIME TICKING, AND WHETHER THE
+    // REDRAW THAT ENDS A BLANK FRAME WAS EVER ASKED FOR IN TIME. `Tick` has two
+    // callers: a 250 ms `WM_TIMER`, and `Tapioca.OverlayRuntime`, which a
+    // diagnostic polls in a loop. A menu-driven session has only the first, and
+    // a `WM_TIMER` is the lowest-priority message Windows has -- served last
+    // while a drag keeps Archicad's queue full (`CameraWake.hpp`, measured
+    // 2026-08-13). `OverlayRedrawBudget::Consider` is the only consumer of the
+    // request a suppressed Present raises, and it rides on that timer.
+    //
+    // ⚠️ SO `timerTicks` AGAINST `ticks` IS SECTION 9 OF
+    // OVERLAY-INVARIANTS.md EXPRESSED AS A NUMBER, and `redrawWaitMaxMs` is how
+    // long the overlay stayed blank waiting for someone to ask Archicad for the
+    // frame that would end it.
+    uint64_t ticks = 0;
+    uint64_t timerTicks = 0;
+    uint32_t tickGapMaxMs = 0;
+    uint64_t tickGapsOverASecond = 0;
+    uint32_t redrawWaitMaxMs = 0;
+    uint64_t redrawsTaken = 0;
+
     // ⚠️ THE THREE REVISIONS, WHICH NAME THE STAGE THAT
     // STOPPED. model == published == gpu is the overlay being the building;
     // published behind model means an edit was never extracted; gpu behind

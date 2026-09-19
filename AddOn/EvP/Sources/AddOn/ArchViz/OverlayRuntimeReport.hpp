@@ -57,6 +57,18 @@ void Watch (const Health& health);
 // that prints "not using Diligent" every tick is a line nobody reads.
 void Backend (const Health& health);
 
+// Who is keeping the runtime alive, and how long a blank frame waited for the
+// redraw that ends it. On a CHANGE, like the rest of these.
+//
+// ⚠️ IT EXISTS BECAUSE "THE MENU HIDES ON NAVIGATION AND
+// THE COMMAND DOES NOT" HAD NO INSTRUMENT. Both arm `hookdiag at 33 ms,
+// hideOnNav off, gpuState on` -- the log says so sixty-seven times -- so the
+// arming is not the difference and reading the rendering code again cannot find
+// it. What differs is that `Tapioca.OverlayRuntime` calls `Tick` and a menu
+// click does not, which is section 9 of OVERLAY-INVARIANTS.md if it turns out to
+// matter. This is the line that decides whether it does.
+void Pulse (const Health& health);
+
 // At the start of a session. See OVERLAY-INVARIANTS.md section 8.
 void Reset ();
 

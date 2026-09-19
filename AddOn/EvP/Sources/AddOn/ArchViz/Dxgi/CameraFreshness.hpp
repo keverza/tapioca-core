@@ -88,6 +88,17 @@ uint32_t TargetEpoch ();
 
 // MAIN THREAD. True once per raised request -- COALESCED, so a hundred suppressed
 // Presents produce one. The caller decides whether it is allowed to act on it.
+//
+// ⚠️ HOW LONG IT WAITED IS MEASURED, BECAUSE ONLY ONE
+// THING CONSUMES IT AND THAT THING IS A `WM_TIMER`. `OverlayRedrawBudget::
+// Consider` is the sole caller, it runs from the injected runtime's 250 ms
+// heartbeat, and `CameraWake.hpp` records what a `WM_TIMER` does under a drag:
+// "synthesised only when the queue has nothing else in it ... during a drag
+// Archicad's queue is never empty, so the timer is served last however short its
+// interval", measured at 24-41 ms for a 15 ms request in 2026-08-13. A request
+// raised by a SUPPRESSED Present -- the overlay is off the screen right now --
+// waiting on the lowest-priority message Windows has is the shape of
+// OVERLAY-INVARIANTS.md section 9, and the wait is the number that says so.
 bool TakeRedrawRequest ();
 
 struct Report {
@@ -101,6 +112,16 @@ struct Report {
     uint32_t ageMax = 0;
     uint64_t samples = 0;
     uint64_t suppressed = 0;
+
+    // ⚠️ THE GAP BETWEEN THE OVERLAY GOING BLANK AND
+    // ANYONE ASKING FOR THE FRAME THAT ENDS IT. `NoteSuppressed` raises the
+    // request on the render thread the moment a Present draws nothing;
+    // `TakeRedrawRequest` is reached only from the main-thread heartbeat. This is
+    // the milliseconds between the two, worst case, and `redrawsTaken` is how
+    // many requests ever got that far -- a request raised and never taken is an
+    // overlay that stayed blank.
+    uint32_t redrawWaitMaxMs = 0;
+    uint64_t redrawsTaken = 0;
 };
 Report Snapshot ();
 
