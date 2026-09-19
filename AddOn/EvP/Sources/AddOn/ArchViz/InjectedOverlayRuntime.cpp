@@ -840,7 +840,6 @@ Health GetHealth ()
     health.sceneViewportWidth = injectionStats.liveSceneViewportWidth;
     health.sceneViewportHeight = injectionStats.liveSceneViewportHeight;
     health.resizeRebinds = cen::GetBindingStats ().resizeRebinds;
-    health.lastMissMask = cen::GetBindingStats ().lastMissMask;
     health.sceneNew = injectionStats.newScene;
     health.sceneRepeat = injectionStats.repeatScene;
     health.sceneLate = injectionStats.invalidGenerationAdvanced;
@@ -890,6 +889,7 @@ Health GetHealth ()
     health.modelEditRebinds = census.modelEditRebinds;
     health.modelEditReselects = census.modelEditReselects;
     const cen::BindingStats binding = cen::GetBindingStats ();
+    health.lastMissMask = binding.lastMissMask;
     health.rebinds = binding.rebinds;
     health.rebindsRefused = binding.rebindsRefused;
     health.selectionMatches = binding.selectionMatches;
