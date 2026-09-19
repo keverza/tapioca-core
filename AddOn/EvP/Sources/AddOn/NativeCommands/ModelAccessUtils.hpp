@@ -107,7 +107,39 @@ GS::ObjectState TextureCoordSysToObjectState (const ModelerAPI::TextureCoordinat
 GS::UniString ElementTypeName (ModelerAPI::Element::Type type);
 
 // A model element's GUID in the same string form every other EvP command speaks.
+//
+// ⚠️ MAY BE ALL ZEROES. See HasElementGuid below before putting this in a
+// response as an `elementId`.
 GS::UniString ElementGuidString (const ModelerAPI::Element& elem);
+
+// True when this model element is bound to a DATABASE element -- i.e. when its
+// guid names something ACAPI_Element_Get, SetElementDetails or a selection can
+// act on.
+//
+// ⚠️ A MODEL ELEMENT IS NOT ALWAYS A DATABASE ELEMENT, AND ITS TYPE DOES NOT
+// TELL YOU WHICH. `ModelerAPI::Element::GetElemId ()` returns a `Modeler::VOCA`,
+// which the modeler describes as "data binding one Model3D Elem to an external
+// elem". Two of its fields matter here and they are INDEPENDENT:
+//   * `etype`    -- the generator's element kind (FROM_WALL2, FROM_CWPANEL ...),
+//                   which is what GetType () and therefore `typeName` report;
+//   * `elemGuid` -- the database binding, which is what GetElemGuid () returns.
+// Nothing couples them, and VOCA has a `SetEmpty ()`. So a model element can
+// report `typeName:"wall"` while carrying NO guid at all: real geometry, with no
+// database element behind it.
+//
+// The modeler agrees that this is a state and not corruption -- its own
+// `Model3D::ElemContainer::GetElemIdx` opens with `if (elemGuid == GS::NULLGuid)
+// return -1;` (Model3D/Model3DImp.hpp), so it will not look such an element up
+// either.
+//
+// Observed live 2026-09-18 on a 356-element project: `GetModelElements
+// {types:["wall"], limit:4}` returned four walls whose guid was
+// 00000000-0000-0000-0000-000000000000. A caller edited them, every
+// ACAPI_Element_Get came back APIERR_BADID, and the run reported three OVERLAY
+// failures for a model the overlay had drawn perfectly (commit 323429b). A zero
+// guid is shaped like an id and survives `if (elementId)`; emitting one is
+// therefore worse than emitting nothing.
+bool HasElementGuid (const ModelerAPI::Element& elem);
 
 // ---------------------------------------------------------------------------
 // The empty-model diagnosis, in one place

@@ -309,6 +309,15 @@ GS::UniString ElementGuidString (const ModelerAPI::Element& elem)
 }
 
 
+// The guid is asked for DIRECTLY rather than by string-matching the zero form:
+// GS::Guid::IsNull () is the modeler's own test, and it is the one
+// Model3D::ElemContainer::GetElemIdx applies before refusing a lookup.
+bool HasElementGuid (const ModelerAPI::Element& elem)
+{
+    return !elem.GetElemGuid ().IsNull ();
+}
+
+
 GS::UniString EmptyModelHint ()
 {
     return "the 3D model has NO elements. Its attribute pools (surfaces, colours, "

@@ -3599,45 +3599,77 @@ def _one(command, params):
                                "xMax": 4.0, "yMax": 4.0, "zMax": 3.0}})
 
     if command == "EvP.GetModelElements":
-        rows = [{"index": 1, "elementId": {"guid": _GUID % 601}, "type": 1, "typeName": "wall",
+        rows = [{"index": 1, "addressable": True, "elementId": {"guid": _GUID % 601},
+                 "type": 1, "typeName": "wall",
                  "invalid": False, "genId": 1, "tessellatedBodyCount": 1,
                  "meshBodyCount": 1, "nurbsBodyCount": 0, "pointCloudCount": 0,
                  "lightCount": 0,
                  "bounds": {"xMin": 0.0, "yMin": 0.0, "zMin": 0.0,
                             "xMax": 4.0, "yMax": 0.3, "zMax": 3.0}},
-                {"index": 2, "elementId": {"guid": _GUID % 602}, "type": 10, "typeName": "shell",
+                {"index": 2, "addressable": True, "elementId": {"guid": _GUID % 602},
+                 "type": 10, "typeName": "shell",
                  "invalid": False, "genId": 1, "tessellatedBodyCount": 1,
                  "meshBodyCount": 1, "nurbsBodyCount": 1, "pointCloudCount": 0,
                  "lightCount": 0,
-                 "bounds": {"xMin": 0.0, "yMin": 0.0, "zMin": 2.0,
-                            "xMax": 4.0, "yMax": 4.0, "zMax": 3.0}}]
+                 "bounds": {"xMin": 0.0, "yMin": 2.0, "zMin": 2.0,
+                            "xMax": 4.0, "yMax": 4.0, "zMax": 3.0}},
+                # ⚠️ THE THIRD ROW HAS NO `elementId`, AND THAT IS THE POINT. A
+                # live 356-element project returned four WALLS whose guid was all
+                # zeroes: real geometry with no database element behind it. The
+                # caller edited them, Archicad answered APIERR_BADID, and the run
+                # reported three overlay failures for a model the overlay had
+                # drawn perfectly (commit 323429b). Nothing offline could see it,
+                # because every fixture row here was addressable. A command that
+                # assumes `elementId` is present now fails HERE instead of in
+                # front of the user.
+                {"index": 3, "addressable": False,
+                 "unaddressableReason": "this model element carries no database guid, so no "
+                                        "command that takes an elementId can act on it. Its "
+                                        "geometry is real: read it with elementIndex 3.",
+                 "type": 1, "typeName": "wall",
+                 "invalid": False, "genId": 1, "tessellatedBodyCount": 1,
+                 "meshBodyCount": 1, "nurbsBodyCount": 0, "pointCloudCount": 0,
+                 "lightCount": 0,
+                 "bounds": {"xMin": 0.0, "yMin": 0.0, "zMin": 0.0,
+                            "xMax": 4.0, "yMax": 0.3, "zMax": 3.0}}]
         # ⚠️ THE walls SCENARIO'S WALLS MUST BE ENUMERABLE HERE TOO, or a command
         # that says "every wall on the storey" finds none of the walls the rest
         # of this harness knows about — and dry-runs clean over an empty set,
         # which is the least useful pass available.
         if _SCENARIO == "walls":
-            rows = [{"index": 10 + i, "elementId": {"guid": guid}, "type": 1, "typeName": "wall",
+            rows = [{"index": 10 + i, "addressable": True, "elementId": {"guid": guid},
+                     "type": 1, "typeName": "wall",
                      "invalid": False, "genId": 1, "tessellatedBodyCount": 1,
                      "meshBodyCount": 1, "nurbsBodyCount": 0, "pointCloudCount": 0,
                      "lightCount": 0,
                      "bounds": {"xMin": 0.0, "yMin": 0.0, "zMin": 0.0,
                                 "xMax": 6.0, "yMax": 4.0, "zMax": 3.0}}
                     for i, guid in enumerate(_WALL_DETAILS)]
-        wanted = params.get("guids") or []
+        # ⚠️ THE WIRE IS {elements:[{elementId:{guid}}]} ON BOTH SIDES. This read
+        # `params["guids"]` and `r["guid"]`, neither of which exists, so a guid
+        # filter silently matched everything -- the dry-run equivalent of not
+        # testing the filter at all. An unaddressable row can never match.
+        wanted = [(e.get("elementId") or {}).get("guid")
+                  for e in (params.get("elements") or [])]
+        wanted = [g for g in wanted if g]
         if wanted:
-            rows = [r for r in rows if r["guid"] in wanted]
+            rows = [r for r in rows
+                    if (r.get("elementId") or {}).get("guid") in wanted]
         types = params.get("types") or []
         if types:
             rows = [r for r in rows if r["typeName"] in types]
         return _ok({"totalCount": len(rows), "count": len(rows), "offset": 0,
-                    "modelElementCount": 2, "generated": True,
+                    "modelElementCount": len(rows), "generated": True,
                     "coordinateSystem": "world", "elements": rows})
 
     if command == "EvP.GetBodyGeometry":
         # Outer ring vertices 1-4, hole ring 5-8. Edge index 0 at the corner
         # BETWEEN them is the contour break.
         return _ok({
-            "guid": params.get("guid") or _GUID % 601,
+            # Identity travels as `elementId`, and `addressable` says whether it
+            # is there at all -- the same contract GetModelElements now keeps.
+            "addressable": True,
+            "elementId": {"guid": (params.get("elementId") or {}).get("guid") or _GUID % 601},
             "elementIndex": 1, "elementType": "wall", "source": params.get("source", "tessellated"),
             "bodyIndex": 1, "bodyCount": 1, "coordinateSystem": "world",
             "body": {"isWireBody": False, "isSurfaceBody": False, "isSolidBody": True,

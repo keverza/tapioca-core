@@ -70,9 +70,10 @@ def elements(guids=None, types=None, skip_empty=False, bounds=True,
              transform=False, offset=0, limit=0, coordinate_system="world"):
     """The model's element table -> list of records.
 
-    Each record: {index, guid, type, typeName, tessellatedBodyCount,
-    meshBodyCount, nurbsBodyCount, pointCloudCount, lightCount, bounds?,
-    transform?}. `index` is what body_geometry()/nurbs_body() take.
+    Each record: {index, addressable, guid, type, typeName,
+    tessellatedBodyCount, meshBodyCount, nurbsBodyCount, pointCloudCount,
+    lightCount, bounds?, transform?}. `index` is what body_geometry()/
+    nurbs_body() take.
 
     `types` are the lowercase names from `typeName` ("wall", "slab", "cwPanel").
     `limit`/`offset` page; the response's `totalCount` is the unpaged total.
@@ -80,6 +81,12 @@ def elements(guids=None, types=None, skip_empty=False, bounds=True,
     ⚠️ Composite elements (stair, railing, curtain wall, column, beam) appear in
     the model as their SUB-PARTS, under different guids than the one you
     selected. Filter by `types` rather than by the parent's guid.
+
+    ⚠️ CHECK `addressable` BEFORE PASSING `guid` TO ANYTHING. A model element is
+    geometry and is not always a database element; when it is not, the native
+    command omits its `elementId` and `guid` here is "". Its geometry is still
+    real — read it by `index`. Filter with
+    `[r for r in elements(...) if r["addressable"]]` when you mean to EDIT.
     """
     params = {"coordinateSystem": coordinate_system,
               "include": _include(bounds=bounds, transform=transform)}
@@ -107,8 +114,21 @@ def elements(guids=None, types=None, skip_empty=False, bounds=True,
     # what makes the docstring above true, and it is the shape every caller reads
     # — a raw pass-through gave them `rec.get("guid") is None` for every record,
     # which reads as "the model has no such elements" rather than as a bug.
-    return [dict(rec, guid=(rec.get("elementId") or {}).get("guid", ""))
-            for rec in records]
+    # ⚠️ AN ABSENT `elementId` MUST FLATTEN TO "", NEVER TO A ZERO GUID. The
+    # native command omits `elementId` for an element with no database binding
+    # precisely so that this stays empty; the earlier behaviour returned
+    # "00000000-0000-0000-0000-000000000000", which passes `if rec["guid"]` and
+    # then fails inside Archicad as APIERR_BADID. `addressable` is defaulted
+    # from the guid rather than assumed present, so this wrapper also tells the
+    # truth when talking to an add-on build older than the field.
+    out = []
+    for rec in records:
+        guid = (rec.get("elementId") or {}).get("guid", "") or ""
+        if set(guid) <= set("0-{} "):
+            guid = ""
+        out.append(dict(rec, guid=guid,
+                        addressable=bool(rec.get("addressable", bool(guid)))))
+    return out
 
 
 def element_count():

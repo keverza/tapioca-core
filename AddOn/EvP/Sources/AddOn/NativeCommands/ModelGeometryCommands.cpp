@@ -185,9 +185,10 @@ public:
 // EvP.GetModelElements { elements?:[{elementId:{guid}}], types?:["wall","slab"], skipEmpty?:bool,
 //                        coordinateSystem?:"world"|"local",
 //                        include?:["bounds","transform"], offset?, limit? }
-//   -> { ok, count, totalCount, offset, elements:[{ index, guid, type, typeName,
-//        invalid, genId, tessellatedBodyCount, meshBodyCount, nurbsBodyCount,
-//        pointCloudCount, lightCount, bounds?, transform? }] }
+//   -> { ok, count, totalCount, offset, elements:[{ index, addressable,
+//        elementId?, unaddressableReason?, type, typeName, invalid, genId,
+//        tessellatedBodyCount, meshBodyCount, nurbsBodyCount, pointCloudCount,
+//        lightCount, bounds?, transform? }] }
 //
 // The model's element table — the index a body read needs, plus what kind of
 // geometry each element actually HAS. That last part is the point: an element
@@ -202,6 +203,17 @@ public:
 // railing, curtain wall, column, beam) appear in the model as their SUB-PARTS,
 // which carry different guids than the element you selected — the same trap
 // GeometryExtractor documents. Pass the sub-part guids, or filter by type.
+//
+// ⚠️ `elementId` IS OPTIONAL, AND `addressable` IS THE FIELD TO BRANCH ON. A
+// model element is geometry; it is not necessarily a database element. When the
+// modeler has no binding for it, `addressable` is false, `elementId` is ABSENT
+// and `unaddressableReason` says so — the row is NOT given a zero guid, because
+// a zero guid passes every emptiness check a caller can write and then fails
+// inside Archicad as APIERR_BADID, three commands away from here. Read
+// HasElementGuid in ModelAccessUtils.hpp for the mechanism and the live run that
+// paid for this. `index` addresses such an element for every geometry read in
+// this file, so an unaddressable element is still fully usable — just not by
+// elementId.
 // ---------------------------------------------------------------------------
 class GetModelElementsCommand : public MainThreadCommand {
 public:
@@ -250,8 +262,14 @@ public:
             ModelerAPI::Element elem;
             model.GetElement (i, &elem);
 
-            const GS::UniString guid = ElementGuidString (elem);
-            if (filterGuids && !wantedGuids.Contains (guid))
+            // Identity and TYPE are read from independent fields of the same
+            // VOCA record, so they must be asked separately — see HasElementGuid.
+            const bool addressable = HasElementGuid (elem);
+            const GS::UniString guid = addressable ? ElementGuidString (elem) : GS::UniString ();
+            // An unaddressable element can never match a requested guid: the
+            // modeler's own index refuses a null guid, so there is nothing the
+            // caller could have asked for that this element answers.
+            if (filterGuids && (!addressable || !wantedGuids.Contains (guid)))
                 continue;
 
             const ModelerAPI::Element::Type type = elem.GetType ();
@@ -276,7 +294,35 @@ public:
 
             GS::ObjectState record;
             record.Add ("index", (GS::Int32) i);            // 1-based, feeds GetBodyGeometry
-            AddElementId (guid, record);
+            // ⚠️ `elementId` IS ABSENT WHEN THE ELEMENT HAS NO DATABASE BINDING,
+            // and that absence is the contract — not a zero guid. A guid of
+            // 00000000-… is shaped like an id, survives every `if (elementId)`
+            // guard ever written, and names nothing; a caller that trusted one
+            // spent a run reporting three overlay failures for geometry the
+            // overlay had drawn correctly (commit 323429b). Absence is the one
+            // signal every caller already handles.
+            //
+            // The ROW STAYS. Its geometry is real — those bodies are what the
+            // renderer drew — and `index` still addresses it for GetBodyGeometry
+            // and GetNurbsBody. Dropping the row would hide live geometry and
+            // make `count` disagree with the model, which is the same lie in the
+            // other direction.
+            record.Add ("addressable", addressable);
+            if (addressable) {
+                AddElementId (guid, record);
+            } else {
+                // ⚠️ ONE Printf, NOT `UniString + … + "."`. GS::UniString's
+                // operator+ returns a `UniString::Concatenation` expression
+                // template, and ObjectState::Add is a template that DEDUCES that
+                // type instead of converting it, so the concatenated form fails
+                // to compile on GS::Store (const GS::Object&). It reads fine and
+                // it is wrong; the surrounding code already uses Printf.
+                record.Add ("unaddressableReason",
+                            GS::UniString::Printf (
+                                "this model element carries no database guid, so no command "
+                                "that takes an elementId can act on it. Its geometry is real: "
+                                "read it with elementIndex %d.", (int) i));
+            }
             record.Add ("type", (GS::Int32) type);
             record.Add ("typeName", typeName);
             record.Add ("invalid", elem.IsInvalid ());
@@ -313,7 +359,7 @@ public:
 //                       include?:["vertices","polygons","edges","convex",
 //                                 "normals","vertexHardFlags","all"],
 //                       maxVertices?, maxPolygons?, maxEdges? }
-//   -> { ok, guid, elementIndex, elementType, bodyIndex, bodyCount, source,
+//   -> { ok, addressable, elementId?, elementIndex, elementType, bodyIndex, bodyCount, source,
 //        coordinateSystem, body:{…}, vertices?, vertexHardFlags?, edges?,
 //        polygons?, normals?, convex? }
 //
@@ -405,7 +451,14 @@ public:
         const Int32 polygonCount = body.GetPolygonCount ();
         const Int32 vectorCount  = body.GetPolygonVectorCount ();
 
-        AddElementId (ElementGuidString (elem), os);
+        // Same rule as GetModelElements, and it matters MORE here: this command
+        // can be reached by `elementIndex`, so it is exactly the path that
+        // reaches an element with no database binding. Echoing a zero
+        // `elementId` back would hand the caller a fake id it did not supply.
+        const bool addressable = HasElementGuid (elem);
+        os.Add ("addressable", addressable);
+        if (addressable)
+            AddElementId (ElementGuidString (elem), os);
         os.Add ("elementIndex", (GS::Int32) elemIndex);
         os.Add ("elementType", ElementTypeName (elem.GetType ()));
         os.Add ("source", source);
@@ -689,13 +742,13 @@ constexpr const char kGetModelElementsInput[] = R"json(
 {"type":"object","properties":{"elements":{"type":"array","items":{"$ref":"#/$defs/element"}},"types":{"type":"array","items":{"type":"string"}},"skipEmpty":{"type":"boolean"},"coordinateSystem":{"type":"string","enum":["world","local"]},"include":{"type":"array","uniqueItems":true,"items":{"type":"string","enum":["bounds","transform","all"]}},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":0}},"additionalProperties":false,"$defs":{"element":{"type":"object","properties":{"elementId":{"$ref":"#/$defs/elementId"}},"additionalProperties":false,"required":["elementId"]},"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}}}
 )json";
 constexpr const char kGetModelElementsOutput[] = R"json(
-{"type":"object","properties":{"coordinateSystem":{"type":"string","enum":["world","local"]},"modelElementCount":{"type":"integer","minimum":0},"generated":{"type":"boolean"},"hint":{"type":"string"},"totalCount":{"type":"integer","minimum":0},"offset":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":0},"elements":{"type":"array","items":{"$ref":"#/$defs/modelElement"}}},"additionalProperties":false,"required":["coordinateSystem","modelElementCount","generated","totalCount","offset","count","elements"],"$defs":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"box":{"type":"object","properties":{"xMin":{"type":"number"},"yMin":{"type":"number"},"zMin":{"type":"number"},"xMax":{"type":"number"},"yMax":{"type":"number"},"zMax":{"type":"number"}},"additionalProperties":false,"required":["xMin","yMin","zMin","xMax","yMax","zMax"]},"modelElement":{"type":"object","properties":{"index":{"type":"integer","minimum":1},"elementId":{"$ref":"#/$defs/elementId"},"type":{"type":"integer"},"typeName":{"type":"string"},"invalid":{"type":"boolean"},"genId":{"type":"integer"},"tessellatedBodyCount":{"type":"integer","minimum":0},"meshBodyCount":{"type":"integer","minimum":0},"nurbsBodyCount":{"type":"integer","minimum":0},"pointCloudCount":{"type":"integer","minimum":0},"lightCount":{"type":"integer","minimum":0},"bounds":{"$ref":"#/$defs/box"},"transform":{"type":"array","description":"Packed row-major 3x4 local-to-world affine matrix; 12 numbers.","minItems":12,"maxItems":12,"items":{"type":"number"}}},"additionalProperties":false,"required":["index","elementId","type","typeName","invalid","genId","tessellatedBodyCount","meshBodyCount","nurbsBodyCount","pointCloudCount","lightCount"]}}}
+{"type":"object","properties":{"coordinateSystem":{"type":"string","enum":["world","local"]},"modelElementCount":{"type":"integer","minimum":0},"generated":{"type":"boolean"},"hint":{"type":"string"},"totalCount":{"type":"integer","minimum":0},"offset":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":0},"elements":{"type":"array","items":{"$ref":"#/$defs/modelElement"}}},"additionalProperties":false,"required":["coordinateSystem","modelElementCount","generated","totalCount","offset","count","elements"],"$defs":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"box":{"type":"object","properties":{"xMin":{"type":"number"},"yMin":{"type":"number"},"zMin":{"type":"number"},"xMax":{"type":"number"},"yMax":{"type":"number"},"zMax":{"type":"number"}},"additionalProperties":false,"required":["xMin","yMin","zMin","xMax","yMax","zMax"]},"modelElement":{"type":"object","properties":{"index":{"type":"integer","minimum":1},"addressable":{"type":"boolean"},"elementId":{"$ref":"#/$defs/elementId"},"unaddressableReason":{"type":"string"},"type":{"type":"integer"},"typeName":{"type":"string"},"invalid":{"type":"boolean"},"genId":{"type":"integer"},"tessellatedBodyCount":{"type":"integer","minimum":0},"meshBodyCount":{"type":"integer","minimum":0},"nurbsBodyCount":{"type":"integer","minimum":0},"pointCloudCount":{"type":"integer","minimum":0},"lightCount":{"type":"integer","minimum":0},"bounds":{"$ref":"#/$defs/box"},"transform":{"type":"array","description":"Packed row-major 3x4 local-to-world affine matrix; 12 numbers.","minItems":12,"maxItems":12,"items":{"type":"number"}}},"additionalProperties":false,"required":["index","addressable","type","typeName","invalid","genId","tessellatedBodyCount","meshBodyCount","nurbsBodyCount","pointCloudCount","lightCount"]}}}
 )json";
 constexpr const char kGetBodyGeometryInput[] = R"json(
 {"type":"object","properties":{"elementId":{"$ref":"#/$defs/elementId"},"elementIndex":{"type":"integer","minimum":1},"body":{"type":"integer","minimum":1},"source":{"type":"string","enum":["tessellated","mesh"]},"coordinateSystem":{"type":"string","enum":["world","local"]},"include":{"type":"array","uniqueItems":true,"items":{"type":"string","enum":["vertices","polygons","edges","convex","normals","vertexHardFlags","all"]}},"maxVertices":{"type":"integer","minimum":1},"maxPolygons":{"type":"integer","minimum":1},"maxEdges":{"type":"integer","minimum":1}},"additionalProperties":false,"anyOf":[{"required":["elementId"]},{"required":["elementIndex"]}],"$defs":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}}}
 )json";
 constexpr const char kGetBodyGeometryOutput[] = R"json(
-{"type":"object","properties":{"elementId":{"$ref":"#/$defs/elementId"},"elementIndex":{"type":"integer","minimum":1},"elementType":{"type":"string"},"source":{"type":"string","enum":["tessellated","mesh"]},"bodyIndex":{"type":"integer","minimum":1},"bodyCount":{"type":"integer","minimum":1},"coordinateSystem":{"type":"string","enum":["world","local"]},"body":{"$ref":"#/$defs/body"},"vertices":{"type":"array","description":"Packed xyz coordinates; stride 3, ModelerAPI vertex order, 1-based topology indices.","items":{"type":"number"}},"verticesTruncated":{"type":"boolean"},"vertexHardFlags":{"type":"array","items":{"type":"boolean"}},"normals":{"type":"array","description":"Packed xyz normal-vector pool; stride 3; signed polygon indices address this 1-based pool.","items":{"type":"number"}},"edges":{"$ref":"#/$defs/edges"},"polygons":{"$ref":"#/$defs/polygons"},"convex":{"$ref":"#/$defs/convex"}},"additionalProperties":false,"required":["elementId","elementIndex","elementType","source","bodyIndex","bodyCount","coordinateSystem","body"],"$defs":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"box":{"type":"object","properties":{"xMin":{"type":"number"},"yMin":{"type":"number"},"zMin":{"type":"number"},"xMax":{"type":"number"},"yMax":{"type":"number"},"zMax":{"type":"number"}},"additionalProperties":false,"required":["xMin","yMin","zMin","xMax","yMax","zMax"]},"color":{"type":"object","properties":{"red":{"type":"number"},"green":{"type":"number"},"blue":{"type":"number"}},"additionalProperties":false,"required":["red","green","blue"]},"attributeIndex":{"type":"object","properties":{"index":{"type":"integer"},"originalModelerIndex":{"type":"integer"},"originalIndex":{"type":"integer"},"valid":{"type":"boolean"}},"additionalProperties":false,"required":["index","originalModelerIndex","originalIndex","valid"]},"point":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}},"additionalProperties":false,"required":["x","y","z"]},"textureSystem":{"type":"object","properties":{"mode":{"type":"integer"},"modeName":{"type":"string"},"origo":{"$ref":"#/$defs/point"},"xAxis":{"$ref":"#/$defs/point"},"yAxis":{"$ref":"#/$defs/point"},"zAxis":{"$ref":"#/$defs/point"}},"additionalProperties":false,"required":["mode","modeName","origo","xAxis","yAxis","zAxis"]},"body":{"type":"object","properties":{"isWireBody":{"type":"boolean"},"isSurfaceBody":{"type":"boolean"},"isSolidBody":{"type":"boolean"},"isClosed":{"type":"boolean"},"isVisibleIfContour":{"type":"boolean"},"hasSharpEdge":{"type":"boolean"},"alwaysCastsShadow":{"type":"boolean"},"neverCastsShadow":{"type":"boolean"},"doesNotReceiveShadow":{"type":"boolean"},"vertexCount":{"type":"integer","minimum":0},"edgeCount":{"type":"integer","minimum":0},"polygonCount":{"type":"integer","minimum":0},"polygonVectorCount":{"type":"integer","minimum":0},"bounds":{"$ref":"#/$defs/box"},"hasColor":{"type":"boolean"},"color":{"$ref":"#/$defs/color"},"colorIndex":{"$ref":"#/$defs/attributeIndex"},"materialIndex":{"$ref":"#/$defs/attributeIndex"},"textureIndex":{"$ref":"#/$defs/attributeIndex"},"hasTextureCoordinateSystem":{"type":"boolean"},"textureCoordinateSystem":{"$ref":"#/$defs/textureSystem"}},"additionalProperties":false,"required":["isWireBody","isSurfaceBody","isSolidBody","isClosed","isVisibleIfContour","hasSharpEdge","alwaysCastsShadow","neverCastsShadow","doesNotReceiveShadow","vertexCount","edgeCount","polygonCount","polygonVectorCount","bounds","hasColor","colorIndex","materialIndex","textureIndex","hasTextureCoordinateSystem"]},"integerArray":{"type":"array","items":{"type":"integer"}},"booleanArray":{"type":"array","items":{"type":"boolean"}},"edges":{"type":"object","description":"Packed structure-of-arrays edge topology. Every field has count entries and indices are 1-based; polygon -1 means absent.","properties":{"count":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"vertex1":{"$ref":"#/$defs/integerArray"},"vertex2":{"$ref":"#/$defs/integerArray"},"polygon1":{"$ref":"#/$defs/integerArray"},"polygon2":{"$ref":"#/$defs/integerArray"},"invisible":{"$ref":"#/$defs/booleanArray"},"visibleIfContour":{"$ref":"#/$defs/booleanArray"},"hasColor":{"$ref":"#/$defs/booleanArray"},"colorIndex":{"$ref":"#/$defs/integerArray"}},"additionalProperties":false,"required":["count","truncated","vertex1","vertex2","polygon1","polygon2","invisible","visibleIfContour","hasColor","colorIndex"]},"polygons":{"type":"object","description":"Packed structure-of-arrays polygon topology. edgeCounts splits vertexIndices and signed edgeIndices; zero edge index is a contour break.","properties":{"count":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"skipped":{"type":"integer","minimum":0},"materialIndex":{"$ref":"#/$defs/integerArray"},"normalVectorIndex":{"$ref":"#/$defs/integerArray"},"polygonId":{"$ref":"#/$defs/integerArray"},"invisible":{"$ref":"#/$defs/booleanArray"},"visibleIfContour":{"$ref":"#/$defs/booleanArray"},"isComplex":{"$ref":"#/$defs/booleanArray"},"isGravity":{"$ref":"#/$defs/booleanArray"},"hasMaterialTexture":{"$ref":"#/$defs/booleanArray"},"hasPolygonTexture":{"$ref":"#/$defs/booleanArray"},"materialTextureIndex":{"$ref":"#/$defs/integerArray"},"polygonTextureIndex":{"$ref":"#/$defs/integerArray"},"edgeCounts":{"$ref":"#/$defs/integerArray"},"vertexIndices":{"$ref":"#/$defs/integerArray"},"edgeIndices":{"$ref":"#/$defs/integerArray"}},"additionalProperties":false,"required":["count","truncated","skipped","materialIndex","normalVectorIndex","polygonId","invisible","visibleIfContour","isComplex","isGravity","hasMaterialTexture","hasPolygonTexture","materialTextureIndex","polygonTextureIndex","edgeCounts","vertexIndices","edgeIndices"]},"convex":{"type":"object","description":"Packed convex pieces. vertexCounts splits vertexIndices; normals are packed xyz per corner (stride 3).","properties":{"count":{"type":"integer","minimum":0},"polygonIndex":{"$ref":"#/$defs/integerArray"},"vertexCounts":{"$ref":"#/$defs/integerArray"},"vertexIndices":{"$ref":"#/$defs/integerArray"},"normals":{"type":"array","items":{"type":"number"}}},"additionalProperties":false,"required":["count","polygonIndex","vertexCounts","vertexIndices","normals"]}}}
+{"type":"object","properties":{"addressable":{"type":"boolean"},"elementId":{"$ref":"#/$defs/elementId"},"elementIndex":{"type":"integer","minimum":1},"elementType":{"type":"string"},"source":{"type":"string","enum":["tessellated","mesh"]},"bodyIndex":{"type":"integer","minimum":1},"bodyCount":{"type":"integer","minimum":1},"coordinateSystem":{"type":"string","enum":["world","local"]},"body":{"$ref":"#/$defs/body"},"vertices":{"type":"array","description":"Packed xyz coordinates; stride 3, ModelerAPI vertex order, 1-based topology indices.","items":{"type":"number"}},"verticesTruncated":{"type":"boolean"},"vertexHardFlags":{"type":"array","items":{"type":"boolean"}},"normals":{"type":"array","description":"Packed xyz normal-vector pool; stride 3; signed polygon indices address this 1-based pool.","items":{"type":"number"}},"edges":{"$ref":"#/$defs/edges"},"polygons":{"$ref":"#/$defs/polygons"},"convex":{"$ref":"#/$defs/convex"}},"additionalProperties":false,"required":["addressable","elementIndex","elementType","source","bodyIndex","bodyCount","coordinateSystem","body"],"$defs":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]},"box":{"type":"object","properties":{"xMin":{"type":"number"},"yMin":{"type":"number"},"zMin":{"type":"number"},"xMax":{"type":"number"},"yMax":{"type":"number"},"zMax":{"type":"number"}},"additionalProperties":false,"required":["xMin","yMin","zMin","xMax","yMax","zMax"]},"color":{"type":"object","properties":{"red":{"type":"number"},"green":{"type":"number"},"blue":{"type":"number"}},"additionalProperties":false,"required":["red","green","blue"]},"attributeIndex":{"type":"object","properties":{"index":{"type":"integer"},"originalModelerIndex":{"type":"integer"},"originalIndex":{"type":"integer"},"valid":{"type":"boolean"}},"additionalProperties":false,"required":["index","originalModelerIndex","originalIndex","valid"]},"point":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}},"additionalProperties":false,"required":["x","y","z"]},"textureSystem":{"type":"object","properties":{"mode":{"type":"integer"},"modeName":{"type":"string"},"origo":{"$ref":"#/$defs/point"},"xAxis":{"$ref":"#/$defs/point"},"yAxis":{"$ref":"#/$defs/point"},"zAxis":{"$ref":"#/$defs/point"}},"additionalProperties":false,"required":["mode","modeName","origo","xAxis","yAxis","zAxis"]},"body":{"type":"object","properties":{"isWireBody":{"type":"boolean"},"isSurfaceBody":{"type":"boolean"},"isSolidBody":{"type":"boolean"},"isClosed":{"type":"boolean"},"isVisibleIfContour":{"type":"boolean"},"hasSharpEdge":{"type":"boolean"},"alwaysCastsShadow":{"type":"boolean"},"neverCastsShadow":{"type":"boolean"},"doesNotReceiveShadow":{"type":"boolean"},"vertexCount":{"type":"integer","minimum":0},"edgeCount":{"type":"integer","minimum":0},"polygonCount":{"type":"integer","minimum":0},"polygonVectorCount":{"type":"integer","minimum":0},"bounds":{"$ref":"#/$defs/box"},"hasColor":{"type":"boolean"},"color":{"$ref":"#/$defs/color"},"colorIndex":{"$ref":"#/$defs/attributeIndex"},"materialIndex":{"$ref":"#/$defs/attributeIndex"},"textureIndex":{"$ref":"#/$defs/attributeIndex"},"hasTextureCoordinateSystem":{"type":"boolean"},"textureCoordinateSystem":{"$ref":"#/$defs/textureSystem"}},"additionalProperties":false,"required":["isWireBody","isSurfaceBody","isSolidBody","isClosed","isVisibleIfContour","hasSharpEdge","alwaysCastsShadow","neverCastsShadow","doesNotReceiveShadow","vertexCount","edgeCount","polygonCount","polygonVectorCount","bounds","hasColor","colorIndex","materialIndex","textureIndex","hasTextureCoordinateSystem"]},"integerArray":{"type":"array","items":{"type":"integer"}},"booleanArray":{"type":"array","items":{"type":"boolean"}},"edges":{"type":"object","description":"Packed structure-of-arrays edge topology. Every field has count entries and indices are 1-based; polygon -1 means absent.","properties":{"count":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"vertex1":{"$ref":"#/$defs/integerArray"},"vertex2":{"$ref":"#/$defs/integerArray"},"polygon1":{"$ref":"#/$defs/integerArray"},"polygon2":{"$ref":"#/$defs/integerArray"},"invisible":{"$ref":"#/$defs/booleanArray"},"visibleIfContour":{"$ref":"#/$defs/booleanArray"},"hasColor":{"$ref":"#/$defs/booleanArray"},"colorIndex":{"$ref":"#/$defs/integerArray"}},"additionalProperties":false,"required":["count","truncated","vertex1","vertex2","polygon1","polygon2","invisible","visibleIfContour","hasColor","colorIndex"]},"polygons":{"type":"object","description":"Packed structure-of-arrays polygon topology. edgeCounts splits vertexIndices and signed edgeIndices; zero edge index is a contour break.","properties":{"count":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"skipped":{"type":"integer","minimum":0},"materialIndex":{"$ref":"#/$defs/integerArray"},"normalVectorIndex":{"$ref":"#/$defs/integerArray"},"polygonId":{"$ref":"#/$defs/integerArray"},"invisible":{"$ref":"#/$defs/booleanArray"},"visibleIfContour":{"$ref":"#/$defs/booleanArray"},"isComplex":{"$ref":"#/$defs/booleanArray"},"isGravity":{"$ref":"#/$defs/booleanArray"},"hasMaterialTexture":{"$ref":"#/$defs/booleanArray"},"hasPolygonTexture":{"$ref":"#/$defs/booleanArray"},"materialTextureIndex":{"$ref":"#/$defs/integerArray"},"polygonTextureIndex":{"$ref":"#/$defs/integerArray"},"edgeCounts":{"$ref":"#/$defs/integerArray"},"vertexIndices":{"$ref":"#/$defs/integerArray"},"edgeIndices":{"$ref":"#/$defs/integerArray"}},"additionalProperties":false,"required":["count","truncated","skipped","materialIndex","normalVectorIndex","polygonId","invisible","visibleIfContour","isComplex","isGravity","hasMaterialTexture","hasPolygonTexture","materialTextureIndex","polygonTextureIndex","edgeCounts","vertexIndices","edgeIndices"]},"convex":{"type":"object","description":"Packed convex pieces. vertexCounts splits vertexIndices; normals are packed xyz per corner (stride 3).","properties":{"count":{"type":"integer","minimum":0},"polygonIndex":{"$ref":"#/$defs/integerArray"},"vertexCounts":{"$ref":"#/$defs/integerArray"},"vertexIndices":{"$ref":"#/$defs/integerArray"},"normals":{"type":"array","items":{"type":"number"}}},"additionalProperties":false,"required":["count","polygonIndex","vertexCounts","vertexIndices","normals"]}}}
 )json";
 
 const NativeCommandRegistration commandRegistrations[] = {
