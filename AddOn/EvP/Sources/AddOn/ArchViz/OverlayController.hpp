@@ -54,6 +54,25 @@ void Toggle ();
 // MAIN THREAD. Turn off whatever is on, for teardown.
 void StopAll ();
 
+// MAIN THREAD. Put an operator-supplied label on the overlay log's timeline.
+//
+// ⚠️ IT EXISTS BECAUSE ARCHICAD DOES NOT EXPOSE WHICH
+// NAVIGATION TOOL IS ACTIVE, AND THE DEVKIT WAS GREPPED TO BE SURE. There is no
+// Orbit and no Explore anywhere in it: `ACAPI_Navigator_*` is the project tree,
+// and `API_3DWindowInfo` carries size, zoom and projection but no navigation
+// state. A log that has to separate stationary from Orbit from Explore therefore
+// cannot label itself, and the three-column comparison is unreadable without
+// labels -- the 12:24 run recorded both frame paths and no way to say which
+// minute was which.
+//
+// ⚠️ AND IT CANNOT BE DONE BY APPENDING TO THE LOG FROM
+// OUTSIDE. `ArchVizLog` holds the file open for the session with FILE_SHARE_READ,
+// so a second WRITER is refused -- which is why this goes through the command
+// rather than around it.
+//
+// It writes one line and touches nothing else. Marking is not a mode.
+void Mark (const std::string& note);
+
 // MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
 // user is looking at: tear down the session for the view being left and start
 // the one the new view needs. Intent and renderer are tracked apart -- see the

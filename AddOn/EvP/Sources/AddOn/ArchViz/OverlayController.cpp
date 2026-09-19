@@ -263,6 +263,11 @@ void FollowView ()
     }
 }
 
+void Mark (const std::string& note)
+{
+    Narrate ("MARK", note.empty () ? std::string ("(empty)") : note);
+}
+
 void StopAll ()
 {
     // Intent as well as renderers: this is the teardown entry point, and a timer

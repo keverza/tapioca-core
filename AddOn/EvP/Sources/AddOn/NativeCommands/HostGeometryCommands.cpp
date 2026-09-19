@@ -170,6 +170,23 @@ class OverlayRuntimeCommand : public MainThreadCommand {
             runtime::SetOverlayBackend (which == "diligent");
         }
 
+        // ⚠️ A MODE MARKER, BECAUSE ARCHICAD DOES NOT
+        // EXPOSE WHICH NAVIGATION TOOL IS ACTIVE. The DevKit was grepped: there
+        // is no Orbit or Explore anywhere in it -- `ACAPI_Navigator_*` is the
+        // project tree, and `API_3DWindowInfo` carries size, zoom and projection
+        // but no navigation state. So a log that must separate stationary from
+        // Orbit from Explore cannot label itself, and the operator has to say.
+        //
+        // ⚠️ AND IT CANNOT BE DONE BY APPENDING TO THE LOG
+        // FROM PYTHON. `ArchVizLog` now holds the file open for the session with
+        // FILE_SHARE_READ, so a second WRITER is refused -- deliberately, and it
+        // is why this goes through the command rather than around it.
+        if (params.Contains ("note")) {
+            GS::UniString note;
+            params.Get ("note", note);
+            av::overlaycontrol::Mark (std::string (note.ToCStr (0, MaxUSize, CC_UTF8).Get ()));
+        }
+
         bool ok = true;
         runtime::StartError code = runtime::StartError::None;
         std::string message;
@@ -311,7 +328,7 @@ class OverlayRuntimeCommand : public MainThreadCommand {
 
 const NativeCommandRegistration kHostGeometryCommandRegistrations[] = {
     { "OverlayRuntime", &MakeRegisteredNativeCommand<OverlayRuntimeCommand>, false,
-      R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]},"backend":{"type":"string","enum":["native","diligent"]}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"action":{"type":"string","enum":["start","stop","hide","show","state"]},"backend":{"type":"string","enum":["native","diligent"]},"note":{"type":"string"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{"ok":{"type":"boolean"},"code":{"type":"string"},"message":{"type":"string"},"retryable":{"type":"boolean"},"running":{"type":"boolean"},"visible":{"type":"boolean"},"waitingForContext":{"type":"boolean"},"camera":{"type":"string"},"host":{"type":"string"},"autoSelections":{"type":"integer"},"reacquisitions":{"type":"integer"},"hostOpaqueTriangles":{"type":"integer"},"overlayDraws":{"type":"integer"},"presentInjections":{"type":"integer"},"hostNoDepthTarget":{"type":"integer"},"hostNoGeometry":{"type":"integer"},"overlayNoEdges":{"type":"integer"},"overlayNoCamera":{"type":"integer"},"modelFramesSeen":{"type":"integer"},"eligibleCandidates":{"type":"integer"},"selectionValid":{"type":"boolean"},"selectedGroup":{"type":"integer"},"selectedOccurrence":{"type":"integer"},"occurrenceLocked":{"type":"boolean"},"cameraSource":{"type":"string"},"armState":{"type":"string"},"logicalMatches":{"type":"integer"},"authoritativeSnapshots":{"type":"integer"},"blockedAt":{"type":"string"},"lastError":{"type":"string"},"lastMessage":{"type":"string"},"view":{"type":"string"},"portableRunning":{"type":"boolean"},"modelRevision":{"type":"integer"},"silhouetteEdges":{"type":"integer"},"overlayBackend":{"type":"string"},"diligentAttached":{"type":"boolean"},"diligentAttachMs":{"type":"integer"},"diligentAttachAttempts":{"type":"integer"},"diligentAttachFailures":{"type":"integer"},"diligentWraps":{"type":"integer"},"diligentWrapHits":{"type":"integer"},"diligentWrapFailures":{"type":"integer"},"diligentDistinctBackBuffers":{"type":"integer"},"diligentWrapDropsOnResize":{"type":"integer"},"diligentError":{"type":"string"},"publishedRevision":{"type":"integer"},"gpuRevision":{"type":"integer"},"watchRunning":{"type":"boolean"},"watchPolls":{"type":"integer"},"watchEdits":{"type":"integer"},"watchRefreshes":{"type":"integer"},"watchEnvironmentOnly":{"type":"integer"},"watchSkippedBusy":{"type":"integer"},"watchError":{"type":"string"},"modelEditRebinds":{"type":"integer"},"modelEditReselects":{"type":"integer"},"lastMissMask":{"type":"integer"},"rebinds":{"type":"integer"},"rebindsRefused":{"type":"integer"},"selectionMatches":{"type":"integer"},"pinMissMask":{"type":"integer"},"resizeRebinds":{"type":"integer"},"age0":{"type":"integer"},"age1":{"type":"integer"},"age2":{"type":"integer"},"age3plus":{"type":"integer"},"cameraAgeMax":{"type":"integer"},"suppressedStaleViewport":{"type":"integer"},"redrawRequests":{"type":"integer"},"ticks":{"type":"integer"},"timerTicks":{"type":"integer"},"tickGapMaxMs":{"type":"integer"},"tickGapsOverASecond":{"type":"integer"},"redrawWaitMaxMs":{"type":"integer"},"redrawsTaken":{"type":"integer"},"repeatHeld":{"type":"integer"},"repeatPassMoved":{"type":"integer"},"repeatWindowMoved":{"type":"integer"},"acceptedViewportWidth":{"type":"integer"},"acceptedViewportHeight":{"type":"integer"},"targetWidth":{"type":"integer"},"targetHeight":{"type":"integer"}},"additionalProperties":false,"required":["ok","running","camera","host"]})json" },
     { "RequestHostGeometry", &MakeRegisteredNativeCommand<RequestHostGeometryCommand>, false,
       R"json({"type":"object","properties":{"full":{"type":"boolean"},"start":{"type":"boolean"}},"additionalProperties":false})json",
