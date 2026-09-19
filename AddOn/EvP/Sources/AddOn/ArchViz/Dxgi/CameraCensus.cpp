@@ -886,33 +886,55 @@ size_t CopyGroups (Group* out, size_t capacity)
             continue;
         Group group = slot.group;
 
-        // ⚠️ THE WINNER IS THE INTERPRETATION THAT WAS VALID MOST OFTEN, and only
-        // then the one with the smallest mean error. Ranking by error first is
-        // what let a degenerate product win on a median of zero while never once
-        // putting the anchor inside the clip volume.
+        for (size_t v = 0; v < kVariantCount; ++v) {
+            const double n = double (group.variantValid[v]);
+            group.variantMeanSpreadPixels[v] = n > 0 ? float (slot.variantSpreadSum[v] / n) : 0.0f;
+            group.variantMeanCentreError[v] = n > 0 ? float (slot.variantErrorSum[v] / n) : 0.0f;
+        }
+
+        // ⚠️ VALID MOST OFTEN FIRST, then the one putting the
+        // MOST of the model on screen. Validity first is what stops a degenerate
+        // product winning on a median of zero with nothing inside the clip volume.
+        //
+        // ⚠️ AND THE TIE USED TO GO TO THE SMALLEST MEAN
+        // CENTRE ERROR, WHICH IS THE ONE THING IT MUST NOT BE. Shrinking the
+        // model towards the middle IMPROVES every term this gate had: more
+        // samples inside clip, so coverage and insideClip rise; a scale about the
+        // centre leaves the centre, so the error falls; areaPixels and edgePixels
+        // are minima, not targets. Measured on one locked selection (17:19, g9):
+        //
+        //     v0  n=565  err=0.194  spread=261px   <- View x Projection
+        //     v2  n=468  err=0.052  spread= 68px
+        //     v5  n=532  err=0.033  spread= 33px
+        //     v7  n=565  err=0.051  spread= 59px   <- was chosen
+        //
+        // Error and spread are ANTI-CORRELATED: the smaller the error, the
+        // smaller the image. `v0` and `v7` are exact transposes, tie at 565, and
+        // `v0` carries 4.4x the spread. The selection was not even stable --
+        // interp7 at 17:14:58, interp2 at 17:16:56, same group and occurrence.
+        //
+        // ⚠️ A LARGER SPREAD CANNOT BE GAMED: a product
+        // that magnifies pushes its samples OUT of clip, losing on VALIDITY first.
         uint32_t bestVariant = 0;
         uint32_t bestValid = 0;
+        double bestSpread = 0.0;
         double bestMean = 0.0;
         for (size_t variant = 0; variant < kVariantCount; ++variant) {
             const uint32_t valid = group.variantValid[variant];
             if (valid == 0)
                 continue;
-            const double mean = slot.variantErrorSum[variant] / double (valid);
-            if (valid > bestValid || (valid == bestValid && mean < bestMean)) {
+            const double mean = double (group.variantMeanCentreError[variant]);
+            const double spread = double (group.variantMeanSpreadPixels[variant]);
+            if (valid > bestValid || (valid == bestValid && spread > bestSpread) ||
+                (valid == bestValid && spread == bestSpread && mean < bestMean)) {
                 bestVariant = uint32_t (variant);
                 bestValid = valid;
+                bestSpread = spread;
                 bestMean = mean;
             }
         }
         group.winningVariant = bestVariant;
         group.winningVariantValid = bestValid;
-        for (size_t variant = 0; variant < kVariantCount; ++variant) {
-            const uint32_t valid = group.variantValid[variant];
-            group.variantMeanSpreadPixels[variant] =
-                valid > 0 ? float (slot.variantSpreadSum[variant] / double (valid)) : 0.0f;
-            group.variantMeanCentreError[variant] =
-                valid > 0 ? float (slot.variantErrorSum[variant] / double (valid)) : 0.0f;
-        }
         group.medianCentreError = Median (slot);
         group.meanCentreError = slot.errorCount > 0 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
         group.meanSpreadPixels = slot.spreadCount > 0 ? float (slot.spreadSum / double (slot.spreadCount)) : 0.0f;
