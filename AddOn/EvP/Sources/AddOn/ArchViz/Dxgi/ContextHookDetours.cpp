@@ -295,24 +295,28 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
             injection::depth::OnScenePassEnd (context, renderstate::ModelSceneGeneration ());
             injection::InjectIfReady (context);
 
-            // ⚠️ RUNGS B AND C, AND THIS IS THE ONE MOMENT
-            // BOTH ARE REACHABLE. The scene colour target is still bound -- that
-            // is what B paints -- and `first` is the target Archicad is switching
-            // TO, which is what C paints. One instant, two surfaces, and the
-            // difference between them on screen is the whole question: does what
-            // we put in Archicad's scene target survive to the display, or only
-            // what we put in the target it moves on to.
+            // ⚠️ RUNGS B AND C USED TO BE HERE AND HAVE BEEN
+            // REMOVED. They called `OMGetRenderTargets`, `QueryInterface` and
+            // `ClearView` on Archicad's own context FROM INSIDE A DETOUR ON THAT
+            // CONTEXT, BEFORE the original `OMSetRenderTargets` was forwarded --
+            // so the driver was asked to perform a clear while it was part way
+            // through a render-target transition. They also held no
+            // `ScopedInjectionGuard`, which every other call we make on
+            // Archicad's context does hold, so our own clears were being recorded
+            // by our own detours as Archicad's activity.
             //
-            // Both are no-ops unless the ladder is explicitly armed
-            // (MarkerLadder.hpp, section 10).
-            if (markerladder::Enabled ()) {
-                ID3D11RenderTargetView* scene = markerladder::BoundTarget (context);
-                if (scene != nullptr) {
-                    markerladder::Paint (context, scene, markerladder::Rung::SceneBoundary);
-                    scene->Release ();
-                }
-                markerladder::Paint (context, first, markerladder::Rung::NextTarget);
-            }
+            // ⚠️ AND THEY HAD ALREADY REPORTED. B was visible
+            // in all three modes and C in none, which is the whole answer they
+            // existed to give: Archicad's scene colour target reaches the screen
+            // and the target it switches to does not. Carrying a re-entrancy
+            // hazard in the hottest detour in the tree, for a question that is
+            // answered, is not a trade worth making -- Archicad crashed on a
+            // Floor Plan -> 3D transition on 2026-09-19 at 17:34 with the ladder
+            // armed, immediately after this hook installed.
+            //
+            // Rungs A and E remain: A runs inside the census, which already holds
+            // the guard, and E runs in the Present detour, which is not a context
+            // detour at all.
         }
 
         contextstate::OnRenderTargets (first, depth);

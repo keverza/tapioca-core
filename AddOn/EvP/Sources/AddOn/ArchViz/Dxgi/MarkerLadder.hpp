@@ -18,28 +18,37 @@
 // being displayed, and no further counter can say which -- only a pixel can.
 //
 // ⚠️ SO IT IS A LADDER AND NOT A MARKER. One square proves
-// "something of ours can reach the screen" and nothing else. Five squares, at
-// five points along the path from the model draw to Present, each in its own
-// slot down the left edge and its own colour, turn one run into a bracket:
+// "something of ours can reach the screen" and nothing else. Several, at points
+// along the path from the model draw to Present, each in its own slot down the
+// left edge and its own colour, turn one run into a bracket:
 //
 //     A  after the recognised model draw          scene colour target
-//     B  as the scene colour target is bound away scene colour target
-//     C  the target Archicad switches TO there    the next target
 //     E  immediately before Present               the back buffer
 //
-// A and B disappear while C or E survive  -> the scene target does not reach the
-//                                            screen in that mode, so drawing
-//                                            into it is the wrong architecture
-// A and B survive                         -> the scene pair IS carried through,
-//                                            and the preferred architecture --
-//                                            draw into Archicad's own colour and
-//                                            depth before its composite -- works
-// E disappears                            -> another presentation path entirely
+// ⚠️ B AND C EXISTED, REPORTED, AND WERE REMOVED. They
+// painted at the scene boundary from inside `DetourOMSetRenderTargets`, which
+// meant calling `OMGetRenderTargets`, `QueryInterface` and `ClearView` on
+// Archicad's own context from inside a detour on that context, before the
+// original call was forwarded and without `ScopedInjectionGuard`. Archicad
+// crashed on a Floor Plan -> 3D transition with the ladder armed
+// (2026-09-19 17:34), immediately after the context hook installed.
+//
+// Their answer is kept because it does not need repeating: B was visible in
+// ALL THREE modes and C in NONE. Archicad's scene colour target reaches the
+// screen; the target it switches to at the boundary does not.
+//
+// A disappears while E survives  -> what we put in Archicad's scene target does
+//                                   not reach the screen in that mode, so drawing
+//                                   into it is the wrong architecture
+// A survives                     -> the scene pair IS carried through, and the
+//                                   preferred architecture -- draw into
+//                                   Archicad's own colour and depth before its
+//                                   composite -- works
+// E disappears                   -> another presentation path entirely
 //
 // ⚠️ D IS DELIBERATELY ABSENT. "After the composite" needs a hook
 // inside the draw detours, which are the hottest path in the tree and the one
-// place a diagnostic must not add work. C and E bracket it from either side: a
-// patch that survives in C and in E leaves nothing for D to answer.
+// place a diagnostic must not add work -- the same reason B and C were removed.
 //
 // ⚠️ AND IT PAINTS WITH `ClearView`, NOT WITH A DRAW. That is
 // the whole reason this is cheap enough to exist. `ID3D11DeviceContext1::
@@ -69,10 +78,14 @@ namespace archviz {
 namespace dxgi {
 namespace markerladder {
 
+// ⚠️ THE NAMES AND THE ORDER ARE KEPT THOUGH B AND C NO
+// LONGER PAINT. Their slots stay reserved so a reader comparing an old log
+// against a new one is not silently reading different rungs under the same
+// letters, and so the counts in a stored report still mean what they said.
 enum class Rung : uint32_t {
     AfterModelDraw = 0, // A -- red
-    SceneBoundary,      // B -- yellow
-    NextTarget,         // C -- green
+    SceneBoundary,      // B -- yellow, RETIRED, see above
+    NextTarget,         // C -- green, RETIRED, see above
     BeforePresent,      // E -- magenta
     Count
 };
@@ -86,9 +99,9 @@ bool Enabled ();
 // RENDER THREAD. Paint this rung's patch into `view`.
 //
 // ⚠️ THE VIEW IS NOT REQUIRED TO BE BOUND. `ClearView`
-// addresses the view itself, which is what lets C paint into a target before
-// Archicad has finished switching to it, and B paint into one Archicad is in
-// the middle of leaving.
+// addresses the view itself. That is what made the retired B and C possible at
+// all -- and, separately, what made them unsafe: a clear issued while the driver
+// was part way through a render-target transition.
 void Paint (ID3D11DeviceContext* context, ID3D11RenderTargetView* view, Rung rung);
 
 // RENDER THREAD. Paint into the swap chain's back buffer -- rung E, which has a
