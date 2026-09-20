@@ -492,7 +492,7 @@ Verdict VerifyDetailed (std::string& error)
     // ---- and only NOW the modules, and only those that host a target --------
     //
     // ⚠️ A MODULE THAT HOSTS NO TARGET IS NOT CONSULTED.
-    // `dxgi.dll` is recorded in the profile and hosts zero of the twenty-seven
+    // `dxgi.dll` is recorded in the profile and hosts zero of the twenty-eight
     // slots; letting its hash veto the install is how a redistributable repair
     // killed the overlay for a day while every function being patched sat
     // untouched at the same offset with the same bytes.

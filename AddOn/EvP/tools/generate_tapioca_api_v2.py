@@ -182,6 +182,9 @@ from typing import Any
 # shader, targets, viewport, window shape -- scores each group's own bytes
 # against the orbit-target invariant, and ranks them. It reads only: nothing in
 # it arms, draws, or touches model data.
+# 2026-09-20, PASS_PROVENANCE: +1 for ViewerPassProvenance. It reads a fixed
+# render-thread ring relating the selected camera snapshot's scene-pass ID to the
+# pass ID propagated into the swap-chain back buffer. It does not gate or draw.
 # 2026-09-15, the sun study's display path: +1 for ShowSunStudy. It is the verb
 # that puts a COMPLETED study's atlas on the Diligent model and takes it off
 # again -- it builds one per-element side buffer of atlas tiles and pushes the
@@ -230,13 +233,13 @@ from typing import Any
 # overlay and read its health. Distinct from ViewerInjectTriangle, which arms the
 # same machinery the DIAGNOSTIC way -- deterministic test mesh, depth sweep, probe
 # primitives. The menu path and the regression path must not be the same verb.
-EXPECTED_REGISTRY_COMMANDS = 215
+EXPECTED_REGISTRY_COMMANDS = 216
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
 # reports when it is actually run -- the build had been passing on a stale
 # generated surface.
-EXPECTED_TOTAL_COMMANDS = 234
+EXPECTED_TOTAL_COMMANDS = 235
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

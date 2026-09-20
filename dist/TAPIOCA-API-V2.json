@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 215,
+      "nativeRegistry": 216,
       "dispatcherLocal": 19,
-      "total": 234
+      "total": 235
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -4470,6 +4470,9 @@
       "outputScheme": {
         "type": "object",
         "properties": {
+          "addressable": {
+            "type": "boolean"
+          },
           "elementId": {
             "$ref": "#/$defs/elementId"
           },
@@ -4540,7 +4543,7 @@
         },
         "additionalProperties": false,
         "required": [
-          "elementId",
+          "addressable",
           "elementIndex",
           "elementType",
           "source",
@@ -7539,8 +7542,14 @@
                 "type": "integer",
                 "minimum": 1
               },
+              "addressable": {
+                "type": "boolean"
+              },
               "elementId": {
                 "$ref": "#/$defs/elementId"
+              },
+              "unaddressableReason": {
+                "type": "string"
               },
               "type": {
                 "type": "integer"
@@ -7590,7 +7599,7 @@
             "additionalProperties": false,
             "required": [
               "index",
-              "elementId",
+              "addressable",
               "type",
               "typeName",
               "invalid",
@@ -17623,6 +17632,22 @@
               "show",
               "state"
             ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "native",
+              "diligent"
+            ]
+          },
+          "note": {
+            "type": "string"
+          },
+          "ladder": {
+            "type": "boolean"
+          },
+          "epochGate": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -17728,6 +17753,192 @@
           },
           "portableRunning": {
             "type": "boolean"
+          },
+          "modelRevision": {
+            "type": "integer"
+          },
+          "silhouetteEdges": {
+            "type": "integer"
+          },
+          "overlayBackend": {
+            "type": "string"
+          },
+          "diligentAttached": {
+            "type": "boolean"
+          },
+          "diligentAttachMs": {
+            "type": "integer"
+          },
+          "diligentAttachAttempts": {
+            "type": "integer"
+          },
+          "diligentAttachFailures": {
+            "type": "integer"
+          },
+          "diligentWraps": {
+            "type": "integer"
+          },
+          "diligentWrapHits": {
+            "type": "integer"
+          },
+          "diligentWrapFailures": {
+            "type": "integer"
+          },
+          "diligentDistinctBackBuffers": {
+            "type": "integer"
+          },
+          "diligentWrapDropsOnResize": {
+            "type": "integer"
+          },
+          "diligentError": {
+            "type": "string"
+          },
+          "publishedRevision": {
+            "type": "integer"
+          },
+          "gpuRevision": {
+            "type": "integer"
+          },
+          "watchRunning": {
+            "type": "boolean"
+          },
+          "watchPolls": {
+            "type": "integer"
+          },
+          "watchEdits": {
+            "type": "integer"
+          },
+          "watchRefreshes": {
+            "type": "integer"
+          },
+          "watchEnvironmentOnly": {
+            "type": "integer"
+          },
+          "watchSkippedBusy": {
+            "type": "integer"
+          },
+          "watchError": {
+            "type": "string"
+          },
+          "modelEditRebinds": {
+            "type": "integer"
+          },
+          "modelEditReselects": {
+            "type": "integer"
+          },
+          "lastMissMask": {
+            "type": "integer"
+          },
+          "rebinds": {
+            "type": "integer"
+          },
+          "rebindsRefused": {
+            "type": "integer"
+          },
+          "selectionMatches": {
+            "type": "integer"
+          },
+          "pinMissMask": {
+            "type": "integer"
+          },
+          "resizeRebinds": {
+            "type": "integer"
+          },
+          "age0": {
+            "type": "integer"
+          },
+          "age1": {
+            "type": "integer"
+          },
+          "age2": {
+            "type": "integer"
+          },
+          "age3plus": {
+            "type": "integer"
+          },
+          "cameraAgeMax": {
+            "type": "integer"
+          },
+          "suppressedStaleViewport": {
+            "type": "integer"
+          },
+          "redrawRequests": {
+            "type": "integer"
+          },
+          "ticks": {
+            "type": "integer"
+          },
+          "timerTicks": {
+            "type": "integer"
+          },
+          "tickGapMaxMs": {
+            "type": "integer"
+          },
+          "tickGapsOverASecond": {
+            "type": "integer"
+          },
+          "redrawWaitMaxMs": {
+            "type": "integer"
+          },
+          "redrawsTaken": {
+            "type": "integer"
+          },
+          "repeatHeld": {
+            "type": "integer"
+          },
+          "repeatPassMoved": {
+            "type": "integer"
+          },
+          "repeatWindowMoved": {
+            "type": "integer"
+          },
+          "ladderEnabled": {
+            "type": "boolean"
+          },
+          "ladderA": {
+            "type": "integer"
+          },
+          "ladderB": {
+            "type": "integer"
+          },
+          "ladderC": {
+            "type": "integer"
+          },
+          "ladderE": {
+            "type": "integer"
+          },
+          "ladderFailures": {
+            "type": "integer"
+          },
+          "epochGateEnabled": {
+            "type": "boolean"
+          },
+          "epochMatched": {
+            "type": "integer"
+          },
+          "epochMismatched": {
+            "type": "integer"
+          },
+          "epochSuppressed": {
+            "type": "integer"
+          },
+          "epochBehindMax": {
+            "type": "integer"
+          },
+          "epochAheadMax": {
+            "type": "integer"
+          },
+          "acceptedViewportWidth": {
+            "type": "integer"
+          },
+          "acceptedViewportHeight": {
+            "type": "integer"
+          },
+          "targetWidth": {
+            "type": "integer"
+          },
+          "targetHeight": {
+            "type": "integer"
           }
         },
         "additionalProperties": false,
@@ -22031,6 +22242,9 @@
           "elements": {
             "$ref": "#Elements"
           },
+          "allWalls": {
+            "type": "boolean"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -23922,6 +24136,12 @@
                 },
                 "meanSpreadPixels": {
                   "type": "number"
+                },
+                "projectionSamples": {
+                  "type": "integer"
+                },
+                "projectionDivideSamples": {
+                  "type": "integer"
                 }
               },
               "additionalProperties": false,
@@ -25542,6 +25762,165 @@
           "archicadRows",
           "archicadFails",
           "maxArchicadGapMs"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerPassProvenance",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "reset": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1024
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "hookInstalled": {
+            "type": "boolean"
+          },
+          "contextHookInstalled": {
+            "type": "boolean"
+          },
+          "presentHookInstalled": {
+            "type": "boolean"
+          },
+          "srvHookEnabled": {
+            "type": "boolean"
+          },
+          "contextThreadId": {
+            "type": "string"
+          },
+          "presentThreadId": {
+            "type": "string"
+          },
+          "presents": {
+            "type": "string"
+          },
+          "matched": {
+            "type": "string"
+          },
+          "mismatched": {
+            "type": "string"
+          },
+          "unknown": {
+            "type": "string"
+          },
+          "ambiguous": {
+            "type": "string"
+          },
+          "backBufferFailures": {
+            "type": "string"
+          },
+          "resourceTableOverflows": {
+            "type": "string"
+          },
+          "renderThreadViolations": {
+            "type": "string"
+          },
+          "unsupportedGpuWork": {
+            "type": "string"
+          },
+          "snapshotDrainTimeouts": {
+            "type": "string"
+          },
+          "contextHookRepairs": {
+            "type": "string"
+          },
+          "rowsOverwritten": {
+            "type": "string"
+          },
+          "contextSlotsPatched": {
+            "type": "integer"
+          },
+          "resourceResetPending": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "present": {
+                  "type": "string"
+                },
+                "imagePass": {
+                  "type": "string"
+                },
+                "cameraPass": {
+                  "type": "string"
+                },
+                "delta": {
+                  "type": "string"
+                },
+                "cameraHash": {
+                  "type": "string"
+                },
+                "backBuffer": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string",
+                  "enum": [
+                    "MATCH",
+                    "MISMATCH",
+                    "UNKNOWN",
+                    "AMBIGUOUS"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "present",
+                "imagePass",
+                "cameraPass",
+                "delta",
+                "cameraHash",
+                "backBuffer",
+                "relation"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "enabled",
+          "hookInstalled",
+          "contextHookInstalled",
+          "presentHookInstalled",
+          "srvHookEnabled",
+          "contextThreadId",
+          "presentThreadId",
+          "presents",
+          "matched",
+          "mismatched",
+          "unknown",
+          "ambiguous",
+          "backBufferFailures",
+          "resourceTableOverflows",
+          "renderThreadViolations",
+          "unsupportedGpuWork",
+          "snapshotDrainTimeouts",
+          "contextHookRepairs",
+          "rowsOverwritten",
+          "contextSlotsPatched",
+          "resourceResetPending",
+          "rows"
         ]
       }
     },

@@ -251,6 +251,11 @@ void NoteCameraContent (const float* view16, const float* projection16, float vp
     }
 }
 
+uint64_t ContentSignature ()
+{
+    return g_contentSignature.load (std::memory_order_relaxed);
+}
+
 void NoteAuthoritativeSnapshot ()
 {
     g_snapshots.fetch_add (1, std::memory_order_relaxed);

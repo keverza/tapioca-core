@@ -51,6 +51,7 @@ struct ID3D11Buffer;
 struct ID3D11Texture2D;
 struct ID3D11RenderTargetView;
 struct ID3D11DepthStencilView;
+struct ID3D11ShaderResourceView;
 
 namespace geomsrv {
 namespace archviz {
@@ -58,15 +59,17 @@ namespace dxgi {
 namespace selftest {
 
 struct Throwaway {
-    ID3D11Device*           device = nullptr;
-    ID3D11DeviceContext*    context = nullptr;
-    ID3D11Buffer*           dynamicBuffer = nullptr;
-    ID3D11Buffer*           defaultBuffer = nullptr;
-    ID3D11Texture2D*        colour = nullptr;
-    ID3D11Texture2D*        depth = nullptr;
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* context = nullptr;
+    ID3D11Buffer* dynamicBuffer = nullptr;
+    ID3D11Buffer* defaultBuffer = nullptr;
+    ID3D11Texture2D* colour = nullptr;
+    ID3D11Texture2D* shaderTexture = nullptr;
+    ID3D11Texture2D* depth = nullptr;
     ID3D11RenderTargetView* colourView = nullptr;
+    ID3D11ShaderResourceView* colourShaderView = nullptr;
     ID3D11DepthStencilView* depthView = nullptr;
-    void**                  vtable = nullptr;
+    void** vtable = nullptr;
 
     void Release ();
 };
@@ -82,8 +85,7 @@ struct Throwaway {
 // its `GetFeatureLevel`. Spelled as plain integers rather than `UINT` and
 // `D3D_FEATURE_LEVEL` so this header stays free of <windows.h> and <d3d11.h>,
 // like its neighbours in this directory.
-bool Create (unsigned int creationFlags, int featureLevel, Throwaway& out,
-             std::string& error);
+bool Create (unsigned int creationFlags, int featureLevel, Throwaway& out, std::string& error);
 
 // MAIN THREAD. Call every method in the discovery set on `throwaway.context`,
 // once each, with legal arguments.
@@ -98,7 +100,7 @@ void Exercise (const Throwaway& throwaway);
 
 // One patched slot, for `ValidateTable`.
 struct SlotDescriptor {
-    size_t      index;
+    size_t index;
     const char* name;
 };
 
@@ -111,8 +113,7 @@ struct SlotDescriptor {
 // n-way distinctness check are what stands between a correct ABI assumption and
 // writing a function pointer into an unrelated slot of a live d3d11.dll. False
 // with `error` filled names the slot that failed and which check it failed.
-bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count,
-                    std::string& error);
+bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, std::string& error);
 
 // The module a vtable slot points into, lower-cased, or empty. Used to refuse a
 // table that is not d3d11.dll's before anything is written to it -- if the
@@ -121,9 +122,9 @@ bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count,
 // diagnosis. Same check, same reason, as the present hook's dxgi.dll one.
 std::string OwningModuleOf (const void* function);
 
-}   // namespace selftest
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace selftest
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

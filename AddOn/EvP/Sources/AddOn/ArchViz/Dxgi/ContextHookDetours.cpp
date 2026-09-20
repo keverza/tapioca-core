@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
+#include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 
@@ -68,6 +69,7 @@ extern const size_t kSlotIndex[size_t (ContextSlot::Count)] = {
     44, // RSSetViewports
     45, // RSSetScissorRects
     33, // OMSetRenderTargets
+    8,  // PSSetShaderResources
     7,  // VSSetConstantBuffers
     16, // PSSetConstantBuffers
     22, // GSSetConstantBuffers
@@ -112,6 +114,8 @@ using RSSetViewportsFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, 
 using RSSetScissorRectsFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, const D3D11_RECT*);
 using OMSetRenderTargetsFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, ID3D11RenderTargetView* const*,
                                                         ID3D11DepthStencilView*);
+using PSSetShaderResourcesFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT,
+                                                          ID3D11ShaderResourceView* const*);
 using SetConstantBuffersFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, ID3D11Buffer* const*);
 using MapFn = HRESULT (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT, D3D11_MAP, UINT,
                                             D3D11_MAPPED_SUBRESOURCE*);
@@ -220,6 +224,29 @@ Audience Who (ID3D11DeviceContext* context, ContextSlot slot)
     return Audience::Ignore;
 }
 
+class PassProvenanceOperation {
+  public:
+    explicit PassProvenanceOperation (bool archicad) : active (archicad && passprovenance::BeginContextOperation ())
+    {
+    }
+
+    ~PassProvenanceOperation ()
+    {
+        Finish ();
+    }
+
+    void Finish ()
+    {
+        if (!active)
+            return;
+        passprovenance::EndContextOperation (active);
+        active = false;
+    }
+
+  private:
+    bool active;
+};
+
 // ---- the detours -----------------------------------------------------------
 // Every one of them: bump the drain counter, decide the audience, do the cheap
 // recording if it is Archicad's and the slot is on, then tail-call the original
@@ -321,6 +348,7 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
 
         contextstate::OnRenderTargets (first, depth);
         renderstate::OnRenderTargets (first, depth);
+        passprovenance::OnRenderTargets (count, targets);
         // `handle` is the colour target; the depth target rides in b/c as the low
         // and high halves of its pointer, because the ring row is fixed-size and
         // the two must stay in the SAME row -- a depth bind logged separately
@@ -333,6 +361,19 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
     const OMSetRenderTargetsFn original = OriginalOf<OMSetRenderTargetsFn> (ContextSlot::OMSetRenderTargets);
     if (original != nullptr)
         original (context, count, targets, depth);
+    g_inFlight.fetch_sub (1, std::memory_order_release);
+}
+
+void STDMETHODCALLTYPE DetourPSSetShaderResources (ID3D11DeviceContext* context, UINT startSlot, UINT count,
+                                                   ID3D11ShaderResourceView* const* views)
+{
+    g_inFlight.fetch_add (1, std::memory_order_acquire);
+    if (Who (context, ContextSlot::PSSetShaderResources) == Audience::Archicad &&
+        SlotOn (ContextSlot::PSSetShaderResources))
+        passprovenance::OnPSShaderResources (startSlot, count, views);
+    const PSSetShaderResourcesFn original = OriginalOf<PSSetShaderResourcesFn> (ContextSlot::PSSetShaderResources);
+    if (original != nullptr)
+        original (context, startSlot, count, views);
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -392,6 +433,8 @@ HRESULT STDMETHODCALLTYPE DetourMap (ID3D11DeviceContext* context, ID3D11Resourc
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     const Audience audience = Who (context, ContextSlot::Map);
+    const bool archicad = audience == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
 
     // ⚠️ THE ORIGINAL RUNS FIRST HERE, unlike every other detour in this file.
     // Map's whole output is the pointer it writes into `mapped`, and there is
@@ -399,6 +442,8 @@ HRESULT STDMETHODCALLTYPE DetourMap (ID3D11DeviceContext* context, ID3D11Resourc
     const MapFn original = OriginalOf<MapFn> (ContextSlot::Map);
     const HRESULT hr =
         (original != nullptr) ? original (context, resource, subresource, mapType, flags, mapped) : E_FAIL;
+    if (archicad && mapType != D3D11_MAP_READ && SUCCEEDED (hr))
+        passprovenance::OnResourceWrite (resource);
 
     if (audience == Audience::Archicad && SlotOn (ContextSlot::Map) && SUCCEEDED (hr) && mapped != nullptr &&
         mapped->pData != nullptr && subresource == 0) {
@@ -409,6 +454,7 @@ HRESULT STDMETHODCALLTYPE DetourMap (ID3D11DeviceContext* context, ID3D11Resourc
         const uint32_t width = viewmatrix::OnMapped (resource, mapped->pData);
         eventring::Record (ContextSlot::Map, uint64_t (uintptr_t (resource)), subresource, uint32_t (mapType), width);
     }
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }
@@ -435,8 +481,9 @@ void STDMETHODCALLTYPE DetourUpdateSubresource (ID3D11DeviceContext* context, ID
                                                 UINT rowPitch, UINT depthPitch)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::UpdateSubresource) == Audience::Archicad &&
-        SlotOn (ContextSlot::UpdateSubresource) && source != nullptr && subresource == 0) {
+    const bool archicad = Who (context, ContextSlot::UpdateSubresource) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad && SlotOn (ContextSlot::UpdateSubresource) && source != nullptr && subresource == 0) {
         const uint32_t width = viewmatrix::ConstantBufferWidth (resource);
         // ⚠️ A BOX MEANS A PARTIAL UPDATE, and its left/right are BYTES for a
         // buffer. Copying `width` bytes from `source` in that case would read
@@ -455,6 +502,9 @@ void STDMETHODCALLTYPE DetourUpdateSubresource (ID3D11DeviceContext* context, ID
     const UpdateSubresourceFn original = OriginalOf<UpdateSubresourceFn> (ContextSlot::UpdateSubresource);
     if (original != nullptr)
         original (context, resource, subresource, box, source, rowPitch, depthPitch);
+    if (archicad)
+        passprovenance::OnResourceWrite (resource);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -462,14 +512,18 @@ void STDMETHODCALLTYPE DetourClearRenderTargetView (ID3D11DeviceContext* context
                                                     const FLOAT colour[4])
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::ClearRenderTargetView) == Audience::Archicad &&
-        SlotOn (ContextSlot::ClearRenderTargetView)) {
+    const bool archicad = Who (context, ContextSlot::ClearRenderTargetView) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad && SlotOn (ContextSlot::ClearRenderTargetView)) {
         renderstate::OnClearRenderTarget (view);
         eventring::Record (ContextSlot::ClearRenderTargetView, uint64_t (uintptr_t (view)), 0, 0, 0);
     }
     const ClearRTVFn original = OriginalOf<ClearRTVFn> (ContextSlot::ClearRenderTargetView);
     if (original != nullptr)
         original (context, view, colour);
+    if (archicad)
+        passprovenance::OnClearRenderTarget (view);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -499,8 +553,10 @@ void STDMETHODCALLTYPE DetourClearDepthStencilView (ID3D11DeviceContext* context
 // BEHIND. Every draw detour calls this once the real call has executed, so a
 // depth checkpoint captures the buffer as that draw finished it, not as it found
 // it. It is a no-op unless the checkpoint diagnostic is armed.
-void PostDraw (ID3D11DeviceContext* context, uint32_t kind, UINT count)
+void PostDraw (ID3D11DeviceContext* context, uint32_t kind, UINT count, bool archicad)
 {
+    if (archicad)
+        passprovenance::OnDrawCompleted ();
     if (injection::checkpoints::Enabled ())
         injection::checkpoints::OnDrawCompleted (context, kind, uint32_t (count), renderstate::ModelSceneGeneration ());
 }
@@ -509,7 +565,9 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
                                           INT baseVertex)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawIndexed) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::DrawIndexed) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -521,14 +579,17 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
     const DrawIndexedFn original = OriginalOf<DrawIndexedFn> (ContextSlot::DrawIndexed);
     if (original != nullptr)
         original (context, indexCount, startIndex, baseVertex);
-    PostDraw (context, 0, indexCount);
+    PostDraw (context, 0, indexCount, archicad);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
 void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UINT start)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::Draw) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::Draw) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -541,7 +602,8 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
     if (original != nullptr)
         original (context, count, start);
-    PostDraw (context, 1, count);
+    PostDraw (context, 1, count, archicad);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -549,7 +611,9 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
                                                    UINT startIndex, INT baseVertex, UINT startInstance)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -561,7 +625,8 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
     const DrawIndexedInstFn original = OriginalOf<DrawIndexedInstFn> (ContextSlot::DrawIndexedInstanced);
     if (original != nullptr)
         original (context, perInst, instances, startIndex, baseVertex, startInstance);
-    PostDraw (context, 2, perInst);
+    PostDraw (context, 2, perInst, archicad);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -586,7 +651,9 @@ extern // ⚠️ THESE TWO ARE THE FOURTH RUN'S QUESTION, and it is a sharp one.
                                                ID3D11Resource* source)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::CopyResource) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::CopyResource) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         // ⚠️ THE SCENE-COMPLETION TRIGGER FIRES HERE, BEFORE THE COPY IS
         // FORWARDED. At this instant Archicad's scene is finished and the copy
         // that consumes it has not happened, so anything drawn now is inside the
@@ -596,6 +663,9 @@ extern // ⚠️ THESE TWO ARE THE FOURTH RUN'S QUESTION, and it is a sharp one.
     const CopyResourceFn original = OriginalOf<CopyResourceFn> (ContextSlot::CopyResource);
     if (original != nullptr)
         original (context, destination, source);
+    if (archicad)
+        passprovenance::OnCopyResource (destination, source);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -603,10 +673,14 @@ void STDMETHODCALLTYPE DetourExecuteCommandList (ID3D11DeviceContext* context, I
                                                  BOOL restoreState)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::ExecuteCommandList);
+    const bool archicad = Who (context, ContextSlot::ExecuteCommandList) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
     const ExecuteCommandListFn original = OriginalOf<ExecuteCommandListFn> (ContextSlot::ExecuteCommandList);
     if (original != nullptr)
         original (context, list, restoreState);
+    if (archicad)
+        passprovenance::OnUnsupportedGpuWork ();
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -620,7 +694,9 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
                                             UINT startVertex, UINT startInstance)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawInstanced) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::DrawInstanced) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -632,14 +708,17 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
     const DrawInstancedFn original = OriginalOf<DrawInstancedFn> (ContextSlot::DrawInstanced);
     if (original != nullptr)
         original (context, perInstance, instances, startVertex, startInstance);
-    PostDraw (context, 3, perInstance);
+    PostDraw (context, 3, perInstance, archicad);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
 void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawAuto) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::DrawAuto) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -651,6 +730,9 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
     const DrawAutoFn original = OriginalOf<DrawAutoFn> (ContextSlot::DrawAuto);
     if (original != nullptr)
         original (context);
+    if (archicad)
+        passprovenance::OnDrawCompleted ();
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -658,7 +740,9 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
                                                            UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -670,13 +754,18 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
     const DrawIndirectFn original = OriginalOf<DrawIndirectFn> (ContextSlot::DrawIndexedInstancedIndirect);
     if (original != nullptr)
         original (context, args, offset);
+    if (archicad)
+        passprovenance::OnDrawCompleted ();
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
 void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context, ID3D11Buffer* args, UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad) {
+    const bool archicad = Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         if (renderstate::OnDraw ())
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
@@ -688,26 +777,37 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
     const DrawIndirectFn original = OriginalOf<DrawIndirectFn> (ContextSlot::DrawInstancedIndirect);
     if (original != nullptr)
         original (context, args, offset);
+    if (archicad)
+        passprovenance::OnDrawCompleted ();
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
 void STDMETHODCALLTYPE DetourDispatch (ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::Dispatch);
+    const bool archicad = Who (context, ContextSlot::Dispatch) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
     const DispatchFn original = OriginalOf<DispatchFn> (ContextSlot::Dispatch);
     if (original != nullptr)
         original (context, x, y, z);
+    if (archicad)
+        passprovenance::OnUnsupportedGpuWork ();
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
 void STDMETHODCALLTYPE DetourDispatchIndirect (ID3D11DeviceContext* context, ID3D11Buffer* args, UINT offset)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    Who (context, ContextSlot::DispatchIndirect);
+    const bool archicad = Who (context, ContextSlot::DispatchIndirect) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
     const DispatchIndirectFn original = OriginalOf<DispatchIndirectFn> (ContextSlot::DispatchIndirect);
     if (original != nullptr)
         original (context, args, offset);
+    if (archicad)
+        passprovenance::OnUnsupportedGpuWork ();
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -716,11 +816,17 @@ void STDMETHODCALLTYPE DetourCopySubresourceRegion (ID3D11DeviceContext* context
                                                     UINT sourceSub, const D3D11_BOX* box)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::CopySubresourceRegion) == Audience::Archicad)
+    const bool archicad = Who (context, ContextSlot::CopySubresourceRegion) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         renderstate::OnCopyOrResolve (uint64_t (uintptr_t (source)));
+    }
     const CopySubresourceFn original = OriginalOf<CopySubresourceFn> (ContextSlot::CopySubresourceRegion);
     if (original != nullptr)
         original (context, destination, subresource, x, y, z, source, sourceSub, box);
+    if (archicad)
+        passprovenance::OnPartialResourceCopy (destination, source);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -729,11 +835,17 @@ void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context, I
                                                  DXGI_FORMAT format)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::ResolveSubresource) == Audience::Archicad)
+    const bool archicad = Who (context, ContextSlot::ResolveSubresource) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad) {
         renderstate::OnCopyOrResolve (uint64_t (uintptr_t (source)));
+    }
     const ResolveSubresourceFn original = OriginalOf<ResolveSubresourceFn> (ContextSlot::ResolveSubresource);
     if (original != nullptr)
         original (context, destination, destSub, source, sourceSub, format);
+    if (archicad)
+        passprovenance::OnPartialResourceCopy (destination, source);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -824,8 +936,9 @@ void STDMETHODCALLTYPE DetourUpdateSubresource1 (ID3D11DeviceContext* context, I
                                                  UINT rowPitch, UINT depthPitch, UINT copyFlags)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
-    if (Who (context, ContextSlot::UpdateSubresource1) == Audience::Archicad &&
-        SlotOn (ContextSlot::UpdateSubresource1) && source != nullptr && subresource == 0) {
+    const bool archicad = Who (context, ContextSlot::UpdateSubresource1) == Audience::Archicad;
+    PassProvenanceOperation provenanceOperation (archicad);
+    if (archicad && SlotOn (ContextSlot::UpdateSubresource1) && source != nullptr && subresource == 0) {
         const uint32_t width = viewmatrix::ConstantBufferWidth (resource);
         uint32_t offset = 0;
         uint32_t bytes = width;
@@ -841,6 +954,9 @@ void STDMETHODCALLTYPE DetourUpdateSubresource1 (ID3D11DeviceContext* context, I
     const UpdateSubresource1Fn original = OriginalOf<UpdateSubresource1Fn> (ContextSlot::UpdateSubresource1);
     if (original != nullptr)
         original (context, resource, subresource, box, source, rowPitch, depthPitch, copyFlags);
+    if (archicad)
+        passprovenance::OnResourceWrite (resource);
+    provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
@@ -848,6 +964,7 @@ void* const kDetour[size_t (ContextSlot::Count)] = {
     (void*) &DetourRSSetViewports,
     (void*) &DetourRSSetScissorRects,
     (void*) &DetourOMSetRenderTargets,
+    (void*) &DetourPSSetShaderResources,
     (void*) &DetourVSSetConstantBuffers,
     (void*) &DetourPSSetConstantBuffers,
     (void*) &DetourGSSetConstantBuffers,

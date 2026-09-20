@@ -26,9 +26,10 @@ constexpr uint32_t kCameraWindowConstants = 16;
 // ⚠️ A COUNTER, NOT A FLAG, because the guard has to nest: an injected draw runs
 // inside a detour that is already forwarding one of Archicad's calls, and a
 // bool would be cleared by the inner scope while the outer one still needed it.
-// Render thread only, so no atomic is required -- and see the header for why an
-// object-pointer filter cannot do this job.
-int g_injectionDepth = 0;
+// The context producer and Present consumer are distinct stable threads. The
+// guard therefore belongs to the injecting thread; a process-global flag would
+// suppress genuine host calls while Present-side injection is in progress.
+thread_local int g_injectionDepth = 0;
 
 } // namespace
 

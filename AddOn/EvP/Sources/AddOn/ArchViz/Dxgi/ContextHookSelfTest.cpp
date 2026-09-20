@@ -21,14 +21,26 @@ namespace selftest {
 
 void Throwaway::Release ()
 {
-    if (depthView != nullptr) depthView->Release ();
-    if (colourView != nullptr) colourView->Release ();
-    if (depth != nullptr) depth->Release ();
-    if (colour != nullptr) colour->Release ();
-    if (defaultBuffer != nullptr) defaultBuffer->Release ();
-    if (dynamicBuffer != nullptr) dynamicBuffer->Release ();
-    if (context != nullptr) context->Release ();
-    if (device != nullptr) device->Release ();
+    if (colourShaderView != nullptr)
+        colourShaderView->Release ();
+    if (depthView != nullptr)
+        depthView->Release ();
+    if (colourView != nullptr)
+        colourView->Release ();
+    if (depth != nullptr)
+        depth->Release ();
+    if (shaderTexture != nullptr)
+        shaderTexture->Release ();
+    if (colour != nullptr)
+        colour->Release ();
+    if (defaultBuffer != nullptr)
+        defaultBuffer->Release ();
+    if (dynamicBuffer != nullptr)
+        dynamicBuffer->Release ();
+    if (context != nullptr)
+        context->Release ();
+    if (device != nullptr)
+        device->Release ();
     *this = Throwaway {};
 }
 
@@ -37,8 +49,7 @@ std::string OwningModuleOf (const void* function)
     if (function == nullptr)
         return std::string ();
     HMODULE owner = nullptr;
-    if (GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+    if (GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                             reinterpret_cast<LPCWSTR> (function), &owner) == 0 ||
         owner == nullptr)
         return std::string ();
@@ -51,16 +62,14 @@ std::string OwningModuleOf (const void* function)
     const size_t slash = wide.find_last_of (L"\\/");
     const std::wstring leaf = (slash == std::wstring::npos) ? wide : wide.substr (slash + 1);
 
-    const int needed = WideCharToMultiByte (CP_UTF8, 0, leaf.c_str (), int (leaf.size ()),
-                                            nullptr, 0, nullptr, nullptr);
+    const int needed =
+        WideCharToMultiByte (CP_UTF8, 0, leaf.c_str (), int (leaf.size ()), nullptr, 0, nullptr, nullptr);
     std::string narrow (size_t (needed), '\0');
-    WideCharToMultiByte (CP_UTF8, 0, leaf.c_str (), int (leaf.size ()), narrow.data (), needed,
-                         nullptr, nullptr);
+    WideCharToMultiByte (CP_UTF8, 0, leaf.c_str (), int (leaf.size ()), narrow.data (), needed, nullptr, nullptr);
     return narrow;
 }
 
-bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count,
-                    std::string& error)
+bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, std::string& error)
 {
     if (vtable == nullptr || slots == nullptr || count == 0) {
         error = "no vtable to validate";
@@ -79,17 +88,15 @@ bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count,
         highest = (slots[i].index > highest) ? slots[i].index : highest;
     const size_t bytes = (highest + 1) * sizeof (void*);
     MEMORY_BASIC_INFORMATION region = {};
-    if (VirtualQuery (vtable, &region, sizeof (region)) == 0 ||
-        region.State != MEM_COMMIT ||
+    if (VirtualQuery (vtable, &region, sizeof (region)) == 0 || region.State != MEM_COMMIT ||
         (region.Protect & (PAGE_NOACCESS | PAGE_GUARD)) != 0) {
         error = "the vtable is not committed readable memory; refusing to touch it";
         return false;
     }
-    const unsigned char* regionEnd =
-        static_cast<const unsigned char*> (region.BaseAddress) + region.RegionSize;
+    const unsigned char* regionEnd = static_cast<const unsigned char*> (region.BaseAddress) + region.RegionSize;
     if (reinterpret_cast<const unsigned char*> (vtable) + bytes > regionEnd) {
-        error = "the vtable is shorter than the highest slot the hook wants (" +
-                std::to_string (highest) + "); refusing to read or write past it";
+        error = "the vtable is shorter than the highest slot the hook wants (" + std::to_string (highest) +
+                "); refusing to read or write past it";
         return false;
     }
 
@@ -97,16 +104,15 @@ bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count,
         void* const entry = vtable[slots[i].index];
         const std::string owner = OwningModuleOf (entry);
         if (owner != "d3d11.dll") {
-            error = std::string ("vtable slot ") + std::to_string (slots[i].index) + " (" +
-                    slots[i].name + ") does not point into d3d11.dll but into '" +
-                    (owner.empty () ? std::string ("no loaded module") : owner) +
-                    "'; refusing to patch it";
+            error = std::string ("vtable slot ") + std::to_string (slots[i].index) + " (" + slots[i].name +
+                    ") does not point into d3d11.dll but into '" +
+                    (owner.empty () ? std::string ("no loaded module") : owner) + "'; refusing to patch it";
             return false;
         }
         for (size_t j = 0; j < i; ++j) {
             if (vtable[slots[j].index] == entry) {
-                error = std::string ("vtable slots ") + slots[j].name + " and " +
-                        slots[i].name + " hold the same function; the indices cannot all "
+                error = std::string ("vtable slots ") + slots[j].name + " and " + slots[i].name +
+                        " hold the same function; the indices cannot all "
                         "be right, so nothing is patched";
                 return false;
             }
@@ -126,14 +132,12 @@ bool Create (unsigned int creationFlags, int featureLevel, Throwaway& out, std::
     const D3D_FEATURE_LEVEL requested = D3D_FEATURE_LEVEL (featureLevel);
     D3D_FEATURE_LEVEL obtained = D3D_FEATURE_LEVEL (0);
 
-    HRESULT hr = D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, creationFlags,
-                                    &requested, 1, D3D11_SDK_VERSION, &out.device, &obtained,
-                                    &out.context);
+    HRESULT hr = D3D11CreateDevice (nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, creationFlags, &requested, 1,
+                                    D3D11_SDK_VERSION, &out.device, &obtained, &out.context);
     if (FAILED (hr) || out.device == nullptr || out.context == nullptr) {
         out.Release ();
-        error = "D3D11CreateDevice with Archicad's own creation flags (0x" +
-                std::to_string ((unsigned) creationFlags) + ") and feature level 0x" +
-                std::to_string ((unsigned) featureLevel) + " failed (0x" +
+        error = "D3D11CreateDevice with Archicad's own creation flags (0x" + std::to_string ((unsigned) creationFlags) +
+                ") and feature level 0x" + std::to_string ((unsigned) featureLevel) + " failed (0x" +
                 std::to_string ((unsigned) hr) + ")";
         return false;
     }
@@ -169,6 +173,13 @@ bool Create (unsigned int creationFlags, int featureLevel, Throwaway& out, std::
     if (SUCCEEDED (step))
         step = out.device->CreateRenderTargetView (out.colour, nullptr, &out.colourView);
 
+    D3D11_TEXTURE2D_DESC shaderDesc = colourDesc;
+    shaderDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    if (SUCCEEDED (step))
+        step = out.device->CreateTexture2D (&shaderDesc, nullptr, &out.shaderTexture);
+    if (SUCCEEDED (step))
+        step = out.device->CreateShaderResourceView (out.shaderTexture, nullptr, &out.colourShaderView);
+
     D3D11_TEXTURE2D_DESC depthDesc = colourDesc;
     depthDesc.Format = DXGI_FORMAT_D32_FLOAT;
     depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
@@ -198,19 +209,19 @@ void Exercise (const Throwaway& throwaway)
     viewport.MaxDepth = 1.0f;
     context->RSSetViewports (1, &viewport);
 
-    D3D11_RECT scissor = {0, 0, 1, 1};
+    D3D11_RECT scissor = { 0, 0, 1, 1 };
     context->RSSetScissorRects (1, &scissor);
 
     context->OMSetRenderTargets (1, &throwaway.colourView, throwaway.depthView);
+    context->PSSetShaderResources (0, 1, &throwaway.colourShaderView);
 
-    ID3D11Buffer* constants[1] = {throwaway.defaultBuffer};
+    ID3D11Buffer* constants[1] = { throwaway.defaultBuffer };
     context->VSSetConstantBuffers (0, 1, constants);
     context->PSSetConstantBuffers (0, 1, constants);
     context->GSSetConstantBuffers (0, 1, constants);
 
     D3D11_MAPPED_SUBRESOURCE mapped = {};
-    if (SUCCEEDED (context->Map (throwaway.dynamicBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0,
-                                 &mapped))) {
+    if (SUCCEEDED (context->Map (throwaway.dynamicBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
         if (mapped.pData != nullptr)
             std::memset (mapped.pData, 0, 256);
         context->Unmap (throwaway.dynamicBuffer, 0);
@@ -219,7 +230,7 @@ void Exercise (const Throwaway& throwaway)
     unsigned char bytes[256] = {};
     context->UpdateSubresource (throwaway.defaultBuffer, 0, nullptr, bytes, 0, 0);
 
-    const FLOAT clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    const FLOAT clear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     context->ClearRenderTargetView (throwaway.colourView, clear);
     context->ClearDepthStencilView (throwaway.depthView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
@@ -228,9 +239,11 @@ void Exercise (const Throwaway& throwaway)
     // survives a debug run and reports as a driver fault on somebody else's
     // machine.
     context->OMSetRenderTargets (0, nullptr, nullptr);
+    ID3D11ShaderResourceView* noShaderResource = nullptr;
+    context->PSSetShaderResources (0, 1, &noShaderResource);
 }
 
-}   // namespace selftest
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace selftest
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv

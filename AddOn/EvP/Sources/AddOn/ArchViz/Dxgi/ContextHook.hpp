@@ -109,6 +109,7 @@ enum class ContextSlot : uint32_t {
     RSSetViewports = 0,
     RSSetScissorRects,
     OMSetRenderTargets,
+    PSSetShaderResources,
     VSSetConstantBuffers,
     PSSetConstantBuffers,
     GSSetConstantBuffers,
@@ -167,7 +168,7 @@ enum class ContextSlot : uint32_t {
 
 const char* ContextSlotName (ContextSlot slot);
 
-// MAIN THREAD. Read the eleven slots out of ARCHICAD'S OWN context vtable and
+// MAIN THREAD. Read every discovery slot out of ARCHICAD'S OWN context vtable and
 // hand each to `patchprofile::RecordTarget`, WITHOUT patching anything.
 //
 // ⚠️ IT NEEDS THE CONTEXT, SO IT NEEDS THE MODE ARMED FIRST. The profile has to
@@ -287,11 +288,11 @@ bool ContextSlotEnabled (ContextSlot slot);
 // a detour.
 struct ContextEvent {
     uint64_t timestampUs = 0;
-    uint32_t slot = 0;      // ContextSlot
-    uint32_t a = 0;         // slot-specific; see ContextHook.cpp for the mapping
+    uint32_t slot = 0; // ContextSlot
+    uint32_t a = 0;    // slot-specific; see ContextHook.cpp for the mapping
     uint32_t b = 0;
     uint32_t c = 0;
-    uint64_t handle = 0;    // the resource or view the call named, as an integer
+    uint64_t handle = 0; // the resource or view the call named, as an integer
 };
 
 // MAIN THREAD. Copy out up to `max` events not yet drained, oldest first, and
@@ -323,12 +324,12 @@ enum class Proof : uint32_t {
 const char* ProofName (Proof proof);
 
 struct ContextHookStats {
-    bool     installed = false;
-    bool     wanted = false;          // the mode asked for it
-    bool     pinned = false;          // a patch profile verified at install time
-    uint64_t discoveredContext = 0;   // 0 until the present detour has found it
-    uint64_t archicadContext = 0;     // 0 until nominated
-    uint64_t calls = 0;               // detour entries for the nominated context
+    bool installed = false;
+    bool wanted = false;            // the mode asked for it
+    bool pinned = false;            // a patch profile verified at install time
+    uint64_t discoveredContext = 0; // 0 until the present detour has found it
+    uint64_t archicadContext = 0;   // 0 until nominated
+    uint64_t calls = 0;             // detour entries for the nominated context
     // Detour entries filtered out as somebody else's context -- our own Diligent
     // renderer, in practice. ⚠️ COUNTED ONLY FOR SLOTS THAT ARE ON: counting a
     // disabled slot's traffic would make it as expensive as an enabled one, and
@@ -336,7 +337,7 @@ struct ContextHookStats {
     // and a tail call.
     uint64_t otherContextCalls = 0;
     uint64_t eventsRecorded = 0;
-    uint64_t eventsDropped = 0;       // ring overrun: the frame was busier than it holds
+    uint64_t eventsDropped = 0; // ring overrun: the frame was busier than it holds
     // Per-slot call counts for the nominated context, indexed by ContextSlot.
     uint64_t perSlot[size_t (ContextSlot::Count)] = {};
     // Microseconds between the first and last call recorded from Archicad's
@@ -358,7 +359,7 @@ struct ContextHookStats {
     // Archicad's behaviour.
     uint32_t slotsStillPatched = 0;
 
-    // How well the eleven vtable indices are proven on this install. The COM ABI
+    // How well the discovery-set vtable indices are proven on this install. The COM ABI
     // fixes the order and that is what carries the weight; the call-based
     // self-test is belt-and-braces and is only available when a throwaway device
     // happens to land on the same table. See `Proof` in the .cpp.
@@ -378,8 +379,8 @@ void FlushContextLog ();
 // and silently drop everything before it.
 void FlushContextLogIfFilling ();
 
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
 
 #endif

@@ -7,11 +7,13 @@
 
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/Dxgi/ContextHook.hpp"
+#include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
 #include "ArchViz/Dxgi/ConstantBufferCapture.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
+#include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/NavLog.hpp"
 
@@ -216,7 +218,7 @@ void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
     //
     // ⚠️ IT IS A COMPARE, NOT A WRITE, ON ALMOST EVERY FRAME. The repair only
     // takes VirtualProtect when a slot has actually changed; the common path is
-    // twenty-seven pointer compares, which is nothing beside a frame.
+    // twenty-eight pointer compares, which is nothing beside a frame.
     RepairContextHook ();
 
     // ⚠️ PROOF A DRAWS HERE, BEFORE THE PRESENT IS FORWARDED. The back buffer is
@@ -248,9 +250,17 @@ void CaptureGpuStateIfTarget (IDXGISwapChain* swapChain)
     renderstate::OnPresent (frameId);
 }
 
+bool BeginPassProvenanceIfTarget (IDXGISwapChain* swapChain)
+{
+    if (!passprovenance::Enabled () || uint64_t (uintptr_t (swapChain)) != MarkerTarget ())
+        return false;
+    return passprovenance::BeginPresent (swapChain, injection::freshness::ContentSignature ());
+}
+
 HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInterval, UINT flags)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
+    bool passProvenanceActive = false;
     // ⚠️ DXGI_PRESENT_TEST DISPLAYS NOTHING. It is a probe for occlusion, and
     // applications issue it while minimised or hidden -- counting it inflates
     // the frame count and, worse, injects timestamps that make the frame clock
@@ -258,6 +268,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_presentCalls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
+        // PASS_PROVENANCE samples Archicad's completed image before any marker or
+        // injected overlay draw can give the back buffer a provenance of our own.
+        passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
         // ⚠️ BEFORE THE ORIGINAL, NOT AFTER. After Present the back buffer has
         // already gone to the screen -- with a flip-model chain it is not even
         // the same surface any more -- so anything drawn then appears one frame
@@ -293,6 +306,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     // Archicad's render thread with it.
     const PresentFn original = g_originalPresent;
     const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags) : S_OK;
+    passprovenance::EndPresent (passProvenanceActive, hr == S_OK);
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }
@@ -301,9 +315,11 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
                                           const DXGI_PRESENT_PARAMETERS* parameters)
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
+    bool passProvenanceActive = false;
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_present1Calls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
+        passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
         CompositeOverlayIfTarget (swapChain);
@@ -324,6 +340,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
     }
     const Present1Fn original = g_originalPresent1;
     const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags, parameters) : S_OK;
+    passprovenance::EndPresent (passProvenanceActive, hr == S_OK);
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }
@@ -350,6 +367,8 @@ HRESULT STDMETHODCALLTYPE DetourResizeBuffers (IDXGISwapChain* swapChain, UINT b
     injecteddiligent::DropWrappedTargets ();
     const ResizeBuffersFn original = g_originalResizeBuffers;
     const HRESULT hr = (original != nullptr) ? original (swapChain, bufferCount, width, height, format, flags) : S_OK;
+    if (SUCCEEDED (hr) && uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
+        passprovenance::OnResizeBuffers ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }

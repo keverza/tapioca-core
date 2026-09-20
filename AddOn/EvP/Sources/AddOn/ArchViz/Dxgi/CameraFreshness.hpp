@@ -162,6 +162,10 @@ void NoteRepeatScene (bool usable, bool passMoved, bool windowMoved);
 // content is bit-equal content.
 void NoteCameraContent (const float* view16, const float* projection16, float vpX, float vpY, float vpW, float vpH);
 
+// ANY THREAD. Latest asynchronously decoded selected-camera content. This is a
+// correlation value for diagnostics, not the proof of pass equality.
+uint64_t ContentSignature ();
+
 // RENDER THREAD, when the renderer takes a fresh camera for composition
 // (`NEW_SCENE`). Stamps the accepted camera with the content signature and the
 // capture serial that were current at that instant.

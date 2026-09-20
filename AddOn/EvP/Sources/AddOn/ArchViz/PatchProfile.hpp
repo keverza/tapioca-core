@@ -159,12 +159,12 @@ bool Verify (std::string& error);
 // APART. On 2026-09-19 a Microsoft Visual C++ redistributable repair moved
 // `dxgi.dll` from 10.0.19041.7663 to .7725. The profile refused every arm for
 // the rest of the day, and the overlay was dead with a message nobody was
-// watching for -- while `d3d11.dll`, which hosts ALL TWENTY-SEVEN targets, had
+// watching for -- while `d3d11.dll`, which hosts ALL TWENTY-EIGHT targets, had
 // not changed by a single byte, and `dxgi.dll` hosts NONE of them.
 //
 // ⚠️ THE TARGETS ARE THE CONTRACT AND THE MODULE HASH IS
 // A PROXY FOR THEM. Each target carries its module, its RVA and the first bytes
-// of the function itself. If all twenty-seven still sit at the same offset with
+// of the function itself. If all twenty-eight still sit at the same offset with
 // the same prologue, the vtable is intact -- that is not weaker evidence than a
 // module hash, it is the evidence the module hash was standing in for. A proxy
 // must not outrank the thing it stands for.

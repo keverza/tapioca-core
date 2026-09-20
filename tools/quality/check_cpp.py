@@ -255,6 +255,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # row shape on this side of the boundary would create a second definition of
     # it, which is worse than the sideways include.
     ("NativeCommands/ViewerInjectionCommands.cpp", "ArchViz/Dxgi/InjectionOracle.hpp"),
+    # PASS_PROVENANCE rows are produced in fixed storage on the render thread;
+    # its native command only copies those rows out for the diagnostic UI.
+    ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/PassProvenance.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1102,6 +1105,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/InjectionRenderer.cpp",
     "ArchViz/Dxgi/MarkerLadder.cpp",
     "ArchViz/Dxgi/OverlayComposer.cpp",
+    "ArchViz/Dxgi/PassProvenance.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",

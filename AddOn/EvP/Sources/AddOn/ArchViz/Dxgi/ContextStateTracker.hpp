@@ -141,8 +141,9 @@ void OnViewport (const D3D11_VIEWPORT& viewport);
 // The instrument would be measuring itself, which is the failure this rung has
 // already spent a day on for a different reason.
 //
-// RENDER THREAD ONLY, and it must nest correctly: the injected draw runs INSIDE
-// a detour that is already forwarding one of Archicad's calls.
+// RENDER THREAD LOCAL, and it must nest correctly: the injected draw runs inside
+// a detour on its own thread. Present and context production may be concurrent,
+// so one role must never suppress host calls arriving on the other.
 class ScopedInjectionGuard {
   public:
     ScopedInjectionGuard ();

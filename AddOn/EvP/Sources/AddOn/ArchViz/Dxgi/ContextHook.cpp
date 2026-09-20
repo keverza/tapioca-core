@@ -7,6 +7,7 @@
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
 #include "ArchViz/Dxgi/ContextHookSelfTest.hpp"
+#include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 #include "ArchViz/NavLog.hpp"
@@ -128,8 +129,8 @@ bool RestoreDetours (void** vtable)
 
 // ---- proving the indices ---------------------------------------------------
 // Call each patched method on our own throwaway context and require the detour
-// to have been reached. See the header: this is what turns eleven hard-coded
-// integers into eleven runtime facts.
+// to have been reached. See the header: this is what turns hard-coded vtable
+// indices into runtime facts.
 //
 // ⚠️ THE CALLING HALF LIVES IN ContextHookSelfTest, THE VERDICT HERE. That file
 // knows how to build a device and how to invoke each method legally; the
@@ -183,6 +184,8 @@ const char* ContextSlotName (ContextSlot slot)
             return "RSSetScissorRects";
         case ContextSlot::OMSetRenderTargets:
             return "OMSetRenderTargets";
+        case ContextSlot::PSSetShaderResources:
+            return "PSSetShaderResources";
         case ContextSlot::VSSetConstantBuffers:
             return "VSSetConstantBuffers";
         case ContextSlot::PSSetConstantBuffers:
@@ -312,8 +315,8 @@ bool InstallContextHook (std::string& error)
     const patchprofile::Verdict verdict = patchprofile::VerifyDetailed (error);
     if (verdict == patchprofile::Verdict::StaleModuleTargetsIntact) {
         // ⚠️ THE PROFILE HEALS ITSELF WHEN THE EVIDENCE
-        // SAYS IT IS SAFE, AND SAYS SO LOUDLY. Every one of the twenty-seven
-        // targets was just read out of the LIVE vtable and matched its pinned
+        // SAYS IT IS SAFE, AND SAYS SO LOUDLY. Every pinned
+        // target was just read out of the LIVE vtable and matched its pinned
         // offset and its pinned first bytes; the only thing that moved is the
         // hash of a module hosting them. Refusing that is what left the overlay
         // dead for a day after a redistributable repair bumped `dxgi.dll` --
@@ -461,9 +464,10 @@ bool InstallContextHook (std::string& error)
     // deliberately, one at a time, with the frame clock watched.
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
         const ContextSlot slot = ContextSlot (i);
-        const bool hot =
-            (slot == ContextSlot::Map || slot == ContextSlot::Unmap || slot == ContextSlot::UpdateSubresource);
-        g_slotEnabled[i].store (!hot, std::memory_order_relaxed);
+        const bool hot = (slot == ContextSlot::Map || slot == ContextSlot::Unmap ||
+                          slot == ContextSlot::UpdateSubresource || slot == ContextSlot::PSSetShaderResources);
+        const bool enabled = slot == ContextSlot::PSSetShaderResources ? passprovenance::Enabled () : !hot;
+        g_slotEnabled[i].store (enabled, std::memory_order_relaxed);
     }
 
     // ⚠️ THE FILTER IS SET LAST, AFTER THE SELF-TEST HAS PROVEN EVERY SLOT. Until
@@ -484,6 +488,7 @@ bool InstallContextHook (std::string& error)
 
 void RemoveContextHook ()
 {
+    passprovenance::SetEnabled (false);
     if (!g_installed.load (std::memory_order_acquire))
         return;
 
@@ -648,6 +653,7 @@ void SetContextHookWanted (bool wanted)
 {
     g_wanted.store (wanted, std::memory_order_release);
     if (!wanted) {
+        passprovenance::SetEnabled (false);
         // The discovery is per-arm: a chain identified for a previous run may
         // belong to a window that has since closed.
         g_discoveredContext.store (0, std::memory_order_release);

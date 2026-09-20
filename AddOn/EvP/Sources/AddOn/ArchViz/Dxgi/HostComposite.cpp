@@ -4,6 +4,7 @@
 #include "ArchViz/Dxgi/HostComposite.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/PlanCameraMath.hpp"
 #include "ArchViz/Dxgi/SharedOverlaySurface.hpp"
@@ -18,7 +19,7 @@
 #include <d3dcompiler.h>
 
 #include <atomic>
-#include <cstring>   // memcpy for the warp constants
+#include <cstring> // memcpy for the warp constants
 
 namespace geomsrv {
 namespace archviz {
@@ -84,46 +85,58 @@ float4 PSMain (VSOut input) : SV_TARGET
 }
 )hlsl";
 
-std::atomic<bool> g_enabled {false};
-std::atomic<uint64_t> g_blits {0};
-std::atomic<uint64_t> g_framesConsumed {0};
-std::atomic<uint64_t> g_reprojections {0};
-std::atomic<uint64_t> g_failures {0};
-std::atomic<uint32_t> g_backBufferFormat {0};
-std::atomic<uint32_t> g_width {0};
-std::atomic<uint32_t> g_height {0};
-std::atomic<bool> g_ready {false};
+std::atomic<bool> g_enabled { false };
+std::atomic<uint64_t> g_blits { 0 };
+std::atomic<uint64_t> g_framesConsumed { 0 };
+std::atomic<uint64_t> g_reprojections { 0 };
+std::atomic<uint64_t> g_failures { 0 };
+std::atomic<uint32_t> g_backBufferFormat { 0 };
+std::atomic<uint32_t> g_width { 0 };
+std::atomic<uint32_t> g_height { 0 };
+std::atomic<bool> g_ready { false };
 
 // Archicad's device objects. Built once, on the first frame that runs, and torn
 // down when the mode is disarmed. Only ever touched on Archicad's render thread.
 struct HostResources {
-    ID3D11Device*             device = nullptr;
-    ID3D11DeviceContext*      context = nullptr;
-    ID3D11VertexShader*       vertexShader = nullptr;
-    ID3D11PixelShader*        pixelShader = nullptr;
-    ID3D11BlendState*         blend = nullptr;
-    ID3D11RasterizerState*    rasterizer = nullptr;
-    ID3D11DepthStencilState*  depthStencil = nullptr;
-    ID3D11SamplerState*       sampler = nullptr;
-    ID3D11Buffer*             warpBuffer = nullptr;
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* context = nullptr;
+    ID3D11VertexShader* vertexShader = nullptr;
+    ID3D11PixelShader* pixelShader = nullptr;
+    ID3D11BlendState* blend = nullptr;
+    ID3D11RasterizerState* rasterizer = nullptr;
+    ID3D11DepthStencilState* depthStencil = nullptr;
+    ID3D11SamplerState* sampler = nullptr;
+    ID3D11Buffer* warpBuffer = nullptr;
     // Our private copy of the overlay, so a frame can be drawn even when the
     // producer has nothing new -- see the acquire in Composite.
-    ID3D11Texture2D*          overlayCopy = nullptr;
+    ID3D11Texture2D* overlayCopy = nullptr;
     ID3D11ShaderResourceView* overlayView = nullptr;
     // The opened shared surface and its mutex.
-    ID3D11Texture2D*          shared = nullptr;
-    IDXGIKeyedMutex*          sharedMutex = nullptr;
-    uint64_t                  openedHandle = 0;
-    uint64_t                  lastGeneration = 0;
-    uint32_t                  surfaceWidth = 0;
-    uint32_t                  surfaceHeight = 0;
+    ID3D11Texture2D* shared = nullptr;
+    IDXGIKeyedMutex* sharedMutex = nullptr;
+    uint64_t openedHandle = 0;
+    uint64_t lastGeneration = 0;
+    uint32_t surfaceWidth = 0;
+    uint32_t surfaceHeight = 0;
 
     void ReleaseSurface ()
     {
-        if (sharedMutex != nullptr) { sharedMutex->Release (); sharedMutex = nullptr; }
-        if (shared != nullptr) { shared->Release (); shared = nullptr; }
-        if (overlayView != nullptr) { overlayView->Release (); overlayView = nullptr; }
-        if (overlayCopy != nullptr) { overlayCopy->Release (); overlayCopy = nullptr; }
+        if (sharedMutex != nullptr) {
+            sharedMutex->Release ();
+            sharedMutex = nullptr;
+        }
+        if (shared != nullptr) {
+            shared->Release ();
+            shared = nullptr;
+        }
+        if (overlayView != nullptr) {
+            overlayView->Release ();
+            overlayView = nullptr;
+        }
+        if (overlayCopy != nullptr) {
+            overlayCopy->Release ();
+            overlayCopy = nullptr;
+        }
         openedHandle = 0;
         lastGeneration = 0;
         surfaceWidth = 0;
@@ -133,42 +146,68 @@ struct HostResources {
     void ReleaseAll ()
     {
         ReleaseSurface ();
-        if (warpBuffer != nullptr) { warpBuffer->Release (); warpBuffer = nullptr; }
-        if (sampler != nullptr) { sampler->Release (); sampler = nullptr; }
-        if (depthStencil != nullptr) { depthStencil->Release (); depthStencil = nullptr; }
-        if (rasterizer != nullptr) { rasterizer->Release (); rasterizer = nullptr; }
-        if (blend != nullptr) { blend->Release (); blend = nullptr; }
-        if (pixelShader != nullptr) { pixelShader->Release (); pixelShader = nullptr; }
-        if (vertexShader != nullptr) { vertexShader->Release (); vertexShader = nullptr; }
-        if (context != nullptr) { context->Release (); context = nullptr; }
-        if (device != nullptr) { device->Release (); device = nullptr; }
+        if (warpBuffer != nullptr) {
+            warpBuffer->Release ();
+            warpBuffer = nullptr;
+        }
+        if (sampler != nullptr) {
+            sampler->Release ();
+            sampler = nullptr;
+        }
+        if (depthStencil != nullptr) {
+            depthStencil->Release ();
+            depthStencil = nullptr;
+        }
+        if (rasterizer != nullptr) {
+            rasterizer->Release ();
+            rasterizer = nullptr;
+        }
+        if (blend != nullptr) {
+            blend->Release ();
+            blend = nullptr;
+        }
+        if (pixelShader != nullptr) {
+            pixelShader->Release ();
+            pixelShader = nullptr;
+        }
+        if (vertexShader != nullptr) {
+            vertexShader->Release ();
+            vertexShader = nullptr;
+        }
+        if (context != nullptr) {
+            context->Release ();
+            context = nullptr;
+        }
+        if (device != nullptr) {
+            device->Release ();
+            device = nullptr;
+        }
     }
 };
 HostResources g_host;
 
 // The reason the last failure gave. An index, not a string: the render thread
 // must not allocate, and a torn std::string read across threads is a crash.
-enum FailureStep {
-    kNoFailure = 0,
-    kCompileShaders,
-    kCreateStates,
-    kOpenShared,
-    kCreateCopy,
-    kGetBuffer,
-    kCreateRtv
-};
-std::atomic<int> g_lastFailure {kNoFailure};
+enum FailureStep { kNoFailure = 0, kCompileShaders, kCreateStates, kOpenShared, kCreateCopy, kGetBuffer, kCreateRtv };
+std::atomic<int> g_lastFailure { kNoFailure };
 
 const char* StepName (int step)
 {
     switch (step) {
-        case kCompileShaders: return "the blit shaders would not compile on Archicad's device";
-        case kCreateStates:   return "a blend/raster/depth/sampler state would not create";
-        case kOpenShared:     return "OpenSharedResource1 refused the overlay surface";
-        case kCreateCopy:     return "the private copy of the overlay surface would not create";
-        case kGetBuffer:      return "IDXGISwapChain::GetBuffer refused the back buffer";
-        case kCreateRtv:      return "CreateRenderTargetView refused the back buffer";
-        default:              return "";
+        case kCompileShaders:
+            return "the blit shaders would not compile on Archicad's device";
+        case kCreateStates:
+            return "a blend/raster/depth/sampler state would not create";
+        case kOpenShared:
+            return "OpenSharedResource1 refused the overlay surface";
+        case kCreateCopy:
+            return "the private copy of the overlay surface would not create";
+        case kGetBuffer:
+            return "IDXGISwapChain::GetBuffer refused the back buffer";
+        case kCreateRtv:
+            return "CreateRenderTargetView refused the back buffer";
+        default:
+            return "";
     }
 }
 
@@ -184,39 +223,39 @@ void Fail (FailureStep step)
 // drawing at all: the corruption lands in somebody else's frame, intermittently,
 // and looks like a graphics-driver bug.
 struct D3D11StateBackup {
-    ID3D11DeviceContext*      context = nullptr;
-    UINT                      scissorCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
-    UINT                      viewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
-    D3D11_RECT                scissors[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
-    D3D11_VIEWPORT            viewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
-    ID3D11RasterizerState*    rasterizer = nullptr;
-    ID3D11BlendState*         blend = nullptr;
-    FLOAT                     blendFactor[4] = {};
-    UINT                      sampleMask = 0;
-    ID3D11DepthStencilState*  depthStencil = nullptr;
-    UINT                      stencilRef = 0;
+    ID3D11DeviceContext* context = nullptr;
+    UINT scissorCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    UINT viewportCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
+    D3D11_RECT scissors[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+    D3D11_VIEWPORT viewports[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE] = {};
+    ID3D11RasterizerState* rasterizer = nullptr;
+    ID3D11BlendState* blend = nullptr;
+    FLOAT blendFactor[4] = {};
+    UINT sampleMask = 0;
+    ID3D11DepthStencilState* depthStencil = nullptr;
+    UINT stencilRef = 0;
     ID3D11ShaderResourceView* pixelShaderResource = nullptr;
-    ID3D11SamplerState*       pixelSampler = nullptr;
-    ID3D11Buffer*             pixelConstantBuffer = nullptr;
-    ID3D11VertexShader*       vertexShader = nullptr;
-    ID3D11PixelShader*        pixelShader = nullptr;
-    ID3D11GeometryShader*     geometryShader = nullptr;
-    UINT                      vertexShaderInstanceCount = 256;
-    UINT                      pixelShaderInstanceCount = 256;
-    UINT                      geometryShaderInstanceCount = 256;
-    ID3D11ClassInstance*      vertexShaderInstances[256] = {};
-    ID3D11ClassInstance*      pixelShaderInstances[256] = {};
-    ID3D11ClassInstance*      geometryShaderInstances[256] = {};
-    D3D11_PRIMITIVE_TOPOLOGY  topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
-    ID3D11Buffer*             indexBuffer = nullptr;
-    DXGI_FORMAT               indexFormat = DXGI_FORMAT_UNKNOWN;
-    UINT                      indexOffset = 0;
-    ID3D11Buffer*             vertexBuffer = nullptr;
-    UINT                      vertexStride = 0;
-    UINT                      vertexOffset = 0;
-    ID3D11InputLayout*        inputLayout = nullptr;
-    ID3D11RenderTargetView*   renderTargets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
-    ID3D11DepthStencilView*   depthStencilView = nullptr;
+    ID3D11SamplerState* pixelSampler = nullptr;
+    ID3D11Buffer* pixelConstantBuffer = nullptr;
+    ID3D11VertexShader* vertexShader = nullptr;
+    ID3D11PixelShader* pixelShader = nullptr;
+    ID3D11GeometryShader* geometryShader = nullptr;
+    UINT vertexShaderInstanceCount = 256;
+    UINT pixelShaderInstanceCount = 256;
+    UINT geometryShaderInstanceCount = 256;
+    ID3D11ClassInstance* vertexShaderInstances[256] = {};
+    ID3D11ClassInstance* pixelShaderInstances[256] = {};
+    ID3D11ClassInstance* geometryShaderInstances[256] = {};
+    D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+    ID3D11Buffer* indexBuffer = nullptr;
+    DXGI_FORMAT indexFormat = DXGI_FORMAT_UNKNOWN;
+    UINT indexOffset = 0;
+    ID3D11Buffer* vertexBuffer = nullptr;
+    UINT vertexStride = 0;
+    UINT vertexOffset = 0;
+    ID3D11InputLayout* inputLayout = nullptr;
+    ID3D11RenderTargetView* renderTargets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+    ID3D11DepthStencilView* depthStencilView = nullptr;
 
     explicit D3D11StateBackup (ID3D11DeviceContext* ctx) : context (ctx)
     {
@@ -225,15 +264,13 @@ struct D3D11StateBackup {
         context->RSGetState (&rasterizer);
         context->OMGetBlendState (&blend, blendFactor, &sampleMask);
         context->OMGetDepthStencilState (&depthStencil, &stencilRef);
-        context->OMGetRenderTargets (D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargets,
-                                     &depthStencilView);
+        context->OMGetRenderTargets (D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargets, &depthStencilView);
         context->PSGetShaderResources (0, 1, &pixelShaderResource);
         context->PSGetSamplers (0, 1, &pixelSampler);
         context->PSGetConstantBuffers (0, 1, &pixelConstantBuffer);
         context->PSGetShader (&pixelShader, pixelShaderInstances, &pixelShaderInstanceCount);
         context->VSGetShader (&vertexShader, vertexShaderInstances, &vertexShaderInstanceCount);
-        context->GSGetShader (&geometryShader, geometryShaderInstances,
-                              &geometryShaderInstanceCount);
+        context->GSGetShader (&geometryShader, geometryShaderInstances, &geometryShaderInstanceCount);
         context->IAGetPrimitiveTopology (&topology);
         context->IAGetIndexBuffer (&indexBuffer, &indexFormat, &indexOffset);
         context->IAGetVertexBuffers (0, 1, &vertexBuffer, &vertexStride, &vertexOffset);
@@ -245,42 +282,57 @@ struct D3D11StateBackup {
         context->RSSetScissorRects (scissorCount, scissors);
         context->RSSetViewports (viewportCount, viewports);
         context->RSSetState (rasterizer);
-        if (rasterizer != nullptr) rasterizer->Release ();
+        if (rasterizer != nullptr)
+            rasterizer->Release ();
         context->OMSetBlendState (blend, blendFactor, sampleMask);
-        if (blend != nullptr) blend->Release ();
+        if (blend != nullptr)
+            blend->Release ();
         context->OMSetDepthStencilState (depthStencil, stencilRef);
-        if (depthStencil != nullptr) depthStencil->Release ();
-        context->OMSetRenderTargets (D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargets,
-                                     depthStencilView);
+        if (depthStencil != nullptr)
+            depthStencil->Release ();
+        context->OMSetRenderTargets (D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, renderTargets, depthStencilView);
         for (ID3D11RenderTargetView* view : renderTargets)
-            if (view != nullptr) view->Release ();
-        if (depthStencilView != nullptr) depthStencilView->Release ();
+            if (view != nullptr)
+                view->Release ();
+        if (depthStencilView != nullptr)
+            depthStencilView->Release ();
         context->PSSetShaderResources (0, 1, &pixelShaderResource);
-        if (pixelShaderResource != nullptr) pixelShaderResource->Release ();
+        if (pixelShaderResource != nullptr)
+            pixelShaderResource->Release ();
         context->PSSetSamplers (0, 1, &pixelSampler);
-        if (pixelSampler != nullptr) pixelSampler->Release ();
+        if (pixelSampler != nullptr)
+            pixelSampler->Release ();
         context->PSSetConstantBuffers (0, 1, &pixelConstantBuffer);
-        if (pixelConstantBuffer != nullptr) pixelConstantBuffer->Release ();
+        if (pixelConstantBuffer != nullptr)
+            pixelConstantBuffer->Release ();
         context->PSSetShader (pixelShader, pixelShaderInstances, pixelShaderInstanceCount);
-        if (pixelShader != nullptr) pixelShader->Release ();
+        if (pixelShader != nullptr)
+            pixelShader->Release ();
         for (UINT i = 0; i < pixelShaderInstanceCount; ++i)
-            if (pixelShaderInstances[i] != nullptr) pixelShaderInstances[i]->Release ();
+            if (pixelShaderInstances[i] != nullptr)
+                pixelShaderInstances[i]->Release ();
         context->VSSetShader (vertexShader, vertexShaderInstances, vertexShaderInstanceCount);
-        if (vertexShader != nullptr) vertexShader->Release ();
+        if (vertexShader != nullptr)
+            vertexShader->Release ();
         for (UINT i = 0; i < vertexShaderInstanceCount; ++i)
-            if (vertexShaderInstances[i] != nullptr) vertexShaderInstances[i]->Release ();
-        context->GSSetShader (geometryShader, geometryShaderInstances,
-                              geometryShaderInstanceCount);
-        if (geometryShader != nullptr) geometryShader->Release ();
+            if (vertexShaderInstances[i] != nullptr)
+                vertexShaderInstances[i]->Release ();
+        context->GSSetShader (geometryShader, geometryShaderInstances, geometryShaderInstanceCount);
+        if (geometryShader != nullptr)
+            geometryShader->Release ();
         for (UINT i = 0; i < geometryShaderInstanceCount; ++i)
-            if (geometryShaderInstances[i] != nullptr) geometryShaderInstances[i]->Release ();
+            if (geometryShaderInstances[i] != nullptr)
+                geometryShaderInstances[i]->Release ();
         context->IASetPrimitiveTopology (topology);
         context->IASetIndexBuffer (indexBuffer, indexFormat, indexOffset);
-        if (indexBuffer != nullptr) indexBuffer->Release ();
+        if (indexBuffer != nullptr)
+            indexBuffer->Release ();
         context->IASetVertexBuffers (0, 1, &vertexBuffer, &vertexStride, &vertexOffset);
-        if (vertexBuffer != nullptr) vertexBuffer->Release ();
+        if (vertexBuffer != nullptr)
+            vertexBuffer->Release ();
         context->IASetInputLayout (inputLayout);
-        if (inputLayout != nullptr) inputLayout->Release ();
+        if (inputLayout != nullptr)
+            inputLayout->Release ();
     }
 };
 
@@ -295,27 +347,30 @@ bool BuildPipeline (ID3D11Device* device)
     ID3DBlob* vertexBlob = nullptr;
     ID3DBlob* pixelBlob = nullptr;
     ID3DBlob* errors = nullptr;
-    HRESULT hr = D3DCompile (kShaderSource, strlen (kShaderSource), nullptr, nullptr, nullptr,
-                             "VSMain", "vs_4_0", 0, 0, &vertexBlob, &errors);
+    HRESULT hr = D3DCompile (kShaderSource, strlen (kShaderSource), nullptr, nullptr, nullptr, "VSMain", "vs_4_0", 0, 0,
+                             &vertexBlob, &errors);
     if (SUCCEEDED (hr)) {
-        if (errors != nullptr) { errors->Release (); errors = nullptr; }
-        hr = D3DCompile (kShaderSource, strlen (kShaderSource), nullptr, nullptr, nullptr,
-                         "PSMain", "ps_4_0", 0, 0, &pixelBlob, &errors);
+        if (errors != nullptr) {
+            errors->Release ();
+            errors = nullptr;
+        }
+        hr = D3DCompile (kShaderSource, strlen (kShaderSource), nullptr, nullptr, nullptr, "PSMain", "ps_4_0", 0, 0,
+                         &pixelBlob, &errors);
     }
     if (errors != nullptr) {
         ArchVizLog (std::string ("host composite shader: ") + (const char*) errors->GetBufferPointer ());
         errors->Release ();
     }
     if (SUCCEEDED (hr))
-        hr = device->CreateVertexShader (vertexBlob->GetBufferPointer (),
-                                         vertexBlob->GetBufferSize (), nullptr,
+        hr = device->CreateVertexShader (vertexBlob->GetBufferPointer (), vertexBlob->GetBufferSize (), nullptr,
                                          &g_host.vertexShader);
     if (SUCCEEDED (hr))
-        hr = device->CreatePixelShader (pixelBlob->GetBufferPointer (),
-                                        pixelBlob->GetBufferSize (), nullptr,
+        hr = device->CreatePixelShader (pixelBlob->GetBufferPointer (), pixelBlob->GetBufferSize (), nullptr,
                                         &g_host.pixelShader);
-    if (vertexBlob != nullptr) vertexBlob->Release ();
-    if (pixelBlob != nullptr) pixelBlob->Release ();
+    if (vertexBlob != nullptr)
+        vertexBlob->Release ();
+    if (pixelBlob != nullptr)
+        pixelBlob->Release ();
     if (FAILED (hr)) {
         Fail (kCompileShaders);
         g_host.ReleaseAll ();
@@ -374,7 +429,7 @@ bool BuildPipeline (ID3D11Device* device)
         hr = device->CreateSamplerState (&samplerDesc, &g_host.sampler);
 
     D3D11_BUFFER_DESC warpDesc = {};
-    warpDesc.ByteWidth = 32;            // two float4s
+    warpDesc.ByteWidth = 32; // two float4s
     warpDesc.Usage = D3D11_USAGE_DYNAMIC;
     warpDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     warpDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -401,8 +456,8 @@ bool EnsureSurface (ID3D11Device* device)
     }
     const uint32_t width = SharedOverlayWidth ();
     const uint32_t height = SharedOverlayHeight ();
-    if (g_host.shared != nullptr && g_host.openedHandle == handle &&
-        g_host.surfaceWidth == width && g_host.surfaceHeight == height)
+    if (g_host.shared != nullptr && g_host.openedHandle == handle && g_host.surfaceWidth == width &&
+        g_host.surfaceHeight == height)
         return true;
 
     g_host.ReleaseSurface ();
@@ -410,8 +465,7 @@ bool EnsureSurface (ID3D11Device* device)
         return false;
 
     ID3D11Device1* device1 = nullptr;
-    if (FAILED (device->QueryInterface (__uuidof (ID3D11Device1), (void**) &device1)) ||
-        device1 == nullptr) {
+    if (FAILED (device->QueryInterface (__uuidof (ID3D11Device1), (void**) &device1)) || device1 == nullptr) {
         Fail (kOpenShared);
         return false;
     }
@@ -419,17 +473,15 @@ bool EnsureSurface (ID3D11Device* device)
     // handle; the legacy call takes the legacy handle type and fails on this one
     // with a generic E_INVALIDARG that says nothing about which of the two is
     // wrong.
-    HRESULT hr = device1->OpenSharedResource1 ((HANDLE) (uintptr_t) handle,
-                                               __uuidof (ID3D11Texture2D),
-                                               (void**) &g_host.shared);
+    HRESULT hr =
+        device1->OpenSharedResource1 ((HANDLE) (uintptr_t) handle, __uuidof (ID3D11Texture2D), (void**) &g_host.shared);
     device1->Release ();
     if (FAILED (hr) || g_host.shared == nullptr) {
         Fail (kOpenShared);
         g_host.ReleaseSurface ();
         return false;
     }
-    if (FAILED (g_host.shared->QueryInterface (__uuidof (IDXGIKeyedMutex),
-                                               (void**) &g_host.sharedMutex))) {
+    if (FAILED (g_host.shared->QueryInterface (__uuidof (IDXGIKeyedMutex), (void**) &g_host.sharedMutex))) {
         Fail (kOpenShared);
         g_host.ReleaseSurface ();
         return false;
@@ -457,12 +509,12 @@ bool EnsureSurface (ID3D11Device* device)
     g_host.surfaceWidth = width;
     g_host.surfaceHeight = height;
     g_host.lastGeneration = 0;
-    ArchVizLog ("host composite: opened the shared overlay surface (" + std::to_string (width) +
-                "x" + std::to_string (height) + ")");
+    ArchVizLog ("host composite: opened the shared overlay surface (" + std::to_string (width) + "x" +
+                std::to_string (height) + ")");
     return true;
 }
 
-}   // namespace
+} // namespace
 
 void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
 {
@@ -473,9 +525,10 @@ void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
     if (uint64_t (uintptr_t (swapChain)) != MarkerTarget ())
         return;
 
+    contextstate::ScopedInjectionGuard injectionGuard;
+
     ID3D11Texture2D* backBuffer = nullptr;
-    if (FAILED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) ||
-        backBuffer == nullptr) {
+    if (FAILED (swapChain->GetBuffer (0, __uuidof (ID3D11Texture2D), (void**) &backBuffer)) || backBuffer == nullptr) {
         Fail (kGetBuffer);
         return;
     }
@@ -495,8 +548,10 @@ void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
         if (device != nullptr)
             device->GetImmediateContext (&context);
         if (device == nullptr || context == nullptr) {
-            if (context != nullptr) context->Release ();
-            if (device != nullptr) device->Release ();
+            if (context != nullptr)
+                context->Release ();
+            if (device != nullptr)
+                device->Release ();
             backBuffer->Release ();
             g_ready.store (false, std::memory_order_release);
             return;
@@ -526,8 +581,7 @@ void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
     // hang in Archicad caused by us. Missing simply redraws the previous
     // overlay frame, which is what the last frame showed anyway.
     const uint64_t generation = SharedOverlayGeneration ();
-    if (generation != g_host.lastGeneration &&
-        g_host.sharedMutex->AcquireSync (1, 0) == S_OK) {
+    if (generation != g_host.lastGeneration && g_host.sharedMutex->AcquireSync (1, 0) == S_OK) {
         context->CopyResource (g_host.overlayCopy, g_host.shared);
         g_host.sharedMutex->ReleaseSync (0);
         g_host.lastGeneration = generation;
@@ -540,17 +594,15 @@ void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
     // fixes WHEN the pixels land; this is the only step that fixes what they
     // contain. Neither pose valid -- a perspective frame, or no camera tick yet
     // -- leaves the identity warp, which is exactly the previous behaviour.
-    float warpConstants[8] = {1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-    warpConstants[3] = (backDesc.Height > 0)
-        ? float (backDesc.Width) / float (backDesc.Height) : 1.0f;
+    float warpConstants[8] = { 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+    warpConstants[3] = (backDesc.Height > 0) ? float (backDesc.Width) / float (backDesc.Height) : 1.0f;
     const SharedOverlayPose rendered = SharedOverlayFramePose ();
     const SharedOverlayPose latest = LatestPlanPose ();
     bool reprojected = false;
     if (rendered.valid && latest.valid) {
         const PlanReprojection warp = ComputePlanReprojection (
-            rendered.centreX, rendered.centreY, rendered.halfHeightMetres,
-            rendered.rotationRadians, latest.centreX, latest.centreY,
-            latest.halfHeightMetres, latest.rotationRadians);
+            rendered.centreX, rendered.centreY, rendered.halfHeightMetres, rendered.rotationRadians, latest.centreX,
+            latest.centreY, latest.halfHeightMetres, latest.rotationRadians);
         if (warp.valid) {
             warpConstants[0] = warp.scale;
             warpConstants[1] = warp.cosDelta;
@@ -581,7 +633,7 @@ void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
         context->RSSetViewports (1, &viewport);
         context->RSSetState (g_host.rasterizer);
         context->OMSetRenderTargets (1, &rtv, nullptr);
-        const float blendFactor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        const float blendFactor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
         context->OMSetBlendState (g_host.blend, blendFactor, 0xffffffff);
         context->OMSetDepthStencilState (g_host.depthStencil, 0);
         context->IASetInputLayout (nullptr);
@@ -598,7 +650,8 @@ void CompositeOverlayIfTarget (IDXGISwapChain* swapChain)
 
         g_blits.fetch_add (1, std::memory_order_relaxed);
         rtv->Release ();
-    } else {
+    }
+    else {
         Fail (kCreateRtv);
     }
 
@@ -641,7 +694,7 @@ void WatchHostComposite ()
 {
     static uint64_t lastBlits = 0;
     static uint64_t lastChangeMs = 0;
-    static bool     restored = false;
+    static bool restored = false;
 
     if (!g_enabled.load (std::memory_order_acquire)) {
         lastBlits = 0;
@@ -686,6 +739,6 @@ HostCompositeStats GetHostCompositeStats ()
     return stats;
 }
 
-}   // namespace dxgi
-}   // namespace archviz
-}   // namespace geomsrv
+} // namespace dxgi
+} // namespace archviz
+} // namespace geomsrv
