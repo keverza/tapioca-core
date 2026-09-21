@@ -556,7 +556,7 @@ void STDMETHODCALLTYPE DetourClearDepthStencilView (ID3D11DeviceContext* context
 void PostDraw (ID3D11DeviceContext* context, uint32_t kind, UINT count, bool archicad)
 {
     if (archicad)
-        passprovenance::OnDrawCompleted ();
+        passprovenance::OnDrawCompleted (passprovenance::DrawKind (kind), uint32_t (count));
     if (injection::checkpoints::Enabled ())
         injection::checkpoints::OnDrawCompleted (context, kind, uint32_t (count), renderstate::ModelSceneGeneration ());
 }
@@ -731,7 +731,7 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
     if (original != nullptr)
         original (context);
     if (archicad)
-        passprovenance::OnDrawCompleted ();
+        passprovenance::OnDrawCompleted (passprovenance::DrawKind::Auto, 0);
     provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
@@ -755,7 +755,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
     if (original != nullptr)
         original (context, args, offset);
     if (archicad)
-        passprovenance::OnDrawCompleted ();
+        passprovenance::OnDrawCompleted (passprovenance::DrawKind::IndexedInstancedIndirect, 0);
     provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
@@ -778,7 +778,7 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
     if (original != nullptr)
         original (context, args, offset);
     if (archicad)
-        passprovenance::OnDrawCompleted ();
+        passprovenance::OnDrawCompleted (passprovenance::DrawKind::InstancedIndirect, 0);
     provenanceOperation.Finish ();
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }

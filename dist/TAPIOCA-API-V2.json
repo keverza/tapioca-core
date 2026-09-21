@@ -25866,6 +25866,94 @@
           "secondaryCameraTargetTransitions": {
             "type": "string"
           },
+          "firstKnownToAmbiguousDraw": {
+            "type": "object",
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "drawsSinceCamera": {
+                "type": "string"
+              },
+              "drawKind": {
+                "type": "string",
+                "enum": [
+                  "INDEXED",
+                  "DIRECT",
+                  "INDEXED_INSTANCED",
+                  "INSTANCED",
+                  "AUTO",
+                  "INDEXED_INSTANCED_INDIRECT",
+                  "INSTANCED_INDIRECT",
+                  "UNKNOWN"
+                ]
+              },
+              "drawCount": {
+                "type": "string"
+              },
+              "renderTargetSlot": {
+                "type": "integer",
+                "minimum": -1,
+                "maximum": 7
+              },
+              "targetResource": {
+                "type": "string"
+              },
+              "targetScenePass": {
+                "type": "string"
+              },
+              "cameraPass": {
+                "type": "string"
+              },
+              "sampledLineage": {
+                "type": "string",
+                "enum": [
+                  "NONE",
+                  "KNOWN",
+                  "AMBIGUOUS",
+                  "CONFLICTING_KNOWN_PASSES"
+                ]
+              },
+              "shaderResourceSlot": {
+                "type": "integer",
+                "minimum": -1,
+                "maximum": 127
+              },
+              "sampledResource": {
+                "type": "string"
+              },
+              "sampledScenePass": {
+                "type": "string"
+              },
+              "sampledAmbiguityMask": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 127
+              },
+              "resultingAmbiguityMask": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 127
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "valid",
+              "drawsSinceCamera",
+              "drawKind",
+              "drawCount",
+              "renderTargetSlot",
+              "targetResource",
+              "targetScenePass",
+              "cameraPass",
+              "sampledLineage",
+              "shaderResourceSlot",
+              "sampledResource",
+              "sampledScenePass",
+              "sampledAmbiguityMask",
+              "resultingAmbiguityMask"
+            ]
+          },
           "resourceAmbiguousPresents": {
             "type": "string"
           },
@@ -25971,6 +26059,7 @@
           "resourceWriteTransitions",
           "unsupportedGpuWorkTransitions",
           "secondaryCameraTargetTransitions",
+          "firstKnownToAmbiguousDraw",
           "resourceAmbiguousPresents",
           "presentContextOverlaps",
           "contextSlotsPatched",

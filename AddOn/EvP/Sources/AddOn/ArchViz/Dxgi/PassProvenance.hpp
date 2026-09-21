@@ -23,6 +23,17 @@ constexpr size_t kResourceAmbiguityReasonCount = 7;
 
 enum class Relation : uint32_t { Unknown = 0, Match = 1, Mismatch = 2, Ambiguous = 3 };
 enum class ResourceState : uint32_t { Unknown = 0, Known = 1, Ambiguous = 2 };
+enum class DrawKind : uint32_t {
+    Indexed = 0,
+    Direct = 1,
+    IndexedInstanced = 2,
+    Instanced = 3,
+    Auto = 4,
+    IndexedInstancedIndirect = 5,
+    InstancedIndirect = 6,
+    Unknown = 7
+};
+enum class SampledLineage : uint32_t { None = 0, Known = 1, Ambiguous = 2, ConflictingKnownPasses = 3 };
 enum class ResourceAmbiguityReason : uint32_t {
     NonCameraDraw = 1u << 0,
     SampledAmbiguous = 1u << 1,
@@ -51,6 +62,23 @@ struct Row {
     bool presentContextOverlap = false;
 };
 
+struct FirstKnownToAmbiguousDraw {
+    bool valid = false;
+    uint64_t drawsSinceCamera = 0;
+    DrawKind drawKind = DrawKind::Unknown;
+    uint32_t drawCount = 0;
+    int32_t renderTargetSlot = -1;
+    uint64_t targetResource = 0;
+    uint64_t targetScenePass = 0;
+    uint64_t cameraPass = 0;
+    SampledLineage sampledLineage = SampledLineage::None;
+    int32_t shaderResourceSlot = -1;
+    uint64_t sampledResource = 0;
+    uint64_t sampledScenePass = 0;
+    uint32_t sampledAmbiguityMask = 0;
+    uint32_t resultingAmbiguityMask = 0;
+};
+
 struct Stats {
     bool enabled = false;
     bool hookInstalled = false;
@@ -72,6 +100,7 @@ struct Stats {
     uint64_t contextHookRepairs = 0;
     uint64_t rowsOverwritten = 0;
     uint64_t firstAmbiguityTransitions[kResourceAmbiguityReasonCount] = {};
+    FirstKnownToAmbiguousDraw firstKnownToAmbiguousDraw;
     uint64_t resourceAmbiguousPresents = 0;
     uint64_t presentContextOverlaps = 0;
     uint32_t contextSlotsPatched = 0;
@@ -90,7 +119,7 @@ void OnRenderTargets (uint32_t count, ID3D11RenderTargetView* const* targets);
 void OnPSShaderResources (uint32_t startSlot, uint32_t count, ID3D11ShaderResourceView* const* views);
 void OnClearRenderTarget (ID3D11RenderTargetView* target);
 void OnCameraSnapshot (uint64_t scenePassGeneration);
-void OnDrawCompleted ();
+void OnDrawCompleted (DrawKind drawKind, uint32_t drawCount);
 void OnCopyResource (ID3D11Resource* destination, ID3D11Resource* source);
 void OnPartialResourceCopy (ID3D11Resource* destination, ID3D11Resource* source);
 void OnResourceWrite (ID3D11Resource* resource);

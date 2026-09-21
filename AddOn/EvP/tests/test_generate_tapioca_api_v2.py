@@ -70,6 +70,28 @@ def test_pass_provenance_schema_exposes_ambiguity_causes():
     assert transition_fields <= set(output["properties"])
     assert transition_fields <= set(output["required"])
 
+    first_draw = output["properties"]["firstKnownToAmbiguousDraw"]
+    assert "firstKnownToAmbiguousDraw" in output["required"]
+    assert first_draw["properties"]["drawKind"]["enum"] == [
+        "INDEXED", "DIRECT", "INDEXED_INSTANCED", "INSTANCED", "AUTO",
+        "INDEXED_INSTANCED_INDIRECT", "INSTANCED_INDIRECT", "UNKNOWN",
+    ]
+    assert first_draw["properties"]["sampledLineage"]["enum"] == [
+        "NONE", "KNOWN", "AMBIGUOUS", "CONFLICTING_KNOWN_PASSES",
+    ]
+    assert {
+        "valid", "drawsSinceCamera", "drawKind", "drawCount",
+        "renderTargetSlot", "targetResource", "targetScenePass", "cameraPass",
+        "sampledLineage", "shaderResourceSlot", "sampledResource",
+        "sampledScenePass", "sampledAmbiguityMask", "resultingAmbiguityMask",
+    } == set(first_draw["required"])
+    assert first_draw["properties"]["sampledAmbiguityMask"] == {
+        "type": "integer", "minimum": 0, "maximum": 127
+    }
+    assert first_draw["properties"]["resultingAmbiguityMask"] == {
+        "type": "integer", "minimum": 0, "maximum": 127
+    }
+
     row = output["properties"]["rows"]["items"]
     assert row["properties"]["resourceState"]["enum"] == [
         "UNKNOWN", "KNOWN", "AMBIGUOUS"
