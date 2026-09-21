@@ -24,8 +24,6 @@ constexpr size_t kShaderResourceSlots = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_C
 constexpr size_t kRenderTargetSlots = D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT;
 constexpr size_t kResourceCapacity = 512;
 
-enum class ResourceState : uint32_t { Unknown = 0, Known = 1, Ambiguous = 2 };
-
 constexpr uint64_t kEnabledBit = uint64_t (1) << 63;
 constexpr uint64_t kCallbackCountMask = ~kEnabledBit;
 
@@ -34,12 +32,14 @@ struct ResourceEntry {
     std::atomic<uint64_t> resource { 0 };
     std::atomic<uint64_t> scenePass { 0 };
     std::atomic<uint32_t> state { uint32_t (ResourceState::Unknown) };
+    std::atomic<uint32_t> ambiguityMask { 0 };
 };
 
 struct ResourceSnapshot {
     uint64_t resource = 0;
     uint64_t scenePass = 0;
     ResourceState state = ResourceState::Unknown;
+    uint32_t ambiguityMask = 0;
 };
 
 std::atomic<uint64_t> g_callbackGate { 0 };
@@ -70,6 +70,9 @@ struct RowSlot {
     std::atomic<uint64_t> backBuffer { 0 };
     std::atomic<int64_t> delta { 0 };
     std::atomic<uint32_t> relation { uint32_t (Relation::Unknown) };
+    std::atomic<uint32_t> resourceState { uint32_t (ResourceState::Unknown) };
+    std::atomic<uint32_t> resourceAmbiguityMask { 0 };
+    std::atomic<bool> presentContextOverlap { false };
 };
 
 RowSlot g_rows[kRowCapacity];
@@ -87,6 +90,9 @@ std::atomic<uint64_t> g_renderThreadViolations { 0 };
 std::atomic<uint64_t> g_unsupportedGpuWork { 0 };
 std::atomic<uint64_t> g_snapshotDrainTimeouts { 0 };
 std::atomic<uint64_t> g_contextHookRepairsAtStart { 0 };
+std::atomic<uint64_t> g_firstAmbiguityTransitions[kResourceAmbiguityReasonCount];
+std::atomic<uint64_t> g_resourceAmbiguousPresents { 0 };
+std::atomic<uint64_t> g_presentContextOverlaps { 0 };
 
 Row g_pendingPresentRow;
 uint64_t g_pendingContextOperationVersion = 0;
@@ -132,12 +138,14 @@ class CallbackGuard {
     bool entered;
 };
 
-void WriteResource (ResourceEntry& entry, uint64_t resource, uint64_t scenePass, ResourceState state)
+void WriteResource (ResourceEntry& entry, uint64_t resource, uint64_t scenePass, ResourceState state,
+                    uint32_t ambiguityMask = 0)
 {
     entry.version.fetch_add (1, std::memory_order_acq_rel);
     entry.resource.store (resource, std::memory_order_relaxed);
     entry.scenePass.store (scenePass, std::memory_order_relaxed);
     entry.state.store (uint32_t (state), std::memory_order_relaxed);
+    entry.ambiguityMask.store (ambiguityMask, std::memory_order_relaxed);
     entry.version.fetch_add (1, std::memory_order_release);
 }
 
@@ -151,6 +159,7 @@ bool ReadResourceEntry (const ResourceEntry& entry, ResourceSnapshot& snapshot)
         candidate.resource = entry.resource.load (std::memory_order_relaxed);
         candidate.scenePass = entry.scenePass.load (std::memory_order_relaxed);
         candidate.state = ResourceState (entry.state.load (std::memory_order_relaxed));
+        candidate.ambiguityMask = entry.ambiguityMask.load (std::memory_order_relaxed);
         const uint64_t after = entry.version.load (std::memory_order_acquire);
         if (before == after) {
             snapshot = candidate;
@@ -226,6 +235,8 @@ void ResetPresentRowsAndStats ()
     g_unknown.store (0, std::memory_order_relaxed);
     g_ambiguous.store (0, std::memory_order_relaxed);
     g_backBufferFailures.store (0, std::memory_order_relaxed);
+    g_resourceAmbiguousPresents.store (0, std::memory_order_relaxed);
+    g_presentContextOverlaps.store (0, std::memory_order_relaxed);
     g_cachedSwapChain = 0;
 }
 
@@ -361,12 +372,29 @@ void StampKnown (uint64_t resource, uint64_t scenePass)
     WriteResource (*entry, resource, scenePass, ResourceState::Known);
 }
 
-void StampAmbiguous (uint64_t resource)
+void CountFirstAmbiguityTransitions (uint32_t ambiguityMask)
+{
+    for (size_t i = 0; i < kResourceAmbiguityReasonCount; ++i) {
+        if ((ambiguityMask & (1u << i)) != 0)
+            g_firstAmbiguityTransitions[i].fetch_add (1, std::memory_order_relaxed);
+    }
+}
+
+void StampAmbiguous (ResourceEntry& entry, uint64_t resource, uint32_t ambiguityMask)
+{
+    const ResourceState previous = ResourceState (entry.state.load (std::memory_order_relaxed));
+    if (previous == ResourceState::Known)
+        CountFirstAmbiguityTransitions (ambiguityMask);
+    else if (previous == ResourceState::Ambiguous)
+        ambiguityMask |= entry.ambiguityMask.load (std::memory_order_relaxed);
+    WriteResource (entry, resource, 0, ResourceState::Ambiguous, ambiguityMask);
+}
+
+void StampAmbiguous (uint64_t resource, uint32_t ambiguityMask)
 {
     ResourceEntry* entry = FindResource (resource, true);
-    if (entry == nullptr)
-        return;
-    WriteResource (*entry, resource, 0, ResourceState::Ambiguous);
+    if (entry != nullptr)
+        StampAmbiguous (*entry, resource, ambiguityMask);
 }
 
 void StampUnknown (uint64_t resource)
@@ -389,6 +417,9 @@ void Publish (const Row& row)
     slot.backBuffer.store (row.backBuffer, std::memory_order_relaxed);
     slot.delta.store (row.delta, std::memory_order_relaxed);
     slot.relation.store (uint32_t (row.relation), std::memory_order_relaxed);
+    slot.resourceState.store (uint32_t (row.resourceState), std::memory_order_relaxed);
+    slot.resourceAmbiguityMask.store (row.resourceAmbiguityMask, std::memory_order_relaxed);
+    slot.presentContextOverlap.store (row.presentContextOverlap, std::memory_order_relaxed);
     slot.published.store (written + 1, std::memory_order_release);
 }
 
@@ -403,6 +434,10 @@ void CountAndPublish (Row& row)
         g_ambiguous.fetch_add (1, std::memory_order_relaxed);
     else
         g_unknown.fetch_add (1, std::memory_order_relaxed);
+    if (row.resourceState == ResourceState::Ambiguous)
+        g_resourceAmbiguousPresents.fetch_add (1, std::memory_order_relaxed);
+    if (row.presentContextOverlap)
+        g_presentContextOverlaps.fetch_add (1, std::memory_order_relaxed);
     Publish (row);
 }
 
@@ -452,6 +487,8 @@ void Reset ()
     ResetPresentRowsAndStats ();
     g_resourceTableOverflows.store (0, std::memory_order_relaxed);
     g_unsupportedGpuWork.store (0, std::memory_order_relaxed);
+    for (std::atomic<uint64_t>& count : g_firstAmbiguityTransitions)
+        count.store (0, std::memory_order_relaxed);
     g_presentResetApplied.store (requested, std::memory_order_release);
 }
 
@@ -554,7 +591,7 @@ void OnDrawCompleted ()
         }
         for (size_t i = 1; i < kRenderTargetSlots; ++i) {
             if (g_renderTargets[i] != 0)
-                StampAmbiguous (g_renderTargets[i]);
+                StampAmbiguous (g_renderTargets[i], ReasonMask (ResourceAmbiguityReason::SecondaryCameraTarget));
         }
         g_pendingCameraTarget = 0;
         g_pendingCameraPass = 0;
@@ -563,6 +600,7 @@ void OnDrawCompleted ()
 
     uint64_t sampledPass = 0;
     bool sampledAmbiguous = false;
+    uint32_t drawAmbiguityMask = ReasonMask (ResourceAmbiguityReason::NonCameraDraw);
     for (uint64_t resource : g_shaderResources) {
         ResourceEntry* entry = FindResource (resource, false);
         if (entry == nullptr)
@@ -572,6 +610,8 @@ void OnDrawCompleted ()
             continue;
         if (state == ResourceState::Ambiguous) {
             sampledAmbiguous = true;
+            drawAmbiguityMask |= ReasonMask (ResourceAmbiguityReason::SampledAmbiguous);
+            drawAmbiguityMask |= entry->ambiguityMask.load (std::memory_order_relaxed);
             break;
         }
         const uint64_t scenePass = entry->scenePass.load (std::memory_order_relaxed);
@@ -579,6 +619,7 @@ void OnDrawCompleted ()
             sampledPass = scenePass;
         else if (sampledPass != scenePass) {
             sampledAmbiguous = true;
+            drawAmbiguityMask |= ReasonMask (ResourceAmbiguityReason::ConflictingSampledPasses);
             break;
         }
     }
@@ -591,7 +632,7 @@ void OnDrawCompleted ()
             // A bound SRV is only a candidate input: without shader reflection
             // the hook cannot prove what a non-camera draw changed. Every bound
             // colour output is therefore tainted rather than retaining stale proof.
-            StampAmbiguous (target);
+            StampAmbiguous (target, drawAmbiguityMask);
         }
     }
 }
@@ -611,7 +652,7 @@ void OnCopyResource (ID3D11Resource* destination, ID3D11Resource* source)
     else if (sourceState == ResourceState::Known)
         StampKnown (destinationId, sourceEntry->scenePass.load (std::memory_order_relaxed));
     else
-        StampAmbiguous (destinationId);
+        StampAmbiguous (destinationId, sourceEntry->ambiguityMask.load (std::memory_order_relaxed));
 }
 
 void OnPartialResourceCopy (ID3D11Resource* destination, ID3D11Resource* source)
@@ -627,8 +668,12 @@ void OnPartialResourceCopy (ID3D11Resource* destination, ID3D11Resource* source)
          ResourceState (destinationEntry->state.load (std::memory_order_relaxed)) != ResourceState::Unknown) ||
         (sourceEntry != nullptr &&
          ResourceState (sourceEntry->state.load (std::memory_order_relaxed)) != ResourceState::Unknown);
-    if (hasLineage)
-        StampAmbiguous (destinationId);
+    if (hasLineage) {
+        uint32_t ambiguityMask = ReasonMask (ResourceAmbiguityReason::PartialCopy);
+        if (sourceEntry != nullptr)
+            ambiguityMask |= sourceEntry->ambiguityMask.load (std::memory_order_relaxed);
+        StampAmbiguous (destinationId, ambiguityMask);
+    }
     else
         StampUnknown (destinationId);
 }
@@ -641,7 +686,7 @@ void OnResourceWrite (ID3D11Resource* resource)
     const uint64_t resourceId = uint64_t (uintptr_t (resource));
     ResourceEntry* entry = FindResource (resourceId, false);
     if (entry != nullptr && ResourceState (entry->state.load (std::memory_order_relaxed)) != ResourceState::Unknown)
-        StampAmbiguous (resourceId);
+        StampAmbiguous (resourceId, ReasonMask (ResourceAmbiguityReason::ResourceWrite));
 }
 
 void OnUnsupportedGpuWork ()
@@ -654,7 +699,7 @@ void OnUnsupportedGpuWork ()
             continue;
         const uint64_t resource = entry.resource.load (std::memory_order_relaxed);
         if (resource != 0)
-            WriteResource (entry, resource, 0, ResourceState::Ambiguous);
+            StampAmbiguous (entry, resource, ReasonMask (ResourceAmbiguityReason::UnsupportedGpuWork));
     }
     std::memset (g_shaderResources, 0, sizeof (g_shaderResources));
     std::memset (g_renderTargets, 0, sizeof (g_renderTargets));
@@ -693,8 +738,12 @@ bool BeginPresent (IDXGISwapChain* swapChain, uint64_t cameraHash)
                                 g_resourceResetApplied.load (std::memory_order_acquire);
     if (resourcesReady)
         ReadCameraAndResource (backBuffer, row.cameraPass, entry, hasEntry);
-    if (hasEntry && entry.state == ResourceState::Known)
-        row.imagePass = entry.scenePass;
+    if (hasEntry) {
+        row.resourceState = entry.state;
+        row.resourceAmbiguityMask = entry.ambiguityMask;
+        if (entry.state == ResourceState::Known)
+            row.imagePass = entry.scenePass;
+    }
 
     if (hasEntry && entry.state == ResourceState::Ambiguous) {
         row.relation = Relation::Ambiguous;
@@ -742,8 +791,10 @@ void EndPresent (bool active, bool succeeded)
         const bool overlap =
             g_pendingContextOverlap || g_contextOperations.load (std::memory_order_acquire) != 0 ||
             g_contextOperationVersion.load (std::memory_order_acquire) != g_pendingContextOperationVersion;
-        if (overlap)
+        if (overlap) {
+            g_pendingPresentRow.presentContextOverlap = true;
             g_pendingPresentRow.relation = Relation::Ambiguous;
+        }
         CountAndPublish (g_pendingPresentRow);
         if (g_pendingDiscardPresent)
             g_resourceResetRequested.fetch_add (1, std::memory_order_release);
@@ -783,6 +834,9 @@ size_t CopyRows (Row* out, size_t capacity)
         row.backBuffer = slot.backBuffer.load (std::memory_order_relaxed);
         row.delta = slot.delta.load (std::memory_order_relaxed);
         row.relation = Relation (slot.relation.load (std::memory_order_relaxed));
+        row.resourceState = ResourceState (slot.resourceState.load (std::memory_order_relaxed));
+        row.resourceAmbiguityMask = slot.resourceAmbiguityMask.load (std::memory_order_relaxed);
+        row.presentContextOverlap = slot.presentContextOverlap.load (std::memory_order_relaxed);
         if (slot.published.load (std::memory_order_acquire) == expected)
             out[copied++] = row;
     }
@@ -809,6 +863,10 @@ Stats GetStats ()
     stats.renderThreadViolations = g_renderThreadViolations.load (std::memory_order_relaxed);
     stats.unsupportedGpuWork = g_unsupportedGpuWork.load (std::memory_order_relaxed);
     stats.snapshotDrainTimeouts = g_snapshotDrainTimeouts.load (std::memory_order_relaxed);
+    for (size_t i = 0; i < kResourceAmbiguityReasonCount; ++i)
+        stats.firstAmbiguityTransitions[i] = g_firstAmbiguityTransitions[i].load (std::memory_order_relaxed);
+    stats.resourceAmbiguousPresents = g_resourceAmbiguousPresents.load (std::memory_order_relaxed);
+    stats.presentContextOverlaps = g_presentContextOverlaps.load (std::memory_order_relaxed);
     const ContextHookStats contextStats = GetContextHookStats ();
     const uint64_t repairsAtStart = g_contextHookRepairsAtStart.load (std::memory_order_relaxed);
     stats.contextHookRepairs = contextStats.repairs >= repairsAtStart ? contextStats.repairs - repairsAtStart : 1;

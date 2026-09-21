@@ -51,6 +51,38 @@ def test_generated_artifacts_are_deterministic_and_canonical(tmp_path):
     )
 
 
+def test_pass_provenance_schema_exposes_ambiguity_causes():
+    catalog = generator.extract_catalog(REPO_ROOT)
+    command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")
+    output = command.output_scheme
+
+    transition_fields = {
+        "nonCameraDrawTransitions",
+        "sampledAmbiguousTransitions",
+        "conflictingSampledPassTransitions",
+        "partialCopyTransitions",
+        "resourceWriteTransitions",
+        "unsupportedGpuWorkTransitions",
+        "secondaryCameraTargetTransitions",
+        "resourceAmbiguousPresents",
+        "presentContextOverlaps",
+    }
+    assert transition_fields <= set(output["properties"])
+    assert transition_fields <= set(output["required"])
+
+    row = output["properties"]["rows"]["items"]
+    assert row["properties"]["resourceState"]["enum"] == [
+        "UNKNOWN", "KNOWN", "AMBIGUOUS"
+    ]
+    assert row["properties"]["resourceAmbiguityMask"] == {
+        "type": "integer", "minimum": 0, "maximum": 127
+    }
+    assert row["properties"]["presentContextOverlap"] == {"type": "boolean"}
+    assert {"resourceState", "resourceAmbiguityMask", "presentContextOverlap"} <= set(
+        row["required"]
+    )
+
+
 def test_unparseable_registered_schema_fails(tmp_path):
     native_dir = tmp_path / "NativeCommands"
     native_dir.mkdir()

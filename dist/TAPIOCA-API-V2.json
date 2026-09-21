@@ -25845,6 +25845,33 @@
           "rowsOverwritten": {
             "type": "string"
           },
+          "nonCameraDrawTransitions": {
+            "type": "string"
+          },
+          "sampledAmbiguousTransitions": {
+            "type": "string"
+          },
+          "conflictingSampledPassTransitions": {
+            "type": "string"
+          },
+          "partialCopyTransitions": {
+            "type": "string"
+          },
+          "resourceWriteTransitions": {
+            "type": "string"
+          },
+          "unsupportedGpuWorkTransitions": {
+            "type": "string"
+          },
+          "secondaryCameraTargetTransitions": {
+            "type": "string"
+          },
+          "resourceAmbiguousPresents": {
+            "type": "string"
+          },
+          "presentContextOverlaps": {
+            "type": "string"
+          },
           "contextSlotsPatched": {
             "type": "integer"
           },
@@ -25874,6 +25901,22 @@
                 "backBuffer": {
                   "type": "string"
                 },
+                "resourceState": {
+                  "type": "string",
+                  "enum": [
+                    "UNKNOWN",
+                    "KNOWN",
+                    "AMBIGUOUS"
+                  ]
+                },
+                "resourceAmbiguityMask": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 127
+                },
+                "presentContextOverlap": {
+                  "type": "boolean"
+                },
                 "relation": {
                   "type": "string",
                   "enum": [
@@ -25892,6 +25935,9 @@
                 "delta",
                 "cameraHash",
                 "backBuffer",
+                "resourceState",
+                "resourceAmbiguityMask",
+                "presentContextOverlap",
                 "relation"
               ]
             }
@@ -25918,6 +25964,15 @@
           "snapshotDrainTimeouts",
           "contextHookRepairs",
           "rowsOverwritten",
+          "nonCameraDrawTransitions",
+          "sampledAmbiguousTransitions",
+          "conflictingSampledPassTransitions",
+          "partialCopyTransitions",
+          "resourceWriteTransitions",
+          "unsupportedGpuWorkTransitions",
+          "secondaryCameraTargetTransitions",
+          "resourceAmbiguousPresents",
+          "presentContextOverlaps",
           "contextSlotsPatched",
           "resourceResetPending",
           "rows"

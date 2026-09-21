@@ -19,8 +19,24 @@ namespace dxgi {
 namespace passprovenance {
 
 constexpr size_t kRowCapacity = 1024;
+constexpr size_t kResourceAmbiguityReasonCount = 7;
 
 enum class Relation : uint32_t { Unknown = 0, Match = 1, Mismatch = 2, Ambiguous = 3 };
+enum class ResourceState : uint32_t { Unknown = 0, Known = 1, Ambiguous = 2 };
+enum class ResourceAmbiguityReason : uint32_t {
+    NonCameraDraw = 1u << 0,
+    SampledAmbiguous = 1u << 1,
+    ConflictingSampledPasses = 1u << 2,
+    PartialCopy = 1u << 3,
+    ResourceWrite = 1u << 4,
+    UnsupportedGpuWork = 1u << 5,
+    SecondaryCameraTarget = 1u << 6
+};
+
+constexpr uint32_t ReasonMask (ResourceAmbiguityReason reason)
+{
+    return uint32_t (reason);
+}
 
 struct Row {
     uint64_t present = 0;
@@ -30,6 +46,9 @@ struct Row {
     uint64_t backBuffer = 0;
     int64_t delta = 0; // cameraPass - imagePass; meaningful only for Match/Mismatch
     Relation relation = Relation::Unknown;
+    ResourceState resourceState = ResourceState::Unknown;
+    uint32_t resourceAmbiguityMask = 0;
+    bool presentContextOverlap = false;
 };
 
 struct Stats {
@@ -52,6 +71,9 @@ struct Stats {
     uint64_t snapshotDrainTimeouts = 0;
     uint64_t contextHookRepairs = 0;
     uint64_t rowsOverwritten = 0;
+    uint64_t firstAmbiguityTransitions[kResourceAmbiguityReasonCount] = {};
+    uint64_t resourceAmbiguousPresents = 0;
+    uint64_t presentContextOverlaps = 0;
     uint32_t contextSlotsPatched = 0;
     bool resourceResetPending = false;
 };
