@@ -8,8 +8,9 @@
 #include "ArchViz/ArchVizLog.hpp" // ArchVizLog
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/CameraWake.hpp"
-#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
+#include "ArchViz/Dxgi/ContextHook.hpp"
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
@@ -423,6 +424,11 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             // than leave a mode that is recording with nothing to compare to.
             armed = dxgi::InstallPresentHook (error);
             if (armed && g_gpuState) {
+                // The context hook can be absent while Archicad changes any of
+                // these bindings. A new arm must learn only transitions observed
+                // in this session; carrying an old b2 made the census repeatedly
+                // copy a stale projection window after viewport reconstruction.
+                dxgi::contextstate::Reset ();
                 dxgi::renderstate::Reset ();
                 dxgi::viewmatrix::Reset ();
                 // ⚠️ WANTED HERE, INSTALLED LATER, AND THE ARM DOES NOT WAIT FOR

@@ -963,13 +963,10 @@ void Stop ()
     cen::SetAutoSelect (false);
     cen::SetEnabled (false);
 
-    // ⚠️ BACK TO THE MODE THE HOOKS CAME FROM, WHICH ALSO RELEASES THEM. The
-    // context detours repair themselves every frame, so an uninstall that loses
-    // a race can leave them forwarding through nulled originals -- Archicad keeps
-    // running and silently stops drawing. `SetCameraSyncMode` owns that sequence.
-    std::string error;
-    SetCameraSyncMode (CameraSyncMode::Legacy, CurrentCameraSyncIntervalMs (), CurrentPredictionScale (),
-                       CurrentHideOnNav (), false, error);
+    // Stop is unconditional teardown, not a transition to another active mode.
+    // Requesting Legacy is refused when no portable viewport exists, which left
+    // both GPU hooks installed until the next menu activation.
+    ShutDownCameraSync ();
 
     StopHeartbeat ();
     g_running = false;

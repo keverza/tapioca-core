@@ -247,7 +247,7 @@ const char* ContextSlotName (ContextSlot slot)
 // `ID3D11DeviceContext` implementations and a throwaway made with different
 // creation flags gets a different one, which is how the first live run patched a
 // perfectly good table that nobody dispatched through and recorded nothing.
-static void** ArchicadContextVtable (std::string& error)
+static void** ArchicadContextVtable (void** validatedEntries, std::string& error)
 {
     ID3D11DeviceContext* target = (ID3D11DeviceContext*) DiscoveredArchicadContext ();
     if (target == nullptr) {
@@ -267,7 +267,7 @@ static void** ArchicadContextVtable (std::string& error)
         descriptors[i].index = kSlotIndex[i];
         descriptors[i].name = ContextSlotName (ContextSlot (i));
     }
-    if (!selftest::ValidateTable (vtable, descriptors, size_t (ContextSlot::Count), error)) {
+    if (!selftest::ValidateTable (vtable, descriptors, size_t (ContextSlot::Count), error, validatedEntries)) {
         error = "Archicad's context " + error;
         return nullptr;
     }
@@ -276,7 +276,20 @@ static void** ArchicadContextVtable (std::string& error)
 
 bool FingerprintContextTargets (std::string& error)
 {
-    void** vtable = ArchicadContextVtable (error);
+    // A live hook has replaced these slots with our own detours. Treating that
+    // table as an unpatched D3D11 table either produces the misleading
+    // "tapioca.apx" ownership failure or, if validation were weakened, pins our
+    // own code forever.
+    if (g_installed.load (std::memory_order_acquire)) {
+        error = "the GPU-state context hook is already installed, so its live vtable contains Tapioca detours "
+                "instead of the D3D11 targets a profile must pin. If the current profile verifies, no re-pin is "
+                "needed; otherwise stop and restart the overlay, navigate until the context is discovered, then "
+                "re-pin while the stale profile is refusing installation";
+        return false;
+    }
+
+    void* targets[size_t (ContextSlot::Count)] = {};
+    void** vtable = ArchicadContextVtable (targets, error);
     if (vtable == nullptr)
         return false;
 
@@ -285,7 +298,7 @@ bool FingerprintContextTargets (std::string& error)
     patchprofile::RecordModule (L"dxgi.dll");
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
         const std::string name = std::string ("ID3D11DeviceContext::") + ContextSlotName (ContextSlot (i));
-        patchprofile::RecordTarget (name.c_str (), vtable[kSlotIndex[i]]);
+        patchprofile::RecordTarget (name.c_str (), targets[i]);
     }
     return true;
 }
@@ -348,7 +361,7 @@ bool InstallContextHook (std::string& error)
     }
     g_pinned.store (true, std::memory_order_release);
 
-    void** vtable = ArchicadContextVtable (error);
+    void** vtable = ArchicadContextVtable (nullptr, error);
     if (vtable == nullptr || device == nullptr || target == nullptr) {
         g_lastError = error;
         return false;

@@ -3,7 +3,7 @@
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 
-#include <d3d11.h>
+#include <d3d11_1.h>
 
 #include <cstring>
 
@@ -18,6 +18,7 @@ ContextState g_state;
 SceneDrawState g_lastSceneDraw;
 SceneDrawState g_lastCameraDraw;
 DrawCameraCounts g_drawCounts;
+bool g_needsBindingBootstrap = true;
 
 // The window size stage 3 measured for both camera constants: 16 constants, 256
 // bytes, the D3D11.1 minimum granularity, matrix at offset zero.
@@ -133,6 +134,29 @@ void OnVSConstantBuffers (uint32_t startSlot, uint32_t count, ID3D11Buffer* cons
     }
 }
 
+void BootstrapVSConstantBuffers (ID3D11DeviceContext* context)
+{
+    if (!g_needsBindingBootstrap || context == nullptr)
+        return;
+    g_needsBindingBootstrap = false;
+
+    ID3D11DeviceContext1* context1 = nullptr;
+    if (FAILED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), (void**) &context1)) || context1 == nullptr)
+        return;
+
+    ID3D11Buffer* buffers[kConstantBufferSlots] = {};
+    uint32_t firstConstant[kConstantBufferSlots] = {};
+    uint32_t numConstants[kConstantBufferSlots] = {};
+    context1->VSGetConstantBuffers1 (0, uint32_t (kConstantBufferSlots), buffers, firstConstant, numConstants);
+    OnVSConstantBuffers (0, uint32_t (kConstantBufferSlots), buffers, firstConstant, numConstants);
+
+    for (ID3D11Buffer* buffer : buffers) {
+        if (buffer != nullptr)
+            buffer->Release ();
+    }
+    context1->Release ();
+}
+
 namespace {
 
 // ⚠️ THE RESOURCE BEHIND A VIEW, WHICH IS THE PART THAT SURVIVES.
@@ -204,6 +228,7 @@ void Reset ()
     g_lastSceneDraw = SceneDrawState {};
     g_lastCameraDraw = SceneDrawState {};
     g_drawCounts = DrawCameraCounts {};
+    g_needsBindingBootstrap = true;
     g_injectionDepth = 0;
 }
 

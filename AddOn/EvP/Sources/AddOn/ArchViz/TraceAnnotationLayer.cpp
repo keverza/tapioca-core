@@ -722,34 +722,6 @@ std::optional<std::size_t> HitTestTraceDimension (const Frame& frame, const floa
     const float* projection = viewProj;
     if (fitSelectedFrame && FitFrameProjection (frame, viewProj, width, height, 24.0f * dpiScale, fitted))
         projection = fitted;
-    // ⏸️ PAUSED ANNOTATION WORK REMOVED FROM HERE TO UNBLOCK THE BUILD.
-    //
-    // A camera-movement test was pasted into this function:
-    //
-    //     retainDimensionCandidates |= placementHistory->hasViewProjection &&
-    //         !std::equal (projection, projection + 16,
-    //                      placementHistory->lastViewProjection);
-    //     std::copy (projection, projection + 16, placementHistory->lastViewProjection);
-    //     placementHistory->hasViewProjection = true;
-    //
-    // It does not compile here: `HitTestTraceDimension` takes neither
-    // `placementHistory` nor `retainDimensionCandidates`. `BuildTraceAnnotationFrame`
-    // takes both, and the `AnnotationPlacementHistory` fields it writes
-    // (`lastViewProjection`, `hasViewProjection`) are still declared in the
-    // header, so the paused work can resume by putting it there.
-    //
-    // ⚠️ AND IT SHOULD NOT COME BACK TO THIS FUNCTION EVEN ONCE THE PARAMETERS
-    // EXIST. This is a HIT TEST: it runs on every cursor move, and it is const in
-    // spirit -- answering "what is under the pointer?". Letting it write the
-    // shared record of the last view projection would have hover traffic clobber
-    // the frame builder's own record, so the builder would see the camera as
-    // unmoved whenever the mouse had passed over first, and drop exactly the
-    // candidate retention the block exists to provide. The symptom would be
-    // intermittent dimension flicker that only appears when the cursor is over
-    // the viewport, which is close to undebuggable.
-    //
-    // This restores the function to its committed (HEAD) behaviour exactly;
-    // nothing else in the paused annotation workstream was touched.
 
     const float hitRadiusSquared = 36.0f * dpiScale * dpiScale;
     float bestDistanceSquared = std::numeric_limits<float>::infinity ();
@@ -847,6 +819,13 @@ ProjectedDrawList BuildTraceAnnotations (const Frame& frame, const float viewPro
     const float* projection = viewProj;
     if (fitSelectedFrame && FitFrameProjection (frame, viewProj, width, height, 24.0f * dpiScale, fitted))
         projection = fitted;
+    if (placementHistory != nullptr) {
+        retainDimensionCandidates |= placementHistory->hasViewProjection &&
+                                     !std::equal (projection, projection + 16,
+                                                  placementHistory->lastViewProjection);
+        std::copy (projection, projection + 16, placementHistory->lastViewProjection);
+        placementHistory->hasViewProjection = true;
+    }
     for (std::size_t primitiveIndex = 0; primitiveIndex < frame.primitives.size (); ++primitiveIndex) {
         const Primitive& primitive = frame.primitives[primitiveIndex];
         const std::size_t firstLabel = out.labels.size ();

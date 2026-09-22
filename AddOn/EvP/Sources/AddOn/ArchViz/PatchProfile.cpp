@@ -557,6 +557,17 @@ bool Pin (std::string& error)
         return false;
     }
 
+    // Every target must be backed by a module identity written into this same
+    // profile. This is the final fail-closed guard against pinning an already
+    // detoured vtable (or any unowned thunk) as if it were D3D11's original.
+    for (const TargetIdentity& target : current.targets) {
+        if (FindModule (current.modules, target.module) == nullptr) {
+            error = target.name + " points into '" + target.module +
+                    "', which is not one of the modules recorded for this profile; refusing to pin it";
+            return false;
+        }
+    }
+
     const GS::UniString path = PinPath ();
     if (path.IsEmpty ()) {
         error = "%LOCALAPPDATA% is unavailable, so the patch profile cannot be written";

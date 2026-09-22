@@ -334,6 +334,7 @@ set (EVP_SCENE_TEXT_TESTS
     test_scenetextlayoutcache.cpp
     test_scenetextplacement.cpp)
 set (EVP_ARCHVIZ_SOURCES
+    hostoccluders_test_stub.cpp
     "${EVP_ROOT}/Sources/AddOn/ArchViz/MeshGroups.cpp"
     # ArchViz/SunStudyOverlay.cpp is the whole of the sun study's DISPLAY
     # correspondence: which atlas tile a rendered triangle reads, and through

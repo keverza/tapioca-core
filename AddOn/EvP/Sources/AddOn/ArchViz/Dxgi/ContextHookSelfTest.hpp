@@ -113,7 +113,11 @@ struct SlotDescriptor {
 // n-way distinctness check are what stands between a correct ABI assumption and
 // writing a function pointer into an unrelated slot of a live d3d11.dll. False
 // with `error` filled names the slot that failed and which check it failed.
-bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, std::string& error);
+// When `validatedEntries` is non-null it receives the exact pointers these
+// checks accepted, so a caller never validates one live read and fingerprints
+// another.
+bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, std::string& error,
+                    void** validatedEntries = nullptr);
 
 // The module a vtable slot points into, lower-cased, or empty. Used to refuse a
 // table that is not d3d11.dll's before anything is written to it -- if the

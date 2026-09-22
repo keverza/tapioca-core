@@ -660,7 +660,7 @@ TEST (TraceAnnotationLayer, DimensionCandidatesAvoidOccupiedAnnotationSide)
     EXPECT_NE (draw.labels[0].anchor.y, draw.labels[1].anchor.y);
 }
 
-TEST (TraceAnnotationLayer, RetainsValidDimensionCandidateOnlyWhileCameraMoves)
+TEST (TraceAnnotationLayer, RetainsValidDimensionCandidateForChangedCameraFrameThenFullyResolves)
 {
     annotation::Frame frame;
     auto dimension =
@@ -672,11 +672,14 @@ TEST (TraceAnnotationLayer, RetainsValidDimensionCandidateOnlyWhileCameraMoves)
     archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history);
     const uint8_t best = history.dimensionCandidateByAnnotation.at ("moving");
     history.dimensionCandidateByAnnotation["moving"] = best ^ 1u;
+    float movedProjection[16];
+    std::copy (kIdentity, kIdentity + 16, movedProjection);
+    movedProjection[12] = 0.01f;
 
-    archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history, {}, {}, true);
+    archviz::BuildTraceAnnotations (frame, movedProjection, 200, 100, 1.0f, false, {}, &history);
     EXPECT_EQ (history.dimensionCandidateByAnnotation.at ("moving"), (best ^ 1u));
 
-    archviz::BuildTraceAnnotations (frame, kIdentity, 200, 100, 1.0f, false, {}, &history, {}, {}, false);
+    archviz::BuildTraceAnnotations (frame, movedProjection, 200, 100, 1.0f, false, {}, &history);
     EXPECT_EQ (history.dimensionCandidateByAnnotation.at ("moving"), best);
 }
 

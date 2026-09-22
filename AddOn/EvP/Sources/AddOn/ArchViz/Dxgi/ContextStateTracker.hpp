@@ -34,6 +34,7 @@
 
 struct ID3D11Buffer;
 struct ID3D11DepthStencilView;
+struct ID3D11DeviceContext;
 struct ID3D11RenderTargetView;
 struct ID3D11VertexShader;
 struct D3D11_VIEWPORT;
@@ -124,6 +125,14 @@ struct ContextState {
 void OnVertexShader (ID3D11VertexShader* shader);
 void OnVSConstantBuffers (uint32_t startSlot, uint32_t count, ID3D11Buffer* const* buffers,
                           const uint32_t* firstConstant, const uint32_t* numConstants);
+
+// RENDER THREAD. Seed the tracker once after `Reset` from the context's actual
+// D3D11.1 binding state. The hook is installed after Archicad has begun drawing,
+// and a persistent b2 projection may not be set again until the user navigates.
+// Every returned COM reference is released before this returns; only the same
+// non-owning identities recorded by `OnVSConstantBuffers` survive.
+void BootstrapVSConstantBuffers (ID3D11DeviceContext* context);
+
 void OnRenderTargets (ID3D11RenderTargetView* colour, ID3D11DepthStencilView* depth);
 void OnViewport (const D3D11_VIEWPORT& viewport);
 

@@ -684,6 +684,9 @@ void Reset ()
     g_lastSceneAge = 0;
     g_scenePassGeneration.store (0, std::memory_order_relaxed);
     g_sceneConsumedCount = 0;
+    g_consumedByCopy = 0;
+    g_consumedByDeparture = 0;
+    g_copiesSeenInPass = 0;
     g_modelSceneGeneration = 0;
     g_modelPassOfGeneration = 0;
     g_departures = DepartureStats {};
@@ -693,6 +696,7 @@ void Reset ()
     g_currentPass = ScenePass {};
     g_lastCompletedPass = ScenePass {};
     g_presentFrameId = 0;
+    g_composite = CompositeDraw {};
 }
 
 void FlushFrameLog ()

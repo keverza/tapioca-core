@@ -519,8 +519,8 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     // would put the instrument in its own census.
     if (contextstate::Injecting ())
         return;
-
     ++g_stats.drawsSeen;
+    contextstate::BootstrapVSConstantBuffers (context);
     contextstate::ContextState live = contextstate::Snapshot ();
 
     // ⚠️ DEPTH PROVENANCE SEES EVERY DRAW, NOT ONLY CAMERA-BEARING

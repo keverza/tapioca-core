@@ -69,7 +69,8 @@ std::string OwningModuleOf (const void* function)
     return narrow;
 }
 
-bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, std::string& error)
+bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, std::string& error,
+                    void** validatedEntries)
 {
     if (vtable == nullptr || slots == nullptr || count == 0) {
         error = "no vtable to validate";
@@ -102,6 +103,8 @@ bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, st
 
     for (size_t i = 0; i < count; ++i) {
         void* const entry = vtable[slots[i].index];
+        if (validatedEntries != nullptr)
+            validatedEntries[i] = entry;
         const std::string owner = OwningModuleOf (entry);
         if (owner != "d3d11.dll") {
             error = std::string ("vtable slot ") + std::to_string (slots[i].index) + " (" + slots[i].name +
@@ -110,7 +113,8 @@ bool ValidateTable (void** vtable, const SlotDescriptor* slots, size_t count, st
             return false;
         }
         for (size_t j = 0; j < i; ++j) {
-            if (vtable[slots[j].index] == entry) {
+            const void* const earlier = (validatedEntries != nullptr) ? validatedEntries[j] : vtable[slots[j].index];
+            if (earlier == entry) {
                 error = std::string ("vtable slots ") + slots[j].name + " and " + slots[i].name +
                         " hold the same function; the indices cannot all "
                         "be right, so nothing is patched";
