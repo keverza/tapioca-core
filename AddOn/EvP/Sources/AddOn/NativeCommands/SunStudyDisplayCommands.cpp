@@ -249,6 +249,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.hourTo = metadata.hourTo;
         config.minAltitudeDeg = metadata.minAltitudeDegrees;
         config.grid = metadata.gridSpacing;
+        config.patchDomain = metadata.IsPatchDomain ();
         config.debug = adoptedDebug;
         config.depth = adoptedDepth;
         config.hoursMax = rampTop;

@@ -121,6 +121,8 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
 {
     uint64_t hash = 1469598103934665603ull;
     MixDouble (hash, config.grid);
+    // The domain dices the surfaces differently, so it IS a sampling input.
+    Mix (hash, config.patchDomain ? 1ull : 0ull);
     // ⚠️ THE DISPLAY MODE IS DELIBERATELY ABSENT. Switching from `hours` to
     // `cell checker` changes no measurement; including it would recompute a
     // whole study to change a colour, which is precisely what the atlas design
@@ -159,6 +161,9 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     // display path refuses a study without one -- so a follower that inherited
     // `ground` would rerun for ever and never show anything.
     params.Add ("samples", GS::UniString ("surfaces"));
+    // ⚠️ THE ADOPTED STUDY'S DOMAIN, SENT EXPLICITLY. StartSunStudy defaults to
+    // `triangle`, so leaving this out reran every patch study as a triangle one.
+    params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
     return params;
 }
 

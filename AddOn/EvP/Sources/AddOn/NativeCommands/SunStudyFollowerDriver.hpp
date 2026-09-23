@@ -53,6 +53,11 @@ struct ActiveSunStudyConfig {
     int hourFrom = 0, hourTo = 24;
     double minAltitudeDeg = 0.0;
     double grid = 2.0;
+    // ⚠️ THE DOMAIN IS PART OF WHAT WAS MEASURED, NOT A DISPLAY PREFERENCE.
+    // Without it every rerun was a TRIANGLE study: the first edit after a patch
+    // study silently swapped the picture back to per-triangle tiles, seams
+    // along every diagonal, while the smoke that started it reported PASS.
+    bool patchDomain = false;
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.

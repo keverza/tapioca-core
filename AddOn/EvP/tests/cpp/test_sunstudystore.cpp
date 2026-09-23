@@ -189,6 +189,23 @@ TEST (SunStudyStore, EraseAndClearRemoveStudies)
     EXPECT_TRUE (SunStudyStore::Get ().Ids ().empty ());
 }
 
+TEST (SunStudyStore, DescribeCarriesTheDomainSoAFollowerRerunMeasuresTheSameWay)
+{
+    // ⚠️ LIVE 2026-09-23: the follower adopted its rerun configuration from
+    // Describe, Describe dropped the domain, and every rerun of a patch study
+    // came back as a TRIANGLE study -- seams down every diagonal after the first
+    // edit, while the smoke that started it had reported PASS.
+    StoreFixture fixture;
+    auto record = MakeRecord (3);
+    record->domain = SamplingDomain::SurfacePatch;
+    const std::string id = SunStudyStore::Get ().Insert (std::move (record));
+
+    StudyRecord metadata;
+    std::string error;
+    ASSERT_TRUE (SunStudyStore::Get ().Describe (id, metadata, error)) << error;
+    EXPECT_TRUE (metadata.IsPatchDomain ());
+}
+
 TEST (SunStudyStore, DescribeCopiesMetadataWithoutHandingOutAPointer)
 {
     StoreFixture fixture;

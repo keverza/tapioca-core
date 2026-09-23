@@ -354,6 +354,9 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     copyOfMetadata.hourTo = source.hourTo;
     copyOfMetadata.minAltitudeDegrees = source.minAltitudeDegrees;
     copyOfMetadata.gridSpacing = source.gridSpacing;
+    // ⚠️ THE DOMAIN TRAVELS WITH THE METADATA. The follower adopts its rerun
+    // configuration from this copy; without it every rerun was a triangle study.
+    copyOfMetadata.domain = source.domain;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;
     copyOfMetadata.analysisMilliseconds = source.analysisMilliseconds;
