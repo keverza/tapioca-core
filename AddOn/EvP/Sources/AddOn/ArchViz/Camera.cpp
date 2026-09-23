@@ -341,6 +341,16 @@ void Camera::CursorRay (int32_t px, int32_t py, uint32_t width, uint32_t height,
     float right[3];
     float up[3];
     CameraBasis (eye, target, forward, right, up);
+    // ⚠️ CameraBasis's `right` is worldUp x forward, which points to the
+    // viewer's LEFT; the view matrix (LookAtRH) puts screen +x along
+    // up x (eye - target), the opposite. Used as it stood, every cursor ray was
+    // MIRRORED about the screen's vertical centre line -- right at the centre,
+    // wrong everywhere else (live: the sun study inspector "missed" objects it
+    // was pointing at). Flipped HERE, not in CameraBasis, which other callers
+    // (the environment rays, the injected overlay) use with their own
+    // conventions. test_camera_cursorray.cpp pins the round trip.
+    for (int k = 0; k < 3; ++k)
+        right[k] = -right[k];
 
     constexpr float kPi = 3.14159265358979323846f;
     const float aspect = (height > 0) ? float (width) / float (height) : 1.0f;
