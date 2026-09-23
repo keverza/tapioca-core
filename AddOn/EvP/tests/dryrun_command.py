@@ -3018,10 +3018,18 @@ def _one(command, params):
                 sample_count = columns * columns
         else:
             sample_count = columns * columns
+        # ⚠️ THE DOMAIN IS ECHOED, AS THE REAL COMMAND DOES. A fake that always
+        # answered "triangle" made every offline domain=patch run stop at the
+        # smoke's "asked for patch, got triangle" -- so the patch path, the one
+        # under construction, was the one path never exercised offline.
+        domain = str(params.get("domain", "triangle"))
+        # The fake snapshot's 24 triangles are two boxes: 12 flat faces.
+        patch_count = 12 if domain == "patch" else 0
         _SUN_STUDY.clear()
         _SUN_STUDY.update({"id": "sun-1", "total": above, "resolved": 0,
                            "samples": sample_count, "ms": 0.0})
         return _v2({"studyId": "sun-1",
+                    "domain": domain, "patchCount": patch_count,
                     "resolvedSteps": 0, "totalSteps": above,
                     "sampleCount": sample_count, "generation": 1,
                     "converged": False, "empty": False,
@@ -3032,7 +3040,8 @@ def _one(command, params):
                     "sampleMode": str(params.get("samples", "surfaces")),
                     "undersizedFaces": 0, "degenerateFaces": 0,
                     "closedGroups": 1, "flippedGroups": 0,
-                    "atlasWidth": 256, "atlasHeight": 256, "atlasFaces": 2,
+                    "atlasWidth": 256, "atlasHeight": 256,
+                    "atlasFaces": patch_count if domain == "patch" else 2,
                     "latitude": 54.6872, "longitude": 25.2797, "northDeg": 0.0,
                     "year": int(params.get("year", 2026)),
                     "month": int(params.get("month", 3)),
@@ -3141,6 +3150,23 @@ def _one(command, params):
             else:
                 out["stepBits"] = bits
         return _v2(out)
+
+    if command == "EvP.SunStudyPatchPreview":
+        # The fake snapshot's two boxes: 24 triangles, 12 flat faces. The two
+        # domains cover the SAME area and the patch domain carries ~9 % more
+        # samples (its boundary cells), which is the live relationship -- a fake
+        # with equal counts would hide the one difference the smoke reports.
+        return _v2({"elements": 2, "triangles": 24, "patches": 12,
+                    "gridSpacing": float(params.get("grid", 2.0)),
+                    "patchCentroidFallbacks": 0,
+                    "triangleSamples": 400, "triangleArea": 240.0,
+                    "patchSamples": 436, "patchArea": 240.0,
+                    "triangleAtlasWidth": 256, "triangleAtlasHeight": 256,
+                    "triangleAtlasTiles": 24,
+                    "patchAtlasWidth": 256, "patchAtlasHeight": 256,
+                    "patchAtlasTiles": 12, "patchAtlasUsedTexels": 436,
+                    "patchAtlasResized": False,
+                    "weldingLooksBroken": False})
 
     if command == "EvP.ShowSunStudy":
         # ⚠️ show=False MUST ANSWER WITHOUT A STUDY. The native verb clears the
