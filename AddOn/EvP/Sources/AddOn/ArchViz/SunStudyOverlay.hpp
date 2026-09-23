@@ -168,6 +168,7 @@ enum class SunStudyDebugMode : uint32_t {
     // The web study's shadow views, from the per-step bits.
     SingleShadow = 5, // lit or shadowed at ONE step (the HUD's time slider)
     AmPm = 6,         // never / AM only / PM only / AM + PM, split at solar noon
+    ShadowFan = 7,    // the LAST chosen step at which each surface was shadowed
 };
 
 // The top of the HUD's hours-range slider, as on the web page: "9+" -- at it,
@@ -183,6 +184,10 @@ struct SunStudyViewSettings {
     bool hide = false;
     int viewOverride = -1;
     uint32_t step = 0;
+    // The shadow fan's chosen steps, as bits (SunStudy/SunStudyStepAtlas.hpp
+    // kFanWords), and how many there are -- the colour ramp's length.
+    uint32_t fanMask[3] = { 0u, 0u, 0u };
+    uint32_t fanCount = 0;
 };
 
 // Build one element's side car for the ROLE view.

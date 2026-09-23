@@ -44,7 +44,26 @@ struct StepMaskAtlas {
     // line: the range masks at word boundaries are where a transliteration
     // goes wrong, so the arithmetic is pinned here against a per-step answer.
     bool ShadowedBetween (size_t texel, uint32_t first, uint32_t last) const;
+
+    // The SHADOW FAN's read: among the `selected` steps (bits, kFanWords words),
+    // the RANK of the LAST one at which the texel was shadowed, or -1 when it
+    // was lit at all of them. ⚠️ kArchVizSunTintPS's FanRank, line for line.
+    int FanRank (size_t texel, const uint32_t selected[3]) const;
 };
+
+// The fan's selection travels in one float4 of the constant buffer: three
+// words of step bits, so the fan covers the first 96 steps -- a whole day at
+// 15 minutes.
+constexpr uint32_t kFanWords = 3;
+constexpr uint32_t kFanMaxSteps = 32 * kFanWords;
+
+// One step per interval across the day, SNAPPED TO THE CLOCK: with 15-minute
+// steps and a 1 h interval, 08:00, 09:00, ... not 08:00, 08:15. A step is kept
+// only when one lies within half an interval of the target, so a sparse series
+// never reports an hour it did not sample. `intervalMinutes <= 0` is every step.
+// ⚠️ The web study's hour_step_indices (sunpalette.py), rule for rule, so the
+// two pages pick the same shadows.
+std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes);
 
 // `lit(sample, step)` is the study's answer; `texelOfSample[i]` is where the
 // hours atlas put sample i, or negative for none.

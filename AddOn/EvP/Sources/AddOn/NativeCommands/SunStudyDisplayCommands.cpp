@@ -176,7 +176,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const GS::Int32 debug = ReadInt (params, "debug", 0);
     // Captured before the payload is handed over: `upload` is moved into the
     // queue below and must not be read after that.
-    const GS::Int32 lastMode = static_cast<GS::Int32> (archviz::SunStudyDebugMode::AmPm);
+    const GS::Int32 lastMode = static_cast<GS::Int32> (archviz::SunStudyDebugMode::ShadowFan);
     upload->debugMode = static_cast<uint32_t> (debug < 0 ? 0 : (debug > lastMode ? lastMode : debug));
     const bool roleView = upload->debugMode == static_cast<uint32_t> (archviz::SunStudyDebugMode::Roles);
     // ⚠️ `depth` WAS IN THE SCHEMA AND NEVER READ: every study drew in Equal

@@ -510,6 +510,11 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyShadow[0] = float ((std::min) (impl_->sunViewStep, lastStep));
     constants.sunStudyShadow[1] = float (impl_->sunNoonStep);
     constants.sunStudyShadow[2] = float (impl_->sunStepCount);
+    // ⚠️ THE FAN'S STEP BITS GO IN AS BIT PATTERNS, read with asuint. A float
+    // cannot hold 32 arbitrary bits as a VALUE; copied as bytes it carries them
+    // exactly, and nothing between here and the shader does arithmetic on them.
+    std::memcpy (constants.sunStudyFan, impl_->sunFanMask, sizeof (impl_->sunFanMask));
+    constants.sunStudyFan[3] = float (impl_->sunFanCount);
     constants.sunStudyFilter[0] = impl_->sunFilterLo;
     constants.sunStudyFilter[1] = impl_->sunFilterHi;
     constants.sunStudyFilter[2] = impl_->sunQuantumHours;
@@ -583,6 +588,9 @@ void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
     impl_->sunFilterHide = view.hide;
     impl_->sunViewOverride = view.viewOverride;
     impl_->sunViewStep = view.step;
+    for (int word = 0; word < 3; ++word)
+        impl_->sunFanMask[word] = view.fanMask[word];
+    impl_->sunFanCount = view.fanCount;
 }
 
 } // namespace archviz

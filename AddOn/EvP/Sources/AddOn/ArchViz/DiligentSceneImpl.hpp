@@ -408,6 +408,8 @@ struct geomsrv::archviz::DiligentScene::Impl {
     // The HUD's view choice (-1 = as commanded) and the single shadow's step.
     int sunViewOverride = -1;
     uint32_t sunViewStep = 0;
+    uint32_t sunFanMask[3] = { 0u, 0u, 0u };
+    uint32_t sunFanCount = 0;
     // ---- what the last drawn frame actually did with the overlay ------------
     // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
     // the overlay ever fail to draw something it should have", and a flag that

@@ -2,6 +2,9 @@
 
 #include "SunStudy/SunSeries.hpp"
 
+#include <cmath>
+#include <set>
+
 namespace evp::sunstudy {
 
 bool StepMaskAtlas::Lit (size_t texel, size_t step) const
@@ -29,6 +32,68 @@ bool StepMaskAtlas::ShadowedBetween (size_t texel, uint32_t first, uint32_t last
             return true;
     }
     return false;
+}
+
+int StepMaskAtlas::FanRank (size_t texel, const uint32_t selected[3]) const
+{
+    const size_t plane = static_cast<size_t> (width) * height;
+    if (texel >= plane)
+        return -1;
+    for (int word = int (kFanWords) - 1; word >= 0; --word) {
+        const uint32_t chosen = selected[word];
+        if (chosen == 0u)
+            continue;
+        const uint32_t bits = uint32_t (word) < words ? masks[size_t (word) * plane + texel] : 0u;
+        const uint32_t shadowed = (~bits) & chosen;
+        if (shadowed == 0u)
+            continue;
+        uint32_t bit = 31u;
+        while (((shadowed >> bit) & 1u) == 0u)
+            --bit;
+        const uint32_t below = bit == 0u ? 0u : (chosen & ((1u << bit) - 1u));
+        int rank = 0;
+        for (uint32_t v = below; v != 0u; v &= v - 1u)
+            ++rank;
+        for (int lower = 0; lower < word; ++lower)
+            for (uint32_t v = selected[lower]; v != 0u; v &= v - 1u)
+                ++rank;
+        return rank;
+    }
+    return -1;
+}
+
+std::vector<uint32_t> FanSteps (const std::vector<uint16_t>& stepMinutes, double intervalMinutes)
+{
+    std::vector<uint32_t> picked;
+    if (stepMinutes.empty ())
+        return picked;
+    if (!(intervalMinutes > 0.0)) {
+        for (uint32_t i = 0; i < stepMinutes.size (); ++i)
+            picked.push_back (i);
+        return picked;
+    }
+    std::set<uint32_t> taken;
+    const double start = stepMinutes.front ();
+    const double end = stepMinutes.back ();
+    for (double target = std::ceil (start / intervalMinutes) * intervalMinutes; target <= end + 1e-9;
+         target += intervalMinutes) {
+        uint32_t best = 0;
+        double bestGap = -1.0;
+        for (uint32_t i = 0; i < stepMinutes.size (); ++i) {
+            const double gap = std::fabs (double (stepMinutes[i]) - target);
+            if (bestGap < 0.0 || gap < bestGap) {
+                best = i;
+                bestGap = gap;
+            }
+        }
+        if (bestGap >= 0.0 && taken.count (best) == 0 && bestGap <= intervalMinutes / 2.0) {
+            taken.insert (best);
+            picked.push_back (best);
+        }
+    }
+    if (picked.empty ())
+        picked.push_back (0);
+    return picked;
 }
 
 StepMaskAtlas PackStepMasks (size_t sampleCount, size_t stepCount, const std::function<bool (size_t, size_t)>& lit,

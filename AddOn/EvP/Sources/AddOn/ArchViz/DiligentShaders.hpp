@@ -295,6 +295,9 @@ struct DiligentSceneConstants {
     // x = the step the single shadow shows, y = the solar-noon step (the AM /
     // PM split), z = the study's step count, w unused.
     float sunStudyShadow[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    // ---- appended for the SHADOW FAN -----------------------------------------
+    // xyz = the chosen steps as BIT PATTERNS (asuint in HLSL), w = how many.
+    float sunStudyFan[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -334,8 +337,8 @@ enum class DiligentDebugView : int {
     MotionVectors = 13,
 };
 
-static_assert (sizeof (DiligentSceneConstants) ==
-                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16 + 16 + 16 + 16,
+static_assert (sizeof (DiligentSceneConstants) == 64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 +
+                                                      16 + 64 + 16 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -390,6 +393,7 @@ cbuffer ArchVizConstants
                                 // w = 1 hides out-of-range surfaces
     float4   g_sunStudyShadow;  // x = single-shadow step, y = solar-noon step,
                                 // z = step count
+    float4   g_sunStudyFan;     // xyz = chosen steps as bits (asuint), w = count
 };
 )hlsl";
 
@@ -683,11 +687,58 @@ bool ShadowedIn (int2 texel, uint first, uint last)
     return false;
 }
 
-// The web study's shadow colours (sunpalette.py): lightness alone separates
-// SHADOW_COLORS, so they read under every colour-vision deficiency.
-float3 SingleShadowColor (bool lit)
+// SHAPE SHADING for the single shadow: a fixed key light from the south-west
+// and a sky term, so the building's form still reads under two categories. A
+// flat colour per category makes every wall one silhouette and the moving
+// shadow the only thing with an edge.
+float ShapeShade (float3 normal)
 {
-    return SrgbToLinear (lit ? float3 (0.824, 0.824, 0.824) : float3 (0.439, 0.439, 0.443));
+    float3 n = normalize (normal);
+    float3 key = normalize (float3 (-0.45, -0.55, 0.70));
+    return 0.55 + 0.25 * n.z + 0.20 * saturate (dot (n, key));
+}
+
+// Sunlit a warm off-white, SHADOW A CLEAR BLUE -- a shadow sweeping across the
+// model has to separate from the shading underneath it, and a grey shadow over
+// grey shading does not. Shading multiplies both, in linear light.
+float3 SingleShadowColor (bool lit, float3 normal)
+{
+    float3 base = lit ? float3 (0.93, 0.91, 0.86) : float3 (0.28, 0.44, 0.80);
+    return SrgbToLinear (base) * ShapeShade (normal);
+}
+
+// The fan's ramp, morning -> evening: AM purple through the AM+PM blend to PM
+// salmon (sunpalette.py hour_fan_colors), so it sits in the AM / PM family.
+float3 FanColor (float t)
+{
+    float3 am = float3 (0.475, 0.416, 0.694);
+    float3 mid = float3 (0.733, 0.627, 0.698);
+    float3 pm = float3 (0.875, 0.592, 0.573);
+    float3 c = t <= 0.5 ? lerp (am, mid, t / 0.5) : lerp (mid, pm, (t - 0.5) / 0.5);
+    return SrgbToLinear (c);
+}
+
+// The RANK of the LAST chosen step at which the texel was shadowed, or -1.
+// ⚠️ SunStudyStepAtlas::FanRank, line for line, and tested there.
+int FanRank (int2 texel)
+{
+    uint chosen[3] = { asuint (g_sunStudyFan.x), asuint (g_sunStudyFan.y), asuint (g_sunStudyFan.z) };
+    [loop] for (int word = 2; word >= 0; --word) {
+        uint pick = chosen[word];
+        if (pick == 0u)
+            continue;
+        uint bits = g_sunSteps.Load (int4 (texel, word, 0));
+        uint shadowed = (~bits) & pick;
+        if (shadowed == 0u)
+            continue;
+        uint bit = firstbithigh (shadowed);
+        uint below = bit == 0u ? 0u : (pick & ((1u << bit) - 1u));
+        uint rank = countbits (below);
+        [loop] for (int lower = 0; lower < word; ++lower)
+            rank += countbits (chosen[lower]);
+        return int (rank);
+    }
+    return -1;
 }
 
 // MULTI_COLORS: never shadowed, AM only, PM only, AM + PM. Nominal categories
@@ -787,7 +838,15 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     // ---- the shadow views: the SAME texel, read in the per-step bits ----------
     int2 texel = int2 (face.tile.xy + float2 (column, row));
     if (mode == 5) {
-        psOut.color = float4 (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5))), 1.0);
+        psOut.color =
+            float4 (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5)), psIn.normal), 1.0);
+        return;
+    }
+    if (mode == 7) {
+        int rank = FanRank (texel);
+        float count = max (g_sunStudyFan.w, 1.0);
+        psOut.color = rank < 0 ? float4 (SrgbToLinear (float3 (0.831, 0.839, 0.847)), 1.0)
+                               : float4 (FanColor (count > 1.0 ? float (rank) / (count - 1.0) : 0.0), 1.0);
         return;
     }
     if (mode == 6) {

@@ -14,6 +14,7 @@
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
+#include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyStore.hpp"
 
 #include <imgui.h>
@@ -81,6 +82,9 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
         case 3:
             std::snprintf (first, size, "computing...");
             return true;
+        case 4:
+            std::snprintf (first, size, "cursor ray missed the hovered element");
+            return true;
         default:
             return false;
     }
@@ -88,9 +92,27 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
 
 // The section's view list and the tint mode each one selects. Index 0 follows
 // whatever ShowSunStudy asked for. ⚠️ AN ABI with SunStudyDebugMode.
-constexpr const char* kViewNames[] = { "as shown", "direct sun hours", "single shadow", "AM / PM shadows", "roles" };
-constexpr int kViewModes[] = { -1, 0, 5, 6, 4 };
+constexpr const char* kViewNames[] = { "as shown", "direct sun hours", "single shadow", "multiple shadows", "roles" };
+constexpr int kViewModes[] = { -1, 0, 5, 7, 4 };
 constexpr int kViewCount = 5;
+constexpr int kMultipleView = 3;
+
+// The multiple-shadows intervals, the web page's list plus EVERY STEP -- the
+// finest the study measured. AM / PM is the last and switches to its own mode.
+constexpr const char* kFanNames[] = { "every step", "30 min", "1 hour", "2 hours", "3 hours", "AM / PM" };
+constexpr double kFanMinutes[] = { 0.0, 30.0, 60.0, 120.0, 180.0, -1.0 };
+constexpr int kFanCount = 6;
+constexpr int kFanAmPm = 5;
+
+// The tint mode the HUD's choices select, or -1 to follow the command.
+int ChosenMode (const HudState& state)
+{
+    if (state.sunView <= 0 || state.sunView >= kViewCount)
+        return -1;
+    if (state.sunView == kMultipleView && state.sunFanInterval == kFanAmPm)
+        return 6;
+    return kViewModes[state.sunView];
+}
 
 void Clock (uint16_t minutes, char* out, size_t size)
 {
@@ -105,8 +127,18 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.lo = state.sunFilterLo;
     view.hi = state.sunFilterHi;
     view.hide = state.sunFilterHide;
-    view.viewOverride = state.sunView > 0 && state.sunView < kViewCount ? kViewModes[state.sunView] : -1;
+    view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
+    if (view.viewOverride == 7 && state.sunFanInterval >= 0 && state.sunFanInterval < kFanCount) {
+        // The same picking as the web study (SunStudyStepAtlas::FanSteps),
+        // capped at the 96 steps the constant buffer carries.
+        for (const uint32_t step : evp::sunstudy::FanSteps (state.sunStepMinutes, kFanMinutes[state.sunFanInterval])) {
+            if (step >= evp::sunstudy::kFanMaxSteps)
+                break;
+            view.fanMask[step >> 5] |= 1u << (step & 31u);
+            ++view.fanCount;
+        }
+    }
     return view;
 }
 
@@ -145,17 +177,37 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     if (engine == nullptr)
         return;
 
+    // ⚠️ THE GPU PICK DECIDES WHICH ELEMENT IS UNDER THE CURSOR, NOT THE RAY.
+    // The snapshot's BVH holds elements the viewer never draws (zone volumes,
+    // hidden layers), and the first thing a ray meets can be one of them -- live,
+    // the inspector "did not track the model". The pick renders what is ON
+    // SCREEN, so the reading is taken from the first hit on the element it
+    // names, walking past anything invisible in front.
+    if (!state.hover.valid)
+        return;
+    const std::string picked = evp::sunstudy::CanonicalGuid (state.hover.guid);
     const double org[3] = { origin[0], origin[1], origin[2] };
     const double dir[3] = { direction[0], direction[1], direction[2] };
-    const QueryEngine::RayHit hit = engine->Raycast (org, dir, 1.0e6);
-    if (!hit.hit)
+    const QueryEngine::PierceResult hits = engine->RaycastAll (org, dir, 1.0e6, 64);
+    const QueryEngine::PierceHit* hit = nullptr;
+    for (const QueryEngine::PierceHit& candidate : hits.hits) {
+        if (candidate.meshIndex < snapshot->meshes.size () &&
+            evp::sunstudy::CanonicalGuid (snapshot->meshes[candidate.meshIndex].guid) == picked) {
+            hit = &candidate;
+            break;
+        }
+    }
+    if (hit == nullptr) {
+        // Said, not hidden: the ray and the picture disagree about this pixel.
+        state.sunReadingState = 4;
         return;
+    }
 
     evp::sunstudy::SunStudyReading reading;
     uint8_t role = 0xff;
     double daylight = 0.0;
     std::string error;
-    if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit.tri, hit.meshIndex, hit.point, reading,
+    if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit->tri, hit->meshIndex, hit->point, reading,
                                                       role, daylight, error)) {
         state.sunReadingState = error == "computing" ? 3 : 0;
         return;
@@ -204,10 +256,19 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         state.sunView = 0;
     }
     state.sunStepCount = study.stepCount;
+    state.sunStepMinutes = study.stepMinutes;
     ImGui::SetNextItemWidth (-60.0f);
     ImGui::Combo ("view##sunview", &state.sunView, kViewNames, kViewCount);
-    const int mode = state.sunView > 0 ? kViewModes[state.sunView] : int (study.debugMode);
-    const bool shadowView = mode == 5 || mode == 6;
+    if (state.sunView == kMultipleView) {
+        ImGui::SetNextItemWidth (-60.0f);
+        ImGui::Combo ("every##sunfan", &state.sunFanInterval, kFanNames, kFanCount);
+        if (study.stepCount > evp::sunstudy::kFanMaxSteps && state.sunFanInterval == 0)
+            ImGui::TextColored (ImVec4 (1.0f, 0.6f, 0.4f, 1.0f), "only the first %u steps are shown",
+                                evp::sunstudy::kFanMaxSteps);
+    }
+    const int chosen = ChosenMode (state);
+    const int mode = chosen >= 0 ? chosen : int (study.debugMode);
+    const bool shadowView = mode == 5 || mode == 6 || mode == 7;
     if (shadowView && study.stepCount == 0)
         ImGui::TextColored (ImVec4 (1.0f, 0.6f, 0.4f, 1.0f), "this study carries no per-step bits");
 
@@ -233,16 +294,56 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         ImGui::SameLine ();
         if (ImGui::SmallButton ("noon"))
             state.sunStep = (std::min) (int (study.noonStep), last);
-        Swatch ("##lit", Rgb (0xd2d2d2), "sunlit at this time");
+        Swatch ("##lit", Rgb (0xede8db), "sunlit at this time");
         ImGui::SameLine ();
         ImGui::TextUnformatted ("sunlit");
         ImGui::SameLine ();
-        Swatch ("##shadowed", Rgb (0x707071), "shadowed at this time");
+        Swatch ("##shadowed", Rgb (0x4770cc), "shadowed at this time");
         ImGui::SameLine ();
         ImGui::TextUnformatted ("shadowed");
     }
     else {
         state.sunPlaying = false;
+    }
+    if (mode == 7 && study.stepCount > 0) {
+        // The fan's legend: the first and last chosen times at the ramp's ends,
+        // and the never-shadowed swatch. Every-step fans have dozens of steps,
+        // so the ramp is drawn as swatches without a label each.
+        const SunStudyViewSettings view = SunStudyViewOf (state);
+        std::vector<uint32_t> picks;
+        for (uint32_t step = 0; step < evp::sunstudy::kFanMaxSteps; ++step)
+            if ((view.fanMask[step >> 5] >> (step & 31u)) & 1u)
+                picks.push_back (step);
+        if (!picks.empty ()) {
+            const size_t shown = (std::min) (picks.size (), size_t (24));
+            for (size_t i = 0; i < shown; ++i) {
+                const float t = shown > 1 ? float (i) / float (shown - 1) : 0.0f;
+                const ImVec4 am (0.475f, 0.416f, 0.694f, 1.0f);
+                const ImVec4 mid (0.733f, 0.627f, 0.698f, 1.0f);
+                const ImVec4 pm (0.875f, 0.592f, 0.573f, 1.0f);
+                const ImVec4& a = t <= 0.5f ? am : mid;
+                const ImVec4& b = t <= 0.5f ? mid : pm;
+                const float u = t <= 0.5f ? t / 0.5f : (t - 0.5f) / 0.5f;
+                const ImVec4 c (a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u, a.z + (b.z - a.z) * u, 1.0f);
+                if (i > 0)
+                    ImGui::SameLine (0.0f, 1.0f);
+                ImGui::PushID (int (200 + i));
+                ImGui::ColorButton ("##fan", c, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                                    ImVec2 (9.0f, 14.0f));
+                ImGui::PopID ();
+            }
+            char first[16] = "--:--";
+            char last[16] = "--:--";
+            if (picks.front () < study.stepMinutes.size ())
+                Clock (study.stepMinutes[picks.front ()], first, sizeof (first));
+            if (picks.back () < study.stepMinutes.size ())
+                Clock (study.stepMinutes[picks.back ()], last, sizeof (last));
+            ImGui::TextDisabled ("%s ... %s, %u shadow(s): colour of the LAST one", first, last,
+                                 unsigned (picks.size ()));
+        }
+        Swatch ("##never", Rgb (0xd4d6d8), "never shadowed at the chosen times");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("never shadowed");
     }
     if (mode == 6 && study.stepCount > 0) {
         char noon[16] = "--:--";

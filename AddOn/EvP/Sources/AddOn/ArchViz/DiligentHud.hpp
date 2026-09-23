@@ -149,7 +149,8 @@ struct HudState {
     int sunInspect = 0;
     // What it found, written by ServiceSunStudyInspector each frame.
     // readingState: 0 nothing under the cursor, 1 measured, 2 not measured
-    // (context, ignored, below the grid), 3 the study is computing.
+    // (context, ignored, below the grid), 3 the study is computing, 4 the
+    // cursor ray never met the element the GPU pick says is under the cursor.
     int sunReadingState = 0;
     double sunReadingHours = 0.0;
     double sunReadingDaylight = 0.0;
@@ -165,6 +166,12 @@ struct HudState {
     bool sunPlaying = false;
     double sunPlayedAt = 0.0;
     uint32_t sunStepCount = 0; // mirrored from the scene, for SunStudyViewOf
+    // The multiple-shadows interval: an index into the section's list, 0 = every
+    // step (the study's own timestep), the last = AM / PM. 1 hour by default, as
+    // on the web page.
+    int sunFanInterval = 2;
+    int sunStudyTimestepMinutes = 0;
+    std::vector<uint16_t> sunStepMinutes; // mirrored from the scene
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
     float annotationWitnessStartGapMetres = 0.02f;

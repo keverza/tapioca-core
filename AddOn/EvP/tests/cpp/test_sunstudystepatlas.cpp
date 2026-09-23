@@ -97,3 +97,48 @@ TEST (SunStudyStepAtlas, SolarNoonIsTheHighestSunNotTwelveOClock)
     EXPECT_EQ (minutes[0], 600u);
     EXPECT_EQ (minutes[4], 840u);
 }
+
+TEST (SunStudyStepAtlas, FanStepsSnapToTheClockLikeTheWebStudy)
+{
+    // 15-minute steps from 07:15 to 16:45.
+    std::vector<uint16_t> minutes;
+    for (int m = 7 * 60 + 15; m <= 16 * 60 + 45; m += 15)
+        minutes.push_back (uint16_t (m));
+
+    const std::vector<uint32_t> hourly = FanSteps (minutes, 60.0);
+    ASSERT_EQ (hourly.size (), 9u) << "08:00 .. 16:00";
+    EXPECT_EQ (minutes[hourly.front ()], 8 * 60);
+    EXPECT_EQ (minutes[hourly.back ()], 16 * 60);
+
+    // Every step: the study's own precision.
+    EXPECT_EQ (FanSteps (minutes, 0.0).size (), minutes.size ());
+
+    // A sparse series never reports an hour it did not sample.
+    const std::vector<uint16_t> sparse { 8 * 60, 12 * 60 };
+    const std::vector<uint32_t> sparsePicks = FanSteps (sparse, 60.0);
+    EXPECT_EQ (sparsePicks.size (), 2u);
+}
+
+TEST (SunStudyStepAtlas, FanRankIsTheLastShadowedSelectedStepAgainstABruteForceAnswer)
+{
+    const size_t steps = 90;
+    const std::vector<int64_t> texelOf { 0, 1, 2, 3 };
+    const StepMaskAtlas atlas = PackStepMasks (4, steps, Pattern, texelOf, 4, 1);
+
+    // Several selections, including ones straddling both word boundaries.
+    const std::vector<std::vector<uint32_t>> selections {
+        { 0, 5, 31, 32, 33, 63, 64, 89 }, { 10, 40, 70 }, { 3 }, {}, { 30, 31, 32, 62, 63, 64, 65 }
+    };
+    for (const std::vector<uint32_t>& selection : selections) {
+        uint32_t mask[3] = { 0u, 0u, 0u };
+        for (const uint32_t step : selection)
+            mask[step >> 5] |= 1u << (step & 31u);
+        for (size_t texel = 0; texel < 4; ++texel) {
+            int expected = -1;
+            for (size_t rank = 0; rank < selection.size (); ++rank)
+                if (!Pattern (texel, selection[rank]))
+                    expected = int (rank); // selection is ascending: the last wins
+            EXPECT_EQ (atlas.FanRank (texel, mask), expected) << "texel " << texel;
+        }
+    }
+}
