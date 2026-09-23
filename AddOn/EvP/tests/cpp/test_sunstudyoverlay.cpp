@@ -269,6 +269,28 @@ TEST (SunStudyOverlay, ElementOutsideTheStudyIsRefused)
                                            std::vector<int32_t> { 0, 0 }, 0, map));
 }
 
+TEST (SunStudyOverlay, TheRoleSideCarIsTheHoursSideCarsShapeWithOneRoleEverywhere)
+{
+    // ⚠️ SAME COUNT, SAME HASH, or the binder would treat the role view as a
+    // different extraction and refuse it -- or, worse, bind it to one.
+    const Quad quad;
+    const std::vector<int32_t> materials { 1, 0 }; // a real permutation
+    const SampleGrid grid = SampleQuad (quad, 1.0);
+    const SunStudyAtlas atlas = BuildSunStudyAtlas (grid);
+    SunStudyElementMap hours;
+    ASSERT_TRUE (BuildSunStudyElementMap (atlas.tiles, grid.layouts, 1.0, quad.triangles, materials, 0, hours));
+
+    SunStudyElementMap roles;
+    ASSERT_TRUE (BuildSunStudyRoleMap (2u, quad.triangles, materials, roles));
+    ASSERT_EQ (roles.faces.size (), hours.faces.size ());
+    EXPECT_EQ (roles.topologyHash, hours.topologyHash);
+    for (const SunFaceMap& face : roles.faces) {
+        EXPECT_EQ (face.tile[0], 2.0f) << "the role";
+        EXPECT_EQ (face.tile[2], 1.0f) << "a zero tile would be discarded before the role is read";
+        EXPECT_EQ (face.tile[3], 1.0f);
+    }
+}
+
 TEST (SunStudyOverlay, AnUnplacedFaceCarriesNoTile)
 {
     // A face below the grid emits only its centroid and has no cell lattice, so

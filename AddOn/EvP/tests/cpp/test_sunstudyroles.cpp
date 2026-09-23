@@ -106,6 +106,42 @@ TEST (SunStudyRoles, TheOccludersDropOnlyTheIgnoredAndKeepTheSnapshotsIdentity)
     EXPECT_EQ (subset->meshes[1].guid, "{BBBB-2}");
 }
 
+TEST (SunStudyRoles, AnIgnoredElementNeitherCastsShadowNorIsMeasured)
+{
+    // "What would this look like without the tree?" -- nothing deleted.
+    const ElementRoles roles = ResolveElementRoles (kElements, {}, {}, { "{CCCC-3}" });
+    EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
+    EXPECT_EQ (roles.roles[1], ElementRole::Analysis);
+    EXPECT_EQ (roles.roles[2], ElementRole::Ignored);
+    EXPECT_TRUE (roles.RestrictsOccluders ());
+}
+
+TEST (SunStudyRoles, TheIgnoredListWinsOverAnalysisAndContext)
+{
+    const ElementRoles roles =
+        ResolveElementRoles (kElements, { "{AAAA-1}", "{BBBB-2}" }, { "{CCCC-3}" }, { "{BBBB-2}", "{CCCC-3}" });
+    EXPECT_EQ (roles.roles[0], ElementRole::Analysis);
+    EXPECT_EQ (roles.roles[1], ElementRole::Ignored);
+    EXPECT_EQ (roles.roles[2], ElementRole::Ignored);
+}
+
+TEST (SunStudyRoles, AnAnalysisListThatIsAllIgnoredIsRefusedNotWidened)
+{
+    // ⚠️ THE TRAP: thinning the analysis list by the ignore list leaves it
+    // empty, and "empty" means "analyse everything". A NAMED list stays named.
+    const ElementRoles roles = ResolveElementRoles (kElements, { "{AAAA-1}" }, {}, { "{AAAA-1}" });
+    EXPECT_TRUE (roles.analysisNamedButAbsent);
+    EXPECT_EQ (roles.analysis, 0u);
+    EXPECT_EQ (roles.roles[1], ElementRole::Context);
+}
+
+TEST (SunStudyRoles, AnIgnoredElementTheModelDoesNotHoldIsCounted)
+{
+    const ElementRoles roles = ResolveElementRoles (kElements, {}, {}, { "{GONE-7}" });
+    EXPECT_EQ (roles.unmatchedIgnored, 1u);
+    EXPECT_FALSE (roles.RestrictsOccluders ()) << "a missing element was ignored out of a model it is not in";
+}
+
 TEST (SunStudyRoles, AnAnalysisListWithNothingInTheModelIsNotAStudyOfEverything)
 {
     // ⚠️ THE FAILURE THIS PREVENTS: an empty intersection must not fall back

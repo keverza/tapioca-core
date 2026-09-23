@@ -147,6 +147,7 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     // inputs too: re-picking them must re-measure.
     MixGuids (hash, config.analysisElements);
     MixGuids (hash, config.contextElements);
+    MixGuids (hash, config.ignoredElements);
     // ⚠️ THE DISPLAY MODE IS DELIBERATELY ABSENT. Switching from `hours` to
     // `cell checker` changes no measurement; including it would recompute a
     // whole study to change a colour, which is precisely what the atlas design
@@ -200,6 +201,11 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
         params.Add ("analysisElements", analysis);
     if (!context.IsEmpty ())
         params.Add ("contextElements", context);
+    GS::Array<GS::UniString> ignored;
+    for (const std::string& guid : config.ignoredElements)
+        ignored.Push (GS::UniString (guid.c_str (), CC_UTF8));
+    if (!ignored.IsEmpty ())
+        params.Add ("ignoredElements", ignored);
     return params;
 }
 

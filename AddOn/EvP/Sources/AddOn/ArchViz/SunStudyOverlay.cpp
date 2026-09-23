@@ -107,6 +107,34 @@ SunFaceBinding ClassifySunFaceBinding (const SunStudyElementMap& map, const Scen
     return element.alreadyBound ? SunFaceBinding::AlreadyBound : SunFaceBinding::Attach;
 }
 
+bool BuildSunStudyRoleMap (uint8_t role, const std::vector<uint32_t>& triangles,
+                           const std::vector<int32_t>& triMaterial, SunStudyElementMap& out)
+{
+    out.faces.clear ();
+    out.topologyHash = 0;
+    const size_t triCount = triangles.size () / 3;
+    if (triCount == 0)
+        return false;
+
+    // The permutation is not needed to place a record -- every one is equal --
+    // but the HASH is, and it must be of the buffer the viewer draws, exactly
+    // as for the hours side car. See MeshGroups.hpp.
+    std::vector<uint32_t> indices;
+    std::vector<MaterialRange> ranges;
+    std::vector<uint32_t> order;
+    BuildMaterialGroups (triangles, triMaterial, indices, ranges, nullptr, nullptr, &order);
+    if (order.size () != triCount)
+        return false;
+    out.topologyHash = MeshIndexHash (indices);
+
+    SunFaceMap record;
+    record.tile[0] = static_cast<float> (role);
+    record.tile[2] = 1.0f;
+    record.tile[3] = 1.0f;
+    out.faces.assign (triCount, record);
+    return true;
+}
+
 int64_t SunStudyTexelAt (const SunFaceMap& face, const double point[3], uint32_t atlasWidth, uint32_t atlasHeight)
 {
     if (point == nullptr || atlasWidth == 0 || atlasHeight == 0)

@@ -26,6 +26,12 @@
 //
 // ⚠️ AN ELEMENT NAMED IN BOTH LISTS IS ANALYSIS. It is measured and it casts
 // shadow, which is everything context would have given it as well.
+//
+// ⚠️ AN EXPLICIT IGNORED LIST WINS OVER BOTH, and is applied BEFORE the table.
+// It exists to ask "what would this study look like without these?" without
+// deleting anything from the model -- so an element named there neither casts
+// shadow nor is measured, whatever else it was picked as, and the table above
+// then decides the roles of everything that is left.
 
 #include "Geometry/Mesh.hpp"
 
@@ -57,6 +63,7 @@ struct ElementRoles {
     // for and say nothing.
     size_t unmatchedAnalysis = 0;
     size_t unmatchedContext = 0;
+    size_t unmatchedIgnored = 0;
 
     // True when a caller named an analysis list and none of it is in the
     // snapshot: there is nothing to measure, and a study of nothing is refused
@@ -80,11 +87,13 @@ std::string CanonicalGuid (const std::string& guid);
 
 ElementRoles ResolveElementRoles (const std::vector<std::string>& elements,
                                   const std::vector<std::string>& analysisPicked,
-                                  const std::vector<std::string>& contextPicked);
+                                  const std::vector<std::string>& contextPicked,
+                                  const std::vector<std::string>& ignoredPicked = {});
 
 // The same, over a snapshot's meshes -- roles[m] is meshes[m]'s role.
 ElementRoles ResolveElementRoles (const geomsrv::Snapshot& snapshot, const std::vector<std::string>& analysisPicked,
-                                  const std::vector<std::string>& contextPicked);
+                                  const std::vector<std::string>& contextPicked,
+                                  const std::vector<std::string>& ignoredPicked = {});
 
 // The OCCLUDERS: the snapshot without its ignored meshes, or null when nothing
 // is ignored (use the snapshot's own cached BVH then).

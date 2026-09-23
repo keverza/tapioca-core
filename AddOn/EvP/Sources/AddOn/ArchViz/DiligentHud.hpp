@@ -136,6 +136,13 @@ struct HudState {
     // default; the slider is still there for anyone who wants the interior grid.
     int wireTessellation = 1;
     float wireLineWidth = 1.25f;
+    // The sun study's hours range -- the web study's "direct sun hours shown"
+    // slider pair. Surfaces outside it are drawn neutral, or hidden. The top
+    // of the slider, kSunHoursFilterOpenTop, is "9+": nothing above is cut.
+    // ⚠️ HUD-ONLY: no command sets it, so nothing is reconciled per frame.
+    float sunFilterLo = 0.0f;
+    float sunFilterHi = 10.0f;
+    bool sunFilterHide = false;
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
     float annotationWitnessStartGapMetres = 0.02f;
@@ -505,6 +512,11 @@ class DiligentHud final {
     struct Impl;
     Impl* impl_;
 };
+
+// The "sun study" section of the viewport panel, in DiligentHudSunStudy.cpp:
+// the hours range, its legend, and the role legend. Draws nothing unless a
+// study is on screen.
+void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
 
 } // namespace archviz
 } // namespace geomsrv

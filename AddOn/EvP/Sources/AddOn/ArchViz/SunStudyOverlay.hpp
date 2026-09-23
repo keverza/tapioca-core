@@ -130,6 +130,11 @@ struct SunStudyAtlasUpload {
     // render-lifecycle fault, not a shading one.
     uint32_t depthMode = 0;
 
+    // The study's timestep in hours -- the quantum of the hours ramp. A study
+    // can only report multiples of it, so the ramp snaps to it (as the web
+    // viewer's does) rather than inventing gradations it never measured.
+    float quantumHours = 0.25f;
+
     size_t Bytes () const;
 };
 
@@ -148,7 +153,25 @@ enum class SunStudyDebugMode : uint32_t {
     TileId = 1,   // a deterministic colour per atlas tile
     Gradient = 2, // cell column/row as red/green inside each tile
     Checker = 3,  // one-cell checkerboard inside each tile
+    Roles = 4,    // each element by its role: analysis / context / ignored
 };
+
+// The top of the HUD's hours-range slider, as on the web page: "9+" -- at it,
+// nothing above is filtered out.
+constexpr float kSunHoursFilterOpenTop = 10.0f;
+
+// Build one element's side car for the ROLE view.
+//
+// Same shape as BuildSunStudyElementMap's -- one record per RENDERED triangle,
+// the same permutation, the same topology hash -- so the binder treats it
+// identically. Every record carries a 1x1 tile with the element's role
+// (an evp::sunstudy::ElementRole value) in `tile[0]`, which the shader's mode 4
+// reads before any lattice or atlas lookup.
+//
+// ⚠️ ONE ROLE FOR EVERY TRIANGLE OF THE ELEMENT. Roles belong to elements, and
+// an element half one colour would mean the mapping, not the model, is wrong.
+bool BuildSunStudyRoleMap (uint8_t role, const std::vector<uint32_t>& triangles,
+                           const std::vector<int32_t>& triMaterial, SunStudyElementMap& out);
 
 // Build one element's side car.
 //

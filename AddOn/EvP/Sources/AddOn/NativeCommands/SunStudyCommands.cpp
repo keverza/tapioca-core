@@ -93,15 +93,16 @@ class StartSunStudyCommand : public MainThreadCommand {
         // naming nothing reproduces the study as it was before roles existed.
         const std::vector<std::string> analysisPicked = ReadStringList (params, "analysisElements");
         const std::vector<std::string> contextPicked = ReadStringList (params, "contextElements");
+        const std::vector<std::string> ignoredPicked = ReadStringList (params, "ignoredElements");
         const evp::sunstudy::ElementRoles roles =
-            evp::sunstudy::ResolveElementRoles (*snapshot, analysisPicked, contextPicked);
+            evp::sunstudy::ResolveElementRoles (*snapshot, analysisPicked, contextPicked, ignoredPicked);
         if (roles.analysisNamedButAbsent) {
             // ⚠️ REFUSED, NOT WIDENED. An empty intersection is not an empty
             // list: "measure these" with none of them present must not become
             // "measure everything".
             return NativeCommandResult::Failure (
                 GS::UniString ("none of the ") + GS::UniString::Printf ("%u", (unsigned) analysisPicked.size ()) +
-                " analysis element(s) is in the snapshot - pick them again, or rebuild the snapshot");
+                " analysis element(s) is left to measure - they are absent from the snapshot or all ignored");
         }
         // Per element (= per sampler group), whether its faces are measured.
         const std::vector<uint8_t> sampleMask = roles.SampleMask ();
@@ -442,6 +443,9 @@ class StartSunStudyCommand : public MainThreadCommand {
         // Kept so a follower rerun measures the same elements the same way.
         record->analysisElements = analysisPicked;
         record->contextElements = contextPicked;
+        record->ignoredElements = ignoredPicked;
+        for (const evp::sunstudy::ElementRole role : roles.roles)
+            record->elementRoles.push_back (static_cast<uint8_t> (role));
 
         evp::sunstudy::StudyInputs inputs;
         inputs.geometryVersion = engine->SnapshotId ();
@@ -484,6 +488,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         os.Add ("ignoredElementCount", (GS::Int32) roles.ignored);
         os.Add ("unmatchedAnalysis", (GS::Int32) roles.unmatchedAnalysis);
         os.Add ("unmatchedContext", (GS::Int32) roles.unmatchedContext);
+        os.Add ("unmatchedIgnored", (GS::Int32) roles.unmatchedIgnored);
         os.Add ("excludedSurfaces", (GS::Int32) excludedSurfaces);
         os.Add ("undersizedFaces", (GS::Int32) undersizedFaces);
         os.Add ("degenerateFaces", (GS::Int32) degenerateFaces);
@@ -808,6 +813,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "domain":{"type":"string","enum":["triangle","patch"]},
                 "analysisElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "contextElements":{"type":"array","items":{"type":"string","minLength":1}},
+                "ignoredElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "positions":{"type":"array","items":{"type":"number"}},
                 "normals":{"type":"array","items":{"type":"number"}},
                 "positionsPacked":{"type":"string"},
@@ -847,6 +853,7 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "ignoredElementCount":{"type":"integer"},
                 "unmatchedAnalysis":{"type":"integer"},
                 "unmatchedContext":{"type":"integer"},
+                "unmatchedIgnored":{"type":"integer"},
                 "excludedSurfaces":{"type":"integer"},
                 "latitude":{"type":"number"},
                 "longitude":{"type":"number"},

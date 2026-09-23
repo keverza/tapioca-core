@@ -3030,9 +3030,15 @@ def _one(command, params):
         # would make every offline role report read as "nothing analysed".
         picked_a = [str(g) for g in (params.get("analysisElements") or [])]
         picked_c = [str(g) for g in (params.get("contextElements") or [])]
-        n_analysis = min(2, len(picked_a)) if picked_a else max(0, 2 - min(2, len(picked_c)))
-        n_context = (2 - n_analysis if not picked_c else min(2 - n_analysis, len(picked_c))) \
-            if picked_a else min(2, len(picked_c))
+        picked_i = [str(g) for g in (params.get("ignoredElements") or [])]
+        # The explicit ignore list first, then the table over what is left.
+        rest = 2 - min(2, len(picked_i))
+        if picked_a:
+            n_analysis = min(rest, len(picked_a))
+            n_context = rest - n_analysis if not picked_c else min(rest - n_analysis, len(picked_c))
+        else:
+            n_context = min(rest, len(picked_c))
+            n_analysis = rest - n_context
         n_ignored = 2 - n_analysis - n_context
         _SUN_STUDY.clear()
         _SUN_STUDY.update({"id": "sun-1", "total": above, "resolved": 0,
@@ -3042,7 +3048,7 @@ def _one(command, params):
                     "analysisElementCount": n_analysis,
                     "contextElementCount": n_context,
                     "ignoredElementCount": n_ignored,
-                    "unmatchedAnalysis": 0, "unmatchedContext": 0,
+                    "unmatchedAnalysis": 0, "unmatchedContext": 0, "unmatchedIgnored": 0,
                     "excludedSurfaces": 0 if n_analysis == 2 else 6 * (2 - n_analysis),
                     "resolvedSteps": 0, "totalSteps": above,
                     "sampleCount": sample_count, "generation": 1,

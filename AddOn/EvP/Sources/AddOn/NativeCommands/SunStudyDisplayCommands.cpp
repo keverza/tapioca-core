@@ -176,15 +176,40 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const GS::Int32 debug = ReadInt (params, "debug", 0);
     // Captured before the payload is handed over: `upload` is moved into the
     // queue below and must not be read after that.
-    upload->debugMode = static_cast<uint32_t> (debug < 0 ? 0 : (debug > 3 ? 3 : debug));
+    const GS::Int32 lastMode = static_cast<GS::Int32> (archviz::SunStudyDebugMode::Roles);
+    upload->debugMode = static_cast<uint32_t> (debug < 0 ? 0 : (debug > lastMode ? lastMode : debug));
+    const bool roleView = upload->debugMode == static_cast<uint32_t> (archviz::SunStudyDebugMode::Roles);
+    // ⚠️ `depth` WAS IN THE SCHEMA AND NEVER READ: every study drew in Equal
+    // whatever the caller asked, so the three-way depth diagnostic could not
+    // separate anything. Clamped to SunStudyDepthMode.
+    const GS::Int32 depth = ReadInt (params, "depth", 0);
+    const GS::Int32 lastDepth = static_cast<GS::Int32> (archviz::SunStudyDepthMode::Always);
+    upload->depthMode = static_cast<uint32_t> (depth < 0 ? 0 : (depth > lastDepth ? lastDepth : depth));
+    // The ramp's quantum: the study's own timestep, in hours.
+    if (haveMetadata && metadata.timestepMinutes > 0)
+        upload->quantumHours = static_cast<float> (metadata.timestepMinutes) / 60.0f;
+
+    // ⚠️ THE ROLE VIEW NEEDS THE ROLES THE STUDY RESOLVED, ONE PER MESH OF THE
+    // SNAPSHOT IT RAN ON. The face-count check above already refused a rebuilt
+    // snapshot; this refuses a record without roles rather than colouring every
+    // element "analysis" by default -- which is exactly the picture a correct
+    // study with nothing picked would give, and so would hide the fault.
+    if (roleView && (!haveMetadata || metadata.elementRoles.size () != snapshot->meshes.size ())) {
+        return NativeCommandResult::Failure (
+            Text ("study '" + id + "' carries no element roles for this snapshot - start a new study"));
+    }
 
     uint32_t faceBase = 0;
     size_t built = 0;
-    for (const Mesh& mesh : snapshot->meshes) {
+    for (size_t m = 0; m < snapshot->meshes.size (); ++m) {
+        const Mesh& mesh = snapshot->meshes[m];
         archviz::SunStudyElementMap map;
         map.guid = mesh.guid;
-        if (archviz::BuildSunStudyElementMap (tiles, layouts, spacing, mesh.triangles, mesh.triMaterial, faceBase,
-                                              map)) {
+        const bool ok =
+            roleView ? archviz::BuildSunStudyRoleMap (metadata.elementRoles[m], mesh.triangles, mesh.triMaterial, map)
+                     : archviz::BuildSunStudyElementMap (tiles, layouts, spacing, mesh.triangles, mesh.triMaterial,
+                                                         faceBase, map);
+        if (ok) {
             upload->elements.push_back (std::move (map));
             ++built;
         }
@@ -252,6 +277,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
         config.patchDomain = metadata.IsPatchDomain ();
         config.analysisElements = metadata.analysisElements;
         config.contextElements = metadata.contextElements;
+        config.ignoredElements = metadata.ignoredElements;
         config.debug = adoptedDebug;
         config.depth = adoptedDepth;
         config.hoursMax = rampTop;

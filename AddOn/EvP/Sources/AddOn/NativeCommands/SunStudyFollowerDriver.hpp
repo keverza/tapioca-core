@@ -63,6 +63,7 @@ struct ActiveSunStudyConfig {
     // the same reason the domain is: a rerun without them analyses the context.
     std::vector<std::string> analysisElements;
     std::vector<std::string> contextElements;
+    std::vector<std::string> ignoredElements;
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.

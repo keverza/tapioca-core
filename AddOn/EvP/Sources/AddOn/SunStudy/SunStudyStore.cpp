@@ -360,6 +360,8 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     // The roles likewise: a rerun that forgot them would analyse the context.
     copyOfMetadata.analysisElements = source.analysisElements;
     copyOfMetadata.contextElements = source.contextElements;
+    copyOfMetadata.ignoredElements = source.ignoredElements;
+    copyOfMetadata.elementRoles = source.elementRoles;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;
     copyOfMetadata.analysisMilliseconds = source.analysisMilliseconds;

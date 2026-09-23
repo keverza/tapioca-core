@@ -23,6 +23,7 @@
 #include <Sampler.h>
 #include <Texture.h>
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 
@@ -198,6 +199,7 @@ void DiligentScene::ClearSunStudy ()
     impl_->sunAtlasHeight = 0;
     impl_->sunHoursMax = 1.0f;
     impl_->sunDebugMode = 0;
+    impl_->sunQuantumHours = 0.25f;
     impl_->sunElementsNamed = 0;
     impl_->sunElementsAttached = 0;
     impl_->sunElementsAbsent = 0;
@@ -276,6 +278,7 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
     impl_->sunAtlasHeight = study->height;
     impl_->sunHoursMax = study->hoursMax > 0.0f ? study->hoursMax : 1.0f;
     impl_->sunDebugMode = study->debugMode;
+    impl_->sunQuantumHours = study->quantumHours > 0.0f ? study->quantumHours : 0.25f;
     impl_->sunDepthMode = study->depthMode < uint32_t (kSunDepthModeCount) ? study->depthMode : 0;
     // ⚠️ THE PAYLOAD IS RETAINED BEFORE THE BIND, not after: AttachSunStudy reads
     // it, and every later EndBatch reads it again.
@@ -445,6 +448,10 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyParams[1] = impl_->sunAtlasHeight > 0 ? 1.0f / float (impl_->sunAtlasHeight) : 0.0f;
     constants.sunStudyParams[2] = impl_->sunHoursMax;
     constants.sunStudyParams[3] = float (impl_->sunDebugMode);
+    constants.sunStudyFilter[0] = impl_->sunFilterLo;
+    constants.sunStudyFilter[1] = impl_->sunFilterHi;
+    constants.sunStudyFilter[2] = impl_->sunQuantumHours;
+    constants.sunStudyFilter[3] = impl_->sunFilterHide ? 1.0f : 0.0f;
     UploadConstants (context, impl_->constants, constants);
 
     if (Diligent::IShaderResourceVariable* atlas = srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas"))
@@ -492,6 +499,16 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     impl_->sunTintElementsDrawn += draws;
     if (incomplete > 0)
         ++impl_->sunFramesSkippedIncompleteBinding;
+}
+
+void DiligentScene::SetSunStudyFilter (float lo, float hi, bool hide)
+{
+    if (impl_ == nullptr)
+        return;
+    impl_->sunFilterLo = (std::max) (0.0f, lo); // parenthesised: windows.h defines max
+    // The slider's top is "9+": at it, no surface is cut off for having MORE.
+    impl_->sunFilterHi = hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, hi);
+    impl_->sunFilterHide = hide;
 }
 
 } // namespace archviz

@@ -381,9 +381,9 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
             ImGui::Checkbox ("axonometric (parallel projection)", &state.orthographic);
             ImGui::Checkbox ("graph interaction lab", &state.showGraphInteractionLab);
             DrawSceneTextLiveCheckControls (state);
+            DrawSunStudyHudSection (state, scene);
 
             // ---- Environment ------------------------------------------------
-            //
             // The same grouping `Commands/ModelViewer` uses in its three.js
             // panel: the sky's strength, its orientation, whether it is drawn,
             // and how much sun survives beside it. Collapsed by default -- the

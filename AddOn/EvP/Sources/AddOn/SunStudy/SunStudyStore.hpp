@@ -69,6 +69,12 @@ struct StudyRecord {
     // that may have gained or lost elements since.
     std::vector<std::string> analysisElements;
     std::vector<std::string> contextElements;
+    std::vector<std::string> ignoredElements;
+
+    // The roles AS RESOLVED, one per snapshot mesh (an ElementRole value), for
+    // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;
+    // the display checks the length before trusting it.
+    std::vector<uint8_t> elementRoles;
     size_t sourceStepCount = 0;
 
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the

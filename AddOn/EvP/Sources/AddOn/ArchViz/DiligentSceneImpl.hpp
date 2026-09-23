@@ -391,6 +391,13 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sunHoursMax = 1.0f;
     uint32_t sunDebugMode = 0;
     uint32_t sunDepthMode = 0;
+    float sunQuantumHours = 0.25f;
+    // The hours range the HUD shows, and whether the rest is hidden. ⚠️ HUD-ONLY
+    // STATE, so it survives a study being replaced: a person reading "more than
+    // 2.5 h" must not have the filter reset by a follower rerun.
+    float sunFilterLo = 0.0f;
+    float sunFilterHi = 24.0f;
+    bool sunFilterHide = false;
     // ---- what the last drawn frame actually did with the overlay ------------
     // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
     // the overlay ever fail to draw something it should have", and a flag that

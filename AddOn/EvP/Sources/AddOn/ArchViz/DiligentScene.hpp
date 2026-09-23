@@ -391,6 +391,9 @@ class DiligentScene final {
     void SetRenderMode (SceneRenderMode mode);
     SceneRenderMode RenderMode () const;
     void SetWireframeSettings (float tessellationFactor, float lineWidthPixels);
+    // The sun study's hours range: surfaces outside [lo, hi] are drawn neutral,
+    // or not at all when `hide`. RENDER THREAD, from the HUD.
+    void SetSunStudyFilter (float lo, float hi, bool hide);
 
     // How well surfaces are lit. ⚠️ A SEPARATE AXIS FROM RenderMode, not more
     // cases of it -- ViewerSettings.hpp says why, and it is the CameraSyncMode

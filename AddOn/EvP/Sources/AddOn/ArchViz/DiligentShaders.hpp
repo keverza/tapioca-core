@@ -286,6 +286,11 @@ struct DiligentSceneConstants {
     // direction -- HLSL packs by declaration order, so a field added at the END
     // cannot move any existing one, and every PSO reads the same struct.
     float sunStudyParams[4] = { 0.0f, 0.0f, 1.0f, 0.0f };
+    // ---- appended for the sun study's hours VIEW ----------------------------
+    // x, y = the hours range shown (the HUD slider), z = the study's timestep
+    // in hours (the ramp's quantum), w = 1 to discard out-of-range surfaces
+    // instead of greying them. Appended for the reason above.
+    float sunStudyFilter[4] = { 0.0f, 24.0f, 0.25f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -326,7 +331,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) ==
-                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16 + 16,
+                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -377,6 +382,8 @@ cbuffer ArchVizConstants
     float4   g_wireParams;      // x tess factor, y line width px, zw viewport px
     float4   g_sunStudyParams;  // xy = 1/atlas size, z = hours ramp top,
                                 // w = the diagnostic atlas mode
+    float4   g_sunStudyFilter;  // xy = hours range shown, z = timestep hours,
+                                // w = 1 hides out-of-range surfaces
 };
 )hlsl";
 
@@ -597,21 +604,41 @@ struct PSOutput
     float4 color : SV_TARGET;
 };
 
-// A deliberately plain blue -> cyan -> yellow -> red ramp. This task is proving
-// correspondence, not designing the final visualisation, and a simple ramp makes
-// a mapping fault easier to see than a perceptual one would.
-float3 SunRamp (float t)
+// DIRECT SUN HOURS, the web study's palette (Commands/SunStudy/sunpalette.py
+// SUN_COLORS): ten FIXED one-hour bins, 0-1 h ... 9+ h, dark brown to cream.
+//
+// ⚠️ FIXED HOURS, NOT NORMALISED. Two studies of different dates have to be
+// comparable; a ramp that re-stretched itself to each day's length would make
+// one colour mean a different number of hours in each.
+//
+// ⚠️ CONTINUOUS, QUANTISED TO THE TIMESTEP, CENTRED ON THE BIN MIDPOINTS --
+// the web viewer's rampColor, line for line. The hours a study can report are
+// multiples of its timestep, so snapping to it removes nothing real; the
+// `- 0.5` makes the colour at 1.5 h the "1 - 2 h" swatch, as the legend says.
+// ⚠️ THE STOPS ARE THE WEB PAGE'S sRGB HEX VALUES, AND THE TARGET IS _SRGB.
+// The hardware encodes on write, so they are DECODED here first; written as
+// they stand they would be encoded twice and every bin would read washed out
+// next to the page it is meant to match.
+float3 SrgbToLinear (float3 c)
 {
-    t = saturate (t);
-    float3 cold = float3 (0.05, 0.10, 0.55);
-    float3 cool = float3 (0.10, 0.70, 0.75);
-    float3 warm = float3 (0.95, 0.80, 0.15);
-    float3 hot  = float3 (0.85, 0.15, 0.10);
-    if (t < 0.33)
-        return lerp (cold, cool, t / 0.33);
-    if (t < 0.66)
-        return lerp (cool, warm, (t - 0.33) / 0.33);
-    return lerp (warm, hot, (t - 0.66) / 0.34);
+    return c <= 0.04045 ? c / 12.92 : pow ((c + 0.055) / 1.055, 2.4);
+}
+
+static const float3 kSunBins[10] = {
+    float3 (0.420, 0.239, 0.094), float3 (0.541, 0.310, 0.122), float3 (0.612, 0.353, 0.137),
+    float3 (0.690, 0.416, 0.157), float3 (0.753, 0.490, 0.200), float3 (0.812, 0.561, 0.267),
+    float3 (0.863, 0.631, 0.341), float3 (0.906, 0.714, 0.455), float3 (0.941, 0.796, 0.588),
+    float3 (0.969, 0.890, 0.761)
+};
+
+float3 SunRamp (float hours, float quantum)
+{
+    float q = max (quantum, 1e-4);
+    float snapped = floor (hours / q + 0.5) * q;
+    float t = clamp (snapped - 0.5, 0.0, 9.0);
+    int lo = int (floor (t));
+    int hi = min (lo + 1, 9);
+    return SrgbToLinear (lerp (kSunBins[lo], kSunBins[hi], t - float (lo)));
 }
 
 // Three decorrelated channels from one integer, so adjacent tiles are different
@@ -619,6 +646,18 @@ float3 SunRamp (float t)
 float3 TileColor (float id)
 {
     return frac (float3 (id * 0.6180339887, id * 0.4142135624, id * 0.7320508076)) * 0.85 + 0.15;
+}
+
+// The ROLE view's three colours. ⚠️ AN ABI with SunStudyOverlay.hpp's
+// ElementRole values (0 analysis, 1 context, 2 ignored), carried in tile.x.
+// sRGB, decoded like the hours ramp -- and the HUD legend shows the same three.
+float3 RoleColor (float role)
+{
+    if (role < 0.5)
+        return SrgbToLinear (float3 (0.96, 0.62, 0.14)); // analysis: measured -- warm
+    if (role < 1.5)
+        return SrgbToLinear (float3 (0.52, 0.60, 0.70)); // context: shadow only -- slate
+    return SrgbToLinear (float3 (0.84, 0.36, 0.72));     // ignored: absent -- magenta
 }
 
 void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput psOut)
@@ -630,6 +669,14 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     // is "this face was not measured", and it falls through to the shaded model.
     if (face.tile.z < 0.5 || face.tile.w < 0.5)
         discard;
+
+    int mode = int (g_sunStudyParams.w + 0.5);
+    if (mode == 4) {
+        // Roles: every triangle of an element carries the element's role in
+        // tile.x and a 1x1 tile, so nothing below -- lattice, atlas -- applies.
+        psOut.color = float4 (RoleColor (face.tile.x), 1.0);
+        return;
+    }
 
     float3 relative = psIn.worldPos - face.originAndInvSpacing.xyz;
     float cellU = floor (dot (relative, face.uAxisAndStart.xyz) * face.originAndInvSpacing.w) - face.uAxisAndStart.w;
@@ -644,7 +691,6 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     float row    = clamp (cellV, 0.0, face.tile.w - 1.0);
     float2 uv = (face.tile.xy + float2 (column, row) + 0.5) * g_sunStudyParams.xy;
 
-    int mode = int (g_sunStudyParams.w + 0.5);
     if (mode == 1) {
         // Tile id: neighbouring faces must be different colours, and a face must
         // be ONE flat colour across its whole surface.
@@ -674,7 +720,15 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     if (hours < 0.0)
         discard; // the sentinel: no sample here. NOT zero hours.
 
-    psOut.color = float4 (SunRamp (hours / max (g_sunStudyParams.z, 1e-6)), 1.0);
+    // The HUD's hours range: outside it, neutral trim -- or nothing, so the
+    // model's own shading shows through -- exactly as the web page's filter.
+    if (hours < g_sunStudyFilter.x || hours > g_sunStudyFilter.y) {
+        if (g_sunStudyFilter.w > 0.5)
+            discard;
+        psOut.color = float4 (SrgbToLinear (float3 (0.80, 0.80, 0.80)), 1.0);
+        return;
+    }
+    psOut.color = float4 (SunRamp (hours, g_sunStudyFilter.z), 1.0);
 }
 )hlsl";
 
