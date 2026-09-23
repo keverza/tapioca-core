@@ -383,6 +383,10 @@ set (EVP_ARCHVIZ_SOURCES
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudHierarchy.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PointCloudLod.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/SceneCmdQueue.cpp"
+    # SceneCmdQueue feeds ArchViz/Dxgi/HostOccluders at every batch boundary,
+    # and that file is Direct3D 11. The stub answers the production "no room"
+    # reply so the queue stops feeding; see the file for what it must not grow.
+    "${CMAKE_CURRENT_SOURCE_DIR}/HostOcclusionLinkStub.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/DiligentClearCheck.cpp"
     # ArchViz/MatrixMath.cpp is the camera's two bx calls, rewritten bx-free for
     # the Diligent port. It belongs here more than almost anything else in
