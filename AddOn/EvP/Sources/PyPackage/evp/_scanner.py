@@ -630,6 +630,8 @@ def scan_file(path, folder_name):
                 # triggered by complete selection-role changes.
                 "preview_on_selection": False,
                 "preview_overrides_json": "{}",
+                # One role per element: adding to a set removes from the others.
+                "exclusive_selection_sets": False,
                 # Which preview band to size, if any. "text" is the free one: the
                 # Plan.diff() rendered into the results panel, no command code.
                 # ALWAYS emitted, so the C++ side never has to guess at a default.
@@ -746,6 +748,16 @@ def scan_file(path, folder_name):
                 seen_cameras.add(key)
                 normalized_cameras.append(role.strip())
             meta["camera_sets"] = normalized_cameras
+
+            exclusive_sets = meta.get("exclusive_selection_sets", False)
+            if not isinstance(exclusive_sets, bool):
+                raise ScanError(
+                    "@evp.command(exclusive_selection_sets=...) must be True or False "
+                    "(line %d)" % decorator.lineno, decorator.lineno)
+            if exclusive_sets and len(normalized) < 2:
+                raise ScanError(
+                    "@evp.command(exclusive_selection_sets=True) needs at least two selection_sets "
+                    "(line %d)" % decorator.lineno, decorator.lineno)
 
             preview_on_selection = meta.get("preview_on_selection", False)
             if not isinstance(preview_on_selection, bool):

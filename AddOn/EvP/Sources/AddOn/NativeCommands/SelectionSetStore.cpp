@@ -35,8 +35,9 @@ SelectionSetStore& SelectionSetStore::Get ()
     return store;
 }
 
-void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names)
+void SelectionSetStore::Configure (const GS::Array<GS::UniString>& names, bool exclusiveSets)
 {
+    exclusive = exclusiveSets;
     entries.Clear ();
     for (const GS::UniString& name : names) {
         Entry entry;
@@ -87,9 +88,27 @@ GS::Array<GS::UniString> SelectionSetStore::Values (const GS::UniString& name) c
     return values;
 }
 
-bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::UniString>& guids, Mutation mutation,
-                                GS::Int32& changed, GS::UniString& error)
+GS::Int32 SelectionSetStore::RemoveFromOthers (const Entry& kept)
 {
+    GS::Int32 removed = 0;
+    for (Entry& other : entries) {
+        if (&other == &kept)
+            continue;
+        for (UIndex i = other.guids.GetSize (); i > 0; --i) {
+            if (Contains (kept.guids, other.guids[i - 1])) {
+                other.guids.Delete (i - 1);
+                ++removed;
+            }
+        }
+    }
+    return removed;
+}
+
+bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::UniString>& guids, Mutation mutation,
+                                GS::Int32& changed, GS::UniString& error, GS::Int32* moved)
+{
+    if (moved != nullptr)
+        *moved = 0;
     Entry* entry = Find (name);
     if (entry == nullptr) {
         error = "selection set is not declared for the active command: " + name;
@@ -112,6 +131,13 @@ bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::U
                 ++changed;
         }
         entry->guids = unique;
+        // ⚠️ EXCLUSIVE SETS: the element takes THIS role and leaves the others,
+        // so it can never be analysis and context at once. The move is counted
+        // and reported, never silent.
+        if (exclusive && moved != nullptr)
+            *moved = RemoveFromOthers (*entry);
+        else if (exclusive)
+            RemoveFromOthers (*entry);
         return true;
     }
     if (mutation == Mutation::Add) {
@@ -120,6 +146,11 @@ bool SelectionSetStore::Mutate (const GS::UniString& name, const GS::Array<GS::U
                 entry->guids.Push (guid);
                 ++changed;
             }
+        }
+        if (exclusive) {
+            const GS::Int32 taken = RemoveFromOthers (*entry);
+            if (moved != nullptr)
+                *moved = taken;
         }
         return true;
     }

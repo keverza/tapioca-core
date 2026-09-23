@@ -30,6 +30,9 @@ struct CommandInfo {
     // decorator values reliably.
     GS::UniString previewOverridesJson = "{}";
     bool previewOnSelection = false;
+    // The declared selection sets are MUTUALLY EXCLUSIVE: an element added to
+    // one leaves the others (SelectionSetStore::Configure).
+    bool exclusiveSelectionSets = false;
     GS::Array<GS::UniString> paramJsons;
     // Names from evp.outputs.STANDARD_ACTIONS the palette offers as buttons under
     // the results ("csv", "pdf", "bake", ...). A named action needs no command

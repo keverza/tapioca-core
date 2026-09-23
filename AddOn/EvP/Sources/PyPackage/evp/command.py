@@ -421,7 +421,7 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
              timeout_s=0, tags=None, selection_sets=None, camera_sets=None,
              inputs=None, outputs=None, plan=None, needs_preview=False,
              preview=None, preview_kind=None, actions=None,
-             preview_on_selection=False, preview_overrides=None):
+             preview_on_selection=False, preview_overrides=None, exclusive_selection_sets=False):
     """Mark `run` as an EvP command.
 
     title        shown in the palette (defaults to the folder name)
@@ -467,6 +467,10 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
     camera_sets   ordered role names for session-only perspective camera lists,
                   e.g. ("Exterior", "Interior"). The command reads them through
                   evp.cameras.sets; each captured camera includes its view sun.
+    exclusive_selection_sets
+                  make the declared selection sets MUTUALLY EXCLUSIVE: putting an
+                  element into one set removes it from the command's others, so
+                  an element can hold only one role. Requires selection_sets.
     preview_on_selection
                   explicitly opts this command into a debounced normal run whenever
                   one of its declared selection sets changes and every role is
@@ -546,6 +550,7 @@ def command(title=None, category="General", requires_api=None, requires_tapir=No
             "selection_sets": list(selection_sets) if selection_sets else [],
             "camera_sets": list(camera_sets) if camera_sets else [],
             "preview_on_selection": bool(preview_on_selection),
+            "exclusive_selection_sets": bool(exclusive_selection_sets),
             "preview_overrides": dict(preview_overrides) if preview_overrides else {},
             "needs_preview": bool(needs_preview) or preview is not None,
             "preview_kind": _preview_kind(preview_kind, preview),

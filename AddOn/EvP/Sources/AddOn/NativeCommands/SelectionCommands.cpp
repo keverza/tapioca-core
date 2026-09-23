@@ -71,8 +71,7 @@ GS::Array<GS::ObjectState> ElementRecords (const GS::Array<GS::UniString>& guids
     return elements;
 }
 
-NativeCommandResult ModifySelection (const GS::UniString& op,
-                                     const GS::Array<GS::UniString>& guidStrings)
+NativeCommandResult ModifySelection (const GS::UniString& op, const GS::Array<GS::UniString>& guidStrings)
 {
     GS::ObjectState os;
     GS::Array<API_Neig> neigs;
@@ -86,13 +85,16 @@ NativeCommandResult ModifySelection (const GS::UniString& op,
             err = NoError;
         if (err == NoError && op == "replace" && !neigs.IsEmpty ())
             err = ACAPI_Selection_Select (neigs, true);
-    } else if (op == "add") {
+    }
+    else if (op == "add") {
         if (!neigs.IsEmpty ())
             err = ACAPI_Selection_Select (neigs, true);
-    } else if (op == "remove") {
+    }
+    else if (op == "remove") {
         if (!neigs.IsEmpty ())
             err = ACAPI_Selection_Select (neigs, false);
-    } else {
+    }
+    else {
         return NativeCommandResult::Failure ("op must be add, remove, replace, or clear");
     }
     if (err != NoError) {
@@ -130,14 +132,17 @@ NativeCommandResult ModifySelection (const GS::UniString& op,
 // struct that is ours to dispose, exactly like GetStories' story handle.
 // ---------------------------------------------------------------------------
 class GetSelectionCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetSelection"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetSelection";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
 
-        API_SelectionInfo   selectionInfo = {};
+        API_SelectionInfo selectionInfo = {};
         GS::Array<API_Neig> neigs;
         const GSErrCode err = ACAPI_Selection_Get (&selectionInfo, &neigs, false);
 
@@ -175,8 +180,11 @@ public:
 // commands guard against.
 // ---------------------------------------------------------------------------
 class SetSelectionCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "SetSelection"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "SetSelection";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -197,7 +205,7 @@ public:
             }
         }
 
-        GS::Array<API_Neig>      neigs;
+        GS::Array<API_Neig> neigs;
         GS::Array<GS::UniString> missing;
         for (const GS::UniString& guidString : guidStrings) {
             const API_Guid guid = APIGuidFromString (guidString.ToCStr ().Get ());
@@ -214,7 +222,8 @@ public:
             const GSErrCode serr = ACAPI_Selection_Select (neigs, true);
             if (serr != NoError) {
                 return NativeCommandResult::Failure (
-                    EVP_ACAPI_FAIL ("ACAPI_Selection_Select", serr, GS::UniString::Printf ("%u element(s)", (unsigned) neigs.GetSize ())));
+                    EVP_ACAPI_FAIL ("ACAPI_Selection_Select", serr,
+                                    GS::UniString::Printf ("%u element(s)", (unsigned) neigs.GetSize ())));
             }
         }
 
@@ -233,8 +242,11 @@ public:
 // Tapioca.ModifySelection { op:"add"|"remove"|"replace"|"clear", elements?:[...] }.
 // Unlike SetSelection's legacy count, this reports the final active-selection count.
 class ModifySelectionCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ModifySelection"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ModifySelection";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -251,8 +263,11 @@ public:
 // Saved role sets live in SelectionSetStore. `current:true` captures the active
 // Archicad selection atomically on the main thread for palette and Python callers.
 class ModifySelectionSetCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ModifySelectionSet"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ModifySelectionSet";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -269,16 +284,22 @@ public:
         if (!current && op != "clear" && !ReadElements (params, guids))
             return NativeCommandResult::Failure ("need elements=[{elementId:{guid}}] or current=true");
         SelectionSetStore::Mutation mutation = SelectionSetStore::Mutation::Replace;
-        if (op == "add") mutation = SelectionSetStore::Mutation::Add;
-        else if (op == "remove") mutation = SelectionSetStore::Mutation::Remove;
-        else if (op == "clear") guids.Clear ();
+        if (op == "add")
+            mutation = SelectionSetStore::Mutation::Add;
+        else if (op == "remove")
+            mutation = SelectionSetStore::Mutation::Remove;
+        else if (op == "clear")
+            guids.Clear ();
         else if (op != "update")
             return NativeCommandResult::Failure ("op must be update, add, remove, or clear");
         GS::Int32 changed = 0;
-        if (!SelectionSetStore::Get ().Mutate (name, guids, mutation, changed, error))
+        GS::Int32 moved = 0;
+        if (!SelectionSetStore::Get ().Mutate (name, guids, mutation, changed, error, &moved))
             return NativeCommandResult::Failure (error);
         const GS::Array<GS::UniString> values = SelectionSetStore::Get ().Values (name);
         os.Add ("changed", changed);
+        // Elements an exclusive command's other sets gave up to this one.
+        os.Add ("moved", moved);
         os.Add ("count", (GS::Int32) values.GetSize ());
         os.Add ("elements", ElementRecords (values));
         return os;
@@ -286,8 +307,11 @@ public:
 };
 
 class GetSelectionSetCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetSelectionSet"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetSelectionSet";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -303,8 +327,11 @@ public:
 };
 
 class ListSelectionSetsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ListSelectionSets"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ListSelectionSets";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
@@ -314,8 +341,11 @@ public:
 };
 
 class ReselectSelectionSetCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ReselectSelectionSet"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ReselectSelectionSet";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -347,8 +377,11 @@ public:
 // so this issues ACAPI_View_Redraw itself.
 // ---------------------------------------------------------------------------
 class HighlightElementsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "HighlightElements"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "HighlightElements";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -361,9 +394,9 @@ public:
         API_RGBAColor rgba = { 1.0, 0.2, 0.2, 1.0 };
         GS::Array<double> color;
         if (params.Get ("color", color) && color.GetSize () >= 3) {
-            rgba.f_red   = color[0];
+            rgba.f_red = color[0];
             rgba.f_green = color[1];
-            rgba.f_blue  = color[2];
+            rgba.f_blue = color[2];
             rgba.f_alpha = (color.GetSize () >= 4) ? color[3] : 1.0;
         }
 
@@ -376,9 +409,9 @@ public:
             API_RGBAColor c = rgba;
             GS::Array<double> itemColor;
             if (element.Get ("color", itemColor) && itemColor.GetSize () >= 3) {
-                c.f_red   = itemColor[0];
+                c.f_red = itemColor[0];
                 c.f_green = itemColor[1];
-                c.f_blue  = itemColor[2];
+                c.f_blue = itemColor[2];
                 c.f_alpha = itemColor.GetSize () >= 4 ? itemColor[3] : 1.0;
             }
             highlight.Add (APIGuidFromString (guidString.ToCStr ().Get ()), c);
@@ -409,8 +442,11 @@ public:
 // redraws.
 // ---------------------------------------------------------------------------
 class ClearHighlightsCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ClearHighlights"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ClearHighlights";
+    }
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         ACAPI_UserInput_ClearElementHighlight ();
@@ -426,8 +462,11 @@ public:
 // active view.
 // ---------------------------------------------------------------------------
 class ZoomToCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "ZoomTo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "ZoomTo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -443,8 +482,8 @@ public:
 
         const GSErrCode err = ACAPI_View_ZoomToElements (&guids);
         if (err != NoError) {
-            return NativeCommandResult::Failure (
-                EVP_ACAPI_FAIL ("ACAPI_View_ZoomToElements", err, GS::UniString::Printf ("%u guid(s)", (unsigned) guids.GetSize ())));
+            return NativeCommandResult::Failure (EVP_ACAPI_FAIL (
+                "ACAPI_View_ZoomToElements", err, GS::UniString::Printf ("%u guid(s)", (unsigned) guids.GetSize ())));
         }
 
         os.Add ("count", (GS::Int32) guids.GetSize ());
@@ -452,10 +491,12 @@ public:
     }
 };
 
-const NativeCommandRegistration commandRegistrations[] = {
-    { "GetSelection", &MakeRegisteredNativeCommand<GetSelectionCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({
+const NativeCommandRegistration
+    commandRegistrations
+        [] = {
+            { "GetSelection", &MakeRegisteredNativeCommand<GetSelectionCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({
             "type":"object",
             "properties":{
                 "elements":{"type":"array","items":{
@@ -468,8 +509,8 @@ const NativeCommandRegistration commandRegistrations[] = {
             "additionalProperties":false,
             "required":["elements"]
         })json" },
-    { "SetSelection", &MakeRegisteredNativeCommand<SetSelectionCommand>, false,
-      R"json({
+            { "SetSelection", &MakeRegisteredNativeCommand<SetSelectionCommand>, false,
+              R"json({
             "type":"object",
             "properties":{
                 "elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},
@@ -478,7 +519,7 @@ const NativeCommandRegistration commandRegistrations[] = {
             "additionalProperties":false,
             "required":["elements"]
         })json",
-      R"json({
+              R"json({
             "type":"object",
             "properties":{
                 "selected":{"type":"integer","minimum":0},
@@ -488,8 +529,8 @@ const NativeCommandRegistration commandRegistrations[] = {
             "additionalProperties":false,
             "required":["selected","missing","count"]
         })json" },
-    { "ModifySelection", &MakeRegisteredNativeCommand<ModifySelectionCommand>, false,
-      R"json({
+            { "ModifySelection", &MakeRegisteredNativeCommand<ModifySelectionCommand>, false,
+              R"json({
             "type":"object",
             "properties":{
                 "op":{"type":"string","enum":["add","remove","replace","clear"]},
@@ -498,7 +539,7 @@ const NativeCommandRegistration commandRegistrations[] = {
             "additionalProperties":false,
             "required":["op"]
         })json",
-      R"json({
+              R"json({
             "type":"object",
             "properties":{
                 "selected":{"type":"integer","minimum":0},
@@ -509,20 +550,18 @@ const NativeCommandRegistration commandRegistrations[] = {
             "additionalProperties":false,
             "required":["selected","missing","changed","count"]
         })json" },
-    { "ModifySelectionSet", &MakeRegisteredNativeCommand<ModifySelectionSetCommand>, false,
-      R"json({"type":"object","properties":{"name":{"type":"string","minLength":1},"op":{"type":"string","enum":["update","add","remove","clear"]},"current":{"type":"boolean"},"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["name","op"]})json",
-      R"json({"type":"object","properties":{"changed":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":0},"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["changed","count","elements"]})json" },
-    { "GetSelectionSet", &MakeRegisteredNativeCommand<GetSelectionSetCommand>, false,
-      R"json({"type":"object","properties":{"name":{"type":"string","minLength":1}},"additionalProperties":false,"required":["name"]})json",
-      R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["elements","count"]})json" },
-    { "ListSelectionSets", &MakeRegisteredNativeCommand<ListSelectionSetsCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["names"]})json" },
-    { "ReselectSelectionSet", &MakeRegisteredNativeCommand<ReselectSelectionSetCommand>, false,
-      R"json({"type":"object","properties":{"name":{"type":"string","minLength":1}},"additionalProperties":false,"required":["name"]})json",
-      R"json({"type":"object","properties":{"selected":{"type":"integer","minimum":0},"missing":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"changed":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["selected","missing","changed","count"]})json" },
-    { "HighlightElements", &MakeRegisteredNativeCommand<HighlightElementsCommand>, false,
-      R"json({
+            { "ModifySelectionSet", &MakeRegisteredNativeCommand<ModifySelectionSetCommand>, false,
+              R"json({"type":"object","properties":{"name":{"type":"string","minLength":1},"op":{"type":"string","enum":["update","add","remove","clear"]},"current":{"type":"boolean"},"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["name","op"]})json",
+              R"json({"type":"object","properties":{"changed":{"type":"integer","minimum":0},"moved":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":0},"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["changed","count","elements"]})json" },
+            { "GetSelectionSet", &MakeRegisteredNativeCommand<GetSelectionSetCommand>, false,
+              R"json({"type":"object","properties":{"name":{"type":"string","minLength":1}},"additionalProperties":false,"required":["name"]})json",
+              R"json({"type":"object","properties":{"elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["elements","count"]})json" },
+            { "ListSelectionSets", &MakeRegisteredNativeCommand<ListSelectionSetsCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{"names":{"type":"array","items":{"type":"string"}}},"additionalProperties":false,"required":["names"]})json" },
+            { "ReselectSelectionSet", &MakeRegisteredNativeCommand<ReselectSelectionSetCommand>, false, R"json({"type":"object","properties":{"name":{"type":"string","minLength":1}},"additionalProperties":false,"required":["name"]})json", R"json({"type":"object","properties":{"selected":{"type":"integer","minimum":0},"missing":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string"}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}},"changed":{"type":"integer","minimum":0},"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["selected","missing","changed","count"]})json" },
+            { "HighlightElements", &MakeRegisteredNativeCommand<HighlightElementsCommand>, false,
+              R"json({
             "type":"object",
             "properties":{
                 "elements":{"type":"array","items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"color":{"type":"array","items":{"type":"number","minimum":0,"maximum":1},"minItems":3,"maxItems":4}},"additionalProperties":false,"required":["elementId"]}},
@@ -533,16 +572,16 @@ const NativeCommandRegistration commandRegistrations[] = {
             "additionalProperties":false,
             "required":["elements"]
         })json",
-      R"json({"type":"object","properties":{"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["count"]})json" },
-    { "ClearHighlights", &MakeRegisteredNativeCommand<ClearHighlightsCommand>, false,
-      R"json({"type":"object","properties":{},"additionalProperties":false})json",
-      R"json({"type":"object","properties":{},"additionalProperties":false})json" },
-    { "ZoomTo", &MakeRegisteredNativeCommand<ZoomToCommand>, false,
-      R"json({"type":"object","properties":{"elements":{"type":"array","minItems":1,"items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["elements"]})json",
-      R"json({"type":"object","properties":{"count":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["count"]})json" },
-};
+              R"json({"type":"object","properties":{"count":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["count"]})json" },
+            { "ClearHighlights", &MakeRegisteredNativeCommand<ClearHighlightsCommand>, false,
+              R"json({"type":"object","properties":{},"additionalProperties":false})json",
+              R"json({"type":"object","properties":{},"additionalProperties":false})json" },
+            { "ZoomTo", &MakeRegisteredNativeCommand<ZoomToCommand>, false,
+              R"json({"type":"object","properties":{"elements":{"type":"array","minItems":1,"items":{"type":"object","properties":{"elementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]}},"additionalProperties":false,"required":["elementId"]}}},"additionalProperties":false,"required":["elements"]})json",
+              R"json({"type":"object","properties":{"count":{"type":"integer","minimum":1}},"additionalProperties":false,"required":["count"]})json" },
+        };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetSelectionCommandRegistrations ()
 {

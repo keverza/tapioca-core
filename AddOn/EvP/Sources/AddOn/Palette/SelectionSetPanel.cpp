@@ -20,10 +20,10 @@ void SelectionSetPanel::Clear ()
     geomsrv::SelectionSetStore::Get ().Clear ();
 }
 
-void SelectionSetPanel::Rebuild (const GS::Array<GS::UniString>& names)
+void SelectionSetPanel::Rebuild (const GS::Array<GS::UniString>& names, bool exclusive)
 {
     Clear ();
-    geomsrv::SelectionSetStore::Get ().Configure (names);
+    geomsrv::SelectionSetStore::Get ().Configure (names, exclusive);
     for (const GS::UniString& name : names) {
         Row row;
         row.name = name;
@@ -125,6 +125,17 @@ bool SelectionSetPanel::Apply (Row& row, Action action, bool& contentsChanged)
     GS::Array<GS::UniString> missing;
     response.Get ("missing", missing);
     row.lastAction = GS::UniString::Printf ("%s: %d this batch, %d saved", verb, (int) changed, (int) count);
+    // ⚠️ AN EXCLUSIVE MOVE CHANGES THE OTHER ROWS TOO, so it is said here and
+    // every label is refreshed -- a count that silently dropped in another row
+    // would read as elements lost, not moved.
+    GS::Int32 moved = 0;
+    response.Get ("moved", moved);
+    if (moved > 0) {
+        row.lastAction += GS::UniString::Printf (", %d moved from other sets", (int) moved);
+        contentsChanged = true;
+        for (Row& other : rows)
+            RefreshLabel (other);
+    }
     if (!missing.IsEmpty ())
         row.lastAction += GS::UniString::Printf (", %d missing", (int) missing.GetSize ());
     return true;

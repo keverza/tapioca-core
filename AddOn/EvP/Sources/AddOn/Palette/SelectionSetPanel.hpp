@@ -31,7 +31,9 @@ class SelectionSetPanel {
   public:
     SelectionSetPanel (const DG::Panel& panel, DG::ButtonItemObserver& observer);
 
-    void Rebuild (const GS::Array<GS::UniString>& names);
+    // `exclusive`: the command's sets are mutually exclusive (see
+    // SelectionSetStore::Configure); every row is refreshed after a move.
+    void Rebuild (const GS::Array<GS::UniString>& names, bool exclusive = false);
     void Clear ();
     short PlaceAt (short top, short left, short right, const PaletteScroll& clip);
     bool HandleButtonClicked (const DG::ButtonClickEvent& ev, bool& contentsChanged);

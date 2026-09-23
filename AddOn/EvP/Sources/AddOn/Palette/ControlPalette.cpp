@@ -409,7 +409,7 @@ void ControlPalette::RebuildCommandBlock ()
     actionBar.Rebuild (*info);
 
     params.Rebuild (*info);
-    selectionSets.Rebuild (info->selectionSets);
+    selectionSets.Rebuild (info->selectionSets, info->exclusiveSelectionSets);
     cameraSets.Rebuild (info->cameraSets);
 
     // Position everything BEFORE revealing it: a dynamically created DG item starts
