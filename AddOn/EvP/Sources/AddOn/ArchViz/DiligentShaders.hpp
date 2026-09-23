@@ -291,6 +291,10 @@ struct DiligentSceneConstants {
     // in hours (the ramp's quantum), w = 1 to discard out-of-range surfaces
     // instead of greying them. Appended for the reason above.
     float sunStudyFilter[4] = { 0.0f, 24.0f, 0.25f, 0.0f };
+    // ---- appended for the sun study's SHADOW views ---------------------------
+    // x = the step the single shadow shows, y = the solar-noon step (the AM /
+    // PM split), z = the study's step count, w unused.
+    float sunStudyShadow[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
 };
 
 // What the viewport presents. ⚠️ THESE VALUES ARE AN ABI with the `if` ladder
@@ -331,7 +335,7 @@ enum class DiligentDebugView : int {
 };
 
 static_assert (sizeof (DiligentSceneConstants) ==
-                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16 + 16 + 16,
+                   64 + 48 + 64 + 48 + 16 + 9 * 16 + 16 + 16 + 48 + 16 + 16 + 16 + 64 + 16 + 64 + 16 + 16 + 16 + 16,
                "the cbuffer is three float4x4s, seven float4s, the 9-element SH array, "
                "the environment parameters, the material parameters, the three "
                "view-ray vectors, the grading parameters, the prefilter parameters "
@@ -384,6 +388,8 @@ cbuffer ArchVizConstants
                                 // w = the diagnostic atlas mode
     float4   g_sunStudyFilter;  // xy = hours range shown, z = timestep hours,
                                 // w = 1 hides out-of-range surfaces
+    float4   g_sunStudyShadow;  // x = single-shadow step, y = solar-noon step,
+                                // z = step count
 };
 )hlsl";
 
@@ -648,6 +654,55 @@ float3 TileColor (float id)
     return frac (float3 (id * 0.6180339887, id * 0.4142135624, id * 0.7320508076)) * 0.85 + 0.15;
 }
 
+// The per-step lit bits: slice k holds steps 32k .. 32k+31 at the hours
+// atlas's texels (SunStudy/SunStudyStepAtlas.hpp).
+Texture2DArray<uint> g_sunSteps;
+
+bool LitAtStep (int2 texel, uint step)
+{
+    uint word = g_sunSteps.Load (int4 (texel, int (step >> 5), 0));
+    return ((word >> (step & 31u)) & 1u) != 0u;
+}
+
+// Whether the sample was SHADOWED at any step in [first, last), a word at a
+// time rather than a step at a time.
+bool ShadowedIn (int2 texel, uint first, uint last)
+{
+    if (first >= last)
+        return false;
+    uint lastWord = (last - 1u) >> 5;
+    [loop] for (uint word = first >> 5; word <= lastWord; ++word) {
+        uint bits = g_sunSteps.Load (int4 (texel, int (word), 0));
+        uint lo = max (first, word * 32u) - word * 32u;
+        uint hi = min (last, word * 32u + 32u) - word * 32u;
+        uint below = hi >= 32u ? 0xffffffffu : ((1u << hi) - 1u);
+        uint range = below & ~((1u << lo) - 1u);
+        if (((~bits) & range) != 0u)
+            return true;
+    }
+    return false;
+}
+
+// The web study's shadow colours (sunpalette.py): lightness alone separates
+// SHADOW_COLORS, so they read under every colour-vision deficiency.
+float3 SingleShadowColor (bool lit)
+{
+    return SrgbToLinear (lit ? float3 (0.824, 0.824, 0.824) : float3 (0.439, 0.439, 0.443));
+}
+
+// MULTI_COLORS: never shadowed, AM only, PM only, AM + PM. Nominal categories
+// -- picked, never interpolated.
+float3 AmPmColor (bool am, bool pm)
+{
+    if (am && pm)
+        return SrgbToLinear (float3 (0.733, 0.627, 0.698));
+    if (am)
+        return SrgbToLinear (float3 (0.475, 0.416, 0.694));
+    if (pm)
+        return SrgbToLinear (float3 (0.875, 0.592, 0.573));
+    return SrgbToLinear (float3 (0.831, 0.839, 0.847));
+}
+
 // The ROLE view's three colours. ⚠️ AN ABI with SunStudyOverlay.hpp's
 // ElementRole values (0 analysis, 1 context, 2 ignored), carried in tile.x.
 // sRGB, decoded like the hours ramp -- and the HUD legend shows the same three.
@@ -726,6 +781,21 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         if (g_sunStudyFilter.w > 0.5)
             discard;
         psOut.color = float4 (SrgbToLinear (float3 (0.80, 0.80, 0.80)), 1.0);
+        return;
+    }
+
+    // ---- the shadow views: the SAME texel, read in the per-step bits ----------
+    int2 texel = int2 (face.tile.xy + float2 (column, row));
+    if (mode == 5) {
+        psOut.color = float4 (SingleShadowColor (LitAtStep (texel, uint (g_sunStudyShadow.x + 0.5))), 1.0);
+        return;
+    }
+    if (mode == 6) {
+        // Split AT the solar-noon step, which counts as PM -- the web page's
+        // split, so the two agree on which half a noon shadow belongs to.
+        uint steps = uint (g_sunStudyShadow.z + 0.5);
+        uint split = clamp (uint (g_sunStudyShadow.y + 0.5), 1u, max (steps, 1u));
+        psOut.color = float4 (AmPmColor (ShadowedIn (texel, 0u, split), ShadowedIn (texel, split, steps)), 1.0);
         return;
     }
     psOut.color = float4 (SunRamp (hours, g_sunStudyFilter.z), 1.0);

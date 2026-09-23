@@ -367,6 +367,53 @@ bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t f
     return true;
 }
 
+bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes,
+                               uint32_t& noonStep, std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    const StudyRecord& record = *found->second;
+    const OcclusionAccumulator& accumulator = record.session.Accumulator ();
+
+    // Where each sample's value sits in the atlas this study DISPLAYS -- the
+    // same table the hours image was scattered through, so the two images
+    // agree texel for texel.
+    std::vector<int64_t> texelOf (accumulator.SampleCount (), -1);
+    uint32_t width = 0;
+    uint32_t height = 0;
+    if (record.IsPatchDomain ()) {
+        if (!record.patchGrid.valid || record.patchAtlas.Width () == 0) {
+            error = "study '" + id + "' has no packed patch atlas";
+            return false;
+        }
+        width = record.patchAtlas.Width ();
+        height = record.patchAtlas.Height ();
+        for (size_t sample = 0; sample < texelOf.size (); ++sample)
+            texelOf[sample] = record.patchAtlas.TexelOf (record.patchGrid, sample);
+    }
+    else {
+        if (!record.atlas.valid) {
+            error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+            return false;
+        }
+        width = record.atlas.width;
+        height = record.atlas.height;
+        for (size_t sample = 0; sample < texelOf.size () && sample < record.atlas.texels.size (); ++sample)
+            texelOf[sample] = record.atlas.texels[sample];
+    }
+
+    atlas = PackStepMasks (
+        accumulator.SampleCount (), accumulator.StepCount (),
+        [&accumulator] (size_t sample, size_t step) { return accumulator.Lit (sample, step); }, texelOf, width, height);
+    stepMinutes = StepMinutes (record.series);
+    noonStep = SolarNoonStep (record.series);
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);

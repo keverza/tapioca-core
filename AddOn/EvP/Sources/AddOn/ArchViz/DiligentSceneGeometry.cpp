@@ -530,6 +530,10 @@ DiligentSceneStats DiligentScene::Stats () const
     s.sunStudy.atlasBytesUploaded = impl_->sunAtlasBytesUploaded;
     s.sunStudy.rejection = impl_->sunRejection;
     s.sunStudy.depthMode = impl_->sunDepthMode;
+    s.sunStudy.debugMode = impl_->sunDebugMode;
+    s.sunStudy.stepCount = impl_->sunStepCount;
+    s.sunStudy.noonStep = impl_->sunNoonStep;
+    s.sunStudy.stepMinutes = impl_->sunStepMinutes;
     s.sunStudy.tintFrames = impl_->sunTintFrames;
     s.sunStudy.tintElementsDrawn = impl_->sunTintElementsDrawn;
     s.sunStudy.framesSkippedIncompleteBinding = impl_->sunFramesSkippedIncompleteBinding;

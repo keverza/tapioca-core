@@ -135,6 +135,17 @@ struct SunStudyAtlasUpload {
     // viewer's does) rather than inventing gradations it never measured.
     float quantumHours = 0.25f;
 
+    // The per-step lit bits for the SHADOW views (SunStudy/SunStudyStepAtlas.hpp):
+    // `stepWords` slices of width x height uint32, slice-major, the same texels
+    // as `texels`. Shared, like the hours image, and for the same reason.
+    std::shared_ptr<const std::vector<uint32_t>> stepMasks;
+    uint32_t stepWords = 0;
+    uint32_t stepCount = 0;
+    // Solar noon, the AM / PM split; and each step's time of day in minutes,
+    // for the HUD's time slider.
+    uint32_t noonStep = 0;
+    std::vector<uint16_t> stepMinutes;
+
     size_t Bytes () const;
 };
 
@@ -154,11 +165,25 @@ enum class SunStudyDebugMode : uint32_t {
     Gradient = 2, // cell column/row as red/green inside each tile
     Checker = 3,  // one-cell checkerboard inside each tile
     Roles = 4,    // each element by its role: analysis / context / ignored
+    // The web study's shadow views, from the per-step bits.
+    SingleShadow = 5, // lit or shadowed at ONE step (the HUD's time slider)
+    AmPm = 6,         // never / AM only / PM only / AM + PM, split at solar noon
 };
 
 // The top of the HUD's hours-range slider, as on the web page: "9+" -- at it,
 // nothing above is filtered out.
 constexpr float kSunHoursFilterOpenTop = 10.0f;
+
+// What the HUD sets on the tint each frame: the hours range, the view it has
+// chosen over the commanded one (-1 = as commanded), and the step the single
+// shadow view shows. HUD-ONLY STATE; ShowSunStudy never writes it.
+struct SunStudyViewSettings {
+    float lo = 0.0f;
+    float hi = kSunHoursFilterOpenTop;
+    bool hide = false;
+    int viewOverride = -1;
+    uint32_t step = 0;
+};
 
 // Build one element's side car for the ROLE view.
 //

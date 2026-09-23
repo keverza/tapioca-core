@@ -155,6 +155,16 @@ struct HudState {
     double sunReadingDaylight = 0.0;
     int sunReadingRole = -1; // ElementRole, or -1 when unknown
     bool sunReadingNearest = false;
+    // The VIEW the HUD shows over the commanded one: an index into the
+    // section's view list, 0 = "as shown" (follow the command). Reset to 0
+    // when the COMMANDED mode changes -- the command wins only when it changes.
+    int sunView = 0;
+    uint32_t sunSeenCommandedMode = 0xffffffffu;
+    // The single shadow's step; -1 until a study arrives, then solar noon.
+    int sunStep = -1;
+    bool sunPlaying = false;
+    double sunPlayedAt = 0.0;
+    uint32_t sunStepCount = 0; // mirrored from the scene, for SunStudyViewOf
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
     float annotationWitnessStartGapMetres = 0.02f;
@@ -534,6 +544,9 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
 // world ray (CPU raycast through the snapshot's cached BVH, then the study
 // store); the TOOLTIP draws at the cursor when the inspector is in that mode.
 class DiligentScene;
+struct SunStudyViewSettings;
+// The HUD state the frame loop hands to DiligentScene::SetSunStudyView.
+SunStudyViewSettings SunStudyViewOf (const HudState& state);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
 void DrawSunStudyInspectorTooltip (const HudState& state, bool cursorInside);

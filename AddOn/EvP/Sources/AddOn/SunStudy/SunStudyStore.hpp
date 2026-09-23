@@ -32,6 +32,7 @@
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudyReading.hpp"
+#include "SunStudy/SunStudyStepAtlas.hpp"
 #include "SunStudy/SunStudySession.hpp"
 
 #include <cstdint>
@@ -225,6 +226,12 @@ class SunStudyStore final {
                       double& daylightHours, bool& converged, uint64_t& generation, std::string& error) const;
 
     bool Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const;
+
+    // The per-step lit bits as an atlas the SAME SHAPE as the hours atlas this
+    // study displays (triangle or patch), plus each step's time and the solar
+    // noon step -- everything the shadow views need. See SunStudyStepAtlas.hpp.
+    bool StepMasks (const std::string& id, StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes, uint32_t& noonStep,
+                    std::string& error) const;
 
     // The study's value at `point` on source face `face` of snapshot mesh
     // `meshIndex` -- the hover inspector's question. `role` is the element's

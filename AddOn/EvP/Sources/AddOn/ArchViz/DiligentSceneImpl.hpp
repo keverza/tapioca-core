@@ -398,6 +398,16 @@ struct geomsrv::archviz::DiligentScene::Impl {
     float sunFilterLo = 0.0f;
     float sunFilterHi = 24.0f;
     bool sunFilterHide = false;
+    // The shadow views' per-step bits: a Texture2DArray<uint>, one slice per 32
+    // steps, the hours atlas's texels.
+    RefCntAutoPtr<Diligent::ITexture> sunStepTexture;
+    Diligent::ITextureView* sunStepSRV = nullptr;
+    uint32_t sunStepCount = 0;
+    uint32_t sunNoonStep = 0;
+    std::vector<uint16_t> sunStepMinutes;
+    // The HUD's view choice (-1 = as commanded) and the single shadow's step.
+    int sunViewOverride = -1;
+    uint32_t sunViewStep = 0;
     // ---- what the last drawn frame actually did with the overlay ------------
     // ⚠️ LIFETIME COUNTERS, NOT PER-FRAME FLAGS. The question they answer is "did
     // the overlay ever fail to draw something it should have", and a flag that

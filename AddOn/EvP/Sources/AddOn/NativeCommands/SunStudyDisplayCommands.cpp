@@ -176,7 +176,7 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const GS::Int32 debug = ReadInt (params, "debug", 0);
     // Captured before the payload is handed over: `upload` is moved into the
     // queue below and must not be read after that.
-    const GS::Int32 lastMode = static_cast<GS::Int32> (archviz::SunStudyDebugMode::Roles);
+    const GS::Int32 lastMode = static_cast<GS::Int32> (archviz::SunStudyDebugMode::AmPm);
     upload->debugMode = static_cast<uint32_t> (debug < 0 ? 0 : (debug > lastMode ? lastMode : debug));
     const bool roleView = upload->debugMode == static_cast<uint32_t> (archviz::SunStudyDebugMode::Roles);
     // ⚠️ `depth` WAS IN THE SCHEMA AND NEVER READ: every study drew in Equal
@@ -185,6 +185,18 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
     const GS::Int32 depth = ReadInt (params, "depth", 0);
     const GS::Int32 lastDepth = static_cast<GS::Int32> (archviz::SunStudyDepthMode::Always);
     upload->depthMode = static_cast<uint32_t> (depth < 0 ? 0 : (depth > lastDepth ? lastDepth : depth));
+    // The per-step bits for the shadow views, in the atlas's own layout. A study
+    // that cannot give them still shows hours; the HUD offers no shadow view.
+    {
+        evp::sunstudy::StepMaskAtlas steps;
+        std::string stepError;
+        if (SunStudyStore::Get ().StepMasks (id, steps, upload->stepMinutes, upload->noonStep, stepError) &&
+            steps.width == width && steps.height == height) {
+            upload->stepWords = steps.words;
+            upload->stepCount = steps.steps;
+            upload->stepMasks = std::make_shared<const std::vector<uint32_t>> (std::move (steps.masks));
+        }
+    }
     // The ramp's quantum: the study's own timestep, in hours.
     if (haveMetadata && metadata.timestepMinutes > 0)
         upload->quantumHours = static_cast<float> (metadata.timestepMinutes) / 60.0f;

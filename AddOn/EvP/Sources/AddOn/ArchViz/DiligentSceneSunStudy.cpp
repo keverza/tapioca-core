@@ -84,6 +84,8 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
         // Per study, but the texture is recreated whenever a study is replaced,
         // so it cannot be STATIC either.
         { Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
+        // The per-step bits, recreated with the atlas, for the same reason.
+        { Diligent::SHADER_TYPE_PIXEL, "g_sunSteps", Diligent::SHADER_RESOURCE_VARIABLE_TYPE_DYNAMIC },
     };
     // ⚠️ NAMED `g_sunAtlas_sampler`, THE SAMPLER VARIABLE, NOT THE TEXTURE.
     // That is what every other immutable sampler in this renderer is named
@@ -193,6 +195,11 @@ void DiligentScene::ClearSunStudy ()
         e.sunFaceBuffer.Release ();
     impl_->sunAtlasSRV = nullptr;
     impl_->sunAtlasTexture.Release ();
+    impl_->sunStepSRV = nullptr;
+    impl_->sunStepTexture.Release ();
+    impl_->sunStepCount = 0;
+    impl_->sunNoonStep = 0;
+    impl_->sunStepMinutes.clear ();
     impl_->sunStudyId.clear ();
     impl_->sunStudyVersion = 0;
     impl_->sunAtlasWidth = 0;
@@ -271,6 +278,55 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
     ++impl_->sunAtlasUploads;
     impl_->sunAtlasBytesUploaded += static_cast<uint64_t> (study->texels->size ()) * sizeof (float);
     impl_->sunAtlasSRV = impl_->sunAtlasTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+
+    // ---- the per-step bits, for the shadow views ------------------------------
+    //
+    // ⚠️ ALWAYS A TEXTURE, EVEN WITHOUT BITS. The pipeline binds g_sunSteps on
+    // every draw; a study that carried none gets one zeroed slice, and
+    // `sunStepCount` stays 0 so the HUD does not offer views with no day in them.
+    {
+        const uint32_t words = study->stepWords > 0 ? study->stepWords : 1u;
+        const size_t plane = static_cast<size_t> (study->width) * study->height;
+        std::vector<uint32_t> zeros;
+        const uint32_t* bits = nullptr;
+        const bool carried = study->stepMasks != nullptr && study->stepMasks->size () == plane * words;
+        if (carried)
+            bits = study->stepMasks->data ();
+        else {
+            zeros.assign (plane * words, 0u);
+            bits = zeros.data ();
+        }
+        Diligent::TextureDesc stepDesc;
+        stepDesc.Name = "ArchViz sun study step bits";
+        stepDesc.Type = Diligent::RESOURCE_DIM_TEX_2D_ARRAY;
+        stepDesc.Width = study->width;
+        stepDesc.Height = study->height;
+        stepDesc.ArraySize = words;
+        stepDesc.MipLevels = 1;
+        // ⚠️ R32_UINT, READ WITH Load. Bits are not a filterable quantity, and a
+        // sampler in front of them would blend two surfaces' days into neither.
+        stepDesc.Format = Diligent::TEX_FORMAT_R32_UINT;
+        stepDesc.Usage = Diligent::USAGE_IMMUTABLE;
+        stepDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+        std::vector<Diligent::TextureSubResData> slices (words);
+        for (uint32_t word = 0; word < words; ++word) {
+            slices[word].pData = bits + static_cast<size_t> (word) * plane;
+            slices[word].Stride = static_cast<Diligent::Uint64> (study->width) * sizeof (uint32_t);
+        }
+        Diligent::TextureData stepData;
+        stepData.pSubResources = slices.data ();
+        stepData.NumSubresources = words;
+        device->CreateTexture (stepDesc, &stepData, &impl_->sunStepTexture);
+        if (impl_->sunStepTexture != nullptr) {
+            impl_->sunStepSRV = impl_->sunStepTexture->GetDefaultView (Diligent::TEXTURE_VIEW_SHADER_RESOURCE);
+            impl_->sunStepCount = carried ? study->stepCount : 0u;
+            impl_->sunNoonStep = study->noonStep;
+            impl_->sunStepMinutes = study->stepMinutes;
+        }
+        else {
+            ArchVizLog ("Diligent scene: sun study step-bit texture could not be created -- shadow views off");
+        }
+    }
 
     impl_->sunStudyId = study->studyId;
     impl_->sunStudyVersion = study->version;
@@ -447,7 +503,13 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
     constants.sunStudyParams[0] = impl_->sunAtlasWidth > 0 ? 1.0f / float (impl_->sunAtlasWidth) : 0.0f;
     constants.sunStudyParams[1] = impl_->sunAtlasHeight > 0 ? 1.0f / float (impl_->sunAtlasHeight) : 0.0f;
     constants.sunStudyParams[2] = impl_->sunHoursMax;
-    constants.sunStudyParams[3] = float (impl_->sunDebugMode);
+    // The HUD's view wins over the commanded one while it holds a choice.
+    const uint32_t mode = impl_->sunViewOverride >= 0 ? uint32_t (impl_->sunViewOverride) : impl_->sunDebugMode;
+    constants.sunStudyParams[3] = float (mode);
+    const uint32_t lastStep = impl_->sunStepCount > 0 ? impl_->sunStepCount - 1 : 0u;
+    constants.sunStudyShadow[0] = float ((std::min) (impl_->sunViewStep, lastStep));
+    constants.sunStudyShadow[1] = float (impl_->sunNoonStep);
+    constants.sunStudyShadow[2] = float (impl_->sunStepCount);
     constants.sunStudyFilter[0] = impl_->sunFilterLo;
     constants.sunStudyFilter[1] = impl_->sunFilterHi;
     constants.sunStudyFilter[2] = impl_->sunQuantumHours;
@@ -456,6 +518,11 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
 
     if (Diligent::IShaderResourceVariable* atlas = srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunAtlas"))
         atlas->Set (impl_->sunAtlasSRV);
+    if (impl_->sunStepSRV != nullptr) {
+        if (Diligent::IShaderResourceVariable* steps =
+                srb->GetVariableByName (Diligent::SHADER_TYPE_PIXEL, "g_sunSteps"))
+            steps->Set (impl_->sunStepSRV);
+    }
 
     context->SetPipelineState (pso);
 
@@ -506,14 +573,16 @@ std::string DiligentScene::ShownSunStudyId () const
     return impl_ != nullptr && impl_->sunAtlasSRV != nullptr ? impl_->sunStudyId : std::string ();
 }
 
-void DiligentScene::SetSunStudyFilter (float lo, float hi, bool hide)
+void DiligentScene::SetSunStudyView (const SunStudyViewSettings& view)
 {
     if (impl_ == nullptr)
         return;
-    impl_->sunFilterLo = (std::max) (0.0f, lo); // parenthesised: windows.h defines max
+    impl_->sunFilterLo = (std::max) (0.0f, view.lo); // parenthesised: windows.h defines max
     // The slider's top is "9+": at it, no surface is cut off for having MORE.
-    impl_->sunFilterHi = hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, hi);
-    impl_->sunFilterHide = hide;
+    impl_->sunFilterHi = view.hi >= kSunHoursFilterOpenTop ? 1.0e9f : (std::max) (impl_->sunFilterLo, view.hi);
+    impl_->sunFilterHide = view.hide;
+    impl_->sunViewOverride = view.viewOverride;
+    impl_->sunViewStep = view.step;
 }
 
 } // namespace archviz

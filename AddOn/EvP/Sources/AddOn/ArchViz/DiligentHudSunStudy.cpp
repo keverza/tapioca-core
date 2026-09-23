@@ -86,7 +86,29 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
     }
 }
 
+// The section's view list and the tint mode each one selects. Index 0 follows
+// whatever ShowSunStudy asked for. ⚠️ AN ABI with SunStudyDebugMode.
+constexpr const char* kViewNames[] = { "as shown", "direct sun hours", "single shadow", "AM / PM shadows", "roles" };
+constexpr int kViewModes[] = { -1, 0, 5, 6, 4 };
+constexpr int kViewCount = 5;
+
+void Clock (uint16_t minutes, char* out, size_t size)
+{
+    std::snprintf (out, size, "%02u:%02u", unsigned (minutes / 60), unsigned (minutes % 60));
+}
+
 } // namespace
+
+SunStudyViewSettings SunStudyViewOf (const HudState& state)
+{
+    SunStudyViewSettings view;
+    view.lo = state.sunFilterLo;
+    view.hi = state.sunFilterHi;
+    view.hide = state.sunFilterHide;
+    view.viewOverride = state.sunView > 0 && state.sunView < kViewCount ? kViewModes[state.sunView] : -1;
+    view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
+    return view;
+}
 
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3])
@@ -171,6 +193,74 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         return;
 
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
+
+    // ---- the view ---------------------------------------------------------------
+    //
+    // ⚠️ THE COMMAND WINS ONLY WHEN IT CHANGES (DiligentViewport.cpp's rule). A
+    // new COMMANDED mode resets the choice to "as shown"; a follower rerun, which
+    // re-shows with the same mode, leaves the person's choice alone.
+    if (study.debugMode != state.sunSeenCommandedMode) {
+        state.sunSeenCommandedMode = study.debugMode;
+        state.sunView = 0;
+    }
+    state.sunStepCount = study.stepCount;
+    ImGui::SetNextItemWidth (-60.0f);
+    ImGui::Combo ("view##sunview", &state.sunView, kViewNames, kViewCount);
+    const int mode = state.sunView > 0 ? kViewModes[state.sunView] : int (study.debugMode);
+    const bool shadowView = mode == 5 || mode == 6;
+    if (shadowView && study.stepCount == 0)
+        ImGui::TextColored (ImVec4 (1.0f, 0.6f, 0.4f, 1.0f), "this study carries no per-step bits");
+
+    // ---- the time of day, for the single shadow -----------------------------
+    if (mode == 5 && study.stepCount > 0) {
+        const int last = int (study.stepCount) - 1;
+        if (state.sunStep < 0 || state.sunStep > last)
+            state.sunStep = (std::min) (int (study.noonStep), last);
+        // Play the day: one step every 0.4 s, wrapping -- the web page's button.
+        if (state.sunPlaying && ImGui::GetTime () - state.sunPlayedAt > 0.4) {
+            state.sunStep = state.sunStep >= last ? 0 : state.sunStep + 1;
+            state.sunPlayedAt = ImGui::GetTime ();
+        }
+        char clock[16] = "--:--";
+        if (size_t (state.sunStep) < study.stepMinutes.size ())
+            Clock (study.stepMinutes[size_t (state.sunStep)], clock, sizeof (clock));
+        ImGui::SetNextItemWidth (-60.0f);
+        ImGui::SliderInt ("time##sunstep", &state.sunStep, 0, last, clock);
+        if (ImGui::SmallButton (state.sunPlaying ? "pause" : "play the day")) {
+            state.sunPlaying = !state.sunPlaying;
+            state.sunPlayedAt = ImGui::GetTime ();
+        }
+        ImGui::SameLine ();
+        if (ImGui::SmallButton ("noon"))
+            state.sunStep = (std::min) (int (study.noonStep), last);
+        Swatch ("##lit", Rgb (0xd2d2d2), "sunlit at this time");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("sunlit");
+        ImGui::SameLine ();
+        Swatch ("##shadowed", Rgb (0x707071), "shadowed at this time");
+        ImGui::SameLine ();
+        ImGui::TextUnformatted ("shadowed");
+    }
+    else {
+        state.sunPlaying = false;
+    }
+    if (mode == 6 && study.stepCount > 0) {
+        char noon[16] = "--:--";
+        if (study.noonStep < study.stepMinutes.size ())
+            Clock (study.stepMinutes[study.noonStep], noon, sizeof (noon));
+        ImGui::TextDisabled ("split at solar noon, %s", noon);
+        const unsigned colours[4] = { 0xd4d6d8, 0x796ab1, 0xdf9792, 0xbba0b2 };
+        const char* labels[4] = { "never shadowed", "AM only", "PM only", "AM + PM" };
+        for (int i = 0; i < 4; ++i) {
+            ImGui::PushID (100 + i);
+            Swatch ("##ampm", Rgb (colours[i]), labels[i]);
+            ImGui::PopID ();
+            ImGui::SameLine ();
+            ImGui::TextUnformatted (labels[i]);
+            if (i % 2 == 0)
+                ImGui::SameLine ();
+        }
+    }
 
     // ---- the hover inspector ----------------------------------------------------
     static const char* const kInspectModes[] = { "off", "tooltip at cursor", "in this panel" };

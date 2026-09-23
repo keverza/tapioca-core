@@ -92,6 +92,12 @@ struct SunStudyOverlayStatus {
     uint64_t version = 0;
     uint32_t atlasWidth = 0;
     uint32_t atlasHeight = 0;
+    // What the COMMAND asked to show, and the day the shadow views can scrub:
+    // step count (0 = no per-step bits), solar noon, each step's minute of day.
+    uint32_t debugMode = 0;
+    uint32_t stepCount = 0;
+    uint32_t noonStep = 0;
+    std::vector<uint16_t> stepMinutes;
     size_t elementsNamed = 0;
     size_t elementsAttached = 0;
     // Why the others were turned away, split because the two mean different
@@ -391,9 +397,10 @@ class DiligentScene final {
     void SetRenderMode (SceneRenderMode mode);
     SceneRenderMode RenderMode () const;
     void SetWireframeSettings (float tessellationFactor, float lineWidthPixels);
-    // The sun study's hours range: surfaces outside [lo, hi] are drawn neutral,
-    // or not at all when `hide`. RENDER THREAD, from the HUD.
-    void SetSunStudyFilter (float lo, float hi, bool hide);
+    // The HUD's side of the sun study tint: the hours range (outside it drawn
+    // neutral, or not at all), a view chosen over the commanded one, and the
+    // single shadow's step. RENDER THREAD, from the HUD.
+    void SetSunStudyView (const SunStudyViewSettings& view);
     // The study the tint is drawing, or empty. RENDER THREAD.
     std::string ShownSunStudyId () const;
 
