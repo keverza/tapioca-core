@@ -31,6 +31,7 @@
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
+#include "SunStudy/SunStudyReading.hpp"
 #include "SunStudy/SunStudySession.hpp"
 
 #include <cstdint>
@@ -75,6 +76,10 @@ struct StudyRecord {
     // the display's role view. ⚠️ ALIGNED WITH THE SNAPSHOT THE STUDY RAN ON;
     // the display checks the length before trusting it.
     std::vector<uint8_t> elementRoles;
+
+    // The snapshot the study ran on. A face index means something only against
+    // it: after a rebuild the same index names another triangle.
+    uint64_t snapshotId = 0;
     size_t sourceStepCount = 0;
 
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the
@@ -220,6 +225,20 @@ class SunStudyStore final {
                       double& daylightHours, bool& converged, uint64_t& generation, std::string& error) const;
 
     bool Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const;
+
+    // The study's value at `point` on source face `face` of snapshot mesh
+    // `meshIndex` -- the hover inspector's question. `role` is the element's
+    // resolved ElementRole, or 0xff when the study recorded none.
+    //
+    // ⚠️ REFUSED WHILE A SLICE IS ADVANCING. The session's hours are written
+    // outside the lock during Advance; a reader under the lock would still race
+    // it. The inspector says "computing" instead, and answers between slices.
+    //
+    // ⚠️ `snapshotId` IS CHECKED. The face came from a raycast through the
+    // CURRENT snapshot; against a study of an older one it names a different
+    // triangle, and the answer would be another surface's hours.
+    bool ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex, const double point[3],
+                 SunStudyReading& reading, uint8_t& role, double& daylightHours, std::string& error) const;
 
     bool Erase (const std::string& id);
     void Clear ();

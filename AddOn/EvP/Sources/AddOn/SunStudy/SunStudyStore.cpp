@@ -335,6 +335,38 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
     return true;
 }
 
+bool SunStudyStore::ReadAt (const std::string& id, uint64_t snapshotId, size_t face, size_t meshIndex,
+                            const double point[3], SunStudyReading& reading, uint8_t& role, double& daylightHours,
+                            std::string& error) const
+{
+    reading = SunStudyReading ();
+    role = 0xff;
+    daylightHours = 0.0;
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    const auto advancing = advancing_.find (id);
+    if (advancing != advancing_.end () && advancing->second) {
+        error = "computing";
+        return false;
+    }
+    const StudyRecord& record = *found->second;
+    if (record.snapshotId != snapshotId) {
+        error = "stale";
+        return false;
+    }
+    if (meshIndex < record.elementRoles.size ())
+        role = record.elementRoles[meshIndex];
+    daylightHours = record.series.DaylightHours ();
+    const std::vector<double>& hours = record.session.SunHours ();
+    reading = record.IsPatchDomain () ? ReadPatchStudyAt (record.patchGrid, record.gridSpacing, hours, face, point)
+                                      : ReadTriangleStudyAt (record.sampleGrid, record.gridSpacing, hours, face, point);
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);

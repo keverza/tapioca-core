@@ -505,4 +505,12 @@ std::shared_ptr<const QueryEngine> QueryIndexCache::For (const std::shared_ptr<c
     return cached;
 }
 
+std::shared_ptr<const QueryEngine> QueryIndexCache::Peek (uint64_t snapshotId)
+{
+    std::unique_lock<std::mutex> lock (mtx, std::try_to_lock);
+    if (!lock.owns_lock () || !cached || cached->SnapshotId () != snapshotId)
+        return nullptr;
+    return cached;
+}
+
 } // namespace geomsrv

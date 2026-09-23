@@ -501,6 +501,11 @@ void DiligentScene::DrawSunStudyTint (Diligent::IDeviceContext* context, Diligen
         ++impl_->sunFramesSkippedIncompleteBinding;
 }
 
+std::string DiligentScene::ShownSunStudyId () const
+{
+    return impl_ != nullptr && impl_->sunAtlasSRV != nullptr ? impl_->sunStudyId : std::string ();
+}
+
 void DiligentScene::SetSunStudyFilter (float lo, float hi, bool hide)
 {
     if (impl_ == nullptr)

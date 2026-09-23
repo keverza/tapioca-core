@@ -805,9 +805,9 @@ void DiligentHud::Draw (Diligent::IDeviceContext* context, uint32_t width, uint3
         impl_->graphInteractionLab.Draw (width, height, input, state.frameLatency, state.showGraphInteractionLab,
                                          state.graphInteractionFastPath);
     state.graphInteractionActive = ImGui::IsAnyItemActive ();
+    DrawSunStudyInspectorTooltip (state, input.inside);
 
     // ---- the frame-cost badge, ALWAYS ON -----------------------------------
-    //
     // ⚠️ A SEPARATE WINDOW FROM THE PANEL ABOVE, DELIBERATELY. The panel is
     // collapsible, movable and scrollable, and on the overlay it is also
     // CLICK-THROUGH -- so once it is collapsed or pushed off the surface there is

@@ -12,11 +12,17 @@
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
+#include "Geometry/MeshStore.hpp"
+#include "Geometry/QueryEngine.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 
 #include <imgui.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <cmath>
+#include <string>
 
 namespace geomsrv {
 namespace archviz {
@@ -51,7 +57,108 @@ void Swatch (const char* id, const ImVec4& colour, const char* tooltip)
         ImGui::SetTooltip ("%s", tooltip);
 }
 
+// The inspector's reading as text, shared by the tooltip and the panel line so
+// the two can never say different things. Returns false when there is nothing
+// to say.
+bool ReadingLines (const HudState& state, char* first, char* second, size_t size)
+{
+    second[0] = 0;
+    switch (state.sunReadingState) {
+        case 1:
+            std::snprintf (first, size, "%s%.2f h direct sun", state.sunReadingNearest ? "~ " : "",
+                           state.sunReadingHours);
+            if (state.sunReadingDaylight > 0.0)
+                std::snprintf (second, size, "%.2f h shadow of %.2f h daylight",
+                               (std::max) (0.0, state.sunReadingDaylight - state.sunReadingHours),
+                               state.sunReadingDaylight);
+            return true;
+        case 2:
+            std::snprintf (first, size, "%s",
+                           state.sunReadingRole == 1   ? "context: casts shadow, not measured"
+                           : state.sunReadingRole == 2 ? "ignored: not in the study"
+                                                       : "not measured here");
+            return true;
+        case 3:
+            std::snprintf (first, size, "computing...");
+            return true;
+        default:
+            return false;
+    }
+}
+
 } // namespace
+
+void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
+                               const float direction[3])
+{
+    // ⚠️ THROTTLED TO THE CURSOR. A still cursor over a converged study asks the
+    // same question every frame; the ray is compared, and re-asked at most four
+    // times a second otherwise, so a study still converging updates under a
+    // cursor that is not moving.
+    static float lastRay[6] = { 0, 0, 0, 0, 0, 0 };
+    static std::string lastStudy;
+    static std::chrono::steady_clock::time_point lastAsked;
+    if (state.sunInspect == 0) {
+        state.sunReadingState = 0;
+        return;
+    }
+    const std::string id = scene.ShownSunStudyId ();
+    const auto now = std::chrono::steady_clock::now ();
+    const float ray[6] = { origin[0], origin[1], origin[2], direction[0], direction[1], direction[2] };
+    if (id == lastStudy && std::equal (ray, ray + 6, lastRay) && now - lastAsked < std::chrono::milliseconds (250))
+        return;
+    std::copy (ray, ray + 6, lastRay);
+    lastStudy = id;
+    lastAsked = now;
+
+    state.sunReadingState = 0;
+    if (id.empty ())
+        return;
+    const std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
+    if (snapshot == nullptr)
+        return;
+    // ⚠️ PEEK, NEVER For: this is the render thread, and For builds a BVH --
+    // under a lock another thread may be holding for exactly that -- on a miss.
+    const std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().Peek (snapshot->id);
+    if (engine == nullptr)
+        return;
+
+    const double org[3] = { origin[0], origin[1], origin[2] };
+    const double dir[3] = { direction[0], direction[1], direction[2] };
+    const QueryEngine::RayHit hit = engine->Raycast (org, dir, 1.0e6);
+    if (!hit.hit)
+        return;
+
+    evp::sunstudy::SunStudyReading reading;
+    uint8_t role = 0xff;
+    double daylight = 0.0;
+    std::string error;
+    if (!evp::sunstudy::SunStudyStore::Get ().ReadAt (id, snapshot->id, hit.tri, hit.meshIndex, hit.point, reading,
+                                                      role, daylight, error)) {
+        state.sunReadingState = error == "computing" ? 3 : 0;
+        return;
+    }
+    state.sunReadingRole = role == 0xff ? -1 : int (role);
+    state.sunReadingDaylight = daylight;
+    state.sunReadingHours = reading.hours;
+    state.sunReadingNearest = reading.nearest;
+    state.sunReadingState = reading.measured ? 1 : 2;
+}
+
+void DrawSunStudyInspectorTooltip (const HudState& state, bool cursorInside)
+{
+    char first[96];
+    char second[96];
+    if (state.sunInspect != 1 || !cursorInside || !ReadingLines (state, first, second, sizeof (first)))
+        return;
+    // A plain tooltip: it follows the cursor and never takes the mouse, so the
+    // camera and the pick keep working under it.
+    ImGui::BeginTooltip ();
+    ImGui::TextUnformatted (first);
+    if (second[0] != 0)
+        ImGui::TextDisabled ("%s", second);
+    ImGui::EndTooltip ();
+}
 
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 {
@@ -64,6 +171,23 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
         return;
 
     ImGui::TextDisabled ("%s, %u element(s)", study.studyId.c_str (), unsigned (study.elementsAttached));
+
+    // ---- the hover inspector ----------------------------------------------------
+    static const char* const kInspectModes[] = { "off", "tooltip at cursor", "in this panel" };
+    ImGui::SetNextItemWidth (-60.0f);
+    ImGui::Combo ("inspect##suninspect", &state.sunInspect, kInspectModes, 3);
+    if (state.sunInspect == 2) {
+        char first[96];
+        char second[96];
+        if (ReadingLines (state, first, second, sizeof (first))) {
+            ImGui::TextUnformatted (first);
+            if (second[0] != 0)
+                ImGui::TextDisabled ("%s", second);
+        }
+        else {
+            ImGui::TextDisabled ("hover the model");
+        }
+    }
 
     // ---- the hours range ------------------------------------------------------
     //

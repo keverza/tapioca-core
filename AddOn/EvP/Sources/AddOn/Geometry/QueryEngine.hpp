@@ -163,6 +163,11 @@ class QueryIndexCache {
     // null if snap is null/empty.
     std::shared_ptr<const QueryEngine> For (const std::shared_ptr<const Snapshot>& snap);
 
+    // The cached engine if it is for `snapshotId`, else null -- NEVER builds and
+    // NEVER waits. For the render thread, which must not stall behind a BVH
+    // build another thread holds the lock for.
+    std::shared_ptr<const QueryEngine> Peek (uint64_t snapshotId);
+
     // Drop the cached BVH (it is the largest single allocation after the mesh
     // data itself). In-flight queries hold their own shared_ptr and are unaffected.
     void Release ()

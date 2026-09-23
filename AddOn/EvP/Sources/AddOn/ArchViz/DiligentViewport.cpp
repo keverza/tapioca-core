@@ -705,9 +705,8 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
             // ---- the cursor's coordinate, for the callout --------------------
             // Where the view ray under the cursor meets the GROUND PLANE (z=0).
             // ⚠️ NOT the surface under the cursor -- that needs a depth readback,
-            // and this path already throttles its one readback to keep a hover
-            // from delaying a click. The callout labels it "on z=0" for exactly
-            // that reason.
+            // which this path throttles to keep a hover from delaying a click;
+            // the callout labels it "on z=0" for that reason.
             hudState.cursorX = input.x;
             hudState.cursorY = input.y;
             hudState.cursorGroundValid = false;
@@ -715,6 +714,7 @@ void DiligentViewport::Run (Surface surface, CameraStart cameraStart)
                 float rayOrigin[3];
                 float rayDir[3];
                 camera.CursorRay (input.x, input.y, width, height, rayOrigin, rayDir);
+                ServiceSunStudyInspector (hudState, scene, rayOrigin, rayDir);
                 // A ray parallel to z=0 never meets it; one pointing away meets it
                 // only behind the viewer, which is not what the cursor is over.
                 if (std::abs (rayDir[2]) > 1e-6f) {

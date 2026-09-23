@@ -143,6 +143,18 @@ struct HudState {
     float sunFilterLo = 0.0f;
     float sunFilterHi = 10.0f;
     bool sunFilterHide = false;
+    // The hover INSPECTOR: 0 off, 1 a tooltip at the cursor, 2 a line in the
+    // panel. It reports the study's value under the cursor -- the same cell the
+    // tint drew there (SunStudy/SunStudyReading.hpp).
+    int sunInspect = 0;
+    // What it found, written by ServiceSunStudyInspector each frame.
+    // readingState: 0 nothing under the cursor, 1 measured, 2 not measured
+    // (context, ignored, below the grid), 3 the study is computing.
+    int sunReadingState = 0;
+    double sunReadingHours = 0.0;
+    double sunReadingDaylight = 0.0;
+    int sunReadingRole = -1; // ElementRole, or -1 when unknown
+    bool sunReadingNearest = false;
     float annotationTextHeightMetres = 0.18f;
     float annotationDimensionOffsetMetres = 0.25f;
     float annotationWitnessStartGapMetres = 0.02f;
@@ -517,6 +529,14 @@ class DiligentHud final {
 // the hours range, its legend, and the role legend. Draws nothing unless a
 // study is on screen.
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene);
+
+// The inspector's two halves. SERVICE runs in the frame loop with the cursor's
+// world ray (CPU raycast through the snapshot's cached BVH, then the study
+// store); the TOOLTIP draws at the cursor when the inspector is in that mode.
+class DiligentScene;
+void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
+                               const float direction[3]);
+void DrawSunStudyInspectorTooltip (const HudState& state, bool cursorInside);
 
 } // namespace archviz
 } // namespace geomsrv

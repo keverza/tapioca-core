@@ -394,6 +394,8 @@ class DiligentScene final {
     // The sun study's hours range: surfaces outside [lo, hi] are drawn neutral,
     // or not at all when `hide`. RENDER THREAD, from the HUD.
     void SetSunStudyFilter (float lo, float hi, bool hide);
+    // The study the tint is drawing, or empty. RENDER THREAD.
+    std::string ShownSunStudyId () const;
 
     // How well surfaces are lit. ⚠️ A SEPARATE AXIS FROM RenderMode, not more
     // cases of it -- ViewerSettings.hpp says why, and it is the CameraSyncMode

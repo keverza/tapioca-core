@@ -444,6 +444,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         record->analysisElements = analysisPicked;
         record->contextElements = contextPicked;
         record->ignoredElements = ignoredPicked;
+        record->snapshotId = snapshot->id;
         for (const evp::sunstudy::ElementRole role : roles.roles)
             record->elementRoles.push_back (static_cast<uint8_t> (role));
 
