@@ -136,7 +136,7 @@ struct SunStudyAtlasUpload {
 // How the tint pass tests depth. ⚠️ AN ABI with the `depth=` argument of
 // Tapioca.ShowSunStudy and with the PSO array in DiligentSceneImpl.
 enum class SunStudyDepthMode : uint32_t {
-    Equal = 0,     // the correct one: a decal on depth the shaded pass wrote
+    Equal = 0,     // the correct one: the FRONTMOST surface, glass included (see the tint PSO)
     LessEqual = 1, // tolerant of a depth buffer that is not bit-identical
     Always = 2,    // no depth test at all -- draws through the model
 };

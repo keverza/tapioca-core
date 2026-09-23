@@ -115,24 +115,37 @@ bool DiligentScene::CreateSunStudyPipeline (Diligent::IRenderDevice* device, uin
             gp.RasterizerDesc.FillMode = Diligent::FILL_MODE_SOLID;
             gp.RasterizerDesc.FrontCounterClockwise = Diligent::False;
 
-            // ⚠️ DEPTH EQUAL, AND NO DEPTH WRITE. This is a decal over geometry the
-            // shaded pass has already drawn, through the SAME vertex shader and the
-            // SAME view-projection constant, so every surviving fragment's depth is
-            // bit-identical to the one already in the buffer. Testing LESS instead
-            // would z-fight -- a tint that flickers with the camera, which is
-            // exactly the symptom "is it stuck to the surface?" is asking about --
-            // and a depth WRITE would let the tint occlude the transparent pass
-            // behind it.
+            // ⚠️ THE DEFAULT MODE TESTS LESS_EQUAL AND WRITES DEPTH, so GLASS IS A
+            // SURFACE LIKE ANY OTHER. The study measures every element as one
+            // material -- glass receives samples and casts shadow -- so the display
+            // must show the FRONTMOST surface's hours, transparent or not.
+            //
+            // Why that is still a decal: the tint runs through the SAME vertex
+            // shader and the SAME view-projection as the shaded pass, so every
+            // fragment of a surface that pass wrote is bit-identical to the depth
+            // already stored, and passes LESS_EQUAL exactly as it passed EQUAL --
+            // no z-fight, no flicker. The only fragments NEARER than the stored
+            // depth belong to surfaces the shaded pass did not write, and that is
+            // precisely the transparent pass (DiligentScene.cpp: it never writes
+            // depth). Plain EQUAL rejected every glass fragment and then painted
+            // the wall BEHIND the glass opaquely over it: glass "ignored".
+            //
+            // The WRITE makes the frontmost fragment win whatever order the
+            // elements are drawn in. It is safe here and was not when this was
+            // first written: the tint now runs after the transparent pass, and
+            // only the line overlays follow it.
+            //
+            // `LessEqual` keeps its old meaning (no write) as the fallback for a
+            // depth buffer that is not bit-identical.
             // ⚠️ ALWAYS DISABLES THE TEST RATHER THAN PASSING IT. A test that always
             // passes still consumes the depth buffer; disabling it is what proves the
             // depth buffer is not involved at all, which is the whole point of the
             // third variant.
+            const bool frontmost = depthIdx == int (SunStudyDepthMode::Equal);
             gp.DepthStencilDesc.DepthEnable =
                 depthIdx == int (SunStudyDepthMode::Always) ? Diligent::False : Diligent::True;
-            gp.DepthStencilDesc.DepthWriteEnable = Diligent::False;
-            gp.DepthStencilDesc.DepthFunc = depthIdx == int (SunStudyDepthMode::LessEqual)
-                                                ? Diligent::COMPARISON_FUNC_LESS_EQUAL
-                                                : Diligent::COMPARISON_FUNC_EQUAL;
+            gp.DepthStencilDesc.DepthWriteEnable = frontmost ? Diligent::True : Diligent::False;
+            gp.DepthStencilDesc.DepthFunc = Diligent::COMPARISON_FUNC_LESS_EQUAL;
 
             // ⚠️ OPAQUE REPLACEMENT, NOT A BLEND. The first tint has one job: to
             // prove that a texel lands on the surface it was measured on. Blending
