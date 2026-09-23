@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Rhino 9 WIP - GH2": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Rhino 9 WIP\\System\\Rhino.exe",
+      "commandLineArgs": "/runscript=\"_G2\"",
+      "environmentVariables": {
+        "RHINO_PACKAGE_DIRS": "$(ProjectDir)$(OutputPath)\\"
+      }
+    }
+  }
+}

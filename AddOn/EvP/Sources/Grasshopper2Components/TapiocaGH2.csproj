@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- GH2 reference assemblies match the installed Rhino 9 WIP build. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <TargetExt>.rhp</TargetExt>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Rhino and GH2 use the same assembly GUID for this .rhp. -->
+    <Version>0.1.0</Version>
+    <Title>Tapioca GH2</Title>
+    <Company>Tapioca</Company>
+    <Description>Tapioca components for Grasshopper 2.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grasshopper2" Version="9.0.26258.12303-beta" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Icons\*.ghicon" />
+    <EmbeddedResource Include="Icons\*.ico" />
+  </ItemGroup>
+</Project>

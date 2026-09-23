@@ -85,3 +85,9 @@ AddOn/EvP/Sources/TapiocaDynamo/obj/
 /AddOn/EvP/Sources/DynamoRunner/obj/
 /AddOn/EvP/Sources/DynamoRunner/bin/
 /AddOn/EvP/Sources/TapiocaDynamoNodesUI/obj/Release
+# Rhino 9 / GH2 build outputs are local intermediates. Ignore both Debug and
+# Release bin/ and obj/ trees while keeping the projects' sources trackable.
+/AddOn/EvP/Sources/Gh2Worker/bin/
+/AddOn/EvP/Sources/Gh2Worker/obj/
+/AddOn/EvP/Sources/Grasshopper2Components/bin/
+/AddOn/EvP/Sources/Grasshopper2Components/obj/

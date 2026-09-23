@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- No GH1 SDK or worker reference. Rhino/GH2 runtime DLLs come from Rhino 9. -->
+    <PackageReference Include="Rhino.Inside" Version="9.0.26084.13070-beta" />
+    <PackageReference Include="Grasshopper2" Version="9.0.26258.12303-beta" ExcludeAssets="runtime" />
+    <!-- Rhino.Inside declares a GH1 dependency; resolve its version without
+         placing GH1 in this worker's compile or runtime assets. -->
+    <PackageReference Include="Grasshopper" Version="9.0.26258.12303-beta" ExcludeAssets="all" />
+  </ItemGroup>
+</Project>
