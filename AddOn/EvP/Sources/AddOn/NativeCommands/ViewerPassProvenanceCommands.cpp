@@ -4,6 +4,7 @@
 #include "NativeCommands/ViewerPassProvenanceCommands.hpp"
 
 #include "ArchViz/Dxgi/PassProvenance.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
 #include <string>
 
@@ -53,6 +54,15 @@ const char* SampledLineageName (av::dxgi::passprovenance::SampledLineage lineage
                                                                            : "NONE";
 }
 
+const char* PairingRelationName (av::dxgi::scenecamerapairing::Relation relation)
+{
+    namespace pairing = av::dxgi::scenecamerapairing;
+    return relation == pairing::Relation::Match       ? "MATCH"
+           : relation == pairing::Relation::Mismatch  ? "MISMATCH"
+           : relation == pairing::Relation::Ambiguous ? "AMBIGUOUS"
+                                                       : "UNKNOWN";
+}
+
 class ViewerPassProvenanceCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -63,6 +73,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         namespace provenance = av::dxgi::passprovenance;
+        namespace pairing = av::dxgi::scenecamerapairing;
 
         bool reset = false;
         bool enabled = false;
@@ -73,15 +84,23 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             params.Get ("enabled", enabled);
         const bool restoreEnabled = reset && provenance::Enabled () && !hasEnabled;
         bool drained = true;
-        if (reset || (hasEnabled && !enabled))
+        if (reset || (hasEnabled && !enabled)) {
+            pairing::SetEnabled (false);
             drained = provenance::SetEnabled (false);
-        if (reset && drained)
+        }
+        if (reset && drained) {
             provenance::Reset ();
+            pairing::Reset ();
+        }
         bool transitionSucceeded = drained;
-        if (hasEnabled && enabled && drained)
+        if (hasEnabled && enabled && drained) {
             transitionSucceeded = provenance::SetEnabled (true);
-        else if (restoreEnabled && drained)
+            pairing::SetEnabled (transitionSucceeded);
+        }
+        else if (restoreEnabled && drained) {
             transitionSucceeded = provenance::SetEnabled (true);
+            pairing::SetEnabled (transitionSucceeded);
+        }
 
         GS::Int32 limit = (GS::Int32) provenance::kRowCapacity;
         if (params.Contains ("limit"))
@@ -114,7 +133,45 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             out.Push (entry);
         }
 
+        pairing::Row pairingRows[pairing::kRowCapacity];
+        const size_t pairingLimit = size_t (limit) < pairing::kRowCapacity ? size_t (limit) : pairing::kRowCapacity;
+        const size_t pairingCount = transitionSucceeded ? pairing::CopyRows (pairingRows, pairingLimit) : 0;
+        GS::Array<GS::ObjectState> pairingOut;
+        for (size_t i = 0; i < pairingCount; ++i) {
+            const pairing::Row& row = pairingRows[i];
+            GS::ObjectState entry;
+            entry.Add ("provenanceEpoch", GS::UniString (std::to_string (row.provenanceEpoch).c_str (), CC_UTF8));
+            entry.Add ("eventSerial", GS::UniString (std::to_string (row.eventSerial).c_str (), CC_UTF8));
+            entry.Add ("presentSerial", GS::UniString (std::to_string (row.presentSerial).c_str (), CC_UTF8));
+            entry.Add ("imagePass", GS::UniString (std::to_string (row.imagePass).c_str (), CC_UTF8));
+            entry.Add ("imageRootEventSerial",
+                       GS::UniString (std::to_string (row.imageRootEventSerial).c_str (), CC_UTF8));
+            entry.Add ("imageSourceResource",
+                       GS::UniString (std::to_string (row.imageSourceResource).c_str (), CC_UTF8));
+            entry.Add ("imageModelGeneration",
+                       GS::UniString (std::to_string (row.imageModelGeneration).c_str (), CC_UTF8));
+            entry.Add ("overlayCameraSerial",
+                       GS::UniString (std::to_string (row.overlayCameraSerial).c_str (), CC_UTF8));
+            entry.Add ("cameraSourcePass", GS::UniString (std::to_string (row.cameraSourcePass).c_str (), CC_UTF8));
+            entry.Add ("cameraSnapshotEventSerial",
+                       GS::UniString (std::to_string (row.cameraSnapshotEventSerial).c_str (), CC_UTF8));
+            entry.Add ("cameraAdoptEventSerial",
+                       GS::UniString (std::to_string (row.cameraAdoptEventSerial).c_str (), CC_UTF8));
+            entry.Add ("ambiguityEventSerial",
+                       GS::UniString (std::to_string (row.ambiguityEventSerial).c_str (), CC_UTF8));
+            entry.Add ("cameraMetadataPass",
+                       GS::UniString (std::to_string (row.cameraMetadataPass).c_str (), CC_UTF8));
+            entry.Add ("backBuffer", GS::UniString (std::to_string (row.backBuffer).c_str (), CC_UTF8));
+            entry.Add ("delta", GS::UniString (std::to_string (row.delta).c_str (), CC_UTF8));
+            entry.Add ("relation", GS::UniString (PairingRelationName (row.relation), CC_UTF8));
+            entry.Add ("imageOnBackBuffer", row.imageOnBackBuffer);
+            entry.Add ("cameraCoherent", row.cameraCoherent);
+            entry.Add ("presentContextOverlap", row.presentContextOverlap);
+            pairingOut.Push (entry);
+        }
+
         const provenance::Stats stats = provenance::GetStats ();
+        const pairing::Stats pairingStats = pairing::GetStats ();
         const provenance::FirstKnownToAmbiguousDraw& draw = stats.firstKnownToAmbiguousDraw;
         GS::ObjectState firstDraw;
         firstDraw.Add ("valid", draw.valid);
@@ -177,6 +234,31 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         os.Add ("contextSlotsPatched", GS::Int32 (stats.contextSlotsPatched));
         os.Add ("resourceResetPending", stats.resourceResetPending);
         os.Add ("rows", out);
+        os.Add ("pairingEnabled", pairingStats.enabled);
+        os.Add ("provenanceEpoch",
+                GS::UniString (std::to_string (pairingStats.provenanceEpoch).c_str (), CC_UTF8));
+        os.Add ("imageDrawsCommitted",
+                GS::UniString (std::to_string (pairingStats.imageDrawsCommitted).c_str (), CC_UTF8));
+        os.Add ("cameraSnapshots", GS::UniString (std::to_string (pairingStats.cameraSnapshots).c_str (), CC_UTF8));
+        os.Add ("cameraBindings", GS::UniString (std::to_string (pairingStats.cameraBindings).c_str (), CC_UTF8));
+        os.Add ("pairingPresents", GS::UniString (std::to_string (pairingStats.presents).c_str (), CC_UTF8));
+        os.Add ("pairingMatched", GS::UniString (std::to_string (pairingStats.matched).c_str (), CC_UTF8));
+        os.Add ("pairingMismatched", GS::UniString (std::to_string (pairingStats.mismatched).c_str (), CC_UTF8));
+        os.Add ("pairingUnknown", GS::UniString (std::to_string (pairingStats.unknown).c_str (), CC_UTF8));
+        os.Add ("pairingAmbiguous", GS::UniString (std::to_string (pairingStats.ambiguous).c_str (), CC_UTF8));
+        os.Add ("uniqueImagePassesObserved",
+                GS::UniString (std::to_string (pairingStats.uniqueImagePassesObserved).c_str (), CC_UTF8));
+        os.Add ("uniqueImagePassesClassified",
+                GS::UniString (std::to_string (pairingStats.uniqueImagePassesClassified).c_str (), CC_UTF8));
+        os.Add ("uniqueMatched", GS::UniString (std::to_string (pairingStats.uniqueMatched).c_str (), CC_UTF8));
+        os.Add ("uniqueMismatched", GS::UniString (std::to_string (pairingStats.uniqueMismatched).c_str (), CC_UTF8));
+        os.Add ("uniqueUnknown", GS::UniString (std::to_string (pairingStats.uniqueUnknown).c_str (), CC_UTF8));
+        os.Add ("uniqueAmbiguous", GS::UniString (std::to_string (pairingStats.uniqueAmbiguous).c_str (), CC_UTF8));
+        os.Add ("duplicatePresents",
+                GS::UniString (std::to_string (pairingStats.duplicatePresents).c_str (), CC_UTF8));
+        os.Add ("pairingRowsOverwritten",
+                GS::UniString (std::to_string (pairingStats.rowsOverwritten).c_str (), CC_UTF8));
+        os.Add ("pairingRows", pairingOut);
         return os;
     }
 };
@@ -246,6 +328,24 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
           "presentContextOverlaps": {"type": "string"},
           "contextSlotsPatched": {"type": "integer"},
           "resourceResetPending": {"type": "boolean"},
+          "pairingEnabled": {"type": "boolean"},
+          "provenanceEpoch": {"type": "string"},
+          "imageDrawsCommitted": {"type": "string"},
+          "cameraSnapshots": {"type": "string"},
+          "cameraBindings": {"type": "string"},
+          "pairingPresents": {"type": "string"},
+          "pairingMatched": {"type": "string"},
+          "pairingMismatched": {"type": "string"},
+          "pairingUnknown": {"type": "string"},
+          "pairingAmbiguous": {"type": "string"},
+          "uniqueImagePassesObserved": {"type": "string"},
+          "uniqueImagePassesClassified": {"type": "string"},
+          "uniqueMatched": {"type": "string"},
+          "uniqueMismatched": {"type": "string"},
+          "uniqueUnknown": {"type": "string"},
+          "uniqueAmbiguous": {"type": "string"},
+          "duplicatePresents": {"type": "string"},
+          "pairingRowsOverwritten": {"type": "string"},
           "rows": {
             "type": "array",
             "items": {
@@ -265,10 +365,39 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
               "additionalProperties": false,
               "required": ["present", "imagePass", "cameraPass", "delta", "cameraHash", "backBuffer", "resourceState", "resourceAmbiguityMask", "presentContextOverlap", "relation"]
             }
+          },
+          "pairingRows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provenanceEpoch": {"type": "string"},
+                "eventSerial": {"type": "string"},
+                "presentSerial": {"type": "string"},
+                "imagePass": {"type": "string"},
+                "imageRootEventSerial": {"type": "string"},
+                "imageSourceResource": {"type": "string"},
+                "imageModelGeneration": {"type": "string"},
+                "overlayCameraSerial": {"type": "string"},
+                "cameraSourcePass": {"type": "string"},
+                "cameraSnapshotEventSerial": {"type": "string"},
+                "cameraAdoptEventSerial": {"type": "string"},
+                "ambiguityEventSerial": {"type": "string"},
+                "cameraMetadataPass": {"type": "string"},
+                "backBuffer": {"type": "string"},
+                "delta": {"type": "string"},
+                "relation": {"type": "string", "enum": ["MATCH", "MISMATCH", "UNKNOWN", "AMBIGUOUS"]},
+                "imageOnBackBuffer": {"type": "boolean"},
+                "cameraCoherent": {"type": "boolean"},
+                "presentContextOverlap": {"type": "boolean"}
+              },
+              "additionalProperties": false,
+              "required": ["provenanceEpoch", "eventSerial", "presentSerial", "imagePass", "imageRootEventSerial", "imageSourceResource", "imageModelGeneration", "overlayCameraSerial", "cameraSourcePass", "cameraSnapshotEventSerial", "cameraAdoptEventSerial", "ambiguityEventSerial", "cameraMetadataPass", "backBuffer", "delta", "relation", "imageOnBackBuffer", "cameraCoherent", "presentContextOverlap"]
+            }
           }
         },
         "additionalProperties": false,
-        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows"]
+        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "pairingRows"]
       })json" }
 };
 

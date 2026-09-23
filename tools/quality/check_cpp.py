@@ -258,6 +258,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # PASS_PROVENANCE rows are produced in fixed storage on the render thread;
     # its native command only copies those rows out for the diagnostic UI.
     ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/PassProvenance.hpp"),
+    # The independent scene/camera rows share that command and the same bounded
+    # render-thread-to-main-thread copy boundary; duplicating their shape here
+    # would create a second definition of the measurement contract.
+    ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/SceneCameraPairing.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the

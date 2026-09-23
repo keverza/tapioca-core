@@ -15,6 +15,7 @@
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 #include "ArchViz/NavLog.hpp"
 
 // windows.h defines min/max as macros, which makes every std::min<T> below a
@@ -261,6 +262,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     bool passProvenanceActive = false;
+    bool sceneCameraPairingActive = false;
     // ⚠️ DXGI_PRESENT_TEST DISPLAYS NOTHING. It is a probe for occlusion, and
     // applications issue it while minimised or hidden -- counting it inflates
     // the frame count and, worse, injects timestamps that make the frame clock
@@ -271,6 +273,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
         // PASS_PROVENANCE samples Archicad's completed image before any marker or
         // injected overlay draw can give the back buffer a provenance of our own.
         passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
+        if (passProvenanceActive)
+            sceneCameraPairingActive =
+                scenecamerapairing::BeginPresent (swapChain, renderstate::ModelSceneGeneration ());
         // ⚠️ BEFORE THE ORIGINAL, NOT AFTER. After Present the back buffer has
         // already gone to the screen -- with a flip-model chain it is not even
         // the same surface any more -- so anything drawn then appears one frame
@@ -306,6 +311,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     // Archicad's render thread with it.
     const PresentFn original = g_originalPresent;
     const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags) : S_OK;
+    scenecamerapairing::EndPresent (sceneCameraPairingActive, hr == S_OK);
     passprovenance::EndPresent (passProvenanceActive, hr == S_OK);
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
@@ -316,10 +322,14 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
 {
     g_inFlight.fetch_add (1, std::memory_order_acquire);
     bool passProvenanceActive = false;
+    bool sceneCameraPairingActive = false;
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_present1Calls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
         passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
+        if (passProvenanceActive)
+            sceneCameraPairingActive =
+                scenecamerapairing::BeginPresent (swapChain, renderstate::ModelSceneGeneration ());
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
         CompositeOverlayIfTarget (swapChain);
@@ -340,6 +350,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
     }
     const Present1Fn original = g_originalPresent1;
     const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags, parameters) : S_OK;
+    scenecamerapairing::EndPresent (sceneCameraPairingActive, hr == S_OK);
     passprovenance::EndPresent (passProvenanceActive, hr == S_OK);
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
@@ -367,8 +378,10 @@ HRESULT STDMETHODCALLTYPE DetourResizeBuffers (IDXGISwapChain* swapChain, UINT b
     injecteddiligent::DropWrappedTargets ();
     const ResizeBuffersFn original = g_originalResizeBuffers;
     const HRESULT hr = (original != nullptr) ? original (swapChain, bufferCount, width, height, format, flags) : S_OK;
-    if (SUCCEEDED (hr) && uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
+    if (SUCCEEDED (hr) && uint64_t (uintptr_t (swapChain)) == MarkerTarget ()) {
+        scenecamerapairing::OnResizeBuffers ();
         passprovenance::OnResizeBuffers ();
+    }
     g_inFlight.fetch_sub (1, std::memory_order_release);
     return hr;
 }

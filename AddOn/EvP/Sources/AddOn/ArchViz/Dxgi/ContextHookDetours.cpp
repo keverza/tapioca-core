@@ -19,6 +19,7 @@
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
 
 #ifndef NOMINMAX
@@ -228,6 +229,7 @@ class PassProvenanceOperation {
   public:
     explicit PassProvenanceOperation (bool archicad) : active (archicad && passprovenance::BeginContextOperation ())
     {
+        pairingActive = active && scenecamerapairing::BeginContextOperation ();
     }
 
     ~PassProvenanceOperation ()
@@ -239,12 +241,16 @@ class PassProvenanceOperation {
     {
         if (!active)
             return;
+        if (pairingActive)
+            scenecamerapairing::EndContextOperation ();
         passprovenance::EndContextOperation (active);
         active = false;
+        pairingActive = false;
     }
 
   private:
     bool active;
+    bool pairingActive = false;
 };
 
 // ---- the detours -----------------------------------------------------------
@@ -544,19 +550,15 @@ void STDMETHODCALLTYPE DetourClearDepthStencilView (ID3D11DeviceContext* context
     g_inFlight.fetch_sub (1, std::memory_order_release);
 }
 
-// ⚠️ THE DRAW DETOURS RECORD NOTHING INTO THE RING, ONLY A COUNT. They are the
-// hottest functions in the API by an order of magnitude -- a scene pass issues
-// thousands per frame -- and what is being asked of them is one number: does
-// Archicad draw on this context at all. A ring entry per draw would cost
-// Archicad real frame time to answer a yes/no question.
-// ⚠️ AFTER THE FORWARD, BECAUSE THE QUESTION IS WHAT THE DRAW LEFT
-// BEHIND. Every draw detour calls this once the real call has executed, so a
-// depth checkpoint captures the buffer as that draw finished it, not as it found
-// it. It is a no-op unless the checkpoint diagnostic is armed.
+// Draw detours only count: a ring entry for thousands of calls per frame would
+// cost real frame time. Post-draw instruments run after the real call so they
+// observe what the draw left behind, and are no-ops unless armed.
 void PostDraw (ID3D11DeviceContext* context, uint32_t kind, UINT count, bool archicad)
 {
-    if (archicad)
+    if (archicad) {
+        scenecamerapairing::OnDrawCompleted ();
         passprovenance::OnDrawCompleted (passprovenance::DrawKind (kind), uint32_t (count));
+    }
     if (injection::checkpoints::Enabled ())
         injection::checkpoints::OnDrawCompleted (context, kind, uint32_t (count), renderstate::ModelSceneGeneration ());
 }

@@ -9,6 +9,7 @@
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 
@@ -319,6 +320,7 @@ void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneD
     // the overlay is on the building.
     freshness::NoteAuthoritativeSnapshot ();
     const uint64_t sequence = g_snapshotsTaken.fetch_add (1, std::memory_order_relaxed) + 1;
+    scenecamerapairing::OnCameraSnapshot (sequence, draw.scenePassGeneration);
 
     // ⚠️ THE DIAGNOSTIC COPY IS OF OUR COPY, NEVER OF ARCHICAD'S RING. It is one
     // more GPU-to-GPU copy of 256 bytes and it is read back LATER, from a slot

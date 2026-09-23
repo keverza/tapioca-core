@@ -104,6 +104,32 @@ def test_pass_provenance_schema_exposes_ambiguity_causes():
         row["required"]
     )
 
+    pairing_fields = {
+        "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted",
+        "cameraSnapshots", "cameraBindings", "pairingPresents",
+        "pairingMatched", "pairingMismatched", "pairingUnknown",
+        "pairingAmbiguous", "uniqueImagePassesObserved",
+        "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched",
+        "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents",
+        "pairingRowsOverwritten", "pairingRows",
+    }
+    assert pairing_fields <= set(output["properties"])
+    assert pairing_fields <= set(output["required"])
+
+    pairing_row = output["properties"]["pairingRows"]["items"]
+    assert {
+        "provenanceEpoch", "eventSerial", "presentSerial", "imagePass",
+        "imageRootEventSerial", "imageSourceResource", "imageModelGeneration",
+        "overlayCameraSerial", "cameraSourcePass", "cameraSnapshotEventSerial",
+        "cameraAdoptEventSerial", "ambiguityEventSerial", "cameraMetadataPass", "backBuffer", "delta",
+        "relation", "imageOnBackBuffer", "cameraCoherent",
+        "presentContextOverlap",
+    } == set(pairing_row["required"])
+    assert pairing_row["properties"]["relation"]["enum"] == [
+        "MATCH", "MISMATCH", "UNKNOWN", "AMBIGUOUS",
+    ]
+    assert pairing_row["additionalProperties"] is False
+
 
 def test_unparseable_registered_schema_fails(tmp_path):
     native_dir = tmp_path / "NativeCommands"

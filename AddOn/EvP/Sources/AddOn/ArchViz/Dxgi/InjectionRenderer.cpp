@@ -24,6 +24,7 @@
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
 #include <d3d11_1.h>
 #include <dxgi.h>
@@ -481,10 +482,8 @@ void Shutdown ()
     g_initFailed = false;
 }
 
-// The draw itself, with every piece of state it changes saved and restored.
-// Both injection points go through this so they cannot disagree about what they
-// touch. `targetView` is null when the caller has already got the right render
-// target bound and only wants the draw.
+// Both injection points use this draw so they cannot disagree about state.
+// `targetView` is null when the caller already has the right target bound.
 // ⚠️ `altColour` LETS THE TWO INJECTION POINTS BE TOLD APART ON SCREEN WITHOUT A
 // LINE OF NEW HLSL. The world vertex shader and the clip-space pixel shader are
 // a legal pair -- the pixel shader takes no interpolated inputs -- so the
@@ -498,12 +497,9 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
 
-    // ⚠️ EVERYTHING THIS DRAW DISTURBS, PUT BACK BY A DESTRUCTOR.
-    // See `PipelineStateGuard.hpp`. This was sixty hand-written lines here, and
-    // the same sixty in `InjectionProbes` and `DepthCheckpoints` -- and when the
-    // ghost mesh introduced the first `DrawIndexed` on this path, the index
-    // binding was added to ONE of the three. The other two would have handed
-    // Archicad back our index buffer.
+    // ⚠️ EVERYTHING THIS DRAW DISTURBS IS PUT BACK BY `PipelineStateGuard`.
+    // The former copies here, in `InjectionProbes` and in `DepthCheckpoints`
+    // drifted as soon as the ghost mesh added an index buffer to only one path.
     const ScopedPipelineState saved (context, context1);
     ID3D11RenderTargetView* const savedRtv = saved.SavedRenderTarget ();
     ID3D11DepthStencilView* const savedDsv = saved.SavedDepthStencil ();
@@ -525,8 +521,10 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     const UINT snapshotNum[2] = { kExpectedWindowConstants, kExpectedWindowConstants };
     const UINT liveFirst[2] = { view.firstConstant, projection.firstConstant };
     const UINT liveNum[2] = { view.numConstants, projection.numConstants };
-    if (useSnapshot)
+    if (useSnapshot) {
         context1->VSSetConstantBuffers1 (1, 2, snapshotBuffers, snapshotFirst, snapshotNum);
+        scenecamerapairing::OnOverlayCameraBound (draw.scenePassGeneration);
+    }
     else
         context1->VSSetConstantBuffers1 (1, 2, liveBuffers, liveFirst, liveNum);
 

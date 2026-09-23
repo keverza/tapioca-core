@@ -17375,6 +17375,10 @@
             "type": "integer",
             "minimum": 0
           },
+          "moved": {
+            "type": "integer",
+            "minimum": 0
+          },
           "count": {
             "type": "integer",
             "minimum": 0
@@ -23306,6 +23310,27 @@
               "patch"
             ]
           },
+          "analysisElements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "contextElements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "ignoredElements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "positions": {
             "type": "array",
             "items": {
@@ -23400,6 +23425,27 @@
             "type": "string"
           },
           "patchCount": {
+            "type": "integer"
+          },
+          "analysisElementCount": {
+            "type": "integer"
+          },
+          "contextElementCount": {
+            "type": "integer"
+          },
+          "ignoredElementCount": {
+            "type": "integer"
+          },
+          "unmatchedAnalysis": {
+            "type": "integer"
+          },
+          "unmatchedContext": {
+            "type": "integer"
+          },
+          "unmatchedIgnored": {
+            "type": "integer"
+          },
+          "excludedSurfaces": {
             "type": "integer"
           },
           "latitude": {
@@ -25966,6 +26012,60 @@
           "resourceResetPending": {
             "type": "boolean"
           },
+          "pairingEnabled": {
+            "type": "boolean"
+          },
+          "provenanceEpoch": {
+            "type": "string"
+          },
+          "imageDrawsCommitted": {
+            "type": "string"
+          },
+          "cameraSnapshots": {
+            "type": "string"
+          },
+          "cameraBindings": {
+            "type": "string"
+          },
+          "pairingPresents": {
+            "type": "string"
+          },
+          "pairingMatched": {
+            "type": "string"
+          },
+          "pairingMismatched": {
+            "type": "string"
+          },
+          "pairingUnknown": {
+            "type": "string"
+          },
+          "pairingAmbiguous": {
+            "type": "string"
+          },
+          "uniqueImagePassesObserved": {
+            "type": "string"
+          },
+          "uniqueImagePassesClassified": {
+            "type": "string"
+          },
+          "uniqueMatched": {
+            "type": "string"
+          },
+          "uniqueMismatched": {
+            "type": "string"
+          },
+          "uniqueUnknown": {
+            "type": "string"
+          },
+          "uniqueAmbiguous": {
+            "type": "string"
+          },
+          "duplicatePresents": {
+            "type": "string"
+          },
+          "pairingRowsOverwritten": {
+            "type": "string"
+          },
           "rows": {
             "type": "array",
             "items": {
@@ -26029,6 +26129,99 @@
                 "relation"
               ]
             }
+          },
+          "pairingRows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provenanceEpoch": {
+                  "type": "string"
+                },
+                "eventSerial": {
+                  "type": "string"
+                },
+                "presentSerial": {
+                  "type": "string"
+                },
+                "imagePass": {
+                  "type": "string"
+                },
+                "imageRootEventSerial": {
+                  "type": "string"
+                },
+                "imageSourceResource": {
+                  "type": "string"
+                },
+                "imageModelGeneration": {
+                  "type": "string"
+                },
+                "overlayCameraSerial": {
+                  "type": "string"
+                },
+                "cameraSourcePass": {
+                  "type": "string"
+                },
+                "cameraSnapshotEventSerial": {
+                  "type": "string"
+                },
+                "cameraAdoptEventSerial": {
+                  "type": "string"
+                },
+                "ambiguityEventSerial": {
+                  "type": "string"
+                },
+                "cameraMetadataPass": {
+                  "type": "string"
+                },
+                "backBuffer": {
+                  "type": "string"
+                },
+                "delta": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string",
+                  "enum": [
+                    "MATCH",
+                    "MISMATCH",
+                    "UNKNOWN",
+                    "AMBIGUOUS"
+                  ]
+                },
+                "imageOnBackBuffer": {
+                  "type": "boolean"
+                },
+                "cameraCoherent": {
+                  "type": "boolean"
+                },
+                "presentContextOverlap": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "provenanceEpoch",
+                "eventSerial",
+                "presentSerial",
+                "imagePass",
+                "imageRootEventSerial",
+                "imageSourceResource",
+                "imageModelGeneration",
+                "overlayCameraSerial",
+                "cameraSourcePass",
+                "cameraSnapshotEventSerial",
+                "cameraAdoptEventSerial",
+                "ambiguityEventSerial",
+                "cameraMetadataPass",
+                "backBuffer",
+                "delta",
+                "relation",
+                "imageOnBackBuffer",
+                "cameraCoherent",
+                "presentContextOverlap"
+              ]
+            }
           }
         },
         "additionalProperties": false,
@@ -26064,7 +26257,26 @@
           "presentContextOverlaps",
           "contextSlotsPatched",
           "resourceResetPending",
-          "rows"
+          "rows",
+          "pairingEnabled",
+          "provenanceEpoch",
+          "imageDrawsCommitted",
+          "cameraSnapshots",
+          "cameraBindings",
+          "pairingPresents",
+          "pairingMatched",
+          "pairingMismatched",
+          "pairingUnknown",
+          "pairingAmbiguous",
+          "uniqueImagePassesObserved",
+          "uniqueImagePassesClassified",
+          "uniqueMatched",
+          "uniqueMismatched",
+          "uniqueUnknown",
+          "uniqueAmbiguous",
+          "duplicatePresents",
+          "pairingRowsOverwritten",
+          "pairingRows"
         ]
       }
     },

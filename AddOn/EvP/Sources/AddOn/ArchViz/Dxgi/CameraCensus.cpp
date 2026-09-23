@@ -16,6 +16,7 @@
 #include "ArchViz/Dxgi/InjectionProbes.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
 #include <d3d11_1.h>
 
@@ -685,10 +686,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         }
     }
 
-    // ⚠️ THE LOCKED GROUP FEEDS THE SNAPSHOT DIRECTLY, AND THIS IS THE ONLY LINE
-    // IN THE CENSUS THAT AFFECTS WHAT IS DRAWN. Before phase A commits there is
-    // no selection and this does nothing; after it, ONLY draws of the chosen
-    // group become the camera Present uses.
+    // Only the locked group supplies the verified image witness and camera snapshot.
     if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
         MatchesSelection (live, occurrence)) {
         contextstate::SceneDrawState draw;
@@ -715,6 +713,8 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         draw.viewportHeight = live.viewportHeight;
         for (size_t i = 0; i < contextstate::kConstantBufferSlots; ++i)
             draw.vsConstantBuffers[i] = live.vsConstantBuffers[i];
+        scenecamerapairing::ArmVerifiedModelDraw (draw.scenePassGeneration, draw.modelSceneGeneration,
+                                                  draw.sceneTargetEpoch, draw.drawSequence, pass.colorResource);
         injection::SnapshotSelectedDraw (context, draw, GetSelection ().groupId);
 
         // ⚠️ RUNG A. This draw IS the recognised model draw
