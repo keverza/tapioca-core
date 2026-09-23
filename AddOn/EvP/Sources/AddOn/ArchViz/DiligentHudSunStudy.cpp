@@ -107,12 +107,27 @@ constexpr int kFanCount = 6;
 constexpr int kFanAmPm = 5;
 
 // The tint mode the HUD's choices select, or -1 to follow the command.
+// The mode ShowSunStudy asked for, 0 before any study.
+int CommandedMode (const HudState& state)
+{
+    return state.sunSeenCommandedMode == 0xffffffffu ? 0 : int (state.sunSeenCommandedMode);
+}
+
+// Whether the view on screen is the multiple-shadows fan -- chosen here, OR
+// commanded and followed ("as shown"). ⚠️ BOTH: live, a fan commanded by the
+// smoke drew every surface "never shadowed", because only a HUD-chosen fan
+// ever built the chosen-step mask.
+bool FanOnScreen (const HudState& state)
+{
+    return state.sunView == kMultipleView || (state.sunView == 0 && CommandedMode (state) == 7);
+}
+
 int ChosenMode (const HudState& state)
 {
+    if (FanOnScreen (state) && state.sunFanInterval == kFanAmPm)
+        return 6;
     if (state.sunView <= 0 || state.sunView >= kViewCount)
         return -1;
-    if (state.sunView == kMultipleView && state.sunFanInterval == kFanAmPm)
-        return 6;
     return kViewModes[state.sunView];
 }
 
@@ -184,7 +199,8 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
     view.hide = state.sunFilterHide;
     view.viewOverride = ChosenMode (state);
     view.step = state.sunStep > 0 ? uint32_t (state.sunStep) : 0u;
-    if (view.viewOverride == 7 && state.sunFanInterval >= 0 && state.sunFanInterval < kFanCount) {
+    const int effective = view.viewOverride >= 0 ? view.viewOverride : CommandedMode (state);
+    if (effective == 7 && state.sunFanInterval >= 0 && state.sunFanInterval < kFanCount) {
         // The same picking as the web study (SunStudyStepAtlas::FanSteps),
         // capped at the 96 steps the constant buffer carries.
         for (const uint32_t step : evp::sunstudy::FanSteps (state.sunStepMinutes, kFanMinutes[state.sunFanInterval])) {
@@ -326,7 +342,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
     state.sunStepMinutes = study.stepMinutes;
     ImGui::SetNextItemWidth (-60.0f);
     ImGui::Combo ("view##sunview", &state.sunView, kViewNames, kViewCount);
-    if (state.sunView == kMultipleView) {
+    if (FanOnScreen (state)) {
         ImGui::SetNextItemWidth (-60.0f);
         ImGui::Combo ("every##sunfan", &state.sunFanInterval, kFanNames, kFanCount);
         if (study.stepCount > evp::sunstudy::kFanMaxSteps && state.sunFanInterval == 0)

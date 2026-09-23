@@ -845,8 +845,10 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
     if (mode == 7) {
         int rank = FanRank (texel);
         float count = max (g_sunStudyFan.w, 1.0);
-        psOut.color = rank < 0 ? float4 (SrgbToLinear (float3 (0.831, 0.839, 0.847)), 1.0)
-                               : float4 (FanColor (count > 1.0 ? float (rank) / (count - 1.0) : 0.0), 1.0);
+        float shade = lerp (1.0, ShapeShade (psIn.normal), 0.5);
+        float3 fan = rank < 0 ? SrgbToLinear (float3 (0.831, 0.839, 0.847))
+                              : FanColor (count > 1.0 ? float (rank) / (count - 1.0) : 0.0);
+        psOut.color = float4 (fan * shade, 1.0);
         return;
     }
     if (mode == 6) {
@@ -854,7 +856,11 @@ void main (in PSInput psIn, in uint primitiveId : SV_PrimitiveID, out PSOutput p
         // split, so the two agree on which half a noon shadow belongs to.
         uint steps = uint (g_sunStudyShadow.z + 0.5);
         uint split = clamp (uint (g_sunStudyShadow.y + 0.5), 1u, max (steps, 1u));
-        psOut.color = float4 (AmPmColor (ShadowedIn (texel, 0u, split), ShadowedIn (texel, split, steps)), 1.0);
+        // Half-strength shape shading: the categories stay readable, the form
+        // of the building does not vanish under four flat colours.
+        float shade = lerp (1.0, ShapeShade (psIn.normal), 0.5);
+        psOut.color =
+            float4 (AmPmColor (ShadowedIn (texel, 0u, split), ShadowedIn (texel, split, steps)) * shade, 1.0);
         return;
     }
     psOut.color = float4 (SunRamp (hours, g_sunStudyFilter.z), 1.0);
