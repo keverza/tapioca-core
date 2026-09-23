@@ -36,6 +36,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace geomsrv {
 namespace sunfollow {
@@ -58,6 +59,10 @@ struct ActiveSunStudyConfig {
     // study silently swapped the picture back to per-triangle tiles, seams
     // along every diagonal, while the smoke that started it reported PASS.
     bool patchDomain = false;
+    // The ROLES, as picked (SunStudy/SunStudyRoles.hpp). Measurement inputs for
+    // the same reason the domain is: a rerun without them analyses the context.
+    std::vector<std::string> analysisElements;
+    std::vector<std::string> contextElements;
     // Display, carried so a rerun comes back looking the way the user left it --
     // a replacement that reverted to the hours ramp while they were reading a
     // `cell checker` would read as the diagnostic having been taken away.

@@ -183,7 +183,8 @@ set (EVP_SUNSTUDY_SOURCES
     # are invisible on screen: a repack hiding behind an update draws an
     # identical picture and invalidates every coordinate already handed out.
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchSampler.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchAtlas.cpp")
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
@@ -595,6 +596,7 @@ set (EVP_TEST_SOURCES
     test_surfacepatch.cpp
     test_sunstudycache.cpp
     test_sunstudypatchatlas.cpp
+    test_sunstudyroles.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp

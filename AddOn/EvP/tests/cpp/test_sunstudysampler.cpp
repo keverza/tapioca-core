@@ -226,6 +226,35 @@ TEST (SunStudySampler, GroupIdsArePassedThroughPerFace)
         EXPECT_EQ (grid.groups[i], groups[grid.faces[i]]);
 }
 
+// A CONTEXT element casts shadow and is not measured: its faces get no samples
+// and no layout, while the face indexing -- which the display addresses tiles by
+// -- stays that of the whole snapshot.
+TEST (SunStudySampler, AContextGroupIsSkippedAndTheFaceIndexingIsKept)
+{
+    const Quad quad = MakeQuad (4.0);
+    const uint32_t groups[2] = { 0u, 1u };
+    const std::vector<uint8_t> analysed { 0u, 1u }; // group 0 is context
+    SamplerOptions options;
+    options.spacing = 1.0;
+    options.wantLayouts = true;
+    options.sampleGroup = &analysed;
+
+    const SampleGrid grid = Build (quad, options, groups);
+    ASSERT_GT (grid.Count (), 0u);
+    EXPECT_EQ (grid.excludedFaces, 1u);
+    for (size_t i = 0; i < grid.Count (); ++i)
+        EXPECT_EQ (grid.faces[i], 1u) << "sample " << i << " sits on the context face";
+    ASSERT_EQ (grid.layouts.size (), 2u);
+    EXPECT_FALSE (grid.layouts[0].gridded);
+    EXPECT_TRUE (grid.layouts[1].gridded);
+
+    // Without the mask, the same quad samples both faces.
+    options.sampleGroup = nullptr;
+    const SampleGrid everything = Build (quad, options, groups);
+    EXPECT_GT (everything.Count (), grid.Count ());
+    EXPECT_EQ (everything.excludedFaces, 0u);
+}
+
 // ⚠️ DETERMINISM IS A TEST REQUIREMENT, NOT A PREFERENCE. Jitter exists to break
 // aliasing against regular architecture; if it also made the sample set vary run
 // to run, no study could be regression-tested and the two engines could never be

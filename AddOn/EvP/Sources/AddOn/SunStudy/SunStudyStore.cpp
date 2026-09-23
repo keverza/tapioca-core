@@ -357,6 +357,9 @@ bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata
     // ⚠️ THE DOMAIN TRAVELS WITH THE METADATA. The follower adopts its rerun
     // configuration from this copy; without it every rerun was a triangle study.
     copyOfMetadata.domain = source.domain;
+    // The roles likewise: a rerun that forgot them would analyse the context.
+    copyOfMetadata.analysisElements = source.analysisElements;
+    copyOfMetadata.contextElements = source.contextElements;
     copyOfMetadata.groundPad = source.groundPad;
     copyOfMetadata.sourceStepCount = source.sourceStepCount;
     copyOfMetadata.analysisMilliseconds = source.analysisMilliseconds;

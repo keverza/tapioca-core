@@ -198,12 +198,17 @@ TEST (SunStudyStore, DescribeCarriesTheDomainSoAFollowerRerunMeasuresTheSameWay)
     StoreFixture fixture;
     auto record = MakeRecord (3);
     record->domain = SamplingDomain::SurfacePatch;
+    record->analysisElements = { "{A}" };
+    record->contextElements = { "{B}", "{C}" };
     const std::string id = SunStudyStore::Get ().Insert (std::move (record));
 
     StudyRecord metadata;
     std::string error;
     ASSERT_TRUE (SunStudyStore::Get ().Describe (id, metadata, error)) << error;
     EXPECT_TRUE (metadata.IsPatchDomain ());
+    // The roles travel the same way, or a rerun would analyse the context.
+    EXPECT_EQ (metadata.analysisElements, (std::vector<std::string> { "{A}" }));
+    EXPECT_EQ (metadata.contextElements, (std::vector<std::string> { "{B}", "{C}" }));
 }
 
 TEST (SunStudyStore, DescribeCopiesMetadataWithoutHandingOutAPointer)

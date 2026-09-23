@@ -37,6 +37,8 @@ std::string ReadStudyId (const GS::ObjectState& params);
 GS::Int32 ReadInt (const GS::ObjectState& params, const char* key, GS::Int32 fallback);
 double ReadDouble (const GS::ObjectState& params, const char* key, double fallback);
 std::string ReadString (const GS::ObjectState& params, const char* key, const char* fallback);
+// A flat array of strings (element GUIDs); absent or empty reads as no entries.
+std::vector<std::string> ReadStringList (const GS::ObjectState& params, const char* key);
 
 // ⚠️ BULK ARRAYS TRAVEL PACKED, AND THIS IS NOT A MICRO-OPTIMISATION. A live
 // study of 176,106 samples over 49 timesteps measured 1,209 ms of ANALYSIS

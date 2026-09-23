@@ -9,6 +9,7 @@
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
 #include "SunStudy/SunStudyRaster.hpp"
+#include "SunStudy/SunStudyRoles.hpp"
 #include "SunStudy/SunStudyAtlas.hpp"
 #include "SunStudy/SunStudySampler.hpp"
 #include "SunStudy/SunStudyStore.hpp"
@@ -44,6 +45,7 @@ using sunstudysupport::PackDoubles;
 using sunstudysupport::ReadDouble;
 using sunstudysupport::ReadInt;
 using sunstudysupport::ReadString;
+using sunstudysupport::ReadStringList;
 using sunstudysupport::ReadStudyId;
 using sunstudysupport::Text;
 using sunstudysupport::UnpackDoubles;
@@ -83,6 +85,33 @@ class StartSunStudyCommand : public MainThreadCommand {
         std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().For (snapshot);
         if (engine == nullptr)
             return NativeCommandResult::Failure ("the snapshot has no geometry to study");
+
+        // ---- which elements are MEASURED, and which only cast shadow ---------
+        //
+        // Every element is one material to the analysis; the distinction that
+        // matters is its ROLE. See SunStudy/SunStudyRoles.hpp for the table --
+        // naming nothing reproduces the study as it was before roles existed.
+        const std::vector<std::string> analysisPicked = ReadStringList (params, "analysisElements");
+        const std::vector<std::string> contextPicked = ReadStringList (params, "contextElements");
+        const evp::sunstudy::ElementRoles roles =
+            evp::sunstudy::ResolveElementRoles (*snapshot, analysisPicked, contextPicked);
+        if (roles.analysisNamedButAbsent) {
+            // ⚠️ REFUSED, NOT WIDENED. An empty intersection is not an empty
+            // list: "measure these" with none of them present must not become
+            // "measure everything".
+            return NativeCommandResult::Failure (
+                GS::UniString ("none of the ") + GS::UniString::Printf ("%u", (unsigned) analysisPicked.size ()) +
+                " analysis element(s) is in the snapshot - pick them again, or rebuild the snapshot");
+        }
+        // Per element (= per sampler group), whether its faces are measured.
+        const std::vector<uint8_t> sampleMask = roles.SampleMask ();
+
+        // ⚠️ A SECOND BVH ONLY WHEN SOMETHING IS IGNORED. Context casts shadow
+        // exactly as analysis does, so the occluders are the whole snapshot --
+        // and its cached BVH -- unless both lists were named.
+        std::shared_ptr<const QueryEngine> occluders = engine;
+        if (const auto subset = evp::sunstudy::OccluderSnapshot (*snapshot, roles))
+            occluders = std::make_shared<const QueryEngine> (subset);
 
         API_PlaceInfo place = {};
         const GSErrCode err = ACAPI_GeoLocation_GetPlaceSets (&place);
@@ -211,6 +240,7 @@ class StartSunStudyCommand : public MainThreadCommand {
         uint32_t atlasHeight = 0;
         size_t atlasFaces = 0;
         size_t patchCount = 0;
+        size_t excludedSurfaces = 0; // context faces (triangle) or surfaces (patch)
 
         if (sampleExplicit) {
             // ⚠️ THE SEAM THAT MAKES THIS A CORE RATHER THAN A COMMAND. A
@@ -290,6 +320,7 @@ class StartSunStudyCommand : public MainThreadCommand {
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
             options.wantLayouts = true;
+            options.sampleGroup = &sampleMask; // groups[] are mesh indices
 
             if (patchDomain) {
                 // ⚠️ THE *ORIENTED* TRIANGLES, NOT THE RAW ONES, AND IT MATTERS
@@ -303,15 +334,16 @@ class StartSunStudyCommand : public MainThreadCommand {
                 evp::sunstudy::PatchSamplerOptions patchOptions;
                 patchOptions.spacing = spacing;
                 patchOptions.normalOffset = zOffset;
+                patchOptions.sampleGroup = &sampleMask; // groups[] are mesh indices
 
                 std::vector<std::string> elementOf;
                 elementOf.reserve (snapshot->meshes.size ());
                 for (const Mesh& mesh : snapshot->meshes)
                     elementOf.push_back (mesh.guid);
 
-                evp::sunstudy::PatchSampleGrid patches = evp::sunstudy::BuildPatchSampleGrid (
-                    vertices.data (), vertices.size () / 3, oriented.data (), oriented.size () / 3, groups.data (),
-                    elementOf, patchOptions);
+                evp::sunstudy::PatchSampleGrid patches =
+                    evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
+                                                         oriented.size () / 3, groups.data (), elementOf, patchOptions);
                 if (!patches.valid) {
                     return NativeCommandResult::Failure (
                         "the patch sample grid was refused - the requested spacing would exceed the sample ceiling "
@@ -322,6 +354,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 record->positions = patches.positions;
                 record->normals = patches.normals;
                 degenerateFaces = patches.degenerateFaces;
+                excludedSurfaces = patches.excludedPatches;
                 // Reported through the same field the triangle path uses for
                 // faces too small to carry a lattice. Same meaning, same remedy.
                 undersizedFaces = patches.centroidPatches;
@@ -352,33 +385,34 @@ class StartSunStudyCommand : public MainThreadCommand {
             }
             else {
 
-            const evp::sunstudy::SampleGrid samples =
-                evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
-                                                oriented.size () / 3, groups.data (), options);
-            if (!samples.valid) {
-                return NativeCommandResult::Failure (
-                    "the surface sample grid was refused - the requested spacing would exceed the sample ceiling on "
-                    "this model; ask for a coarser grid");
-            }
+                const evp::sunstudy::SampleGrid samples =
+                    evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
+                                                    oriented.size () / 3, groups.data (), options);
+                if (!samples.valid) {
+                    return NativeCommandResult::Failure ("the surface sample grid was refused - the requested spacing "
+                                                         "would exceed the sample ceiling on "
+                                                         "this model; ask for a coarser grid");
+                }
 
-            record->positions = samples.positions;
-            record->normals = samples.normals;
-            undersizedFaces = samples.undersizedFaces;
-            degenerateFaces = samples.degenerateFaces;
+                record->positions = samples.positions;
+                record->normals = samples.normals;
+                undersizedFaces = samples.undersizedFaces;
+                degenerateFaces = samples.degenerateFaces;
+                excludedSurfaces = samples.excludedFaces;
 
-            // ⚠️ BUILT ONCE, HERE, BESIDE THE SAMPLES IT DESCRIBES. The packing
-            // is a pure function of the sample grid, so rebuilding it per read
-            // would produce a different arrangement and silently invalidate
-            // every texture coordinate already handed to a consumer.
-            record->sampleGrid = samples;
-            record->atlas = evp::sunstudy::BuildSunStudyAtlas (samples);
-            atlasWidth = record->atlas.width;
-            atlasHeight = record->atlas.height;
-            atlasFaces = record->atlas.placedFaces;
-            closedGroups = winding.closed;
-            flippedGroups = winding.flipped;
-            gridVersion = static_cast<uint64_t> (samples.Count ()) * 73856093ull ^
-                          static_cast<uint64_t> (triangles.size ()) * 19349663ull;
+                // ⚠️ BUILT ONCE, HERE, BESIDE THE SAMPLES IT DESCRIBES. The packing
+                // is a pure function of the sample grid, so rebuilding it per read
+                // would produce a different arrangement and silently invalidate
+                // every texture coordinate already handed to a consumer.
+                record->sampleGrid = samples;
+                record->atlas = evp::sunstudy::BuildSunStudyAtlas (samples);
+                atlasWidth = record->atlas.width;
+                atlasHeight = record->atlas.height;
+                atlasFaces = record->atlas.placedFaces;
+                closedGroups = winding.closed;
+                flippedGroups = winding.flipped;
+                gridVersion = static_cast<uint64_t> (samples.Count ()) * 73856093ull ^
+                              static_cast<uint64_t> (triangles.size ()) * 19349663ull;
             } // end of the triangle domain
         }
         else {
@@ -403,7 +437,11 @@ class StartSunStudyCommand : public MainThreadCommand {
 
         record->gridSpacing = spacing;
         record->groundPad = reportedPad;
-        record->traversal = std::make_shared<CpuTraversal> (engine);
+        // The OCCLUDERS: the whole snapshot, or the analysis + context subset.
+        record->traversal = std::make_shared<CpuTraversal> (occluders);
+        // Kept so a follower rerun measures the same elements the same way.
+        record->analysisElements = analysisPicked;
+        record->contextElements = contextPicked;
 
         evp::sunstudy::StudyInputs inputs;
         inputs.geometryVersion = engine->SnapshotId ();
@@ -439,6 +477,14 @@ class StartSunStudyCommand : public MainThreadCommand {
         // is reasonable and whose atlas cannot be updated incrementally.
         os.Add ("domain", Text (patchDomain ? std::string ("patch") : std::string ("triangle")));
         os.Add ("patchCount", (GS::Int32) patchCount);
+        // ⚠️ THE ROLES AS RESOLVED, NOT AS ASKED. A picked element the snapshot
+        // does not hold is counted, never dropped in silence.
+        os.Add ("analysisElementCount", (GS::Int32) roles.analysis);
+        os.Add ("contextElementCount", (GS::Int32) roles.context);
+        os.Add ("ignoredElementCount", (GS::Int32) roles.ignored);
+        os.Add ("unmatchedAnalysis", (GS::Int32) roles.unmatchedAnalysis);
+        os.Add ("unmatchedContext", (GS::Int32) roles.unmatchedContext);
+        os.Add ("excludedSurfaces", (GS::Int32) excludedSurfaces);
         os.Add ("undersizedFaces", (GS::Int32) undersizedFaces);
         os.Add ("degenerateFaces", (GS::Int32) degenerateFaces);
         os.Add ("closedGroups", (GS::Int32) closedGroups);
@@ -760,6 +806,8 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "zOffset":{"type":"number"},
                 "samples":{"type":"string","enum":["surfaces","ground","explicit"]},
                 "domain":{"type":"string","enum":["triangle","patch"]},
+                "analysisElements":{"type":"array","items":{"type":"string","minLength":1}},
+                "contextElements":{"type":"array","items":{"type":"string","minLength":1}},
                 "positions":{"type":"array","items":{"type":"number"}},
                 "normals":{"type":"array","items":{"type":"number"}},
                 "positionsPacked":{"type":"string"},
@@ -794,6 +842,12 @@ const NativeCommandRegistration kSunStudyRegistrations[] = {
                 "atlasFaces":{"type":"integer"},
                 "domain":{"type":"string"},
                 "patchCount":{"type":"integer"},
+                "analysisElementCount":{"type":"integer"},
+                "contextElementCount":{"type":"integer"},
+                "ignoredElementCount":{"type":"integer"},
+                "unmatchedAnalysis":{"type":"integer"},
+                "unmatchedContext":{"type":"integer"},
+                "excludedSurfaces":{"type":"integer"},
                 "latitude":{"type":"number"},
                 "longitude":{"type":"number"},
                 "northDeg":{"type":"number"},

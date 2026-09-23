@@ -38,6 +38,16 @@ PatchSampleGrid BuildPatchSampleGrid (const double* vertices, size_t vertexCount
     std::vector<PatchGrid> lattices;
     lattices.reserve (patches.size ());
     for (const SurfacePatch& patch : patches) {
+        // A context surface keeps its slot with an EMPTY lattice, which the
+        // emission loop below already skips -- so it gets no span and its
+        // triangles keep kNoPatch, with no second skip rule to keep in step.
+        const bool analysed = options.sampleGroup == nullptr || patch.group >= options.sampleGroup->size () ||
+                              (*options.sampleGroup)[patch.group] != 0;
+        if (!analysed) {
+            ++grid.excludedPatches;
+            lattices.emplace_back ();
+            continue;
+        }
         lattices.push_back (BuildPatchGrid (patch, vertices, triangles, options.spacing));
         projected += lattices.back ().cells.size ();
         if (projected > options.maxSamples)

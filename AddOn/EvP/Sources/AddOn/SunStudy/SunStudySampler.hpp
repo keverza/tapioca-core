@@ -94,6 +94,9 @@ struct SampleGrid {
     // from one produces a normal built out of noise.
     size_t degenerateFaces = 0;
 
+    // Faces of CONTEXT elements, skipped by `SamplerOptions::sampleGroup`.
+    size_t excludedFaces = 0;
+
     // Faces that fell below the grid and emitted a centroid instead.
     size_t undersizedFaces = 0;
 
@@ -126,7 +129,27 @@ struct SamplerOptions {
     // Fill `layouts`, `cellColumns` and `cellRows`. Off by default: only a
     // consumer that draws the study needs them.
     bool wantLayouts = false;
+
+    // Per GROUP (the caller's element index), whether its faces are ANALYSIS
+    // surfaces. Null, or a group past its end, means "sample it". A context
+    // element's faces are skipped and counted in `excludedFaces`; they still
+    // cast shadow, because the occluders are the traversal's business, not
+    // the sampler's.
+    //
+    // ⚠️ SKIPPED, NOT REMOVED. The face indices stay those of the whole
+    // snapshot, because the display addresses tiles by that index; an excluded
+    // face simply has no samples and no tile, which draws as ordinary shading.
+    const std::vector<uint8_t>* sampleGroup = nullptr;
 };
+
+// True when `groups`/`sampleGroup` say this face belongs to an analysis element.
+inline bool SamplesFace (const std::vector<uint8_t>* sampleGroup, const uint32_t* groups, size_t face)
+{
+    if (sampleGroup == nullptr || groups == nullptr)
+        return true;
+    const uint32_t group = groups[face];
+    return group >= sampleGroup->size () || (*sampleGroup)[group] != 0;
+}
 
 // `vertices` is xyz-interleaved; `triangles` is 3 indices per face; `groups` is
 // one id per face or empty. Faces whose normal cannot be computed are skipped.

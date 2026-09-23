@@ -85,6 +85,10 @@ SampleGrid BuildSampleGrid (const double* vertices, size_t vertexCount, const ui
         grid.layouts.assign (faceCount, FaceLayout ());
 
     for (size_t face = 0; face < faceCount; ++face) {
+        if (!SamplesFace (options.sampleGroup, groups, face)) {
+            ++grid.excludedFaces;
+            continue;
+        }
         const uint32_t i0 = triangles[face * 3 + 0];
         const uint32_t i1 = triangles[face * 3 + 1];
         const uint32_t i2 = triangles[face * 3 + 2];

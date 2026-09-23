@@ -111,6 +111,8 @@ struct PatchSampleGrid {
     // single centroid sample. ⚠️ REPORTED, NOT SILENT: coverage is a correctness
     // property and this is the count of surfaces that only just kept it.
     size_t centroidPatches = 0;
+    // Surfaces of CONTEXT elements: formed, then given no samples.
+    size_t excludedPatches = 0;
     bool valid = false;
 
     // A triangle that no patch claimed: degenerate, or dropped by the builder.
@@ -133,6 +135,11 @@ struct PatchSamplerOptions {
     double normalOffset = 0.01;
     size_t maxSamples = 4000000;
     SurfacePatchOptions patch;
+    // Per group, whether it is an ANALYSIS element -- see
+    // SamplerOptions::sampleGroup. A patch never crosses an element, so a
+    // patch is wholly analysed or wholly context; a context patch gets no span
+    // and its triangles stay `kNoPatch`.
+    const std::vector<uint8_t>* sampleGroup = nullptr;
 };
 
 // Build the patch-domain sample set for a snapshot's concatenated geometry.

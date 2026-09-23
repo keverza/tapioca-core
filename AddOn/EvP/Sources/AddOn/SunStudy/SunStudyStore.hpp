@@ -62,6 +62,13 @@ struct StudyRecord {
     double minAltitudeDegrees = 0.0;
     double gridSpacing = 0.0;
     double groundPad = 0.0;
+
+    // The element GUIDs the caller PICKED as analysis surfaces and as context,
+    // exactly as given (see SunStudy/SunStudyRoles.hpp). Kept as asked rather
+    // than as resolved, because a rerun resolves them again against a model
+    // that may have gained or lost elements since.
+    std::vector<std::string> analysisElements;
+    std::vector<std::string> contextElements;
     size_t sourceStepCount = 0;
 
     // Wall-clock milliseconds spent inside Advance, summed. The measurement the

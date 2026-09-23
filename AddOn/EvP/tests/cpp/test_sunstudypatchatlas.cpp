@@ -693,3 +693,47 @@ TEST (PatchDisplay, AnAtlasFromAnotherStudyIsRefusedRatherThanPartlyDrawn)
     EXPECT_TRUE (tiles.empty ()) << "a refusal left a partial answer behind";
     EXPECT_TRUE (layouts.empty ());
 }
+
+// ---------------------------------------------------------------------------
+// analysis surfaces and context
+// ---------------------------------------------------------------------------
+
+TEST (PatchSampler, AContextElementFormsNoSpanAndItsTrianglesDrawNormally)
+{
+    // "wall-a" is the analysis element, "wall-b" is context: it will cast shadow
+    // (the traversal's business) but must carry no samples, no span and no tile.
+    Scene scene;
+    AddWeldedStrips (scene, "wall-a", 6.0, 2.0, 6); // group 0, triangles 0-11
+    AddQuad (scene, "wall-b", 20, 0, 24, 3, 0);     // group 1, triangles 12-13
+
+    PatchSamplerOptions options;
+    options.spacing = 1.0;
+    options.normalOffset = 0.0;
+    const std::vector<uint8_t> analysed { 1u, 0u };
+    options.sampleGroup = &analysed;
+    const PatchSampleGrid grid =
+        BuildPatchSampleGrid (scene.vertices.data (), scene.vertices.size () / 3, scene.triangles.data (),
+                              scene.triangles.size () / 3, scene.groups.data (), scene.elementOf, options);
+    ASSERT_TRUE (grid.valid);
+
+    ASSERT_EQ (grid.spans.size (), 1u);
+    EXPECT_EQ (grid.spans[0].key.element, "wall-a");
+    EXPECT_EQ (grid.excludedPatches, 1u);
+    EXPECT_NEAR (grid.TotalArea (), 12.0, 1e-9) << "the analysed wall lost area, or the context wall kept some";
+
+    ASSERT_EQ (grid.patchOfTriangle.size (), scene.triangles.size () / 3) << "the face indexing was not kept";
+    for (size_t face = 0; face < 12; ++face)
+        EXPECT_EQ (grid.patchOfTriangle[face], 0u);
+    EXPECT_EQ (grid.patchOfTriangle[12], PatchSampleGrid::kNoPatch);
+    EXPECT_EQ (grid.patchOfTriangle[13], PatchSampleGrid::kNoPatch);
+
+    // And the display draws the context triangles with ordinary shading.
+    SunStudyPatchAtlas atlas;
+    atlas.Fit (grid);
+    std::vector<AtlasTile> tiles;
+    std::vector<FaceLayout> layouts;
+    ASSERT_TRUE (PatchFaceArrays (grid, atlas, tiles, layouts));
+    EXPECT_TRUE (tiles[0].Placed ());
+    EXPECT_FALSE (tiles[12].Placed ());
+    EXPECT_FALSE (tiles[13].Placed ());
+}

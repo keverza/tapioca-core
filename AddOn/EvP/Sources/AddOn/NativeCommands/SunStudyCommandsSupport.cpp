@@ -51,6 +51,19 @@ std::string ReadString (const GS::ObjectState& params, const char* key, const ch
     return std::string (fallback);
 }
 
+std::vector<std::string> ReadStringList (const GS::ObjectState& params, const char* key)
+{
+    std::vector<std::string> out;
+    GS::Array<GS::UniString> values;
+    if (!params.Get (key, values))
+        return out;
+    out.reserve (values.GetSize ());
+    for (UInt32 i = 0; i < values.GetSize (); ++i)
+        if (!values[i].IsEmpty ())
+            out.push_back (Utf8 (values[i]));
+    return out;
+}
+
 GS::UniString PackDoubles (const std::vector<double>& values)
 {
     std::vector<unsigned char> bytes (values.size () * sizeof (double));

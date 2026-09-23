@@ -7,11 +7,13 @@
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp"
 #include "ArchViz/ModelWatch.hpp"
+#include "SunStudy/SunStudyRoles.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Python/MainThreadGate.hpp"
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 #include <mutex>
 
@@ -77,6 +79,24 @@ void Mix (uint64_t& hash, uint64_t value)
     }
 }
 
+// A picked element list, order- and spelling-independent: the same elements
+// picked in another order, or braced differently, are the same study.
+void MixGuids (uint64_t& hash, const std::vector<std::string>& guids)
+{
+    std::vector<std::string> canonical;
+    canonical.reserve (guids.size ());
+    for (const std::string& guid : guids)
+        canonical.push_back (evp::sunstudy::CanonicalGuid (guid));
+    std::sort (canonical.begin (), canonical.end ());
+    canonical.erase (std::unique (canonical.begin (), canonical.end ()), canonical.end ());
+    Mix (hash, canonical.size ());
+    for (const std::string& guid : canonical) {
+        for (const char c : guid)
+            Mix (hash, static_cast<uint8_t> (c));
+        Mix (hash, 0xffull); // separator: {AB,C} is not {A,BC}
+    }
+}
+
 void MixDouble (uint64_t& hash, double value)
 {
     uint64_t bits = 0;
@@ -123,6 +143,10 @@ uint64_t SamplingHash (const ActiveSunStudyConfig& config)
     MixDouble (hash, config.grid);
     // The domain dices the surfaces differently, so it IS a sampling input.
     Mix (hash, config.patchDomain ? 1ull : 0ull);
+    // Which elements are measured and which only cast shadow are sampling
+    // inputs too: re-picking them must re-measure.
+    MixGuids (hash, config.analysisElements);
+    MixGuids (hash, config.contextElements);
     // ⚠️ THE DISPLAY MODE IS DELIBERATELY ABSENT. Switching from `hours` to
     // `cell checker` changes no measurement; including it would recompute a
     // whole study to change a colour, which is precisely what the atlas design
@@ -164,6 +188,18 @@ GS::ObjectState StartParams (const ActiveSunStudyConfig& config)
     // ⚠️ THE ADOPTED STUDY'S DOMAIN, SENT EXPLICITLY. StartSunStudy defaults to
     // `triangle`, so leaving this out reran every patch study as a triangle one.
     params.Add ("domain", GS::UniString (config.patchDomain ? "patch" : "triangle"));
+    // ⚠️ THE ROLES, SENT ON EVERY RERUN. StartSunStudy with no lists analyses
+    // every element, so dropping them would turn the context into analysis.
+    GS::Array<GS::UniString> analysis;
+    for (const std::string& guid : config.analysisElements)
+        analysis.Push (GS::UniString (guid.c_str (), CC_UTF8));
+    GS::Array<GS::UniString> context;
+    for (const std::string& guid : config.contextElements)
+        context.Push (GS::UniString (guid.c_str (), CC_UTF8));
+    if (!analysis.IsEmpty ())
+        params.Add ("analysisElements", analysis);
+    if (!context.IsEmpty ())
+        params.Add ("contextElements", context);
     return params;
 }
 
