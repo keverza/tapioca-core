@@ -186,7 +186,8 @@ set (EVP_SUNSTUDY_SOURCES
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyPatchAtlas.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyRoles.cpp"
     "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyReading.cpp"
-    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStepAtlas.cpp")
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyStepAtlas.cpp"
+    "${EVP_ROOT}/Sources/AddOn/SunStudy/SunStudyLimits.cpp")
 
 # NodeGraph is the owned graph document and evaluator with no host dependencies.
 # WARNING: KEEP IT DevKit-FREE, DG-FREE AND Win32-FREE. If that changes, these
@@ -601,6 +602,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyroles.cpp
     test_sunstudyreading.cpp
     test_sunstudystepatlas.cpp
+    test_sunstudylimits.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp

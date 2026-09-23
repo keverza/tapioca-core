@@ -334,6 +334,9 @@ void DiligentScene::ApplySunStudy (Diligent::IRenderDevice* device, std::unique_
     impl_->sunAtlasHeight = study->height;
     impl_->sunHoursMax = study->hoursMax > 0.0f ? study->hoursMax : 1.0f;
     impl_->sunDebugMode = study->debugMode;
+    impl_->sunSampleCount = study->sampleCount;
+    impl_->sunAnalysedArea = study->analysedArea;
+    impl_->sunPatchDomain = study->patchDomain;
     impl_->sunQuantumHours = study->quantumHours > 0.0f ? study->quantumHours : 0.25f;
     impl_->sunDepthMode = study->depthMode < uint32_t (kSunDepthModeCount) ? study->depthMode : 0;
     // ⚠️ THE PAYLOAD IS RETAINED BEFORE THE BIND, not after: AttachSunStudy reads

@@ -414,6 +414,25 @@ bool SunStudyStore::StepMasks (const std::string& id, StepMaskAtlas& atlas, std:
     return true;
 }
 
+bool SunStudyStore::Footprint (const std::string& id, size_t& samples, double& analysedArea, std::string& error) const
+{
+    std::lock_guard<std::mutex> lock (mutex_);
+    const auto found = studies_.find (id);
+    if (found == studies_.end ()) {
+        error = "no sun study with id '" + id + "'";
+        return false;
+    }
+    const StudyRecord& record = *found->second;
+    samples = record.positions.size () / 3;
+    analysedArea = 0.0;
+    if (record.IsPatchDomain ())
+        analysedArea = record.patchGrid.TotalArea ();
+    else
+        for (const double area : record.sampleGrid.areas)
+            analysedArea += area;
+    return true;
+}
+
 bool SunStudyStore::Describe (const std::string& id, StudyRecord& copyOfMetadata, std::string& error) const
 {
     std::lock_guard<std::mutex> lock (mutex_);

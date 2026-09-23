@@ -40,6 +40,8 @@ using evp::sunstudy::SunStudyStore;
 // of a base64 packer is how two callers of "the same" format begin to
 // disagree about it. `using` rather than qualification at every call site,
 // because these read as language here.
+using sunstudysupport::LimitRefusal;
+using sunstudysupport::MachineAnalysisLimits;
 using sunstudysupport::PackBits;
 using sunstudysupport::PackDoubles;
 using sunstudysupport::ReadDouble;
@@ -316,7 +318,10 @@ class StartSunStudyCommand : public MainThreadCommand {
                 evp::sunstudy::OrientOutward (vertices.data (), vertices.size () / 3, triangles.data (),
                                               triangles.size () / 3, groups.data (), winding);
 
+            // ⚠️ THIS MACHINE'S CEILING, ENFORCED AT THE SAMPLER. See SunStudyLimits.hpp.
+            const auto limits = MachineAnalysisLimits (record->series.StepCount (), patchDomain);
             evp::sunstudy::SamplerOptions options;
+            options.maxSamples = limits.maxSamples;
             options.spacing = spacing;
             options.normalOffset = zOffset;
             options.jitter = ReadDouble (params, "jitter", 0.0);
@@ -335,6 +340,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 evp::sunstudy::PatchSamplerOptions patchOptions;
                 patchOptions.spacing = spacing;
                 patchOptions.normalOffset = zOffset;
+                patchOptions.maxSamples = limits.maxSamples;
                 patchOptions.sampleGroup = &sampleMask; // groups[] are mesh indices
 
                 std::vector<std::string> elementOf;
@@ -345,11 +351,8 @@ class StartSunStudyCommand : public MainThreadCommand {
                 evp::sunstudy::PatchSampleGrid patches =
                     evp::sunstudy::BuildPatchSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
                                                          oriented.size () / 3, groups.data (), elementOf, patchOptions);
-                if (!patches.valid) {
-                    return NativeCommandResult::Failure (
-                        "the patch sample grid was refused - the requested spacing would exceed the sample ceiling "
-                        "on this model; ask for a coarser grid");
-                }
+                if (!patches.valid)
+                    return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
 
                 record->domain = evp::sunstudy::SamplingDomain::SurfacePatch;
                 record->positions = patches.positions;
@@ -366,7 +369,7 @@ class StartSunStudyCommand : public MainThreadCommand {
                 // read would repack and invalidate every texture coordinate
                 // already handed out -- and the result draws perfectly, in
                 // somebody else's colours.
-                record->patchAtlas.Fit (patches);
+                record->patchAtlas.Fit (patches, 1, limits.maxAtlasDimension);
                 if (record->patchAtlas.Width () == 0) {
                     return NativeCommandResult::Failure (
                         "the patch atlas could not be packed within the maximum texture dimension - ask for a "
@@ -389,11 +392,8 @@ class StartSunStudyCommand : public MainThreadCommand {
                 const evp::sunstudy::SampleGrid samples =
                     evp::sunstudy::BuildSampleGrid (vertices.data (), vertices.size () / 3, oriented.data (),
                                                     oriented.size () / 3, groups.data (), options);
-                if (!samples.valid) {
-                    return NativeCommandResult::Failure ("the surface sample grid was refused - the requested spacing "
-                                                         "would exceed the sample ceiling on "
-                                                         "this model; ask for a coarser grid");
-                }
+                if (!samples.valid)
+                    return NativeCommandResult::Failure (LimitRefusal (limits, spacing));
 
                 record->positions = samples.positions;
                 record->normals = samples.normals;

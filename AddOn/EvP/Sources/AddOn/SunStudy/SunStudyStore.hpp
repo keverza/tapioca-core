@@ -233,6 +233,11 @@ class SunStudyStore final {
     bool StepMasks (const std::string& id, StepMaskAtlas& atlas, std::vector<uint16_t>& stepMinutes, uint32_t& noonStep,
                     std::string& error) const;
 
+    // What the study occupies: its sample count and the surface area it
+    // analyses (m2) -- the machine-limits readout's "this study" line and the
+    // area the finest-grid figure is computed for.
+    bool Footprint (const std::string& id, size_t& samples, double& analysedArea, std::string& error) const;
+
     // The study's value at `point` on source face `face` of snapshot mesh
     // `meshIndex` -- the hover inspector's question. `role` is the element's
     // resolved ElementRole, or 0xff when the study recorded none.

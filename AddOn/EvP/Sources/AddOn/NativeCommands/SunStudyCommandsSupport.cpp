@@ -6,6 +6,7 @@
 #include "NativeCommands/CommandUtils.hpp" // Base64Encode / Base64Decode
 #include "SunStudy/SunStudyStore.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 namespace geomsrv {
@@ -62,6 +63,23 @@ std::vector<std::string> ReadStringList (const GS::ObjectState& params, const ch
         if (!values[i].IsEmpty ())
             out.push_back (Utf8 (values[i]));
     return out;
+}
+
+evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDomain)
+{
+    return evp::sunstudy::ComputeAnalysisLimits (
+        evp::sunstudy::CurrentMachineResources (evp::sunstudy::AvailableSystemMemory ()), steps,
+        patchDomain ? evp::sunstudy::kPatchAtlasOccupancy : evp::sunstudy::kTriangleAtlasOccupancy);
+}
+
+GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing)
+{
+    char text[320];
+    std::snprintf (text, sizeof (text),
+                   "the study would exceed this machine's limit of %zu samples (set by %s) at a %.2f m grid - ask "
+                   "for a coarser grid; the viewer's sun study panel shows the finest grid this model allows",
+                   limits.maxSamples, evp::sunstudy::LimitBindingName (limits.binding), spacing);
+    return GS::UniString (text, CC_UTF8);
 }
 
 GS::UniString PackDoubles (const std::vector<double>& values)

@@ -534,6 +534,9 @@ DiligentSceneStats DiligentScene::Stats () const
     s.sunStudy.stepCount = impl_->sunStepCount;
     s.sunStudy.noonStep = impl_->sunNoonStep;
     s.sunStudy.stepMinutes = impl_->sunStepMinutes;
+    s.sunStudy.sampleCount = impl_->sunSampleCount;
+    s.sunStudy.analysedArea = impl_->sunAnalysedArea;
+    s.sunStudy.patchDomain = impl_->sunPatchDomain;
     s.sunStudy.tintFrames = impl_->sunTintFrames;
     s.sunStudy.tintElementsDrawn = impl_->sunTintElementsDrawn;
     s.sunStudy.framesSkippedIncompleteBinding = impl_->sunFramesSkippedIncompleteBinding;

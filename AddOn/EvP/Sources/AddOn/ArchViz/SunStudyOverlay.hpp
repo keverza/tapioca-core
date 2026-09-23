@@ -146,6 +146,11 @@ struct SunStudyAtlasUpload {
     uint32_t noonStep = 0;
     std::vector<uint16_t> stepMinutes;
 
+    // What the study occupies, for the HUD's machine-limits readout.
+    uint64_t sampleCount = 0;
+    double analysedArea = 0.0;
+    bool patchDomain = false;
+
     size_t Bytes () const;
 };
 

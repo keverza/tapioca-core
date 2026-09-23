@@ -19,6 +19,7 @@
 #include "ACAPinc.h"
 
 #include "ObjectState.hpp"
+#include "SunStudy/SunStudyLimits.hpp"
 
 #include <cstdint>
 #include <string>
@@ -39,6 +40,14 @@ double ReadDouble (const GS::ObjectState& params, const char* key, double fallba
 std::string ReadString (const GS::ObjectState& params, const char* key, const char* fallback);
 // A flat array of strings (element GUIDs); absent or empty reads as no entries.
 std::vector<std::string> ReadStringList (const GS::ObjectState& params, const char* key);
+
+// This machine's analysis ceiling for a study of `steps` timesteps in either
+// domain: the published GPU facts plus the free physical memory right now.
+// See SunStudy/SunStudyLimits.hpp.
+evp::sunstudy::AnalysisLimits MachineAnalysisLimits (size_t steps, bool patchDomain);
+// The refusal a study over that ceiling gets: the ceiling, what bound it, and
+// the grid it was asked at -- so the next attempt is a number, not a guess.
+GS::UniString LimitRefusal (const evp::sunstudy::AnalysisLimits& limits, double spacing);
 
 // ⚠️ BULK ARRAYS TRAVEL PACKED, AND THIS IS NOT A MICRO-OPTIMISATION. A live
 // study of 176,106 samples over 49 timesteps measured 1,209 ms of ANALYSIS

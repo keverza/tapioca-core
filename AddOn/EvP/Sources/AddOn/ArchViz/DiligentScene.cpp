@@ -7,6 +7,7 @@
 
 #include "ArchViz/DiligentPickBuffer.hpp"
 #include "ArchViz/DiligentShaders.hpp"
+#include "SunStudy/SunStudyLimits.hpp"
 
 #include <Sampler.h>
 
@@ -50,6 +51,11 @@ bool DiligentScene::Init (Diligent::IRenderDevice* device, uint32_t colorBufferF
 
     impl_->initColorFormat = colorBufferFormat;
     impl_->initDepthFormat = depthBufferFormat;
+    // The sun study's machine limits need the GPU's memory and texture ceiling,
+    // and this is the one place that holds the device (SunStudy/SunStudyLimits).
+    const Diligent::GraphicsAdapterInfo& adapter = device->GetAdapterInfo ();
+    evp::sunstudy::PublishGpuResources (adapter.Description, adapter.Memory.LocalMemory,
+                                        adapter.Texture.MaxTexture2DDimension);
 
     auto compile = [&] (Diligent::SHADER_TYPE type, const char* name, const char* body,
                         RefCntAutoPtr<Diligent::IShader>& out, const char* more = nullptr,

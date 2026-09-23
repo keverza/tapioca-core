@@ -405,6 +405,9 @@ struct geomsrv::archviz::DiligentScene::Impl {
     uint32_t sunStepCount = 0;
     uint32_t sunNoonStep = 0;
     std::vector<uint16_t> sunStepMinutes;
+    uint64_t sunSampleCount = 0;
+    double sunAnalysedArea = 0.0;
+    bool sunPatchDomain = false;
     // The HUD's view choice (-1 = as commanded) and the single shadow's step.
     int sunViewOverride = -1;
     uint32_t sunViewStep = 0;

@@ -98,6 +98,10 @@ struct SunStudyOverlayStatus {
     uint32_t stepCount = 0;
     uint32_t noonStep = 0;
     std::vector<uint16_t> stepMinutes;
+    // The study's size, for the machine-limits readout.
+    uint64_t sampleCount = 0;
+    double analysedArea = 0.0;
+    bool patchDomain = false;
     size_t elementsNamed = 0;
     size_t elementsAttached = 0;
     // Why the others were turned away, split because the two mean different

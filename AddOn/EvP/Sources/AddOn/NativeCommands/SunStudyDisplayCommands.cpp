@@ -197,6 +197,17 @@ NativeCommandResult ShowSunStudyCommand::ExecuteNative (const GS::ObjectState& p
             upload->stepMasks = std::make_shared<const std::vector<uint32_t>> (std::move (steps.masks));
         }
     }
+    // The study's size, for the viewer's machine-limits readout.
+    {
+        size_t samples = 0;
+        double area = 0.0;
+        std::string footprintError;
+        if (SunStudyStore::Get ().Footprint (id, samples, area, footprintError)) {
+            upload->sampleCount = samples;
+            upload->analysedArea = area;
+        }
+        upload->patchDomain = haveMetadata && metadata.IsPatchDomain ();
+    }
     // The ramp's quantum: the study's own timestep, in hours.
     if (haveMetadata && metadata.timestepMinutes > 0)
         upload->quantumHours = static_cast<float> (metadata.timestepMinutes) / 60.0f;
