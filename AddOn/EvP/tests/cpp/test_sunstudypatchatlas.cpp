@@ -12,10 +12,14 @@
 #include <string>
 #include <vector>
 
+#include <cstring>
+
 #include "ArchViz/MeshGroups.hpp"
+#include "ArchViz/SunStudyOverlay.hpp"
 #include "SunStudy/SunStudyPatchAtlas.hpp"
 #include "SunStudy/SunStudyPatchSampler.hpp"
 #include "SunStudy/SunStudySampler.hpp"
+#include "SunStudy/SunStudyStore.hpp"
 #include "gtest/gtest.h"
 
 using namespace evp::sunstudy;
@@ -506,4 +510,186 @@ TEST (PatchMapping, TheMaterialPermutationCarriesTheMappingRatherThanRediscoveri
             << "drawn triangle " << drawn << " reads another element's surface";
     }
     ASSERT_TRUE (sawAReorder) << "the fixture did not actually permute anything";
+}
+
+// ---------------------------------------------------------------------------
+// the patch display: what the renderer is handed for a patch-domain study
+//
+// ⚠️ THE CLAIM IS THAT THE SHADER READS, FOR EVERY POINT OF A SURFACE, THE TEXEL
+// THAT POINT'S HOURS WERE SCATTERED TO -- whichever of the surface's triangles
+// the pixel happens to belong to. It is checked through the real GPU record
+// (BuildSunStudyElementMap) and the shader's own arithmetic (SunStudyTexelAt),
+// against SunStudyPatchAtlas::TexelOf, which is where ScatterPatch wrote. A
+// second copy of the formula would agree with itself and prove nothing.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct PatchDisplay {
+    PatchSampleGrid grid;
+    SunStudyPatchAtlas atlas;
+    std::vector<AtlasTile> tiles;
+    std::vector<FaceLayout> layouts;
+    geomsrv::archviz::SunStudyElementMap map;
+    std::vector<uint32_t> order; // drawn triangle -> source triangle
+};
+
+// The whole scene as ONE element, materials interleaved so the draw order is a
+// real permutation -- the renderer reads `SV_PrimitiveID` through it.
+bool DisplayOf (const Scene& scene, double spacing, PatchDisplay& out)
+{
+    out.grid = SampleOf (scene, spacing);
+    if (!out.grid.valid)
+        return false;
+    out.atlas.Fit (out.grid);
+    if (!PatchFaceArrays (out.grid, out.atlas, out.tiles, out.layouts))
+        return false;
+
+    const size_t faceCount = scene.triangles.size () / 3;
+    std::vector<int32_t> material (faceCount, 0);
+    for (size_t face = 0; face < faceCount; ++face)
+        material[face] = int32_t (face % 3);
+
+    std::vector<uint32_t> indices;
+    std::vector<geomsrv::archviz::MaterialRange> ranges;
+    geomsrv::archviz::BuildMaterialGroups (scene.triangles, material, indices, ranges, nullptr, nullptr, &out.order);
+    return geomsrv::archviz::BuildSunStudyElementMap (out.tiles, out.layouts, spacing, scene.triangles, material, 0,
+                                                      out.map);
+}
+
+} // namespace
+
+TEST (PatchDisplay, EverySampleMapsToItsOwnTexelFromEveryTriangleOfItsSurface)
+{
+    Scene scene;
+    AddWeldedStrips (scene, "wall-a", 6.0, 2.0, 6); // 12 triangles, one surface
+    AddQuad (scene, "wall-b", 20, 0, 24, 3, 0);     //  2 triangles, one surface
+
+    // ⚠️ A SPACING THAT DIVIDES NEITHER RECTANGLE, so the boundary ring carries
+    // partial cells whose area-weighted centroids sit off the cell centre --
+    // the case where a lattice off by half a cell still looks right in the middle.
+    PatchDisplay display;
+    ASSERT_TRUE (DisplayOf (scene, 0.7, display));
+    ASSERT_EQ (display.map.faces.size (), scene.triangles.size () / 3);
+
+    size_t checked = 0;
+    for (size_t sample = 0; sample < display.grid.Count (); ++sample) {
+        const int64_t stored = display.atlas.TexelOf (display.grid, sample);
+        ASSERT_GE (stored, 0) << "sample " << sample << " was never scattered";
+        const double point[3] = { display.grid.positions[sample * 3 + 0], display.grid.positions[sample * 3 + 1],
+                                  display.grid.positions[sample * 3 + 2] };
+
+        // EVERY drawn triangle of the owning surface, not the one containing the
+        // point: across a source-triangle seam the lattice has to be continuous,
+        // which means any triangle of the surface must address the same texel.
+        for (size_t drawn = 0; drawn < display.order.size (); ++drawn) {
+            if (display.grid.patchOfTriangle[display.order[drawn]] != display.grid.spanOf[sample])
+                continue;
+            const int64_t read = geomsrv::archviz::SunStudyTexelAt (display.map.faces[drawn], point,
+                                                                    display.atlas.Width (), display.atlas.Height ());
+            EXPECT_EQ (read, stored) << "sample " << sample << " read through drawn triangle " << drawn;
+            ++checked;
+        }
+    }
+    EXPECT_GT (checked, display.grid.Count ()) << "no sample was checked through more than one triangle";
+}
+
+TEST (PatchDisplay, OneSurfaceIsOneRecordAndTwoSurfacesAreTwo)
+{
+    Scene scene;
+    AddWeldedStrips (scene, "wall-a", 6.0, 2.0, 6);
+    AddQuad (scene, "wall-b", 20, 0, 24, 3, 0);
+
+    PatchDisplay display;
+    ASSERT_TRUE (DisplayOf (scene, 1.0, display));
+
+    // Bit-identical, not merely close: a record that differed in the last float
+    // bit between two triangles of one wall could floor to different cells on
+    // their shared edge -- a one-texel seam in the checker, exactly where the
+    // triangle domain had one.
+    const geomsrv::archviz::SunFaceMap* firstA = nullptr;
+    const geomsrv::archviz::SunFaceMap* firstB = nullptr;
+    for (size_t drawn = 0; drawn < display.order.size (); ++drawn) {
+        const bool wallA = display.order[drawn] < 12;
+        const geomsrv::archviz::SunFaceMap& record = display.map.faces[drawn];
+        ASSERT_GT (record.tile[2], 0.0f) << "drawn triangle " << drawn << " has no tile";
+        const geomsrv::archviz::SunFaceMap*& first = wallA ? firstA : firstB;
+        if (first == nullptr)
+            first = &record;
+        else
+            EXPECT_EQ (std::memcmp (first, &record, sizeof (record)), 0)
+                << "drawn triangle " << drawn << " carries a different lattice from its own surface";
+    }
+    ASSERT_NE (firstA, nullptr);
+    ASSERT_NE (firstB, nullptr);
+    EXPECT_NE (std::memcmp (firstA, firstB, sizeof (*firstA)), 0) << "two surfaces share one record";
+}
+
+TEST (PatchDisplay, ASingleSampleSurfaceShowsThatSampleEverywhereOnIt)
+{
+    // Smaller than one cell: one lattice cell, one sample. Every point of the
+    // surface -- all four corners included -- must read that sample's texel,
+    // never the sentinel beside it.
+    Scene scene;
+    AddQuad (scene, "mullion", 0, 0, 0.3, 0.2, 0);
+
+    PatchDisplay display;
+    ASSERT_TRUE (DisplayOf (scene, 1.0, display));
+    ASSERT_EQ (display.grid.Count (), 1u);
+    const int64_t stored = display.atlas.TexelOf (display.grid, 0);
+    ASSERT_GE (stored, 0);
+
+    EXPECT_EQ (display.tiles[0].width, 1u);
+    EXPECT_EQ (display.tiles[0].height, 1u);
+
+    const double corners[4][3] = { { 0, 0, 0 }, { 0.3, 0, 0 }, { 0.3, 0.2, 0 }, { 0, 0.2, 0 } };
+    for (size_t drawn = 0; drawn < display.map.faces.size (); ++drawn) {
+        for (const auto& corner : corners) {
+            EXPECT_EQ (geomsrv::archviz::SunStudyTexelAt (display.map.faces[drawn], corner, display.atlas.Width (),
+                                                          display.atlas.Height ()),
+                       stored);
+        }
+    }
+}
+
+TEST (PatchDisplay, ATriangleNoPatchClaimedIsShadedNormally)
+{
+    Scene scene;
+    AddQuad (scene, "wall", 0, 0, 4, 3, 0);
+    const uint32_t base = static_cast<uint32_t> (scene.vertices.size () / 3);
+    scene.vertices.insert (scene.vertices.end (), { 9.0, 0.0, 0.0, 9.0, 0.0, 0.0, 9.0, 0.0, 0.0 });
+    scene.triangles.insert (scene.triangles.end (), { base, base + 1, base + 2 });
+    scene.groups.push_back (0);
+
+    PatchDisplay display;
+    ASSERT_TRUE (DisplayOf (scene, 1.0, display));
+    if (display.grid.patchOfTriangle.back () != PatchSampleGrid::kNoPatch)
+        GTEST_SKIP () << "the builder claimed the degenerate triangle; the unclaimed case is not reachable here";
+
+    // Unplaced tile, and therefore the all-zero record the shader discards --
+    // NOT span 0's rectangle.
+    EXPECT_FALSE (display.tiles.back ().Placed ());
+    for (size_t drawn = 0; drawn < display.order.size (); ++drawn) {
+        if (display.order[drawn] == 2)
+            EXPECT_EQ (display.map.faces[drawn].tile[2], 0.0f);
+    }
+}
+
+TEST (PatchDisplay, AnAtlasFromAnotherStudyIsRefusedRatherThanPartlyDrawn)
+{
+    Scene one;
+    AddQuad (one, "wall-a", 0, 0, 4, 3, 0);
+    Scene two = one;
+    AddQuad (two, "wall-b", 20, 0, 24, 3, 0);
+
+    SunStudyPatchAtlas atlas;
+    atlas.Fit (SampleOf (one, 1.0)); // knows wall-a only
+    const PatchSampleGrid grid = SampleOf (two, 1.0);
+    ASSERT_TRUE (grid.valid);
+
+    std::vector<AtlasTile> tiles;
+    std::vector<FaceLayout> layouts;
+    EXPECT_FALSE (PatchFaceArrays (grid, atlas, tiles, layouts));
+    EXPECT_TRUE (tiles.empty ()) << "a refusal left a partial answer behind";
+    EXPECT_TRUE (layouts.empty ());
 }

@@ -104,6 +104,32 @@ struct StudyRecord {
     SampleSet Samples () const;
 };
 
+// A patch-domain study expressed as the per-SOURCE-FACE arrays the display path
+// already reads: every triangle a patch claimed gets that PATCH's lattice and
+// that patch's atlas rectangle.
+//
+// ⚠️ THE RENDERER KEEPS ITS ONE RECORD PER DRAWN TRIANGLE, AND THAT IS THE
+// POINT. The shader maps a world point through an origin, two axes, a start cell
+// and a tile; a patch lattice is exactly those five things (start cell 0, origin
+// at the patch's minimum corner). Handing every triangle of a surface the SAME
+// record is what makes the checker continuous across source-triangle seams, and
+// it leaves the shader, the binder and the topology hash untouched -- so the
+// first live patch display tests the mapping and nothing else.
+//
+// ⚠️ THE TRIANGLE -> PATCH STEP IS `patchOfTriangle`, NEVER A REDISCOVERY. A
+// triangle it does not claim (`kNoPatch`) gets an unplaced tile, which the
+// shader draws as ordinary shading -- not patch 0's sunlight.
+//
+// ⚠️ A PATCH WITH ONE SAMPLE IS SHOWN AS A 1x1 TILE ON THAT SAMPLE'S TEXEL. The
+// centroid fallback writes cell (0,0) of a lattice that may be larger; left at
+// full size, every other cell would read the sentinel and the surface would
+// vanish from the picture while its hours stayed in every total.
+//
+// Returns false when the grid and the atlas do not describe one study (an
+// unplaced span, a mapping of the wrong length).
+bool PatchFaceArrays (const PatchSampleGrid& grid, const SunStudyPatchAtlas& atlas, std::vector<AtlasTile>& tiles,
+                      std::vector<FaceLayout>& layouts);
+
 class SunStudyStore final {
   public:
     static SunStudyStore& Get ();
@@ -167,6 +193,10 @@ class SunStudyStore final {
     // tiles, the face layouts and the image; it does not need the positions,
     // normals, areas or step bits, which on a real model are tens of megabytes.
     // Copying those to change a palette is the one way this could cost a frame.
+    //
+    // A patch-domain study answers in the same shape, through PatchFaceArrays
+    // and the patch atlas image: the tiles are per source face either way, so a
+    // caller cannot pair one domain's tiles with the other's image.
     //
     // ⚠️ `converged` IS RETURNED RATHER THAN CHECKED HERE. A study still
     // advancing has an atlas of the hours SO FAR, which are too low; that is a

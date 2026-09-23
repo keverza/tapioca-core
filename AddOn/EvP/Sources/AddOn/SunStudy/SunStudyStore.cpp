@@ -1,8 +1,107 @@
 #include "SunStudy/SunStudyStore.hpp"
 
+#include <algorithm>
 #include <chrono>
 
 namespace evp::sunstudy {
+
+namespace {
+
+// The patch atlas image as the hours stand. Called with the store's lock HELD,
+// by both readers that serve it, so the whole-study image has one definition.
+std::vector<float> ScatterPatchImage (const StudyRecord& record)
+{
+    // ⚠️ THE SENTINEL IS THE INITIAL VALUE, NOT ZERO, AND IT IS NOT DECORATION.
+    // Every texel no sample lands on -- gutters, the space between shelves, the
+    // fragmentation the atlas deliberately never compacts away -- has to read as
+    // "no sample here", which the shader discards. Zero would read as "nought
+    // hours of sun", which is a legitimate measurement, and the unused half of
+    // the atlas would paint as permanent shadow.
+    std::vector<float> image (record.patchAtlas.TexelCount (), -1.0f);
+
+    const std::vector<double>& hours = record.session.SunHours ();
+
+    // Scattered PATCH BY PATCH through the atlas's own routine rather than
+    // sample by sample through a flat loop. It is the same routine the
+    // incremental path will use for a single surface, so the whole-study image
+    // and a one-surface update cannot disagree about where a patch's texels are.
+    std::vector<double> forSpan;
+    for (size_t spanIndex = 0; spanIndex < record.patchGrid.spans.size (); ++spanIndex) {
+        const PatchSampleSpan& span = record.patchGrid.spans[spanIndex];
+        if (span.first + span.count > hours.size ())
+            continue; // the study has not produced these yet
+        forSpan.assign (hours.begin () + span.first, hours.begin () + span.first + span.count);
+        record.patchAtlas.ScatterPatch (record.patchGrid, spanIndex, forSpan, image);
+    }
+    return image;
+}
+
+} // namespace
+
+bool PatchFaceArrays (const PatchSampleGrid& grid, const SunStudyPatchAtlas& atlas, std::vector<AtlasTile>& tiles,
+                      std::vector<FaceLayout>& layouts)
+{
+    tiles.clear ();
+    layouts.clear ();
+    if (!grid.valid || grid.patchOfTriangle.empty ())
+        return false;
+
+    // One tile and one layout per SPAN first, then fanned out per triangle: a
+    // surface of forty triangles resolves its rectangle once, and every one of
+    // the forty gets a bit-identical copy.
+    std::vector<AtlasTile> spanTiles (grid.spans.size ());
+    std::vector<FaceLayout> spanLayouts (grid.spans.size ());
+    for (size_t index = 0; index < grid.spans.size (); ++index) {
+        const PatchSampleSpan& span = grid.spans[index];
+        const PatchAtlasAllocation* allocation = atlas.Find (span.key);
+        if (allocation == nullptr || !allocation->Placed () || span.count == 0 ||
+            span.first >= grid.cellColumns.size () || span.first >= grid.cellRows.size ())
+            return false;
+
+        AtlasTile& tile = spanTiles[index];
+        FaceLayout& layout = spanLayouts[index];
+        for (int axis = 0; axis < 3; ++axis) {
+            layout.origin[axis] = span.origin[axis];
+            layout.uAxis[axis] = span.uAxis[axis];
+            layout.vAxis[axis] = span.vAxis[axis];
+        }
+        layout.uStart = 0;
+        layout.vStart = 0;
+        layout.gridded = true;
+
+        if (span.count == 1) {
+            // See the header: the surface's only measurement, everywhere on it.
+            tile.x = allocation->x + std::min (grid.cellColumns[span.first], allocation->width - 1);
+            tile.y = allocation->y + std::min (grid.cellRows[span.first], allocation->height - 1);
+            tile.width = tile.height = 1;
+            layout.columns = layout.rows = 1;
+        }
+        else {
+            tile.x = allocation->x;
+            tile.y = allocation->y;
+            tile.width = allocation->width;
+            tile.height = allocation->height;
+            layout.columns = allocation->width;
+            layout.rows = allocation->height;
+        }
+    }
+
+    tiles.resize (grid.patchOfTriangle.size ());
+    layouts.resize (grid.patchOfTriangle.size ());
+    for (size_t face = 0; face < grid.patchOfTriangle.size (); ++face) {
+        const uint32_t span = grid.patchOfTriangle[face];
+        if (span == PatchSampleGrid::kNoPatch)
+            continue; // a default AtlasTile is unplaced: ordinary shading
+        if (span >= grid.spans.size ()) {
+            tiles.clear ();
+            layouts.clear ();
+            return false;
+        }
+        tiles[face] = spanTiles[span];
+        layouts[face] = spanLayouts[span];
+    }
+    return true;
+}
 
 SampleSet StudyRecord::Samples () const
 {
@@ -184,29 +283,7 @@ bool SunStudyStore::PatchAtlasImage (const std::string& id, uint32_t& width, uin
 
     width = record.patchAtlas.Width ();
     height = record.patchAtlas.Height ();
-
-    // ⚠️ THE SENTINEL IS THE INITIAL VALUE, NOT ZERO, AND IT IS NOT DECORATION.
-    // Every texel no sample lands on -- gutters, the space between shelves, the
-    // fragmentation the atlas deliberately never compacts away -- has to read as
-    // "no sample here", which the shader discards. Zero would read as "nought
-    // hours of sun", which is a legitimate measurement, and the unused half of
-    // the atlas would paint as permanent shadow.
-    image.assign (record.patchAtlas.TexelCount (), -1.0f);
-
-    const std::vector<double>& hours = record.session.SunHours ();
-
-    // Scattered PATCH BY PATCH through the atlas's own routine rather than
-    // sample by sample through a flat loop. It is the same routine the
-    // incremental path will use for a single surface, so the whole-study image
-    // and a one-surface update cannot disagree about where a patch's texels are.
-    std::vector<double> forSpan;
-    for (size_t spanIndex = 0; spanIndex < record.patchGrid.spans.size (); ++spanIndex) {
-        const PatchSampleSpan& span = record.patchGrid.spans[spanIndex];
-        if (span.first + span.count > hours.size ())
-            continue; // the study has not produced these yet
-        forSpan.assign (hours.begin () + span.first, hours.begin () + span.first + span.count);
-        record.patchAtlas.ScatterPatch (record.patchGrid, spanIndex, forSpan, image);
-    }
+    image = ScatterPatchImage (record);
     return true;
 }
 
@@ -222,21 +299,35 @@ bool SunStudyStore::DisplayData (const std::string& id, std::vector<AtlasTile>& 
     }
 
     const StudyRecord& record = *found->second;
-    if (!record.atlas.valid) {
-        // See the note in AtlasImage: the patch case needs its own words.
-        error = record.IsPatchDomain ()
-                    ? "study '" + id +
-                          "' is a patch-domain study - the renderer needs patch tiles, which this call does not carry"
-                    : "study '" + id + "' has no atlas - it was not sampled on model surfaces";
-        return false;
+    if (record.IsPatchDomain ()) {
+        if (!record.patchGrid.valid || record.patchAtlas.Width () == 0) {
+            error = "study '" + id + "' is a patch-domain study with no packed patch atlas";
+            return false;
+        }
+        if (!PatchFaceArrays (record.patchGrid, record.patchAtlas, tiles, layouts)) {
+            // ⚠️ A REFUSAL, NOT A PARTIAL ANSWER. A span with no rectangle means
+            // the atlas and the grid are not one study; drawing the rest would
+            // leave one surface wearing whatever texels it happened to address.
+            error = "study '" + id + "' has a patch the patch atlas did not place - the two are not one study";
+            return false;
+        }
+        width = record.patchAtlas.Width ();
+        height = record.patchAtlas.Height ();
+        image = ScatterPatchImage (record);
+    }
+    else {
+        if (!record.atlas.valid) {
+            error = "study '" + id + "' has no atlas - it was not sampled on model surfaces";
+            return false;
+        }
+        tiles = record.atlas.tiles;
+        layouts = record.sampleGrid.layouts;
+        width = record.atlas.width;
+        height = record.atlas.height;
+        image = ScatterToAtlas (record.atlas, record.session.SunHours ());
     }
 
-    tiles = record.atlas.tiles;
-    layouts = record.sampleGrid.layouts;
-    width = record.atlas.width;
-    height = record.atlas.height;
     spacing = record.gridSpacing;
-    image = ScatterToAtlas (record.atlas, record.session.SunHours ());
     daylightHours = record.series.DaylightHours ();
     const StudyProgress progress = record.session.Progress ();
     converged = progress.converged;
