@@ -108,6 +108,31 @@ struct InputSnapshot {
     int transitionCount = 0;
 };
 
+// The cursor in RENDER-TARGET pixels.
+//
+// ⚠️ SCALED BY THE CLIENT RECT MEASURED WITH IT, NOT ASSUMED EQUAL. GetCursorPos,
+// ScreenToClient and GetClientRect all answer in the CALLING THREAD's DPI
+// awareness context; a thread whose context virtualises them reports LOGICAL
+// pixels while the swap chain is PHYSICAL, and at 125 % or 150 % Windows
+// scaling the cursor then lands a scale factor away from what it points at --
+// zero error at the top-left, growing toward the far edges (the PLAT-RE139
+// shape). Mapping through the client rect measured in the same poll is right
+// in either context, and the identity when the two sizes already agree.
+inline int32_t CursorToTarget (int32_t cursor, int32_t clientSize, uint32_t targetSize)
+{
+    if (clientSize <= 0 || targetSize == 0 || uint32_t (clientSize) == targetSize)
+        return cursor;
+    return int32_t ((int64_t (cursor) * int64_t (targetSize)) / int64_t (clientSize));
+}
+inline int32_t CursorTargetX (const InputSnapshot& input, uint32_t width)
+{
+    return CursorToTarget (input.x, input.clientWidth, width);
+}
+inline int32_t CursorTargetY (const InputSnapshot& input, uint32_t height)
+{
+    return CursorToTarget (input.y, input.clientHeight, height);
+}
+
 class InputRingBuffer final {
   public:
     static InputRingBuffer& Get ();

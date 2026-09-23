@@ -556,7 +556,7 @@ struct SunStudyViewSettings;
 SunStudyViewSettings SunStudyViewOf (const HudState& state);
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3]);
-void DrawSunStudyInspectorTooltip (const HudState& state, bool cursorInside);
+void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height);
 
 } // namespace archviz
 } // namespace geomsrv

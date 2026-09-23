@@ -1,7 +1,7 @@
 // The viewport panel's "sun study" section -- the web study's hours-range filter
 // and legend, beside the model they describe.
 //
-// ⚠️ ITS OWN TRANSLATION UNIT because DiligentHud.cpp sits at the size cap, and
+// âš ï¸ ITS OWN TRANSLATION UNIT because DiligentHud.cpp sits at the size cap, and
 // because this is one concern: what the tint on screen means, and which part of
 // it is shown. AnnotationHudControls is the precedent.
 //
@@ -11,6 +11,7 @@
 
 #include "ArchViz/DiligentHud.hpp"
 #include "ArchViz/DiligentScene.hpp"
+#include "ArchViz/InputRingBuffer.hpp"
 #include "ArchViz/SunStudyOverlay.hpp"
 #include "Geometry/MeshStore.hpp"
 #include "Geometry/QueryEngine.hpp"
@@ -32,7 +33,7 @@ namespace archviz {
 namespace {
 
 // The web study's SUN_COLORS (Commands/SunStudy/sunpalette.py), sRGB, as the
-// tint shader's kSunBins. ⚠️ THE SAME TEN, OR THE LEGEND LIES ABOUT THE MODEL.
+// tint shader's kSunBins. âš ï¸ THE SAME TEN, OR THE LEGEND LIES ABOUT THE MODEL.
 constexpr unsigned kSunBinColours[10] = { 0x6b3d18, 0x8a4f1f, 0x9c5a23, 0xb06a28, 0xc07d33,
                                           0xcf8f44, 0xdca157, 0xe7b674, 0xf0cb96, 0xf7e3c2 };
 constexpr const char* kSunBinLabels[10] = { "0 - 1 h", "1 - 2 h", "2 - 3 h", "3 - 4 h", "4 - 5 h",
@@ -92,7 +93,7 @@ bool ReadingLines (const HudState& state, char* first, char* second, size_t size
 }
 
 // The section's view list and the tint mode each one selects. Index 0 follows
-// whatever ShowSunStudy asked for. ⚠️ AN ABI with SunStudyDebugMode.
+// whatever ShowSunStudy asked for. âš ï¸ AN ABI with SunStudyDebugMode.
 constexpr const char* kViewNames[] = { "as shown", "direct sun hours", "single shadow", "multiple shadows", "roles" };
 constexpr int kViewModes[] = { -1, 0, 5, 7, 4 };
 constexpr int kViewCount = 5;
@@ -199,7 +200,7 @@ SunStudyViewSettings SunStudyViewOf (const HudState& state)
 void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, const float origin[3],
                                const float direction[3])
 {
-    // ⚠️ THROTTLED TO THE CURSOR. A still cursor over a converged study asks the
+    // âš ï¸ THROTTLED TO THE CURSOR. A still cursor over a converged study asks the
     // same question every frame; the ray is compared, and re-asked at most four
     // times a second otherwise, so a study still converging updates under a
     // cursor that is not moving.
@@ -225,13 +226,13 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     const std::shared_ptr<const Snapshot> snapshot = MeshStore::Get ().Current ();
     if (snapshot == nullptr)
         return;
-    // ⚠️ PEEK, NEVER For: this is the render thread, and For builds a BVH --
+    // âš ï¸ PEEK, NEVER For: this is the render thread, and For builds a BVH --
     // under a lock another thread may be holding for exactly that -- on a miss.
     const std::shared_ptr<const QueryEngine> engine = QueryIndexCache::Get ().Peek (snapshot->id);
     if (engine == nullptr)
         return;
 
-    // ⚠️ THE GPU PICK DECIDES WHICH ELEMENT IS UNDER THE CURSOR, NOT THE RAY.
+    // âš ï¸ THE GPU PICK DECIDES WHICH ELEMENT IS UNDER THE CURSOR, NOT THE RAY.
     // The snapshot's BVH holds elements the viewer never draws (zone volumes,
     // hidden layers), and the first thing a ray meets can be one of them -- live,
     // the inspector "did not track the model". The pick renders what is ON
@@ -273,11 +274,11 @@ void ServiceSunStudyInspector (HudState& state, const DiligentScene& scene, cons
     state.sunReadingState = reading.measured ? 1 : 2;
 }
 
-void DrawSunStudyInspectorTooltip (const HudState& state, bool cursorInside)
+void DrawSunStudyInspectorTooltip (const HudState& state, const InputSnapshot& input, uint32_t width, uint32_t height)
 {
     char first[96];
     char second[96];
-    if (state.sunInspect != 1 || !cursorInside || !ReadingLines (state, first, second, sizeof (first)))
+    if (state.sunInspect != 1 || !input.inside || !ReadingLines (state, first, second, sizeof (first)))
         return;
     // A plain tooltip: it follows the cursor and never takes the mouse, so the
     // camera and the pick keep working under it.
@@ -285,13 +286,21 @@ void DrawSunStudyInspectorTooltip (const HudState& state, bool cursorInside)
     ImGui::TextUnformatted (first);
     if (second[0] != 0)
         ImGui::TextDisabled ("%s", second);
+    // âš ï¸ SAID WHEN THE CURSOR'S PIXELS ARE NOT THE RENDER TARGET'S. Windows
+    // display scaling can hand this thread LOGICAL cursor coordinates over a
+    // PHYSICAL swap chain; the ray and the pick are mapped through
+    // CursorToTarget either way, and this line is the evidence that it was
+    // needed on this machine.
+    if (input.clientWidth > 0 && (uint32_t (input.clientWidth) != width || uint32_t (input.clientHeight) != height))
+        ImGui::TextDisabled ("scaling corrected: cursor %dx%d -> render %ux%u, %u dpi", input.clientWidth,
+                             input.clientHeight, width, height, input.dpi);
     ImGui::EndTooltip ();
 }
 
 void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 {
     const SunStudyOverlayStatus& study = scene.sunStudy;
-    // ⚠️ ONLY WHILE A STUDY IS ON SCREEN. A range slider with nothing to filter
+    // âš ï¸ ONLY WHILE A STUDY IS ON SCREEN. A range slider with nothing to filter
     // reads as a control that does nothing -- but the machine's LIMITS are worth
     // reading before the first study, so they alone stay reachable.
     if (!study.drawing) {
@@ -306,7 +315,7 @@ void DrawSunStudyHudSection (HudState& state, const DiligentSceneStats& scene)
 
     // ---- the view ---------------------------------------------------------------
     //
-    // ⚠️ THE COMMAND WINS ONLY WHEN IT CHANGES (DiligentViewport.cpp's rule). A
+    // âš ï¸ THE COMMAND WINS ONLY WHEN IT CHANGES (DiligentViewport.cpp's rule). A
     // new COMMANDED mode resets the choice to "as shown"; a follower rerun, which
     // re-shows with the same mode, leaves the person's choice alone.
     if (study.debugMode != state.sunSeenCommandedMode) {

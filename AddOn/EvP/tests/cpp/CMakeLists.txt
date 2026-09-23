@@ -603,6 +603,7 @@ set (EVP_TEST_SOURCES
     test_sunstudyreading.cpp
     test_sunstudystepatlas.cpp
     test_sunstudylimits.cpp
+    test_cursortotarget.cpp
     test_apipipeprotocol.cpp
     test_ghprotocol.cpp
     test_ghsessionprotocol.cpp

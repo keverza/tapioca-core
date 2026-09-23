@@ -607,8 +607,8 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Dili
             // of the press -- DG delivers the transition without one. Same frame,
             // so at most one frame of mouse travel, which the readback box
             // absorbs.
-            state.leftDownX = input.x;
-            state.leftDownY = input.y;
+            state.leftDownX = CursorTargetX (input, width);
+            state.leftDownY = CursorTargetY (input, height);
         }
         else if (state.leftDown) {
             state.leftDown = false;
@@ -618,7 +618,8 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Dili
     }
     // A few pixels of slack: a click is never perfectly still, and treating any
     // movement as a drag makes picking feel broken.
-    if (state.leftDown && (std::abs (input.x - state.leftDownX) > 3 || std::abs (input.y - state.leftDownY) > 3))
+    if (state.leftDown && (std::abs (CursorTargetX (input, width) - state.leftDownX) > 3 ||
+                           std::abs (CursorTargetY (input, height) - state.leftDownY) > 3))
         state.leftDragged = true;
 
     // ⚠️ A CLICK THAT CANNOT BE ISSUED IS REMEMBERED, NOT DROPPED, AND THAT IS A
@@ -668,8 +669,9 @@ void ServicePick (DiligentPickBuffer& pick, PickState& state, bool enabled, Dili
         // cursor is now. Aiming a click at the current cursor would let the few
         // pixels the hand travels between press and release change what gets
         // selected.
-        const int32_t aimX = clicked ? state.leftDownX : input.x;
-        const int32_t aimY = clicked ? state.leftDownY : input.y;
+        // In render-target pixels -- see CursorToTarget (InputRingBuffer.hpp).
+        const int32_t aimX = clicked ? state.leftDownX : CursorTargetX (input, width);
+        const int32_t aimY = clicked ? state.leftDownY : CursorTargetY (input, height);
 
         // ⚠️ BEFORE Begin, NEVER BETWEEN Begin AND Request: it releases the
         // textures the context would be holding. A failure here costs picking for
