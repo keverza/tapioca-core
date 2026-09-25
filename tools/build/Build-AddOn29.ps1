@@ -143,6 +143,7 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 $artifactRoots = @(
     @{ Path = (Join-Path $root "build_29");          Recurse = $false }  # Tapioca.apx, EvPPy.dll
     @{ Path = (Join-Path $root "build_29\GhWorker"); Recurse = $true  }  # worker dll + Tapioca.Grasshopper.gha
+    @{ Path = (Join-Path $root "build_29\Gh2Worker"); Recurse = $true } # GH2 worker dll + TapiocaGH2.rhp
 )
 
 $copied = @()
@@ -154,7 +155,7 @@ foreach ($entry in $artifactRoots) {
     # copy step that quietly skips the .gha is exactly the failure this whole
     # block exists to avoid.
     $found = Get-ChildItem -LiteralPath $entry.Path -File -Recurse:$entry.Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.Extension -in ".apx", ".dll", ".gha" }
+        Where-Object { $_.Extension -in ".apx", ".dll", ".gha", ".rhp" }
     foreach ($file in $found) {
         Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $dist $file.Name) -Force
         $copied += $file.Name

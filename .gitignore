@@ -25,6 +25,7 @@ __pycache__/
 /dist/*.dll
 /dist/*.gha
 /dist/*.pdb
+/dist/*.rhp
 # Generated deployable release tree and GitHub release asset.
 /dist/Tapioca/
 /dist/Tapioca-AC29.zip

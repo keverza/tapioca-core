@@ -47,7 +47,9 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -62,13 +64,18 @@ class GhBridge {
     // worker: the worker connects to a name it is given on its command line, and
     // a name that is not listening yet is a startup race with no upside.
     // `generation` only names the pipe and the log lines; the lifecycle owns it.
-    bool Start (uint32_t generation, GS::UniString& error);
+    bool Start (uint32_t generation, GS::UniString& error, bool expectGh2 = false);
 
     // Idempotent and safe during teardown. Cancels the IO, joins the thread and
     // closes the pipe; it does NOT kill the worker, because a bridge that is
     // down and a worker that is dead are two different things and GhWorkerHost
     // owns the second.
     void Stop ();
+
+    // Seal GH2 admission and discard a queued Ping. Cancel IO only if a Ping
+    // was pending or the worker is still bootstrapping; a Running worker needs
+    // the pipe alive for its cooperative Shutdown. GH1 never calls this.
+    bool BeginGh2Shutdown (bool abortBootstrap = false);
 
     GS::UniString PipeName () const;
 
@@ -136,6 +143,17 @@ class GhBridge {
 
     void Run ();
     void NotifyConnected ();
+    struct Gh2PendingRequest {
+        uint32_t generation;
+        uint32_t requestId;
+        std::string command;
+        std::string parameters;
+        std::string reply;
+        bool replyReady = false;
+    };
+    void QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request, std::string envelope);
+    void FlushGh2Reply (void* server, uint32_t currentGeneration);
+    bool IsGh2RequestCurrent (const std::shared_ptr<Gh2PendingRequest>& request) const;
 
     std::atomic<bool> stopping { false };
     std::atomic<bool> connected { false };
@@ -143,10 +161,15 @@ class GhBridge {
     std::atomic<uint64_t> lastHeartbeatTick { 0 };
     std::atomic<uint32_t> generation { 0 };
     std::atomic<bool> startupAcknowledged { false };
+    // Written before the IO thread starts; read only by that thread.
+    bool expectedGh2 = false;
     std::thread io;
     void* pipe = nullptr; // HANDLE, kept opaque so <windows.h> stays out of this header
     mutable std::mutex writeMutex;
     mutable std::mutex messageMutex;
+    mutable std::mutex gh2RequestMutex;
+    bool gh2ShutdownRequested = false;
+    std::shared_ptr<Gh2PendingRequest> gh2PendingRequest;
     // ⚠️ IO THREAD ONLY, AND THAT IS WHY THERE IS NO LOCK ON THEM. Every
     // preview message arrives on the pipe, is decoded on the IO thread, and is
     // applied here on the IO thread; the only thing that crosses to another

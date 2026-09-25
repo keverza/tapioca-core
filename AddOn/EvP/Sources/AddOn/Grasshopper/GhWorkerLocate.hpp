@@ -36,7 +36,7 @@ GS::UniString FromUtf8Std (const std::string& text);
 // TAPIOCA_GH_WORKER_DIR first, so a developer can point Archicad at a worker
 // built somewhere else without reinstalling the add-on; then the staged folder
 // beside the .apx, which is what a shipped installation has.
-bool ResolveWorker (std::wstring& executable, std::wstring& workingDirectory);
+bool ResolveWorker (std::wstring& executable, std::wstring& workingDirectory, bool gh2 = false);
 
 // How long a connected worker may go without a heartbeat before the supervisor
 // treats it as wedged. TAPIOCA_GH_HEARTBEAT_MS overrides it; a nonsense value is

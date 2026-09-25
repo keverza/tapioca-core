@@ -13,6 +13,8 @@ namespace {
 // The worker's staged folder and file name, as the build writes them.
 constexpr const wchar_t* WorkerFolderName = L"GhWorker";
 constexpr const wchar_t* WorkerExecutableName = L"Tapioca.GhWorker.exe";
+constexpr const wchar_t* Gh2WorkerFolderName = L"Gh2Worker";
+constexpr const wchar_t* Gh2WorkerExecutableName = L"Tapioca.Gh2Worker.exe";
 
 // Fifteen seconds. Long enough that a slow component does not look wedged,
 // short enough that a wedged one is noticed while the user is still watching.
@@ -72,24 +74,25 @@ GS::UniString FromUtf8Std (const std::string& text)
 // TAPIOCA_GH_WORKER_DIR first, so a developer can point Archicad at a worker
 // built somewhere else without reinstalling the add-on. Then the staged folder
 // beside the .apx, which is what a shipped installation has.
-bool ResolveWorker (std::wstring& executable, std::wstring& workingDirectory)
+bool ResolveWorker (std::wstring& executable, std::wstring& workingDirectory, bool gh2)
 {
     std::vector<std::wstring> directories;
 
     GS::UniString configured;
-    if (evp::ReadEnv (L"TAPIOCA_GH_WORKER_DIR", configured))
+    if (evp::ReadEnv (gh2 ? L"TAPIOCA_GH2_WORKER_DIR" : L"TAPIOCA_GH_WORKER_DIR", configured))
         directories.emplace_back ((const wchar_t*) configured.ToUStr ().Get ());
 
     std::wstring own;
     if (OwnDirectory (own)) {
-        directories.push_back (own + L"\\" + std::wstring (WorkerFolderName));
+        directories.push_back (own + L"\\" + std::wstring (gh2 ? Gh2WorkerFolderName : WorkerFolderName));
         directories.push_back (own);
     }
 
     for (const std::wstring& directory : directories) {
         if (directory.empty ())
             continue;
-        const std::wstring candidate = directory + L"\\" + std::wstring (WorkerExecutableName);
+        const std::wstring candidate =
+            directory + L"\\" + std::wstring (gh2 ? Gh2WorkerExecutableName : WorkerExecutableName);
         if (!FileExists (candidate))
             continue;
         executable = candidate;

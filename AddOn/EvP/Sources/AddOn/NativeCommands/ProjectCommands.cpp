@@ -2,7 +2,7 @@
 #include "ACAPinc.h"
 
 #include "NativeCommands/ProjectCommands.hpp"
-#include "AddOnCommands.hpp"                    // ProjectInfoField is declared there
+#include "AddOnCommands.hpp" // ProjectInfoField is declared there
 #include "NativeCommands/CommandRegistration.hpp"
 
 #include <cmath>
@@ -20,8 +20,11 @@ namespace {
 // story index meaningful next to a mesh coordinate.
 // ---------------------------------------------------------------------------
 class GetStoriesCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetStories"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetStories";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
@@ -30,13 +33,13 @@ public:
         API_StoryInfo info = {};
         const GSErrCode err = ACAPI_ProjectSetting_GetStorySettings (&info);
         if (err != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_ProjectSetting_GetStorySettings", err,
-                                                                  "reading the story list"));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_ProjectSetting_GetStorySettings", err, "reading the story list"));
         }
 
-        GS::Array<GS::Int32>     indices;
+        GS::Array<GS::Int32> indices;
         GS::Array<GS::UniString> names;
-        GS::Array<double>        levels;
+        GS::Array<double> levels;
 
         if (info.data != nullptr) {
             const short count = info.lastStory - info.firstStory + 1;
@@ -55,7 +58,7 @@ public:
         os.Add ("actStory", (GS::Int32) info.actStory);
         os.Add ("indices", indices);
         os.Add ("names", names);
-        os.Add ("levels", levels);      // world Z, same frame as geometry
+        os.Add ("levels", levels); // world Z, same frame as geometry
         os.Add ("count", (GS::Int32) indices.GetSize ());
         return os;
     }
@@ -65,8 +68,7 @@ public:
 // value. In Archicad a custom project-info field IS an autotext, so this is the
 // one source both GetProjectInfoCommand (all fields) and ProjectInfoField (one
 // field by name) share — the field semantics live here, once.
-static GSErrCode ReadProjectInfoFields (GS::Array<GS::UniString>& names,
-                                        GS::Array<GS::UniString>& keys,
+static GSErrCode ReadProjectInfoFields (GS::Array<GS::UniString>& names, GS::Array<GS::UniString>& keys,
                                         GS::Array<GS::UniString>& values)
 {
     GS::Array<GS::ArrayFB<GS::UniString, 3>> autotexts;
@@ -75,10 +77,10 @@ static GSErrCode ReadProjectInfoFields (GS::Array<GS::UniString>& names,
         return aerr;
     for (const GS::ArrayFB<GS::UniString, 3>& t : autotexts) {
         if (t.GetSize () < 3)
-            continue;                            // stay parallel; skip a malformed triplet
-        names.Push (t[0]);                       // description / UI name
-        keys.Push (t[1]);                        // database key
-        values.Push (t[2]);                      // value
+            continue;       // stay parallel; skip a malformed triplet
+        names.Push (t[0]);  // description / UI name
+        keys.Push (t[1]);   // database key
+        values.Push (t[2]); // value
     }
     return NoError;
 }
@@ -97,18 +99,21 @@ static GSErrCode ReadProjectInfoFields (GS::Array<GS::UniString>& names,
 //     ("Sklypo plotas"); fieldValues[i] is its string value.
 // ---------------------------------------------------------------------------
 class GetProjectInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetProjectInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetProjectInfo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         GS::ObjectState os;
 
-        API_ProjectInfo info = {};               // destructor frees the UniString*s
+        API_ProjectInfo info = {}; // destructor frees the UniString*s
         const GSErrCode perr = ACAPI_ProjectOperation_Project (&info);
         if (perr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_ProjectOperation_Project", perr,
-                                                                  "reading project name/path"));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_ProjectOperation_Project", perr, "reading project name/path"));
         }
 
         os.Add ("projectName", info.projectName != nullptr ? *info.projectName : GS::UniString ());
@@ -119,8 +124,8 @@ public:
 
         const GSErrCode aerr = ReadProjectInfoFields (fieldNames, fieldKeys, fieldValues);
         if (aerr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_AutoText_GetAutoTexts", aerr,
-                                                                  "reading the Project Info autotext fields"));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_AutoText_GetAutoTexts", aerr, "reading the Project Info autotext fields"));
         }
 
         os.Add ("fieldNames", fieldNames);
@@ -128,6 +133,36 @@ public:
         os.Add ("fieldValues", fieldValues);
         os.Add ("count", (GS::Int32) fieldNames.GetSize ());
         return os;
+    }
+};
+
+// A bounded pre-solve handshake snapshot. API_ProjectInfo does not expose a
+// project GUID; do not substitute the file path or the modification stamp for
+// identity. Project-bound identity will be added when Tapioca persists one.
+class GetGhConnectionInfoCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override
+    {
+        return "GetGhConnectionInfo";
+    }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
+    {
+        API_ServerApplicationInfo server;
+        ACAPI_GetReleaseNumber (&server);
+        API_ProjectInfo project;
+        const GSErrCode err = ACAPI_ProjectOperation_Project (&project);
+        if (err != NoError)
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_ProjectOperation_Project", err, "reading the project for GH2 Ping"));
+
+        GS::ObjectState result;
+        result.Add ("archicadVersion", (GS::Int32) server.mainVersion);
+        result.Add ("archicadBuild", (GS::Int32) server.buildNum);
+        result.Add ("projectName", project.projectName != nullptr ? *project.projectName : GS::UniString ());
+        result.Add ("projectPath", project.projectPath != nullptr ? *project.projectPath : GS::UniString ());
+        result.Add ("untitled", project.untitled);
+        return result;
     }
 };
 
@@ -159,8 +194,11 @@ public:
 // { "hour": 15 }.
 // ---------------------------------------------------------------------------
 class GetPlaceInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetPlaceInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetPlaceInfo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
@@ -169,17 +207,17 @@ public:
         API_PlaceInfo place = {};
         const GSErrCode err = ACAPI_GeoLocation_GetPlaceSets (&place);
         if (err != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_GeoLocation_GetPlaceSets", err,
-                                                                  "reading the project's geo location and sun settings"));
+            return NativeCommandResult::Failure (EVP_ACAPI_FAIL (
+                "ACAPI_GeoLocation_GetPlaceSets", err, "reading the project's geo location and sun settings"));
         }
 
         // Which fields did the caller override? Reported back so a study can log
         // the moment it actually asked about rather than the one it meant to.
         bool overridden = false;
-        overridden |= ApplyTime (params, "year",   place.year);
-        overridden |= ApplyTime (params, "month",  place.month);
-        overridden |= ApplyTime (params, "day",    place.day);
-        overridden |= ApplyTime (params, "hour",   place.hour);
+        overridden |= ApplyTime (params, "year", place.year);
+        overridden |= ApplyTime (params, "month", place.month);
+        overridden |= ApplyTime (params, "day", place.day);
+        overridden |= ApplyTime (params, "hour", place.hour);
         overridden |= ApplyTime (params, "minute", place.minute);
         overridden |= ApplyTime (params, "second", place.second);
 
@@ -188,21 +226,21 @@ public:
         // last edit to the date. One cheap call removes the whole question.
         const GSErrCode sunErr = ACAPI_GeoLocation_CalcSunOnPlace (&place);
         if (sunErr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_GeoLocation_CalcSunOnPlace", sunErr,
-                                                                  "computing the sun position for the requested moment"));
+            return NativeCommandResult::Failure (EVP_ACAPI_FAIL (
+                "ACAPI_GeoLocation_CalcSunOnPlace", sunErr, "computing the sun position for the requested moment"));
         }
 
-        os.Add ("longitude", place.longitude);          // degrees
-        os.Add ("latitude",  place.latitude);           // degrees
-        os.Add ("altitude",  place.altitude);           // metres
+        os.Add ("longitude", place.longitude); // degrees
+        os.Add ("latitude", place.latitude);   // degrees
+        os.Add ("altitude", place.altitude);   // metres
 
-        os.Add ("north",     place.north);              // radians, as the DevKit gives it
-        os.Add ("northDeg",  Degrees (place.north));
+        os.Add ("north", place.north); // radians, as the DevKit gives it
+        os.Add ("northDeg", Degrees (place.north));
 
-        os.Add ("sunAngXY",    place.sunAngXY);         // radians
-        os.Add ("sunAngZ",     place.sunAngZ);
+        os.Add ("sunAngXY", place.sunAngXY); // radians
+        os.Add ("sunAngZ", place.sunAngZ);
         os.Add ("sunAngXYDeg", Degrees (place.sunAngXY));
-        os.Add ("sunAngZDeg",  Degrees (place.sunAngZ));
+        os.Add ("sunAngZDeg", Degrees (place.sunAngZ));
 
         // THE CONVENTION, SETTLED 2026-08-03 against an independent NOAA solar
         // calculation — twice, at two different project-north values, which is
@@ -223,31 +261,31 @@ public:
         // So sunAzimuthDeg is computed here, from north, rather than left to a
         // consumer to rediscover the same way.
         const double horizontal = std::cos (place.sunAngZ);
-        os.Add ("sunDirX", horizontal * std::cos (place.sunAngXY));   // model space
+        os.Add ("sunDirX", horizontal * std::cos (place.sunAngXY)); // model space
         os.Add ("sunDirY", horizontal * std::sin (place.sunAngXY));
         os.Add ("sunDirZ", std::sin (place.sunAngZ));
 
         // Clockwise from geographic north — the bearing a daylight report prints
         // ("the sun is at 193 deg"), as opposed to the model-space angle above.
         double azimuth = Degrees (place.north - place.sunAngXY);
-        azimuth = azimuth - 360.0 * std::floor (azimuth / 360.0);      // into [0, 360)
+        azimuth = azimuth - 360.0 * std::floor (azimuth / 360.0); // into [0, 360)
         os.Add ("sunAzimuthDeg", azimuth);
-        os.Add ("sunAltitudeDeg", Degrees (place.sunAngZ));            // = sunAngZDeg, named for readers
+        os.Add ("sunAltitudeDeg", Degrees (place.sunAngZ)); // = sunAngZDeg, named for readers
 
-        os.Add ("year",   (GS::Int32) place.year);
-        os.Add ("month",  (GS::Int32) place.month);
-        os.Add ("day",    (GS::Int32) place.day);
-        os.Add ("hour",   (GS::Int32) place.hour);
+        os.Add ("year", (GS::Int32) place.year);
+        os.Add ("month", (GS::Int32) place.month);
+        os.Add ("day", (GS::Int32) place.day);
+        os.Add ("hour", (GS::Int32) place.hour);
         os.Add ("minute", (GS::Int32) place.minute);
         os.Add ("second", (GS::Int32) place.second);
 
-        os.Add ("summerTime",        place.sumTime);
+        os.Add ("summerTime", place.sumTime);
         os.Add ("timeZoneInMinutes", (GS::Int32) place.timeZoneInMinutes);
-        os.Add ("timeOverridden",    overridden);
+        os.Add ("timeOverridden", overridden);
         return os;
     }
 
-private:
+  private:
     // One date/time field, if the caller gave it. Returns whether it did.
     // Negative and absurd values are IGNORED rather than clamped: a caller that
     // passes -1 for `hour` has a bug, and silently turning it into 0 or 23 hides
@@ -295,74 +333,78 @@ private:
 // that mode does not display an altitude at all.
 // ---------------------------------------------------------------------------
 class GetViewSunInfoCommand : public MainThreadCommand {
-public:
-    GS::String GetName () const override { return "GetViewSunInfo"; }
+  public:
+    GS::String GetName () const override
+    {
+        return "GetViewSunInfo";
+    }
 
     NativeCommandResult ExecuteNative (const GS::ObjectState&, GS::ProcessControl&) const override
     {
         API_3DProjectionInfo projection = {};
         const GSErrCode projErr = ACAPI_View_Get3DProjectionSets (&projection);
         if (projErr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_View_Get3DProjectionSets", projErr,
-                                                                  "reading the 3D window's projection settings for its sun"));
+            return NativeCommandResult::Failure (EVP_ACAPI_FAIL (
+                "ACAPI_View_Get3DProjectionSets", projErr, "reading the 3D window's projection settings for its sun"));
         }
 
         // The union is discriminated by isPersp, and the two arms carry the same
         // API_SunAngleSettings -- reading the wrong arm yields plausible garbage
         // rather than an error, which is why this is a switch and not a guess.
-        const API_SunAngleSettings& sun = projection.isPersp ? projection.u.persp.sunAngSets
-                                                            : projection.u.axono.sunAngSets;
+        const API_SunAngleSettings& sun =
+            projection.isPersp ? projection.u.persp.sunAngSets : projection.u.axono.sunAngSets;
 
         API_PlaceInfo place = {};
         const GSErrCode placeErr = ACAPI_GeoLocation_GetPlaceSets (&place);
         if (placeErr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_GeoLocation_GetPlaceSets", placeErr,
-                                                                  "reading the project place the view's sun date is evaluated against"));
+            return NativeCommandResult::Failure (
+                EVP_ACAPI_FAIL ("ACAPI_GeoLocation_GetPlaceSets", placeErr,
+                                "reading the project place the view's sun date is evaluated against"));
         }
 
         GS::ObjectState os;
         os.Add ("isPersp", projection.isPersp);
-        os.Add ("sunPositionMode", GS::UniString (sun.sunPosOpt == API_SunPosition_GivenByAngles
-                                                      ? "byAngles" : "byDate"));
-        os.Add ("sunAzimuthRaw",  sun.sunAzimuth);
+        os.Add ("sunPositionMode",
+                GS::UniString (sun.sunPosOpt == API_SunPosition_GivenByAngles ? "byAngles" : "byDate"));
+        os.Add ("sunAzimuthRaw", sun.sunAzimuth);
         os.Add ("sunAltitudeRaw", sun.sunAltitude);
 
-        os.Add ("viewYear",   (GS::Int32) sun.year);
-        os.Add ("viewMonth",  (GS::Int32) sun.month);
-        os.Add ("viewDay",    (GS::Int32) sun.day);
-        os.Add ("viewHour",   (GS::Int32) sun.hour);
+        os.Add ("viewYear", (GS::Int32) sun.year);
+        os.Add ("viewMonth", (GS::Int32) sun.month);
+        os.Add ("viewDay", (GS::Int32) sun.day);
+        os.Add ("viewHour", (GS::Int32) sun.hour);
         os.Add ("viewMinute", (GS::Int32) sun.minute);
         os.Add ("viewSecond", (GS::Int32) sun.second);
         os.Add ("viewSummerTime", sun.summerTime);
 
-        os.Add ("north",    place.north);
+        os.Add ("north", place.north);
         os.Add ("northDeg", Degrees (place.north));
 
         // The VIEW's moment, on the PROJECT's place: the sun dialog sets a date
         // but never a latitude, so the place still decides where on earth that
         // date is being observed from. Timezone likewise stays the project's.
-        place.year    = sun.year;
-        place.month   = sun.month;
-        place.day     = sun.day;
-        place.hour    = sun.hour;
-        place.minute  = sun.minute;
-        place.second  = sun.second;
+        place.year = sun.year;
+        place.month = sun.month;
+        place.day = sun.day;
+        place.hour = sun.hour;
+        place.minute = sun.minute;
+        place.second = sun.second;
         place.sumTime = sun.summerTime;
 
         const GSErrCode sunErr = ACAPI_GeoLocation_CalcSunOnPlace (&place);
         if (sunErr != NoError) {
-            return NativeCommandResult::Failure (EVP_ACAPI_FAIL ("ACAPI_GeoLocation_CalcSunOnPlace", sunErr,
-                                                                  "computing the sun for the 3D view's own date and time"));
+            return NativeCommandResult::Failure (EVP_ACAPI_FAIL (
+                "ACAPI_GeoLocation_CalcSunOnPlace", sunErr, "computing the sun for the 3D view's own date and time"));
         }
 
         // Same three lines as GetPlaceInfo, and deliberately identical: sunAngXY
         // is CCW from the model's +X and already in model space, sunAngZ is the
         // altitude above the horizon. See the block in GetPlaceInfoCommand for
         // the NOAA validation that settled it -- do NOT add a north term here.
-        os.Add ("computedSunAngXY",    place.sunAngXY);
-        os.Add ("computedSunAngZ",     place.sunAngZ);
+        os.Add ("computedSunAngXY", place.sunAngXY);
+        os.Add ("computedSunAngZ", place.sunAngZ);
         os.Add ("computedSunAngXYDeg", Degrees (place.sunAngXY));
-        os.Add ("computedSunAngZDeg",  Degrees (place.sunAngZ));
+        os.Add ("computedSunAngZDeg", Degrees (place.sunAngZ));
 
         const double horizontal = std::cos (place.sunAngZ);
         os.Add ("computedSunDirX", horizontal * std::cos (place.sunAngXY));
@@ -371,12 +413,12 @@ public:
 
         double azimuth = Degrees (place.north - place.sunAngXY);
         azimuth = azimuth - 360.0 * std::floor (azimuth / 360.0);
-        os.Add ("computedAzimuthDeg",  azimuth);                     // compass, CW from north
-        os.Add ("computedAltitudeDeg", Degrees (place.sunAngZ));     // the elevation the dialog hides
+        os.Add ("computedAzimuthDeg", azimuth);                  // compass, CW from north
+        os.Add ("computedAltitudeDeg", Degrees (place.sunAngZ)); // the elevation the dialog hides
         return os;
     }
 
-private:
+  private:
     static double Degrees (double radians)
     {
         constexpr double pi = 3.14159265358979323846;
@@ -416,6 +458,20 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
             },
             "additionalProperties":false,
             "required":["projectName","projectPath","untitled","fieldNames","fieldKeys","fieldValues","count"]
+        })json" },
+    { "GetGhConnectionInfo", &MakeRegisteredNativeCommand<GetGhConnectionInfoCommand>, false,
+      R"json({"type":"object","properties":{},"additionalProperties":false})json",
+      R"json({
+            "type":"object",
+            "properties":{
+                "archicadVersion":{"type":"integer"},
+                "archicadBuild":{"type":"integer"},
+                "projectName":{"type":"string"},
+                "projectPath":{"type":"string"},
+                "untitled":{"type":"boolean"}
+            },
+            "additionalProperties":false,
+            "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled"]
         })json" },
     { "GetPlaceInfo", &MakeRegisteredNativeCommand<GetPlaceInfoCommand>, false,
       R"json({
@@ -493,7 +549,7 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
         })json" },
 };
 
-}   // namespace
+} // namespace
 
 NativeCommandRegistrations GetProjectCommandRegistrations ()
 {
@@ -549,9 +605,8 @@ bool ProjectInfoField (const GS::UniString& needleText, GS::UniString& value)
 // scan. Sharing ReadProjectInfoFields is what guarantees a picked key always
 // resolves in ProjectInfoField — two independent scans could disagree about which
 // fields exist.
-bool ProjectInfoFieldChoices (GS::Array<GS::UniString>& descriptions,
-                             GS::Array<GS::UniString>& keys,
-                             GS::Array<GS::UniString>& values)
+bool ProjectInfoFieldChoices (GS::Array<GS::UniString>& descriptions, GS::Array<GS::UniString>& keys,
+                              GS::Array<GS::UniString>& values)
 {
     return ReadProjectInfoFields (descriptions, keys, values) == NoError;
 }

@@ -465,6 +465,9 @@ class ControlPalette final : public DG::Palette,
     // button, and deliberately not remembered across a definition load: see
     // where it is cleared.
     bool workflowCommit = false;
+    // File choice, not host state: Stop resets the active engine but Connect
+    // must still know which pipe the selected definition expects.
+    bool selectedWorkflowGh2 = false;
     // The Attach button's last face, as an AttachFace. Kept as a short because
     // the enum is private to the band's own translation unit.
     short lastWorkflowAttachFace = -1;

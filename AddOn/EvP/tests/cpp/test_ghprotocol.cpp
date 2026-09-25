@@ -151,6 +151,25 @@ TEST (GhProtocol, HelloRoundTripsAndRefusesAPidlessWorker)
     EXPECT_FALSE (DecodeHelloPayload (pidless.data (), pidless.size (), received, error));
 }
 
+TEST (GhProtocol, GH2AndGH1PeersCannotCrossTheSelectedEngineBoundary)
+{
+    std::string refusal;
+    EXPECT_TRUE (AcceptsEngine (0, false, refusal));
+    EXPECT_TRUE (refusal.empty ());
+    EXPECT_TRUE (AcceptsEngine (CapabilityGh2, true, refusal));
+    EXPECT_TRUE (refusal.empty ());
+
+    EXPECT_FALSE (AcceptsEngine (CapabilityGh2, false, refusal));
+    EXPECT_NE (std::string::npos, refusal.find ("GH1"));
+    EXPECT_FALSE (AcceptsEngine (0, true, refusal));
+    EXPECT_NE (std::string::npos, refusal.find ("GH2"));
+
+    // Unknown future capabilities remain additive; only engine identity is
+    // exclusive. Neither side may reinterpret a GH2 peer as GH1 by dropping
+    // its unknown flags.
+    EXPECT_TRUE (AcceptsEngine (CapabilityGh2 | (1u << 30), true, refusal));
+}
+
 TEST (GhProtocol, ApiRequestRoundTrips)
 {
     ApiRequestPayload sent;

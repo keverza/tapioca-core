@@ -64,6 +64,11 @@ constexpr uint32_t MaxPayloadBytes = 16u * 1024u * 1024u;
 // corrupt length is refused instead of allocated.
 constexpr uint32_t MaxCommandBytes = 1024;
 
+// Additive v5 capability: an explicitly selected GH2 bridge must refuse a
+// GH1 peer, and an ordinary GH1 bridge must refuse a GH2 peer. The bit has no
+// meaning to GH1 and does not change any existing payload or frame layout.
+constexpr uint32_t CapabilityGh2 = 1u << 1;
+
 enum class MessageType : uint32_t {
     // worker -> host, first message on a fresh connection. Payload: HelloPayload.
     Hello = 1,
@@ -309,6 +314,11 @@ bool DecodeTextPayload (const uint8_t* bytes, size_t size, std::string& utf8, st
 // The handshake verdict, with the message a user has to act on. Kept here rather
 // than in the host so that the refusal wording is covered by the offline tests.
 bool AcceptsVersion (uint32_t workerVersion, std::string& refusal);
+
+// Check engine identity after the normal versioned hello, before granting any
+// capability or dispatching an API call. A process mismatch is never an
+// opportunity to interpret GH1's string inputs as GH2 Player data.
+bool AcceptsEngine (uint32_t offeredCapabilities, bool expectingGh2, std::string& refusal);
 
 const char* DescribeMessageType (MessageType type);
 

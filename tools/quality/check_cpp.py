@@ -871,6 +871,7 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
         "ControlPaletteAutoPreview.cpp",
         "ControlPaletteDynamo.cpp",
         "ControlPaletteGrasshopper.cpp",
+        "ControlPaletteWorkflowPicker.cpp",  # defines the shell's file-picker method
         "ControlPaletteUserItems.cpp",
         "ControlPaletteLayout.cpp",
         "ControlPaletteMenu.cpp",

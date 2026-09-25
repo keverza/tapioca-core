@@ -445,6 +445,18 @@ bool AcceptsVersion (uint32_t workerVersion, std::string& refusal)
     return false;
 }
 
+bool AcceptsEngine (uint32_t offeredCapabilities, bool expectingGh2, std::string& refusal)
+{
+    const bool peerIsGh2 = (offeredCapabilities & CapabilityGh2) != 0;
+    if (peerIsGh2 == expectingGh2) {
+        refusal.clear ();
+        return true;
+    }
+    refusal = expectingGh2 ? "This bridge expects a Rhino 9 / GH2 worker, but a GH1 peer connected."
+                           : "This bridge expects a Rhino 8 / GH1 worker, but a GH2 peer connected.";
+    return false;
+}
+
 const char* DescribeMessageType (MessageType type)
 {
     switch (type) {

@@ -5,6 +5,9 @@
 #include "GhLog.hpp"
 #include "GhWorkerHost.hpp"
 
+#include "GhWorkerDescription.hpp"
+#include "GhWorkerArchicadPort.hpp"
+
 #include "GhWorkerLocate.hpp"
 #include "GhWorkerPeerDetach.hpp"
 
@@ -22,25 +25,8 @@
 #include <vector>
 
 // ============================================================================
-// PLAT-RHINO-INSIDE, P0/P0b: spawn -> handshake -> supervise -> kill, and back
-// down again cleanly.
-//
-// The whole file is written so that EVERY failure has a name. A menu command
-// that says "could not start Grasshopper" is worth nothing: the things that
-// actually go wrong on a real machine are a worker that was never built, a
-// missing .NET Desktop Runtime, a missing or unlicensed Rhino, a worker that
-// exits during startup, a worker that never completes the handshake, and a
-// worker that stops answering while a definition runs. They have six different
-// fixes, so they get six different messages.
-//
-// ⚠️ WHAT CHANGED FROM THE IN-PROCESS HOST THIS REPLACES, AND WHY THE OLD
-// PREFLIGHT CHECKS ARE GONE RATHER THAN MOVED. The opennurbs collision, the STA
-// gate and the crash breadcrumb all existed to make it safe to construct Rhino
-// inside Archicad.exe. Out of process there is no Rhino in Archicad's process:
-// Archicad's own hidden Rhino_In/Rhino_Out add-ons keep their opennurbs.dll and
-// keep working, Archicad's 3DM import and export come back, and a Rhino that
-// access-violates costs a worker. Do not reinstate those checks here; they would
-// refuse starts for a conflict that no longer exists.
+// PLAT-RHINO-INSIDE: supervise an owned worker or an unowned attached peer.
+// Rhino stays out of Archicad.exe; do not reinstate in-process preflight checks.
 // ============================================================================
 
 namespace evp {
@@ -55,11 +41,6 @@ using locate::FromUtf8Std;
 using locate::FromWide;
 using locate::HeartbeatDeadlineMs;
 using locate::ResolveWorker;
-
-// How long a worker may go without a heartbeat before the supervisor stops
-// believing in it. Generous enough to cover a long solve — the worker heartbeats
-// from its own IO thread, so a busy solver still answers — and short enough that
-// a wedged one is noticed in the same minute.
 
 // How long the supervisor waits between checks. One second: this is a liveness
 // poll, not a latency path.
@@ -88,6 +69,7 @@ DWORD workerProcessId = 0;
 std::thread supervisor;
 std::atomic<bool> supervisorStopping { false };
 std::atomic<bool> showEditorOnConnect { false };
+std::atomic<bool> activeGh2 { false };
 std::atomic<uint32_t> disconnectedGeneration { 0 };
 
 GS::UniString lastMessage;
@@ -97,33 +79,6 @@ uint32_t archicadPort = 0;
 void Log (const GS::UniString& line)
 {
     LogLine (lifecycle.Generation (), workerProcessId, line);
-}
-
-// THIS Archicad instance's JSON port — what a Tapir ConnectArchicad component in
-// the worker has to be pointed at.
-//
-// ACAPI_Command_GetHttpConnectionPort is the only authority for it and it is
-// main-thread ACAPI, so it is read HERE, natively, on the menu command's own
-// thread. The answer is handed to the worker once, on its command line.
-//
-// ⚠️ TAPIR'S OWN LOOPBACK HTTP IS CORRECT AGAIN, AND THIS IS WHY IT MATTERS.
-// HANDOFF §"Tapir needs no change and no fork": out of process the pinned,
-// unmodified Tapir .gha works, because the thread its blocking HTTP call
-// occupies belongs to the WORKER and Archicad's main thread stays free to
-// answer. Tapioca does not intercept that path; it only supplies the port,
-// which Tapir cannot discover for itself and guesses wrong the moment a second
-// Archicad is open.
-uint32_t ArchicadJsonPort ()
-{
-    UShort port = 0;
-    const GSErrCode err = ACAPI_Command_GetHttpConnectionPort (&port);
-    if (err != NoError) {
-        Log (GS::UniString::Printf ("ACAPI_Command_GetHttpConnectionPort failed (%d); Tapir components will "
-                                    "have to be given a port by hand",
-                                    (int) err));
-        return 0;
-    }
-    return (uint32_t) port;
 }
 
 // Shows a report to the user from ANY thread. The supervisor runs on its own and
@@ -171,6 +126,9 @@ void TearDownLocked (bool killWorker, const GS::UniString& reason, bool failed =
     }
     workerProcessId = 0;
     showEditorOnConnect.store (false);
+    activeGh2.store (false);
+    workerPath.Clear ();
+    archicadPort = 0;
 
     if (failed) {
         const std::string failure =
@@ -187,25 +145,20 @@ void TearDownLocked (bool killWorker, const GS::UniString& reason, bool failed =
     }
 }
 
-void SupervisorLoop ()
+void SupervisorLoop (uint32_t generation)
 {
     const uint64_t deadline = HeartbeatDeadlineMs ();
 
     while (!supervisorStopping.load ()) {
+        if (generation != lifecycle.Generation ())
+            return;
         HANDLE process = nullptr;
         {
             std::lock_guard<std::mutex> lock (controlMutex);
             process = workerProcess;
         }
 
-        // ⚠️ AN ATTACHED PEER HAS NO PROCESS HANDLE AND STILL HAS TO BE
-        // SUPERVISED. There is nothing to wait on -- the peer belongs to
-        // somebody else, and asking Windows for a handle to it would be asking
-        // for the right to kill it -- so this sleeps the same interval and falls
-        // through to the disconnect check below, which is the only failure an
-        // attached peer HAS. Returning here (as the spawned path does, where a
-        // null handle means the teardown already ran) would leave a lost peer
-        // looking connected forever.
+        // An attached peer has no process handle; its pipe is supervised below.
         if (process == nullptr && !lifecycle.OwnsPeerProcess ()) {
             Sleep (SupervisorIntervalMs);
         }
@@ -221,6 +174,8 @@ void SupervisorLoop ()
             GS::UniString report;
             {
                 std::lock_guard<std::mutex> lock (controlMutex);
+                if (supervisorStopping.load () || generation != lifecycle.Generation ())
+                    return;
                 report = GS::UniString::Printf (
                     "The Grasshopper worker process exited (code %u). Archicad is unaffected; open "
                     "Tapioca > Grasshopper Editor again to start a new one.",
@@ -237,12 +192,17 @@ void SupervisorLoop ()
             return;
 
         const uint32_t lostGeneration = disconnectedGeneration.exchange (0);
-        if (lostGeneration == lifecycle.Generation ()) {
+        if (lostGeneration == generation) {
             GS::UniString report;
             {
                 std::lock_guard<std::mutex> lock (controlMutex);
-                report = "The Grasshopper worker disconnected from its bridge and was stopped. Archicad is "
-                         "unaffected; open Tapioca > Grasshopper Editor again to start a new one.";
+                if (supervisorStopping.load () || generation != lifecycle.Generation ())
+                    return;
+                report = activeGh2.load ()
+                             ? GS::UniString ("The Rhino 9/GH2 peer disconnected. Archicad is unaffected; "
+                                              "reconnect from Rhino or start a new worker.")
+                             : GS::UniString ("The Grasshopper worker disconnected from its bridge and "
+                                              "was stopped. Archicad is unaffected; start it again.");
                 TearDownLocked (true, report, true);
             }
             ReportToUser (report);
@@ -260,11 +220,15 @@ void SupervisorLoop ()
         GS::UniString report;
         {
             std::lock_guard<std::mutex> lock (controlMutex);
-            report = GS::UniString::Printf (
-                "The Grasshopper worker stopped answering (no heartbeat for %u ms) and was stopped. A "
-                "definition that will not return is the usual cause. Archicad and your project are "
-                "unaffected; anything the definition had already written to the project is still written.",
-                (unsigned int) silence);
+            if (supervisorStopping.load () || generation != lifecycle.Generation ())
+                return;
+            report = lifecycle.Ownership () == PeerOwnership::Attached
+                         ? GS::UniString::Printf ("The attached Grasshopper peer stopped answering (no heartbeat "
+                                                  "for %u ms). Its bridge was closed; Rhino remains yours.",
+                                                  (unsigned int) silence)
+                         : GS::UniString::Printf ("The Grasshopper worker stopped answering (no heartbeat for %u "
+                                                  "ms) and was stopped. Archicad and your project are unaffected.",
+                                                  (unsigned int) silence);
             TearDownLocked (true, report, true);
         }
         ReportToUser (report);
@@ -273,36 +237,56 @@ void SupervisorLoop ()
 }
 
 // ⚠️ CALLED WITH controlMutex HELD.
-bool StartWorkerLocked (GS::UniString& message)
+bool StartWorkerLocked (GS::UniString& message, bool gh2)
 {
     disconnectedGeneration.store (0);
 
     std::wstring executable;
     std::wstring workingDirectory;
-    if (!ResolveWorker (executable, workingDirectory)) {
-        message = "Tapioca.GhWorker.exe was not found beside the add-on. Rebuild the add-on with the .NET SDK "
-                  "installed, or set TAPIOCA_GH_WORKER_DIR to the folder that holds the worker.";
+    if (!ResolveWorker (executable, workingDirectory, gh2)) {
+        message = gh2 ? "Tapioca.Gh2Worker.exe was not found. Build the Rhino 9 worker or set "
+                        "TAPIOCA_GH2_WORKER_DIR to its directory."
+                      : "Tapioca.GhWorker.exe was not found beside the add-on. Rebuild the add-on with the .NET SDK "
+                        "installed, or set TAPIOCA_GH_WORKER_DIR to the folder that holds the worker.";
         return false;
     }
     workerPath = FromWide (executable);
+
+    std::wstring pluginPath;
+    if (gh2) {
+        pluginPath = workingDirectory + L"\\GrasshopperLibraries\\TapiocaGH2.rhp";
+        if (GetFileAttributesW (pluginPath.c_str ()) == INVALID_FILE_ATTRIBUTES) {
+            message = "TapiocaGH2.rhp was not found beside the GH2 worker. Rebuild and stage both artifacts.";
+            return false;
+        }
+    }
 
     // The bridge FIRST. The worker connects to a name it is given on its command
     // line, and a name that is not listening yet is a startup race with no
     // upside.
     GhBridge& bridge = GhBridge::Get ();
     GS::UniString bridgeError;
-    if (!bridge.Start (lifecycle.Generation (), bridgeError)) {
+    if (!bridge.Start (lifecycle.Generation (), bridgeError, gh2)) {
         message = bridgeError;
         return false;
     }
 
-    archicadPort = ArchicadJsonPort ();
+    archicadPort = 0;
+    if (!gh2) {
+        GS::UniString failure;
+        archicadPort = ReadArchicadJsonPort (failure);
+        if (!failure.IsEmpty ())
+            Log (failure);
+    }
 
     const std::wstring pipeName ((const wchar_t*) bridge.PipeName ().ToUStr ().Get ());
     std::wstring commandLine = L"\"" + executable + L"\" --pipe " + pipeName + L" --protocol " +
                                std::to_wstring (protocol::Version) + L" --generation " +
-                               std::to_wstring (lifecycle.Generation ()) + L" --archicad-port " +
-                               std::to_wstring (archicadPort) + L" --mode authoring";
+                               std::to_wstring (lifecycle.Generation ());
+    if (gh2)
+        commandLine += L" --plugin \"" + pluginPath + L"\"";
+    else
+        commandLine += L" --archicad-port " + std::to_wstring (archicadPort) + L" --mode authoring";
 
     GS::UniString bootLog = LogPath ();
     if (!bootLog.IsEmpty ()) {
@@ -341,19 +325,24 @@ bool StartWorkerLocked (GS::UniString& message)
     STARTUPINFOW startup {};
     startup.cb = sizeof (startup);
     PROCESS_INFORMATION process {};
+    activeGh2.store (gh2);
     const BOOL created = CreateProcessW ((LPCWSTR) executable.c_str (), mutableCommandLine.data (), nullptr, nullptr,
                                          FALSE, CREATE_NO_WINDOW | CREATE_SUSPENDED, nullptr,
                                          (LPCWSTR) workingDirectory.c_str (), &startup, &process);
     if (created == 0) {
+        activeGh2.store (false);
         const DWORD win32Error = GetLastError ();
         CloseHandle (job);
         bridge.Stop ();
-        message = GS::UniString::Printf ("Could not start Tapioca.GhWorker.exe (Win32 error %u). Verify the .NET 8 "
-                                         "Windows Desktop Runtime is installed.",
-                                         (unsigned int) win32Error);
+        message = GS::UniString::Printf (
+            gh2 ? "Could not start Tapioca.Gh2Worker.exe (Win32 error %u). Verify the .NET 9 Runtime is installed."
+                : "Could not start Tapioca.GhWorker.exe (Win32 error %u). Verify the .NET 8 Windows Desktop "
+                  "Runtime is installed.",
+            (unsigned int) win32Error);
         return false;
     }
     if (AssignProcessToJobObject (job, process.hProcess) == 0) {
+        activeGh2.store (false);
         const DWORD win32Error = GetLastError ();
         TerminateProcess (process.hProcess, 1);
         WaitForSingleObject (process.hProcess, 2000);
@@ -367,6 +356,7 @@ bool StartWorkerLocked (GS::UniString& message)
         return false;
     }
     if (ResumeThread (process.hThread) == DWORD (-1)) {
+        activeGh2.store (false);
         const DWORD win32Error = GetLastError ();
         TerminateProcess (process.hProcess, 1);
         WaitForSingleObject (process.hProcess, 2000);
@@ -384,14 +374,16 @@ bool StartWorkerLocked (GS::UniString& message)
     // only diagnostic there will be. Waiting a quarter of a second for it is
     // worth far more than the quarter of a second costs.
     if (WaitForSingleObject (process.hProcess, StartupExitWindowMs) == WAIT_OBJECT_0) {
+        activeGh2.store (false);
         DWORD exitCode = 0;
         GetExitCodeProcess (process.hProcess, &exitCode);
         CloseHandle (process.hProcess);
         CloseHandle (job);
         bridge.Stop ();
         message = GS::UniString::Printf (
-            "Tapioca.GhWorker.exe exited during startup (code %u). Verify the .NET 8 Windows Desktop Runtime "
-            "and check %T for what it managed to say first.",
+            gh2 ? "Tapioca.Gh2Worker.exe exited during startup (code %u). Verify .NET 9 and check %T."
+                : "Tapioca.GhWorker.exe exited during startup (code %u). Verify the .NET 8 Windows Desktop Runtime "
+                  "and check %T for what it managed to say first.",
             (unsigned int) exitCode, bootLog.ToPrintf ());
         return false;
     }
@@ -408,7 +400,7 @@ bool StartWorkerLocked (GS::UniString& message)
 
     supervisorStopping.store (false);
     try {
-        supervisor = std::thread (SupervisorLoop);
+        supervisor = std::thread (SupervisorLoop, lifecycle.Generation ());
     }
     catch (...) {
         // A worker nothing supervises is precisely the thing this design is for
@@ -428,17 +420,7 @@ bool StartWorkerLocked (GS::UniString& message)
 // An Attach that is still waiting: the bridge is open, no peer has said hello,
 // and the lifecycle is therefore Starting.
 //
-// ⚠️ THIS STATE USED TO SWALLOW EVERY REQUEST TO START GRASSHOPPER. Attach
-// leaves the host in Starting deliberately -- a peer may connect at any moment --
-// but both Ensure entry points answered a Starting host with "the worker is
-// starting" and did nothing. So a user who pressed Attach with no Rhino running
-// could not then ask Tapioca for one: Load, Solve and the power button all
-// reported that something was on its way, forever, and the only escape was to
-// know that Detach had to be pressed first.
-//
-// Being HONEST about it is not enough, because the honest answer is a dead end.
-// A request to start Grasshopper now TAKES OVER the waiting bridge; see the two
-// call sites.
+// A worker start takes over a bridge still waiting for a peer, never a connected peer.
 bool WaitingForAbsentPeer ()
 {
     return lifecycle.State () == HostState::Starting && lifecycle.Ownership () == PeerOwnership::Attached &&
@@ -458,8 +440,12 @@ void TakeOverFromAbsentPeer ()
     GhWorkerHost::Get ().Stop ();
 }
 
-bool EnsureRunningLocked (GS::UniString& message)
+bool EnsureRunningLocked (GS::UniString& message, bool gh2 = false)
 {
+    if ((lifecycle.IsRunning () || lifecycle.State () == HostState::Starting) && activeGh2.load () != gh2) {
+        message = "A different Grasshopper engine owns the current worker. Stop it before switching.";
+        return false;
+    }
     switch (lifecycle.BeginStart ()) {
         case StartDecision::AlreadyRunning:
             message = "The Grasshopper worker is already running. " + lastMessage;
@@ -472,7 +458,7 @@ bool EnsureRunningLocked (GS::UniString& message)
     }
 
     Log (GS::UniString ("===== Grasshopper worker start ====="));
-    if (!StartWorkerLocked (message)) {
+    if (!StartWorkerLocked (message, gh2)) {
         lifecycle.Fail (lifecycle.Generation (), std::string ("worker start failed"));
         lastMessage = message;
         Log (message);
@@ -488,39 +474,27 @@ bool EnsureRunningLocked (GS::UniString& message)
 // menu command that asked for it returned.
 void OnRunResult (const protocol::RunReportPayload& report)
 {
-    GS::UniString text = FromUtf8Std (protocol::DescribeRunReport (report));
-
-    // ⚠️ SAID OUT LOUD, EVERY TIME, AND NOT ONLY WHEN SOMETHING WENT WRONG. The
-    // bridge refuses Tapioca write commands, but Tapir reaches Archicad over its
-    // own loopback HTTP, which Tapioca does not intercept -- so a definition
-    // holding Tapir write components has already changed the project by the time
-    // this dialog appears, and no amount of killing the worker takes that back.
-    // A run report that stayed silent about it would be read as a safety
-    // guarantee it is not making.
-    text += GS::UniString ("\n\nNote: Tapir components reach Archicad on their own connection, which Tapioca "
-                           "does not gate. Anything this definition wrote to the project is already written.");
-
-    ReportToUser (GS::UniString ("Grasshopper run\n\n") + text);
+    ReportToUser (GS::UniString ("Grasshopper run\n\n") + DescribeRunResult (report));
 }
 
 void OnWorkerDisconnected (uint32_t generation)
 {
+    if (generation != lifecycle.Generation ())
+        return;
     disconnectedGeneration.store (generation);
     // Told immediately rather than when the supervisor gets round to the
     // teardown: the controller's job on this event is to stop anything from
     // being applied out of a session whose worker is gone, and that has to be
     // true from the moment the pipe drops.
-    workflow.OnHostGone ("The Grasshopper worker disconnected from its bridge.");
+    if (!activeGh2.load ())
+        workflow.OnHostGone ("The Grasshopper worker disconnected from its bridge.");
 }
 
-// Decodes one session message and hands it to the controller.
-//
-// ⚠️ A PAYLOAD THAT WILL NOT DECODE IS LOGGED AND DROPPED, NEVER GUESSED AT.
-// Every one of these carries a routing envelope that decides whether a solution
-// may be published; a partially-read one would be a publication decision made on
-// bytes nobody could vouch for.
+// Malformed GH1 session envelopes are logged, never partially published.
 void OnSessionMessage (protocol::MessageType type, const std::vector<uint8_t>& payload)
 {
+    if (activeGh2.load ())
+        return; // GH2 has no GH1 session protocol in this slice.
     const uint32_t gen = lifecycle.Generation ();
     const uint32_t pid = GhBridge::Get ().WorkerProcessId ();
     std::string error;
@@ -588,7 +562,8 @@ void OnWorkerStarted (uint32_t generation, protocol::AckStatus status, const GS:
         // it does not prove there is a Rhino behind it, and a session opened
         // against a worker whose RhinoCore never came up would be a session
         // every request refuses.
-        workflow.OnHostGeneration (generation);
+        if (!activeGh2.load ())
+            workflow.OnHostGeneration (generation);
         if (showEditorOnConnect.exchange (false)) {
             GS::UniString error;
             if (!GhBridge::Get ().Send (protocol::MessageType::ShowEditor, error))
@@ -602,12 +577,7 @@ void OnWorkerStarted (uint32_t generation, protocol::AckStatus status, const GS:
 
 } // namespace
 
-// ⚠️ THE BRIDGE'S HANDLERS, NOT THE EDITOR'S, AND EVERY START PATH NEEDS ALL
-// FOUR. The startup acknowledgement is how the host learns a runtime is up, the
-// disconnect fails an in-flight request, the session handler routes six message
-// types, and the sender is what the controller writes through. A start that
-// skipped them would open a session against a bridge whose replies reached
-// nobody. Three paths wanted them and two copies had already drifted apart.
+// Every start path installs handlers before the bridge accepts a peer.
 void WireBridgeLocked ()
 {
     GhBridge& bridge = GhBridge::Get ();
@@ -638,6 +608,10 @@ bool GhWorkerHost::OpenEditor (GS::UniString& message)
     }
 
     WireBridgeLocked ();
+    if (activeGh2.load ()) {
+        message = "Stop the Rhino 9/GH2 worker before opening the GH1 editor.";
+        return false;
+    }
 
     // A bridge nobody came to does not block a request for the canvas either.
     // See TakeOverFromAbsentPeer; before the lock, for the reason Stop ()
@@ -684,6 +658,10 @@ bool GhWorkerHost::EnsureHeadless (GS::UniString& message)
     }
 
     WireBridgeLocked ();
+    if (activeGh2.load ()) {
+        message = "Stop the Rhino 9/GH2 worker before opening a GH1 definition.";
+        return false;
+    }
 
     // ⚠️ BEFORE THE LOCK, BECAUSE Stop () JOINS THE SUPERVISOR AND THE
     // SUPERVISOR TAKES controlMutex. Same ordering hazard Stop () documents.
@@ -705,20 +683,56 @@ bool GhWorkerHost::EnsureHeadless (GS::UniString& message)
     return EnsureRunningLocked (message);
 }
 
-bool GhWorkerHost::AttachLocal (GS::UniString& message)
+bool GhWorkerHost::EnsureHeadlessGh2 (GS::UniString& message)
+{
+    if (!MainThreadGate::Get ().IsMainThread ()) {
+        message = "The GH2 worker can only be started from Archicad's main thread.";
+        return false;
+    }
+
+    WireBridgeLocked ();
+    TakeOverFromAbsentPeer ();
+    if (!activeGh2.load () && (lifecycle.IsRunning () || lifecycle.State () == HostState::Starting)) {
+        message = "Stop the Rhino 8/GH1 worker before opening a GH2 definition.";
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock (controlMutex);
+    if (GhBridge::Get ().IsConnected () && lifecycle.AcceptsMessages ()) {
+        message = "The Rhino 9 / GH2 worker is running.";
+        return true;
+    }
+    if (lifecycle.State () == HostState::Starting) {
+        message = "The Rhino 9 / GH2 worker is starting.";
+        return true;
+    }
+    return EnsureRunningLocked (message, true);
+}
+
+// Called on the main thread; neither variant creates a process or Job Object.
+static bool AttachLocalEngine (GS::UniString& message, bool gh2)
 {
     if (!MainThreadGate::Get ().IsMainThread ()) {
         message = "The Grasshopper bridge can only be opened from Archicad's main thread.";
         return false;
     }
 
+    // A supervisor from the preceding failed/stopped generation may still be
+    // returning. Join before controlMutex: its teardown takes that same lock.
+    const HostState before = lifecycle.State ();
+    if ((before == HostState::Failed || before == HostState::Stopped) && supervisor.joinable ())
+        supervisor.join ();
     WireBridgeLocked ();
 
     GhBridge& bridge = GhBridge::Get ();
     std::lock_guard<std::mutex> lock (controlMutex);
 
+    if ((lifecycle.IsRunning () || lifecycle.State () == HostState::Starting) && activeGh2.load () != gh2) {
+        message = "A different Grasshopper engine owns the bridge. Detach or Stop before switching.";
+        return false;
+    }
     if (bridge.IsConnected () && lifecycle.AcceptsMessages ()) {
-        message = GS::UniString ("A Grasshopper peer is already connected (") +
+        message = GS::UniString ("A Grasshopper bridge is already connected (") +
                   GS::UniString (DescribePeerOwnership (lifecycle.Ownership ())) + ").";
         return true;
     }
@@ -734,25 +748,26 @@ bool GhWorkerHost::AttachLocal (GS::UniString& message)
             break;
     }
 
-    Log (GS::UniString ("===== Grasshopper bridge open for an attached peer ====="));
+    Log (gh2 ? GS::UniString ("===== GH2 bridge open for an attached peer =====")
+             : GS::UniString ("===== Grasshopper bridge open for an attached peer ====="));
 
+    activeGh2.store (gh2); // visible to a peer that handshakes on the new IO thread
     GS::UniString bridgeError;
-    if (!bridge.Start (lifecycle.Generation (), bridgeError)) {
+    if (!bridge.Start (lifecycle.Generation (), bridgeError, gh2)) {
+        activeGh2.store (false);
         lifecycle.Fail (lifecycle.Generation (), std::string ("bridge start failed"));
         message = bridgeError;
         lastMessage = message;
         Log (message);
         return false;
     }
+    workerPath.Clear ();
+    archicadPort = 0;
 
-    // ⚠️ THE SUPERVISOR IS STARTED FOR AN ATTACHED PEER TOO. It has no process
-    // to wait on, but the disconnect is the failure an attached peer HAS, and
-    // the disconnect is handled in the supervisor loop -- see the null-handle
-    // branch there. A peer with nothing supervising it is exactly what this
-    // design exists to avoid.
+    // Even an attached peer needs disconnect and heartbeat supervision.
     supervisorStopping.store (false);
     try {
-        supervisor = std::thread (SupervisorLoop);
+        supervisor = std::thread (SupervisorLoop, lifecycle.Generation ());
     }
     catch (...) {
         TearDownLocked (false, GS::UniString ());
@@ -760,11 +775,24 @@ bool GhWorkerHost::AttachLocal (GS::UniString& message)
         return false;
     }
 
-    message = GS::UniString ("Waiting for a Grasshopper peer on \\\\.\\pipe\\") + bridge.PipeName () +
-              GS::UniString (". Nothing was started: connect from a Rhino that is already running.");
+    message = GS::UniString (gh2 ? "Waiting for a Rhino 9/GH2 peer on \\\\.\\pipe\\"
+                                 : "Waiting for a Grasshopper peer on \\\\.\\pipe\\") +
+              bridge.PipeName () +
+              GS::UniString (gh2 ? ". In standalone Rhino 9 run TapiocaGh2Attach."
+                                 : ". Connect from a Rhino that is already running.");
     lastMessage = message;
     Log (message);
     return true;
+}
+
+bool GhWorkerHost::AttachLocal (GS::UniString& message)
+{
+    return AttachLocalEngine (message, false);
+}
+
+bool GhWorkerHost::AttachLocalGh2 (GS::UniString& message)
+{
+    return AttachLocalEngine (message, true);
 }
 
 bool GhWorkerHost::HideEditor (GS::UniString& message)
@@ -773,6 +801,10 @@ bool GhWorkerHost::HideEditor (GS::UniString& message)
     // true when there is no worker, and spawning Rhino to satisfy a request to
     // see less of it would be absurd.
     std::lock_guard<std::mutex> lock (controlMutex);
+    if (activeGh2.load ()) {
+        message = "The headless GH2 worker has no editor to hide.";
+        return true;
+    }
     showEditorOnConnect.store (false);
     if (!lifecycle.AcceptsMessages () || !GhBridge::Get ().IsConnected ()) {
         message = "The Grasshopper worker is not running.";
@@ -783,43 +815,50 @@ bool GhWorkerHost::HideEditor (GS::UniString& message)
 
 void GhWorkerHost::Stop ()
 {
-    // ⚠️ ORDER. supervisorStopping FIRST and OUTSIDE the mutex, then the join,
-    // then the mutex. The supervisor takes controlMutex during its own teardown,
-    // so taking it before the join would deadlock this thread against that one.
+    // Join outside controlMutex: the supervisor takes that lock on teardown.
+    const bool gh2Bootstrapping =
+        activeGh2.load () && lifecycle.OwnsPeerProcess () && lifecycle.State () == HostState::Starting;
+    const bool gh2PeerBootstrapping =
+        activeGh2.load () && !lifecycle.OwnsPeerProcess () && lifecycle.State () == HostState::Starting;
     lifecycle.BeginStop ();
+    // A peer can be waiting for Ping on the main-thread gate. Cancel before detaching.
+    const bool gh2RequestInFlight =
+        activeGh2.load () && GhBridge::Get ().BeginGh2Shutdown (gh2Bootstrapping || gh2PeerBootstrapping);
     supervisorStopping.store (true);
     if (supervisor.joinable ())
         supervisor.join ();
 
     std::lock_guard<std::mutex> lock (controlMutex);
     if (workerProcess == nullptr) {
-        // ⚠️ AN ATTACHED PEER IS TOLD, AND GIVEN A MOMENT, RATHER THAN
-        // HAVING THE PIPE PULLED OUT FROM UNDER IT. Why the order matters more
-        // than the message -- and why a frozen Rhino was the price of getting it
-        // wrong -- is written out in GhWorkerPeerDetach.hpp.
-        if (lifecycle.Ownership () == PeerOwnership::Attached) {
+        // Normally wait for peer release (GhWorkerPeerDetach.hpp); a GH2
+        // bootstrap still needs this thread, so close its pipe instead.
+        if (lifecycle.Ownership () == PeerOwnership::Attached && !gh2PeerBootstrapping && !gh2RequestInFlight) {
             GS::UniString note;
             RequestPeerDetach (note);
             Log (note);
         }
 
-        GhBridge::Get ().Stop ();
-        lifecycle.CompleteStop ();
+        TearDownLocked (false, GS::UniString ());
         return;
     }
 
     Log (GS::UniString ("===== Grasshopper worker stop ====="));
 
-    // Cooperative first: a worker told to shut down closes its own Rhino, which
-    // is the only way its temporary files and licence lease are released
-    // tidily. The guarantee follows regardless.
+    if (gh2RequestInFlight || gh2Bootstrapping) {
+        // A Ping can still be in the pipe when admission is sealed. Until the
+        // startup Ack the worker may be waiting for that reply; shutdown sent
+        // instead of a response cannot be relied on to release it promptly.
+        Log ("GH2 bootstrap stopping: terminating the owned worker.");
+        TerminateProcess (workerProcess, 1);
+        TearDownLocked (false, "GH2 worker terminated during bootstrap stop.");
+        return;
+    }
+
+    // Cooperative first: this releases Rhino's temporary files and licence
+    // tidily. The hard-termination guarantee follows regardless.
     //
-    // ⚠️ THE WAIT IS SIZED FOR RhinoCore::Dispose, NOT FOR A MESSAGE ROUND TRIP.
-    // Measured on a real quit: the worker acknowledged the shutdown at once and
-    // then spent well over three seconds inside Dispose, so a three-second wait
-    // terminated every ordinary quit and reported it as a worker that "did not
-    // shut down" -- turning the guarantee, which is meant to be the exception,
-    // into the normal path and losing the tidy licence release every time.
+    // ⚠️ RhinoCore::Dispose took over three seconds on a real quit; the
+    // 15-second wait is for disposal, not for the shutdown acknowledgement.
     GS::UniString sendError;
     if (GhBridge::Get ().Send (protocol::MessageType::Shutdown, sendError)) {
         WaitForSingleObject (workerProcess, CooperativeShutdownMs);
@@ -844,6 +883,16 @@ bool GhWorkerHost::IsRunning () const
     return lifecycle.IsRunning ();
 }
 
+bool GhWorkerHost::IsGh2 () const
+{
+    return activeGh2.load ();
+}
+
+GS::UniString GhWorkerHost::LastWorkerMessage () const
+{
+    return GhBridge::Get ().LastWorkerMessage ();
+}
+
 bool GhWorkerHost::IsAttachedPeer () const
 {
     return lifecycle.Ownership () == PeerOwnership::Attached;
@@ -856,61 +905,17 @@ HostState GhWorkerHost::State () const
 
 GS::UniString GhWorkerHost::Describe () const
 {
-    const GhBridge& bridge = GhBridge::Get ();
-    GS::UniString text = GS::UniString::Printf ("Grasshopper worker: %s", DescribeHostState (lifecycle.State ()));
-    text += GS::UniString::Printf ("\nRestart generation: %u", (unsigned int) lifecycle.Generation ());
-    text += GS::UniString ("\nPeer: ") + GS::UniString (DescribePeerOwnership (lifecycle.Ownership ()));
-
-    const uint32_t pid = bridge.WorkerProcessId ();
-    if (pid != 0)
-        text += GS::UniString::Printf ("\nWorker process: %u", (unsigned int) pid);
-    else
-        text += GS::UniString ("\nWorker process: none");
-
-    if (!workerPath.IsEmpty ())
-        text += GS::UniString ("\nWorker executable: ") + workerPath;
-
-    const GS::UniString pipeName = bridge.PipeName ();
-    if (!pipeName.IsEmpty ())
-        text += GS::UniString ("\nBridge: \\\\.\\pipe\\") + pipeName +
-                (bridge.IsConnected () ? GS::UniString (" (connected)") : GS::UniString (" (waiting for the worker)"));
-    else
-        text += GS::UniString ("\nBridge: not listening");
-
-    if (bridge.IsConnected ())
-        text +=
-            GS::UniString::Printf ("\nLast heartbeat: %u ms ago", (unsigned int) bridge.MillisecondsSinceHeartbeat ());
-
-    // Spelled out even when it is unavailable, because that is the case a user
-    // has to act on: the port is what a Tapir ConnectArchicad component must be
-    // given, and there is nowhere else to look it up for THIS instance.
-    if (archicadPort != 0)
-        text += GS::UniString::Printf ("\nArchicad JSON port (Tapir ConnectArchicad): %u", (unsigned int) archicadPort);
-    else if (lifecycle.IsRunning ())
-        text += GS::UniString ("\nArchicad JSON port: unavailable - a Tapir ConnectArchicad component will "
-                               "need one entered by hand");
-
-    // The two sides' accounts, side by side and never merged: a disagreement is
-    // the first symptom of a half-torn-down worker, and averaging them into one
-    // line would hide exactly the case worth seeing.
-    const std::string failure = lifecycle.LastError ();
-    if (!failure.empty ())
-        text += GS::UniString ("\nLast failure: ") + GS::UniString (failure.c_str ());
-    if (!lastMessage.IsEmpty ())
-        text += GS::UniString ("\nLast message: ") + lastMessage;
-    const GS::UniString workerMessage = bridge.LastWorkerMessage ();
-    if (!workerMessage.IsEmpty ())
-        text += GS::UniString ("\nLast worker message: ") + workerMessage;
-
-    const GS::UniString logPath = LogPath ();
-    if (!logPath.IsEmpty ())
-        text += GS::UniString ("\nLog: ") + logPath;
-    return text;
+    return DescribeWorker (lifecycle.State (), lifecycle.Generation (), lifecycle.Ownership (), activeGh2.load (),
+                           archicadPort, workerPath, lastMessage, lifecycle.LastError (), GhBridge::Get ());
 }
 
 bool GhWorkerHost::RunDefinition (GS::UniString& message)
 {
     std::lock_guard<std::mutex> lock (controlMutex);
+    if (activeGh2.load ()) {
+        message = "The GH2 worker has no active editor canvas; open a GH1 worker to use Run Definition.";
+        return false;
+    }
     if (!lifecycle.AcceptsMessages () || !GhBridge::Get ().IsConnected ()) {
         // Deliberately does NOT spawn a worker. A Run solves the definition on
         // the canvas, and a worker that has just started has no canvas and no
@@ -933,6 +938,10 @@ bool GhWorkerHost::RunDefinition (GS::UniString& message)
 bool GhWorkerHost::CancelRun (GS::UniString& message)
 {
     std::lock_guard<std::mutex> lock (controlMutex);
+    if (activeGh2.load ()) {
+        message = "GH2 Ping has no definition run to cancel.";
+        return false;
+    }
     if (!lifecycle.AcceptsMessages () || !GhBridge::Get ().IsConnected ()) {
         message = "Grasshopper is not running, so there is nothing to cancel.";
         return true;

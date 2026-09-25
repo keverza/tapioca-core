@@ -610,6 +610,47 @@ if (WIN32 AND DOTNET_EXECUTABLE AND EXISTS "${GhWorkerProject}")
         set_target_properties (EvPGrasshopperPackage PROPERTIES FOLDER Resources)
         add_dependencies (${ADDON_LIB} EvPGrasshopperPackage)
     endif ()
+
+    # Rhino 9 / GH2 owns a different executable and .rhp, never linked into
+    # the Rhino 8 / GH1 worker. Package them as a matched pair beside the .apx.
+    set (Gh2WorkerFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/Gh2Worker")
+    set (Gh2WorkerProject "${Gh2WorkerFolder}/Tapioca.Gh2Worker.csproj")
+    set (Gh2PluginFolder "${CMAKE_CURRENT_LIST_DIR}/Sources/Grasshopper2Components")
+    set (Gh2PluginProject "${Gh2PluginFolder}/TapiocaGH2.csproj")
+    if (EXISTS "${Gh2WorkerProject}" AND EXISTS "${Gh2PluginProject}")
+        file (GLOB Gh2WorkerFiles CONFIGURE_DEPENDS
+            "${Gh2WorkerFolder}/*.cs" "${Gh2WorkerFolder}/*.csproj")
+        file (GLOB Gh2PluginFiles CONFIGURE_DEPENDS
+            "${Gh2PluginFolder}/*.cs" "${Gh2PluginFolder}/*.csproj"
+            "${Gh2PluginFolder}/Properties/*" "${Gh2PluginFolder}/Icons/*")
+        set (Gh2WorkerStamp "${CMAKE_BINARY_DIR}/Tapioca.Gh2Worker.stamp")
+        add_custom_command (
+            OUTPUT "${Gh2WorkerStamp}"
+            # Re-publish the pair when either side changes.
+            DEPENDS ${Gh2WorkerFiles} ${Gh2PluginFiles}
+            COMMENT "EvP: publishing Rhino 9 GH2 worker"
+            COMMAND "${DOTNET_EXECUTABLE}" publish "${Gh2WorkerProject}"
+                -c Release -o "${CMAKE_BINARY_DIR}/Gh2Worker" --nologo
+            COMMAND ${CMAKE_COMMAND} -E touch "${Gh2WorkerStamp}"
+            VERBATIM)
+        add_custom_target (EvPGh2Worker ALL DEPENDS "${Gh2WorkerStamp}")
+        set_target_properties (EvPGh2Worker PROPERTIES FOLDER Resources)
+        add_dependencies (${ADDON_LIB} EvPGh2Worker)
+
+        set (Gh2PluginStamp "${CMAKE_BINARY_DIR}/TapiocaGH2.stamp")
+        add_custom_command (
+            OUTPUT "${Gh2PluginStamp}"
+            DEPENDS ${Gh2PluginFiles} "${Gh2WorkerStamp}"
+            COMMENT "EvP: publishing TapiocaGH2.rhp into Gh2Worker/GrasshopperLibraries"
+            COMMAND "${DOTNET_EXECUTABLE}" publish "${Gh2PluginProject}"
+                -c Release -o "${CMAKE_BINARY_DIR}/Gh2Worker/GrasshopperLibraries" --nologo
+            COMMAND ${CMAKE_COMMAND} -E touch "${Gh2PluginStamp}"
+            VERBATIM)
+        add_custom_target (EvPGh2Plugin ALL DEPENDS "${Gh2PluginStamp}")
+        set_target_properties (EvPGh2Plugin PROPERTIES FOLDER Resources)
+        add_dependencies (EvPGh2Plugin EvPGh2Worker)
+        add_dependencies (${ADDON_LIB} EvPGh2Plugin)
+    endif ()
 else ()
     message (STATUS "EvP: the .NET SDK was not found; Tapioca.GhWorker.exe will not be built. "
                     "EvP.apx builds normally and reports the missing worker if Grasshopper is used.")

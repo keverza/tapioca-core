@@ -39,9 +39,6 @@
 
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent viewer the preview is drawn in
 
-#include "DGFileDialog.hpp"
-#include "FileTypeManager.hpp"
-
 #include <chrono>
 #include <ctime>
 
@@ -170,10 +167,22 @@ GS::Array<GS::UniString> ToUniStringArray (const std::vector<std::string>& names
     return out;
 }
 
-GS::UniString DescribeStatus (const evp::grasshopper::WorkflowStatus& status, bool hasHost)
+GS::UniString DescribeStatus (const evp::grasshopper::WorkflowStatus& status, bool hasHost, bool selectedGh2)
 {
+    const evp::grasshopper::GhWorkerHost& host = evp::grasshopper::GhWorkerHost::Get ();
+    if (host.IsGh2 ()) {
+        if (!hasHost)
+            return host.IsAttachedPeer () ? GS::UniString ("Grasshopper 2: waiting for the standalone Rhino 9 peer...")
+                                          : GS::UniString ("Grasshopper 2: starting the Rhino 9 worker...");
+        const GS::UniString ping = host.LastWorkerMessage ();
+        const GS::UniString source = host.IsAttachedPeer () ? GS::UniString ("Grasshopper 2 (attached Rhino 9 peer): ")
+                                                            : GS::UniString ("Grasshopper 2 (worker): ");
+        return source + (ping.IsEmpty () ? GS::UniString ("connected; waiting for read-only project Ping...") : ping);
+    }
     if (!hasHost)
-        return "Grasshopper: not running. Pick a definition below and it starts, headless.";
+        return selectedGh2
+                   ? GS::UniString ("Grasshopper 2: not connected. Connect to Rhino 9 or Start a worker.")
+                   : GS::UniString ("Grasshopper: not running. Pick a definition below and it starts, headless.");
 
     if (status.failure != evp::grasshopper::protocol::FailureCode::None) {
         // The category's own sentence, plus whatever the worker said about this
@@ -468,7 +477,7 @@ void ControlPalette::RefreshWorkflowBand ()
     }
 
     const std::string schema = controller.SchemaJson ();
-    if (hasHost && schema != lastWorkflowSchema) {
+    if (hasHost && !host.IsGh2 () && schema != lastWorkflowSchema) {
         lastWorkflowSchema = schema;
         if (!schema.empty ()) {
             workflow.Rebuild (schema);
@@ -538,7 +547,7 @@ void ControlPalette::RefreshWorkflowBand ()
     // The definition the user picked before a worker existed is loaded here, on
     // the first tick that has one. Nothing else in this palette hears a worker
     // come up.
-    if (hasHost && !pendingWorkflowPath.empty ()) {
+    if (hasHost && !host.IsGh2 () && !pendingWorkflowPath.empty ()) {
         const std::string path = pendingWorkflowPath;
         pendingWorkflowPath.clear ();
         LoadWorkflowDefinition (path);
@@ -549,7 +558,7 @@ void ControlPalette::RefreshWorkflowBand ()
     // thing DG does not survive. WorkflowLog::Record ignores a revision it has
     // already written, so polling costs a comparison.
     evp::grasshopper::StoredSolution solution;
-    if (hasHost && controller.CurrentSolution (solution))
+    if (hasHost && !host.IsGh2 () && controller.CurrentSolution (solution))
         workflowLog.Record (solution, ClockText ());
 
     if (workflowLogText && workflowLog.Revision () != lastWorkflowLogRevision) {
@@ -566,7 +575,7 @@ void ControlPalette::RefreshWorkflowBand ()
     }
 
     const evp::grasshopper::WorkflowStatus status = controller.Status ();
-    const GS::UniString line = DescribeStatus (status, hasHost);
+    const GS::UniString line = DescribeStatus (status, hasHost, selectedWorkflowGh2);
     // Compared before it is written: SetText on an unchanged string still
     // invalidates the item, and this runs on every idle tick.
     if (line != lastWorkflowStatus) {
@@ -579,13 +588,13 @@ void ControlPalette::RefreshWorkflowBand ()
         // Solve needs a session with a definition in it; Cancel needs a solve to
         // interrupt. Both are disabled rather than hidden, because a button that
         // comes and goes is harder to find than one that is greyed.
-        if (hasHost && workflow.HasSchema ())
+        if (hasHost && !host.IsGh2 () && workflow.HasSchema ())
             workflowSolveButton->Enable ();
         else
             workflowSolveButton->Disable ();
     }
     if (workflowCancelButton) {
-        if (hasHost && status.busy)
+        if (hasHost && !host.IsGh2 () && status.busy)
             workflowCancelButton->Enable ();
         else
             workflowCancelButton->Disable ();
@@ -632,13 +641,13 @@ void ControlPalette::RefreshWorkflowBand ()
         workflowCommitButton->SetText (workflowCommit ? "Commit" : "Not Commit");
         workflowCommitButton->SetIcon (
             DG::Icon (ACAPI_GetOwnResModule (), workflowCommit ? PaletteIconPlusCircleSolidId : PaletteIconPlusId));
-        if (hasHost && !loadedWorkflowPath.empty ())
+        if (hasHost && !host.IsGh2 () && !loadedWorkflowPath.empty ())
             workflowCommitButton->Enable ();
         else
             workflowCommitButton->Disable ();
     }
     if (workflowReloadButton) {
-        if (hasHost && !loadedWorkflowPath.empty ())
+        if (hasHost && !host.IsGh2 () && !loadedWorkflowPath.empty ())
             workflowReloadButton->Enable ();
         else
             workflowReloadButton->Disable ();
@@ -670,10 +679,11 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
         }
         else {
             GS::UniString message;
-            if (!host.EnsureHeadless (message))
+            if (!(selectedWorkflowGh2 ? host.EnsureHeadlessGh2 (message) : host.EnsureHeadless (message)))
                 workflowLog.Note ("! " + ToStd (message));
             else
-                workflowLog.Note ("Starting Grasshopper, headless ...");
+                workflowLog.Note (selectedWorkflowGh2 ? "Starting the GH2 worker for read-only Ping ..."
+                                                      : "Starting Grasshopper, headless ...");
             SetCommandStatus (message);
         }
         return true;
@@ -697,7 +707,8 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
         }
 
         GS::UniString message;
-        const bool opened = attachHost.AttachLocal (message);
+        const bool opened =
+            selectedWorkflowGh2 ? attachHost.AttachLocalGh2 (message) : attachHost.AttachLocal (message);
         // The pipe name is IN the message, and it is the one thing the peer
         // needs. Said in the transcript rather than a dialog: a modal that has
         // to be dismissed before the name can be copied is a modal in the way.
@@ -780,68 +791,14 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
     return false;
 }
 
-void ControlPalette::ChooseWorkflowDefinition ()
-{
-    FTM::FileTypeManager fileTypeManager ("Tapioca.Grasshopper");
-    const FTM::GroupID filterRoot = fileTypeManager.AddGroup ("Grasshopper definitions");
-    // Both spellings: GH_Archive.ReadFromFile picks binary or XML by CONTENT, so
-    // offering only .gh would hide half the definitions a user has for no reason
-    // this side understands.
-    const FTM::TypeID binary =
-        fileTypeManager.AddType (FTM::FileType ("Grasshopper definition (*.gh)", "gh", 0, 0, 0), filterRoot);
-    const FTM::TypeID xml =
-        fileTypeManager.AddType (FTM::FileType ("Grasshopper definition (*.ghx)", "ghx", 0, 0, 0), filterRoot);
-
-    DG::FileDialog dialog (DG::FileDialog::OpenFile);
-    if (binary != FTM::UnknownType)
-        dialog.AddFilter (binary);
-    if (xml != FTM::UnknownType)
-        dialog.AddFilter (xml);
-    dialog.SetFilterRoot (filterRoot);
-
-    if (!dialog.Invoke ())
-        return; // cancelled, which is not worth a status line
-
-    GS::UniString path;
-    if (dialog.GetSelectedFile ().ToPath (&path) != NoError || path.IsEmpty ()) {
-        SetCommandStatus ("That file's location could not be read.");
-        return;
-    }
-
-    // ⚠️ THE WORKER IS STARTED HERE, HEADLESS, AND NOT WHEN THE COMMAND IS
-    // SELECTED. Starting Rhino costs seconds and a licence; spending both
-    // because somebody clicked down a list would be spending them on a glance.
-    // Picking a definition is the first gesture that cannot mean anything else.
-    //
-    // ⚠️ AND HEADLESS IS THE PANEL'S START, NOT THE MENU'S. Tapioca >
-    // Grasshopper Editor asks the same worker for its canvas; this asks for no
-    // canvas at all, which is the whole difference between the two (one
-    // ShowEditor message -- see GhWorkerHost::EnsureHeadless). A panel that
-    // opened the editor to load a file would put a Grasshopper window in front
-    // of Archicad every time somebody wanted a number.
-    evp::grasshopper::GhWorkerHost& host = evp::grasshopper::GhWorkerHost::Get ();
-    if (!host.IsRunning ()) {
-        GS::UniString startMessage;
-        if (!host.EnsureHeadless (startMessage)) {
-            SetCommandStatus (startMessage);
-            workflowLog.Note ("! " + ToStd (startMessage));
-            return;
-        }
-
-        // Remembered rather than loaded: the worker answers when it answers,
-        // and the idle tick that sees it come up will load this.
-        pendingWorkflowPath = ToStd (path);
-        workflowLog.Note ("Starting Grasshopper, then loading " + pendingWorkflowPath + " ...");
-        SetCommandStatus (startMessage);
-        return;
-    }
-
-    LoadWorkflowDefinition (ToStd (path));
-}
-
 void ControlPalette::LoadWorkflowDefinition (const std::string& path)
 {
-    evp::grasshopper::GhWorkflowController& controller = evp::grasshopper::GhWorkerHost::Get ().Workflow ();
+    evp::grasshopper::GhWorkerHost& host = evp::grasshopper::GhWorkerHost::Get ();
+    if (host.IsGh2 () || selectedWorkflowGh2) {
+        SetCommandStatus ("GH2 Player loading is not enabled yet; this connection supports read-only Ping.");
+        return;
+    }
+    evp::grasshopper::GhWorkflowController& controller = host.Workflow ();
 
     // ⚠️ THE SESSION IS OPENED LAZILY, ON THE FIRST DEFINITION. Opening one when
     // the worker starts would put a session on every worker, including the ones

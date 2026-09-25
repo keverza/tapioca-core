@@ -21,6 +21,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $build "PyPackage") -PathType Contai
     throw "Required release directory was not found: $(Join-Path $build 'PyPackage')"
 }
 
+$gh2Source = Join-Path $build "Gh2Worker"
+if (Test-Path -LiteralPath $gh2Source -PathType Container) {
+    foreach ($relativePath in @("Tapioca.Gh2Worker.exe", "Rhino.Inside.dll", "GrasshopperLibraries\TapiocaGH2.rhp")) {
+        $path = Join-Path $gh2Source $relativePath
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw "Incomplete GH2 release directory; required artifact was not found: $path"
+        }
+    }
+}
+
 if (Test-Path -LiteralPath $stage) {
     Remove-Item -LiteralPath $stage -Recurse -Force
 }
@@ -35,7 +45,7 @@ foreach ($name in @("LICENSE", "NOTICE", "README.md")) {
 Copy-Item -LiteralPath (Join-Path $dist "Install-Runtime.ps1") -Destination $stage -Force
 Copy-Item -LiteralPath (Join-Path $build "PyPackage") -Destination $stage -Recurse -Force
 
-$optionalDirectories = @("GhWorker", "DynamoRunner", "DynamoPackage")
+$optionalDirectories = @("GhWorker", "Gh2Worker", "DynamoRunner", "DynamoPackage")
 foreach ($name in $optionalDirectories) {
     $source = Join-Path $build $name
     if (Test-Path -LiteralPath $source -PathType Container) {

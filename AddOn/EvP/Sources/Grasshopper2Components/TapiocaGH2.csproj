@@ -8,12 +8,13 @@
     <TargetExt>.rhp</TargetExt>
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup>
     <!-- Rhino and GH2 use the same assembly GUID for this .rhp. -->
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Title>Tapioca GH2</Title>
     <Company>Tapioca</Company>
     <Description>Tapioca components for Grasshopper 2.</Description>
@@ -21,6 +22,13 @@
 
   <ItemGroup>
     <PackageReference Include="Grasshopper2" Version="9.0.26258.12303-beta" ExcludeAssets="runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Only GH-independent transport and bootstrap sources; no worker assembly. -->
+    <Compile Include="..\Gh2Worker\Gh2Wire.cs" Link="Bridge\Gh2Wire.cs" />
+    <Compile Include="..\Gh2Worker\Gh2PipeClient.cs" Link="Bridge\Gh2PipeClient.cs" />
+    <Compile Include="..\Gh2Worker\Gh2Ping.cs" Link="Bridge\Gh2Ping.cs" />
   </ItemGroup>
 
   <ItemGroup>

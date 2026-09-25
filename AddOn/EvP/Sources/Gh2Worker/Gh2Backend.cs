@@ -12,6 +12,7 @@ namespace Tapioca.Gh2Worker;
 internal sealed class Gh2Backend : IDisposable
 {
     private static readonly Guid InputTypeId = new("9efec712-4356-45d9-9777-8aecd2b3e557");
+    private static readonly Guid StatusTypeId = new("c512fd81-a693-47c4-95bf-30e3fa60b411");
 
     private readonly Rhino.Runtime.InProcess.RhinoCore core;
     private readonly MethodInfo installOverride;
@@ -49,6 +50,8 @@ internal sealed class Gh2Backend : IDisposable
                     StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(
                     $"GH2 loaded TapiocaGH2.rhp from '{type.Assembly.Location}', not '{pluginPath}'.");
+            if (ObjectProxies.FindById(StatusTypeId)?.Type.Assembly != type.Assembly)
+                throw new InvalidOperationException("This TapiocaGH2.rhp does not provide Archicad Connection Status.");
 
             installOverride = type.Assembly.GetType("TapiocaGH2.PlayerOverride")?
                 .GetMethod("Install", BindingFlags.Public | BindingFlags.Static)

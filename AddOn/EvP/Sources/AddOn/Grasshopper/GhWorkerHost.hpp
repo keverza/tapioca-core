@@ -70,6 +70,10 @@ class GhWorkerHost {
     // someone who asked for it.
     bool EnsureHeadless (GS::UniString& message);
 
+    // GH2 selects a different executable and Rhino major, behind the same
+    // supervised pipe. Initial slice: engine handshake and read-only Ping.
+    bool EnsureHeadlessGh2 (GS::UniString& message);
+
     // Listens for a peer this add-on does NOT start, and reports the pipe to
     // connect to.
     //
@@ -89,6 +93,9 @@ class GhWorkerHost {
     // The peer answers when it answers, over the same startup acknowledgement
     // every worker sends, and the panel notices it on its next idle.
     bool AttachLocal (GS::UniString& message);
+    // Listen for the standalone Rhino 9/GH2 plugin on the GH2-capable pipe.
+    // The peer remains owned by the user; this starts neither a process nor a Job.
+    bool AttachLocalGh2 (GS::UniString& message);
     bool HideEditor (GS::UniString& message);
 
     static void OpenEditorFromMenu ();
@@ -127,6 +134,8 @@ class GhWorkerHost {
     void Stop ();
 
     bool IsRunning () const;
+    bool IsGh2 () const;
+    GS::UniString LastWorkerMessage () const;
 
     // True when whatever is up is a peer this add-on did not start. What Stop
     // MEANS depends on it, so the panel asks before it says so.
