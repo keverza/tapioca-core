@@ -202,6 +202,36 @@ def test_pass_provenance_schema_exposes_camera_agreement():
     assert window["properties"]["values"]["minItems"] == window["properties"]["values"]["maxItems"] == 16
 
 
+def test_pass_provenance_schema_exposes_presented_content():
+    catalog = generator.extract_catalog(REPO_ROOT)
+    command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")
+    output = command.output_scheme
+
+    assert "presentedContent" in output["required"]
+    content = output["properties"]["presentedContent"]
+    assert content["additionalProperties"] is False
+    assert {
+        "presentsProcessed", "composited", "compositedChanged", "firstRepeats", "firstRepeatSame",
+        "firstRepeatOther", "trueDelta", "screenSeconds", "bookkeepingDisagrees", "frames",
+    } <= set(content["required"])
+    # One bucket per true delta: <=-2, -1, 0, +1, >=+2.
+    assert content["properties"]["trueDelta"]["minItems"] == content["properties"]["trueDelta"]["maxItems"] == 5
+    frame = content["properties"]["frames"]["items"]
+    assert frame["additionalProperties"] is False
+    assert frame["properties"]["relation"]["enum"] == [
+        "UNKNOWN", "COMPOSITED", "SAME_BUFFER", "OTHER_BUFFER", "UNDECIDABLE", "UNIDENTIFIED",
+    ]
+    # The camera agreement dump no longer carries a field nothing measures.
+    draw = output["properties"]["cameraAgreement"]["properties"]["dump"]["items"]["properties"]["draws"]["items"]
+    assert "vertexShader" not in draw["properties"]
+    # Stage 76: what the hooks saw before each Present, and the A/B switch.
+    assert {"coverage", "presentsWithRepairAfterCalls", "slotRepairs"} <= set(content["required"])
+    coverage = content["properties"]["coverage"]["items"]
+    assert coverage["additionalProperties"] is False
+    assert set(coverage["required"]) == {"relation", "presents", "calls", "draws", "noDraws", "repairs"}
+    assert command.input_scheme["properties"]["repairAfterCalls"] == {"type": "boolean"}
+
+
 def test_pass_provenance_schema_exposes_image_transfer():
     catalog = generator.extract_catalog(REPO_ROOT)
     command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")

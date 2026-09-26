@@ -65,6 +65,11 @@ std::atomic<uint64_t> g_discoveredDevice { 0 };
 // a profile calls, because pinning is the thing that changes the answer.
 std::atomic<bool> g_installRefused { false };
 std::atomic<uint64_t> g_repairs { 0 };
+// Stage 76: which slots the runtime re-points, and how many of the repairs the
+// after-call path made. Both restart with the hook, like `g_repairs`.
+std::atomic<uint64_t> g_slotRepairs[size_t (ContextSlot::Count)];
+std::atomic<uint64_t> g_afterCallRepairs { 0 };
+std::atomic<bool> g_repairAfterCalls { false };
 
 // ⚠️ HOW MANY THREADS ARE INSIDE `RepairContextHook` RIGHT NOW, and it exists for
 // exactly one interleaving, which would be silent and fatal. Teardown restores
@@ -447,6 +452,9 @@ bool InstallContextHook (std::string& error)
     g_firstCallUs.store (0, std::memory_order_relaxed);
     g_lastCallUs.store (0, std::memory_order_relaxed);
     g_repairs.store (0, std::memory_order_relaxed);
+    g_afterCallRepairs.store (0, std::memory_order_relaxed);
+    for (std::atomic<uint64_t>& count : g_slotRepairs)
+        count.store (0, std::memory_order_relaxed);
     for (std::atomic<uint64_t>& count : g_perSlot)
         count.store (0, std::memory_order_relaxed);
     eventring::Reset ();
@@ -592,6 +600,7 @@ uint32_t RepairContextHook ()
         // moved on from.
         g_original[i].store (current, std::memory_order_relaxed);
         g_vtable[kSlotIndex[i]] = kDetour[i];
+        g_slotRepairs[i].fetch_add (1, std::memory_order_relaxed);
     }
 
     DWORD ignored = 0;
@@ -600,6 +609,63 @@ uint32_t RepairContextHook ()
     g_repairs.fetch_add (wrong, std::memory_order_relaxed);
     g_repairing.fetch_sub (1, std::memory_order_release);
     return wrong;
+}
+
+uint64_t HookedArchicadCalls ()
+{
+    return g_calls.load (std::memory_order_relaxed);
+}
+
+uint64_t HookedArchicadDraws ()
+{
+    const ContextSlot draws[] = {
+        ContextSlot::DrawIndexed,          ContextSlot::Draw,     ContextSlot::DrawIndexedInstanced,
+        ContextSlot::DrawInstanced,        ContextSlot::DrawAuto, ContextSlot::DrawIndexedInstancedIndirect,
+        ContextSlot::DrawInstancedIndirect
+    };
+    uint64_t total = 0;
+    for (ContextSlot slot : draws)
+        total += g_perSlot[size_t (slot)].load (std::memory_order_relaxed);
+    return total;
+}
+
+uint64_t ContextHookRepairs ()
+{
+    return g_repairs.load (std::memory_order_relaxed);
+}
+
+uint64_t ContextSlotRepairs (ContextSlot slot)
+{
+    return size_t (slot) < size_t (ContextSlot::Count) ? g_slotRepairs[size_t (slot)].load (std::memory_order_relaxed)
+                                                       : 0;
+}
+
+void SetRepairAfterCalls (bool armed)
+{
+    g_repairAfterCalls.store (armed, std::memory_order_release);
+}
+
+bool RepairAfterCalls ()
+{
+    return g_repairAfterCalls.load (std::memory_order_acquire);
+}
+
+void RepairAfterDetour ()
+{
+    // Off: one relaxed load. On and intact: 28 pointer compares, no atomics
+    // written, no VirtualProtect. Only a slot the runtime actually re-pointed
+    // takes the full repair, with its teardown guard and its protection change.
+    if (!g_repairAfterCalls.load (std::memory_order_relaxed))
+        return;
+    void** const table = g_vtable;
+    if (table == nullptr || !g_installed.load (std::memory_order_acquire))
+        return;
+    for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
+        if (table[kSlotIndex[i]] != kDetour[i]) {
+            g_afterCallRepairs.fetch_add (RepairContextHook (), std::memory_order_relaxed);
+            return;
+        }
+    }
 }
 
 bool ContextHookInstalled ()
@@ -741,6 +807,10 @@ ContextHookStats GetContextHookStats ()
     }
 
     stats.repairs = g_repairs.load (std::memory_order_relaxed);
+    stats.afterCallRepairs = g_afterCallRepairs.load (std::memory_order_relaxed);
+    stats.repairAfterCalls = g_repairAfterCalls.load (std::memory_order_acquire);
+    for (size_t i = 0; i < size_t (ContextSlot::Count); ++i)
+        stats.slotRepairs[i] = g_slotRepairs[i].load (std::memory_order_relaxed);
     stats.proof = ProofName (Proof (g_proof.load (std::memory_order_acquire)));
     stats.lastError = g_lastError;
     return stats;

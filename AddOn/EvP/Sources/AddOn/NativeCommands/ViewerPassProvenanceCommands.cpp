@@ -3,11 +3,13 @@
 
 #include "NativeCommands/ViewerPassProvenanceCommands.hpp"
 #include "NativeCommands/ViewerCameraAgreementOutput.hpp"
+#include "NativeCommands/ViewerPresentedContentOutput.hpp"
 
 #include "ArchViz/Dxgi/ImageTransferTrace.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/CameraAgreement.hpp"
 #include "ArchViz/Dxgi/PresentProfile.hpp"
+#include "ArchViz/Dxgi/PresentedContent.hpp"
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
 #include <string>
@@ -134,6 +136,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         namespace imagetransfer = av::dxgi::imagetransfer;
         namespace presentprofile = av::dxgi::presentprofile;
         namespace cameraagreement = av::dxgi::cameraagreement;
+        namespace presentedcontent = av::dxgi::presentedcontent;
 
         bool reset = false;
         bool enabled = false;
@@ -142,6 +145,10 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             params.Get ("reset", reset);
         if (hasEnabled)
             params.Get ("enabled", enabled);
+        // Stage 76's A/B: arm the context hook's after-call repair for this window only.
+        bool repairAfterCalls = false;
+        if (params.Contains ("repairAfterCalls"))
+            params.Get ("repairAfterCalls", repairAfterCalls);
         const bool restoreEnabled = reset && provenance::Enabled () && !hasEnabled;
         bool drained = true;
         if (reset || (hasEnabled && !enabled)) {
@@ -150,6 +157,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             imagetransfer::SetEnabled (false);
             presentprofile::SetEnabled (false);
             cameraagreement::SetEnabled (false);
+            presentedcontent::SetEnabled (false);
             pairing::SetEnabled (false);
             drained = provenance::SetEnabled (false);
         }
@@ -159,6 +167,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             imagetransfer::Reset ();
             presentprofile::Reset ();
             cameraagreement::Reset ();
+            presentedcontent::Reset ();
         }
         bool transitionSucceeded = drained;
         if (hasEnabled && enabled && drained) {
@@ -169,6 +178,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             imagetransfer::SetEnabled (transitionSucceeded);
             presentprofile::SetEnabled (transitionSucceeded);
             cameraagreement::SetEnabled (transitionSucceeded);
+            presentedcontent::SetEnabled (transitionSucceeded, repairAfterCalls);
         }
         else if (restoreEnabled && drained) {
             transitionSucceeded = provenance::SetEnabled (true);
@@ -176,6 +186,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             imagetransfer::SetEnabled (transitionSucceeded);
             presentprofile::SetEnabled (transitionSucceeded);
             cameraagreement::SetEnabled (transitionSucceeded);
+            presentedcontent::SetEnabled (transitionSucceeded);
         }
 
         GS::Int32 limit = (GS::Int32) provenance::kRowCapacity;
@@ -518,6 +529,8 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
 
         // CAMERA AGREEMENT -- see ViewerCameraAgreementOutput.hpp.
         os.Add ("cameraAgreement", BuildCameraAgreementOutput ());
+        // PRESENTED CONTENT -- see ViewerPresentedContentOutput.hpp.
+        os.Add ("presentedContent", BuildPresentedContentOutput (pairingStats.provenanceEpoch));
         return os;
     }
 };
@@ -534,6 +547,7 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
         "properties": {
           "enabled": {"type": "boolean"},
           "reset": {"type": "boolean"},
+          "repairAfterCalls": {"type": "boolean"},
           "limit": {"type": "integer", "minimum": 1, "maximum": 1024}
         },
         "additionalProperties": false
@@ -801,7 +815,6 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
                           "kind": {"type": "integer", "minimum": 0, "maximum": 7},
                           "root": {"type": "boolean"},
                           "reference": {"type": "boolean"},
-                          "vertexShader": {"type": "string"},
                           "renderTarget": {"type": "string"},
                           "windows": {
                             "type": "array",
@@ -825,7 +838,7 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
                           }
                         },
                         "additionalProperties": false,
-                        "required": ["count", "ordinal", "kind", "root", "reference", "vertexShader", "renderTarget", "windows"]
+                        "required": ["count", "ordinal", "kind", "root", "reference", "renderTarget", "windows"]
                       }
                     }
                   },
@@ -836,6 +849,41 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
             },
             "additionalProperties": false,
             "required": ["enabled", "imagesOpened", "imagesSkipped", "imagesRead", "imagesConsecutive", "drawsTruncated", "keysTruncated", "readbacksPending", "readbackFailures", "createFailures", "rootMissing", "rootPoseMissing", "referenceMissing", "imagesMoving", "rootSame", "rootPrevious", "rootAhead", "rootNeither", "rootAngleSumDegrees", "referenceStepSumDegrees", "keyCount", "keys", "dump"]
+          },
+          "presentedContent": {
+            "type": "object",
+            "properties": {
+              "enabled": {"type": "boolean"}, "presentsSampled": {"type": "string"}, "presentsProcessed": {"type": "string"},
+              "slotsBusy": {"type": "string"}, "readbacksPending": {"type": "string"}, "readbackFailures": {"type": "string"},
+              "createFailures": {"type": "string"}, "abandoned": {"type": "string"}, "chainBreaks": {"type": "string"},
+              "targetChanges": {"type": "string"}, "composited": {"type": "string"}, "compositedChanged": {"type": "string"},
+              "repeats": {"type": "string"}, "repeatSame": {"type": "string"}, "repeatOther": {"type": "string"},
+              "repeatUndecidable": {"type": "string"}, "repeatUnidentified": {"type": "string"}, "firstRepeats": {"type": "string"},
+              "firstRepeatSame": {"type": "string"}, "firstRepeatOther": {"type": "string"}, "firstRepeatUnidentified": {"type": "string"},
+              "overlayBound": {"type": "string"},
+              "trueDelta": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"type": "string"}},
+              "screenSeconds": {"type": "array", "minItems": 5, "maxItems": 5, "items": {"type": "string"}},
+              "trueDeltaUnknown": {"type": "string"}, "screenSecondsUnknown": {"type": "string"}, "bookkeepingDisagrees": {"type": "string"},
+              "framesReady": {"type": "integer", "minimum": 0, "maximum": 6},
+              "coverage": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+                "relation": {"type": "string"}, "presents": {"type": "string"}, "calls": {"type": "string"}, "draws": {"type": "string"},
+                "noDraws": {"type": "string"}, "repairs": {"type": "string"}}, "additionalProperties": false,
+                "required": ["relation", "presents", "calls", "draws", "noDraws", "repairs"]}},
+              "presentsWithRepairAfterCalls": {"type": "string"},
+              "slotRepairs": {"type": "array", "maxItems": 28, "items": {"type": "object", "properties": {
+                "slot": {"type": "string"}, "repairs": {"type": "string"}}, "additionalProperties": false, "required": ["slot", "repairs"]}},
+              "frames": {"type": "array", "maxItems": 6, "items": {"type": "object", "properties": {
+                "presentSerial": {"type": "string"}, "seconds": {"type": "string"}, "handoffSerial": {"type": "string"},
+                "imageGeneration": {"type": "string"}, "cameraImageGeneration": {"type": "string"}, "cameraBound": {"type": "boolean"},
+                "relation": {"type": "string", "enum": ["UNKNOWN", "COMPOSITED", "SAME_BUFFER", "OTHER_BUFFER", "UNDECIDABLE", "UNIDENTIFIED"]},
+                "displayedKnown": {"type": "boolean"}, "displayed": {"type": "string"}, "x": {"type": "integer", "minimum": 0},
+                "y": {"type": "integer", "minimum": 0}, "width": {"type": "integer", "minimum": 0}, "height": {"type": "integer", "minimum": 0},
+                "path": {"type": "string"}, "pathBefore": {"type": "string"}},
+                "additionalProperties": false,
+                "required": ["presentSerial", "seconds", "handoffSerial", "imageGeneration", "cameraImageGeneration", "cameraBound", "relation", "displayedKnown", "displayed", "x", "y", "width", "height", "path", "pathBefore"]}}
+            },
+            "additionalProperties": false,
+            "required": ["enabled", "presentsSampled", "presentsProcessed", "slotsBusy", "readbacksPending", "readbackFailures", "createFailures", "abandoned", "chainBreaks", "targetChanges", "composited", "compositedChanged", "repeats", "repeatSame", "repeatOther", "repeatUndecidable", "repeatUnidentified", "firstRepeats", "firstRepeatSame", "firstRepeatOther", "firstRepeatUnidentified", "overlayBound", "trueDelta", "screenSeconds", "trueDeltaUnknown", "screenSecondsUnknown", "bookkeepingDisagrees", "framesReady", "coverage", "presentsWithRepairAfterCalls", "slotRepairs", "frames"]
           },
 )json" R"json(
           "imageTransfer": {
@@ -930,7 +978,7 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
           }
         },
         "additionalProperties": false,
-        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "handoffs", "handoffsUnrooted", "handoffsSameGeneration", "generationsWithMultipleRoots", "sceneColourChanges", "backBufferClears", "backBufferOtherWrites", "presentsWithoutBinding", "imageGeneration", "uniqueDelta", "repeatMatched", "repeatMismatched", "repeatUnknown", "repeatAmbiguous", "repeatDelta", "presentProfile", "cameraAgreement", "pairingRows", "imageTransfer"]
+        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "handoffs", "handoffsUnrooted", "handoffsSameGeneration", "generationsWithMultipleRoots", "sceneColourChanges", "backBufferClears", "backBufferOtherWrites", "presentsWithoutBinding", "imageGeneration", "uniqueDelta", "repeatMatched", "repeatMismatched", "repeatUnknown", "repeatAmbiguous", "repeatDelta", "presentProfile", "cameraAgreement", "presentedContent", "pairingRows", "imageTransfer"]
       })json" }
 };
 

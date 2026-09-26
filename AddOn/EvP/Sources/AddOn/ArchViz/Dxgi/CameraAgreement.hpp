@@ -110,8 +110,9 @@ struct Stats {
     uint64_t rootMissing = 0;      // images read with no verified draw
     uint64_t rootPoseMissing = 0;  // a verified draw whose windows hold no pose
     uint64_t referenceMissing = 0; // images read with no model-family view-projection draw
-    // The headline: the verified draw against the reference -- the first draw of
-    // the image with more than six indices whose b1 is a view-projection.
+    // The headline: the verified draw against the reference -- the pose that the
+    // most draws of more than six indices, other than the verified one, agree on
+    // in that image (at least two of them).
     uint64_t imagesMoving = 0; // consecutive, reference posed in both, its rotation changed
     uint64_t rootSame = 0;
     uint64_t rootPrevious = 0;
@@ -140,7 +141,6 @@ struct DumpDraw {
     uint32_t kind = 0;
     bool root = false;
     bool reference = false;
-    uint64_t vertexShader = 0;
     uint64_t renderTarget = 0;
     DumpWindow windows[kWindows];
 };

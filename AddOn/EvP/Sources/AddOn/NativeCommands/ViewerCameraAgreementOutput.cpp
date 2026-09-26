@@ -102,7 +102,6 @@ GS::ObjectState BuildCameraAgreementOutput ()
             drawOut.Add ("kind", GS::Int32 (draw.kind));
             drawOut.Add ("root", draw.root);
             drawOut.Add ("reference", draw.reference);
-            drawOut.Add ("vertexShader", text (draw.vertexShader));
             drawOut.Add ("renderTarget", text (draw.renderTarget));
             GS::Array<GS::ObjectState> windowsOut;
             for (size_t s = 0; s < cameraagreement::kWindows; ++s) {

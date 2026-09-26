@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/PresentProfile.hpp"
+#include "ArchViz/Dxgi/PresentedContent.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 #include "ArchViz/NavLog.hpp"
@@ -284,6 +285,8 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
             imageTransferActive = imagetransfer::BeginPresent (swapChain);
             presentprofile::OnPresent (swapChain, syncInterval, flags, false);
             cameraagreement::OnPresent (swapChain);
+            // Stage 75: buffer 0's rows BEFORE any drawing of ours.
+            presentedcontent::OnPresentBegin (swapChain);
         }
         // ⚠️ BEFORE THE ORIGINAL, NOT AFTER. After Present the back buffer has
         // already gone to the screen -- with a flip-model chain it is not even
@@ -318,6 +321,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     // ⚠️ THE ORIGINAL IS READ INTO A LOCAL BEFORE THE CALL. Remove can null it
     // between the check and the call otherwise, and a null call here takes
     // Archicad's render thread with it.
+    // Stage 75: the same rows AFTER every drawing of ours, as they will be presented.
+    if (passProvenanceActive)
+        presentedcontent::OnPresentForward (swapChain);
     const PresentFn original = g_originalPresent;
     const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags) : S_OK;
     // Unwinds innermost-first: trace end -> pairing end -> provenance end.
@@ -347,6 +353,8 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
             imageTransferActive = imagetransfer::BeginPresent (swapChain);
             presentprofile::OnPresent (swapChain, syncInterval, flags, true);
             cameraagreement::OnPresent (swapChain);
+            // Stage 75: buffer 0's rows BEFORE any drawing of ours.
+            presentedcontent::OnPresentBegin (swapChain);
         }
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);
@@ -366,6 +374,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
             markerladder::PaintSwapChain (swapChain, markerladder::Rung::BeforePresent);
         CaptureGpuStateIfTarget (swapChain);
     }
+    // Stage 75: the same rows AFTER every drawing of ours, as they will be presented.
+    if (passProvenanceActive)
+        presentedcontent::OnPresentForward (swapChain);
     const Present1Fn original = g_originalPresent1;
     const HRESULT hr = (original != nullptr) ? original (swapChain, syncInterval, flags, parameters) : S_OK;
     // Unwinds innermost-first: trace end -> pairing end -> provenance end.

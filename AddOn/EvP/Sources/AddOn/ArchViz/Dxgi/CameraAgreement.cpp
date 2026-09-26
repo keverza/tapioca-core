@@ -32,6 +32,11 @@ constexpr double kDegreesPerRadian = 57.29577951308232;
 // can equal both an image's camera and the next image's.
 constexpr double kMatchRadians = 2e-4;  // 0.011 degrees
 constexpr double kMovingRadians = 1e-3; // 0.057 degrees
+// ⚠️ AND THE EYE, BECAUSE A PAN OR A DOLLY TURNS NOTHING. Stage 74's dumped images
+// moved only in translation between consecutive images; rotation alone called
+// them unmoved. Relative to the larger eye distance from the origin, floor 1.
+constexpr double kMatchEye = 1e-4;
+constexpr double kMovingEye = 1e-3;
 
 enum class SlotState : uint32_t { Free = 0, Filling = 1, Submitted = 2 };
 
@@ -40,7 +45,6 @@ struct DrawMeta {
     uint32_t ordinal = 0;
     uint32_t kind = 0;
     bool root = false;
-    uint64_t vertexShader = 0;
     uint64_t renderTarget = 0;
     contextstate::ConstantBufferBinding windows[kWindows];
     uint32_t bytesCopied[kWindows] = {};
@@ -199,6 +203,27 @@ double EyeDistance (const Pose& a, const Pose& b)
     return Length (d);
 }
 
+// Eye distance relative to the larger of the two eyes' distances from the origin,
+// floor 1; zero when either form carries no eye (a rotation-only background).
+double RelativeEyeDistance (const Pose& a, const Pose& b)
+{
+    if (!a.hasEye || !b.hasEye)
+        return 0.0;
+    double scale = Length (a.eye) > Length (b.eye) ? Length (a.eye) : Length (b.eye);
+    scale = scale > 1.0 ? scale : 1.0;
+    return EyeDistance (a, b) / scale;
+}
+
+bool SamePose (const Pose& a, const Pose& b)
+{
+    return RotationDifference (a, b) <= kMatchRadians && RelativeEyeDistance (a, b) <= kMatchEye;
+}
+
+bool PoseMoved (const Pose& now, const Pose& before)
+{
+    return RotationDifference (now, before) >= kMovingRadians || RelativeEyeDistance (now, before) >= kMovingEye;
+}
+
 // Element (r, c) of the matrix in ROW-VECTOR form, `out = p * M`. A window whose
 // registers are the columns of that -- the transpose in memory -- is read with
 // `columnVector` set, so every test below is written once.
@@ -351,24 +376,17 @@ bool ReadPose (const float* m, Form form, Pose& pose)
     }
 }
 
-bool IsViewProjection (Form form)
-{
-    return form == Form::ViewProjectionRowVector || form == Form::ViewProjectionColumnVector;
-}
-
 // X against Y at image g: SAME if X(g) is Y(g); PREVIOUS if X(g) is Y(g - 1),
 // X lagging; AHEAD if X(g - 1) is Y(g), X leading; otherwise NEITHER.
 enum class Relation { Same, Previous, Ahead, Neither };
 
 Relation Relate (const Pose& x, const History& xPrevious, const Pose& y, const History& yPrevious, uint64_t generation)
 {
-    if (RotationDifference (x, y) <= kMatchRadians)
+    if (SamePose (x, y))
         return Relation::Same;
-    if (yPrevious.generation + 1 == generation && yPrevious.pose.valid &&
-        RotationDifference (x, yPrevious.pose) <= kMatchRadians)
+    if (yPrevious.generation + 1 == generation && yPrevious.pose.valid && SamePose (x, yPrevious.pose))
         return Relation::Previous;
-    if (xPrevious.generation + 1 == generation && xPrevious.pose.valid &&
-        RotationDifference (xPrevious.pose, y) <= kMatchRadians)
+    if (xPrevious.generation + 1 == generation && xPrevious.pose.valid && SamePose (xPrevious.pose, y))
         return Relation::Ahead;
     return Relation::Neither;
 }
@@ -512,10 +530,28 @@ void Evaluate (const Slot& slot, const ImageData& data)
         keys[k] = FindOrAddKey (meta.count, meta.ordinal, meta.kind);
         if (meta.root)
             root = int (k);
-        if (reference < 0 && meta.count >= kModelMinimumCount && IsViewProjection (forms[k][1]) && poses[k].valid &&
-            poseWindows[k] == 1)
-            reference = int (k);
     }
+    // ⚠️ THE REFERENCE IS A CONSENSUS, NOT A DESIGNATED DRAW. Stage 73 took the
+    // first large draw (the background); Stage 74 took the first large draw whose
+    // b1 is a view-projection, contradicting frozen finding §1.1 (b1 IS the view),
+    // and found none in 176 images. Here it is the pose that the most model-sized
+    // draws other than the verified one agree on, and it needs two of them.
+    int support = 0;
+    for (uint32_t i = 0; i < slot.draws; ++i) {
+        if (int (i) == root || slot.meta[i].count < kModelMinimumCount || !poses[i].valid)
+            continue;
+        int agree = 1;
+        for (uint32_t j = 0; j < slot.draws; ++j)
+            if (j != i && int (j) != root && slot.meta[j].count >= kModelMinimumCount && poses[j].valid &&
+                SamePose (poses[i], poses[j]))
+                ++agree;
+        if (agree > support) {
+            support = agree;
+            reference = int (i);
+        }
+    }
+    if (support < 2)
+        reference = -1;
     if (root < 0)
         g_rootMissing.fetch_add (1, std::memory_order_relaxed);
     else if (!poses[root].valid)
@@ -528,8 +564,7 @@ void Evaluate (const Slot& slot, const ImageData& data)
     // The headline: the verified draw against the model family, in the images
     // where the model family's camera moved.
     const bool referenceMoved = referencePosed && g_referenceHistory.generation + 1 == generation &&
-                                g_referenceHistory.pose.valid &&
-                                RotationDifference (poses[reference], g_referenceHistory.pose) >= kMovingRadians;
+                                g_referenceHistory.pose.valid && PoseMoved (poses[reference], g_referenceHistory.pose);
     if (referenceMoved) {
         g_imagesMoving.fetch_add (1, std::memory_order_relaxed);
         Accumulate (g_referenceStepSumDegrees,
@@ -558,8 +593,8 @@ void Evaluate (const Slot& slot, const ImageData& data)
         key.posed.fetch_add (1, std::memory_order_relaxed);
         key.poseWindow.store (poseWindows[k], std::memory_order_relaxed);
 
-        const bool moved = history.generation + 1 == generation && history.pose.valid &&
-                           RotationDifference (poses[k], history.pose) >= kMovingRadians;
+        const bool moved =
+            history.generation + 1 == generation && history.pose.valid && PoseMoved (poses[k], history.pose);
         if (moved) {
             key.moving.fetch_add (1, std::memory_order_relaxed);
             Accumulate (key.stepSumDegrees, RotationDifference (poses[k], history.pose) * kDegreesPerRadian);
@@ -594,7 +629,6 @@ void Evaluate (const Slot& slot, const ImageData& data)
             draw.kind = meta.kind;
             draw.root = int (k) == root;
             draw.reference = int (k) == reference;
-            draw.vertexShader = meta.vertexShader;
             draw.renderTarget = meta.renderTarget;
             for (size_t s = 0; s < kWindows; ++s) {
                 DumpWindow& window = draw.windows[s];
@@ -744,7 +778,6 @@ void OnDrawCompleted (ID3D11DeviceContext* context, uint32_t kind, uint32_t coun
     // Every window this draw had bound, whether or not its shader reads it: a
     // stale binding is itself evidence of where a camera came from.
     const contextstate::ContextState live = contextstate::Snapshot ();
-    meta.vertexShader = live.vertexShader;
     meta.renderTarget = live.renderTarget;
 
     // ⚠️ OUR COPIES ARE NOT ARCHICAD'S WORK. Without the guard the hooked copy

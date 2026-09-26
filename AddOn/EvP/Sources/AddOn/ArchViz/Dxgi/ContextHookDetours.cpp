@@ -117,6 +117,16 @@ extern const size_t kVtableSlots = 124;
 // pointers and then spins until this reads zero.
 std::atomic<int32_t> g_inFlight { 0 };
 
+// Every detour's last act. With the after-call repair armed (Stage 76) the table
+// is re-checked here, on the calling thread, straight after the runtime ran --
+// and before the drain counter lets a teardown proceed, so a teardown that has
+// cleared `installed` finds the repair already declining.
+inline void LeaveDetour ()
+{
+    RepairAfterDetour ();
+    g_inFlight.fetch_sub (1, std::memory_order_release);
+}
+
 // ⚠️ THE FILTER. Every detour compares against this and returns immediately when
 // it does not match; without it the hook records our own Diligent renderer as
 // though it were Archicad. `g_selfTestContext` is the same idea for the
@@ -245,7 +255,7 @@ void STDMETHODCALLTYPE DetourRSSetViewports (ID3D11DeviceContext* context, UINT 
     const RSSetViewportsFn original = OriginalOf<RSSetViewportsFn> (ContextSlot::RSSetViewports);
     if (original != nullptr)
         original (context, count, viewports);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourRSSetScissorRects (ID3D11DeviceContext* context, UINT count, const D3D11_RECT* rects)
@@ -265,7 +275,7 @@ void STDMETHODCALLTYPE DetourRSSetScissorRects (ID3D11DeviceContext* context, UI
     const RSSetScissorRectsFn original = OriginalOf<RSSetScissorRectsFn> (ContextSlot::RSSetScissorRects);
     if (original != nullptr)
         original (context, count, rects);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, UINT count,
@@ -336,7 +346,7 @@ void STDMETHODCALLTYPE DetourOMSetRenderTargets (ID3D11DeviceContext* context, U
     const OMSetRenderTargetsFn original = OriginalOf<OMSetRenderTargetsFn> (ContextSlot::OMSetRenderTargets);
     if (original != nullptr)
         original (context, count, targets, depth);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourPSSetShaderResources (ID3D11DeviceContext* context, UINT startSlot, UINT count,
@@ -349,7 +359,7 @@ void STDMETHODCALLTYPE DetourPSSetShaderResources (ID3D11DeviceContext* context,
     const PSSetShaderResourcesFn original = OriginalOf<PSSetShaderResourcesFn> (ContextSlot::PSSetShaderResources);
     if (original != nullptr)
         original (context, startSlot, count, views);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void RecordConstantBuffers (ContextSlot slot, UINT startSlot, UINT count, ID3D11Buffer* const* buffers)
@@ -374,7 +384,7 @@ void STDMETHODCALLTYPE DetourVSSetConstantBuffers (ID3D11DeviceContext* context,
     const SetConstantBuffersFn original = OriginalOf<SetConstantBuffersFn> (ContextSlot::VSSetConstantBuffers);
     if (original != nullptr)
         original (context, startSlot, count, buffers);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourPSSetConstantBuffers (ID3D11DeviceContext* context, UINT startSlot, UINT count,
@@ -387,7 +397,7 @@ void STDMETHODCALLTYPE DetourPSSetConstantBuffers (ID3D11DeviceContext* context,
     const SetConstantBuffersFn original = OriginalOf<SetConstantBuffersFn> (ContextSlot::PSSetConstantBuffers);
     if (original != nullptr)
         original (context, startSlot, count, buffers);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourGSSetConstantBuffers (ID3D11DeviceContext* context, UINT startSlot, UINT count,
@@ -400,7 +410,7 @@ void STDMETHODCALLTYPE DetourGSSetConstantBuffers (ID3D11DeviceContext* context,
     const SetConstantBuffersFn original = OriginalOf<SetConstantBuffersFn> (ContextSlot::GSSetConstantBuffers);
     if (original != nullptr)
         original (context, startSlot, count, buffers);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 HRESULT STDMETHODCALLTYPE DetourMap (ID3D11DeviceContext* context, ID3D11Resource* resource, UINT subresource,
@@ -430,7 +440,7 @@ HRESULT STDMETHODCALLTYPE DetourMap (ID3D11DeviceContext* context, ID3D11Resourc
         eventring::Record (ContextSlot::Map, uint64_t (uintptr_t (resource)), subresource, uint32_t (mapType), width);
     }
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
     return hr;
 }
 
@@ -448,7 +458,7 @@ void STDMETHODCALLTYPE DetourUnmap (ID3D11DeviceContext* context, ID3D11Resource
     const UnmapFn original = OriginalOf<UnmapFn> (ContextSlot::Unmap);
     if (original != nullptr)
         original (context, resource, subresource);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourUpdateSubresource (ID3D11DeviceContext* context, ID3D11Resource* resource,
@@ -480,7 +490,7 @@ void STDMETHODCALLTYPE DetourUpdateSubresource (ID3D11DeviceContext* context, ID
     if (archicad)
         passprovenance::OnResourceWrite (resource);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourClearRenderTargetView (ID3D11DeviceContext* context, ID3D11RenderTargetView* view,
@@ -499,7 +509,7 @@ void STDMETHODCALLTYPE DetourClearRenderTargetView (ID3D11DeviceContext* context
     if (archicad)
         passprovenance::OnClearRenderTarget (view);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourClearDepthStencilView (ID3D11DeviceContext* context, ID3D11DepthStencilView* view,
@@ -516,7 +526,7 @@ void STDMETHODCALLTYPE DetourClearDepthStencilView (ID3D11DeviceContext* context
     const ClearDSVFn original = OriginalOf<ClearDSVFn> (ContextSlot::ClearDepthStencilView);
     if (original != nullptr)
         original (context, view, flags, depth, stencil);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 // Draw detours only count: a ring entry for thousands of calls per frame would
@@ -553,7 +563,7 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
         original (context, indexCount, startIndex, baseVertex);
     PostDraw (context, 0, indexCount, archicad);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UINT start)
@@ -576,7 +586,7 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
         original (context, count, start);
     PostDraw (context, 1, count, archicad);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context, UINT perInst, UINT instances,
@@ -599,7 +609,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
         original (context, perInst, instances, startIndex, baseVertex, startInstance);
     PostDraw (context, 2, perInst, archicad);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 extern // ⚠️ THESE TWO ARE THE FOURTH RUN'S QUESTION, and it is a sharp one. That run
@@ -638,7 +648,7 @@ extern // ⚠️ THESE TWO ARE THE FOURTH RUN'S QUESTION, and it is a sharp one.
     if (archicad)
         passprovenance::OnCopyResource (destination, source);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourExecuteCommandList (ID3D11DeviceContext* context, ID3D11CommandList* list,
@@ -653,7 +663,7 @@ void STDMETHODCALLTYPE DetourExecuteCommandList (ID3D11DeviceContext* context, I
     if (archicad)
         passprovenance::OnUnsupportedGpuWork ();
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 // ---- the gap the sixth run exposed -----------------------------------------
@@ -682,7 +692,7 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
         original (context, perInstance, instances, startVertex, startInstance);
     PostDraw (context, 3, perInstance, archicad);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
@@ -705,7 +715,7 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
     if (archicad)
         passprovenance::OnDrawCompleted (passprovenance::DrawKind::Auto, 0);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* context, ID3D11Buffer* args,
@@ -729,7 +739,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
     if (archicad)
         passprovenance::OnDrawCompleted (passprovenance::DrawKind::IndexedInstancedIndirect, 0);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context, ID3D11Buffer* args, UINT offset)
@@ -752,7 +762,7 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
     if (archicad)
         passprovenance::OnDrawCompleted (passprovenance::DrawKind::InstancedIndirect, 0);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDispatch (ID3D11DeviceContext* context, UINT x, UINT y, UINT z)
@@ -766,7 +776,7 @@ void STDMETHODCALLTYPE DetourDispatch (ID3D11DeviceContext* context, UINT x, UIN
     if (archicad)
         passprovenance::OnUnsupportedGpuWork ();
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourDispatchIndirect (ID3D11DeviceContext* context, ID3D11Buffer* args, UINT offset)
@@ -780,7 +790,7 @@ void STDMETHODCALLTYPE DetourDispatchIndirect (ID3D11DeviceContext* context, ID3
     if (archicad)
         passprovenance::OnUnsupportedGpuWork ();
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourCopySubresourceRegion (ID3D11DeviceContext* context, ID3D11Resource* destination,
@@ -799,7 +809,7 @@ void STDMETHODCALLTYPE DetourCopySubresourceRegion (ID3D11DeviceContext* context
     if (archicad)
         passprovenance::OnPartialResourceCopy (destination, source);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context, ID3D11Resource* destination,
@@ -818,7 +828,7 @@ void STDMETHODCALLTYPE DetourResolveSubresource (ID3D11DeviceContext* context, I
     if (archicad)
         passprovenance::OnPartialResourceCopy (destination, source);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 // ⚠️ THESE TWO ARE NOT COUNTERS. `VSSetConstantBuffers1` is where a D3D11.1
@@ -885,7 +895,7 @@ void STDMETHODCALLTYPE DetourVSSetConstantBuffers1 (ID3D11DeviceContext* context
     const SetConstantBuffers1Fn original = OriginalOf<SetConstantBuffers1Fn> (ContextSlot::VSSetConstantBuffers1);
     if (original != nullptr)
         original (context, startSlot, count, buffers, firstConstant, numConstants);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourPSSetConstantBuffers1 (ID3D11DeviceContext* context, UINT startSlot, UINT count,
@@ -900,7 +910,7 @@ void STDMETHODCALLTYPE DetourPSSetConstantBuffers1 (ID3D11DeviceContext* context
     const SetConstantBuffers1Fn original = OriginalOf<SetConstantBuffers1Fn> (ContextSlot::PSSetConstantBuffers1);
     if (original != nullptr)
         original (context, startSlot, count, buffers, firstConstant, numConstants);
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void STDMETHODCALLTYPE DetourUpdateSubresource1 (ID3D11DeviceContext* context, ID3D11Resource* resource,
@@ -929,7 +939,7 @@ void STDMETHODCALLTYPE DetourUpdateSubresource1 (ID3D11DeviceContext* context, I
     if (archicad)
         passprovenance::OnResourceWrite (resource);
     provenanceOperation.Finish ();
-    g_inFlight.fetch_sub (1, std::memory_order_release);
+    LeaveDetour ();
 }
 
 void* const kDetour[size_t (ContextSlot::Count)] = {

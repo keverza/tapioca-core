@@ -133,6 +133,16 @@ void OnOverlayCameraBound (uint64_t metadataPass);
 void EndPresent (bool active, bool succeeded);
 void OnResizeBuffers ();
 
+// PRESENT THREAD, inside the Present that BeginPresent opened: the pending row's
+// handoff and camera generations, for PresentedContent. False outside a Present.
+struct PresentView {
+    uint64_t handoffSerial = 0;
+    uint64_t imageGeneration = 0;       // of the last composite into B
+    uint64_t cameraImageGeneration = 0; // of the camera the overlay bound, if it did
+    bool cameraBound = false;
+};
+bool PendingPresentView (PresentView& out);
+
 size_t CopyRows (Row* out, size_t capacity);
 Stats GetStats ();
 

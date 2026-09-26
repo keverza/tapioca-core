@@ -798,6 +798,17 @@ void OnResizeBuffers ()
     g_resizeFenceSerial.store (NextEvent (), std::memory_order_release);
 }
 
+bool PendingPresentView (PresentView& out)
+{
+    if (!g_pendingPresentActive)
+        return false;
+    out.handoffSerial = g_pendingPresent.handoffSerial;
+    out.imageGeneration = g_pendingPresent.imageGeneration;
+    out.cameraImageGeneration = g_pendingPresent.cameraImageGeneration;
+    out.cameraBound = g_pendingPresent.overlayCameraSerial != 0;
+    return true;
+}
+
 size_t CopyRows (Row* out, size_t capacity)
 {
     if (out == nullptr || capacity == 0)

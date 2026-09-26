@@ -250,6 +250,30 @@ void RemoveContextHook ();
 // silently papered over.
 uint32_t RepairContextHook ();
 
+// ⚠️ REPAIR AFTER EVERY HOOKED CALL (Stage 76), ARMED ONLY BY A DIAGNOSTIC.
+// Stage 75 read the back buffer's pixels at every Present: Archicad put a new
+// image into it at ~95% of Presents while the hooks saw a scene pass at one
+// Present in six. The repair above runs once per Present and the runtime
+// re-points ~16 of the 28 slots within each frame, so most of every frame went
+// unobserved and the overlay's camera advanced only on the frames that were
+// seen -- the trail. Armed, every detour re-checks the table on the calling
+// thread as it leaves, straight after the runtime ran, and restores whatever the
+// runtime re-pointed, taking the new pointer as the original exactly as the
+// Present repair does. Off, `RepairAfterDetour` is one relaxed load.
+void SetRepairAfterCalls (bool armed);
+bool RepairAfterCalls ();
+// ANY THREAD, from the detours' common exit.
+void RepairAfterDetour ();
+
+// ANY THREAD, relaxed loads, cumulative since install: hooked calls from
+// Archicad's context, the draw calls among them, slots put back by either
+// repair, and per slot. PresentedContent takes their difference per Present to
+// measure how much of each frame the hooks actually saw.
+uint64_t HookedArchicadCalls ();
+uint64_t HookedArchicadDraws ();
+uint64_t ContextHookRepairs ();
+uint64_t ContextSlotRepairs (ContextSlot slot);
+
 bool ContextHookInstalled ();
 
 // MAIN THREAD. Whether the mode wants this hook up. Set at arm, cleared at
@@ -350,6 +374,11 @@ struct ContextHookStats {
     // this table as a matter of course. A number that is zero while `calls` is
     // also zero means the repair is not running at all.
     uint64_t repairs = 0;
+    // Stage 76: of `repairs`, how many the after-call path made, and per slot how
+    // often the runtime had re-pointed it -- which calls lose the hook.
+    uint64_t afterCallRepairs = 0;
+    uint64_t slotRepairs[size_t (ContextSlot::Count)] = {};
+    bool repairAfterCalls = false;
 
     // ⚠️ HOW MANY OF THE PATCHED SLOTS STILL HOLD OUR DETOUR, re-read from the
     // live table at report time. Anything less than all of them means something
