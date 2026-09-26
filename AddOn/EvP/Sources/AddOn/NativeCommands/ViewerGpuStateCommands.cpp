@@ -50,6 +50,16 @@ public:
 
         GS::ObjectState os;
         if (pin) {
+            // ⚠️ NOT WHILE OUR HOOK HOLDS THE TABLE. It installs only after the pinned
+            // profile verified against the running build, so there is nothing to
+            // re-pin -- and the live table would hand the fingerprint our own detours,
+            // which `ValidateTable` refuses as pointing into this add-on (2026-09-26).
+            if (av::dxgi::ContextHookInstalled ())
+                return NativeCommandResult::Failure (
+                    EVP_FAIL ("nothing to re-pin: the context hook is installed, which it does only after the "
+                              "pinned profile verified against this build. Re-pin is for when archviz.log says "
+                              "'context hook: refused'",
+                              "re-pinning the patch profile"));
             // ⚠️ THE TARGETS ARE FINGERPRINTED FIRST. A profile written without
             // them would verify the executable and check nothing about the slots
             // being patched -- `patchprofile::Pin` refuses that outright, and

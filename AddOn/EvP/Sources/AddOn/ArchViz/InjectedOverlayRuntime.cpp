@@ -942,10 +942,9 @@ void Stop ()
     }
     g_modelWatchStarted = false;
     redrawbudget::Reset ();
-    // ⚠️ AND STOP POINTING AT A SELECTION THAT IS ABOUT TO NOT
-    // EXIST. Guidance section 4: selection and camera source move together, and
-    // `selection=none source=CensusSelectedGroup` is a state that must never be
-    // observable. It was, on every restart.
+    // ⚠️ AND STOP POINTING AT A SELECTION THAT IS ABOUT TO NOT EXIST. Guidance section 4:
+    // selection and camera source move together, and `selection=none
+    // source=CensusSelectedGroup` must never be observable. It was, on every restart.
     // ⚠️ AND LET GO OF ARCHICAD'S BACK BUFFER BEFORE THE
     // HOOKS COME OUT. `ResizeBuffers` fails while a swap-chain view is alive
     // (section 11), so a wrapper outliving the session would break the NEXT one
@@ -963,13 +962,14 @@ void Stop ()
     cen::SetAutoSelect (false);
     cen::SetEnabled (false);
 
-    // ⚠️ BACK TO THE MODE THE HOOKS CAME FROM, WHICH ALSO RELEASES THEM. The
-    // context detours repair themselves every frame, so an uninstall that loses
-    // a race can leave them forwarding through nulled originals -- Archicad keeps
-    // running and silently stops drawing. `SetCameraSyncMode` owns that sequence.
+    // ⚠️ `SetCameraSyncMode` OWNS THE UNINSTALL: one that loses a race leaves the
+    // detours forwarding to nulled originals. And `legacy` REFUSES without a portable
+    // viewport, which left both hooks in Archicad's frames until the next Start.
     std::string error;
-    SetCameraSyncMode (CameraSyncMode::Legacy, CurrentCameraSyncIntervalMs (), CurrentPredictionScale (),
-                       CurrentHideOnNav (), false, error);
+    if (!SetCameraSyncMode (DiligentViewport::Get ().IsRunning () ? CameraSyncMode::Legacy : CameraSyncMode::Off,
+                            CurrentCameraSyncIntervalMs (), CurrentPredictionScale (), CurrentHideOnNav (), false,
+                            error))
+        report::Say ("OVERLAY", "stop could not release the hooks: " + error);
 
     StopHeartbeat ();
     g_running = false;
