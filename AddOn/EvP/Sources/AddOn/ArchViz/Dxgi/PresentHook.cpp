@@ -11,6 +11,7 @@
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
+#include "ArchViz/Dxgi/CameraAgreement.hpp"
 #include "ArchViz/Dxgi/ConstantBufferCapture.hpp"
 #include "ArchViz/Dxgi/ImageTransferTrace.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
@@ -282,6 +283,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
             // Innermost of the three: provenance begin -> pairing begin -> trace begin.
             imageTransferActive = imagetransfer::BeginPresent (swapChain);
             presentprofile::OnPresent (swapChain, syncInterval, flags, false);
+            cameraagreement::OnPresent (swapChain);
         }
         // ⚠️ BEFORE THE ORIGINAL, NOT AFTER. After Present the back buffer has
         // already gone to the screen -- with a flip-model chain it is not even
@@ -344,6 +346,7 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
             // Innermost of the three: provenance begin -> pairing begin -> trace begin.
             imageTransferActive = imagetransfer::BeginPresent (swapChain);
             presentprofile::OnPresent (swapChain, syncInterval, flags, true);
+            cameraagreement::OnPresent (swapChain);
         }
         if (!HostCompositeReady ())
             DrawMarkerIfTarget (swapChain);

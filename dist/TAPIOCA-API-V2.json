@@ -26499,6 +26499,344 @@
               ]
             }
           },
+          "cameraAgreement": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "imagesOpened": {
+                "type": "string"
+              },
+              "imagesSkipped": {
+                "type": "string"
+              },
+              "imagesRead": {
+                "type": "string"
+              },
+              "imagesConsecutive": {
+                "type": "string"
+              },
+              "drawsTruncated": {
+                "type": "string"
+              },
+              "keysTruncated": {
+                "type": "string"
+              },
+              "readbacksPending": {
+                "type": "string"
+              },
+              "readbackFailures": {
+                "type": "string"
+              },
+              "createFailures": {
+                "type": "string"
+              },
+              "rootMissing": {
+                "type": "string"
+              },
+              "rootPoseMissing": {
+                "type": "string"
+              },
+              "referenceMissing": {
+                "type": "string"
+              },
+              "imagesMoving": {
+                "type": "string"
+              },
+              "rootSame": {
+                "type": "string"
+              },
+              "rootPrevious": {
+                "type": "string"
+              },
+              "rootAhead": {
+                "type": "string"
+              },
+              "rootNeither": {
+                "type": "string"
+              },
+              "rootAngleSumDegrees": {
+                "type": "string"
+              },
+              "referenceStepSumDegrees": {
+                "type": "string"
+              },
+              "keyCount": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 24
+              },
+              "keys": {
+                "type": "array",
+                "maxItems": 24,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "count": {
+                      "type": "string"
+                    },
+                    "ordinal": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 31
+                    },
+                    "kind": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 7
+                    },
+                    "seen": {
+                      "type": "string"
+                    },
+                    "posed": {
+                      "type": "string"
+                    },
+                    "poseWindow": {
+                      "type": "integer",
+                      "minimum": -1,
+                      "maximum": 3
+                    },
+                    "formsB1": {
+                      "type": "array",
+                      "minItems": 8,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "formsB2": {
+                      "type": "array",
+                      "minItems": 8,
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "moving": {
+                      "type": "string"
+                    },
+                    "rootSame": {
+                      "type": "string"
+                    },
+                    "rootPrevious": {
+                      "type": "string"
+                    },
+                    "rootAhead": {
+                      "type": "string"
+                    },
+                    "rootNeither": {
+                      "type": "string"
+                    },
+                    "referenceMoving": {
+                      "type": "string"
+                    },
+                    "vsReferenceSame": {
+                      "type": "string"
+                    },
+                    "vsReferencePrevious": {
+                      "type": "string"
+                    },
+                    "vsReferenceAhead": {
+                      "type": "string"
+                    },
+                    "vsReferenceNeither": {
+                      "type": "string"
+                    },
+                    "wasRoot": {
+                      "type": "string"
+                    },
+                    "wasReference": {
+                      "type": "string"
+                    },
+                    "stepSumDegrees": {
+                      "type": "string"
+                    },
+                    "rootAngleSumDegrees": {
+                      "type": "string"
+                    },
+                    "rootEyeSum": {
+                      "type": "string"
+                    },
+                    "rootEyeSamples": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "count",
+                    "ordinal",
+                    "kind",
+                    "seen",
+                    "posed",
+                    "poseWindow",
+                    "formsB1",
+                    "formsB2",
+                    "moving",
+                    "rootSame",
+                    "rootPrevious",
+                    "rootAhead",
+                    "rootNeither",
+                    "referenceMoving",
+                    "vsReferenceSame",
+                    "vsReferencePrevious",
+                    "vsReferenceAhead",
+                    "vsReferenceNeither",
+                    "wasRoot",
+                    "wasReference",
+                    "stepSumDegrees",
+                    "rootAngleSumDegrees",
+                    "rootEyeSum",
+                    "rootEyeSamples"
+                  ]
+                }
+              },
+              "dump": {
+                "type": "array",
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "generation": {
+                      "type": "string"
+                    },
+                    "draws": {
+                      "type": "array",
+                      "maxItems": 32,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "count": {
+                            "type": "string"
+                          },
+                          "ordinal": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 31
+                          },
+                          "kind": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 7
+                          },
+                          "root": {
+                            "type": "boolean"
+                          },
+                          "reference": {
+                            "type": "boolean"
+                          },
+                          "vertexShader": {
+                            "type": "string"
+                          },
+                          "renderTarget": {
+                            "type": "string"
+                          },
+                          "windows": {
+                            "type": "array",
+                            "minItems": 4,
+                            "maxItems": 4,
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "slot": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 3
+                                },
+                                "bound": {
+                                  "type": "boolean"
+                                },
+                                "form": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 7
+                                },
+                                "buffer": {
+                                  "type": "string"
+                                },
+                                "firstConstant": {
+                                  "type": "string"
+                                },
+                                "numConstants": {
+                                  "type": "string"
+                                },
+                                "bytesCopied": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 64
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "minItems": 16,
+                                  "maxItems": 16,
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "slot",
+                                "bound",
+                                "form",
+                                "buffer",
+                                "firstConstant",
+                                "numConstants",
+                                "bytesCopied",
+                                "values"
+                              ]
+                            }
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "count",
+                          "ordinal",
+                          "kind",
+                          "root",
+                          "reference",
+                          "vertexShader",
+                          "renderTarget",
+                          "windows"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "generation",
+                    "draws"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "imagesOpened",
+              "imagesSkipped",
+              "imagesRead",
+              "imagesConsecutive",
+              "drawsTruncated",
+              "keysTruncated",
+              "readbacksPending",
+              "readbackFailures",
+              "createFailures",
+              "rootMissing",
+              "rootPoseMissing",
+              "referenceMissing",
+              "imagesMoving",
+              "rootSame",
+              "rootPrevious",
+              "rootAhead",
+              "rootNeither",
+              "rootAngleSumDegrees",
+              "referenceStepSumDegrees",
+              "keyCount",
+              "keys",
+              "dump"
+            ]
+          },
           "imageTransfer": {
             "type": "object",
             "properties": {
@@ -26889,6 +27227,7 @@
           "repeatAmbiguous",
           "repeatDelta",
           "presentProfile",
+          "cameraAgreement",
           "pairingRows",
           "imageTransfer"
         ]

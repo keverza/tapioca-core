@@ -132,6 +132,7 @@ uint64_t g_sceneColour = 0;
 bool g_imageRooted = false;
 uint64_t g_imageRootPass = 0;
 uint32_t g_rootsInGeneration = 0;
+uint64_t g_rootCommits = 0;
 HandoffWitness g_lastHandoff; // shadow of the last published handoff, so a
                               // state-only amend (Mixed/Cleared) keeps the rest
 std::atomic<uint64_t> g_imageGeneration { 0 }; // context-thread writes; GetStats reads cross-thread
@@ -413,6 +414,7 @@ void Reset ()
     g_imageRooted = false;
     g_imageRootPass = 0;
     g_rootsInGeneration = 0;
+    g_rootCommits = 0;
     g_lastHandoff = HandoffWitness {};
     g_imageGeneration.store (0, std::memory_order_relaxed);
     g_resizeFenceSerial.store (0, std::memory_order_relaxed);
@@ -520,6 +522,7 @@ void OnDrawCompleted ()
         if (++g_rootsInGeneration == 2)
             g_generationsWithMultipleRoots.fetch_add (1, std::memory_order_relaxed);
         g_pendingImage.imageGeneration = g_imageGeneration.load (std::memory_order_relaxed);
+        ++g_rootCommits;
 
         g_pendingImage.rootEventSerial = NextEvent ();
         PublishImage (g_pendingImage);
@@ -628,6 +631,16 @@ void OnResourceWritten (uint64_t resource)
     if (g_lastHandoff.state == BackBufferState::Handoff)
         PublishHandoffState (BackBufferState::Mixed);
     g_backBufferOtherWrites.fetch_add (1, std::memory_order_relaxed);
+}
+
+uint64_t ContextImageGeneration ()
+{
+    return g_imageGeneration.load (std::memory_order_relaxed);
+}
+
+uint64_t ContextRootCommits ()
+{
+    return g_rootCommits;
 }
 
 bool BeginPresent (IDXGISwapChain* swapChain, uint64_t currentModelGeneration)

@@ -120,6 +120,12 @@ void OnHostDraw (const uint64_t* rtvs, size_t rtvSlots, const uint64_t* srvs, si
 void OnClearRenderTarget (uint64_t resource);
 void OnResourceWritten (uint64_t resource);
 
+// CONTEXT THREAD. The current image generation (clears of S; 0 = unknown) and the
+// number of verified-draw commits so far. CameraAgreement reads both in the same
+// draw's PostDraw, after `OnDrawCompleted` above has committed that draw's root.
+uint64_t ContextImageGeneration ();
+uint64_t ContextRootCommits ();
+
 // PRESENT THREAD. `OnOverlayCameraBound` is called at the literal snapshot
 // buffer binding, not from latest camera state sampled later.
 bool BeginPresent (IDXGISwapChain* swapChain, uint64_t currentModelGeneration);

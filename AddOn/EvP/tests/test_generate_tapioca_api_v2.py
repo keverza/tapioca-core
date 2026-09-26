@@ -173,6 +173,35 @@ def test_pass_provenance_schema_exposes_handoff_pairing_and_present_profile():
     }
 
 
+def test_pass_provenance_schema_exposes_camera_agreement():
+    catalog = generator.extract_catalog(REPO_ROOT)
+    command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")
+    output = command.output_scheme
+
+    assert "cameraAgreement" in output["required"]
+    agreement = output["properties"]["cameraAgreement"]
+    assert agreement["additionalProperties"] is False
+    assert {
+        "imagesMoving", "rootSame", "rootPrevious", "rootAhead", "rootNeither",
+        "rootMissing", "rootPoseMissing", "referenceMissing", "readbacksPending",
+        "readbackFailures", "keys", "dump",
+    } <= set(agreement["required"])
+    key = agreement["properties"]["keys"]["items"]
+    assert key["additionalProperties"] is False
+    assert {
+        "count", "ordinal", "kind", "formsB1", "formsB2", "moving", "rootSame",
+        "rootPrevious", "rootAhead", "rootNeither", "vsReferenceSame",
+        "vsReferencePrevious", "wasRoot", "wasReference",
+    } <= set(key["required"])
+    # One count per Form enumerator, in wire order.
+    assert key["properties"]["formsB1"]["minItems"] == key["properties"]["formsB1"]["maxItems"] == 8
+    window = agreement["properties"]["dump"]["items"]["properties"]["draws"]["items"]["properties"]["windows"]["items"]
+    assert window["additionalProperties"] is False
+    # Raw matrix values travel as %.9g strings so a float round-trips.
+    assert window["properties"]["values"]["items"] == {"type": "string"}
+    assert window["properties"]["values"]["minItems"] == window["properties"]["values"]["maxItems"] == 16
+
+
 def test_pass_provenance_schema_exposes_image_transfer():
     catalog = generator.extract_catalog(REPO_ROOT)
     command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")

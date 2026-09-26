@@ -9,9 +9,11 @@
 // Archicad's render thread with it.
 
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
+#include "ArchViz/Dxgi/ContextHookDetourTypes.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
 
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
+#include "ArchViz/Dxgi/CameraAgreement.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
@@ -110,39 +112,6 @@ extern const size_t kSlotIndex[size_t (ContextSlot::Count)] = {
 // inline in the context object rather than in .rdata, and a table shorter than
 // we assumed would put a write into the object's own fields.
 extern const size_t kVtableSlots = 124;
-
-using RSSetViewportsFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, const D3D11_VIEWPORT*);
-using RSSetScissorRectsFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, const D3D11_RECT*);
-using OMSetRenderTargetsFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, ID3D11RenderTargetView* const*,
-                                                        ID3D11DepthStencilView*);
-using PSSetShaderResourcesFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT,
-                                                          ID3D11ShaderResourceView* const*);
-using SetConstantBuffersFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, ID3D11Buffer* const*);
-using MapFn = HRESULT (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT, D3D11_MAP, UINT,
-                                            D3D11_MAPPED_SUBRESOURCE*);
-using UnmapFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT);
-using UpdateSubresourceFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT, const D3D11_BOX*,
-                                                       const void*, UINT, UINT);
-using ClearRTVFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11RenderTargetView*, const FLOAT[4]);
-using ClearDSVFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11DepthStencilView*, UINT, FLOAT, UINT8);
-using DrawIndexedFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, INT);
-using DrawFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT);
-using DrawIndexedInstFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, UINT, INT, UINT);
-using CopyResourceFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*);
-using ExecuteCommandListFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11CommandList*, BOOL);
-using DrawInstancedFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, UINT, UINT);
-using DrawAutoFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*);
-using DrawIndirectFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Buffer*, UINT);
-using DispatchFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, UINT);
-using DispatchIndirectFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Buffer*, UINT);
-using CopySubresourceFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT, UINT, UINT, UINT,
-                                                     ID3D11Resource*, UINT, const D3D11_BOX*);
-using ResolveSubresourceFn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT, ID3D11Resource*,
-                                                        UINT, DXGI_FORMAT);
-using SetConstantBuffers1Fn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, UINT, UINT, ID3D11Buffer* const*,
-                                                         const UINT*, const UINT*);
-using UpdateSubresource1Fn = void (STDMETHODCALLTYPE*) (ID3D11DeviceContext*, ID3D11Resource*, UINT, const D3D11_BOX*,
-                                                        const void*, UINT, UINT, UINT);
 
 // The drain counter -- see PresentHook for the argument. Remove restores the
 // pointers and then spins until this reads zero.
@@ -558,6 +527,7 @@ void PostDraw (ID3D11DeviceContext* context, uint32_t kind, UINT count, bool arc
     if (archicad) {
         scenecamerapairing::OnDrawCompleted ();
         passprovenance::OnDrawCompleted (passprovenance::DrawKind (kind), uint32_t (count));
+        cameraagreement::OnDrawCompleted (context, kind, uint32_t (count));
     }
     if (injection::checkpoints::Enabled ())
         injection::checkpoints::OnDrawCompleted (context, kind, uint32_t (count), renderstate::ModelSceneGeneration ());

@@ -271,6 +271,12 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # swap-chain facts and Present flag counts gathered on the Present thread
     # and only copied out here. Same reason as the three rows above.
     ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/PresentProfile.hpp"),
+    # The camera agreement counters, read by the same verb at the same drained
+    # boundary, for the same reason as the rows above.
+    ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/CameraAgreement.hpp"),
+    # Its response object, split out of that verb when Stage 74's pose table and
+    # raw windows pushed the file past the size cap. Same boundary, same reason.
+    ("NativeCommands/ViewerCameraAgreementOutput.cpp", "ArchViz/Dxgi/CameraAgreement.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1109,6 +1115,7 @@ def _check_architecture_document_temporaries(failures: list[str]) -> None:
 # nobody opens.
 OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/CameraCensus.cpp",
+    "ArchViz/Dxgi/CameraAgreement.cpp",
     "ArchViz/Dxgi/CameraRecognizer.cpp",
     "ArchViz/Dxgi/HostOccluders.cpp",
     "ArchViz/Dxgi/HostOverlay.cpp",
