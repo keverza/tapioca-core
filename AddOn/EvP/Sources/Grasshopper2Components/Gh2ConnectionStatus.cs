@@ -15,6 +15,7 @@ internal static class Gh2ConnectionStatus
     private static string archicad = "(not connected)";
     private static string? lastIssue;
     private static Gh2PipeClient? client;
+    internal static event Action? Updated;
 
     internal readonly record struct Snapshot(string Phase, string Health, string Endpoint,
         string Archicad, string LocalAddresses);
@@ -35,6 +36,35 @@ internal static class Gh2ConnectionStatus
         return new Snapshot(currentPhase, health, currentEndpoint, currentArchicad, LocalAddresses());
     }
 
+    internal static bool RequestRefresh()
+    {
+        Gh2PipeClient? active;
+        lock (Sync)
+            active = client;
+        return active?.RequestRefresh() ?? false;
+    }
+
+    internal static Task<string> ReadSelectionAsync()
+    {
+        lock (Sync)
+            return client?.ReadSelectionAsync() ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before capturing its selection."));
+    }
+
+    internal static Task<string> ReadProjectInfoAsync()
+    {
+        lock (Sync)
+            return client?.ReadProjectInfoAsync() ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before reading its project."));
+    }
+
+    internal static Task<string> ReplaceSelectionAsync(IReadOnlyList<Guid> ids)
+    {
+        lock (Sync)
+            return client?.ReplaceSelectionAsync(ids) ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before reselecting elements."));
+    }
+
     internal static void Set(string state, string pipeName = "(none)",
         string project = "(not connected)", Gh2PipeClient? bridge = null, string? issue = null)
     {
@@ -46,6 +76,7 @@ internal static class Gh2ConnectionStatus
             client = bridge;
             lastIssue = issue;
         }
+        Updated?.Invoke();
     }
 
     private static string LocalAddresses()

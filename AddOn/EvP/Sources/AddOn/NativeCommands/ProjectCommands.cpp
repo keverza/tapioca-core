@@ -162,6 +162,42 @@ class GetGhConnectionInfoCommand : public MainThreadCommand {
         result.Add ("projectName", project.projectName != nullptr ? *project.projectName : GS::UniString ());
         result.Add ("projectPath", project.projectPath != nullptr ? *project.projectPath : GS::UniString ());
         result.Add ("untitled", project.untitled);
+        // Revision hint, not project identity. It may change for edits unrelated
+        // to GH2's three catalogs; peers check the catalogs only on request.
+        result.Add ("modelStamp", static_cast<GS::Int64> (project.modiStamp));
+        // The project stamp also advances for UI selection changes. Record a
+        // bounded, order-independent selection fingerprint so GH2 can rebase
+        // those changes instead of claiming the model snapshot is stale.
+        API_SelectionInfo selectionInfo = {};
+        GS::Array<API_Neig> neigs;
+        const GSErrCode selectionError = ACAPI_Selection_Get (&selectionInfo, &neigs, false);
+        if (selectionInfo.marquee.coords != nullptr)
+            BMKillHandle (reinterpret_cast<GSHandle*> (&selectionInfo.marquee.coords));
+        if (selectionError == NoError || selectionError == APIERR_NOSEL) {
+            UInt64 fingerprint = 0;
+            for (const API_Neig& neig : neigs) {
+                UInt64 item = 14695981039346656037ULL;
+                const auto guid = APIGuidToString (neig.guid).ToCStr ();
+                for (const unsigned char* c = reinterpret_cast<const unsigned char*> (guid.Get ()); *c != 0; ++c) {
+                    item ^= *c;
+                    item *= 1099511628211ULL;
+                }
+                // A selected morph edge/face can change without changing its
+                // element GUID. Ignore reserved fields and structure padding.
+                const auto mix = [&item] (UInt64 value) {
+                    item ^= value;
+                    item *= 1099511628211ULL;
+                };
+                mix (static_cast<UInt64> (neig.neigID));
+                mix (static_cast<UInt64> (neig.inIndex));
+                mix (static_cast<UInt64> (neig.flags));
+                mix (static_cast<UInt64> (neig.elemPartType));
+                mix (static_cast<UInt64> (neig.elemPartIndex));
+                fingerprint += item; // order-independent, including duplicates
+            }
+            fingerprint ^= static_cast<UInt64> (neigs.GetSize ()) * 1099511628211ULL;
+            result.Add ("selectionStamp", static_cast<GS::Int64> (fingerprint));
+        }
         return result;
     }
 };
@@ -468,10 +504,12 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
                 "archicadBuild":{"type":"integer"},
                 "projectName":{"type":"string"},
                 "projectPath":{"type":"string"},
-                "untitled":{"type":"boolean"}
+                "untitled":{"type":"boolean"},
+                "modelStamp":{"type":"integer"},
+                "selectionStamp":{"type":"integer"}
             },
             "additionalProperties":false,
-            "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled"]
+            "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled","modelStamp"]
         })json" },
     { "GetPlaceInfo", &MakeRegisteredNativeCommand<GetPlaceInfoCommand>, false,
       R"json({

@@ -33,8 +33,11 @@ internal static class Gh2WireCheck
         RefusedGh1Bridge();
         OversizedAnswer();
         PeerAttachAndDetach();
+        PeerRefreshAndDetach();
+        SelectionActions();
         PeerRefusedPing();
         PeerLostConnection();
+        ProjectOptionValidation();
         Console.WriteLine("GH2 named-pipe startup ordering, project refusal and shutdown checks passed.");
         return 0;
     }
@@ -62,6 +65,7 @@ internal static class Gh2WireCheck
             Require(log.type == 10 && text.Contains(expectedLog, StringComparison.Ordinal) &&
                     !text.Contains("private/project/path", StringComparison.Ordinal),
                 "The worker did not report the validated project without its path.");
+            ExpectPingDiagnostic(server);
             Send(server, 8, 0, 0, []);
             var (shutdown, answer) = ReceiveControl(server);
             Require(shutdown.type == 9 && answer.Length >= 4 && Read(answer, 0) == 0,
@@ -100,6 +104,7 @@ internal static class Gh2WireCheck
             var (log, logPayload) = ReceiveControl(server);
             Require(log.type == 10 && Encoding.UTF8.GetString(logPayload).Contains("GH2 test", StringComparison.Ordinal),
                 "The validated project was not logged.");
+            ExpectPingDiagnostic(server);
             Send(server, 8, 0, 0, []);
             var (shutdown, answer) = ReceiveControl(server);
             Require(shutdown.type == 9 && answer.Length >= 4 && Read(answer, 0) == 0 &&
@@ -181,6 +186,202 @@ internal static class Gh2WireCheck
             throw new InvalidOperationException("The worker sent a frame before the API reply.");
         }
         catch (OperationCanceledException) when (deadline.IsCancellationRequested) { }
+    }
+
+    private static void ExpectPingDiagnostic(Stream stream)
+    {
+        var (log, text) = ReceiveControl(stream);
+        string diagnostic = Encoding.UTF8.GetString(text);
+        Require(log.type == 10 && diagnostic.Contains("GH2 Ping diagnostic: peer process", StringComparison.Ordinal) &&
+                diagnostic.Contains("request OS thread", StringComparison.Ordinal) &&
+                diagnostic.Contains("round trip", StringComparison.Ordinal) &&
+                !diagnostic.Contains("private/project/path", StringComparison.Ordinal),
+            "The peer did not report bounded Ping thread/timing diagnostics.");
+    }
+
+    private static void ExpectRead(Stream stream, string command, string parameters, string answer,
+        Action? beforeReply = null)
+    {
+        var (request, bytes) = ReceiveControl(stream);
+        Require(request.type == 4 && request.requestId != 0 && bytes.Length >= 8,
+            "No GH2 project-options request arrived.");
+        int commandBytes = checked((int)Read(bytes, 0));
+        int paramsBytes = checked((int)Read(bytes, 4));
+        Require(8L + commandBytes + paramsBytes == bytes.Length &&
+                Encoding.UTF8.GetString(bytes, 8, commandBytes) == command &&
+                Encoding.UTF8.GetString(bytes, 8 + commandBytes, paramsBytes) == parameters,
+            "GH2 requested an unapproved project-options command or parameters.");
+        beforeReply?.Invoke();
+        Send(stream, 5, 0, request.requestId, Encoding.UTF8.GetBytes(answer));
+    }
+
+    private static void ExpectProjectOptions(Stream stream, string lineType = "Solid")
+    {
+        (string command, string parameters, string answer)[] reads =
+        [
+            ("Tapioca.ListAttributes", "{\"kind\":\"layer\"}",
+                "{\"ok\":true,\"data\":{\"kind\":\"layer\",\"attributes\":[{\"name\":\"Walls\"},{\"name\":\"Furniture\"}]}}"),
+            ("Tapioca.ListAttributes", "{\"kind\":\"lineType\"}",
+                "{\"ok\":true,\"data\":{\"kind\":\"lineType\",\"attributes\":[{\"name\":\"" + lineType + "\"}]}}"),
+            ("Tapioca.GetStories", "{}",
+                "{\"ok\":true,\"data\":{\"indices\":[-1,0],\"names\":[\"Basement\",\"Ground\"],\"levels\":[-3.2,0]}}")
+        ];
+        foreach ((string command, string parameters, string answer) in reads)
+            ExpectRead(stream, command, parameters, answer);
+    }
+
+    private static void PeerRefreshAndDetach()
+    {
+        string name = $"Tapioca.Gh2.v5.{Environment.ProcessId}.{Random.Shared.Next(100000, int.MaxValue)}";
+        string identity = "{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000," +
+            "\"projectName\":\"Refresh test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false," +
+            "\"modelStamp\":100,\"selectionStamp\":10}}";
+        string selectionOnly = identity.Replace("\"modelStamp\":100,\"selectionStamp\":10",
+            "\"modelStamp\":101,\"selectionStamp\":11", StringComparison.Ordinal);
+        string edited = selectionOnly.Replace("\"modelStamp\":101", "\"modelStamp\":102", StringComparison.Ordinal);
+        using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous);
+        Task host = Host(server, () =>
+        {
+            server.WaitForConnection();
+            Receive(server); // Hello
+            Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
+            uint pingId = ExpectPing(server);
+            Send(server, 5, 0, pingId, Encoding.UTF8.GetBytes(identity));
+            Require(ReceiveControl(server).header.type == 9, "Peer did not acknowledge the refresh-test Ping.");
+            Require(ReceiveControl(server).header.type == 10, "Peer did not log its refresh-test Ping.");
+            ExpectPingDiagnostic(server);
+            ExpectProjectOptions(server);
+            Require(SpinWait.SpinUntil(() => !ArchicadProjectOptions.ReadStatus().Stale &&
+                ArchicadProjectOptions.Read().Layers.Length == 2, TimeSpan.FromSeconds(3)),
+                "Initial project choices were not published before refresh.");
+            string[] originalLayers = ArchicadProjectOptions.Read().Layers;
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", identity);
+            ExpectProjectOptions(server, lineType: "Dashed");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", identity);
+            Require(SpinWait.SpinUntil(() => !ArchicadProjectOptions.ReadStatus().Checking &&
+                ArchicadProjectOptions.ReadStatus().Revision >= 2, TimeSpan.FromSeconds(3)),
+                "The asynchronously refreshed snapshot did not publish.");
+            var state = ArchicadProjectOptions.ReadStatus();
+            Require(!state.Stale && state.LastChanged == ArchicadProjectOptions.Changed.LineTypes &&
+                    ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers) &&
+                    ArchicadProjectOptions.Read().LineTypes.SequenceEqual(["Dashed"]),
+                "Refresh replaced unchanged lists, or did not update the changed line types.");
+            string[] originalLineTypes = ArchicadProjectOptions.Read().LineTypes;
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", selectionOnly);
+            // A single lightweight poll detects a model edit; it marks the
+            // snapshot stale without clearing selectors or fetching catalogs.
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", edited, () =>
+                Require(!ArchicadProjectOptions.ReadStatus().Stale &&
+                        ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers),
+                    "Changing only Archicad's live selection invalidated the project snapshot."));
+            Require(SpinWait.SpinUntil(() => ArchicadProjectOptions.ReadStatus().Stale,
+                TimeSpan.FromSeconds(3)), "The model-stamp hint did not mark the snapshot stale.");
+            Require(ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers) &&
+                    ReferenceEquals(originalLineTypes, ArchicadProjectOptions.Read().LineTypes),
+                "A stale model hint discarded the last good selector values.");
+            Require(SpinWait.SpinUntil(Gh2ConnectionStatus.RequestRefresh, TimeSpan.FromSeconds(3)),
+                "The next explicit refresh remained blocked after the previous one completed.");
+            Require(SpinWait.SpinUntil(() => ArchicadProjectOptions.ReadStatus().Checking &&
+                ArchicadProjectOptions.ReadStatus().Stale, TimeSpan.FromSeconds(3)),
+                "A refresh lost the pending stale warning before it completed.");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", edited);
+            Require(ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers) &&
+                    ReferenceEquals(originalLineTypes, ArchicadProjectOptions.Read().LineTypes),
+                "The previous choices disappeared while the same project was being checked.");
+            ExpectProjectOptions(server, lineType: "Dashed");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", edited);
+            Require(SpinWait.SpinUntil(() => !ArchicadProjectOptions.ReadStatus().Checking &&
+                ArchicadProjectOptions.ReadStatus().LastChanged == ArchicadProjectOptions.Changed.None,
+                TimeSpan.FromSeconds(3)), "The unchanged refresh did not finish.");
+            Require(ArchicadProjectOptions.ReadStatus().Revision == state.Revision &&
+                    ReferenceEquals(originalLineTypes, ArchicadProjectOptions.Read().LineTypes),
+                "An unchanged project list was republished as a new revision.");
+            string nextProject = edited.Replace("C:/sample.pln", "C:/another.pln", StringComparison.Ordinal);
+            Require(SpinWait.SpinUntil(Gh2ConnectionStatus.RequestRefresh, TimeSpan.FromSeconds(3)),
+                "A project-change check could not start.");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", nextProject);
+            Require(SpinWait.SpinUntil(() => ArchicadProjectOptions.ReadStatus().Stale &&
+                ArchicadProjectOptions.Read().Layers.Length == 0, TimeSpan.FromSeconds(3)),
+                "The previous project's choices remained selectable after a confirmed switch.");
+            ExpectProjectOptions(server, lineType: "Dashed");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", nextProject);
+            Require(SpinWait.SpinUntil(() => !ArchicadProjectOptions.ReadStatus().Checking &&
+                ArchicadProjectOptions.ReadStatus().Revision > state.Revision, TimeSpan.FromSeconds(3)),
+                "The changed project did not publish its replacement snapshot.");
+            Require(ArchicadProjectOptions.ReadStatus().LastChanged == ArchicadProjectOptions.Changed.All &&
+                    !ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers),
+                "A different Archicad project reused the previous project's choices.");
+            Require(SpinWait.SpinUntil(Gh2ConnectionStatus.RequestRefresh, TimeSpan.FromSeconds(3)),
+                "A mid-refresh project switch could not be checked.");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", nextProject);
+            ExpectProjectOptions(server, lineType: "Dashed");
+            ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", identity);
+            Require(SpinWait.SpinUntil(() => !ArchicadProjectOptions.ReadStatus().Checking &&
+                ArchicadProjectOptions.ReadStatus().Stale, TimeSpan.FromSeconds(3)),
+                "The mid-refresh project change did not invalidate the snapshot.");
+            Require(ArchicadProjectOptions.Read().Layers.Length == 0 &&
+                    ArchicadProjectOptions.ReadStatus().Issue.Contains("changed while refreshing", StringComparison.Ordinal),
+                "A mixed-project choice list was exposed.");
+            Send(server, 8, 0, 0, []);
+            Require(server.ReadByte() == -1, "Peer did not detach after project refresh.");
+        });
+        Gh2Peer.AttachSelected(new Gh2Peer.Candidate(name, uint.Parse(name.Split('.')[^1])), message =>
+        {
+            if (message.StartsWith("GH2 attached to", StringComparison.Ordinal))
+                Require(Gh2ConnectionStatus.RequestRefresh(), "A connected peer refused the refresh request.");
+        });
+        host.GetAwaiter().GetResult();
+        Require(ArchicadProjectOptions.ReadStatus().Stale && ArchicadProjectOptions.Read().Layers.Length == 0,
+            "Detach did not invalidate the refreshed project snapshot.");
+    }
+
+    private static void ProjectOptionValidation()
+    {
+        Require(ArchicadProjectOptions.ParseSelectionStamp(
+            "{\"ok\":true,\"data\":{\"selectionStamp\":-98}}") == -98,
+            "A valid Archicad selection fingerprint was not parsed.");
+        Require(ArchicadProjectOptions.ParseAttributes(
+            "{\"ok\":true,\"data\":{\"kind\":\"layer\",\"attributes\":[{\"name\":\"Walls\"}]}}", "layer")
+                .SequenceEqual(["Walls"]), "A project layer name was not retained.");
+        Require(ArchicadProjectOptions.ParseStories(
+            "{\"ok\":true,\"data\":{\"indices\":[-1],\"names\":[\"Basement\"],\"levels\":[-3.2]}}")
+                .Single().Index == -1, "A story index was confused with its list position.");
+        try
+        {
+            ArchicadProjectOptions.ParseStories(
+                "{\"ok\":true,\"data\":{\"indices\":[0,1],\"names\":[\"Ground\"],\"levels\":[0,3]}}");
+            throw new InvalidOperationException("Mismatched project story arrays were accepted.");
+        }
+        catch (InvalidDataException) { }
+    }
+
+    private static void SelectionActions()
+    {
+        string name = "Tapioca.Gh2.Selection." + Guid.NewGuid().ToString("N");
+        Guid id = Guid.NewGuid();
+        using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous);
+        Task host = Host(server, () =>
+        {
+            server.WaitForConnection();
+            Receive(server); // hello
+            Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
+            ExpectRead(server, "Tapioca.GetSelection", "{}", "{\"ok\":true,\"data\":{\"elements\":[{" +
+                "\"elementId\":{\"guid\":\"" + id + "\"}}]}}");
+            string payload = "{\"elements\":[{\"elementId\":{\"guid\":\"" + id + "\"}}],\"add\":false}";
+            ExpectRead(server, "Tapioca.SetSelection", payload,
+                "{\"ok\":true,\"data\":{\"selected\":1,\"missing\":[],\"count\":1}}");
+            Send(server, 8, 0, 0, []);
+        });
+        using var client = Gh2PipeClient.Connect(name);
+        Task reader = Task.Run(() => client.WaitForShutdown(false));
+        Require(client.ReadSelectionAsync().GetAwaiter().GetResult().Contains(id.ToString(), StringComparison.OrdinalIgnoreCase),
+            "GH2 did not read the current Archicad selection.");
+        Require(client.ReplaceSelectionAsync([id]).GetAwaiter().GetResult().Contains("\"selected\":1", StringComparison.Ordinal),
+            "GH2 did not send the explicit reselect action.");
+        reader.GetAwaiter().GetResult();
+        host.GetAwaiter().GetResult();
     }
 
     private static ((uint type, uint requestId, uint correlationId, int size) header, byte[] body)
@@ -281,7 +482,7 @@ internal static class Gh2WireCheck
             uint id = ExpectPing(server);
             RequireNoStartupBeforeReply(server);
             Send(server, 5, 0, id,
-                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\"}}"));
+                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false}}"));
             var (ack, startup) = ReceiveControl(server);
             Require(ack.type == 9 && Read(startup, 0) == 0 &&
                     Encoding.UTF8.GetString(startup, 4, startup.Length - 4).Contains("Attached Rhino", StringComparison.Ordinal),
@@ -289,6 +490,8 @@ internal static class Gh2WireCheck
             var (log, text) = ReceiveControl(server);
             Require(log.type == 10 && Encoding.UTF8.GetString(text).Contains("Peer test", StringComparison.Ordinal),
                 "Peer did not report the validated project.");
+            ExpectPingDiagnostic(server);
+            ExpectProjectOptions(server);
             Send(server, 8, 0, 0, []);
             // A peer sends no second Ack when Archicad detaches.
             Require(server.ReadByte() == -1, "Peer did not release the pipe after Shutdown.");
@@ -303,14 +506,18 @@ internal static class Gh2WireCheck
             Require(state.Phase == "Connected" && state.Endpoint == name &&
                     state.Archicad.Contains("Peer test", StringComparison.Ordinal) &&
                     state.Health.StartsWith("Healthy: local pipe write", StringComparison.Ordinal) &&
-                    state.LocalAddresses.Contains("127.0.0.1", StringComparison.Ordinal),
+                    state.LocalAddresses.Contains("127.0.0.1", StringComparison.Ordinal) &&
+                    ArchicadProjectOptions.Read().Layers.SequenceEqual(["Walls", "Furniture"]) &&
+                    ArchicadProjectOptions.Read().LineTypes.SequenceEqual(["Solid"]) &&
+                    ArchicadProjectOptions.Read().Stories[0].Index == -1,
                 "Status component did not receive a cached, healthy local-pipe snapshot.");
         });
         host.GetAwaiter().GetResult();
         Require(messages.Any(message => message.Contains("Rhino remains open", StringComparison.Ordinal)),
             "Peer did not report a non-destructive detach.");
         Require(Gh2ConnectionStatus.Read().Phase == "Disconnected" &&
-                Gh2ConnectionStatus.Read().Archicad == "(not connected)",
+                Gh2ConnectionStatus.Read().Archicad == "(not connected)" &&
+                ArchicadProjectOptions.Read().Layers.Length == 0,
             "Peer detach left stale project data in GH2 connection status.");
     }
 
@@ -353,9 +560,11 @@ internal static class Gh2WireCheck
             Send(server, 2, 0, 0, Word(Gh2Wire.CapabilityGh2));
             uint id = ExpectPing(server);
             Send(server, 5, 0, id,
-                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\"}}"));
+                Encoding.UTF8.GetBytes("{\"ok\":true,\"data\":{\"archicadVersion\":29,\"archicadBuild\":3000,\"projectName\":\"Peer test\",\"projectPath\":\"C:/sample.pln\",\"untitled\":false}}"));
             Require(ReceiveControl(server).header.type == 9, "Peer never acknowledged startup.");
             Require(ReceiveControl(server).header.type == 10, "Peer never logged project info.");
+            ExpectPingDiagnostic(server);
+            ExpectProjectOptions(server);
             server.Dispose();
         });
         var messages = new List<string>();
