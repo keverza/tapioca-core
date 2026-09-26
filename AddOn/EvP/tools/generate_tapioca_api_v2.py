@@ -259,6 +259,19 @@ LOCAL_SCHEMA_PATTERN = re.compile(
     rf'(?P<output>{SCHEMA_EXPRESSION_PATTERN})\s*\}}',
     re.DOTALL,
 )
+
+# ⚠️ ADJACENT RAW LITERALS ARE ONE SCHEMA. MSVC refuses a single string
+# literal over 16380 bytes (C2026) but concatenates adjacent literals up to
+# 64 KB, so a large schema is written as several R"json(...)json" pieces with
+# only whitespace between them. Joining them here, newlines kept so reported
+# line numbers do not move, makes every reader see what the compiler sees.
+_ADJACENT_JSON_LITERALS = re.compile(r'\)json"\s*R"json\(')
+
+
+def join_adjacent_json_literals(text):
+    return _ADJACENT_JSON_LITERALS.sub(lambda match: "\n" * match.group(0).count("\n"), text)
+
+
 CONSTANT_PATTERN = re.compile(
     rf'(?:constexpr\s+)?const\s+char\s+(?P<name>[A-Za-z_]\w*)\[\]\s*=\s*'
     rf'R"json\((?P<json>.*?)\)json"\s*;',
@@ -326,7 +339,7 @@ def extract_registry_commands(native_dir: Path) -> list[Command]:
     commands: list[Command] = []
     discovered_names: list[str] = []
     for path in sorted(native_dir.glob("*Commands.cpp")):
-        source = path.read_text(encoding="utf-8")
+        source = join_adjacent_json_literals(path.read_text(encoding="utf-8"))
         discovered_names.extend(REGISTRY_NAME_PATTERN.findall(source))
         constants = _constants(source, path)
         for match in REGISTRATION_PATTERN.finditer(source):

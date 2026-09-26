@@ -26,6 +26,7 @@ struct ImageWitness {
     uint64_t targetEpoch = 0;
     uint64_t drawSequence = 0;
     uint64_t sceneColorResource = 0;
+    uint64_t imageGeneration = 0; // Stage 72: the generation stamp at root commit
 };
 
 struct CameraWitness {
@@ -33,6 +34,21 @@ struct CameraWitness {
     uint64_t snapshotEventSerial = 0;
     uint64_t cameraSerial = 0;
     uint64_t sourcePass = 0;
+    uint64_t imageGeneration = 0; // Stage 72: the generation current at this snapshot
+};
+
+// Stage 72 -- published by `OnHostDraw`/`OnClearRenderTarget`/`OnResourceWritten`
+// at every touch of the nominated back buffer B, read by `BeginPresent` into the
+// pending row. `sameGeneration` flags a handoff whose image generation repeats
+// the previous handoff's, which makes the unit invalid for that Present.
+struct HandoffWitness {
+    uint64_t provenanceEpoch = 0;
+    uint64_t handoffSerial = 0;
+    uint64_t imageGeneration = 0;
+    bool rooted = false;
+    uint64_t rootPass = 0;
+    BackBufferState state = BackBufferState::None;
+    bool sameGeneration = false;
 };
 
 template<typename Witness> struct Publication;
@@ -46,6 +62,7 @@ template<> struct Publication<ImageWitness> {
     std::atomic<uint64_t> targetEpoch { 0 };
     std::atomic<uint64_t> drawSequence { 0 };
     std::atomic<uint64_t> sceneColorResource { 0 };
+    std::atomic<uint64_t> imageGeneration { 0 };
 };
 
 template<> struct Publication<CameraWitness> {
@@ -54,6 +71,18 @@ template<> struct Publication<CameraWitness> {
     std::atomic<uint64_t> snapshotEventSerial { 0 };
     std::atomic<uint64_t> cameraSerial { 0 };
     std::atomic<uint64_t> sourcePass { 0 };
+    std::atomic<uint64_t> imageGeneration { 0 };
+};
+
+template<> struct Publication<HandoffWitness> {
+    std::atomic<uint64_t> version { 0 };
+    std::atomic<uint64_t> provenanceEpoch { 0 };
+    std::atomic<uint64_t> handoffSerial { 0 };
+    std::atomic<uint64_t> imageGeneration { 0 };
+    std::atomic<bool> rooted { false };
+    std::atomic<uint64_t> rootPass { 0 };
+    std::atomic<uint32_t> state { uint32_t (BackBufferState::None) };
+    std::atomic<bool> sameGeneration { false };
 };
 
 struct RowSlot {
@@ -77,6 +106,12 @@ struct RowSlot {
     std::atomic<bool> imageOnBackBuffer { false };
     std::atomic<bool> cameraCoherent { false };
     std::atomic<bool> presentContextOverlap { false };
+    std::atomic<uint64_t> handoffSerial { 0 };
+    std::atomic<uint64_t> imageGeneration { 0 };
+    std::atomic<bool> imageRooted { false };
+    std::atomic<uint64_t> cameraImageGeneration { 0 };
+    std::atomic<bool> metadataStale { false };
+    std::atomic<uint32_t> backBufferState { uint32_t (BackBufferState::None) };
 };
 
 std::atomic<bool> g_enabled { false };
@@ -87,14 +122,34 @@ std::atomic<uint32_t> g_contextOperations { 0 };
 thread_local bool g_contextOperationActive = false;
 Publication<ImageWitness> g_image;
 Publication<CameraWitness> g_camera;
+Publication<HandoffWitness> g_handoff;
 ImageWitness g_pendingImage;
 bool g_pendingImageValid = false;
+// Stage 72 -- context-thread-owned (written only inside the
+// Enabled()+g_contextOperationActive gate; reset from the main thread only
+// after the shared PassProvenance drain, like `g_pendingImage` above).
+uint64_t g_sceneColour = 0;
+bool g_imageRooted = false;
+uint64_t g_imageRootPass = 0;
+uint32_t g_rootsInGeneration = 0;
+HandoffWitness g_lastHandoff; // shadow of the last published handoff, so a
+                              // state-only amend (Mixed/Cleared) keeps the rest
+std::atomic<uint64_t> g_imageGeneration { 0 }; // context-thread writes; GetStats reads cross-thread
+std::atomic<uint64_t> g_backBuffer { 0 };       // published by the Present thread, read by the context thread
+// A resize invalidates whatever handoff B carried. The resize runs on the
+// Present side, and the handoff publication and `g_lastHandoff` belong to the
+// context thread, so the resize does not touch them: it records an event serial
+// here and `BeginPresent` treats any handoff older than it as None.
+std::atomic<uint64_t> g_resizeFenceSerial { 0 };
 Row g_pendingPresent;
 uint64_t g_pendingContextOperationVersion = 0;
 bool g_pendingContextOverlap = false;
 bool g_pendingPresentActive = false;
 uint64_t g_pendingCurrentModelGeneration = 0;
-uint64_t g_lastUniqueImagePass = 0;
+bool g_pendingHandoffSameGeneration = false;
+// Stage 72 -- uniqueness now keys on `handoffSerial`, not `imagePass`:
+// `imageOnBackBuffer`/`imagePass` are reported fields only (see Row).
+uint64_t g_lastUniqueHandoffSerial = 0;
 RowSlot g_rows[kRowCapacity];
 std::atomic<uint64_t> g_rowsWritten { 0 };
 std::atomic<uint64_t> g_rowsVisibleFrom { 0 };
@@ -113,6 +168,20 @@ std::atomic<uint64_t> g_uniqueMismatched { 0 };
 std::atomic<uint64_t> g_uniqueUnknown { 0 };
 std::atomic<uint64_t> g_uniqueAmbiguous { 0 };
 std::atomic<uint64_t> g_duplicatePresents { 0 };
+std::atomic<uint64_t> g_handoffs { 0 };
+std::atomic<uint64_t> g_handoffsUnrooted { 0 };
+std::atomic<uint64_t> g_handoffsSameGeneration { 0 };
+std::atomic<uint64_t> g_generationsWithMultipleRoots { 0 };
+std::atomic<uint64_t> g_sceneColourChanges { 0 };
+std::atomic<uint64_t> g_backBufferClears { 0 };
+std::atomic<uint64_t> g_backBufferOtherWrites { 0 };
+std::atomic<uint64_t> g_presentsWithoutBinding { 0 };
+std::atomic<uint64_t> g_uniqueDelta[kDeltaBucketCount];
+std::atomic<uint64_t> g_repeatMatched { 0 };
+std::atomic<uint64_t> g_repeatMismatched { 0 };
+std::atomic<uint64_t> g_repeatUnknown { 0 };
+std::atomic<uint64_t> g_repeatAmbiguous { 0 };
+std::atomic<uint64_t> g_repeatDelta[kDeltaBucketCount];
 
 uint64_t NextEvent ()
 {
@@ -129,6 +198,7 @@ void ClearImagePublication ()
     g_image.targetEpoch.store (0, std::memory_order_relaxed);
     g_image.drawSequence.store (0, std::memory_order_relaxed);
     g_image.sceneColorResource.store (0, std::memory_order_relaxed);
+    g_image.imageGeneration.store (0, std::memory_order_relaxed);
     g_image.version.fetch_add (1, std::memory_order_release);
 }
 
@@ -142,6 +212,7 @@ void PublishImage (const ImageWitness& image)
     g_image.targetEpoch.store (image.targetEpoch, std::memory_order_relaxed);
     g_image.drawSequence.store (image.drawSequence, std::memory_order_relaxed);
     g_image.sceneColorResource.store (image.sceneColorResource, std::memory_order_relaxed);
+    g_image.imageGeneration.store (image.imageGeneration, std::memory_order_relaxed);
     g_image.version.fetch_add (1, std::memory_order_release);
 }
 
@@ -159,6 +230,7 @@ bool ReadImage (ImageWitness& image)
         candidate.targetEpoch = g_image.targetEpoch.load (std::memory_order_relaxed);
         candidate.drawSequence = g_image.drawSequence.load (std::memory_order_relaxed);
         candidate.sceneColorResource = g_image.sceneColorResource.load (std::memory_order_relaxed);
+        candidate.imageGeneration = g_image.imageGeneration.load (std::memory_order_relaxed);
         const uint64_t after = g_image.version.load (std::memory_order_acquire);
         if (before == after) {
             image = candidate;
@@ -175,6 +247,7 @@ void PublishCamera (const CameraWitness& camera)
     g_camera.snapshotEventSerial.store (camera.snapshotEventSerial, std::memory_order_relaxed);
     g_camera.cameraSerial.store (camera.cameraSerial, std::memory_order_relaxed);
     g_camera.sourcePass.store (camera.sourcePass, std::memory_order_relaxed);
+    g_camera.imageGeneration.store (camera.imageGeneration, std::memory_order_relaxed);
     g_camera.version.fetch_add (1, std::memory_order_release);
 }
 
@@ -189,6 +262,7 @@ bool ReadCamera (CameraWitness& camera)
         candidate.snapshotEventSerial = g_camera.snapshotEventSerial.load (std::memory_order_relaxed);
         candidate.cameraSerial = g_camera.cameraSerial.load (std::memory_order_relaxed);
         candidate.sourcePass = g_camera.sourcePass.load (std::memory_order_relaxed);
+        candidate.imageGeneration = g_camera.imageGeneration.load (std::memory_order_relaxed);
         const uint64_t after = g_camera.version.load (std::memory_order_acquire);
         if (before == after) {
             camera = candidate;
@@ -196,6 +270,77 @@ bool ReadCamera (CameraWitness& camera)
         }
     }
     return false;
+}
+
+void PublishHandoff (const HandoffWitness& handoff)
+{
+    g_handoff.version.fetch_add (1, std::memory_order_acq_rel);
+    g_handoff.provenanceEpoch.store (handoff.provenanceEpoch, std::memory_order_relaxed);
+    g_handoff.handoffSerial.store (handoff.handoffSerial, std::memory_order_relaxed);
+    g_handoff.imageGeneration.store (handoff.imageGeneration, std::memory_order_relaxed);
+    g_handoff.rooted.store (handoff.rooted, std::memory_order_relaxed);
+    g_handoff.rootPass.store (handoff.rootPass, std::memory_order_relaxed);
+    g_handoff.state.store (uint32_t (handoff.state), std::memory_order_relaxed);
+    g_handoff.sameGeneration.store (handoff.sameGeneration, std::memory_order_relaxed);
+    g_handoff.version.fetch_add (1, std::memory_order_release);
+}
+
+// CONTEXT THREAD ONLY. Amends `g_lastHandoff`'s state (Handoff -> Mixed on an
+// untracked write, or -> Cleared on a clear of B) and republishes it whole, so
+// the other fields a Present might still read (handoffSerial, imageGeneration,
+// rooted, rootPass, sameGeneration) survive a state-only transition.
+void PublishHandoffState (BackBufferState state)
+{
+    g_lastHandoff.provenanceEpoch = g_provenanceEpoch.load (std::memory_order_relaxed);
+    g_lastHandoff.state = state;
+    PublishHandoff (g_lastHandoff);
+}
+
+bool ReadHandoff (HandoffWitness& handoff)
+{
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        const uint64_t before = g_handoff.version.load (std::memory_order_acquire);
+        if ((before & 1u) != 0)
+            continue;
+        HandoffWitness candidate;
+        candidate.provenanceEpoch = g_handoff.provenanceEpoch.load (std::memory_order_relaxed);
+        candidate.handoffSerial = g_handoff.handoffSerial.load (std::memory_order_relaxed);
+        candidate.imageGeneration = g_handoff.imageGeneration.load (std::memory_order_relaxed);
+        candidate.rooted = g_handoff.rooted.load (std::memory_order_relaxed);
+        candidate.rootPass = g_handoff.rootPass.load (std::memory_order_relaxed);
+        candidate.state = BackBufferState (g_handoff.state.load (std::memory_order_relaxed));
+        candidate.sameGeneration = g_handoff.sameGeneration.load (std::memory_order_relaxed);
+        const uint64_t after = g_handoff.version.load (std::memory_order_acquire);
+        if (before == after) {
+            handoff = candidate;
+            return candidate.provenanceEpoch != 0;
+        }
+    }
+    return false;
+}
+
+void ClearHandoffPublication ()
+{
+    g_handoff.version.fetch_add (1, std::memory_order_acq_rel);
+    g_handoff.provenanceEpoch.store (0, std::memory_order_relaxed);
+    g_handoff.handoffSerial.store (0, std::memory_order_relaxed);
+    g_handoff.imageGeneration.store (0, std::memory_order_relaxed);
+    g_handoff.rooted.store (false, std::memory_order_relaxed);
+    g_handoff.rootPass.store (0, std::memory_order_relaxed);
+    g_handoff.state.store (uint32_t (BackBufferState::None), std::memory_order_relaxed);
+    g_handoff.sameGeneration.store (false, std::memory_order_relaxed);
+    g_handoff.version.fetch_add (1, std::memory_order_release);
+}
+
+// {<=-3,-2,-1,0,+1,+2,>=+3}; index 3 (delta == 0) is MATCH, the lower three are
+// the overlay camera BEHIND its image, the upper three AHEAD. Only MATCH and
+// MISMATCH Presents are bucketed.
+void BucketDelta (std::atomic<uint64_t> (&buckets)[kDeltaBucketCount], int64_t delta)
+{
+    // Clamp to [-3, 3] as a SIGNED value before shifting into an index -- casting
+    // a negative delta straight to size_t would wrap to a huge unsigned value.
+    const int64_t clamped = delta < -3 ? -3 : delta > 3 ? 3 : delta;
+    buckets[size_t (clamped + 3)].fetch_add (1, std::memory_order_relaxed);
 }
 
 void CountRelation (Relation relation, std::atomic<uint64_t>& matched, std::atomic<uint64_t>& mismatched,
@@ -235,6 +380,12 @@ void PublishRow (const Row& row)
     slot.imageOnBackBuffer.store (row.imageOnBackBuffer, std::memory_order_relaxed);
     slot.cameraCoherent.store (row.cameraCoherent, std::memory_order_relaxed);
     slot.presentContextOverlap.store (row.presentContextOverlap, std::memory_order_relaxed);
+    slot.handoffSerial.store (row.handoffSerial, std::memory_order_relaxed);
+    slot.imageGeneration.store (row.imageGeneration, std::memory_order_relaxed);
+    slot.imageRooted.store (row.imageRooted, std::memory_order_relaxed);
+    slot.cameraImageGeneration.store (row.cameraImageGeneration, std::memory_order_relaxed);
+    slot.metadataStale.store (row.metadataStale, std::memory_order_relaxed);
+    slot.backBufferState.store (uint32_t (row.backBufferState), std::memory_order_relaxed);
     slot.published.store (written + 1, std::memory_order_release);
 }
 
@@ -258,17 +409,27 @@ void Reset ()
     g_contextOperations.store (0, std::memory_order_relaxed);
     g_pendingImage = ImageWitness {};
     g_pendingImageValid = false;
+    g_sceneColour = 0;
+    g_imageRooted = false;
+    g_imageRootPass = 0;
+    g_rootsInGeneration = 0;
+    g_lastHandoff = HandoffWitness {};
+    g_imageGeneration.store (0, std::memory_order_relaxed);
+    g_resizeFenceSerial.store (0, std::memory_order_relaxed);
     g_pendingPresent = Row {};
     g_pendingPresentActive = false;
     g_pendingCurrentModelGeneration = 0;
-    g_lastUniqueImagePass = 0;
+    g_pendingHandoffSameGeneration = false;
+    g_lastUniqueHandoffSerial = 0;
     ClearImagePublication ();
     g_camera.version.fetch_add (1, std::memory_order_acq_rel);
     g_camera.provenanceEpoch.store (0, std::memory_order_relaxed);
     g_camera.snapshotEventSerial.store (0, std::memory_order_relaxed);
     g_camera.cameraSerial.store (0, std::memory_order_relaxed);
     g_camera.sourcePass.store (0, std::memory_order_relaxed);
+    g_camera.imageGeneration.store (0, std::memory_order_relaxed);
     g_camera.version.fetch_add (1, std::memory_order_release);
+    ClearHandoffPublication ();
     g_rowsVisibleFrom.store (g_rowsWritten.load (std::memory_order_acquire), std::memory_order_release);
     g_imageDrawsCommitted.store (0, std::memory_order_relaxed);
     g_cameraSnapshots.store (0, std::memory_order_relaxed);
@@ -285,6 +446,22 @@ void Reset ()
     g_uniqueUnknown.store (0, std::memory_order_relaxed);
     g_uniqueAmbiguous.store (0, std::memory_order_relaxed);
     g_duplicatePresents.store (0, std::memory_order_relaxed);
+    g_handoffs.store (0, std::memory_order_relaxed);
+    g_handoffsUnrooted.store (0, std::memory_order_relaxed);
+    g_handoffsSameGeneration.store (0, std::memory_order_relaxed);
+    g_generationsWithMultipleRoots.store (0, std::memory_order_relaxed);
+    g_sceneColourChanges.store (0, std::memory_order_relaxed);
+    g_backBufferClears.store (0, std::memory_order_relaxed);
+    g_backBufferOtherWrites.store (0, std::memory_order_relaxed);
+    g_presentsWithoutBinding.store (0, std::memory_order_relaxed);
+    g_repeatMatched.store (0, std::memory_order_relaxed);
+    g_repeatMismatched.store (0, std::memory_order_relaxed);
+    g_repeatUnknown.store (0, std::memory_order_relaxed);
+    g_repeatAmbiguous.store (0, std::memory_order_relaxed);
+    for (std::atomic<uint64_t>& bucket : g_uniqueDelta)
+        bucket.store (0, std::memory_order_relaxed);
+    for (std::atomic<uint64_t>& bucket : g_repeatDelta)
+        bucket.store (0, std::memory_order_relaxed);
 }
 
 bool BeginContextOperation ()
@@ -323,6 +500,27 @@ void OnDrawCompleted ()
     if (!g_contextOperationActive || !g_pendingImageValid)
         return;
     if (Enabled ()) {
+        // Stage 72 -- this is the root commit: stamp S's identity and the image
+        // generation onto the witness before publishing it. `g_pendingImageValid`
+        // guarantees `sceneColorResource` is non-zero here.
+        const uint64_t sceneColour = g_pendingImage.sceneColorResource;
+        if (g_sceneColour != 0 && g_sceneColour != sceneColour) {
+            // S was resized or recreated: the old generation count tracked
+            // clears of a resource that is no longer S, so it starts over
+            // instead of continuing to increment across the discontinuity.
+            g_sceneColourChanges.fetch_add (1, std::memory_order_relaxed);
+            g_imageGeneration.store (0, std::memory_order_relaxed);
+            g_imageRooted = false;
+            g_imageRootPass = 0;
+            g_rootsInGeneration = 0;
+        }
+        g_sceneColour = sceneColour;
+        g_imageRooted = true;
+        g_imageRootPass = g_pendingImage.scenePass;
+        if (++g_rootsInGeneration == 2)
+            g_generationsWithMultipleRoots.fetch_add (1, std::memory_order_relaxed);
+        g_pendingImage.imageGeneration = g_imageGeneration.load (std::memory_order_relaxed);
+
         g_pendingImage.rootEventSerial = NextEvent ();
         PublishImage (g_pendingImage);
         g_imageDrawsCommitted.fetch_add (1, std::memory_order_relaxed);
@@ -342,8 +540,94 @@ void OnCameraSnapshot (uint64_t cameraSerial, uint64_t sourcePass)
     camera.snapshotEventSerial = NextEvent ();
     camera.cameraSerial = cameraSerial;
     camera.sourcePass = sourcePass;
+    camera.imageGeneration = g_imageGeneration.load (std::memory_order_relaxed);
     PublishCamera (camera);
     g_cameraSnapshots.fetch_add (1, std::memory_order_relaxed);
+}
+
+// Stage 72 -- called on EVERY draw (forwarded from PassProvenance.cpp's own
+// per-draw handler), because the composite draw that writes B is a separate,
+// later draw from the verified model draw that renders into S: `rtvs`/`srvs`
+// are the SAME per-slot arrays that handler already tracks; unbound slots read
+// 0. B (`g_backBuffer`) is published by the Present thread.
+void OnHostDraw (const uint64_t* rtvs, size_t rtvSlots, const uint64_t* srvs, size_t srvSlots)
+{
+    if (!Enabled () || !g_contextOperationActive)
+        return;
+    const uint64_t backBuffer = g_backBuffer.load (std::memory_order_acquire);
+    if (backBuffer == 0)
+        return;
+    bool targetsBackBuffer = false;
+    for (size_t slot = 0; slot < rtvSlots; ++slot) {
+        if (rtvs[slot] == backBuffer) {
+            targetsBackBuffer = true;
+            break;
+        }
+    }
+    if (!targetsBackBuffer)
+        return;
+
+    bool readsSceneColour = false;
+    const uint64_t sceneColour = g_sceneColour;
+    if (sceneColour != 0) {
+        for (size_t slot = 0; slot < srvSlots; ++slot) {
+            if (srvs[slot] == sceneColour) {
+                readsSceneColour = true;
+                break;
+            }
+        }
+    }
+
+    if (readsSceneColour) {
+        HandoffWitness handoff;
+        handoff.provenanceEpoch = g_provenanceEpoch.load (std::memory_order_relaxed);
+        handoff.handoffSerial = NextEvent ();
+        handoff.imageGeneration = g_imageGeneration.load (std::memory_order_relaxed);
+        handoff.rooted = g_imageRooted;
+        handoff.rootPass = g_imageRootPass;
+        handoff.state = BackBufferState::Handoff;
+        handoff.sameGeneration =
+            g_lastHandoff.handoffSerial != 0 && handoff.imageGeneration == g_lastHandoff.imageGeneration;
+        PublishHandoff (handoff);
+        g_lastHandoff = handoff;
+        g_handoffs.fetch_add (1, std::memory_order_relaxed);
+        if (!handoff.rooted)
+            g_handoffsUnrooted.fetch_add (1, std::memory_order_relaxed);
+        if (handoff.sameGeneration)
+            g_handoffsSameGeneration.fetch_add (1, std::memory_order_relaxed);
+    }
+    else {
+        if (g_lastHandoff.state == BackBufferState::Handoff)
+            PublishHandoffState (BackBufferState::Mixed);
+        g_backBufferOtherWrites.fetch_add (1, std::memory_order_relaxed);
+    }
+}
+
+void OnClearRenderTarget (uint64_t resource)
+{
+    if (!Enabled () || !g_contextOperationActive || resource == 0)
+        return;
+    if (resource == g_sceneColour) {
+        g_imageGeneration.fetch_add (1, std::memory_order_relaxed);
+        g_imageRooted = false;
+        g_imageRootPass = 0;
+        g_rootsInGeneration = 0;
+    }
+    else if (resource == g_backBuffer.load (std::memory_order_acquire)) {
+        PublishHandoffState (BackBufferState::Cleared);
+        g_backBufferClears.fetch_add (1, std::memory_order_relaxed);
+    }
+}
+
+void OnResourceWritten (uint64_t resource)
+{
+    if (!Enabled () || !g_contextOperationActive || resource == 0)
+        return;
+    if (resource != g_backBuffer.load (std::memory_order_acquire))
+        return;
+    if (g_lastHandoff.state == BackBufferState::Handoff)
+        PublishHandoffState (BackBufferState::Mixed);
+    g_backBufferOtherWrites.fetch_add (1, std::memory_order_relaxed);
 }
 
 bool BeginPresent (IDXGISwapChain* swapChain, uint64_t currentModelGeneration)
@@ -359,6 +643,7 @@ bool BeginPresent (IDXGISwapChain* swapChain, uint64_t currentModelGeneration)
                                     : 0;
     if (texture != nullptr)
         texture->Release ();
+    g_backBuffer.store (backBuffer, std::memory_order_release);
 
     g_pendingPresent = Row {};
     g_pendingPresent.provenanceEpoch = g_provenanceEpoch.load (std::memory_order_relaxed);
@@ -371,6 +656,20 @@ bool BeginPresent (IDXGISwapChain* swapChain, uint64_t currentModelGeneration)
         g_pendingPresent.imageSourceResource = image.sceneColorResource;
         g_pendingPresent.imageModelGeneration = image.modelGeneration;
         g_pendingPresent.imageOnBackBuffer = image.sceneColorResource != 0 && image.sceneColorResource == backBuffer;
+    }
+    // Stage 72 -- read the published handoff into the pending row. `sameGeneration`
+    // is not a Row field: it only ever gates this one Present's classification.
+    HandoffWitness handoff;
+    if (ReadHandoff (handoff) && handoff.provenanceEpoch == g_pendingPresent.provenanceEpoch &&
+        handoff.handoffSerial > g_resizeFenceSerial.load (std::memory_order_acquire)) {
+        g_pendingPresent.handoffSerial = handoff.handoffSerial;
+        g_pendingPresent.imageGeneration = handoff.imageGeneration;
+        g_pendingPresent.imageRooted = handoff.rooted;
+        g_pendingPresent.backBufferState = handoff.state;
+        g_pendingHandoffSameGeneration = handoff.sameGeneration;
+    }
+    else {
+        g_pendingHandoffSameGeneration = false;
     }
     const uint64_t operationVersionAfter = g_contextOperationVersion.load (std::memory_order_acquire);
     const uint32_t operationsAfter = g_contextOperations.load (std::memory_order_acquire);
@@ -395,6 +694,8 @@ void OnOverlayCameraBound (uint64_t metadataPass)
     g_pendingPresent.cameraAdoptEventSerial = NextEvent ();
     g_pendingPresent.cameraMetadataPass = metadataPass;
     g_pendingPresent.cameraCoherent = metadataPass != 0 && metadataPass == camera.sourcePass;
+    g_pendingPresent.cameraImageGeneration = camera.imageGeneration;
+    g_pendingPresent.metadataStale = metadataPass != camera.sourcePass; // reported only (S72)
     g_cameraBindings.fetch_add (1, std::memory_order_relaxed);
 }
 
@@ -409,40 +710,65 @@ void EndPresent (bool active, bool succeeded)
         Row& row = g_pendingPresent;
         row.presentSerial = g_presents.fetch_add (1, std::memory_order_relaxed) + 1;
         row.presentContextOverlap = overlap;
+        // Stage 72 classification order (the old `imageOnBackBuffer`,
+        // `imageModelGeneration` and `cameraCoherent` checks no longer gate
+        // anything; they stay on Row as reported context only):
+        //   1. context/Present overlap                       -> AMBIGUOUS
+        //   2. back buffer Mixed                              -> AMBIGUOUS
+        //      back buffer None/Cleared                       -> UNKNOWN
+        //   3. no camera bound this Present                   -> UNKNOWN
+        //   4. handoff or camera generation unknown (==0),
+        //      or the handoff repeats the previous generation -> UNKNOWN
+        //   5. delta = cameraImageGeneration - imageGeneration -> MATCH/MISMATCH
         if (overlap) {
             row.relation = Relation::Ambiguous;
             row.ambiguityEventSerial = NextEvent ();
         }
-        else if (row.imagePass == 0 || row.imageRootEventSerial == 0 || !row.imageOnBackBuffer ||
-                 row.overlayCameraSerial == 0 || row.cameraSourcePass == 0 ||
-                 row.imageModelGeneration != g_pendingCurrentModelGeneration) {
+        else if (row.backBufferState == BackBufferState::Mixed) {
+            row.relation = Relation::Ambiguous;
+        }
+        else if (row.backBufferState == BackBufferState::None || row.backBufferState == BackBufferState::Cleared) {
             row.relation = Relation::Unknown;
         }
-        else if (!row.cameraCoherent) {
-            row.relation = Relation::Ambiguous;
-            row.ambiguityEventSerial = row.cameraAdoptEventSerial;
+        else if (row.overlayCameraSerial == 0) {
+            row.relation = Relation::Unknown;
+            g_presentsWithoutBinding.fetch_add (1, std::memory_order_relaxed);
+        }
+        else if (row.imageGeneration == 0 || row.cameraImageGeneration == 0 || g_pendingHandoffSameGeneration) {
+            row.relation = Relation::Unknown;
         }
         else {
-            row.delta = int64_t (row.cameraSourcePass) - int64_t (row.imagePass);
+            row.delta = int64_t (row.cameraImageGeneration) - int64_t (row.imageGeneration);
             row.relation = row.delta == 0 ? Relation::Match : Relation::Mismatch;
         }
         CountRelation (row.relation, g_matched, g_mismatched, g_unknown, g_ambiguous);
 
-        if (row.imageOnBackBuffer && row.imagePass != 0 && row.imagePass != g_lastUniqueImagePass) {
-            g_lastUniqueImagePass = row.imagePass;
-            g_uniqueImagePassesObserved.fetch_add (1, std::memory_order_relaxed);
-            CountRelation (row.relation, g_uniqueMatched, g_uniqueMismatched, g_uniqueUnknown, g_uniqueAmbiguous);
-            if (row.relation == Relation::Match || row.relation == Relation::Mismatch)
-                g_uniqueImagePassesClassified.fetch_add (1, std::memory_order_relaxed);
-            PublishRow (row);
-        }
-        else if (row.imageOnBackBuffer && row.imagePass != 0) {
-            g_duplicatePresents.fetch_add (1, std::memory_order_relaxed);
+        // UNIQUE = first successful Present whose handoffSerial differs from
+        // the last unique's; REPEAT = same handoffSerial as the previous
+        // Present. A zero handoffSerial (nothing has reached B yet) is neither.
+        if (row.handoffSerial != 0) {
+            if (row.handoffSerial != g_lastUniqueHandoffSerial) {
+                g_lastUniqueHandoffSerial = row.handoffSerial;
+                g_uniqueImagePassesObserved.fetch_add (1, std::memory_order_relaxed);
+                CountRelation (row.relation, g_uniqueMatched, g_uniqueMismatched, g_uniqueUnknown, g_uniqueAmbiguous);
+                if (row.relation == Relation::Match || row.relation == Relation::Mismatch) {
+                    g_uniqueImagePassesClassified.fetch_add (1, std::memory_order_relaxed);
+                    BucketDelta (g_uniqueDelta, row.delta);
+                }
+                PublishRow (row);
+            }
+            else {
+                g_duplicatePresents.fetch_add (1, std::memory_order_relaxed);
+                CountRelation (row.relation, g_repeatMatched, g_repeatMismatched, g_repeatUnknown, g_repeatAmbiguous);
+                if (row.relation == Relation::Match || row.relation == Relation::Mismatch)
+                    BucketDelta (g_repeatDelta, row.delta);
+            }
         }
     }
     g_pendingPresent = Row {};
     g_pendingPresentActive = false;
     g_pendingCurrentModelGeneration = 0;
+    g_pendingHandoffSameGeneration = false;
 }
 
 void OnResizeBuffers ()
@@ -452,7 +778,11 @@ void OnResizeBuffers ()
     ClearImagePublication ();
     g_pendingImage = ImageWitness {};
     g_pendingImageValid = false;
-    g_lastUniqueImagePass = 0;
+    g_lastUniqueHandoffSerial = 0;
+    // g_sceneColour is left untouched: the next root commit detects whether S's
+    // identity actually changed and resets the generation numbering itself.
+    g_backBuffer.store (0, std::memory_order_release);
+    g_resizeFenceSerial.store (NextEvent (), std::memory_order_release);
 }
 
 size_t CopyRows (Row* out, size_t capacity)
@@ -491,6 +821,12 @@ size_t CopyRows (Row* out, size_t capacity)
         row.imageOnBackBuffer = slot.imageOnBackBuffer.load (std::memory_order_relaxed);
         row.cameraCoherent = slot.cameraCoherent.load (std::memory_order_relaxed);
         row.presentContextOverlap = slot.presentContextOverlap.load (std::memory_order_relaxed);
+        row.handoffSerial = slot.handoffSerial.load (std::memory_order_relaxed);
+        row.imageGeneration = slot.imageGeneration.load (std::memory_order_relaxed);
+        row.imageRooted = slot.imageRooted.load (std::memory_order_relaxed);
+        row.cameraImageGeneration = slot.cameraImageGeneration.load (std::memory_order_relaxed);
+        row.metadataStale = slot.metadataStale.load (std::memory_order_relaxed);
+        row.backBufferState = BackBufferState (slot.backBufferState.load (std::memory_order_relaxed));
         if (slot.published.load (std::memory_order_acquire) == expected)
             out[copied++] = row;
     }
@@ -520,6 +856,23 @@ Stats GetStats ()
     const uint64_t written = g_rowsWritten.load (std::memory_order_acquire);
     const uint64_t visible = g_rowsVisibleFrom.load (std::memory_order_acquire);
     stats.rowsOverwritten = written - visible > kRowCapacity ? written - visible - kRowCapacity : 0;
+    stats.handoffs = g_handoffs.load (std::memory_order_relaxed);
+    stats.handoffsUnrooted = g_handoffsUnrooted.load (std::memory_order_relaxed);
+    stats.handoffsSameGeneration = g_handoffsSameGeneration.load (std::memory_order_relaxed);
+    stats.generationsWithMultipleRoots = g_generationsWithMultipleRoots.load (std::memory_order_relaxed);
+    stats.sceneColourChanges = g_sceneColourChanges.load (std::memory_order_relaxed);
+    stats.backBufferClears = g_backBufferClears.load (std::memory_order_relaxed);
+    stats.backBufferOtherWrites = g_backBufferOtherWrites.load (std::memory_order_relaxed);
+    stats.presentsWithoutBinding = g_presentsWithoutBinding.load (std::memory_order_relaxed);
+    stats.imageGeneration = g_imageGeneration.load (std::memory_order_relaxed);
+    for (size_t i = 0; i < kDeltaBucketCount; ++i) {
+        stats.uniqueDelta[i] = g_uniqueDelta[i].load (std::memory_order_relaxed);
+        stats.repeatDelta[i] = g_repeatDelta[i].load (std::memory_order_relaxed);
+    }
+    stats.repeatMatched = g_repeatMatched.load (std::memory_order_relaxed);
+    stats.repeatMismatched = g_repeatMismatched.load (std::memory_order_relaxed);
+    stats.repeatUnknown = g_repeatUnknown.load (std::memory_order_relaxed);
+    stats.repeatAmbiguous = g_repeatAmbiguous.load (std::memory_order_relaxed);
     return stats;
 }
 

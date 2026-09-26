@@ -5,6 +5,7 @@
 
 #include "ArchViz/Dxgi/ImageTransferTrace.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
+#include "ArchViz/Dxgi/PresentProfile.hpp"
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
 #include <string>
@@ -64,6 +65,15 @@ const char* PairingRelationName (av::dxgi::scenecamerapairing::Relation relation
                                                        : "UNKNOWN";
 }
 
+const char* BackBufferStateName (av::dxgi::scenecamerapairing::BackBufferState state)
+{
+    namespace pairing = av::dxgi::scenecamerapairing;
+    return state == pairing::BackBufferState::Handoff ? "HANDOFF"
+           : state == pairing::BackBufferState::Cleared ? "CLEARED"
+           : state == pairing::BackBufferState::Mixed   ? "MIXED"
+                                                         : "NONE";
+}
+
 const char* ImageTransferRoleName (av::dxgi::imagetransfer::Role role)
 {
     namespace imagetransfer = av::dxgi::imagetransfer;
@@ -120,6 +130,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         namespace provenance = av::dxgi::passprovenance;
         namespace pairing = av::dxgi::scenecamerapairing;
         namespace imagetransfer = av::dxgi::imagetransfer;
+        namespace presentprofile = av::dxgi::presentprofile;
 
         bool reset = false;
         bool enabled = false;
@@ -131,9 +142,10 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         const bool restoreEnabled = reset && provenance::Enabled () && !hasEnabled;
         bool drained = true;
         if (reset || (hasEnabled && !enabled)) {
-            // Disable order: trace (innermost) -> pairing -> provenance, which
-            // is the one that actually drains.
+            // Disable order: trace+profile (innermost) -> pairing -> provenance,
+            // which is the one that actually drains.
             imagetransfer::SetEnabled (false);
+            presentprofile::SetEnabled (false);
             pairing::SetEnabled (false);
             drained = provenance::SetEnabled (false);
         }
@@ -141,19 +153,22 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             provenance::Reset ();
             pairing::Reset ();
             imagetransfer::Reset ();
+            presentprofile::Reset ();
         }
         bool transitionSucceeded = drained;
         if (hasEnabled && enabled && drained) {
-            // Enable order: provenance -> pairing -> trace (innermost), each
-            // gated on the same success condition as the layer it nests inside.
+            // Enable order: provenance -> pairing -> trace+profile (innermost),
+            // each gated on the same success condition as the layer it nests inside.
             transitionSucceeded = provenance::SetEnabled (true);
             pairing::SetEnabled (transitionSucceeded);
             imagetransfer::SetEnabled (transitionSucceeded);
+            presentprofile::SetEnabled (transitionSucceeded);
         }
         else if (restoreEnabled && drained) {
             transitionSucceeded = provenance::SetEnabled (true);
             pairing::SetEnabled (transitionSucceeded);
             imagetransfer::SetEnabled (transitionSucceeded);
+            presentprofile::SetEnabled (transitionSucceeded);
         }
 
         GS::Int32 limit = (GS::Int32) provenance::kRowCapacity;
@@ -221,6 +236,13 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             entry.Add ("imageOnBackBuffer", row.imageOnBackBuffer);
             entry.Add ("cameraCoherent", row.cameraCoherent);
             entry.Add ("presentContextOverlap", row.presentContextOverlap);
+            entry.Add ("handoffSerial", GS::UniString (std::to_string (row.handoffSerial).c_str (), CC_UTF8));
+            entry.Add ("imageGeneration", GS::UniString (std::to_string (row.imageGeneration).c_str (), CC_UTF8));
+            entry.Add ("imageRooted", row.imageRooted);
+            entry.Add ("cameraImageGeneration",
+                       GS::UniString (std::to_string (row.cameraImageGeneration).c_str (), CC_UTF8));
+            entry.Add ("metadataStale", row.metadataStale);
+            entry.Add ("backBufferState", GS::UniString (BackBufferStateName (row.backBufferState), CC_UTF8));
             pairingOut.Push (entry);
         }
 
@@ -409,12 +431,92 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
                 GS::UniString (std::to_string (pairingStats.duplicatePresents).c_str (), CC_UTF8));
         os.Add ("pairingRowsOverwritten",
                 GS::UniString (std::to_string (pairingStats.rowsOverwritten).c_str (), CC_UTF8));
+        os.Add ("handoffs", GS::UniString (std::to_string (pairingStats.handoffs).c_str (), CC_UTF8));
+        os.Add ("handoffsUnrooted", GS::UniString (std::to_string (pairingStats.handoffsUnrooted).c_str (), CC_UTF8));
+        os.Add ("handoffsSameGeneration",
+                GS::UniString (std::to_string (pairingStats.handoffsSameGeneration).c_str (), CC_UTF8));
+        os.Add ("generationsWithMultipleRoots",
+                GS::UniString (std::to_string (pairingStats.generationsWithMultipleRoots).c_str (), CC_UTF8));
+        os.Add ("sceneColourChanges",
+                GS::UniString (std::to_string (pairingStats.sceneColourChanges).c_str (), CC_UTF8));
+        os.Add ("backBufferClears", GS::UniString (std::to_string (pairingStats.backBufferClears).c_str (), CC_UTF8));
+        os.Add ("backBufferOtherWrites",
+                GS::UniString (std::to_string (pairingStats.backBufferOtherWrites).c_str (), CC_UTF8));
+        os.Add ("presentsWithoutBinding",
+                GS::UniString (std::to_string (pairingStats.presentsWithoutBinding).c_str (), CC_UTF8));
+        os.Add ("imageGeneration", GS::UniString (std::to_string (pairingStats.imageGeneration).c_str (), CC_UTF8));
+        GS::Array<GS::UniString> uniqueDeltaOut;
+        GS::Array<GS::UniString> repeatDeltaOut;
+        for (size_t i = 0; i < pairing::kDeltaBucketCount; ++i) {
+            uniqueDeltaOut.Push (GS::UniString (std::to_string (pairingStats.uniqueDelta[i]).c_str (), CC_UTF8));
+            repeatDeltaOut.Push (GS::UniString (std::to_string (pairingStats.repeatDelta[i]).c_str (), CC_UTF8));
+        }
+        os.Add ("uniqueDelta", uniqueDeltaOut);
+        os.Add ("repeatMatched", GS::UniString (std::to_string (pairingStats.repeatMatched).c_str (), CC_UTF8));
+        os.Add ("repeatMismatched", GS::UniString (std::to_string (pairingStats.repeatMismatched).c_str (), CC_UTF8));
+        os.Add ("repeatUnknown", GS::UniString (std::to_string (pairingStats.repeatUnknown).c_str (), CC_UTF8));
+        os.Add ("repeatAmbiguous", GS::UniString (std::to_string (pairingStats.repeatAmbiguous).c_str (), CC_UTF8));
+        os.Add ("repeatDelta", repeatDeltaOut);
         os.Add ("pairingRows", pairingOut);
         os.Add ("imageTransfer", imageTransferOut);
+
+        // SWAP CHAIN / PRESENT PROFILE -- coder B's PresentProfile, surfaced here
+        // (section C). Present-thread facts refreshed only on identity change.
+        const presentprofile::Stats profileStats = presentprofile::GetStats ();
+        GS::ObjectState swapChainOut;
+        swapChainOut.Add ("known", profileStats.chain.known);
+        swapChainOut.Add ("swapChain", GS::UniString (std::to_string (profileStats.chain.swapChain).c_str (), CC_UTF8));
+        swapChainOut.Add ("bufferCount", GS::Int32 (profileStats.chain.bufferCount));
+        swapChainOut.Add ("swapEffect", GS::Int32 (profileStats.chain.swapEffect));
+        swapChainOut.Add ("bufferUsage", GS::Int32 (profileStats.chain.bufferUsage));
+        swapChainOut.Add ("flags", GS::Int32 (profileStats.chain.flags));
+        swapChainOut.Add ("format", GS::Int32 (profileStats.chain.format));
+        swapChainOut.Add ("width", GS::Int32 (profileStats.chain.width));
+        swapChainOut.Add ("height", GS::Int32 (profileStats.chain.height));
+        swapChainOut.Add ("sampleCount", GS::Int32 (profileStats.chain.sampleCount));
+        swapChainOut.Add ("windowed", profileStats.chain.windowed);
+        swapChainOut.Add ("desc1Known", profileStats.chain.desc1Known);
+        swapChainOut.Add ("scaling", GS::Int32 (profileStats.chain.scaling));
+        swapChainOut.Add ("alphaMode", GS::Int32 (profileStats.chain.alphaMode));
+
+        GS::ObjectState presentProfileOut;
+        presentProfileOut.Add ("enabled", profileStats.enabled);
+        presentProfileOut.Add ("presents", GS::UniString (std::to_string (profileStats.presents).c_str (), CC_UTF8));
+        presentProfileOut.Add ("present1Calls",
+                               GS::UniString (std::to_string (profileStats.present1Calls).c_str (), CC_UTF8));
+        GS::Array<GS::UniString> syncIntervalOut;
+        for (uint64_t bucket : profileStats.syncInterval)
+            syncIntervalOut.Push (GS::UniString (std::to_string (bucket).c_str (), CC_UTF8));
+        presentProfileOut.Add ("syncInterval", syncIntervalOut);
+        presentProfileOut.Add ("doNotSequence",
+                               GS::UniString (std::to_string (profileStats.doNotSequence).c_str (), CC_UTF8));
+        presentProfileOut.Add ("restart", GS::UniString (std::to_string (profileStats.restart).c_str (), CC_UTF8));
+        presentProfileOut.Add ("doNotWait", GS::UniString (std::to_string (profileStats.doNotWait).c_str (), CC_UTF8));
+        presentProfileOut.Add ("restrictToOutput",
+                               GS::UniString (std::to_string (profileStats.restrictToOutput).c_str (), CC_UTF8));
+        presentProfileOut.Add ("useDuration",
+                               GS::UniString (std::to_string (profileStats.useDuration).c_str (), CC_UTF8));
+        presentProfileOut.Add ("allowTearing",
+                               GS::UniString (std::to_string (profileStats.allowTearing).c_str (), CC_UTF8));
+        presentProfileOut.Add ("otherFlags",
+                               GS::UniString (std::to_string (profileStats.otherFlags).c_str (), CC_UTF8));
+        presentProfileOut.Add ("flagsSeen",
+                               GS::UniString (std::to_string (profileStats.flagsSeen).c_str (), CC_UTF8));
+        presentProfileOut.Add ("descQueries",
+                               GS::UniString (std::to_string (profileStats.descQueries).c_str (), CC_UTF8));
+        presentProfileOut.Add ("descFailures",
+                               GS::UniString (std::to_string (profileStats.descFailures).c_str (), CC_UTF8));
+        presentProfileOut.Add ("swapChain", swapChainOut);
+        os.Add ("presentProfile", presentProfileOut);
         return os;
     }
 };
 
+// ⚠️ THE RESPONSE SCHEMA IS THREE ADJACENT RAW LITERALS. MSVC refuses one literal
+// over 16380 bytes (C2026) and this one passed that in Stage 72. The pieces are
+// split at top-level properties with nothing but whitespace between them, so the
+// compiler, check_cpp.py, schema_check.py and the API generator all read one
+// schema. Keep any new piece boundary free of comments for the same reason.
 const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
     { "ViewerPassProvenance", &MakeRegisteredNativeCommand<ViewerPassProvenanceCommand>, false,
       R"json({
@@ -498,6 +600,63 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
           "uniqueAmbiguous": {"type": "string"},
           "duplicatePresents": {"type": "string"},
           "pairingRowsOverwritten": {"type": "string"},
+          "handoffs": {"type": "string"},
+          "handoffsUnrooted": {"type": "string"},
+          "handoffsSameGeneration": {"type": "string"},
+          "generationsWithMultipleRoots": {"type": "string"},
+          "sceneColourChanges": {"type": "string"},
+          "backBufferClears": {"type": "string"},
+          "backBufferOtherWrites": {"type": "string"},
+          "presentsWithoutBinding": {"type": "string"},
+          "imageGeneration": {"type": "string"},
+          "uniqueDelta": {"type": "array", "items": {"type": "string"}, "minItems": 7, "maxItems": 7},
+          "repeatMatched": {"type": "string"},
+          "repeatMismatched": {"type": "string"},
+          "repeatUnknown": {"type": "string"},
+          "repeatAmbiguous": {"type": "string"},
+          "repeatDelta": {"type": "array", "items": {"type": "string"}, "minItems": 7, "maxItems": 7},
+          "presentProfile": {
+            "type": "object",
+            "properties": {
+              "enabled": {"type": "boolean"},
+              "presents": {"type": "string"},
+              "present1Calls": {"type": "string"},
+              "syncInterval": {"type": "array", "items": {"type": "string"}, "minItems": 5, "maxItems": 5},
+              "doNotSequence": {"type": "string"},
+              "restart": {"type": "string"},
+              "doNotWait": {"type": "string"},
+              "restrictToOutput": {"type": "string"},
+              "useDuration": {"type": "string"},
+              "allowTearing": {"type": "string"},
+              "otherFlags": {"type": "string"},
+              "flagsSeen": {"type": "string"},
+              "descQueries": {"type": "string"},
+              "descFailures": {"type": "string"},
+              "swapChain": {
+                "type": "object",
+                "properties": {
+                  "known": {"type": "boolean"},
+                  "swapChain": {"type": "string"},
+                  "bufferCount": {"type": "integer", "minimum": 0, "maximum": 16},
+                  "swapEffect": {"type": "integer", "minimum": 0, "maximum": 4},
+                  "bufferUsage": {"type": "integer", "minimum": 0, "maximum": 65535},
+                  "flags": {"type": "integer", "minimum": 0, "maximum": 65535},
+                  "format": {"type": "integer", "minimum": 0, "maximum": 255},
+                  "width": {"type": "integer", "minimum": 0, "maximum": 65535},
+                  "height": {"type": "integer", "minimum": 0, "maximum": 65535},
+                  "sampleCount": {"type": "integer", "minimum": 0, "maximum": 32},
+                  "windowed": {"type": "boolean"},
+                  "desc1Known": {"type": "boolean"},
+                  "scaling": {"type": "integer", "minimum": 0, "maximum": 4},
+                  "alphaMode": {"type": "integer", "minimum": 0, "maximum": 4}
+                },
+                "additionalProperties": false,
+                "required": ["known", "swapChain", "bufferCount", "swapEffect", "bufferUsage", "flags", "format", "width", "height", "sampleCount", "windowed", "desc1Known", "scaling", "alphaMode"]
+              }
+            },
+            "additionalProperties": false,
+            "required": ["enabled", "presents", "present1Calls", "syncInterval", "doNotSequence", "restart", "doNotWait", "restrictToOutput", "useDuration", "allowTearing", "otherFlags", "flagsSeen", "descQueries", "descFailures", "swapChain"]
+          },
           "rows": {
             "type": "array",
             "items": {
@@ -518,6 +677,7 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
               "required": ["present", "imagePass", "cameraPass", "delta", "cameraHash", "backBuffer", "resourceState", "resourceAmbiguityMask", "presentContextOverlap", "relation"]
             }
           },
+)json" R"json(
           "pairingRows": {
             "type": "array",
             "items": {
@@ -541,12 +701,19 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
                 "relation": {"type": "string", "enum": ["MATCH", "MISMATCH", "UNKNOWN", "AMBIGUOUS"]},
                 "imageOnBackBuffer": {"type": "boolean"},
                 "cameraCoherent": {"type": "boolean"},
-                "presentContextOverlap": {"type": "boolean"}
+                "presentContextOverlap": {"type": "boolean"},
+                "handoffSerial": {"type": "string"},
+                "imageGeneration": {"type": "string"},
+                "imageRooted": {"type": "boolean"},
+                "cameraImageGeneration": {"type": "string"},
+                "metadataStale": {"type": "boolean"},
+                "backBufferState": {"type": "string", "enum": ["NONE", "HANDOFF", "CLEARED", "MIXED"]}
               },
               "additionalProperties": false,
-              "required": ["provenanceEpoch", "eventSerial", "presentSerial", "imagePass", "imageRootEventSerial", "imageSourceResource", "imageModelGeneration", "overlayCameraSerial", "cameraSourcePass", "cameraSnapshotEventSerial", "cameraAdoptEventSerial", "ambiguityEventSerial", "cameraMetadataPass", "backBuffer", "delta", "relation", "imageOnBackBuffer", "cameraCoherent", "presentContextOverlap"]
+              "required": ["provenanceEpoch", "eventSerial", "presentSerial", "imagePass", "imageRootEventSerial", "imageSourceResource", "imageModelGeneration", "overlayCameraSerial", "cameraSourcePass", "cameraSnapshotEventSerial", "cameraAdoptEventSerial", "ambiguityEventSerial", "cameraMetadataPass", "backBuffer", "delta", "relation", "imageOnBackBuffer", "cameraCoherent", "presentContextOverlap", "handoffSerial", "imageGeneration", "imageRooted", "cameraImageGeneration", "metadataStale", "backBufferState"]
             }
           },
+)json" R"json(
           "imageTransfer": {
             "type": "object",
             "properties": {
@@ -639,7 +806,7 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
           }
         },
         "additionalProperties": false,
-        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "pairingRows", "imageTransfer"]
+        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "handoffs", "handoffsUnrooted", "handoffsSameGeneration", "generationsWithMultipleRoots", "sceneColourChanges", "backBufferClears", "backBufferOtherWrites", "presentsWithoutBinding", "imageGeneration", "uniqueDelta", "repeatMatched", "repeatMismatched", "repeatUnknown", "repeatAmbiguous", "repeatDelta", "presentProfile", "pairingRows", "imageTransfer"]
       })json" }
 };
 

@@ -26103,6 +26103,215 @@
           "pairingRowsOverwritten": {
             "type": "string"
           },
+          "handoffs": {
+            "type": "string"
+          },
+          "handoffsUnrooted": {
+            "type": "string"
+          },
+          "handoffsSameGeneration": {
+            "type": "string"
+          },
+          "generationsWithMultipleRoots": {
+            "type": "string"
+          },
+          "sceneColourChanges": {
+            "type": "string"
+          },
+          "backBufferClears": {
+            "type": "string"
+          },
+          "backBufferOtherWrites": {
+            "type": "string"
+          },
+          "presentsWithoutBinding": {
+            "type": "string"
+          },
+          "imageGeneration": {
+            "type": "string"
+          },
+          "uniqueDelta": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 7,
+            "maxItems": 7
+          },
+          "repeatMatched": {
+            "type": "string"
+          },
+          "repeatMismatched": {
+            "type": "string"
+          },
+          "repeatUnknown": {
+            "type": "string"
+          },
+          "repeatAmbiguous": {
+            "type": "string"
+          },
+          "repeatDelta": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 7,
+            "maxItems": 7
+          },
+          "presentProfile": {
+            "type": "object",
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "presents": {
+                "type": "string"
+              },
+              "present1Calls": {
+                "type": "string"
+              },
+              "syncInterval": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 5,
+                "maxItems": 5
+              },
+              "doNotSequence": {
+                "type": "string"
+              },
+              "restart": {
+                "type": "string"
+              },
+              "doNotWait": {
+                "type": "string"
+              },
+              "restrictToOutput": {
+                "type": "string"
+              },
+              "useDuration": {
+                "type": "string"
+              },
+              "allowTearing": {
+                "type": "string"
+              },
+              "otherFlags": {
+                "type": "string"
+              },
+              "flagsSeen": {
+                "type": "string"
+              },
+              "descQueries": {
+                "type": "string"
+              },
+              "descFailures": {
+                "type": "string"
+              },
+              "swapChain": {
+                "type": "object",
+                "properties": {
+                  "known": {
+                    "type": "boolean"
+                  },
+                  "swapChain": {
+                    "type": "string"
+                  },
+                  "bufferCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 16
+                  },
+                  "swapEffect": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  "bufferUsage": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "flags": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "format": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 255
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "height": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  "sampleCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 32
+                  },
+                  "windowed": {
+                    "type": "boolean"
+                  },
+                  "desc1Known": {
+                    "type": "boolean"
+                  },
+                  "scaling": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  "alphaMode": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "known",
+                  "swapChain",
+                  "bufferCount",
+                  "swapEffect",
+                  "bufferUsage",
+                  "flags",
+                  "format",
+                  "width",
+                  "height",
+                  "sampleCount",
+                  "windowed",
+                  "desc1Known",
+                  "scaling",
+                  "alphaMode"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "enabled",
+              "presents",
+              "present1Calls",
+              "syncInterval",
+              "doNotSequence",
+              "restart",
+              "doNotWait",
+              "restrictToOutput",
+              "useDuration",
+              "allowTearing",
+              "otherFlags",
+              "flagsSeen",
+              "descQueries",
+              "descFailures",
+              "swapChain"
+            ]
+          },
           "rows": {
             "type": "array",
             "items": {
@@ -26234,6 +26443,30 @@
                 },
                 "presentContextOverlap": {
                   "type": "boolean"
+                },
+                "handoffSerial": {
+                  "type": "string"
+                },
+                "imageGeneration": {
+                  "type": "string"
+                },
+                "imageRooted": {
+                  "type": "boolean"
+                },
+                "cameraImageGeneration": {
+                  "type": "string"
+                },
+                "metadataStale": {
+                  "type": "boolean"
+                },
+                "backBufferState": {
+                  "type": "string",
+                  "enum": [
+                    "NONE",
+                    "HANDOFF",
+                    "CLEARED",
+                    "MIXED"
+                  ]
                 }
               },
               "additionalProperties": false,
@@ -26256,7 +26489,13 @@
                 "relation",
                 "imageOnBackBuffer",
                 "cameraCoherent",
-                "presentContextOverlap"
+                "presentContextOverlap",
+                "handoffSerial",
+                "imageGeneration",
+                "imageRooted",
+                "cameraImageGeneration",
+                "metadataStale",
+                "backBufferState"
               ]
             }
           },
@@ -26634,6 +26873,22 @@
           "uniqueAmbiguous",
           "duplicatePresents",
           "pairingRowsOverwritten",
+          "handoffs",
+          "handoffsUnrooted",
+          "handoffsSameGeneration",
+          "generationsWithMultipleRoots",
+          "sceneColourChanges",
+          "backBufferClears",
+          "backBufferOtherWrites",
+          "presentsWithoutBinding",
+          "imageGeneration",
+          "uniqueDelta",
+          "repeatMatched",
+          "repeatMismatched",
+          "repeatUnknown",
+          "repeatAmbiguous",
+          "repeatDelta",
+          "presentProfile",
           "pairingRows",
           "imageTransfer"
         ]

@@ -267,6 +267,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # above; duplicating their shape here would create a second definition of
     # the measurement contract.
     ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/ImageTransferTrace.hpp"),
+    # The Present profile is read by the same verb at the same drained boundary:
+    # swap-chain facts and Present flag counts gathered on the Present thread
+    # and only copied out here. Same reason as the three rows above.
+    ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/PresentProfile.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1118,12 +1122,24 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/Dxgi/PassProvenance.cpp",
     "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
+    "ArchViz/Dxgi/PresentProfile.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",
 )
 
 OVERLAY_CONTRACT_MARKER = "OVERLAY-INVARIANTS.md"
+
+# ⚠️ ADJACENT RAW LITERALS ARE ONE SCHEMA. MSVC refuses a single string
+# literal over 16380 bytes (C2026) but concatenates adjacent literals up to
+# 64 KB, so a large schema is written as several R"json(...)json" pieces with
+# only whitespace between them. Joining them here, newlines kept so reported
+# line numbers do not move, makes every reader see what the compiler sees.
+_ADJACENT_JSON_LITERALS = re.compile(r'\)json"\s*R"json\(')
+
+
+def join_adjacent_json_literals(text):
+    return _ADJACENT_JSON_LITERALS.sub(lambda match: "\n" * match.group(0).count("\n"), text)
 
 
 def _check_overlay_contract(failures: list[str]) -> None:
@@ -1176,7 +1192,7 @@ def _check_architecture_command_schemas(failures: list[str]) -> None:
 
     pattern = re.compile(r'R"json\((.*?)\)json"', re.S)
     for path in sorted(ADDON_SRC.rglob("*.cpp")):
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = join_adjacent_json_literals(path.read_text(encoding="utf-8", errors="replace"))
         for match in pattern.finditer(text):
             body = match.group(1)
             try:
@@ -1219,7 +1235,7 @@ def _check_architecture_command_params(failures: list[str]) -> None:
     reads = re.compile(r'params\.(?:Get|Contains)\s*\(\s*"([^"]+)"')
 
     for path in sorted(ADDON_SRC.rglob("*.cpp")):
-        text = path.read_text(encoding="utf-8", errors="replace")
+        text = join_adjacent_json_literals(path.read_text(encoding="utf-8", errors="replace"))
         if "MakeRegisteredNativeCommand<" not in text:
             continue
 

@@ -17,8 +17,15 @@ namespace dxgi {
 namespace scenecamerapairing {
 
 constexpr size_t kRowCapacity = 128;
+constexpr size_t kDeltaBucketCount = 7; // {<=-3,-2,-1,0,+1,+2,>=+3}
 
 enum class Relation : uint32_t { Unknown = 0, Match = 1, Mismatch = 2, Ambiguous = 3 };
+
+// The nominated back buffer B as observed by `OnHostDraw`/`OnClearRenderTarget`/
+// `OnResourceWritten`: whether the last thing to touch it was the verified
+// composite (Handoff), a clear with no following composite (Cleared), some
+// other write layered on top of a composite (Mixed), or nothing yet (None).
+enum class BackBufferState : uint32_t { None = 0, Handoff = 1, Cleared = 2, Mixed = 3 };
 
 struct Row {
     uint64_t provenanceEpoch = 0;
@@ -37,9 +44,19 @@ struct Row {
     uint64_t backBuffer = 0;
     int64_t delta = 0;
     Relation relation = Relation::Unknown;
-    bool imageOnBackBuffer = false;
+    bool imageOnBackBuffer = false; // reported only; no longer gates classification
     bool cameraCoherent = false;
     bool presentContextOverlap = false;
+    // Stage 72 -- the image handoff pairing. `imageGeneration` is the image
+    // generation carried by the handoff that put an image on B, never the root
+    // witness's; `cameraImageGeneration` is the same counter as read off the
+    // overlay's bound camera. `delta = cameraImageGeneration - imageGeneration`.
+    uint64_t handoffSerial = 0;
+    uint64_t imageGeneration = 0;
+    bool imageRooted = false;
+    uint64_t cameraImageGeneration = 0;
+    bool metadataStale = false; // reported only, never a classification input
+    BackBufferState backBufferState = BackBufferState::None;
 };
 
 struct Stats {
@@ -61,6 +78,22 @@ struct Stats {
     uint64_t uniqueAmbiguous = 0;
     uint64_t duplicatePresents = 0;
     uint64_t rowsOverwritten = 0;
+    // Stage 72 -- the image handoff pairing (see Row above).
+    uint64_t handoffs = 0;
+    uint64_t handoffsUnrooted = 0;
+    uint64_t handoffsSameGeneration = 0;
+    uint64_t generationsWithMultipleRoots = 0;
+    uint64_t sceneColourChanges = 0;
+    uint64_t backBufferClears = 0;
+    uint64_t backBufferOtherWrites = 0;
+    uint64_t presentsWithoutBinding = 0;
+    uint64_t imageGeneration = 0; // current value, a count of clears of S -- not a delta
+    uint64_t uniqueDelta[kDeltaBucketCount] = {};
+    uint64_t repeatMatched = 0;
+    uint64_t repeatMismatched = 0;
+    uint64_t repeatUnknown = 0;
+    uint64_t repeatAmbiguous = 0;
+    uint64_t repeatDelta[kDeltaBucketCount] = {};
 };
 
 // MAIN THREAD. The owning command disables this before draining the shared
@@ -77,6 +110,15 @@ void ArmVerifiedModelDraw (uint64_t scenePass, uint64_t modelGeneration, uint64_
                            uint64_t drawSequence, uint64_t sceneColorResource);
 void OnDrawCompleted ();
 void OnCameraSnapshot (uint64_t cameraSerial, uint64_t sourcePass);
+
+// CONTEXT THREAD, forwarded from PassProvenance.cpp's own already-gated
+// per-draw handlers (every draw/clear/copy/write, not only the verified one),
+// so B's actual composite draw -- a separate draw from the verified model
+// draw that renders into S -- is seen here. `rtvs`/`srvs` are the same fixed
+// per-slot arrays PassProvenance already tracks; slots holding 0 are unbound.
+void OnHostDraw (const uint64_t* rtvs, size_t rtvSlots, const uint64_t* srvs, size_t srvSlots);
+void OnClearRenderTarget (uint64_t resource);
+void OnResourceWritten (uint64_t resource);
 
 // PRESENT THREAD. `OnOverlayCameraBound` is called at the literal snapshot
 // buffer binding, not from latest camera state sampled later.

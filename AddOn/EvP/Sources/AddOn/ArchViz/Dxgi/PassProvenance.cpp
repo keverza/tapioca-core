@@ -8,6 +8,7 @@
 #include "ArchViz/Dxgi/ImageTransferTrace.hpp"
 #include "ArchViz/Dxgi/PassProvenanceFirstTransition.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
+#include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -566,6 +567,7 @@ void OnClearRenderTarget (ID3D11RenderTargetView* target)
         return;
     const uint64_t resource = ResourceBehind (target);
     imagetransfer::OnClear (resource);
+    scenecamerapairing::OnClearRenderTarget (resource);
     StampUnknown (resource);
 }
 
@@ -585,6 +587,7 @@ void OnDrawCompleted (DrawKind drawKind, uint32_t drawCount)
         return;
     imagetransfer::OnDraw (drawKind, drawCount, g_renderTargets, kRenderTargetSlots, g_shaderResources,
                            kShaderResourceSlots);
+    scenecamerapairing::OnHostDraw (g_renderTargets, kRenderTargetSlots, g_shaderResources, kShaderResourceSlots);
 
     if (g_pendingCameraPass != 0) {
         if (g_pendingCameraTarget == g_renderTargets[0]) {
@@ -691,6 +694,7 @@ void OnCopyResource (ID3D11Resource* destination, ID3D11Resource* source)
     if (!guard || !EnterContextThread ())
         return;
     imagetransfer::OnCopy (uint64_t (uintptr_t (destination)), uint64_t (uintptr_t (source)));
+    scenecamerapairing::OnResourceWritten (uint64_t (uintptr_t (destination)));
     const uint64_t destinationId = uint64_t (uintptr_t (destination));
     ResourceEntry* sourceEntry = FindResource (uint64_t (uintptr_t (source)), false);
     const ResourceState sourceState = sourceEntry == nullptr
@@ -710,6 +714,7 @@ void OnPartialResourceCopy (ID3D11Resource* destination, ID3D11Resource* source)
     if (!guard || !EnterContextThread ())
         return;
     imagetransfer::OnPartialCopy (uint64_t (uintptr_t (destination)), uint64_t (uintptr_t (source)));
+    scenecamerapairing::OnResourceWritten (uint64_t (uintptr_t (destination)));
     const uint64_t destinationId = uint64_t (uintptr_t (destination));
     ResourceEntry* destinationEntry = FindResource (destinationId, false);
     ResourceEntry* sourceEntry = FindResource (uint64_t (uintptr_t (source)), false);
@@ -735,6 +740,7 @@ void OnResourceWrite (ID3D11Resource* resource)
         return;
     const uint64_t resourceId = uint64_t (uintptr_t (resource));
     imagetransfer::OnResourceWrite (resourceId);
+    scenecamerapairing::OnResourceWritten (resourceId);
     ResourceEntry* entry = FindResource (resourceId, false);
     if (entry != nullptr && ResourceState (entry->state.load (std::memory_order_relaxed)) != ResourceState::Unknown)
         StampAmbiguous (resourceId, ReasonMask (ResourceAmbiguityReason::ResourceWrite));

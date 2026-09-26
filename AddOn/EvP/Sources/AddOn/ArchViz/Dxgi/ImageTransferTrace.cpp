@@ -404,7 +404,7 @@ void OnDraw (passprovenance::DrawKind drawKind, uint32_t drawCount, const uint64
             writesOnlyRoot = false;
         if (target == backBuffer)
             writesBackBuffer = true;
-        else if (TrackedContains (captureIndex, target))
+        else if (target != rootResource && TrackedContains (captureIndex, target))
             writesTrackedNonRoot = true;
     }
     if (rtvCount == 0)

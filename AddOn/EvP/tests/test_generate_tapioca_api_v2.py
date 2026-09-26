@@ -123,12 +123,54 @@ def test_pass_provenance_schema_exposes_ambiguity_causes():
         "overlayCameraSerial", "cameraSourcePass", "cameraSnapshotEventSerial",
         "cameraAdoptEventSerial", "ambiguityEventSerial", "cameraMetadataPass", "backBuffer", "delta",
         "relation", "imageOnBackBuffer", "cameraCoherent",
-        "presentContextOverlap",
+        "presentContextOverlap", "handoffSerial", "imageGeneration",
+        "imageRooted", "cameraImageGeneration", "metadataStale",
+        "backBufferState",
     } == set(pairing_row["required"])
+    assert pairing_row["properties"]["backBufferState"]["enum"] == [
+        "NONE", "HANDOFF", "CLEARED", "MIXED",
+    ]
     assert pairing_row["properties"]["relation"]["enum"] == [
         "MATCH", "MISMATCH", "UNKNOWN", "AMBIGUOUS",
     ]
     assert pairing_row["additionalProperties"] is False
+
+
+def test_pass_provenance_schema_exposes_handoff_pairing_and_present_profile():
+    catalog = generator.extract_catalog(REPO_ROOT)
+    command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")
+    output = command.output_scheme
+
+    handoff_fields = {
+        "handoffs", "handoffsUnrooted", "handoffsSameGeneration",
+        "generationsWithMultipleRoots", "sceneColourChanges",
+        "backBufferClears", "backBufferOtherWrites", "presentsWithoutBinding",
+        "imageGeneration", "uniqueDelta", "repeatMatched", "repeatMismatched",
+        "repeatUnknown", "repeatAmbiguous", "repeatDelta", "presentProfile",
+    }
+    assert handoff_fields <= set(output["properties"])
+    assert handoff_fields <= set(output["required"])
+    for histogram in ("uniqueDelta", "repeatDelta"):
+        assert output["properties"][histogram]["minItems"] == 7
+        assert output["properties"][histogram]["maxItems"] == 7
+
+    profile = output["properties"]["presentProfile"]
+    assert profile["additionalProperties"] is False
+    assert set(profile["required"]) == {
+        "enabled", "presents", "present1Calls", "syncInterval", "doNotSequence",
+        "restart", "doNotWait", "restrictToOutput", "useDuration", "allowTearing",
+        "otherFlags", "flagsSeen", "descQueries", "descFailures", "swapChain",
+    }
+    # A raw UINT flag word must never be range-checked as a small integer: an
+    # undocumented bit would fail the call inside Archicad.
+    assert profile["properties"]["flagsSeen"] == {"type": "string"}
+    chain = profile["properties"]["swapChain"]
+    assert chain["additionalProperties"] is False
+    assert set(chain["required"]) == {
+        "known", "swapChain", "bufferCount", "swapEffect", "bufferUsage", "flags",
+        "format", "width", "height", "sampleCount", "windowed", "desc1Known",
+        "scaling", "alphaMode",
+    }
 
 
 def test_pass_provenance_schema_exposes_image_transfer():
@@ -197,6 +239,27 @@ def test_unparseable_registered_schema_fails(tmp_path):
 
     with pytest.raises(generator.CatalogError, match="unparseable JSON"):
         generator.extract_registry_commands(native_dir)
+
+
+def test_adjacent_raw_literals_are_one_schema(tmp_path, monkeypatch):
+    # MSVC caps one string literal at 16380 bytes, so a large response schema is
+    # written as adjacent pieces; the generator must read what the compiler builds.
+    monkeypatch.setattr(generator, "EXPECTED_REGISTRY_COMMANDS", 1)
+    native_dir = tmp_path / "NativeCommands"
+    native_dir.mkdir()
+    (native_dir / "SplitCommands.cpp").write_text(
+        '{ "Split", &MakeRegisteredNativeCommand<SplitCommand>, false, '
+        'R"json({"type": "object"})json",\n'
+        '  R"json({"type": "object", "properties": {\n'
+        '    "a": {"type": "string"},\n'
+        ')json" R"json(\n'
+        '    "b": {"type": "boolean"}}})json" },\n',
+        encoding="utf-8",
+    )
+
+    (command,) = generator.extract_registry_commands(native_dir)
+    assert set(command.output_scheme["properties"]) == {"a", "b"}
+    assert command.input_scheme == {"type": "object"}
 
 
 def test_completeness_checks_reject_duplicates_and_unexpected_counts():

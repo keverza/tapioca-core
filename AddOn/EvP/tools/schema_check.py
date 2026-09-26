@@ -64,6 +64,9 @@ _REGISTRY = re.compile(
 
 _CLASS = re.compile(r'\bclass\s+(?P<cls>\w+)\s*:\s*public\s+\w*Command\b')
 _EXECUTE = re.compile(r'\bNativeCommandResult\s+ExecuteNative\s*\(')
+# Adjacent R"json(...)json" pieces are one schema: MSVC caps a single literal at
+# 16380 bytes (C2026) and concatenates adjacent ones, so large schemas are split.
+_ADJACENT_JSON_LITERALS = re.compile(r'\)json"\s*R"json\(')
 _OS_ADD = re.compile(r'\bos\.Add\s*\(\s*"(?P<key>\w+)"')
 _PROPERTY = re.compile(r'"(?P<key>\w+)"\s*:\s*\{')
 
@@ -160,6 +163,7 @@ def required_names(schema):
 
 def check_file(path, verbose, helpers):
     text = open(path, "r", encoding="utf-8", errors="replace").read()
+    text = _ADJACENT_JSON_LITERALS.sub(lambda match: "\n" * match.group(0).count("\n"), text)
     bodies = class_bodies(text)
     problems, checked, skipped = [], 0, 0
 
