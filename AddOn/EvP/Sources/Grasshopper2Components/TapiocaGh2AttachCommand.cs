@@ -1,5 +1,6 @@
 using Rhino;
 using Rhino.Commands;
+using Tapioca.Gh2Worker;
 
 namespace TapiocaGH2;
 
@@ -30,7 +31,8 @@ public sealed class TapiocaGh2AttachCommand : Command
             }
             finally { Interlocked.Exchange(ref attaching, 0); }
         });
-        RhinoApp.WriteLine("Searching for a waiting Archicad GH2 bridge in the background.");
+        RhinoApp.WriteLine($"Searching for a waiting Archicad GH2 bridge in the background " +
+            $"(Rhino command OS thread {Gh2Ping.NativeThreadId}).");
         return Result.Success;
     }
 }

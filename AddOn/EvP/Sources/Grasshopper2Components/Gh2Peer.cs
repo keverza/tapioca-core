@@ -68,6 +68,18 @@ internal static class Gh2Peer
         {
             bridge = Gh2PipeClient.Connect(selected.Name);
             string project = Gh2Ping.ConfirmStartup(bridge, selected.Generation, "Attached Rhino 9 / GH2 ready");
+            string identity = ArchicadProjectOptions.ParseIdentity(bridge.LastProjectInfoJson!);
+            // Read the choices before publishing Connected. An incomplete snapshot
+            // must never look like a valid list from the current project.
+            ArchicadProjectOptions.Set(ArchicadProjectOptions.Fetch(bridge), identity,
+                ArchicadProjectOptions.ParseStamp(bridge.LastProjectInfoJson!),
+                ArchicadProjectOptions.ParseSelectionStamp(bridge.LastProjectInfoJson!));
+            bridge.ConfigureRefresh(async () =>
+            {
+                long token = ArchicadProjectOptions.BeginCheck();
+                await ArchicadProjectOptions.RefreshAsync(bridge, token);
+            });
+            bridge.ConfigureMonitor(() => ArchicadProjectOptions.CheckForChangesAsync(bridge));
             Gh2ConnectionStatus.Set("Connected", selected.Name, project, bridge);
             report($"GH2 attached to {selected.Name}. Waiting for Archicad to detach.");
             bridge.WaitForShutdown(acknowledgeShutdown: false);
@@ -93,6 +105,7 @@ internal static class Gh2Peer
         }
         finally
         {
+            ArchicadProjectOptions.Clear();
             Gh2ConnectionStatus.Set("Disconnected", issue: issue);
             bridge?.Dispose();
         }

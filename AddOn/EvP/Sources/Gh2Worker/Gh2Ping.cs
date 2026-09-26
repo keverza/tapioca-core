@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace Tapioca.Gh2Worker;
 
@@ -6,8 +8,15 @@ namespace Tapioca.Gh2Worker;
 // outside GH2 evaluation; components never receive the bridge.
 internal static class Gh2Ping
 {
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    internal static uint NativeThreadId => GetCurrentThreadId();
+
     internal static string ConfirmStartup(Gh2PipeClient bridge, uint generation, string greeting)
     {
+        uint threadId = NativeThreadId;
+        long began = Stopwatch.GetTimestamp();
         using JsonDocument response = JsonDocument.Parse(bridge.ReadProjectInfo());
         JsonElement root = response.RootElement;
         if (root.ValueKind != JsonValueKind.Object ||
@@ -54,6 +63,8 @@ internal static class Gh2Ping
         bridge.Startup(true, $"{greeting} (generation {generation}).");
         string summary = $"Archicad {version} build {(build == 0 ? "unavailable" : build.ToString())}, project '{name}'";
         bridge.Log("GH2 Ping: " + summary + ".");
+        bridge.Log($"GH2 Ping diagnostic: peer process {Environment.ProcessId}, request OS thread {threadId}, " +
+            $"round trip {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms.");
         return summary;
     }
 

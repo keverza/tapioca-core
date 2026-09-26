@@ -12,6 +12,7 @@ internal static class Gh2Wire
     internal const int HeaderSize = 20;
     internal const int MaxPayload = 16 * 1024 * 1024;
     internal const int MaxPingResponse = 64 * 1024;
+    internal const int MaxProjectOptionsResponse = 1024 * 1024;
     internal const uint CapabilityGh2 = 1u << 1;
 
     internal enum Message : uint

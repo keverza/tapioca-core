@@ -150,6 +150,8 @@ class GhBridge {
         std::string parameters;
         std::string reply;
         bool replyReady = false;
+        uint64_t receivedTick = 0;
+        uint64_t queuedTick = 0;
     };
     void QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request, std::string envelope);
     void FlushGh2Reply (void* server, uint32_t currentGeneration);

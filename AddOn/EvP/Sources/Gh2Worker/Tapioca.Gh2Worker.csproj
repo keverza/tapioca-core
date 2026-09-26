@@ -12,6 +12,7 @@
     <!-- Exercise the actual peer selection and attach implementation in the wire check. -->
     <Compile Include="..\Grasshopper2Components\Gh2Peer.cs" Link="Checks\Gh2Peer.cs" />
     <Compile Include="..\Grasshopper2Components\Gh2ConnectionStatus.cs" Link="Checks\Gh2ConnectionStatus.cs" />
+    <Compile Include="..\Grasshopper2Components\ArchicadProjectOptions.cs" Link="Checks\ArchicadProjectOptions.cs" />
     <!-- No GH1 SDK or worker reference. Rhino/GH2 runtime DLLs come from Rhino 9. -->
     <PackageReference Include="Rhino.Inside" Version="9.0.26084.13070-beta" />
     <PackageReference Include="Grasshopper2" Version="9.0.26258.12303-beta" ExcludeAssets="runtime" />

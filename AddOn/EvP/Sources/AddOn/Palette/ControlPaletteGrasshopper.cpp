@@ -36,11 +36,13 @@
 #include "PaletteMetrics.hpp"
 #include "PaletteScroll.hpp"
 #include "ResourceIds.hpp" // the band's Iconoir button art
+#include "WorkflowAttachEngine.hpp"
 
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent viewer the preview is drawn in
 
 #include <chrono>
 #include <ctime>
+#include <optional>
 
 using namespace evp::palette;
 
@@ -706,6 +708,22 @@ bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
             return true;
         }
 
+        const std::optional<bool> engine = evp::palette::ChooseWorkflowAttachEngine ();
+        if (!engine.has_value ())
+            return true;
+
+        // Changing engines invalidates any definition/schema left from the
+        // other one. The attach path itself never loads a GH2 definition.
+        if (selectedWorkflowGh2 != *engine) {
+            pendingWorkflowPath.clear ();
+            loadedWorkflowPath.clear ();
+            lastWorkflowSchema.clear ();
+            workflow.Clear ();
+            workflowCommit = false;
+            geomsrv::SelectionSetStore::Get ().Clear ();
+            Layout ();
+        }
+        selectedWorkflowGh2 = *engine;
         GS::UniString message;
         const bool opened =
             selectedWorkflowGh2 ? attachHost.AttachLocalGh2 (message) : attachHost.AttachLocal (message);

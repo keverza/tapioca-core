@@ -29,9 +29,9 @@ constexpr ULONGLONG WriteTimeoutMs = 5000;
 // up. Generous, because it covers a cold .NET start plus RhinoCore.
 constexpr ULONGLONG ConnectTimeoutMs = 120000;
 
-// The GH2 bootstrap client refuses responses larger than 64 KiB. Bound the
-// queued copy independently of whatever the dispatcher returns.
-constexpr size_t MaxGh2ReplyBytes = 64 * 1024;
+// A project with many layers can exceed the small Ping limit. The managed
+// client enforces 64 KiB for Ping and 1 MiB for each allowlisted catalog read.
+constexpr size_t MaxGh2ReplyBytes = 1024 * 1024;
 
 // Long enough that no heartbeat has ever plausibly arrived.
 constexpr uint64_t NeverHeardFrom = 0xFFFFFFFFFFFFull;
@@ -255,12 +255,13 @@ void GhBridge::QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request,
     if (envelope.empty ())
         envelope = ErrorEnvelope ("Archicad returned an empty envelope.");
     if (envelope.size () > MaxGh2ReplyBytes)
-        envelope = ErrorEnvelope ("The GH2 Ping response exceeded 64 KiB.");
+        envelope = ErrorEnvelope ("The GH2 project read exceeded 1 MiB.");
     std::lock_guard<std::mutex> lock (gh2RequestMutex);
     if (gh2ShutdownRequested || gh2PendingRequest != request || generation.load () != request->generation ||
         request->replyReady)
         return;
     request->reply.swap (envelope);
+    request->queuedTick = (uint64_t) GetTickCount64 ();
     request->replyReady = true;
 }
 
@@ -286,15 +287,25 @@ void GhBridge::FlushGh2Reply (void* server, uint32_t currentGeneration)
     // and sets stopping before joining IO; TransferExact cancels a blocked write.
     // A write already issued may finish as Stop begins, but no old-generation
     // reply can enter a replacement pipe: Start follows this IO thread's join.
-    std::lock_guard<std::mutex> writeLock (writeMutex);
-    if (!stopping.load () && connected.load ()) {
-        const std::vector<uint8_t> body = protocol::EncodeTextPayload (envelope);
-        const std::vector<uint8_t> responseHeader =
-            protocol::EncodeHeader (protocol::MessageType::ApiResponse, 0, request->requestId, (uint32_t) body.size ());
-        if (!WriteExact ((HANDLE) server, responseHeader.data (), (DWORD) responseHeader.size (), stopping) ||
-            !WriteExact ((HANDLE) server, body.data (), (DWORD) body.size (), stopping))
-            stopping.store (true);
+    {
+        std::lock_guard<std::mutex> writeLock (writeMutex);
+        if (!stopping.load () && connected.load ()) {
+            const std::vector<uint8_t> body = protocol::EncodeTextPayload (envelope);
+            const std::vector<uint8_t> responseHeader = protocol::EncodeHeader (
+                protocol::MessageType::ApiResponse, 0, request->requestId, (uint32_t) body.size ());
+            if (!WriteExact ((HANDLE) server, responseHeader.data (), (DWORD) responseHeader.size (), stopping) ||
+                !WriteExact ((HANDLE) server, body.data (), (DWORD) body.size (), stopping))
+                stopping.store (true);
+        }
     }
+    if (!stopping.load ())
+        LogLine (currentGeneration, workerProcessId.load (),
+                         GS::UniString::Printf ("GH2 read response: bridge IO thread %u, request %u, dispatch %llu ms, "
+                                        "queued %llu ms, total %llu ms",
+                                        (unsigned int) GetCurrentThreadId (), (unsigned int) request->requestId,
+                                        (unsigned long long) (request->queuedTick - request->receivedTick),
+                                        (unsigned long long) ((uint64_t) GetTickCount64 () - request->queuedTick),
+                                        (unsigned long long) ((uint64_t) GetTickCount64 () - request->receivedTick)));
     std::lock_guard<std::mutex> requestLock (gh2RequestMutex);
     if (gh2PendingRequest == request)
         gh2PendingRequest.reset ();
@@ -639,30 +650,59 @@ void GhBridge::Run ()
                     envelope = ErrorEnvelope (FromUtf8 (protocolError));
                 }
                 else if (expectedGh2) {
-                    // GH2's only API call in this bootstrap slice is this read.
+                    // GH2 admits bounded project/selection reads and the
+                    // explicit reselect UI action, never model writes.
                     // Post (never Invoke): Stop runs on the same main thread that
                     // would service an Invoke, so IO must remain free to exit.
                     // The gate owns the lambda only until dispatch or
                     // BeginShutdown; a weak token cannot retain a stopped bridge.
                     std::shared_ptr<Gh2PendingRequest> pending;
+                    GS::UniString refusal = "command or parameters are outside the GH2 allowlist";
                     {
                         std::lock_guard<std::mutex> lock (gh2RequestMutex);
+                        if (gh2ShutdownRequested)
+                            refusal = "bridge shutdown has begun";
+                        else if (gh2PendingRequest != nullptr)
+                            refusal = "another GH2 request is still pending";
                         if (!gh2ShutdownRequested && gh2PendingRequest == nullptr &&
-                            request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") {
-                            pending = std::make_shared<Gh2PendingRequest> (
-                                Gh2PendingRequest { gen, header.requestId, request.command, request.parameters });
+                             ((request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") ||
+                              (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                              (request.command == "Tapioca.SetSelection" && request.parameters.size () <= 200000 &&
+                               request.parameters.rfind ("{\"elements\":[", 0) == 0 &&
+                               request.parameters.size () >= 13 &&
+                               request.parameters.compare (request.parameters.size () - 13, 13,
+                                                           ",\"add\":false}") == 0) ||
+                             (request.command == "Tapioca.GetStories" && request.parameters == "{}") ||
+                             (request.command == "Tapioca.ListAttributes" &&
+                              (request.parameters == "{\"kind\":\"layer\"}" ||
+                               request.parameters == "{\"kind\":\"lineType\"}")))) {
+                            pending = std::make_shared<Gh2PendingRequest> (Gh2PendingRequest {
+                                gen, header.requestId, request.command, request.parameters, {}, false,
+                                (uint64_t) GetTickCount64 () });
                             gh2PendingRequest = pending;
                         }
                     }
                     if (pending != nullptr) {
+                        LogLine (gen, hello.processId,
+                                 GS::UniString::Printf ("GH2 read request: bridge IO thread %u, request %u (%T)",
+                                                        (unsigned int) GetCurrentThreadId (),
+                                                        (unsigned int) header.requestId,
+                                                        FromUtf8 (pending->command).ToPrintf ()));
                         GS::UniString postError;
                         const std::weak_ptr<Gh2PendingRequest> weak = pending;
                         if (!MainThreadGate::Get ().Post (
                                 [weak] () {
                                     const auto job = weak.lock ();
-                                    if (job == nullptr || !GhBridge::Get ().IsGh2RequestCurrent (job))
-                                        return;
-                                    // The fixed read is dispatched inline by the
+                                     if (job == nullptr || !GhBridge::Get ().IsGh2RequestCurrent (job))
+                                         return;
+                                     LogLine (job->generation, GhBridge::Get ().WorkerProcessId (),
+                                              GS::UniString::Printf ("GH2 read dispatch: Archicad main thread %u, "
+                                                                     "request %u, gate wait %llu ms",
+                                                                     (unsigned int) GetCurrentThreadId (),
+                                                                     (unsigned int) job->requestId,
+                                                                     (unsigned long long) ((uint64_t) GetTickCount64 () -
+                                                                                           job->receivedTick)));
+                                      // The approved request is dispatched inline by the
                                     // gate's main-thread handler. No bridge state
                                     // or pipe handle is captured by this job.
                                     std::string answer;
@@ -686,7 +726,11 @@ void GhBridge::Run ()
                         }
                     }
                     else {
-                        envelope = ErrorEnvelope ("The GH2 Ping is unavailable or the worker is stopping.");
+                        // No payload here: selection GUIDs and project paths do
+                        // not belong in the transport log.
+                        LogLine (gen, hello.processId,
+                                 "GH2 request refused (" + FromUtf8 (request.command) + "): " + refusal);
+                        envelope = ErrorEnvelope ("GH2 request refused: " + refusal);
                     }
                 }
                 else {

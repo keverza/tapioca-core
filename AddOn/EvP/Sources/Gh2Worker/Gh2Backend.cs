@@ -13,6 +13,12 @@ internal sealed class Gh2Backend : IDisposable
 {
     private static readonly Guid InputTypeId = new("9efec712-4356-45d9-9777-8aecd2b3e557");
     private static readonly Guid StatusTypeId = new("c512fd81-a693-47c4-95bf-30e3fa60b411");
+    private static readonly Guid[] ProjectOptionTypeIds =
+    [
+        new("0c611705-95dc-4391-bc24-89ed73fd942f"), // layer
+        new("3cd387a2-d10a-4925-a8a4-3ec5ab5b507a"), // line type
+        new("ea30714c-a8c9-4db6-85db-70fc83835fe5")  // story
+    ];
 
     private readonly Rhino.Runtime.InProcess.RhinoCore core;
     private readonly MethodInfo installOverride;
@@ -52,6 +58,23 @@ internal sealed class Gh2Backend : IDisposable
                     $"GH2 loaded TapiocaGH2.rhp from '{type.Assembly.Location}', not '{pluginPath}'.");
             if (ObjectProxies.FindById(StatusTypeId)?.Type.Assembly != type.Assembly)
                 throw new InvalidOperationException("This TapiocaGH2.rhp does not provide Archicad Connection Status.");
+            foreach (Guid selectorId in ProjectOptionTypeIds)
+            {
+                if (ObjectProxies.FindById(selectorId)?.Type.Assembly != type.Assembly)
+                {
+                    // Harvest silently skips a component whose constructor
+                    // throws. Reconstruct it here to keep the real cause.
+                    string[] names = ["ArchicadLayerInput", "ArchicadLineTypeInput", "ArchicadStoryInput"];
+                    int at = Array.IndexOf(ProjectOptionTypeIds, selectorId);
+                    Type? selector = type.Assembly.GetType("TapiocaGH2." + names[at]);
+                    try { if (selector is not null) Activator.CreateInstance(selector); }
+                    catch (Exception error)
+                    {
+                        throw new InvalidOperationException($"GH2 could not construct selector {selectorId}.", error);
+                    }
+                    throw new InvalidOperationException($"This TapiocaGH2.rhp did not register selector {selectorId}.");
+                }
+            }
 
             installOverride = type.Assembly.GetType("TapiocaGH2.PlayerOverride")?
                 .GetMethod("Install", BindingFlags.Public | BindingFlags.Static)
