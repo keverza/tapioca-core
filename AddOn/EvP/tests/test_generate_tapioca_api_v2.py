@@ -131,6 +131,61 @@ def test_pass_provenance_schema_exposes_ambiguity_causes():
     assert pairing_row["additionalProperties"] is False
 
 
+def test_pass_provenance_schema_exposes_image_transfer():
+    catalog = generator.extract_catalog(REPO_ROOT)
+    command = next(item for item in catalog.commands if item.name == "ViewerPassProvenance")
+    output = command.output_scheme
+
+    assert "imageTransfer" in output["properties"]
+    assert "imageTransfer" in output["required"]
+    image_transfer = output["properties"]["imageTransfer"]
+    assert image_transfer["additionalProperties"] is False
+    assert set(image_transfer["required"]) == {"stats", "captures", "events"}
+
+    stats = image_transfer["properties"]["stats"]
+    assert set(stats["required"]) == {
+        "enabled", "epoch", "capturesOpened", "capturesClosed",
+        "capturesTruncated", "capturesAbortedByResize", "rootsSeen",
+        "eventsRecorded", "eventsDropped", "eventsAfterClose",
+        "unmodelledWork", "trackedOverflow", "lastBackBuffer",
+    }
+    assert stats["properties"]["capturesOpened"] == {
+        "type": "integer", "minimum": 0, "maximum": 4
+    }
+
+    capture_row = image_transfer["properties"]["captures"]["items"]
+    assert set(capture_row["required"]) == {
+        "capture", "rootPass", "rootResource", "rootEventSerial",
+        "openOrderSerial", "closeOrderSerial", "closeReason", "presentsSeen",
+        "drawsSinceRoot", "rootWrites", "unmodelledWork", "trackedCount",
+        "trackedOverflow", "eventsRecorded", "eventsDropped",
+    }
+    assert capture_row["properties"]["closeReason"]["enum"] == [
+        "OPEN", "PRESENTS", "FULL", "RESIZE",
+    ]
+    assert capture_row["additionalProperties"] is False
+
+    event_row = image_transfer["properties"]["events"]["items"]
+    assert set(event_row["required"]) == {
+        "epoch", "capture", "orderSerial", "role", "kind", "drawKind",
+        "drawCount", "drawsSinceRoot", "scenePass", "rtv0", "rtvCount",
+        "srv0", "srv1", "srv2", "srv3", "trackedSrvMask", "trackedSrvHits",
+        "source", "destination", "resource", "backBuffer", "writesBackBuffer",
+        "readsTracked", "readsRoot", "trackedResource", "trackedAdded",
+        "parentResource", "succeeded",
+    }
+    assert event_row["properties"]["role"]["enum"] == ["CONTEXT", "PRESENT"]
+    assert event_row["properties"]["kind"]["enum"] == [
+        "ROOT", "NEXT_ROOT", "DRAW", "COPY", "PARTIAL_COPY", "CLEAR",
+        "RESOURCE_WRITE", "UNMODELLED_WORK", "PRESENT_BEGIN", "PRESENT_END",
+    ]
+    assert event_row["properties"]["drawKind"]["enum"] == [
+        "INDEXED", "DIRECT", "INDEXED_INSTANCED", "INSTANCED", "AUTO",
+        "INDEXED_INSTANCED_INDIRECT", "INSTANCED_INDIRECT", "UNKNOWN",
+    ]
+    assert event_row["additionalProperties"] is False
+
+
 def test_unparseable_registered_schema_fails(tmp_path):
     native_dir = tmp_path / "NativeCommands"
     native_dir.mkdir()

@@ -4,6 +4,8 @@
 
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
+#include "ArchViz/Dxgi/ImageTransferTrace.hpp"
+
 #include <d3d11.h>
 #include <dxgi.h>
 
@@ -324,6 +326,8 @@ void OnDrawCompleted ()
         g_pendingImage.rootEventSerial = NextEvent ();
         PublishImage (g_pendingImage);
         g_imageDrawsCommitted.fetch_add (1, std::memory_order_relaxed);
+        imagetransfer::OnImageCommitted (g_pendingImage.scenePass, g_pendingImage.modelGeneration,
+                                         g_pendingImage.sceneColorResource, g_pendingImage.rootEventSerial);
     }
     g_pendingImage = ImageWitness {};
     g_pendingImageValid = false;

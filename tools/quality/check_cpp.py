@@ -262,6 +262,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # render-thread-to-main-thread copy boundary; duplicating their shape here
     # would create a second definition of the measurement contract.
     ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/SceneCameraPairing.hpp"),
+    # The image-transfer trace's events/captures share the same command and the
+    # same bounded render-thread-to-main-thread copy boundary as the two rows
+    # above; duplicating their shape here would create a second definition of
+    # the measurement contract.
+    ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/ImageTransferTrace.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1103,6 +1108,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/CameraRecognizer.cpp",
     "ArchViz/Dxgi/HostOccluders.cpp",
     "ArchViz/Dxgi/HostOverlay.cpp",
+    "ArchViz/Dxgi/ImageTransferTrace.cpp",
     "ArchViz/Dxgi/InjectionCamera.cpp",
     "ArchViz/Dxgi/InjectionDepth.cpp",
     "ArchViz/Dxgi/CameraFreshness.cpp",
@@ -1111,6 +1117,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/MarkerLadder.cpp",
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/Dxgi/PassProvenance.cpp",
+    "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",

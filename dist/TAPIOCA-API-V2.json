@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 216,
+      "nativeRegistry": 217,
       "dispatcherLocal": 19,
-      "total": 235
+      "total": 236
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -7018,6 +7018,43 @@
           "entries",
           "total",
           "logPath"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetGhConnectionInfo",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "archicadVersion": {
+            "type": "integer"
+          },
+          "archicadBuild": {
+            "type": "integer"
+          },
+          "projectName": {
+            "type": "string"
+          },
+          "projectPath": {
+            "type": "string"
+          },
+          "untitled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "archicadVersion",
+          "archicadBuild",
+          "projectName",
+          "projectPath",
+          "untitled"
         ]
       }
     },
@@ -26222,6 +26259,327 @@
                 "presentContextOverlap"
               ]
             }
+          },
+          "imageTransfer": {
+            "type": "object",
+            "properties": {
+              "stats": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "epoch": {
+                    "type": "string"
+                  },
+                  "capturesOpened": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  "capturesClosed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  "capturesTruncated": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  "capturesAbortedByResize": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4
+                  },
+                  "rootsSeen": {
+                    "type": "string"
+                  },
+                  "eventsRecorded": {
+                    "type": "string"
+                  },
+                  "eventsDropped": {
+                    "type": "string"
+                  },
+                  "eventsAfterClose": {
+                    "type": "string"
+                  },
+                  "unmodelledWork": {
+                    "type": "string"
+                  },
+                  "trackedOverflow": {
+                    "type": "string"
+                  },
+                  "lastBackBuffer": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "enabled",
+                  "epoch",
+                  "capturesOpened",
+                  "capturesClosed",
+                  "capturesTruncated",
+                  "capturesAbortedByResize",
+                  "rootsSeen",
+                  "eventsRecorded",
+                  "eventsDropped",
+                  "eventsAfterClose",
+                  "unmodelledWork",
+                  "trackedOverflow",
+                  "lastBackBuffer"
+                ]
+              },
+              "captures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "capture": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    },
+                    "rootPass": {
+                      "type": "string"
+                    },
+                    "rootResource": {
+                      "type": "string"
+                    },
+                    "rootEventSerial": {
+                      "type": "string"
+                    },
+                    "openOrderSerial": {
+                      "type": "string"
+                    },
+                    "closeOrderSerial": {
+                      "type": "string"
+                    },
+                    "closeReason": {
+                      "type": "string",
+                      "enum": [
+                        "OPEN",
+                        "PRESENTS",
+                        "FULL",
+                        "RESIZE"
+                      ]
+                    },
+                    "presentsSeen": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    },
+                    "drawsSinceRoot": {
+                      "type": "string"
+                    },
+                    "rootWrites": {
+                      "type": "string"
+                    },
+                    "unmodelledWork": {
+                      "type": "string"
+                    },
+                    "trackedCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    },
+                    "trackedOverflow": {
+                      "type": "string"
+                    },
+                    "eventsRecorded": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 96
+                    },
+                    "eventsDropped": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "capture",
+                    "rootPass",
+                    "rootResource",
+                    "rootEventSerial",
+                    "openOrderSerial",
+                    "closeOrderSerial",
+                    "closeReason",
+                    "presentsSeen",
+                    "drawsSinceRoot",
+                    "rootWrites",
+                    "unmodelledWork",
+                    "trackedCount",
+                    "trackedOverflow",
+                    "eventsRecorded",
+                    "eventsDropped"
+                  ]
+                }
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "epoch": {
+                      "type": "string"
+                    },
+                    "capture": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 3
+                    },
+                    "orderSerial": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "CONTEXT",
+                        "PRESENT"
+                      ]
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "ROOT",
+                        "NEXT_ROOT",
+                        "DRAW",
+                        "COPY",
+                        "PARTIAL_COPY",
+                        "CLEAR",
+                        "RESOURCE_WRITE",
+                        "UNMODELLED_WORK",
+                        "PRESENT_BEGIN",
+                        "PRESENT_END"
+                      ]
+                    },
+                    "drawKind": {
+                      "type": "string",
+                      "enum": [
+                        "INDEXED",
+                        "DIRECT",
+                        "INDEXED_INSTANCED",
+                        "INSTANCED",
+                        "AUTO",
+                        "INDEXED_INSTANCED_INDIRECT",
+                        "INSTANCED_INDIRECT",
+                        "UNKNOWN"
+                      ]
+                    },
+                    "drawCount": {
+                      "type": "string"
+                    },
+                    "drawsSinceRoot": {
+                      "type": "string"
+                    },
+                    "scenePass": {
+                      "type": "string"
+                    },
+                    "rtv0": {
+                      "type": "string"
+                    },
+                    "rtvCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    },
+                    "srv0": {
+                      "type": "string"
+                    },
+                    "srv1": {
+                      "type": "string"
+                    },
+                    "srv2": {
+                      "type": "string"
+                    },
+                    "srv3": {
+                      "type": "string"
+                    },
+                    "trackedSrvMask": {
+                      "type": "string"
+                    },
+                    "trackedSrvHits": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 128
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "resource": {
+                      "type": "string"
+                    },
+                    "backBuffer": {
+                      "type": "string"
+                    },
+                    "writesBackBuffer": {
+                      "type": "boolean"
+                    },
+                    "readsTracked": {
+                      "type": "boolean"
+                    },
+                    "readsRoot": {
+                      "type": "boolean"
+                    },
+                    "trackedResource": {
+                      "type": "string"
+                    },
+                    "trackedAdded": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 8
+                    },
+                    "parentResource": {
+                      "type": "string"
+                    },
+                    "succeeded": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "epoch",
+                    "capture",
+                    "orderSerial",
+                    "role",
+                    "kind",
+                    "drawKind",
+                    "drawCount",
+                    "drawsSinceRoot",
+                    "scenePass",
+                    "rtv0",
+                    "rtvCount",
+                    "srv0",
+                    "srv1",
+                    "srv2",
+                    "srv3",
+                    "trackedSrvMask",
+                    "trackedSrvHits",
+                    "source",
+                    "destination",
+                    "resource",
+                    "backBuffer",
+                    "writesBackBuffer",
+                    "readsTracked",
+                    "readsRoot",
+                    "trackedResource",
+                    "trackedAdded",
+                    "parentResource",
+                    "succeeded"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "stats",
+              "captures",
+              "events"
+            ]
           }
         },
         "additionalProperties": false,
@@ -26276,7 +26634,8 @@
           "uniqueAmbiguous",
           "duplicatePresents",
           "pairingRowsOverwritten",
-          "pairingRows"
+          "pairingRows",
+          "imageTransfer"
         ]
       }
     },

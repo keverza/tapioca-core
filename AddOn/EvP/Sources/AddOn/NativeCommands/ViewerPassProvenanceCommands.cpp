@@ -3,6 +3,7 @@
 
 #include "NativeCommands/ViewerPassProvenanceCommands.hpp"
 
+#include "ArchViz/Dxgi/ImageTransferTrace.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
 
@@ -63,6 +64,50 @@ const char* PairingRelationName (av::dxgi::scenecamerapairing::Relation relation
                                                        : "UNKNOWN";
 }
 
+const char* ImageTransferRoleName (av::dxgi::imagetransfer::Role role)
+{
+    namespace imagetransfer = av::dxgi::imagetransfer;
+    return role == imagetransfer::Role::Present ? "PRESENT" : "CONTEXT";
+}
+
+const char* ImageTransferKindName (av::dxgi::imagetransfer::Kind kind)
+{
+    namespace imagetransfer = av::dxgi::imagetransfer;
+    switch (kind) {
+        case imagetransfer::Kind::Root:
+            return "ROOT";
+        case imagetransfer::Kind::NextRoot:
+            return "NEXT_ROOT";
+        case imagetransfer::Kind::Draw:
+            return "DRAW";
+        case imagetransfer::Kind::Copy:
+            return "COPY";
+        case imagetransfer::Kind::PartialCopy:
+            return "PARTIAL_COPY";
+        case imagetransfer::Kind::Clear:
+            return "CLEAR";
+        case imagetransfer::Kind::ResourceWrite:
+            return "RESOURCE_WRITE";
+        case imagetransfer::Kind::UnmodelledWork:
+            return "UNMODELLED_WORK";
+        case imagetransfer::Kind::PresentBegin:
+            return "PRESENT_BEGIN";
+        case imagetransfer::Kind::PresentEnd:
+            return "PRESENT_END";
+        default:
+            return "ROOT";
+    }
+}
+
+const char* ImageTransferCloseReasonName (av::dxgi::imagetransfer::CloseReason reason)
+{
+    namespace imagetransfer = av::dxgi::imagetransfer;
+    return reason == imagetransfer::CloseReason::Presents ? "PRESENTS"
+           : reason == imagetransfer::CloseReason::Full   ? "FULL"
+           : reason == imagetransfer::CloseReason::Resize ? "RESIZE"
+                                                          : "OPEN";
+}
+
 class ViewerPassProvenanceCommand : public MainThreadCommand {
   public:
     GS::String GetName () const override
@@ -74,6 +119,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
     {
         namespace provenance = av::dxgi::passprovenance;
         namespace pairing = av::dxgi::scenecamerapairing;
+        namespace imagetransfer = av::dxgi::imagetransfer;
 
         bool reset = false;
         bool enabled = false;
@@ -85,21 +131,29 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         const bool restoreEnabled = reset && provenance::Enabled () && !hasEnabled;
         bool drained = true;
         if (reset || (hasEnabled && !enabled)) {
+            // Disable order: trace (innermost) -> pairing -> provenance, which
+            // is the one that actually drains.
+            imagetransfer::SetEnabled (false);
             pairing::SetEnabled (false);
             drained = provenance::SetEnabled (false);
         }
         if (reset && drained) {
             provenance::Reset ();
             pairing::Reset ();
+            imagetransfer::Reset ();
         }
         bool transitionSucceeded = drained;
         if (hasEnabled && enabled && drained) {
+            // Enable order: provenance -> pairing -> trace (innermost), each
+            // gated on the same success condition as the layer it nests inside.
             transitionSucceeded = provenance::SetEnabled (true);
             pairing::SetEnabled (transitionSucceeded);
+            imagetransfer::SetEnabled (transitionSucceeded);
         }
         else if (restoreEnabled && drained) {
             transitionSucceeded = provenance::SetEnabled (true);
             pairing::SetEnabled (transitionSucceeded);
+            imagetransfer::SetEnabled (transitionSucceeded);
         }
 
         GS::Int32 limit = (GS::Int32) provenance::kRowCapacity;
@@ -169,6 +223,103 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             entry.Add ("presentContextOverlap", row.presentContextOverlap);
             pairingOut.Push (entry);
         }
+
+        // IMAGE_TRANSFER_TRACE -- fixed bound (kMaxCaptures x kEventsPerCapture),
+        // never governed by `limit`: it is a small, hard-capped diagnostic, not a
+        // ring the caller can ask to see more or less of.
+        imagetransfer::Event imageTransferEvents[imagetransfer::kMaxCaptures * imagetransfer::kEventsPerCapture];
+        const size_t imageTransferEventCount =
+            transitionSucceeded ? imagetransfer::CopyEvents (imageTransferEvents, imagetransfer::kMaxCaptures *
+                                                                                      imagetransfer::kEventsPerCapture)
+                                : 0;
+        GS::Array<GS::ObjectState> imageTransferEventsOut;
+        for (size_t i = 0; i < imageTransferEventCount; ++i) {
+            const imagetransfer::Event& event = imageTransferEvents[i];
+            GS::ObjectState entry;
+            entry.Add ("epoch", GS::UniString (std::to_string (event.epoch).c_str (), CC_UTF8));
+            entry.Add ("capture", GS::Int32 (event.capture));
+            entry.Add ("orderSerial", GS::UniString (std::to_string (event.orderSerial).c_str (), CC_UTF8));
+            entry.Add ("role", GS::UniString (ImageTransferRoleName (event.role), CC_UTF8));
+            entry.Add ("kind", GS::UniString (ImageTransferKindName (event.kind), CC_UTF8));
+            entry.Add ("drawKind", GS::UniString (DrawKindName (event.drawKind), CC_UTF8));
+            entry.Add ("drawCount", GS::UniString (std::to_string (event.drawCount).c_str (), CC_UTF8));
+            entry.Add ("drawsSinceRoot", GS::UniString (std::to_string (event.drawsSinceRoot).c_str (), CC_UTF8));
+            entry.Add ("scenePass", GS::UniString (std::to_string (event.scenePass).c_str (), CC_UTF8));
+            entry.Add ("rtv0", GS::UniString (std::to_string (event.rtv0).c_str (), CC_UTF8));
+            entry.Add ("rtvCount", GS::Int32 (event.rtvCount));
+            entry.Add ("srv0", GS::UniString (std::to_string (event.srv0).c_str (), CC_UTF8));
+            entry.Add ("srv1", GS::UniString (std::to_string (event.srv1).c_str (), CC_UTF8));
+            entry.Add ("srv2", GS::UniString (std::to_string (event.srv2).c_str (), CC_UTF8));
+            entry.Add ("srv3", GS::UniString (std::to_string (event.srv3).c_str (), CC_UTF8));
+            entry.Add ("trackedSrvMask", GS::UniString (std::to_string (event.trackedSrvMask).c_str (), CC_UTF8));
+            entry.Add ("trackedSrvHits", GS::Int32 (event.trackedSrvHits));
+            entry.Add ("source", GS::UniString (std::to_string (event.source).c_str (), CC_UTF8));
+            entry.Add ("destination", GS::UniString (std::to_string (event.destination).c_str (), CC_UTF8));
+            entry.Add ("resource", GS::UniString (std::to_string (event.resource).c_str (), CC_UTF8));
+            entry.Add ("backBuffer", GS::UniString (std::to_string (event.backBuffer).c_str (), CC_UTF8));
+            entry.Add ("writesBackBuffer", event.writesBackBuffer);
+            entry.Add ("readsTracked", event.readsTracked);
+            entry.Add ("readsRoot", event.readsRoot);
+            entry.Add ("trackedResource", GS::UniString (std::to_string (event.trackedResource).c_str (), CC_UTF8));
+            entry.Add ("trackedAdded", GS::Int32 (event.trackedAdded));
+            entry.Add ("parentResource", GS::UniString (std::to_string (event.parentResource).c_str (), CC_UTF8));
+            entry.Add ("succeeded", event.succeeded);
+            imageTransferEventsOut.Push (entry);
+        }
+
+        imagetransfer::Capture imageTransferCaptures[imagetransfer::kMaxCaptures];
+        const size_t imageTransferCaptureCount =
+            transitionSucceeded ? imagetransfer::CopyCaptures (imageTransferCaptures, imagetransfer::kMaxCaptures) : 0;
+        GS::Array<GS::ObjectState> imageTransferCapturesOut;
+        for (size_t i = 0; i < imageTransferCaptureCount; ++i) {
+            const imagetransfer::Capture& capture = imageTransferCaptures[i];
+            GS::ObjectState entry;
+            entry.Add ("capture", GS::Int32 (capture.capture));
+            entry.Add ("rootPass", GS::UniString (std::to_string (capture.rootPass).c_str (), CC_UTF8));
+            entry.Add ("rootResource", GS::UniString (std::to_string (capture.rootResource).c_str (), CC_UTF8));
+            entry.Add ("rootEventSerial", GS::UniString (std::to_string (capture.rootEventSerial).c_str (), CC_UTF8));
+            entry.Add ("openOrderSerial", GS::UniString (std::to_string (capture.openOrderSerial).c_str (), CC_UTF8));
+            entry.Add ("closeOrderSerial", GS::UniString (std::to_string (capture.closeOrderSerial).c_str (), CC_UTF8));
+            entry.Add ("closeReason", GS::UniString (ImageTransferCloseReasonName (capture.closeReason), CC_UTF8));
+            entry.Add ("presentsSeen", GS::Int32 (capture.presentsSeen));
+            entry.Add ("drawsSinceRoot", GS::UniString (std::to_string (capture.drawsSinceRoot).c_str (), CC_UTF8));
+            entry.Add ("rootWrites", GS::UniString (std::to_string (capture.rootWrites).c_str (), CC_UTF8));
+            entry.Add ("unmodelledWork", GS::UniString (std::to_string (capture.unmodelledWork).c_str (), CC_UTF8));
+            entry.Add ("trackedCount", GS::Int32 (capture.trackedCount));
+            entry.Add ("trackedOverflow", GS::UniString (std::to_string (capture.trackedOverflow).c_str (), CC_UTF8));
+            entry.Add ("eventsRecorded", GS::Int32 (capture.eventsRecorded));
+            entry.Add ("eventsDropped", GS::UniString (std::to_string (capture.eventsDropped).c_str (), CC_UTF8));
+            imageTransferCapturesOut.Push (entry);
+        }
+
+        const imagetransfer::Stats imageTransferStats = imagetransfer::GetStats ();
+        GS::ObjectState imageTransferStatsOut;
+        imageTransferStatsOut.Add ("enabled", imageTransferStats.enabled);
+        imageTransferStatsOut.Add ("epoch",
+                                   GS::UniString (std::to_string (imageTransferStats.epoch).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add ("capturesOpened", GS::Int32 (imageTransferStats.capturesOpened));
+        imageTransferStatsOut.Add ("capturesClosed", GS::Int32 (imageTransferStats.capturesClosed));
+        imageTransferStatsOut.Add ("capturesTruncated", GS::Int32 (imageTransferStats.capturesTruncated));
+        imageTransferStatsOut.Add ("capturesAbortedByResize", GS::Int32 (imageTransferStats.capturesAbortedByResize));
+        imageTransferStatsOut.Add ("rootsSeen",
+                                   GS::UniString (std::to_string (imageTransferStats.rootsSeen).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add (
+            "eventsRecorded", GS::UniString (std::to_string (imageTransferStats.eventsRecorded).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add ("eventsDropped",
+                                   GS::UniString (std::to_string (imageTransferStats.eventsDropped).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add (
+            "eventsAfterClose", GS::UniString (std::to_string (imageTransferStats.eventsAfterClose).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add (
+            "unmodelledWork", GS::UniString (std::to_string (imageTransferStats.unmodelledWork).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add (
+            "trackedOverflow", GS::UniString (std::to_string (imageTransferStats.trackedOverflow).c_str (), CC_UTF8));
+        imageTransferStatsOut.Add (
+            "lastBackBuffer", GS::UniString (std::to_string (imageTransferStats.lastBackBuffer).c_str (), CC_UTF8));
+
+        GS::ObjectState imageTransferOut;
+        imageTransferOut.Add ("stats", imageTransferStatsOut);
+        imageTransferOut.Add ("captures", imageTransferCapturesOut);
+        imageTransferOut.Add ("events", imageTransferEventsOut);
 
         const provenance::Stats stats = provenance::GetStats ();
         const pairing::Stats pairingStats = pairing::GetStats ();
@@ -259,6 +410,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         os.Add ("pairingRowsOverwritten",
                 GS::UniString (std::to_string (pairingStats.rowsOverwritten).c_str (), CC_UTF8));
         os.Add ("pairingRows", pairingOut);
+        os.Add ("imageTransfer", imageTransferOut);
         return os;
     }
 };
@@ -394,10 +546,100 @@ const NativeCommandRegistration kViewerPassProvenanceCommandRegistrations[] = {
               "additionalProperties": false,
               "required": ["provenanceEpoch", "eventSerial", "presentSerial", "imagePass", "imageRootEventSerial", "imageSourceResource", "imageModelGeneration", "overlayCameraSerial", "cameraSourcePass", "cameraSnapshotEventSerial", "cameraAdoptEventSerial", "ambiguityEventSerial", "cameraMetadataPass", "backBuffer", "delta", "relation", "imageOnBackBuffer", "cameraCoherent", "presentContextOverlap"]
             }
+          },
+          "imageTransfer": {
+            "type": "object",
+            "properties": {
+              "stats": {
+                "type": "object",
+                "properties": {
+                  "enabled": {"type": "boolean"},
+                  "epoch": {"type": "string"},
+                  "capturesOpened": {"type": "integer", "minimum": 0, "maximum": 4},
+                  "capturesClosed": {"type": "integer", "minimum": 0, "maximum": 4},
+                  "capturesTruncated": {"type": "integer", "minimum": 0, "maximum": 4},
+                  "capturesAbortedByResize": {"type": "integer", "minimum": 0, "maximum": 4},
+                  "rootsSeen": {"type": "string"},
+                  "eventsRecorded": {"type": "string"},
+                  "eventsDropped": {"type": "string"},
+                  "eventsAfterClose": {"type": "string"},
+                  "unmodelledWork": {"type": "string"},
+                  "trackedOverflow": {"type": "string"},
+                  "lastBackBuffer": {"type": "string"}
+                },
+                "additionalProperties": false,
+                "required": ["enabled", "epoch", "capturesOpened", "capturesClosed", "capturesTruncated", "capturesAbortedByResize", "rootsSeen", "eventsRecorded", "eventsDropped", "eventsAfterClose", "unmodelledWork", "trackedOverflow", "lastBackBuffer"]
+              },
+              "captures": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "capture": {"type": "integer", "minimum": 0, "maximum": 3},
+                    "rootPass": {"type": "string"},
+                    "rootResource": {"type": "string"},
+                    "rootEventSerial": {"type": "string"},
+                    "openOrderSerial": {"type": "string"},
+                    "closeOrderSerial": {"type": "string"},
+                    "closeReason": {"type": "string", "enum": ["OPEN", "PRESENTS", "FULL", "RESIZE"]},
+                    "presentsSeen": {"type": "integer", "minimum": 0, "maximum": 8},
+                    "drawsSinceRoot": {"type": "string"},
+                    "rootWrites": {"type": "string"},
+                    "unmodelledWork": {"type": "string"},
+                    "trackedCount": {"type": "integer", "minimum": 0, "maximum": 8},
+                    "trackedOverflow": {"type": "string"},
+                    "eventsRecorded": {"type": "integer", "minimum": 0, "maximum": 96},
+                    "eventsDropped": {"type": "string"}
+                  },
+                  "additionalProperties": false,
+                  "required": ["capture", "rootPass", "rootResource", "rootEventSerial", "openOrderSerial", "closeOrderSerial", "closeReason", "presentsSeen", "drawsSinceRoot", "rootWrites", "unmodelledWork", "trackedCount", "trackedOverflow", "eventsRecorded", "eventsDropped"]
+                }
+              },
+              "events": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "epoch": {"type": "string"},
+                    "capture": {"type": "integer", "minimum": 0, "maximum": 3},
+                    "orderSerial": {"type": "string"},
+                    "role": {"type": "string", "enum": ["CONTEXT", "PRESENT"]},
+                    "kind": {"type": "string", "enum": ["ROOT", "NEXT_ROOT", "DRAW", "COPY", "PARTIAL_COPY", "CLEAR", "RESOURCE_WRITE", "UNMODELLED_WORK", "PRESENT_BEGIN", "PRESENT_END"]},
+                    "drawKind": {"type": "string", "enum": ["INDEXED", "DIRECT", "INDEXED_INSTANCED", "INSTANCED", "AUTO", "INDEXED_INSTANCED_INDIRECT", "INSTANCED_INDIRECT", "UNKNOWN"]},
+                    "drawCount": {"type": "string"},
+                    "drawsSinceRoot": {"type": "string"},
+                    "scenePass": {"type": "string"},
+                    "rtv0": {"type": "string"},
+                    "rtvCount": {"type": "integer", "minimum": 0, "maximum": 8},
+                    "srv0": {"type": "string"},
+                    "srv1": {"type": "string"},
+                    "srv2": {"type": "string"},
+                    "srv3": {"type": "string"},
+                    "trackedSrvMask": {"type": "string"},
+                    "trackedSrvHits": {"type": "integer", "minimum": 0, "maximum": 128},
+                    "source": {"type": "string"},
+                    "destination": {"type": "string"},
+                    "resource": {"type": "string"},
+                    "backBuffer": {"type": "string"},
+                    "writesBackBuffer": {"type": "boolean"},
+                    "readsTracked": {"type": "boolean"},
+                    "readsRoot": {"type": "boolean"},
+                    "trackedResource": {"type": "string"},
+                    "trackedAdded": {"type": "integer", "minimum": 0, "maximum": 8},
+                    "parentResource": {"type": "string"},
+                    "succeeded": {"type": "boolean"}
+                  },
+                  "additionalProperties": false,
+                  "required": ["epoch", "capture", "orderSerial", "role", "kind", "drawKind", "drawCount", "drawsSinceRoot", "scenePass", "rtv0", "rtvCount", "srv0", "srv1", "srv2", "srv3", "trackedSrvMask", "trackedSrvHits", "source", "destination", "resource", "backBuffer", "writesBackBuffer", "readsTracked", "readsRoot", "trackedResource", "trackedAdded", "parentResource", "succeeded"]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": ["stats", "captures", "events"]
           }
         },
         "additionalProperties": false,
-        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "pairingRows"]
+        "required": ["enabled", "hookInstalled", "contextHookInstalled", "presentHookInstalled", "srvHookEnabled", "contextThreadId", "presentThreadId", "presents", "matched", "mismatched", "unknown", "ambiguous", "backBufferFailures", "resourceTableOverflows", "renderThreadViolations", "unsupportedGpuWork", "snapshotDrainTimeouts", "contextHookRepairs", "rowsOverwritten", "nonCameraDrawTransitions", "sampledAmbiguousTransitions", "conflictingSampledPassTransitions", "partialCopyTransitions", "resourceWriteTransitions", "unsupportedGpuWorkTransitions", "secondaryCameraTargetTransitions", "firstKnownToAmbiguousDraw", "resourceAmbiguousPresents", "presentContextOverlaps", "contextSlotsPatched", "resourceResetPending", "rows", "pairingEnabled", "provenanceEpoch", "imageDrawsCommitted", "cameraSnapshots", "cameraBindings", "pairingPresents", "pairingMatched", "pairingMismatched", "pairingUnknown", "pairingAmbiguous", "uniqueImagePassesObserved", "uniqueImagePassesClassified", "uniqueMatched", "uniqueMismatched", "uniqueUnknown", "uniqueAmbiguous", "duplicatePresents", "pairingRowsOverwritten", "pairingRows", "imageTransfer"]
       })json" }
 };
 

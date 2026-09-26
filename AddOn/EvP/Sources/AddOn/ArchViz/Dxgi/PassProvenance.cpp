@@ -5,6 +5,8 @@
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 
 #include "ArchViz/Dxgi/ContextHook.hpp"
+#include "ArchViz/Dxgi/ImageTransferTrace.hpp"
+#include "ArchViz/Dxgi/PassProvenanceFirstTransition.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 
 #include <d3d11.h>
@@ -41,22 +43,6 @@ struct ResourceSnapshot {
     ResourceState state = ResourceState::Unknown;
     uint32_t ambiguityMask = 0;
 };
-struct FirstDrawPublication {
-    std::atomic<uint64_t> resetGeneration { 0 };
-    std::atomic<uint64_t> drawsSinceCamera { 0 };
-    std::atomic<uint32_t> drawKind { uint32_t (DrawKind::Unknown) };
-    std::atomic<uint32_t> drawCount { 0 };
-    std::atomic<int32_t> renderTargetSlot { -1 };
-    std::atomic<uint64_t> targetResource { 0 };
-    std::atomic<uint64_t> targetScenePass { 0 };
-    std::atomic<uint64_t> cameraPass { 0 };
-    std::atomic<uint32_t> sampledLineage { uint32_t (SampledLineage::None) };
-    std::atomic<int32_t> shaderResourceSlot { -1 };
-    std::atomic<uint64_t> sampledResource { 0 };
-    std::atomic<uint64_t> sampledScenePass { 0 };
-    std::atomic<uint32_t> sampledAmbiguityMask { 0 };
-    std::atomic<uint32_t> resultingAmbiguityMask { 0 };
-};
 std::atomic<uint64_t> g_callbackGate { 0 };
 std::atomic<uint64_t> g_resetRequested { 0 };
 std::atomic<uint64_t> g_contextResetApplied { 0 };
@@ -76,7 +62,6 @@ uint64_t g_pendingCameraTarget = 0;
 uint64_t g_pendingCameraPass = 0;
 uint64_t g_drawsSinceCamera = 0;
 bool g_firstKnownToAmbiguousDrawCaptured = false;
-FirstDrawPublication g_firstKnownToAmbiguousDraw;
 struct RowSlot {
     std::atomic<uint64_t> published { 0 };
     std::atomic<uint64_t> present { 0 };
@@ -202,7 +187,7 @@ void ClearContextState ()
     g_pendingCameraPass = 0;
     g_drawsSinceCamera = 0;
     g_firstKnownToAmbiguousDrawCaptured = false;
-    g_firstKnownToAmbiguousDraw.resetGeneration.store (0, std::memory_order_release);
+    firsttransition::Reset ();
 }
 
 void ClearPublishedLineage ()
@@ -398,59 +383,6 @@ void CountFirstAmbiguityTransitions (uint32_t ambiguityMask)
             g_firstAmbiguityTransitions[i].fetch_add (1, std::memory_order_relaxed);
     }
 }
-void PublishFirstKnownToAmbiguousDraw (const FirstKnownToAmbiguousDraw& draw)
-{
-    g_firstKnownToAmbiguousDraw.resetGeneration.store (0, std::memory_order_release);
-    g_firstKnownToAmbiguousDraw.drawsSinceCamera.store (draw.drawsSinceCamera, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.drawKind.store (uint32_t (draw.drawKind), std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.drawCount.store (draw.drawCount, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.renderTargetSlot.store (draw.renderTargetSlot, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.targetResource.store (draw.targetResource, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.targetScenePass.store (draw.targetScenePass, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.cameraPass.store (draw.cameraPass, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.sampledLineage.store (uint32_t (draw.sampledLineage), std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.shaderResourceSlot.store (draw.shaderResourceSlot, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.sampledResource.store (draw.sampledResource, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.sampledScenePass.store (draw.sampledScenePass, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.sampledAmbiguityMask.store (draw.sampledAmbiguityMask, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.resultingAmbiguityMask.store (draw.resultingAmbiguityMask, std::memory_order_relaxed);
-    g_firstKnownToAmbiguousDraw.resetGeneration.store (g_contextResetApplied.load (std::memory_order_relaxed),
-                                                       std::memory_order_release);
-}
-
-FirstKnownToAmbiguousDraw ReadFirstKnownToAmbiguousDraw ()
-{
-    FirstKnownToAmbiguousDraw draw;
-    for (int attempt = 0; attempt < 3; ++attempt) {
-        const uint64_t generation = g_firstKnownToAmbiguousDraw.resetGeneration.load (std::memory_order_acquire);
-        const uint64_t requested = g_resetRequested.load (std::memory_order_acquire);
-        if (generation == 0 || generation != requested ||
-            g_contextResetApplied.load (std::memory_order_acquire) != requested)
-            return FirstKnownToAmbiguousDraw {};
-        draw.drawsSinceCamera = g_firstKnownToAmbiguousDraw.drawsSinceCamera.load (std::memory_order_relaxed);
-        draw.drawKind = DrawKind (g_firstKnownToAmbiguousDraw.drawKind.load (std::memory_order_relaxed));
-        draw.drawCount = g_firstKnownToAmbiguousDraw.drawCount.load (std::memory_order_relaxed);
-        draw.renderTargetSlot = g_firstKnownToAmbiguousDraw.renderTargetSlot.load (std::memory_order_relaxed);
-        draw.targetResource = g_firstKnownToAmbiguousDraw.targetResource.load (std::memory_order_relaxed);
-        draw.targetScenePass = g_firstKnownToAmbiguousDraw.targetScenePass.load (std::memory_order_relaxed);
-        draw.cameraPass = g_firstKnownToAmbiguousDraw.cameraPass.load (std::memory_order_relaxed);
-        draw.sampledLineage =
-            SampledLineage (g_firstKnownToAmbiguousDraw.sampledLineage.load (std::memory_order_relaxed));
-        draw.shaderResourceSlot = g_firstKnownToAmbiguousDraw.shaderResourceSlot.load (std::memory_order_relaxed);
-        draw.sampledResource = g_firstKnownToAmbiguousDraw.sampledResource.load (std::memory_order_relaxed);
-        draw.sampledScenePass = g_firstKnownToAmbiguousDraw.sampledScenePass.load (std::memory_order_relaxed);
-        draw.sampledAmbiguityMask = g_firstKnownToAmbiguousDraw.sampledAmbiguityMask.load (std::memory_order_relaxed);
-        draw.resultingAmbiguityMask =
-            g_firstKnownToAmbiguousDraw.resultingAmbiguityMask.load (std::memory_order_relaxed);
-        if (generation == g_firstKnownToAmbiguousDraw.resetGeneration.load (std::memory_order_acquire) &&
-            requested == g_resetRequested.load (std::memory_order_acquire)) {
-            draw.valid = true;
-            return draw;
-        }
-    }
-    return FirstKnownToAmbiguousDraw {};
-}
-
 void StampAmbiguous (ResourceEntry& entry, uint64_t resource, uint32_t ambiguityMask)
 {
     const ResourceState previous = ResourceState (entry.state.load (std::memory_order_relaxed));
@@ -632,7 +564,9 @@ void OnClearRenderTarget (ID3D11RenderTargetView* target)
     CallbackGuard guard;
     if (!guard || !EnterContextThread ())
         return;
-    StampUnknown (ResourceBehind (target));
+    const uint64_t resource = ResourceBehind (target);
+    imagetransfer::OnClear (resource);
+    StampUnknown (resource);
 }
 
 void OnCameraSnapshot (uint64_t scenePassGeneration)
@@ -649,6 +583,8 @@ void OnDrawCompleted (DrawKind drawKind, uint32_t drawCount)
     CallbackGuard guard;
     if (!guard || !EnterContextThread ())
         return;
+    imagetransfer::OnDraw (drawKind, drawCount, g_renderTargets, kRenderTargetSlots, g_shaderResources,
+                           kShaderResourceSlots);
 
     if (g_pendingCameraPass != 0) {
         if (g_pendingCameraTarget == g_renderTargets[0]) {
@@ -741,7 +677,7 @@ void OnDrawCompleted (DrawKind drawKind, uint32_t drawCount)
                 first.sampledScenePass = sampledScenePass;
                 first.sampledAmbiguityMask = sampledAmbiguityMask;
                 first.resultingAmbiguityMask = drawAmbiguityMask;
-                PublishFirstKnownToAmbiguousDraw (first);
+                firsttransition::Publish (first, g_contextResetApplied);
                 g_firstKnownToAmbiguousDrawCaptured = true;
             }
             StampAmbiguous (target, drawAmbiguityMask);
@@ -754,6 +690,7 @@ void OnCopyResource (ID3D11Resource* destination, ID3D11Resource* source)
     CallbackGuard guard;
     if (!guard || !EnterContextThread ())
         return;
+    imagetransfer::OnCopy (uint64_t (uintptr_t (destination)), uint64_t (uintptr_t (source)));
     const uint64_t destinationId = uint64_t (uintptr_t (destination));
     ResourceEntry* sourceEntry = FindResource (uint64_t (uintptr_t (source)), false);
     const ResourceState sourceState = sourceEntry == nullptr
@@ -772,6 +709,7 @@ void OnPartialResourceCopy (ID3D11Resource* destination, ID3D11Resource* source)
     CallbackGuard guard;
     if (!guard || !EnterContextThread ())
         return;
+    imagetransfer::OnPartialCopy (uint64_t (uintptr_t (destination)), uint64_t (uintptr_t (source)));
     const uint64_t destinationId = uint64_t (uintptr_t (destination));
     ResourceEntry* destinationEntry = FindResource (destinationId, false);
     ResourceEntry* sourceEntry = FindResource (uint64_t (uintptr_t (source)), false);
@@ -796,6 +734,7 @@ void OnResourceWrite (ID3D11Resource* resource)
     if (!guard || !EnterContextThread ())
         return;
     const uint64_t resourceId = uint64_t (uintptr_t (resource));
+    imagetransfer::OnResourceWrite (resourceId);
     ResourceEntry* entry = FindResource (resourceId, false);
     if (entry != nullptr && ResourceState (entry->state.load (std::memory_order_relaxed)) != ResourceState::Unknown)
         StampAmbiguous (resourceId, ReasonMask (ResourceAmbiguityReason::ResourceWrite));
@@ -806,6 +745,7 @@ void OnUnsupportedGpuWork ()
     CallbackGuard guard;
     if (!guard || !EnterContextThread ())
         return;
+    imagetransfer::OnUnmodelledWork ();
     for (ResourceEntry& entry : g_resources) {
         if (ResourceState (entry.state.load (std::memory_order_relaxed)) != ResourceState::Known)
             continue;
@@ -977,7 +917,7 @@ Stats GetStats ()
     stats.snapshotDrainTimeouts = g_snapshotDrainTimeouts.load (std::memory_order_relaxed);
     for (size_t i = 0; i < kResourceAmbiguityReasonCount; ++i)
         stats.firstAmbiguityTransitions[i] = g_firstAmbiguityTransitions[i].load (std::memory_order_relaxed);
-    stats.firstKnownToAmbiguousDraw = ReadFirstKnownToAmbiguousDraw ();
+    stats.firstKnownToAmbiguousDraw = firsttransition::Read (g_resetRequested, g_contextResetApplied);
     stats.resourceAmbiguousPresents = g_resourceAmbiguousPresents.load (std::memory_order_relaxed);
     stats.presentContextOverlaps = g_presentContextOverlaps.load (std::memory_order_relaxed);
     const ContextHookStats contextStats = GetContextHookStats ();
