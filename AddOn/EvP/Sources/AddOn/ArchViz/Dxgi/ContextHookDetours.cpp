@@ -117,10 +117,10 @@ extern const size_t kVtableSlots = 124;
 // pointers and then spins until this reads zero.
 std::atomic<int32_t> g_inFlight { 0 };
 
-// Every detour's last act. With the after-call repair armed (Stage 76) the table
-// is re-checked here, on the calling thread, straight after the runtime ran --
-// and before the drain counter lets a teardown proceed, so a teardown that has
-// cleared `installed` finds the repair already declining.
+// Every detour's last act. The table is re-checked here, on the calling thread,
+// straight after the runtime ran (on by default since Stage 77; a diagnostic
+// window may force it off) -- and before the drain counter lets a teardown
+// proceed, so a teardown that has cleared `installed` finds the repair declining.
 inline void LeaveDetour ()
 {
     RepairAfterDetour ();

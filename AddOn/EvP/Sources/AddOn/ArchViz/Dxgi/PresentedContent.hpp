@@ -103,7 +103,7 @@ struct Stats {
     uint64_t bookkeepingDisagrees = 0; // the pairing's delta was 0 and the pixels say otherwise
     uint32_t framesReady = 0;
     CoverageStats coverage[kRelations];
-    uint64_t presentsWithRepairAfterCalls = 0; // Presents at which the after-call repair was armed
+    uint64_t presentsWithRepairAfterCalls = 0; // Presents at which the after-call repair was on
     uint64_t slotRepairs[kHookSlots] = {};     // re-points put back during the window, per hooked slot
 };
 
@@ -124,10 +124,11 @@ struct FrameInfo {
 
 // MAIN THREAD. Disabled before the shared PassProvenance drain; Reset after it.
 // Enabling allocates the frame memory, so the Present path never allocates.
-// ⚠️ `repairAfterCalls` ARMS THE CONTEXT HOOK'S AFTER-CALL REPAIR FOR THIS WINDOW
-// ONLY (Stage 76's A/B). Its lifetime is the window's: disabling always disarms
-// it, so production can never inherit it from a diagnostic (OVERLAY-INVARIANTS §9).
-void SetEnabled (bool enabled, bool repairAfterCalls = false);
+// ⚠️ `repairAfterCallsForced` FORCES THE CONTEXT HOOK'S AFTER-CALL REPAIR FOR THIS
+// WINDOW ONLY (the A/B): 0 off, 1 on, -1 leaves the default (on since Stage 77).
+// Its lifetime is the window's: disabling always restores the default, so
+// production can never inherit a diagnostic's setting (OVERLAY-INVARIANTS §9).
+void SetEnabled (bool enabled, int repairAfterCallsForced = -1);
 bool Enabled ();
 void Reset ();
 

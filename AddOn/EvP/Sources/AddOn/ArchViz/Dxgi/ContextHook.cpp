@@ -69,7 +69,9 @@ std::atomic<uint64_t> g_repairs { 0 };
 // after-call path made. Both restart with the hook, like `g_repairs`.
 std::atomic<uint64_t> g_slotRepairs[size_t (ContextSlot::Count)];
 std::atomic<uint64_t> g_afterCallRepairs { 0 };
-std::atomic<bool> g_repairAfterCalls { false };
+// Stage 77: the after-call repair is ON unless a diagnostic window forces it
+// off. See `SetRepairAfterCallsForced`.
+std::atomic<bool> g_repairAfterCalls { true };
 
 // ⚠️ HOW MANY THREADS ARE INSIDE `RepairContextHook` RIGHT NOW, and it exists for
 // exactly one interleaving, which would be silent and fatal. Teardown restores
@@ -81,6 +83,13 @@ std::atomic<bool> g_repairAfterCalls { false };
 // would go on running and quietly stop drawing. Nothing would log, and the
 // vtable would stay patched for the life of the process.
 std::atomic<int32_t> g_repairing { 0 };
+
+// ⚠️ ONE REPAIRER AT A TIME (Stage 77). The Present thread and every thread
+// leaving a detour now repair; two interleaved would each store an original the
+// other had already replaced. A repair that finds another in progress leaves --
+// that one is putting the same slots back. `g_repairing` stays the teardown's
+// count; this is only the turnstile between repairers.
+std::atomic<bool> g_repairBusy { false };
 
 std::atomic<uint32_t> g_proof { uint32_t (Proof::None) };
 
@@ -455,6 +464,9 @@ bool InstallContextHook (std::string& error)
     g_afterCallRepairs.store (0, std::memory_order_relaxed);
     for (std::atomic<uint64_t>& count : g_slotRepairs)
         count.store (0, std::memory_order_relaxed);
+    // Section 8: a diagnostic window that was cut short must not force the
+    // repair policy of the next session.
+    SetRepairAfterCallsForced (-1);
     for (std::atomic<uint64_t>& count : g_perSlot)
         count.store (0, std::memory_order_relaxed);
     eventring::Reset ();
@@ -490,7 +502,7 @@ bool InstallContextHook (std::string& error)
     ArchVizLog ("context hook: installed on Archicad's own context vtable, " +
                 std::to_string (size_t (ContextSlot::Count)) + " slots; proof = " + ProofName (proof) +
                 " (DISCOVERY ONLY -- it records what Archicad tells the GPU and draws "
-                "nothing)");
+                "nothing); repaired at every Present and after every hooked call");
     return true;
 }
 
@@ -540,6 +552,7 @@ void RemoveContextHook ()
     for (std::atomic<void*>& original : g_original)
         original.store (nullptr, std::memory_order_relaxed);
     g_vtable = nullptr;
+    SetRepairAfterCallsForced (-1);
     g_pinned.store (false, std::memory_order_release);
     g_proof.store (uint32_t (Proof::None), std::memory_order_release);
     ArchVizLog ("context hook: removed");
@@ -573,6 +586,11 @@ uint32_t RepairContextHook ()
         g_repairing.fetch_sub (1, std::memory_order_release);
         return 0;
     }
+    bool idle = false;
+    if (!g_repairBusy.compare_exchange_strong (idle, true, std::memory_order_acquire)) {
+        g_repairing.fetch_sub (1, std::memory_order_release);
+        return 0;
+    }
 
     // ⚠️ NOT `WithWritableVtable`, AND THE REASON IS THE THREAD. That helper
     // formats a `std::string` when VirtualProtect fails, and this function runs
@@ -584,12 +602,15 @@ uint32_t RepairContextHook ()
     DWORD previousProtection = 0;
     const SIZE_T bytes = kVtableSlots * sizeof (void*);
     if (!VirtualProtect (g_vtable, bytes, PAGE_READWRITE, &previousProtection)) {
+        g_repairBusy.store (false, std::memory_order_release);
         g_repairing.fetch_sub (1, std::memory_order_release);
         return 0;
     }
 
+    uint32_t repaired = 0;
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
-        void* const current = g_vtable[kSlotIndex[i]];
+        void* volatile* const entry = reinterpret_cast<void* volatile*> (&g_vtable[kSlotIndex[i]]);
+        void* const current = *entry;
         if (current == kDetour[i])
             continue;
         // ⚠️ THE CURRENT VALUE BECOMES THE ORIGINAL, AND IT IS STORED BEFORE THE
@@ -599,16 +620,26 @@ uint32_t RepairContextHook ()
         // instructions, which is a call into an implementation the runtime has
         // moved on from.
         g_original[i].store (current, std::memory_order_relaxed);
-        g_vtable[kSlotIndex[i]] = kDetour[i];
+        // ⚠️ COMPARE-AND-SWAP, NOT A STORE (Stage 77). The runtime rewrites this
+        // table on its own thread while this repair may run on another, so a plain
+        // store could put our detour over a pointer the runtime wrote a moment
+        // after `current` was read -- and forward to the one it had just replaced.
+        // A slot that moved keeps the runtime's pointer; the next hooked call
+        // repairs it with the right original. Our detour is not in it meanwhile,
+        // so nothing reads the original stored above.
+        if (InterlockedCompareExchangePointer (entry, kDetour[i], current) != current)
+            continue;
+        ++repaired;
         g_slotRepairs[i].fetch_add (1, std::memory_order_relaxed);
     }
 
     DWORD ignored = 0;
     VirtualProtect (g_vtable, bytes, previousProtection, &ignored);
 
-    g_repairs.fetch_add (wrong, std::memory_order_relaxed);
+    g_repairs.fetch_add (repaired, std::memory_order_relaxed);
+    g_repairBusy.store (false, std::memory_order_release);
     g_repairing.fetch_sub (1, std::memory_order_release);
-    return wrong;
+    return repaired;
 }
 
 uint64_t HookedArchicadCalls ()
@@ -634,15 +665,21 @@ uint64_t ContextHookRepairs ()
     return g_repairs.load (std::memory_order_relaxed);
 }
 
+uint64_t ContextHookAfterCallRepairs ()
+{
+    return g_afterCallRepairs.load (std::memory_order_relaxed);
+}
+
 uint64_t ContextSlotRepairs (ContextSlot slot)
 {
     return size_t (slot) < size_t (ContextSlot::Count) ? g_slotRepairs[size_t (slot)].load (std::memory_order_relaxed)
                                                        : 0;
 }
 
-void SetRepairAfterCalls (bool armed)
+void SetRepairAfterCallsForced (int forced)
 {
-    g_repairAfterCalls.store (armed, std::memory_order_release);
+    // -1 is the default, and the default is on; only an explicit 0 turns it off.
+    g_repairAfterCalls.store (forced != 0, std::memory_order_release);
 }
 
 bool RepairAfterCalls ()

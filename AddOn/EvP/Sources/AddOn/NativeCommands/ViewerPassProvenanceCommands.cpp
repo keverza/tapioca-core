@@ -145,10 +145,14 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
             params.Get ("reset", reset);
         if (hasEnabled)
             params.Get ("enabled", enabled);
-        // Stage 76's A/B: arm the context hook's after-call repair for this window only.
-        bool repairAfterCalls = false;
-        if (params.Contains ("repairAfterCalls"))
-            params.Get ("repairAfterCalls", repairAfterCalls);
+        // The A/B: force the context hook's after-call repair for this window only
+        // (false = the once-per-Present repair alone). Absent, the default (on) holds.
+        int repairAfterCalls = -1;
+        if (params.Contains ("repairAfterCalls")) {
+            bool forced = false;
+            params.Get ("repairAfterCalls", forced);
+            repairAfterCalls = forced ? 1 : 0;
+        }
         const bool restoreEnabled = reset && provenance::Enabled () && !hasEnabled;
         bool drained = true;
         if (reset || (hasEnabled && !enabled)) {

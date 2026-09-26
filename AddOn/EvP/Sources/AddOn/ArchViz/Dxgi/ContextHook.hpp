@@ -250,28 +250,40 @@ void RemoveContextHook ();
 // silently papered over.
 uint32_t RepairContextHook ();
 
-// ⚠️ REPAIR AFTER EVERY HOOKED CALL (Stage 76), ARMED ONLY BY A DIAGNOSTIC.
+// ⚠️ REPAIR AFTER EVERY HOOKED CALL -- ON WHENEVER THE HOOK IS INSTALLED (Stage 77).
 // Stage 75 read the back buffer's pixels at every Present: Archicad put a new
 // image into it at ~95% of Presents while the hooks saw a scene pass at one
-// Present in six. The repair above runs once per Present and the runtime
-// re-points ~16 of the 28 slots within each frame, so most of every frame went
-// unobserved and the overlay's camera advanced only on the frames that were
-// seen -- the trail. Armed, every detour re-checks the table on the calling
-// thread as it leaves, straight after the runtime ran, and restores whatever the
-// runtime re-pointed, taking the new pointer as the original exactly as the
-// Present repair does. Off, `RepairAfterDetour` is one relaxed load.
-void SetRepairAfterCalls (bool armed);
+// Present in six. The repair above runs once per Present, on the Present thread,
+// which is not the thread Archicad draws on, and the runtime re-points ~16 of the
+// 28 slots within each frame -- so most of every frame went unobserved and the
+// overlay's camera advanced only on the frames that were seen: the trail. The
+// first session on the Stage 76 build then never saw the camera's projection bind
+// at all (5 of 5 activations read only the screen map, `projectionDivides 0/n`)
+// and the camera could not lock. So every detour re-checks the table on the
+// calling thread as it leaves, straight after the runtime ran, and restores
+// whatever the runtime re-pointed, taking the new pointer as the original exactly
+// as the Present repair does. The Present repair stays (section 11).
+//
+// A diagnostic may force it for ONE measurement window: -1 restores the default
+// (on), 0 forces the once-per-Present repair alone, 1 forces it on. Install and
+// removal both restore the default, so no window can outlive its session.
+void SetRepairAfterCallsForced (int forced);
 bool RepairAfterCalls ();
-// ANY THREAD, from the detours' common exit.
+// ANY THREAD, from the detours' common exit. Off: one relaxed load. On and
+// intact: 28 pointer compares, no atomics written, no VirtualProtect.
 void RepairAfterDetour ();
 
 // ANY THREAD, relaxed loads, cumulative since install: hooked calls from
 // Archicad's context, the draw calls among them, slots put back by either
-// repair, and per slot. PresentedContent takes their difference per Present to
-// measure how much of each frame the hooks actually saw.
+// repair, of those the ones the after-call path put back, and per slot.
+// PresentedContent takes their difference per Present to measure how much of
+// each frame the hooks actually saw; the overlay's report prints them as deltas.
+// None of them repairs anything -- `GetContextHookStats` does, which is why the
+// report must not call it.
 uint64_t HookedArchicadCalls ();
 uint64_t HookedArchicadDraws ();
 uint64_t ContextHookRepairs ();
+uint64_t ContextHookAfterCallRepairs ();
 uint64_t ContextSlotRepairs (ContextSlot slot);
 
 bool ContextHookInstalled ();

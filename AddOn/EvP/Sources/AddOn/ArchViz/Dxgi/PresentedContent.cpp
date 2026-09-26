@@ -553,7 +553,7 @@ std::wstring FramesDirectory ()
 
 } // namespace
 
-void SetEnabled (bool enabled, bool repairAfterCalls)
+void SetEnabled (bool enabled, int repairAfterCallsForced)
 {
     // ⚠️ ONLY ON THE DISABLED -> ENABLED EDGE. Enabling an enabled window would
     // reallocate memory a Present may be copying into at this moment.
@@ -572,8 +572,8 @@ void SetEnabled (bool enabled, bool repairAfterCalls)
         for (size_t i = 0; i < kHookSlots; ++i)
             g_slotRepairBaseline[i] = ContextSlotRepairs (ContextSlot (i));
     }
-    // Armed only while this window is open; disabling always disarms.
-    SetRepairAfterCalls (enabled && repairAfterCalls);
+    // Forced only while this window is open; disabling always restores the default.
+    SetRepairAfterCallsForced (enabled ? repairAfterCallsForced : -1);
     g_enabled.store (enabled, std::memory_order_release);
 }
 

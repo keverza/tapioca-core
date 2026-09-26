@@ -8,6 +8,7 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
@@ -62,6 +63,78 @@ std::string g_lastChains;
 std::string g_lastScenePass;
 std::string g_lastSignature;
 std::string g_lastVariants;
+
+// The context hook's counters at the last HOOKS line. See `Hooks`.
+struct HookMark {
+    uint64_t calls = 0;
+    uint64_t repairs = 0;
+    uint64_t afterCall = 0;
+    uint64_t slot[size_t (dxgi::ContextSlot::Count)] = {};
+};
+HookMark g_hookMark;
+uint32_t g_hookTicks = 0;
+
+// ⚠️ WHETHER THE HOOKS STAY UP WITHIN THE FRAME (Stage 77), AS DELTAS. The runtime
+// re-points our slots continuously; this says how many were put back by the
+// Present repair and how many after a hooked call, how many of Archicad's calls
+// the hooks saw, and which slots the runtime takes back most. Every twentieth
+// tick (~5 s) while anything moved: a rate, not a transition, so rarely. It reads
+// counters only -- `GetContextHookStats` repairs as it reads, and a report that
+// repaired would change what it reports.
+void Hooks ()
+{
+    if (++g_hookTicks < 20)
+        return;
+    g_hookTicks = 0;
+    // After-call share first: a repair landing between the two reads then shows in
+    // the total and not yet in the share, never the other way round.
+    const uint64_t afterCall = dxgi::ContextHookAfterCallRepairs ();
+    const uint64_t repairs = dxgi::ContextHookRepairs ();
+    const uint64_t calls = dxgi::HookedArchicadCalls ();
+    // A reinstalled hook restarts its counters; a mark from before it would read
+    // as an enormous delta.
+    if (calls < g_hookMark.calls || repairs < g_hookMark.repairs || afterCall < g_hookMark.afterCall)
+        g_hookMark = HookMark {};
+    const uint64_t newCalls = calls - g_hookMark.calls;
+    const uint64_t newRepairs = repairs - g_hookMark.repairs;
+    const uint64_t newAfterCall = afterCall - g_hookMark.afterCall;
+
+    size_t top[3] = {};
+    uint64_t topCount[3] = {};
+    for (size_t i = 0; i < size_t (dxgi::ContextSlot::Count); ++i) {
+        const uint64_t now = dxgi::ContextSlotRepairs (dxgi::ContextSlot (i));
+        const uint64_t moved = now >= g_hookMark.slot[i] ? now - g_hookMark.slot[i] : now;
+        g_hookMark.slot[i] = now;
+        for (size_t k = 0; k < 3; ++k) {
+            if (moved <= topCount[k])
+                continue;
+            for (size_t m = 2; m > k; --m) {
+                topCount[m] = topCount[m - 1];
+                top[m] = top[m - 1];
+            }
+            topCount[k] = moved;
+            top[k] = i;
+            break;
+        }
+    }
+    g_hookMark.calls = calls;
+    g_hookMark.repairs = repairs;
+    g_hookMark.afterCall = afterCall;
+    if (newCalls == 0 && newRepairs == 0)
+        return;
+
+    char line[400] = {};
+    _snprintf_s (line, sizeof (line), _TRUNCATE,
+                 "after-call repair %s | ~5 s: Archicad calls seen +%llu, slots put back +%llu by the Present repair, "
+                 "+%llu after calls | re-pointed most: %s %llu, %s %llu, %s %llu",
+                 dxgi::RepairAfterCalls () ? "ON" : "OFF", (unsigned long long) newCalls,
+                 (unsigned long long) (newRepairs > newAfterCall ? newRepairs - newAfterCall : 0),
+                 (unsigned long long) newAfterCall, dxgi::ContextSlotName (dxgi::ContextSlot (top[0])),
+                 (unsigned long long) topCount[0], dxgi::ContextSlotName (dxgi::ContextSlot (top[1])),
+                 (unsigned long long) topCount[1], dxgi::ContextSlotName (dxgi::ContextSlot (top[2])),
+                 (unsigned long long) topCount[2]);
+    Say ("HOOKS", line);
+}
 
 } // namespace
 
@@ -412,6 +485,7 @@ void Sync ()
     Composite ();
     Matrices ();
     EpochGate ();
+    Hooks ();
     const dxgi::injection::freshness::Report cam = dxgi::injection::freshness::Snapshot ();
     // ⚠️ THE PIN, BECAUSE IT IS WHAT GATES THE BYTES.
     // `CopyCameraWindows` runs only for a draw that passed `MatchesSelection`,
@@ -609,6 +683,8 @@ void Reset ()
     g_lastLive.clear ();
     g_liveTicks = 0;
     g_lastChain.clear ();
+    g_hookMark = HookMark {};
+    g_hookTicks = 0;
 }
 
 } // namespace report
