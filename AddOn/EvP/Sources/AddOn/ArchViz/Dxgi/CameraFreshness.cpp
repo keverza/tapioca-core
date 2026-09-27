@@ -339,7 +339,6 @@ Report Snapshot ()
 }
 
 // The matrix ledger. See CameraFreshness.hpp.
-const size_t kMatrixLedgerCapacity = 24;
 GroupMatrices g_ledger[kMatrixLedgerCapacity];
 size_t g_ledgerUsed = 0;
 
@@ -483,8 +482,30 @@ EpochGateReport GetEpochGate ()
     return report;
 }
 
-void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint64_t generation, const float view[16],
-                        const float projection[16])
+namespace {
+
+void AppendMatrices (uint32_t groupId, uint32_t occurrence, uint32_t indexCount, uint64_t generation, bool refused,
+                     const float view[16], const float projection[16])
+{
+    if (g_ledgerUsed >= kMatrixLedgerCapacity)
+        return;
+    GroupMatrices& entry = g_ledger[g_ledgerUsed];
+    entry.groupId = groupId;
+    entry.occurrence = occurrence;
+    entry.indexCount = indexCount;
+    entry.refused = refused;
+    entry.generation = generation;
+    for (size_t i = 0; i < 16; ++i) {
+        entry.view[i] = view[i];
+        entry.projection[i] = projection[i];
+    }
+    ++g_ledgerUsed;
+}
+
+} // namespace
+
+void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint32_t indexCount, uint64_t generation,
+                        const float view[16], const float projection[16])
 {
     // ⚠️ KEYED ON THE GROUP *AND* THE KIND OF
     // PROJECTION, NOT ON THE ID ALONE. Group ids are run-local and RECYCLED when
@@ -496,20 +517,21 @@ void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint64_t generati
     // map when the divide counters say it was not.
     const bool divides = std::fabs (projection[11]) > 0.5f;
     for (size_t i = 0; i < g_ledgerUsed; ++i) {
-        if (g_ledger[i].groupId == groupId && (std::fabs (g_ledger[i].projection[11]) > 0.5f) == divides)
+        if (!g_ledger[i].refused && g_ledger[i].groupId == groupId &&
+            (std::fabs (g_ledger[i].projection[11]) > 0.5f) == divides)
             return; // the first decode OF THIS KIND, so a set can be read as one
     }
-    if (g_ledgerUsed >= kMatrixLedgerCapacity)
-        return;
-    GroupMatrices& entry = g_ledger[g_ledgerUsed];
-    entry.groupId = groupId;
-    entry.occurrence = occurrence;
-    entry.generation = generation;
-    for (size_t i = 0; i < 16; ++i) {
-        entry.view[i] = view[i];
-        entry.projection[i] = projection[i];
-    }
-    ++g_ledgerUsed;
+    AppendMatrices (groupId, occurrence, indexCount, generation, false, view, projection);
+}
+
+void NoteRefusedMatrices (uint32_t groupId, uint32_t occurrence, uint32_t indexCount, uint64_t generation,
+                          const float view[16], const float projection[16])
+{
+    uint32_t held = 0;
+    for (size_t i = 0; i < g_ledgerUsed; ++i)
+        held += g_ledger[i].refused && g_ledger[i].groupId == groupId ? 1u : 0u;
+    if (held < kRefusedPerGroup)
+        AppendMatrices (groupId, occurrence, indexCount, generation, true, view, projection);
 }
 
 size_t GetGroupMatrices (GroupMatrices* out, size_t capacity)

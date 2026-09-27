@@ -50,6 +50,7 @@ struct Slot {
     ID3D11Buffer* stagingProjection = nullptr;
     bool copyPending = false;
     uint32_t pendingIndexCount = 0; // of the draw the pending copy came from
+    uint64_t pendingGeneration = 0; // and the model frame it was taken in
 
     double spreadSum = 0.0;
     uint32_t spreadCount = 0;
@@ -384,8 +385,8 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     // VALUES RATHER THAN AS A BINDING. The ledger keeps the first decode of each
     // group so two can be compared as VALUES; the signature is the selected
     // group's alone. No second readback, nothing mapped at Present.
-    injection::freshness::NoteGroupMatrices (slot.group.groupId, slot.group.occurrenceIndex,
-                                             renderstate::ModelSceneGeneration (), view, projection);
+    injection::freshness::NoteGroupMatrices (slot.group.groupId, slot.group.occurrenceIndex, slot.pendingIndexCount,
+                                             slot.pendingGeneration, view, projection);
 
     // ⚠️ THE SAME SCORER THE ORACLE USES, on the pair DECODED for Archicad's layout --
     // and only for this group's own camera draw (`camerachoice::CountsForGroup`).
@@ -399,6 +400,9 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     }
     if (camera)
         slot.group.cameraIndexCount = slot.pendingIndexCount;
+    else // the camera draw itself, not a camera: the ledger keeps what it held
+        injection::freshness::NoteRefusedMatrices (slot.group.groupId, slot.group.occurrenceIndex,
+                                                   slot.pendingIndexCount, slot.pendingGeneration, view, projection);
     slot.group.projectionSamples += 1;
     slot.group.projectionDivideSamples += camera ? 1 : 0;
     slot.group.combinedSamples += layout == cameralayout::Layout::Combined ? 1 : 0;
@@ -888,6 +892,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
                                     reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
     found->copyPending = true;
     found->pendingIndexCount = indexCount;
+    found->pendingGeneration = modelGeneration;
     ++g_stats.copiesIssued;
 }
 

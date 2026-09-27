@@ -535,6 +535,7 @@ void STDMETHODCALLTYPE DetourClearDepthStencilView (ID3D11DeviceContext* context
 // observe what the draw left behind, and are no-ops unless armed.
 void PostDraw (ID3D11DeviceContext* context, uint32_t kind, UINT count, bool archicad)
 {
+    drawrecorder::OnDrawCompleted (context); // first: nothing else of ours between the draw and it
     if (archicad) {
         scenecamerapairing::OnDrawCompleted ();
         passprovenance::OnDrawCompleted (passprovenance::DrawKind (kind), uint32_t (count));
@@ -718,6 +719,7 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
     const DrawAutoFn original = OriginalOf<DrawAutoFn> (ContextSlot::DrawAuto);
     if (original != nullptr)
         original (context);
+    drawrecorder::OnDrawCompleted (context);
     if (archicad)
         passprovenance::OnDrawCompleted (passprovenance::DrawKind::Auto, 0);
     provenanceOperation.Finish ();
@@ -743,6 +745,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
     const DrawIndirectFn original = OriginalOf<DrawIndirectFn> (ContextSlot::DrawIndexedInstancedIndirect);
     if (original != nullptr)
         original (context, args, offset);
+    drawrecorder::OnDrawCompleted (context);
     if (archicad)
         passprovenance::OnDrawCompleted (passprovenance::DrawKind::IndexedInstancedIndirect, 0);
     provenanceOperation.Finish ();
@@ -767,6 +770,7 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
     const DrawIndirectFn original = OriginalOf<DrawIndirectFn> (ContextSlot::DrawInstancedIndirect);
     if (original != nullptr)
         original (context, args, offset);
+    drawrecorder::OnDrawCompleted (context);
     if (archicad)
         passprovenance::OnDrawCompleted (passprovenance::DrawKind::InstancedIndirect, 0);
     provenanceOperation.Finish ();

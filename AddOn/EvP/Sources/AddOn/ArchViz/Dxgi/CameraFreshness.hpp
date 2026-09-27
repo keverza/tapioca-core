@@ -236,17 +236,35 @@ void NoteAuthoritativeSnapshot ();
 // matrices read in different model frames are not comparable -- the camera
 // moved between them. Only rows sharing a generation answer the question.
 
+//
+// ⚠️ AND THE READBACKS THE CENSUS REFUSED ARE KEPT TOO (2026-09-27). With the
+// editing plane hidden and the camera orbiting, the model's 1512-index draw
+// decoded as a camera in 7 of 1802 readbacks, and "screen map" in the Occurrence
+// table only ever meant "not a camera". A refused entry is a readback of a
+// group's OWN camera draw (same index count) that did not decode: what it holds
+// is the question. The first `kRefusedPerGroup` of each group are kept.
+
+constexpr size_t kMatrixLedgerCapacity = 48;
+constexpr uint32_t kRefusedPerGroup = 3;
+
 struct GroupMatrices {
     uint32_t groupId = 0;
     uint32_t occurrence = 0;
-    uint64_t generation = 0;
+    uint32_t indexCount = 0; // the draw the copy was taken at
+    bool refused = false;    // a readback of the group's camera draw that did not decode
+    uint64_t generation = 0; // the model frame the copy was taken in
     float view[16] = {};
     float projection[16] = {};
 };
 
 // RENDER THREAD, from the census readback. Keeps the FIRST decode per group.
-void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint64_t generation, const float view[16],
-                        const float projection[16]);
+void NoteGroupMatrices (uint32_t groupId, uint32_t occurrence, uint32_t indexCount, uint64_t generation,
+                        const float view[16], const float projection[16]);
+
+// RENDER THREAD, from the census readback: one that came from the group's camera
+// draw and did not decode as a camera. Keeps the first `kRefusedPerGroup`.
+void NoteRefusedMatrices (uint32_t groupId, uint32_t occurrence, uint32_t indexCount, uint64_t generation,
+                          const float view[16], const float projection[16]);
 
 // MAIN THREAD. Copies out up to `capacity` entries; returns how many.
 size_t GetGroupMatrices (GroupMatrices* out, size_t capacity);

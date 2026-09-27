@@ -5,10 +5,16 @@
 // camera lock, a learned pass or a census group.
 //
 //   {frames: n}     arm: record every draw of the next n Presents (1..8)
+//   {frames: n, afterModelFrames: m}
+//                   ... starting once Archicad has redrawn the model m times:
+//                   a moving camera, since a still one is not redrawn
 //   {disarm: true}  stop and discard
 //   {redraw: true}  also ask Archicad to redraw the 3D window, so a still
 //                   camera still produces the frames a capture needs
 //   {}              report; the records come back once the capture is done
+//
+// Each window comes back twice: `m`, copied before the draw, and `mAfter`, copied
+// once it returned, with `kept` saying the binding was the same both times.
 //
 // The model's extracted bounds come back beside the records so the diagnostic
 // can project known model points through every candidate matrix.
@@ -136,6 +142,13 @@ GS::ObjectState Row (const rec::DrawRecord& record)
         for (float value : record.window[slot])
             matrix.Push (double (value));
         window.Add ("m", matrix);
+        // The same window read again once the draw returned (DrawRecorder.hpp).
+        window.Add ("copiedAfter", (GS::Int32) record.bytesCopiedAfter[slot]);
+        window.Add ("kept", record.bindingKept[slot]);
+        GS::Array<double> after;
+        for (float value : record.windowAfter[slot])
+            after.Push (double (value));
+        window.Add ("mAfter", after);
         slots.Push (window);
     }
     row.Add ("slots", slots);
@@ -154,7 +167,10 @@ class ViewerDrawRecorderCommand : public MainThreadCommand {
         if (params.Contains ("frames")) {
             GS::Int32 frames = 2;
             params.Get ("frames", frames);
-            rec::Arm (uint32_t (frames < 1 ? 1 : frames));
+            GS::Int32 afterModelFrames = 0;
+            if (params.Contains ("afterModelFrames"))
+                params.Get ("afterModelFrames", afterModelFrames);
+            rec::Arm (uint32_t (frames < 1 ? 1 : frames), uint32_t (afterModelFrames < 0 ? 0 : afterModelFrames));
         }
         else if (params.Contains ("disarm")) {
             bool disarm = false;
@@ -175,6 +191,7 @@ class ViewerDrawRecorderCommand : public MainThreadCommand {
         GS::ObjectState os;
         os.Add ("state", GS::UniString (StateName (status.state), CC_UTF8));
         os.Add ("hookInstalled", av::dxgi::ContextHookInstalled ());
+        os.Add ("modelFramesWanted", (GS::Int32) status.modelFramesWanted);
         os.Add ("framesWanted", (GS::Int32) status.framesWanted);
         os.Add ("framesSeen", (GS::Int32) status.framesSeen);
         os.Add ("draws", (GS::Int32) status.draws);
@@ -212,10 +229,10 @@ class ViewerDrawRecorderCommand : public MainThreadCommand {
 // clang-format off
 const NativeCommandRegistration kViewerDrawRecorderCommandRegistrations[] = {
     { "ViewerDrawRecorder", &MakeRegisteredNativeCommand<ViewerDrawRecorderCommand>, false,
-      R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":8},"disarm":{"type":"boolean"},"redraw":{"type":"boolean"}},"additionalProperties":false})json",
+      R"json({"type":"object","properties":{"frames":{"type":"integer","minimum":1,"maximum":8},"afterModelFrames":{"type":"integer","minimum":0,"maximum":120},"disarm":{"type":"boolean"},"redraw":{"type":"boolean"}},"additionalProperties":false})json",
       R"json({"type":"object","properties":{
         "state":{"type":"string","enum":["idle","armed","capturing","closing","done"]},
-        "hookInstalled":{"type":"boolean"},"framesWanted":{"type":"integer"},"framesSeen":{"type":"integer"},
+        "hookInstalled":{"type":"boolean"},"modelFramesWanted":{"type":"integer"},"framesWanted":{"type":"integer"},"framesSeen":{"type":"integer"},
         "draws":{"type":"integer"},"dropped":{"type":"integer"},"readbacksPending":{"type":"integer"},
         "readbackFailures":{"type":"integer"},"createFailures":{"type":"integer"},"captures":{"type":"string"},
         "boundsValid":{"type":"boolean"},
@@ -237,15 +254,17 @@ const NativeCommandRegistration kViewerDrawRecorderCommandRegistrations[] = {
           "reason":{"type":"string","enum":["admissible","censusOff","viewUnbound","projectionUnbound","viewWindow","projectionWindow","?"]},
           "slots":{"type":"array","minItems":4,"maxItems":4,"items":{"type":"object","properties":{
             "buffer":{"type":"string"},"bytes":{"type":"integer"},"first":{"type":"integer"},"count":{"type":"integer"},
-            "copied":{"type":"integer"},"m":{"type":"array","items":{"type":"number"},"minItems":16,"maxItems":16}},
-            "additionalProperties":false,"required":["buffer","bytes","first","count","copied","m"]}}},
+            "copied":{"type":"integer"},"m":{"type":"array","items":{"type":"number"},"minItems":16,"maxItems":16},
+            "copiedAfter":{"type":"integer"},"kept":{"type":"boolean"},
+            "mAfter":{"type":"array","items":{"type":"number"},"minItems":16,"maxItems":16}},
+            "additionalProperties":false,"required":["buffer","bytes","first","count","copied","m","copiedAfter","kept","mAfter"]}}},
           "additionalProperties":false,
           "required":["seq","frame","kind","count","instances","thread","context","vs","ps","rtv","rtResource","rtWidth",
                       "rtHeight","rtFormat","rtSamples","dsv","dsResource","dsWidth","dsHeight","dsFormat","viewport",
                       "scenePass","passColour","passBoundaryHit","signatureColour","signatureLearned","modelGeneration",
                       "censusEnabled","reason","slots"]}}},
       "additionalProperties":false,
-      "required":["state","hookInstalled","framesWanted","framesSeen","draws","dropped","readbacksPending",
+      "required":["state","hookInstalled","modelFramesWanted","framesWanted","framesSeen","draws","dropped","readbacksPending",
                   "readbackFailures","createFailures","captures","boundsValid","boundsMin","boundsMax","records"]})json" },
 };
 // clang-format on

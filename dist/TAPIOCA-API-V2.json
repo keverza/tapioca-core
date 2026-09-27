@@ -24519,6 +24519,11 @@
             "minimum": 1,
             "maximum": 8
           },
+          "afterModelFrames": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          },
           "disarm": {
             "type": "boolean"
           },
@@ -24543,6 +24548,9 @@
           },
           "hookInstalled": {
             "type": "boolean"
+          },
+          "modelFramesWanted": {
+            "type": "integer"
           },
           "framesWanted": {
             "type": "integer"
@@ -24732,6 +24740,20 @@
                         },
                         "minItems": 16,
                         "maxItems": 16
+                      },
+                      "copiedAfter": {
+                        "type": "integer"
+                      },
+                      "kept": {
+                        "type": "boolean"
+                      },
+                      "mAfter": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 16,
+                        "maxItems": 16
                       }
                     },
                     "additionalProperties": false,
@@ -24741,7 +24763,10 @@
                       "first",
                       "count",
                       "copied",
-                      "m"
+                      "m",
+                      "copiedAfter",
+                      "kept",
+                      "mAfter"
                     ]
                   }
                 }
@@ -24786,6 +24811,7 @@
         "required": [
           "state",
           "hookInstalled",
+          "modelFramesWanted",
           "framesWanted",
           "framesSeen",
           "draws",

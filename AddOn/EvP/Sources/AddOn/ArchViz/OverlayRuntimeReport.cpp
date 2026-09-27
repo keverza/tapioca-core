@@ -479,28 +479,33 @@ void EpochGate ()
 // the pairs that cannot be compared.
 void Matrices ()
 {
-    const size_t held = dxgi::injection::freshness::GroupMatrixCount ();
+    namespace fr = dxgi::injection::freshness;
+    const size_t held = fr::GroupMatrixCount ();
     if (held <= g_matricesSaid)
         return;
-    dxgi::injection::freshness::GroupMatrices rows[24];
-    const size_t count = dxgi::injection::freshness::GetGroupMatrices (rows, 24);
+    // Static: the ledger is too large for this frame, and only the main thread reports.
+    static fr::GroupMatrices rows[fr::kMatrixLedgerCapacity];
+    const size_t count = fr::GetGroupMatrices (rows, fr::kMatrixLedgerCapacity);
     for (size_t i = g_matricesSaid; i < count; ++i) {
-        const dxgi::injection::freshness::GroupMatrices& row = rows[i];
-        char line[420] = {};
+        const fr::GroupMatrices& row = rows[i];
+        // `REFUSED`: a readback of the group's own camera draw that did not decode.
+        const char* const kind = row.refused ? " REFUSED" : "";
+        char line[440] = {};
         _snprintf_s (line, sizeof (line), _TRUNCATE,
-                     "g%u occ%u gen=%llu VIEW %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | "
+                     "g%u occ%u idx%u gen=%llu%s VIEW %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | "
                      "%.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f",
-                     row.groupId, row.occurrence, (unsigned long long) row.generation, row.view[0], row.view[1],
-                     row.view[2], row.view[3], row.view[4], row.view[5], row.view[6], row.view[7], row.view[8],
-                     row.view[9], row.view[10], row.view[11], row.view[12], row.view[13], row.view[14], row.view[15]);
+                     row.groupId, row.occurrence, row.indexCount, (unsigned long long) row.generation, kind,
+                     row.view[0], row.view[1], row.view[2], row.view[3], row.view[4], row.view[5], row.view[6],
+                     row.view[7], row.view[8], row.view[9], row.view[10], row.view[11], row.view[12], row.view[13],
+                     row.view[14], row.view[15]);
         Say ("MATRIX", line);
         _snprintf_s (line, sizeof (line), _TRUNCATE,
-                     "g%u occ%u gen=%llu PROJ %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | "
+                     "g%u occ%u idx%u gen=%llu%s PROJ %.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f | "
                      "%.4f %.4f %.4f %.4f | %.4f %.4f %.4f %.4f",
-                     row.groupId, row.occurrence, (unsigned long long) row.generation, row.projection[0],
-                     row.projection[1], row.projection[2], row.projection[3], row.projection[4], row.projection[5],
-                     row.projection[6], row.projection[7], row.projection[8], row.projection[9], row.projection[10],
-                     row.projection[11], row.projection[12], row.projection[13], row.projection[14],
+                     row.groupId, row.occurrence, row.indexCount, (unsigned long long) row.generation, kind,
+                     row.projection[0], row.projection[1], row.projection[2], row.projection[3], row.projection[4],
+                     row.projection[5], row.projection[6], row.projection[7], row.projection[8], row.projection[9],
+                     row.projection[10], row.projection[11], row.projection[12], row.projection[13], row.projection[14],
                      row.projection[15]);
         Say ("MATRIX", line);
     }
