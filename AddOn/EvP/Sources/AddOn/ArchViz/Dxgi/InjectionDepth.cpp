@@ -264,14 +264,22 @@ void ResetProvenance ()
     // about to be judged on.
 }
 
-void RetainSceneView (ID3D11DepthStencilView* view)
+void RetainBoundSceneView (ID3D11DeviceContext* context)
 {
-    if (g_sceneView == view)
+    if (context == nullptr)
         return;
+    // The bound view arrives with a reference of ours: kept as the new scene
+    // view, or dropped when it already is the one retained.
+    ID3D11DepthStencilView* view = nullptr;
+    context->OMGetRenderTargets (0, nullptr, &view);
+    if (view == nullptr)
+        return;
+    if (g_sceneView == view) {
+        view->Release ();
+        return;
+    }
     ReleaseAndNull (g_sceneView);
     g_sceneView = view;
-    if (g_sceneView != nullptr)
-        g_sceneView->AddRef ();
 }
 
 // ⚠️ ONE WHOLE-RESOURCE COPY, GPU TO GPU, AT WHATEVER MOMENT THE

@@ -523,6 +523,10 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
 
     ++g_stats.drawsSeen;
     contextstate::ContextState live = contextstate::Snapshot ();
+    // The camera windows are the context's, not the tracker's, and `bound` holds
+    // their buffers until this draw's copies are issued. See `BoundConstants`.
+    const contextstate::BoundConstants bound (context);
+    bound.ApplyTo (live, &g_stats.binds);
 
     // ⚠️ DEPTH PROVENANCE SEES EVERY DRAW, NOT ONLY CAMERA-BEARING
     // ONES, AND THAT IS THE POINT. The draw that ruins the depth buffer for us is
@@ -536,7 +540,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     // ⚠️ THE ONLY ADMISSION TEST, AND THE LEARNER HAS NO PART IN IT. Both camera
     // windows, bound, at the 256-byte shape stage 3 identified -- whatever pass
     // the draw belongs to.
-    if (!view.IsBound () || !projection.IsBound ())
+    if (!bound.Valid () || !view.IsBound () || !projection.IsBound ())
         return;
     if (view.numConstants != kCameraWindowConstants || projection.numConstants != kCameraWindowConstants)
         return;
@@ -547,12 +551,9 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         return;
     ResolveSome (context);
 
-    // ⚠️ THE VERTEX SHADER IS ASKED FOR, NOT TRACKED. `VSSetShader` is not one of
-    // the patched vtable slots, so the state tracker has always reported zero --
-    // which threw away the strongest draw identifier there is and left the
-    // signature leaning on render-target pointers. Adding the slot would change
-    // the patch profile and force every pinned build to be re-pinned; asking the
-    // context costs one COM call on a path that already makes several.
+    // ⚠️ THE VERTEX SHADER IS ASKED FOR, NOT TRACKED: `VSSetShader` is not a patched
+    // slot, and adding it would force every pinned build to be re-pinned. Asking
+    // costs one COM call -- the rule `BoundConstants` now applies to the windows.
     {
         ID3D11VertexShader* bound = nullptr;
         context->VSGetShader (&bound, nullptr, nullptr);
@@ -705,8 +706,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         // UI pass, not whatever happened to be bound last. Publishing it anywhere
         // that only runs for a diagnostic is what left the host overlay skipped on
         // every frame while every state it published said "ready".
-        if (live.depthStencilView != nullptr)
-            injection::depth::RetainSceneView (live.depthStencilView);
+        injection::depth::RetainBoundSceneView (context);
         draw.viewportX = live.viewportX;
         draw.viewportY = live.viewportY;
         draw.viewportWidth = live.viewportWidth;

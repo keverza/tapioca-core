@@ -64,15 +64,23 @@ std::string g_lastScenePass;
 std::string g_lastSignature;
 std::string g_lastVariants;
 
-// The context hook's counters at the last HOOKS line. See `Hooks`.
+// The context hook's counters at the last HOOKS line, and the census's binding
+// audit at the last BINDS line. See `Hooks`.
 struct HookMark {
     uint64_t calls = 0;
     uint64_t repairs = 0;
     uint64_t afterCall = 0;
     uint64_t slot[size_t (dxgi::ContextSlot::Count)] = {};
+    dxgi::contextstate::BindingAudit binds;
 };
 HookMark g_hookMark;
 uint32_t g_hookTicks = 0;
+
+// A counter that restarted since the mark reads as its whole new value.
+uint64_t Since (uint64_t now, uint64_t mark)
+{
+    return now >= mark ? now - mark : now;
+}
 
 // ⚠️ WHETHER THE HOOKS STAY UP WITHIN THE FRAME (Stage 77), AS DELTAS. The runtime
 // re-points our slots continuously; this says how many were put back by the
@@ -120,20 +128,41 @@ void Hooks ()
     g_hookMark.calls = calls;
     g_hookMark.repairs = repairs;
     g_hookMark.afterCall = afterCall;
-    if (newCalls == 0 && newRepairs == 0)
-        return;
+    if (newCalls != 0 || newRepairs != 0) {
+        char line[400] = {};
+        _snprintf_s (line, sizeof (line), _TRUNCATE,
+                     "after-call repair %s | ~5 s: Archicad calls seen +%llu, slots put back +%llu by the Present "
+                     "repair, +%llu after calls | re-pointed most: %s %llu, %s %llu, %s %llu",
+                     dxgi::RepairAfterCalls () ? "ON" : "OFF", (unsigned long long) newCalls,
+                     (unsigned long long) (newRepairs > newAfterCall ? newRepairs - newAfterCall : 0),
+                     (unsigned long long) newAfterCall, dxgi::ContextSlotName (dxgi::ContextSlot (top[0])),
+                     (unsigned long long) topCount[0], dxgi::ContextSlotName (dxgi::ContextSlot (top[1])),
+                     (unsigned long long) topCount[1], dxgi::ContextSlotName (dxgi::ContextSlot (top[2])),
+                     (unsigned long long) topCount[2]);
+        Say ("HOOKS", line);
+    }
 
-    char line[400] = {};
-    _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "after-call repair %s | ~5 s: Archicad calls seen +%llu, slots put back +%llu by the Present repair, "
-                 "+%llu after calls | re-pointed most: %s %llu, %s %llu, %s %llu",
-                 dxgi::RepairAfterCalls () ? "ON" : "OFF", (unsigned long long) newCalls,
-                 (unsigned long long) (newRepairs > newAfterCall ? newRepairs - newAfterCall : 0),
-                 (unsigned long long) newAfterCall, dxgi::ContextSlotName (dxgi::ContextSlot (top[0])),
-                 (unsigned long long) topCount[0], dxgi::ContextSlotName (dxgi::ContextSlot (top[1])),
-                 (unsigned long long) topCount[1], dxgi::ContextSlotName (dxgi::ContextSlot (top[2])),
-                 (unsigned long long) topCount[2]);
-    Say ("HOOKS", line);
+    // ⚠️ AND WHETHER THE TRACKER KNEW WHAT WAS BOUND (2026-09-27). Every camera
+    // window is now read from the context; this says how often the tracked b1/b2
+    // would have named something else. A b2 that disagrees is a bind the hooks
+    // missed -- the first suspect for a census that reads nothing but screen maps.
+    const dxgi::contextstate::BindingAudit binds = cen::GetStats ().binds;
+    dxgi::contextstate::BindingAudit& said = g_hookMark.binds;
+    if (binds.compared < said.compared || binds.unavailable < said.unavailable)
+        said = dxgi::contextstate::BindingAudit {};
+    if (binds.compared != said.compared || binds.unavailable != said.unavailable) {
+        char line[320] = {};
+        _snprintf_s (line, sizeof (line), _TRUNCATE,
+                     "~5 s: census draws +%llu | the tracked window disagreed with what the context had bound: "
+                     "b1 +%llu, b2 +%llu | context not asked +%llu | session: b2 disagreed %llu of %llu",
+                     (unsigned long long) Since (binds.compared, said.compared),
+                     (unsigned long long) Since (binds.viewDiffered, said.viewDiffered),
+                     (unsigned long long) Since (binds.projectionDiffered, said.projectionDiffered),
+                     (unsigned long long) Since (binds.unavailable, said.unavailable),
+                     (unsigned long long) binds.projectionDiffered, (unsigned long long) binds.compared);
+        Say ("BINDS", line);
+    }
+    said = binds;
 }
 
 } // namespace

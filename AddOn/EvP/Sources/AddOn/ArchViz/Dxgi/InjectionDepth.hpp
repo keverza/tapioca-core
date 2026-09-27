@@ -125,7 +125,11 @@ Mode GetMode ();
 // a UI pass, not whatever happened to be bound last. Anything else publishing
 // here would clobber it.
 //
-void RetainSceneView (ID3D11DepthStencilView* view);
+// ⚠️ THE VIEW IS ASKED OF THE CONTEXT (`OMGetRenderTargets`), NOT TAKEN FROM THE
+// STATE TRACKER (2026-09-27). The tracker only knows the binds the hooks saw, and
+// an AddRef on a view Archicad has since released is a crash, not a stale value.
+// See `contextstate::BoundConstants` for the same rule on the camera windows.
+void RetainBoundSceneView (ID3D11DeviceContext* context);
 
 // ANY THREAD. The retained view, so other diagnostics can tell a draw into the
 // model's depth buffer from a draw into somebody else's.

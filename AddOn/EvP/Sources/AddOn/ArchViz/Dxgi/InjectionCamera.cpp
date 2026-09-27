@@ -255,9 +255,13 @@ void SnapshotCamera (ID3D11DeviceContext* context)
     if (contextstate::Injecting ())
         return;
 
-    const contextstate::SceneDrawState draw = contextstate::LastCameraDraw ();
-    if (!draw.valid)
+    // The windows THIS draw consumed, from the context rather than the tracker; the
+    // latched draw is this one. See `contextstate::BoundConstants`.
+    contextstate::SceneDrawState draw = contextstate::LastCameraDraw ();
+    const contextstate::BoundConstants bound (context);
+    if (!draw.valid || !bound.Valid ())
         return;
+    bound.ApplyTo (draw);
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
     if (view.numConstants != kExpectedWindowConstants || projection.numConstants != kExpectedWindowConstants)

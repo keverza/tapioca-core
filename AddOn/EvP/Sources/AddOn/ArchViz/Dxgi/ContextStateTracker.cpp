@@ -3,7 +3,7 @@
 
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 
-#include <d3d11.h>
+#include <d3d11_1.h>
 
 #include <cstring>
 
@@ -200,11 +200,84 @@ ContextState Snapshot ()
 
 void Reset ()
 {
+    // See the header. `g_injectionDepth` is thread-local and belongs to the
+    // thread that raised it; a reset from any other thread must not touch it.
     g_state = ContextState {};
     g_lastSceneDraw = SceneDrawState {};
     g_lastCameraDraw = SceneDrawState {};
     g_drawCounts = DrawCameraCounts {};
-    g_injectionDepth = 0;
+}
+
+BoundConstants::BoundConstants (ID3D11DeviceContext* context)
+{
+    if (context == nullptr)
+        return;
+    ID3D11DeviceContext1* context1 = nullptr;
+    if (FAILED (context->QueryInterface (__uuidof (ID3D11DeviceContext1), reinterpret_cast<void**> (&context1))) ||
+        context1 == nullptr)
+        return;
+    // Each returned buffer carries a reference of ours; the destructor drops it.
+    context1->VSGetConstantBuffers1 (0, UINT (kSlots), m_buffers, m_first, m_count);
+    context1->Release ();
+    m_valid = true;
+}
+
+BoundConstants::~BoundConstants ()
+{
+    for (ID3D11Buffer*& buffer : m_buffers) {
+        if (buffer != nullptr)
+            buffer->Release ();
+        buffer = nullptr;
+    }
+}
+
+namespace {
+
+ConstantBufferBinding Bound (ID3D11Buffer* buffer, unsigned int first, unsigned int count)
+{
+    ConstantBufferBinding binding;
+    binding.buffer = uint64_t (uintptr_t (buffer));
+    binding.firstConstant = buffer != nullptr ? first : 0;
+    binding.numConstants = buffer != nullptr ? count : 0;
+    return binding;
+}
+
+// A tracked slot disagrees when it names another buffer, or -- for a windowed
+// bind, the only kind the tracker records a window for -- another window.
+bool Differs (const ConstantBufferBinding& tracked, const ConstantBufferBinding& bound)
+{
+    if (tracked.buffer != bound.buffer)
+        return true;
+    return tracked.numConstants != 0 &&
+           (tracked.firstConstant != bound.firstConstant || tracked.numConstants != bound.numConstants);
+}
+
+} // namespace
+
+void BoundConstants::ApplyTo (ContextState& state, BindingAudit* audit) const
+{
+    if (!m_valid) {
+        if (audit != nullptr)
+            ++audit->unavailable;
+        return;
+    }
+    if (audit != nullptr) {
+        ++audit->compared;
+        if (Differs (state.vsConstantBuffers[1], Bound (m_buffers[1], m_first[1], m_count[1])))
+            ++audit->viewDiffered;
+        if (Differs (state.vsConstantBuffers[2], Bound (m_buffers[2], m_first[2], m_count[2])))
+            ++audit->projectionDiffered;
+    }
+    for (size_t i = 0; i < kSlots; ++i)
+        state.vsConstantBuffers[i] = Bound (m_buffers[i], m_first[i], m_count[i]);
+}
+
+void BoundConstants::ApplyTo (SceneDrawState& draw) const
+{
+    if (!m_valid)
+        return;
+    for (size_t i = 0; i < kSlots; ++i)
+        draw.vsConstantBuffers[i] = Bound (m_buffers[i], m_first[i], m_count[i]);
 }
 
 } // namespace contextstate

@@ -45,6 +45,8 @@
 // a slot that is not ready is retried on a later draw. `CopyGroups` is the
 // cross-thread read and it takes a copy.
 
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -212,6 +214,9 @@ struct Stats {
     uint64_t readbacksBusy = 0;
     bool enabled = false;
     bool ready = false;
+    // Where the tracked b1/b2 disagreed with what the context had bound, at every
+    // draw the census saw. See `contextstate::BoundConstants`.
+    contextstate::BindingAudit binds;
 
     // ⚠️ THE FOUR NUMBERS THAT SAY WHETHER THE CAMERA SURVIVED THE
     // PHASE CHANGE, and run forty-five had no way to ask. `selectionMatches`

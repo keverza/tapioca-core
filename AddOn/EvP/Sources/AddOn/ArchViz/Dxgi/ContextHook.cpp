@@ -7,6 +7,7 @@
 #include "ArchViz/Dxgi/ContextEventRing.hpp"
 #include "ArchViz/Dxgi/ContextHookShared.hpp"
 #include "ArchViz/Dxgi/ContextHookSelfTest.hpp"
+#include "ArchViz/Dxgi/ContextStateTracker.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/ViewMatrixCandidates.hpp"
@@ -135,8 +136,15 @@ bool RestoreDetours (void** vtable)
 {
     for (size_t i = 0; i < size_t (ContextSlot::Count); ++i) {
         void* const original = g_original[i].load (std::memory_order_relaxed);
-        if (original != nullptr)
-            SwapVtableEntry (vtable, kSlotIndex[i], original);
+        if (original == nullptr)
+            continue;
+        // ⚠️ ONLY WHERE OUR DETOUR STILL SITS (2026-09-27). A slot the runtime
+        // re-pointed since the last repair already holds the pointer the runtime
+        // wants; writing our older copy over it would leave Archicad calling an
+        // implementation the runtime had moved on from, after the overlay is gone.
+        // Stop now removes the hook every time, so this runs at every Stop.
+        InterlockedCompareExchangePointer (reinterpret_cast<void* volatile*> (&vtable[kSlotIndex[i]]), original,
+                                           kDetour[i]);
     }
     return true;
 }
@@ -490,6 +498,13 @@ bool InstallContextHook (std::string& error)
         g_slotEnabled[i].store (enabled, std::memory_order_relaxed);
     }
 
+    // ⚠️ THE TRACKED STATE STARTS EMPTY, WHILE NOTHING CAN WRITE IT (2026-09-27).
+    // It still named the previous session's buffers -- released during the gap
+    // since the hook came out -- and the census copied from one: an access
+    // violation in the driver. The filter below is still clear, so no detour
+    // is recording while this runs. See `contextstate::Reset`.
+    contextstate::Reset ();
+
     // ⚠️ THE FILTER IS SET LAST, AFTER THE SELF-TEST HAS PROVEN EVERY SLOT. Until
     // this store the detours are installed but record nothing; from here they
     // record Archicad's calls. Setting it earlier would let a mis-indexed slot
@@ -553,6 +568,9 @@ void RemoveContextHook ()
         original.store (nullptr, std::memory_order_relaxed);
     g_vtable = nullptr;
     SetRepairAfterCallsForced (-1);
+    // Drained: no detour is running. Nothing may read this session's bindings
+    // once the hook that kept them current is gone.
+    contextstate::Reset ();
     g_pinned.store (false, std::memory_order_release);
     g_proof.store (uint32_t (Proof::None), std::memory_order_release);
     ArchVizLog ("context hook: removed");

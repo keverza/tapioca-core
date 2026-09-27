@@ -33,6 +33,7 @@
 #include <cstdint>
 
 struct ID3D11Buffer;
+struct ID3D11DeviceContext;
 struct ID3D11DepthStencilView;
 struct ID3D11RenderTargetView;
 struct ID3D11VertexShader;
@@ -245,7 +246,60 @@ DrawCameraCounts GetDrawCameraCounts ();
 // for them to be repeated.
 ContextState Snapshot ();
 
+// ⚠️ RESET AT EVERY CONTEXT-HOOK INSTALL AND REMOVAL (2026-09-27). The state is
+// only as current as the calls the hooks saw. While the hook is out -- between
+// two overlay sessions, now that Stop really removes it -- Archicad rebinds and
+// RELEASES buffers this state still names, and the first draws of the next
+// session copied from one of them: an access violation in the driver, Archicad
+// down. Every Start resets what every Stop leaves behind (OVERLAY-INVARIANTS
+// section 8). Not the injection guard: it belongs to its own thread.
 void Reset ();
+
+// ---- what the context itself says is bound ---------------------------------
+// How often the tracked camera windows agreed with the context, counted where
+// the census reads them. A b2 that disagrees is a bind the hooks missed.
+struct BindingAudit {
+    uint64_t compared = 0;
+    uint64_t viewDiffered = 0;       // b1: buffer, or the window of a windowed bind
+    uint64_t projectionDiffered = 0; // b2
+    uint64_t unavailable = 0;        // the context could not be asked
+};
+
+// ⚠️ ANYTHING THAT READS A CAMERA WINDOW ASKS THE CONTEXT, NOT THIS FILE
+// (2026-09-27). The state above is inferred from the calls the hooks saw, and the
+// hooks miss calls -- Stage 75 measured them seeing a fraction of every frame --
+// so a slot can name a window Archicad has moved on from, or a buffer it has
+// released. The census copied b2 out of such a buffer and the driver faulted.
+// This asks `VSGetConstantBuffers1` at the draw, holds the buffers while it is in
+// scope and releases them: the transient retain, use, release of section 11.
+//
+// RENDER THREAD, inside a draw detour. Keep it alive until every copy out of the
+// windows it describes has been issued.
+class BoundConstants {
+  public:
+    static constexpr size_t kSlots = 4; // b0..b3: every window anything here reads
+
+    explicit BoundConstants (ID3D11DeviceContext* context);
+    ~BoundConstants ();
+    BoundConstants (const BoundConstants&) = delete;
+    BoundConstants& operator= (const BoundConstants&) = delete;
+
+    // False when the context could not be asked; nothing may then be copied.
+    bool Valid () const
+    {
+        return m_valid;
+    }
+    // Writes the bound b0..b3 windows over `state`. With `audit`, first counts
+    // where the tracked b1 and b2 disagreed with them. Invalid: counts only.
+    void ApplyTo (ContextState& state, BindingAudit* audit = nullptr) const;
+    void ApplyTo (SceneDrawState& draw) const;
+
+  private:
+    ID3D11Buffer* m_buffers[kSlots] = {};
+    unsigned int m_first[kSlots] = {};
+    unsigned int m_count[kSlots] = {};
+    bool m_valid = false;
+};
 
 } // namespace contextstate
 } // namespace dxgi

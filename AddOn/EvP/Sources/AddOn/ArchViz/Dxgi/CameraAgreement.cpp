@@ -776,8 +776,14 @@ void OnDrawCompleted (ID3D11DeviceContext* context, uint32_t kind, uint32_t coun
     meta.root = isRoot;
 
     // Every window this draw had bound, whether or not its shader reads it: a
-    // stale binding is itself evidence of where a camera came from.
-    const contextstate::ContextState live = contextstate::Snapshot ();
+    // stale binding is itself evidence of where a camera came from. Bound as the
+    // CONTEXT says, holding the buffers for the copies (`BoundConstants`); the
+    // tracker's pointers may name a buffer Archicad has released.
+    contextstate::ContextState live = contextstate::Snapshot ();
+    const contextstate::BoundConstants bound (context);
+    if (!bound.Valid ())
+        return;
+    bound.ApplyTo (live);
     meta.renderTarget = live.renderTarget;
 
     // ⚠️ OUR COPIES ARE NOT ARCHICAD'S WORK. Without the guard the hooked copy
