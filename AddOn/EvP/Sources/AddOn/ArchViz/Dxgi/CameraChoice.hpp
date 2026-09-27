@@ -59,10 +59,11 @@ struct Standing {
 // GEOMETRY, AND CENTRE ERROR ONLY LAST. Error is the weak term -- a hand on a
 // mouse does not put the orbit target on the anchor to the pixel -- and ranking on
 // it promotes noise. The geometry term is the model's own draws over helpers: every
-// camera-bearing draw of a frame is eligible once `b2` decodes in both layouts, and
-// the 24-index helper carries the PREVIOUS image's camera (500 of 500 moving
-// images, 2026-09-27 16:56) while the editing plane's 6-index quads exist only
-// while its display is on. The model's largest draw is the model's camera.
+// camera-bearing draw of a frame is eligible once the camera is read from `b0` and
+// `b1` (CameraLayout.hpp), the 24-index helper carries the PREVIOUS image's camera
+// (500 of 500 moving images, 2026-09-27 16:56) -- refused while the camera turns,
+// not while it only moves -- and the editing plane's 6-index quads exist only while
+// its display is on. The model's largest draw is the model's camera.
 inline bool Outranks (const Standing& candidate, const Standing* best)
 {
     if (best == nullptr || candidate.coverage > best->coverage + 0.01f)

@@ -266,7 +266,7 @@ void SnapshotCamera (ID3D11DeviceContext* context)
         return;
     bound.ApplyTo (draw);
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
-    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
+    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[cameralayout::kProjectionWindow];
     if (view.numConstants != kExpectedWindowConstants || projection.numConstants != kExpectedWindowConstants)
         return;
 
@@ -277,8 +277,10 @@ void SnapshotCamera (ID3D11DeviceContext* context)
 // camera sources so they can never drift apart in what they preserve.
 void CopyCameraWindows (ID3D11DeviceContext* context, const contextstate::SceneDrawState& draw)
 {
+    // The camera is `b1` and `b0` -- never `b2`, which held a screen map while
+    // navigating (CameraLayout.hpp). `projection` is therefore `b0`'s window.
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
-    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
+    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[cameralayout::kProjectionWindow];
 
     contextstate::ScopedInjectionGuard guard;
     if (!EnsureCameraCreated (context))
@@ -397,7 +399,7 @@ void SnapshotSelectedDraw (ID3D11DeviceContext* context, const contextstate::Sce
     g_selectedGroupDraws.fetch_add (1, std::memory_order_relaxed);
 
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
-    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
+    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[cameralayout::kProjectionWindow];
     if (view.numConstants != kExpectedWindowConstants || projection.numConstants != kExpectedWindowConstants)
         return;
 

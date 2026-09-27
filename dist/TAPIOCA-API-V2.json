@@ -24233,7 +24233,7 @@
                 "projectionDivideSamples": {
                   "type": "integer"
                 },
-                "combinedSamples": {
+                "relativeSamples": {
                   "type": "integer"
                 },
                 "cameraIndexCount": {

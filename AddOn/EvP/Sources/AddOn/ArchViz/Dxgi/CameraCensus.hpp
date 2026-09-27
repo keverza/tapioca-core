@@ -159,12 +159,12 @@ struct Group {
     // landed still selected a group whose matrix was the screen map. A group is
     // a camera only if EVERY sample of it was one.
     //
-    // ⚠️ "DIVIDE" NOW MEANS "DECODES AS A CAMERA", IN EITHER LAYOUT
-    // (CameraLayout.hpp): `b2` a perspective projection, or view x projection.
-    // `combinedSamples` counts the second; the gate wants one layout per group.
+    // ⚠️ "DIVIDE" NOW MEANS "DECODES AS THE CAMERA" (CameraLayout.hpp): `b1` a
+    // view and `b0` its rotation x projection, one camera. `relativeSamples`
+    // counts them; `b2` is never read, it held a screen map while navigating.
     uint32_t projectionSamples = 0;
     uint32_t projectionDivideSamples = 0;
-    uint32_t combinedSamples = 0;
+    uint32_t relativeSamples = 0;
     // The draw this group's camera samples came from, and the readbacks of OTHER
     // draws at its occurrence that were therefore not scored: `camerachoice`.
     uint32_t cameraIndexCount = 0;

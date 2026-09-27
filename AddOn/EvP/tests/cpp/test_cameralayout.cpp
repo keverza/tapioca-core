@@ -1,14 +1,12 @@
-// ArchViz/Dxgi/CameraLayout -- what Archicad's `b2` holds, and the pair every
-// CPU scorer reads.
+// ArchViz/Dxgi/CameraLayout -- where Archicad's camera is, and the pair every CPU
+// scorer reads.
 //
-// WHAT THESE TESTS ARE FOR. Archicad's model draws carry `b2 = view x projection`;
-// only the 3D editing plane's own draws carry `b2 = projection`, and only while its
-// display is on. The census accepted nothing but a projection, so it could lock
-// onto the plane alone -- and on 2026-09-26 the display was turned off and the
-// camera never locked again. The data below is REAL: the last census decode of the
-// session that locked (the plane's draw), and the draw recorder's full-precision
-// readback of the model draw from a session with the plane hidden, with Archicad's
-// own ModelToScreen pixels for the model's corners. A test built from the same
+// WHAT THESE TESTS ARE FOR. The camera is `b1` (the view) and `b0` (its rotation
+// times the projection); the image is `(p - eye) * b0`. The census read `b2` for two
+// days: with the editing plane hidden and the camera orbiting, `b2` held a 2D screen
+// map at every draw of every frame, and nothing locked. Every matrix below is REAL --
+// the draw recorder's full-precision readbacks -- with Archicad's own ModelToScreen
+// pixels for the model's corners at one still view. A test built from the same
 // assumption as the code could not have caught this; these pin what Archicad wrote.
 
 #include "ArchViz/Dxgi/CameraLayout.hpp"
@@ -25,30 +23,18 @@ namespace cs = geomsrv::archviz::dxgi::camerashader;
 
 namespace {
 
-// 2026-09-26 18:01:37, the last session that locked: census group g1 as logged
-// (four decimals -- the projection's zeros are exact at any precision). Almost
-// certainly an editing-plane draw: those are the only draws measured with a
-// projection in `b2`.
-constexpr float kSeparateView[16] = { -0.6636f, 0.2865f,  -0.6911f, 0.0f, -0.7481f, -0.2541f,  0.6130f,   0.0f,
-                                      0.0f,     0.9238f,  0.3829f,  0.0f, 14.8200f, -2.0943f,  -64.5671f, 1.0f };
-constexpr float kSeparateProjection[16] = { 1.3034f, 0.0f, 0.0f, 0.0f,     0.0f, 2.6023f, 0.0f,     0.0f,
-                                            0.0f,    0.0f, -1.0002f, -1.0f, 0.0f, 0.0f,    -0.0378f, 0.0f };
-
-// 2026-09-27 12:05:59, the draw recorder: the 1512-index model draw of a still
-// view, 3432x1803 target, viewport the whole target, window 2288x1202.
-constexpr float kCombinedView[16] = { -0.348751128f, 0.132683977f,  -0.927775681f, 0.0f,
-                                      -0.937215447f, -0.049373586f, 0.345238447f,  0.0f,
-                                      0.0f,          0.989927948f,  0.14157255f,   0.0f,
-                                      6.41576767f,   0.632916451f,  -66.4316025f,  1.0f };
-constexpr float kCombinedB2[16] = { -0.454540998f, 0.32920149f,   0.930297494f,  0.927775621f,
-                                    -1.22150958f,  -0.122500531f, -0.346176893f, -0.345238447f,
-                                    0.0f,          2.45610499f,   -0.141957358f, -0.141572535f,
-                                    8.3619194f,    1.57032335f,   66.5119019f,   66.4316025f };
-// ... and the same draw's `b0`: a rotation-only view x projection, never a census input.
-constexpr float kRotationOnlyB0[16] = { -0.454541087f, 0.329201519f,  0.965644062f,   0.927775681f,
-                                        -1.22150981f,  -0.122500546f, -0.35932982f,   -0.345238447f,
-                                        0.0f,          2.45610523f,   -0.147351012f,  -0.14157255f,
-                                        0.0f,          0.0f,          -0.204081625f, 0.0f };
+// 2026-09-27 12:05:59, plane hidden, still: the 1512-index model draw.
+constexpr float kStillView[16] = { -0.348751128f, 0.132683977f,  -0.927775681f, 0.0f,
+                                   -0.937215447f, -0.049373586f, 0.345238447f,  0.0f,
+                                   0.0f,          0.989927948f,  0.14157255f,   0.0f,
+                                   6.41576767f,   0.632916451f,  -66.4316025f,  1.0f };
+constexpr float kStillB0[16] = { -0.454541087f, 0.329201519f,  0.965644062f,  0.927775681f,
+                                 -1.22150981f,  -0.122500546f, -0.35932982f,  -0.345238447f,
+                                 0.0f,          2.45610523f,   -0.147351012f, -0.14157255f,
+                                 0.0f,          0.0f,          -0.204081625f, 0.0f };
+constexpr float kStillB2[16] = { -0.454540998f, 0.32920149f,   0.930297494f, 0.927775621f, -1.22150958f,  -0.122500531f,
+                                 -0.346176893f, -0.345238447f, 0.0f,         2.45610499f,  -0.141957358f, -0.141572535f,
+                                 8.3619194f,    1.57032335f,   66.5119019f,  66.4316025f };
 
 // The model's bounding-box corners and centre, and where Archicad's own
 // ModelToScreen put them in that 2288x1202 window.
@@ -63,27 +49,49 @@ constexpr float kPixels[9][2] = { { 1833.0f, 617.0f }, { 1838.0f, 539.0f }, { 96
 constexpr float kWindowWidth = 2288.0f;
 constexpr float kWindowHeight = 1202.0f;
 
-// 12:06:04, a steep view of the same session: |b2[11]| = 0.84, which the census's
-// old test (`|m[11]| > 0.5`) read as a projection.
-constexpr float kSteepView[16] = { -0.961572886f, 0.230146095f,  -0.149701521f, 0.0f,
-                                   -0.27455014f,  -0.806054115f, 0.524308205f,  0.0f,
-                                   -3.7e-08f,     0.545261145f,  0.838266253f,  0.0f,
-                                   8.10955715f,   9.2118988f,    -82.445549f,   1.0f };
-constexpr float kSteepB2[16] = { -1.25325549f, 0.571014285f, 0.149970859f,  0.149701536f,
-                                 -0.357831985f, -1.99989641f, -0.525251567f, -0.524308264f,
-                                 -1.5e-08f,    1.3528446f,   -0.83977437f,  -0.838266253f,
-                                 10.5695066f,  22.8555851f,  82.4937058f,   82.4455566f };
+// 16:16:05, plane hidden, still: the 1512-index draw. `b2` is view x projection.
+constexpr float kHiddenB0[16] = { 0.462916404f, -1.4779706f,  -0.749820709f, -0.720416009f,
+                                  1.21836042f,  0.561555386f, 0.284894615f,  0.273722291f,
+                                  3.9e-08f,     1.91209066f,  -0.663251519f, -0.637241662f,
+                                  0.0f,         0.0f,         -0.204081625f, 0.0f };
+constexpr float kHiddenView[16] = { 0.355177194f, -0.595692933f, 0.720416009f,  0.0f,
+                                    0.934799075f, 0.226333693f,  -0.273722291f, 0.0f,
+                                    3.0e-08f,     0.770664096f,  0.637241662f,  0.0f,
+                                    -29.3493671f, 4.13560104f,   -77.1953964f,  1.0f };
+constexpr float kHiddenB2[16] = { 0.462916344f, -1.47797036f, -0.720591903f, -0.720416009f, 1.21836019f,  0.561555266f,
+                                  0.273789108f, 0.273722291f, 1.5e-08f,      1.91209066f,   -0.63739717f, -0.637241602f,
+                                  -38.252182f,  10.2608089f,  77.1806641f,   77.1953964f };
 
-// 2026-09-26 20:07:24, census g18 while orbiting (four decimals): `b2` is a whole
-// camera and `b1` belongs to a different one. Archicad positions with `b2` alone.
-constexpr float kMovingView[16] = { -0.4612f, 0.6621f,  -0.5907f, 0.0f, -0.8873f, -0.3441f, 0.3070f,   0.0f,
-                                    0.0f,     0.6657f,  0.7462f,  0.0f, 21.0279f, -2.5832f, -84.2880f, 1.0f };
-constexpr float kMovingB2[16] = { -1.1528f, 0.7645f,  0.3859f,  0.3625f,  -0.6082f, -1.4491f, -0.7314f, -0.6872f,
-                                  0.0f,     2.0218f,  -0.6701f, -0.6296f, 20.5904f, 14.3621f, 38.6282f, 40.4945f };
+// 16:16:10, plane shown, still: the editing plane's 6-index quad. `b2` is the
+// projection, and the camera the census locked on for two days was `b1 * b2`.
+constexpr float kShownB0[16] = { 1.30227435f,    0.0422415435f, 0.0381560065f, 0.0366596915f,
+                                 -0.0526812933f, 1.04420388f,   0.943211436f,  0.906222761f,
+                                 -3.0e-08f,      2.25026369f,   -0.438400507f, -0.421208352f,
+                                 0.0f,           0.0f,          -0.204081625f, 0.0f };
+constexpr float kShownView[16] = { 0.99918282f,    0.0170253646f, -0.0366596915f, 0.0f,
+                                   -0.0404202417f, 0.420864135f,  -0.906222761f,  0.0f,
+                                   -2.3e-08f,      0.906964004f,  0.421208352f,   0.0f,
+                                   -27.626709f,    -8.52883339f,  -56.5498314f,   1.0f };
+constexpr float kShownB2[16] = { 1.30333924f, 0.0f, 0.0f,         0.0f,  0.0f, 2.48109484f, 0.0f,        0.0f,
+                                 0.0f,        0.0f, -1.05842161f, -1.0f, 0.0f, 0.0f,        -7.5613327f, 0.0f };
 
-// A pixel-to-NDC screen map as the census logs it, and a parallel projection.
-constexpr float kScreenMap[16] = { 0.0012f, 0.0f, 0.0f, 0.0f, 0.0f,  -0.0024f, 0.0f, 0.0f,
-                                   0.0f,    0.0f, -1.0f, 0.0f, -1.0f, 1.0f,     0.0f, 1.0f };
+// 21:00:33, plane hidden, ORBITING, frame 0 of the capture: the 1512-index draw,
+// and the 24-index helper of the same frame, whose `b1` is the previous image's.
+constexpr float kOrbitB0[16] = { -0.388509065f, 2.13124418f,   0.433252186f,  0.416261911f,
+                                 -1.2440877f,   -0.665554166f, -0.135297894f, -0.129992098f,
+                                 3.9e-08f,      1.08197343f,   -0.936635196f, -0.89990443f,
+                                 0.0f,          0.0f,          -0.204081625f, 0.0f };
+constexpr float kOrbitView[16] = { -0.298087418f, 0.858993471f,  -0.416261911f, 0.0f,
+                                   -0.954538584f, -0.268250197f, 0.129992098f,  0.0f,
+                                   3.0e-08f,      0.436087072f,  0.89990443f,   0.0f,
+                                   2.97532129f,   6.94378281f,   -131.81601f,   1.0f };
+constexpr float kOrbitB2[16] = { 0.000874125981f, 0.0f, 0.0f,  0.0f, 0.0f, -0.001663893f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 -1.0f,           0.0f, -1.0f, 1.0f, 0.0f, 1.0f };
+constexpr float kOrbitHelperView[16] = { -0.292840332f, 0.860453904f,  -0.416969657f, 0.0f,
+                                         -0.956161439f, -0.263528317f, 0.12770392f,   0.0f,
+                                         3.0e-08f,      0.436087161f,  0.89990443f,   0.0f,
+                                         3.07004213f,   6.92071152f,   -131.804825f,  1.0f };
+
 constexpr float kParallel[16] = { 0.05f, 0.0f, 0.0f,   0.0f, 0.0f, 0.1f, 0.0f,  0.0f,
                                   0.0f,  0.0f, -0.01f, 0.0f, 0.0f, 0.0f, -0.5f, 1.0f };
 
@@ -99,159 +107,172 @@ void Multiply (const float a[16], const float b[16], float out[16])
     }
 }
 
-// Where `p * view * projection` puts a model point, as a fraction of the viewport
-// (which covers the whole target in the capture). False behind the eye.
-bool Fraction (const float point[3], const float view[16], const float projection[16], float& u, float& v)
+void Clip (const float point[3], const float m[16], float clip[4])
+{
+    for (int c = 0; c < 4; ++c)
+        clip[c] = point[0] * m[c] + point[1] * m[4 + c] + point[2] * m[8 + c] + m[12 + c];
+}
+
+// The worst distance from Archicad's own pixels, as a fraction of the window, for
+// `p * view * projection`.
+float WorstError (const float view[16], const float projection[16])
 {
     float m[16];
     Multiply (view, projection, m);
-    float clip[4];
-    for (int c = 0; c < 4; ++c)
-        clip[c] = point[0] * m[c] + point[1] * m[4 + c] + point[2] * m[8 + c] + m[12 + c];
-    if (!(clip[3] > 1e-6f))
-        return false;
-    u = (clip[0] / clip[3] + 1.0f) * 0.5f;
-    v = (1.0f - clip[1] / clip[3]) * 0.5f;
-    return true;
-}
-
-// The worst distance from Archicad's own pixels, as a fraction of the window.
-float WorstError (const float view[16], const float projection[16])
-{
     float worst = 0.0f;
     for (int i = 0; i < 9; ++i) {
-        float u = 0.0f, v = 0.0f;
-        if (!Fraction (kPoints[i], view, projection, u, v))
+        float clip[4];
+        Clip (kPoints[i], m, clip);
+        if (!(clip[3] > 1e-6f))
             return 1e9f;
+        const float u = (clip[0] / clip[3] + 1.0f) * 0.5f;
+        const float v = (1.0f - clip[1] / clip[3]) * 0.5f;
         worst = std::fmax (worst, std::fabs (u - kPixels[i][0] / kWindowWidth));
         worst = std::fmax (worst, std::fabs (v - kPixels[i][1] / kWindowHeight));
     }
     return worst;
 }
 
+// The largest difference in x, y and w -- the image -- between T(-eye) * b0 and a
+// camera Archicad verified, relative to that camera's largest element.
+float ImageDifference (const float b0[16], const float view[16], const float reference[16])
+{
+    double drawn[16];
+    cl::ViewProjection (b0, view, drawn);
+    float scale = 0.0f;
+    for (int i = 0; i < 16; ++i)
+        scale = std::fmax (scale, std::fabs (reference[i]));
+    float worst = 0.0f;
+    for (int r = 0; r < 4; ++r) {
+        for (int c : { 0, 1, 3 })
+            worst = std::fmax (worst, std::fabs (float (drawn[r * 4 + c]) - reference[r * 4 + c]));
+    }
+    return worst / scale;
+}
+
+const float kIdentity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+
 } // namespace
 
-TEST (CameraLayout, TheLastSessionThatLockedWasSeparate)
-{
-    EXPECT_EQ (cl::Classify (kSeparateProjection), cl::Layout::Separate);
-    float decoded[16];
-    EXPECT_EQ (cl::Decode (kSeparateView, kSeparateProjection, decoded), cl::Layout::Separate);
-    EXPECT_EQ (std::memcmp (decoded, kSeparateProjection, sizeof (decoded)), 0) << "a projection is passed through";
-}
-
-TEST (CameraLayout, TheFirstSessionThatFailedWasCombined)
-{
-    EXPECT_FALSE (cl::IsProjection (kCombinedB2)) << "b2 is not a projection";
-    EXPECT_EQ (cl::Classify (kCombinedB2), cl::Layout::Combined);
-}
-
-TEST (CameraLayout, ASteepViewIsNotMistakenForAProjection)
-{
-    ASSERT_GT (std::fabs (kSteepB2[11]), 0.5f) << "the case the old census test got wrong";
-    EXPECT_EQ (cl::Classify (kSteepB2), cl::Layout::Combined);
-}
-
 // ⚠️ THE ACCEPTANCE TEST OF THE WHOLE DECODE: the pair the census scores must put
-// the model where Archicad does, and the reading the census used before must not.
-TEST (CameraLayout, TheDecodedPairReproducesArchicadsOwnPixels)
+// the model where Archicad does -- and `b0` without the eye must not.
+TEST (CameraLayout, TheRelativeCameraPutsTheModelWhereArchicadDoes)
 {
     float decoded[16];
-    ASSERT_EQ (cl::Decode (kCombinedView, kCombinedB2, decoded), cl::Layout::Combined);
-    EXPECT_LT (WorstError (kCombinedView, decoded), 0.002f) << "within 0.2% of the window at nine model points";
-    EXPECT_GT (WorstError (kCombinedView, kCombinedB2), 0.05f) << "p * b1 * b2 is the reading that never locked";
+    ASSERT_EQ (cl::Decode (kStillView, kStillB0, decoded), cl::Layout::Relative);
+    EXPECT_LT (WorstError (kStillView, decoded), 0.002f) << "within 0.2% of the window at nine model points";
+    EXPECT_GT (WorstError (kIdentity, kStillB0), 0.5f) << "b0 is camera-relative: without the eye it is nowhere";
 }
 
-TEST (CameraLayout, TheDecodedProjectionIsTheCamerasProjection)
+// The same image as the camera the census used to read, in every state measured.
+TEST (CameraLayout, B0AndB1ReproduceTheVerifiedCameraInEveryState)
 {
+    EXPECT_LT (ImageDifference (kStillB0, kStillView, kStillB2), 1e-5f) << "plane hidden, 12:05:59";
+    EXPECT_LT (ImageDifference (kHiddenB0, kHiddenView, kHiddenB2), 1e-5f) << "plane hidden, 16:16:05";
+    float product[16];
+    Multiply (kShownView, kShownB2, product);
+    EXPECT_LT (ImageDifference (kShownB0, kShownView, product), 1e-5f) << "plane shown, the census's old b1 * b2";
+}
+
+// 21:00:33: the state that never locked. `b2` is a pixel-to-NDC map; the camera is
+// still there, and the model's centre projects into the window.
+TEST (CameraLayout, WhileOrbitingB2IsAScreenMapAndTheCameraStillDecodes)
+{
+    EXPECT_FALSE (cl::IsViewProjection (kOrbitB2)) << "b2 is not a camera";
+    EXPECT_EQ (cl::RotationMismatch (kOrbitB0, kOrbitView), 0.0) << "one camera: the same floats";
     float decoded[16];
-    ASSERT_EQ (cl::Decode (kCombinedView, kCombinedB2, decoded), cl::Layout::Combined);
-    EXPECT_TRUE (cl::IsProjection (decoded)) << "b1 and b2 of a still view belong to one camera";
-    EXPECT_NEAR (decoded[0], 1.3033f, 1e-3f);
-    EXPECT_NEAR (decoded[5], 2.4811f, 1e-3f); // 2288 / 1202 x 1.3033: the window's aspect
-    EXPECT_NEAR (decoded[11], -1.0f, 1e-4f);
-    EXPECT_NEAR (decoded[10], float (-cl::kDepthA), 1e-4f) << "the depth is ours";
-    EXPECT_NEAR (decoded[14], float (cl::kDepthB), 1e-4f);
+    ASSERT_EQ (cl::Decode (kOrbitView, kOrbitB0, decoded), cl::Layout::Relative);
+    float m[16];
+    Multiply (kOrbitView, decoded, m);
+    float clip[4];
+    Clip (kPoints[8], m, clip);
+    ASSERT_GT (clip[3], 0.0f);
+    EXPECT_LT (std::fabs (clip[0] / clip[3]), 1.0f);
+    EXPECT_LT (std::fabs (clip[1] / clip[3]), 1.0f);
+    EXPECT_GT (clip[2] / clip[3], 0.0f);
+    EXPECT_LT (clip[2] / clip[3], 1.0f);
 }
 
-// ⚠️ WHY THE COMBINED LAYOUT CARRIES OUR DEPTH: with the editing plane hidden,
-// Archicad's own put every model corner beyond its far plane, so the census
-// anchor was refused and our draws would have been clipped.
-TEST (CameraLayout, ArchicadsOwnDepthPutTheModelBeyondItsFarPlane)
+// The helper's `b1` is the previous image's camera; `b0` is this image's rotation.
+TEST (CameraLayout, ThePreviousImagesHelperIsRefusedWhileTheCameraTurns)
 {
-    const float identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
-    for (int i = 0; i < 9; ++i) {
-        float m[16];
-        Multiply (identity, kCombinedB2, m);
-        const float w = kPoints[i][0] * m[3] + kPoints[i][1] * m[7] + kPoints[i][2] * m[11] + m[15];
-        const float z = kPoints[i][0] * m[2] + kPoints[i][1] * m[6] + kPoints[i][2] * m[10] + m[14];
-        EXPECT_GT (z / w, 1.0f) << "point " << i << " at " << w << " m";
-    }
+    EXPECT_GT (cl::RotationMismatch (kOrbitB0, kOrbitHelperView), 1e-3);
+    float decoded[16];
+    EXPECT_EQ (cl::Decode (kOrbitHelperView, kOrbitB0, decoded), cl::Layout::Neither);
 }
 
 TEST (CameraLayout, OurDepthEnclosesTheModel)
 {
     float decoded[16];
-    ASSERT_EQ (cl::Decode (kCombinedView, kCombinedB2, decoded), cl::Layout::Combined);
+    ASSERT_EQ (cl::Decode (kStillView, kStillB0, decoded), cl::Layout::Relative);
     float m[16];
-    Multiply (kCombinedView, decoded, m);
+    Multiply (kStillView, decoded, m);
     for (int i = 0; i < 9; ++i) {
-        const float w = kPoints[i][0] * m[3] + kPoints[i][1] * m[7] + kPoints[i][2] * m[11] + m[15];
-        const float z = kPoints[i][0] * m[2] + kPoints[i][1] * m[6] + kPoints[i][2] * m[10] + m[14];
-        EXPECT_GT (z / w, 0.0f) << "point " << i;
-        EXPECT_LT (z / w, 1.0f) << "point " << i;
-        EXPECT_NEAR (z / w, float (cl::kDepthA + cl::kDepthB / w), 1e-5f) << "point " << i;
+        float clip[4];
+        Clip (kPoints[i], m, clip);
+        EXPECT_GT (clip[2] / clip[3], 0.0f) << "point " << i;
+        EXPECT_LT (clip[2] / clip[3], 1.0f) << "point " << i;
+        EXPECT_NEAR (clip[2] / clip[3], float (cl::kDepthA + cl::kDepthB / clip[3]), 1e-5f) << "point " << i;
     }
 }
 
-TEST (CameraLayout, AMovingSampleIsJudgedOnB2Alone)
+// ⚠️ THE SHADER AND THE SCORER COMPUTE ONE THING. `camerashader::Compose` writes
+// `(world - eye) * Projection` with `eye = -View[3].xyz * transpose (View3x3)`; the
+// census scores `view * decoded`. Emulated here in the shader's own terms.
+TEST (CameraLayout, TheShaderFormulaIsTheDecode)
 {
-    EXPECT_EQ (cl::Classify (kMovingB2), cl::Layout::Combined);
     float decoded[16];
-    ASSERT_EQ (cl::Decode (kMovingView, kMovingB2, decoded), cl::Layout::Combined);
-    EXPECT_FALSE (cl::IsProjection (decoded)) << "b1 is another camera's view";
-    float product[16];
-    Multiply (kMovingView, decoded, product);
-    double drawn[16];
-    cl::DecodedDepth (kMovingB2, drawn); // b2 itself, at our depth
-    for (int i = 0; i < 16; ++i)
-        EXPECT_NEAR (product[i], float (drawn[i]), 1e-3f * (1.0f + std::fabs (float (drawn[i])))) << "element " << i;
-    for (int i : { 0, 1, 3, 4, 5, 7, 8, 9, 11, 12, 13, 15 })
-        EXPECT_EQ (float (drawn[i]), kMovingB2[i]) << "x, y and w are Archicad's: element " << i;
+    ASSERT_EQ (cl::Decode (kOrbitView, kOrbitB0, decoded), cl::Layout::Relative);
+    float m[16];
+    Multiply (kOrbitView, decoded, m);
+    float eye[3];
+    for (int i = 0; i < 3; ++i)
+        eye[i] = -(kOrbitView[12] * kOrbitView[i * 4 + 0] + kOrbitView[13] * kOrbitView[i * 4 + 1] +
+                   kOrbitView[14] * kOrbitView[i * 4 + 2]);
+    for (int p = 0; p < 9; ++p) {
+        const float relative[3] = { kPoints[p][0] - eye[0], kPoints[p][1] - eye[1], kPoints[p][2] - eye[2] };
+        float shader[4];
+        Clip (relative, kOrbitB0, shader);
+        shader[2] = float (cl::kDepthA) * shader[3] + float (cl::kDepthB);
+        float scored[4];
+        Clip (kPoints[p], m, scored);
+        for (int c = 0; c < 4; ++c)
+            EXPECT_NEAR (shader[c], scored[c], 1e-3f * (1.0f + std::fabs (scored[c]))) << "point " << p << " c " << c;
+    }
 }
 
-TEST (CameraLayout, NothingThatIsNotACameraDecodes)
+TEST (CameraLayout, NothingThatIsNotOneCameraDecodes)
 {
-    EXPECT_EQ (cl::Classify (kScreenMap), cl::Layout::Neither);
-    EXPECT_EQ (cl::Classify (kParallel), cl::Layout::Neither) << "parallel projections stay unsupported";
     float decoded[16];
-    EXPECT_EQ (cl::Decode (kCombinedView, kScreenMap, decoded), cl::Layout::Neither);
-    EXPECT_EQ (std::memcmp (decoded, kScreenMap, sizeof (decoded)), 0) << "passed through unchanged";
-    // `b0` has the shape too; the census never reads it, and this is why that matters.
-    EXPECT_EQ (cl::Classify (kRotationOnlyB0), cl::Layout::Combined);
-}
-
-TEST (CameraLayout, ACombinedB2OverASingularViewIsNotDecoded)
-{
+    EXPECT_EQ (cl::Decode (kOrbitView, kOrbitB2, decoded), cl::Layout::Neither) << "a screen map in the window";
+    EXPECT_EQ (std::memcmp (decoded, kOrbitB2, sizeof (decoded)), 0) << "passed through unchanged";
+    EXPECT_EQ (cl::Decode (kStillView, kParallel, decoded), cl::Layout::Neither) << "parallel stays unsupported";
+    EXPECT_EQ (cl::Decode (kStillView, kStillB2, decoded), cl::Layout::Neither) << "view x projection has an eye";
+    EXPECT_EQ (cl::Decode (kStillB0, kStillB0, decoded), cl::Layout::Neither) << "b1 must be a rigid view";
+    float scaled[16];
+    std::memcpy (scaled, kStillView, sizeof (scaled));
+    for (int i = 0; i < 11; ++i)
+        scaled[i] *= 1.1f;
+    EXPECT_EQ (cl::Decode (scaled, kStillB0, decoded), cl::Layout::Neither) << "a scaled view is not rigid";
     const float singular[16] = {};
-    float decoded[16];
-    EXPECT_EQ (cl::Decode (singular, kCombinedB2, decoded), cl::Layout::Neither);
+    EXPECT_EQ (cl::Decode (singular, kStillB0, decoded), cl::Layout::Neither);
 }
 
-TEST (CameraLayout, TheGateWantsEverySampleDecodedInOneLayout)
+TEST (CameraLayout, TheGateWantsEverySampleDecoded)
 {
-    EXPECT_TRUE (cl::Decodes (32, 32, 0));   // separate
-    EXPECT_TRUE (cl::Decodes (32, 32, 32));  // combined
-    EXPECT_FALSE (cl::Decodes (32, 32, 5));  // Archicad switched while this group was watched
-    EXPECT_FALSE (cl::Decodes (32, 31, 0));  // one screen map among the samples
-    EXPECT_FALSE (cl::Decodes (0, 0, 0));
+    EXPECT_TRUE (cl::Decodes (32, 32));
+    EXPECT_FALSE (cl::Decodes (32, 31)) << "one screen map among the samples";
+    EXPECT_FALSE (cl::Decodes (0, 0));
 }
 
-TEST (CameraLayout, TheLayoutRidesInTheInterpretation)
+TEST (CameraLayout, TheRelativeLayoutHasOneReading)
 {
     EXPECT_EQ (cl::Interpretation (0, false), 0u);
-    EXPECT_EQ (cl::Interpretation (2, true), 2u | cl::kCombined);
-    EXPECT_TRUE (cl::IsCombined (cl::Interpretation (0, true)));
-    EXPECT_FALSE (cl::IsCombined (0xffffffffu)) << "no interpretation is not a layout";
+    EXPECT_EQ (cl::Interpretation (2, false), 2u);
+    EXPECT_EQ (cl::Interpretation (2, true), cl::kRelative) << "the eye is derived from the row-vector reading";
+    EXPECT_TRUE (cl::IsRelative (cl::Interpretation (0, true)));
+    EXPECT_FALSE (cl::IsRelative (0xffffffffu)) << "no interpretation is not a layout";
+    EXPECT_EQ (cl::kProjectionWindow, 0u) << "the projection is copied from b0";
 }
 
 TEST (CameraShaderSource, EverySlotRoundTrips)
@@ -271,8 +292,8 @@ TEST (CameraShaderSource, AnUndeclarableOrMissingShaderFallsBackToVariantZero)
     int dummy = 0;
     int* shaders[cs::kShaderSlots] = {};
     shaders[0] = &dummy;
-    shaders[cs::SlotOf (1u | cl::kCombined)] = &dummy;
-    EXPECT_EQ (cs::SlotToBind (1u | cl::kCombined, shaders), cs::SlotOf (1u | cl::kCombined));
+    shaders[cs::SlotOf (cl::kRelative)] = &dummy;
+    EXPECT_EQ (cs::SlotToBind (cl::kRelative, shaders), cs::SlotOf (cl::kRelative));
     EXPECT_EQ (cs::SlotToBind (2u, shaders), 0u) << "missing shader";
     EXPECT_EQ (cs::SlotToBind (5u, shaders), 0u) << "reversed order";
     EXPECT_EQ (cs::SlotToBind (0xffffffffu, shaders), 0u) << "nothing selected";
@@ -281,13 +302,15 @@ TEST (CameraShaderSource, AnUndeclarableOrMissingShaderFallsBackToVariantZero)
 TEST (CameraShaderSource, EachLayoutComposesItsOwnClip)
 {
     char separate[cs::kMaxSource] = {};
-    char combined[cs::kMaxSource] = {};
+    char relative[cs::kMaxSource] = {};
     ASSERT_TRUE (cs::Compose (0u, "BODY", separate, sizeof (separate)));
-    ASSERT_TRUE (cs::Compose (cl::kCombined, "BODY", combined, sizeof (combined)));
-    const std::string a (separate), b (combined);
+    ASSERT_TRUE (cs::Compose (cl::kRelative, "BODY", relative, sizeof (relative)));
+    const std::string a (separate), b (relative);
     EXPECT_NE (a.find ("return mul (mul (world, View), Projection);"), std::string::npos);
-    EXPECT_NE (b.find ("float4 c = mul (world, Projection); c.z = "), std::string::npos) << "our depth";
-    EXPECT_EQ (b.find ("mul (world, View)"), std::string::npos) << "the view is already in b2";
+    EXPECT_NE (b.find ("float3 eye = -mul (View[3].xyz, transpose ((float3x3) View));"), std::string::npos);
+    EXPECT_NE (b.find ("mul (float4 (world.xyz - eye * world.w, world.w), Projection); c.z = "), std::string::npos)
+        << "the point moved to the eye, then our depth";
+    EXPECT_EQ (b.find ("mul (mul (world, View), Projection)"), std::string::npos) << "b0 already holds the rotation";
     EXPECT_EQ (a.substr (a.size () - 4), "BODY");
     EXPECT_FALSE (cs::Compose (4u, "BODY", separate, sizeof (separate))) << "reversed order refused";
 }

@@ -6,12 +6,13 @@
 // docs/architecture/api/HANDOFF-OverlayPatch.md stage 5).
 //
 // ⚠️ ONE COPY, BECAUSE TWO WOULD DRIFT AND NOTHING WOULD COMPARE THEM. These
-// four lines are the entire camera contract: `b1` is Archicad's view, `b2` its
-// projection, both 256-byte windows with the matrix at offset 0, and whether
-// each is read `row_major` or `column_major` is what the census MEASURED rather
-// than what anyone assumed. Run thirty-three spent a whole run with the census
-// proving one reading while the shader implemented another, because the claim
-// lived in a comment instead of in the code.
+// four lines are the entire camera contract: our `b1` holds Archicad's view and
+// our `b2` the window its projection was copied from (Archicad's `b0` since
+// 2026-09-27, CameraLayout.hpp), both 256-byte windows with the matrix at offset
+// 0, and whether each is read `row_major` or `column_major` is what the census
+// MEASURED rather than what anyone assumed. Run thirty-three spent a whole run
+// with the census proving one reading while the shader implemented another,
+// because the claim lived in a comment instead of in the code.
 //
 // The ghost mesh and the proof primitives are different shaders with different
 // inputs, and they must read the camera identically. So the declarations live
@@ -21,7 +22,8 @@
 //
 //     bit 0 -- the VIEW is read transposed       (column_major)
 //     bit 1 -- the PROJECTION is read transposed (column_major)
-//     bit 3 -- `b2` holds view x projection      (cameralayout::kCombined)
+//     bit 3 -- the projection window is Archicad's rotation x projection, drawn
+//              as (p - eye) * b0                 (cameralayout::kRelative)
 //
 // so no translation is ever needed between what was measured and what is bound.
 // Variants 4 to 7 are reversed multiplication orders, which no declaration can
@@ -32,11 +34,10 @@
 // D3D11.1 minimum granularity -- and a 4x4 fills it exactly.
 //
 // ⚠️ BODIES NEVER MULTIPLY `View` AND `Projection` THEMSELVES; THEY CALL
-// `ArchicadClip`. Archicad's `b2` is the projection in one layout and view x
-// projection in the other (CameraLayout.hpp), and the product a body would
-// write is right in only one of them. The layout is the interpretation's
-// `cameralayout::kCombined` bit, so the camera contract stays in these lines.
-// `View` keeps its meaning in both: `b1` is the view either way.
+// `ArchicadClip`. The census's camera is Archicad's rotation x projection moved to
+// the eye (CameraLayout.hpp), and the product a body would write is wrong for it.
+// The layout is the interpretation's `cameralayout::kRelative` bit, so the camera
+// contract stays in these lines. `View` is Archicad's view in every layout.
 
 #include "ArchViz/Dxgi/CameraLayout.hpp"
 
@@ -53,20 +54,22 @@ constexpr uint32_t kDeclarableVariants = 4;
 // Every declarable variant in each layout; pipelines size their shaders by this.
 constexpr uint32_t kShaderSlots = 2 * kDeclarableVariants;
 
-// A transpose (bits 0 and 1), optionally in the combined layout, and nothing else.
+// A transpose (bits 0 and 1), optionally in the relative layout, and nothing else.
 inline bool Declarable (uint32_t interpretation)
 {
-    return (interpretation & ~(3u | cameralayout::kCombined)) == 0;
+    return (interpretation & ~(3u | cameralayout::kRelative)) == 0;
 }
 
 inline uint32_t SlotOf (uint32_t interpretation)
 {
-    return (interpretation & 3u) | (cameralayout::IsCombined (interpretation) ? kDeclarableVariants : 0u);
+    return (interpretation & 3u) | (cameralayout::IsRelative (interpretation) ? kDeclarableVariants : 0u);
 }
 
+// Every slot its own declaration. Not `cameralayout::Interpretation`, which folds a
+// relative choice onto its one reading: the slots exist for what can be declared.
 inline uint32_t InterpretationOfSlot (uint32_t slot)
 {
-    return cameralayout::Interpretation (slot & 3u, (slot & kDeclarableVariants) != 0);
+    return (slot & 3u) | ((slot & kDeclarableVariants) != 0 ? cameralayout::kRelative : 0u);
 }
 
 // The slot a draw binds: the interpretation's own, or variant 0 when it has no
@@ -85,18 +88,22 @@ inline bool Compose (uint32_t interpretation, const char* body, char* out, size_
     if (!Declarable (interpretation) || body == nullptr || out == nullptr)
         return false;
     const char* const layouts[2] = { "row_major", "column_major" };
-    const bool combined = cameralayout::IsCombined (interpretation);
-    // Combined: Archicad's x, y and w, and OUR depth -- the same line
-    // `cameralayout::DecodedDepth` applies to what the census scores.
-    char clip[192] = {};
-    if (combined)
+    const bool relative = cameralayout::IsRelative (interpretation);
+    // Relative: the eye from `View` (eye = -t * R^T, `cameralayout::Eye`), the
+    // point moved to it, through Archicad's rotation x projection -- x, y and w are
+    // Archicad's -- and OUR depth, the line `cameralayout::DecodedDepth` applies to
+    // what the census scores.
+    char clip[320] = {};
+    if (relative)
         _snprintf_s (clip, sizeof (clip), _TRUNCATE,
-                     "float4 c = mul (world, Projection); c.z = %.9g * c.w + (%.9g); return c;", cameralayout::kDepthA,
-                     cameralayout::kDepthB);
+                     "float3 eye = -mul (View[3].xyz, transpose ((float3x3) View)); "
+                     "float4 c = mul (float4 (world.xyz - eye * world.w, world.w), Projection); "
+                     "c.z = %.9g * c.w + (%.9g); return c;",
+                     cameralayout::kDepthA, cameralayout::kDepthB);
     else
         _snprintf_s (clip, sizeof (clip), _TRUNCATE, "return mul (mul (world, View), Projection);");
-    // `ArchicadParallel`: `_44` alone is 1 for a parallel projection; for view x
-    // projection the whole w column must also be (0, 0, 0, 1).
+    // `ArchicadParallel`: `_44` alone is 1 for a parallel projection; for a
+    // rotation x projection the whole w column must also be (0, 0, 0, 1).
     const int written =
         _snprintf_s (out, outBytes, _TRUNCATE,
                      "cbuffer ArchicadView : register (b1)       { %s float4x4 View; };\n"
@@ -105,7 +112,7 @@ inline bool Compose (uint32_t interpretation, const char* body, char* out, size_
                      "bool ArchicadParallel () { return %s; }\n"
                      "%s",
                      layouts[interpretation & 1u], layouts[(interpretation >> 1) & 1u], clip,
-                     combined ? "all (abs (float3 (Projection._14, Projection._24, Projection._34)) < 1e-4) && "
+                     relative ? "all (abs (float3 (Projection._14, Projection._24, Projection._34)) < 1e-4) && "
                                 "abs (Projection._44 - 1.0) < 1e-4"
                               : "abs (Projection._44 - 1.0) < 1e-4",
                      body);

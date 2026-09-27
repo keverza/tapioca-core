@@ -577,8 +577,7 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
     term[kGateEdgePixels] = group.medianMaxEdgePixels >= g_eligibility.minMedianMaxEdgePixels;
     // Centre error is the weak term; see the tie-break note in the header.
     term[kGateCentreError] = !(group.errorSamples > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError);
-    term[kGateProjectionDivides] =
-        cameralayout::Decodes (group.projectionSamples, group.projectionDivideSamples, group.combinedSamples);
+    term[kGateProjectionDivides] = cameralayout::Decodes (group.projectionSamples, group.projectionDivideSamples);
 
     ++g_gate.evaluated;
     uint32_t failures = 0;
@@ -741,7 +740,7 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     chosen.viewNumConstants = best->viewNumConstants;
     chosen.projectionBuffer = best->projectionBuffer;
     chosen.projectionNumConstants = best->projectionNumConstants;
-    chosen.variant = cameralayout::Interpretation (best->winningVariant, best->combinedSamples > 0);
+    chosen.variant = cameralayout::Interpretation (best->winningVariant, best->relativeSamples > 0);
     chosen.samples = best->samplesScored;
     chosen.modelCoverage = bestCoverage;
     chosen.insideClip = bestInside;

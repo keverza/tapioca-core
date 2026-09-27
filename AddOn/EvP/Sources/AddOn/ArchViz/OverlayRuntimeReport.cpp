@@ -434,8 +434,8 @@ void CameraBind ()
     _snprintf_s (line, sizeof (line), _TRUNCATE,
                  "candidate=g%u interp=%u%s occurrence=%u coverage=%.0f%% valid=%.0f%% centre=%.3f "
                  "candidates=%u runnerUp=%.0f%% calibrationFrame=%llu/%llu selected=%s reason=%s",
-                 bind.groupId, bind.variant & ~dxgi::cameralayout::kCombined,
-                 dxgi::cameralayout::IsCombined (bind.variant) ? " layout=view*projection" : "", bind.occurrenceIndex,
+                 bind.groupId, bind.variant & ~dxgi::cameralayout::kRelative,
+                 dxgi::cameralayout::IsRelative (bind.variant) ? " layout=b0+b1" : "", bind.occurrenceIndex,
                  bind.coverage * 100.0f, bind.insideClip * 100.0f, bind.centreError, bind.candidates,
                  bind.runnerUpCoverage * 100.0f, (unsigned long long) bind.calibrationFrames,
                  (unsigned long long) bind.calibrationTarget, bind.selected ? "yes" : "no",

@@ -496,7 +496,7 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
                      bool altColour)
 {
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
-    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
+    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[cameralayout::kProjectionWindow];
 
     // ⚠️ EVERYTHING THIS DRAW DISTURBS IS PUT BACK BY `PipelineStateGuard`.
     // The former copies here, in `InjectionProbes` and in `DepthCheckpoints`
@@ -722,8 +722,9 @@ void InjectAtPresent (ID3D11DeviceContext* context, IDXGISwapChain* swapChain, u
     }
     const contextstate::SceneDrawState fresh =
         source == CameraSource::CensusSelectedGroup ? SnapshotDraw () : contextstate::LastCameraDraw ();
-    const bool freshIsUsable = fresh.valid && fresh.vsConstantBuffers[1].numConstants == kExpectedWindowConstants &&
-                               fresh.vsConstantBuffers[2].numConstants == kExpectedWindowConstants;
+    const bool freshIsUsable =
+        fresh.valid && fresh.vsConstantBuffers[1].numConstants == kExpectedWindowConstants &&
+        fresh.vsConstantBuffers[cameralayout::kProjectionWindow].numConstants == kExpectedWindowConstants;
 
     oracle::FrameState state = oracle::FrameState::InvalidScene;
     bool draw = false;
@@ -922,7 +923,7 @@ void InjectIfReady (ID3D11DeviceContext* context)
     // verified scene draw, not from whatever is live now -- Archicad may legally
     // change shader and constant buffers between that draw and this call.
     const contextstate::ConstantBufferBinding& view = draw.vsConstantBuffers[1];
-    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[2];
+    const contextstate::ConstantBufferBinding& projection = draw.vsConstantBuffers[cameralayout::kProjectionWindow];
     if (!view.IsBound () || !projection.IsBound ()) {
         g_skipNoCamera.fetch_add (1, std::memory_order_relaxed);
         return;

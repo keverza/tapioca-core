@@ -405,7 +405,7 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
                                                    slot.pendingIndexCount, slot.pendingGeneration, view, projection);
     slot.group.projectionSamples += 1;
     slot.group.projectionDivideSamples += camera ? 1 : 0;
-    slot.group.combinedSamples += layout == cameralayout::Layout::Combined ? 1 : 0;
+    slot.group.relativeSamples += layout == cameralayout::Layout::Relative ? 1 : 0;
     injection::oracle::VariantScore scores[kVariantCount];
     injection::oracle::ScoreVariants (view, decoded, viewport, scores);
     RecordSample (slot, scores);
@@ -558,13 +558,16 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     injection::depth::OnDraw (context, live.depthStencil, renderstate::ModelSceneGeneration ());
     const contextstate::ConstantBufferBinding& view = live.vsConstantBuffers[1];
     const contextstate::ConstantBufferBinding& projection = live.vsConstantBuffers[2];
+    // The camera's projection is COPIED from b0; `b2` only names the draw (CameraLayout.hpp).
+    const contextstate::ConstantBufferBinding& rotation = live.vsConstantBuffers[cameralayout::kProjectionWindow];
 
     // ⚠️ THE ONLY ADMISSION TEST, AND THE LEARNER HAS NO PART IN IT. Both camera
     // windows, bound, at the 256-byte shape stage 3 identified -- whatever pass
     // the draw belongs to.
-    if (!bound.Valid () || !view.IsBound () || !projection.IsBound ())
+    if (!bound.Valid () || !view.IsBound () || !projection.IsBound () || !rotation.IsBound ())
         return;
-    if (view.numConstants != kCameraWindowConstants || projection.numConstants != kCameraWindowConstants)
+    if (view.numConstants != kCameraWindowConstants || projection.numConstants != kCameraWindowConstants ||
+        rotation.numConstants != kCameraWindowConstants)
         return;
     ++g_stats.drawsQualified;
 
@@ -886,10 +889,10 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     box.right = box.left + kWindowBytes;
     context->CopySubresourceRegion (found->stagingView, 0, 0, 0, 0,
                                     reinterpret_cast<ID3D11Buffer*> (uintptr_t (view.buffer)), 0, &box);
-    box.left = projection.ByteOffset ();
+    box.left = rotation.ByteOffset ();
     box.right = box.left + kWindowBytes;
     context->CopySubresourceRegion (found->stagingProjection, 0, 0, 0, 0,
-                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
+                                    reinterpret_cast<ID3D11Buffer*> (uintptr_t (rotation.buffer)), 0, &box);
     found->copyPending = true;
     found->pendingIndexCount = indexCount;
     found->pendingGeneration = modelGeneration;
