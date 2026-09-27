@@ -75,7 +75,7 @@ internal static class ArchicadPresetBindings
             // republished; a project switch/failure explicitly clears all.
             try
             {
-                if (component is not ArchicadConnectionStatus)
+                if (component is ArchicadChoiceInput or ArchicadStoryInput)
                     ApplyPresets(component);
                 component.Expire();
                 documents.Add(document);
@@ -98,6 +98,9 @@ internal static class ArchicadPresetBindings
         ArchicadLineTypeInput => changes.HasFlag(ArchicadProjectOptions.Changed.LineTypes),
         ArchicadStoryInput => changes.HasFlag(ArchicadProjectOptions.Changed.Stories),
         ArchicadConnectionStatus => true,
+        ArchicadElement or ArchicadElementHeaders => true,
+        ArchicadGetContours or ArchicadGetRelationships or ArchicadGetProperties or
+            ArchicadGetGeometry or ArchicadGdlParameters => true,
         _ => false
     };
 

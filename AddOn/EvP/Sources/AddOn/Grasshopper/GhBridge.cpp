@@ -666,7 +666,22 @@ void GhBridge::Run ()
                             refusal = "another GH2 request is still pending";
                         if (!gh2ShutdownRequested && gh2PendingRequest == nullptr &&
                              ((request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") ||
-                              (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                               (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                                (request.command == "Tapioca.GetGhElementHeaders" &&
+                                 request.parameters.size () <= 5000 &&
+                                 request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
+                                 request.parameters.size () >= 12 &&
+                                 request.parameters.compare (request.parameters.size () - 2, 2, "]}") == 0) ||
+                                (request.command == "Tapioca.GetGhElementQuery" &&
+                                 request.parameters.size () <= 11000 &&
+                                 request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
+                                 request.parameters.find (",\"kind\":") != std::string::npos &&
+                                 request.parameters.find (",\"mode\":") != std::string::npos &&
+                                  request.parameters.find (",\"search\":") != std::string::npos &&
+                                  request.parameters.find (",\"selectors\":[") != std::string::npos &&
+                                  request.parameters.find (",\"offset\":") != std::string::npos &&
+                                  request.parameters.size () >= 2 &&
+                                  request.parameters.back () == '}') ||
                               (request.command == "Tapioca.SetSelection" && request.parameters.size () <= 200000 &&
                                request.parameters.rfind ("{\"elements\":[", 0) == 0 &&
                                request.parameters.size () >= 13 &&

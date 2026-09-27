@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Eto.Forms;
+using Grasshopper2.Data;
 using Grasshopper2.Components;
 using Grasshopper2.Doc.Attributes;
 using Grasshopper2.Parameters;
@@ -73,12 +74,23 @@ public sealed class ArchicadSelectionInput : ArchicadInputBase
 
     protected override void AddInputs(InputAdder inputs) { }
 
-    protected override void AddOutputs(OutputAdder outputs) =>
+    protected override void AddOutputs(OutputAdder outputs)
+    {
         outputs.AddText("Element GUIDs", "IDs", "Saved Archicad element identifiers; geometry is not yet available.", Access.Twig);
+        outputs.Add(new AcElementParameter("Elements", "E", "Project-bound Archicad element references.", Access.Twig));
+    }
 
     protected override void Process(IDataAccess access)
     {
         access.SetTwig(0, elements.Select(id => id.ToString("D")).ToArray(), null, null);
+        if (!string.IsNullOrEmpty(projectKey))
+            access.SetTwig(1, Garden.TwigFromPears(elements.Select(id =>
+            {
+                var element = new AcElementRef(projectKey, id);
+                return Garden.Pear(element, AcElementData.Provenance(element));
+            })));
+        else if (elements.Length != 0)
+            access.AddWarning("Unbound selection", "The saved GUIDs have no project key; Update the selection before using element references.");
         if (!string.IsNullOrEmpty(issue))
             access.AddWarning("Selection action", issue);
     }
@@ -192,14 +204,14 @@ public sealed class ArchicadSelectionInput : ArchicadInputBase
         catch (InvalidOperationException) { }
     }
 
-    private static JsonElement ValidateReply(string json)
+    internal static JsonElement ValidateReply(string json, string action = "selection")
     {
         using JsonDocument response = JsonDocument.Parse(json);
         JsonElement root = response.RootElement;
         if (root.ValueKind != JsonValueKind.Object ||
             !root.TryGetProperty("ok", out JsonElement ok) ||
             (ok.ValueKind != JsonValueKind.True && ok.ValueKind != JsonValueKind.False))
-            throw new InvalidDataException("Archicad returned an invalid selection reply.");
+            throw new InvalidDataException($"Archicad returned an invalid {action} reply.");
         if (ok.ValueKind == JsonValueKind.False)
         {
             string reason = "No reason was provided.";
@@ -216,10 +228,10 @@ public sealed class ArchicadSelectionInput : ArchicadInputBase
                     reason = string.IsNullOrEmpty(code) ? message : $"[{code}] {message}";
                 }
             }
-            throw new InvalidDataException("Archicad selection request failed: " + reason[..Math.Min(reason.Length, 512)]);
+            throw new InvalidDataException($"Archicad {action} request failed: " + reason[..Math.Min(reason.Length, 512)]);
         }
         if (!root.TryGetProperty("data", out JsonElement data) || data.ValueKind != JsonValueKind.Object)
-            throw new InvalidDataException("Archicad selection reply has no data.");
+            throw new InvalidDataException($"Archicad {action} reply has no data.");
         return data.Clone();
     }
 

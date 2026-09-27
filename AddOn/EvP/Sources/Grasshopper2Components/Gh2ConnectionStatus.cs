@@ -51,6 +51,20 @@ internal static class Gh2ConnectionStatus
                 new InvalidOperationException("Attach to Archicad before capturing its selection."));
     }
 
+    internal static Task<string> ReadElementHeadersAsync(IReadOnlyList<Guid> ids)
+    {
+        lock (Sync)
+            return client?.ReadElementHeadersAsync(ids) ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before reading element headers."));
+    }
+    internal static Task<string> ReadElementQueryAsync(IReadOnlyList<Guid> ids, string kind, string mode,
+        string search, IReadOnlyList<string> selectors, int offset = 0)
+    {
+        lock (Sync)
+            return client?.ReadElementQueryAsync(ids, kind, mode, search, selectors, offset) ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before querying elements."));
+    }
+
     internal static Task<string> ReadProjectInfoAsync()
     {
         lock (Sync)

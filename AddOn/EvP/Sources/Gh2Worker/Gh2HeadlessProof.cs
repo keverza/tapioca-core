@@ -80,6 +80,82 @@ internal static class Gh2HeadlessProof
                 ?? throw new InvalidOperationException("GH2 did not register Archicad Selection.");
             if (!document.Objects.Add(selection))
                 throw new InvalidOperationException("The GH2 selection component was not added.");
+            if (ObjectProxies.FindById(new Guid("4aaab802-849a-443c-854a-83631e85968f")) is not null)
+                throw new InvalidOperationException("AC Deconstruct is still registered.");
+            Type referenceType = selection.GetType().Assembly.GetType("TapiocaGH2.AcElementRef")!;
+            if (Grasshopper2.Types.Assistant.TypeAssistantServer.FindByType(referenceType)?.Type != referenceType)
+                throw new InvalidOperationException("GH2 did not harvest the Archicad reference assistant.");
+            var headerId = new Guid("5b531b0f-7b19-4cb1-8b05-4bdc349be451");
+            Component headers = (Component)(ObjectProxies.TryEmit<IDocumentObject>(headerId)
+                ?? throw new InvalidOperationException("GH2 did not register AC Element Headers."));
+            if (!document.Objects.Add(headers) ||
+                !Connections.Connect(((Component)selection).Parameters.Output(1), headers.Parameters.Input(0)))
+                throw new InvalidOperationException("The typed reference could not wire to the lazy header query.");
+            if (headers.Parameters.Inputs.Count() != 1 || headers.Parameters.Outputs.Count() != 4 ||
+                headers.Parameters.Output(0).Nomen.Name != "Type" ||
+                headers.Parameters.Output(1).Nomen.Name != "Element ID" ||
+                headers.Parameters.Output(2).Nomen.Name != "Story" ||
+                headers.Parameters.Output(3).Nomen.Name != "Layer")
+                throw new InvalidOperationException("AC Element Headers still exposes removed outputs.");
+            var queryIds = new[]
+            {
+                "839335bd-cf50-4598-9765-f158c4b68c59",
+                "1aca73bb-0231-4a9c-921e-37aba8546155",
+                "72d1643e-0e64-4e37-95c4-5ffbc73cd7a7",
+                "da78e1ea-f789-4246-ae25-1a42166ef404",
+                "859af4c8-e7dd-484e-a03c-338d7574b50f"
+            };
+            foreach (string id in queryIds)
+            {
+                Component query = (Component)(ObjectProxies.TryEmit<IDocumentObject>(new Guid(id))
+                    ?? throw new InvalidOperationException($"GH2 did not register query component {id}."));
+                if (!document.Objects.Add(query) ||
+                    !Connections.Connect(((Component)selection).Parameters.Output(1), query.Parameters.Input(0)) ||
+                    query.Parameters.Inputs.Count() != 4 || query.Parameters.Outputs.Count() !=
+                    (id == queryIds[1] || id == queryIds[2] || id == queryIds[4] ? 5 : 4))
+                    throw new InvalidOperationException($"The GH2 element query {id} is not wired or aligned.");
+                Type outputType = query.Parameters.Output(0).GetType().BaseType!.BaseType!.GetGenericArguments().FirstOrDefault()
+                    ?? throw new InvalidOperationException("Query result has no typed parameter.");
+                if (Grasshopper2.Types.Assistant.TypeAssistantServer.FindByType(outputType)?.Type != outputType)
+                    throw new InvalidOperationException($"GH2 did not harvest the query assistant for {outputType}.");
+                if (string.IsNullOrWhiteSpace(query.Parameters.Output(0).Nomen.Name) ||
+                    string.IsNullOrWhiteSpace(query.Parameters.Output(0).DisplayName))
+                    throw new InvalidOperationException($"The query {id} has an unnamed output port.");
+                var outputId = query.Parameters.Output(0).GetType().GetCustomAttributes(false)
+                    .OfType<GrasshopperIO.IoIdAttribute>().Single().Id;
+                if (ObjectProxies.FindById(outputId)?.Nomen.Rank != Grasshopper2.UI.Rank.Hidden)
+                    throw new InvalidOperationException($"The query {id} exposes its internal output parameter in the palette.");
+            }
+            Type queries = selection.GetType().Assembly.GetType("TapiocaGH2.ArchicadElementQuery`1")!
+                .MakeGenericType(selection.GetType().Assembly.GetType("TapiocaGH2.AcPropertySet")!);
+            MethodInfo parseQueries = queries.GetMethod("ParseRows", BindingFlags.NonPublic | BindingFlags.Static)!;
+            Guid missingQueryId = Guid.NewGuid();
+            Guid validQueryId = Guid.NewGuid();
+            string alignedQuery = "{\"ok\":true,\"data\":{\"elements\":[" +
+                "{\"guid\":\"" + missingQueryId + "\",\"status\":\"Unavailable\",\"diagnostic\":\"Missing\",\"items\":[],\"more\":false}," +
+                "{\"guid\":\"" + validQueryId + "\",\"status\":\"NotApplicable\",\"diagnostic\":\"No 3D\",\"items\":[],\"more\":false}]}}";
+            Array queryRows = (Array)parseQueries.Invoke(null, [alignedQuery, new[] { missingQueryId, validQueryId }])!;
+            if (queryRows.Length != 2 || queryRows.GetValue(1)?.GetType().GetProperty("Diagnostic")?.GetValue(queryRows.GetValue(1))?.ToString() != "No 3D")
+                throw new InvalidOperationException("A missing query result shifted the next element's diagnostic.");
+            try
+            {
+                parseQueries.Invoke(null, [alignedQuery, new[] { validQueryId, missingQueryId }]);
+                throw new InvalidOperationException("GH2 accepted misaddressed query results.");
+            }
+            catch (TargetInvocationException error) when (error.InnerException is InvalidDataException) { }
+            MethodInfo mergeQueries = queries.GetMethod("MergePages", BindingFlags.NonPublic | BindingFlags.Static)!;
+            string FirstPage(string key, bool more, string status = "Success") =>
+                "{\"ok\":true,\"data\":{\"elements\":[{\"guid\":\"" + validQueryId +
+                "\",\"status\":\"" + status + "\",\"diagnostic\":\"\",\"items\":[{\"key\":\"" + key +
+                "\"}],\"more\":" + (more ? "true" : "false") + "}]}}";
+            Array firstPage = (Array)parseQueries.Invoke(null, [FirstPage("first", true), new[] { validQueryId }])!;
+            Array lastPage = (Array)parseQueries.Invoke(null, [FirstPage("last", false), new[] { validQueryId }])!;
+            Array mergedPages = (Array)mergeQueries.Invoke(null, [firstPage, lastPage])!;
+            var mergedItems = (System.Text.Json.JsonElement[])mergedPages.GetValue(0)!.GetType()
+                .GetProperty("Items")!.GetValue(mergedPages.GetValue(0))!;
+            if (mergedItems.Length != 2 || mergedItems[0].GetProperty("key").GetString() != "first" ||
+                mergedItems[1].GetProperty("key").GetString() != "last")
+                throw new InvalidOperationException("GH2 did not merge property discovery pages in order.");
             document.State = DocumentState.Active;
             Component component = (Component)item;
             ((Grasshopper2.Parameters.Standard.TextParameter)component.Parameters.Input(1))
@@ -109,6 +185,7 @@ internal static class Gh2HeadlessProof
             }
             VerifyPopulatedSelectors(document, choiceComponents);
             Guid selectedId = Guid.NewGuid();
+            VerifyElementBinding(selection.GetType().Assembly, selectedId);
             MethodInfo parseSelection = selection.GetType().GetMethod("ParseSelection",
                 BindingFlags.NonPublic | BindingFlags.Static)!;
             Guid[] parsed = (Guid[])parseSelection.Invoke(null, ["{\"ok\":true,\"data\":{\"elements\":[{" +
@@ -133,12 +210,58 @@ internal static class Gh2HeadlessProof
                 native.Message.Contains("Invalid selected GUID", StringComparison.Ordinal)) { }
             selection.GetType().GetField("elements", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(selection, parsed);
+            selection.GetType().GetField("projectKey", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(selection, "proof-project");
             ((Component)selection).Expire();
             var selectedSolution = Task.Run(() => document.Solution.StartWait(null, SolutionMode.Headless))
                 .GetAwaiter().GetResult();
+            object? typed = ((Component)selection).Parameters.Output(1).State.Data.Tree()?.AllItems.SingleOrDefault();
+            var typedMeta = ((Component)selection).Parameters.Output(1).State.Data.Tree()?.Twigs[0].MetaAt(0);
+            var guidName = new Grasshopper2.Data.Meta.MetaName("Tapioca", "Source", "Guid");
             if (selectedSolution.Phase != SolutionPhase.Completed ||
-                ((Component)selection).Parameters.Output(0).State.Data.Tree()?.AllItems.Single()?.ToString() != selectedId.ToString("D"))
-                throw new InvalidOperationException("GH2 selection did not emit its saved element GUID.");
+                ((Component)selection).Parameters.Output(0).State.Data.Tree()?.AllItems.Single()?.ToString() != selectedId.ToString("D") ||
+                typed?.GetType() != referenceType ||
+                (Guid)referenceType.GetProperty("ElementId")!.GetValue(typed)! != selectedId ||
+                typedMeta is null || !typedMeta.Get(guidName, out Guid metaId) || metaId != selectedId)
+                throw new InvalidOperationException("GH2 selection did not emit a typed Archicad reference with provenance.");
+            MethodInfo parseHeaders = headers.GetType().GetMethod("ParseHeaders", BindingFlags.NonPublic | BindingFlags.Static)!;
+            string response = "{\"ok\":true,\"data\":{\"elements\":[{\"guid\":\"" + selectedId.ToString("D") +
+                "\",\"found\":true,\"type\":\"Wall\",\"elementId\":\"W-1\"," +
+                "\"story\":0,\"layer\":\"Walls\"}]}}";
+            Array parsedHeaders = (Array)parseHeaders.Invoke(null, [response, new[] { selectedId }])!;
+            if (parsedHeaders.Length != 1 || parsedHeaders.GetValue(0)?.GetType()
+                    .GetProperty("ElementId")?.GetValue(parsedHeaders.GetValue(0))?.ToString() != "W-1")
+                throw new InvalidOperationException("GH2 lost a basic Archicad element field.");
+            try
+            {
+                parseHeaders.Invoke(null, [response, new[] { Guid.NewGuid() }]);
+                throw new InvalidOperationException("GH2 accepted another element's header as its own.");
+            }
+            catch (TargetInvocationException error) when (error.InnerException is InvalidDataException) { }
+            Guid missingId = Guid.NewGuid();
+            string missingFirst = "{\"ok\":true,\"data\":{\"elements\":[{\"guid\":\"" + missingId.ToString("D") +
+                "\",\"found\":false,\"type\":\"\",\"elementId\":\"\",\"story\":0,\"layer\":\"\"}," +
+                response.Split("\"elements\":[", 2)[1];
+            Array aligned = (Array)parseHeaders.Invoke(null, [missingFirst, new[] { missingId, selectedId }])!;
+            if (aligned.Length != 2 ||
+                (bool)aligned.GetValue(0)!.GetType().GetProperty("Found")!.GetValue(aligned.GetValue(0))! ||
+                aligned.GetValue(1)?.GetType().GetProperty("ElementId")?.GetValue(aligned.GetValue(1))?.ToString() != "W-1")
+                throw new InvalidOperationException("A missing element shifted the next header record.");
+            var slots = Grasshopper2.Data.Garden.TwigFromPears<string>(
+                [null!, Grasshopper2.Data.Garden.Pear("Wall")]);
+            if (slots.LeafCount != 2 || !slots.NullAt(0) || slots.NullAt(1))
+                throw new InvalidOperationException("GH2 did not keep a null slot for an unresolved element.");
+            Type parameterType = selection.GetType().Assembly.GetType("TapiocaGH2.AcElementParameter")!;
+            var parameterId = new Guid("fb101c48-204a-49da-85d0-22cb6e655331");
+            if (ObjectProxies.FindById(parameterId)?.Nomen.Rank != Grasshopper2.UI.Rank.Hidden)
+                throw new InvalidOperationException("The typed Archicad parameter is still a visible duplicate of AC Element.");
+            var standalone = (IParameter)(Activator.CreateInstance(parameterType)
+                ?? throw new InvalidOperationException("GH2 could not construct an Archicad reference parameter."));
+            var typedPear = ((Component)selection).Parameters.Output(1).State.Data.Tree()!.Twigs[0]
+                .ToPearArray(Grasshopper2.Data.ToArrayMethod.Always)[0];
+            standalone.PersistentDataWeak = Grasshopper2.Data.Garden.ITreeFromIPears([typedPear]);
+            if (!document.Objects.Add((IDocumentObject)standalone))
+                throw new InvalidOperationException("GH2 could not add a persistent Archicad reference parameter.");
             Guid[] before = choiceComponents.Select(ExposureId).ToArray();
             document.Objects.ChangeAllIds();
             Guid[] reminted = choiceComponents.Select(ExposureId).ToArray();
@@ -169,6 +292,15 @@ internal static class Gh2HeadlessProof
                         .GetField("elements", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(savedSelection);
                     if (restoredIds is null || !restoredIds.SequenceEqual([selectedId]))
                         throw new InvalidOperationException("GH2 did not preserve selected GUIDs on save/reopen.");
+                    IParameter? savedParameter = io.Document.Objects.ActiveObjects.OfType<IParameter>()
+                        .FirstOrDefault(parameter => parameter.GetType() == parameterType);
+                    object? savedReference = savedParameter?.PersistentDataWeak.AllItems.SingleOrDefault();
+                    if (savedReference?.GetType() != referenceType ||
+                        (Guid)referenceType.GetProperty("ElementId")!.GetValue(savedReference)! != selectedId ||
+                        referenceType.GetProperty("ProjectKey")!.GetValue(savedReference)?.ToString() != "proof-project" ||
+                        savedParameter?.PersistentDataWeak.Twigs[0].MetaAt(0)
+                            .Get(guidName, out Guid savedMetaId) != true || savedMetaId != selectedId)
+                        throw new InvalidOperationException("GH2 did not serialize the typed Archicad reference.");
                 }
                 finally { io.Document.Close(); }
             }
@@ -177,6 +309,40 @@ internal static class Gh2HeadlessProof
         }
         finally
         {
+            document.Close();
+        }
+    }
+
+    private static void VerifyElementBinding(Assembly plugin, Guid id)
+    {
+        var idOfComponent = new Guid("5cb5887b-df3e-47e5-bc21-eb922d2d16ca");
+        Document document = Document.NewInertDocument();
+        Type options = plugin.GetType("TapiocaGH2.ArchicadProjectOptions")!;
+        Type snapshotType = options.GetNestedType("Snapshot", BindingFlags.NonPublic)!;
+        Type storyType = options.GetNestedType("Story", BindingFlags.NonPublic)!;
+        object snapshot = Activator.CreateInstance(snapshotType,
+            [Array.Empty<string>(), Array.Empty<string>(), Array.CreateInstance(storyType, 0)])!;
+        try
+        {
+            Component source = (Component)(ObjectProxies.TryEmit<IDocumentObject>(idOfComponent)
+                ?? throw new InvalidOperationException("GH2 did not register AC Element."));
+            if (!document.Objects.Add(source))
+                throw new InvalidOperationException("GH2 could not add AC Element.");
+            ((Grasshopper2.Parameters.Standard.GuidParameter)source.Parameters.Input(0)).Set(id);
+            options.GetMethod("Set", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, [snapshot, "proof-project", null, null]);
+            document.State = DocumentState.Active;
+            var solution = Task.Run(() => document.Solution.StartWait(null, SolutionMode.Headless))
+                .GetAwaiter().GetResult();
+            object? reference = source.Parameters.Output(0).State.Data.Tree()?.AllItems.SingleOrDefault();
+            if (solution.Phase != SolutionPhase.Completed ||
+                (Guid?)reference?.GetType().GetProperty("ElementId")?.GetValue(reference) != id ||
+                reference.GetType().GetProperty("ProjectKey")?.GetValue(reference)?.ToString() != "proof-project")
+                throw new InvalidOperationException("AC Element did not bind the GUID to the copied project identity.");
+        }
+        finally
+        {
+            options.GetMethod("Clear", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, null);
             document.Close();
         }
     }

@@ -216,7 +216,6 @@ internal static class ArchicadProjectOptions
         {
             string first = await bridge.ReadProjectInfoAsync();
             string before = ParseIdentity(first);
-            long? beforeStamp = ParseStamp(first);
             InvalidateChangedProject(token, before);
             string[] layers = ParseAttributes(await bridge.ReadAttributesAsync("layer"), "layer");
             string[] lineTypes = ParseAttributes(await bridge.ReadAttributesAsync("lineType"), "lineType");
@@ -225,11 +224,11 @@ internal static class ArchicadProjectOptions
             string after = ParseIdentity(last);
             long? afterStamp = ParseStamp(last);
             long? afterSelection = ParseSelectionStamp(last);
-            // Selection may account for a stamp change, but a simultaneous
-            // catalog edit is indistinguishable here. Never publish lists read
-            // across a changed stamp; ask for another explicit refresh.
-            if (before != after || (beforeStamp.HasValue && afterStamp.HasValue && beforeStamp != afterStamp))
-                throw new InvalidDataException("Archicad changed while refreshing GH2 choices; retry.");
+            // modiStamp also advances during selection/model-generation reads.
+            // It is a monitor hint, not a transaction token for catalog reads.
+            // The project key, unlike that stamp, must remain the same.
+            if (before != after)
+                throw new InvalidDataException("Archicad project changed while refreshing GH2 choices; retry.");
 
             Changed changes;
             lock (Sync)

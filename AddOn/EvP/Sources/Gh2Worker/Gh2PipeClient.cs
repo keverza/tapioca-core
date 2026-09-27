@@ -185,6 +185,26 @@ internal sealed class Gh2PipeClient : IDisposable
     internal Task<string> ReadProjectInfoAsync() => ReadProjectAsync("Tapioca.GetGhConnectionInfo", "{}");
     internal Task<string> ReadStoriesAsync() => ReadProjectAsync("Tapioca.GetStories", "{}");
     internal Task<string> ReadSelectionAsync() => ReadProjectAsync("Tapioca.GetSelection", "{}");
+    internal Task<string> ReadElementHeadersAsync(IReadOnlyList<Guid> ids)
+    {
+        if (ids.Count > 64 || ids.Any(id => id == Guid.Empty))
+            throw new ArgumentOutOfRangeException(nameof(ids));
+        return ReadProjectAsync("Tapioca.GetGhElementHeaders",
+            JsonSerializer.Serialize(new { guids = ids.Select(id => id.ToString("D")) }));
+    }
+    internal Task<string> ReadElementQueryAsync(IReadOnlyList<Guid> ids, string kind, string mode,
+        string search, IReadOnlyList<string> selectors, int offset = 0)
+    {
+        if (ids.Count > 8 || ids.Any(id => id == Guid.Empty) || selectors.Count > 64 ||
+            selectors.Any(value => string.IsNullOrWhiteSpace(value) || value.Length > 128) ||
+            !new[] { "contours", "relationships", "properties", "geometry", "gdl" }.Contains(kind) ||
+            mode.Length > 64 || search.Length > 128 || offset < 0 || offset > 2048 || offset % 128 != 0)
+            throw new ArgumentOutOfRangeException(nameof(ids), "Invalid bounded element query.");
+        return ReadProjectAsync("Tapioca.GetGhElementQuery", JsonSerializer.Serialize(new
+        {
+            guids = ids.Select(id => id.ToString("D")), kind, mode, search, selectors, offset
+        }));
+    }
     internal Task<string> ReplaceSelectionAsync(IReadOnlyList<Guid> ids)
     {
         if (ids.Count > 4096)

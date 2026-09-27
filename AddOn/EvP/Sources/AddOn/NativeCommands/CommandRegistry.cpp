@@ -29,6 +29,7 @@
 #include "NativeCommands/ElementPropertyCommands.hpp"
 #include "NativeCommands/FavoriteCommands.hpp"
 #include "NativeCommands/GdlPreviewCommands.hpp"
+#include "NativeCommands/GhElementQueryCommands.hpp"
 #include "NativeCommands/IdentityCommands.hpp"
 #include "NativeCommands/IssueCommands.hpp"
 #include "NativeCommands/LayoutCommands.hpp"
@@ -98,6 +99,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetIdentityCommandRegistrations,
     &GetAttributeCommandRegistrations,
     &GetProjectCommandRegistrations,
+    &GetGhElementQueryCommandRegistrations,
     &GetCreateCommandRegistrations,
     &GetRoofCreateCommandRegistrations,
     &GetDraftingCommandRegistrations,

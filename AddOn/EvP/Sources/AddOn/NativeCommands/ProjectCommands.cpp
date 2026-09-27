@@ -202,6 +202,51 @@ class GetGhConnectionInfoCommand : public MainThreadCommand {
     }
 };
 
+// GH2's basic on-demand resolver: header fields only. A miss remains at its
+// input position, so callers cannot attach one element's fields to another.
+class GetGhElementHeadersCommand : public MainThreadCommand {
+  public:
+    GS::String GetName () const override { return "GetGhElementHeaders"; }
+
+    NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
+    {
+        GS::Array<GS::UniString> guids;
+        if (!params.Get ("guids", guids) || guids.GetSize () > 64)
+            return NativeCommandResult::Failure ("GH2 header reads require at most 64 GUIDs.");
+
+        GS::Array<GS::ObjectState> records;
+        for (const GS::UniString& text : guids) {
+            if (text.IsEmpty () || text.GetLength () > 64)
+                return NativeCommandResult::Failure ("Invalid GH2 element GUID.");
+            const API_Guid guid = APIGuidFromString (text.ToCStr ().Get ());
+            API_Elem_Head header = {};
+            header.guid = guid;
+            const bool found = guid != APINULLGuid && ACAPI_Element_GetHeader (&header) == NoError;
+            GS::ObjectState record;
+            record.Add ("guid", text);
+            record.Add ("found", found);
+            GS::UniString typeName, layerName, elementId;
+            if (found) {
+                ACAPI_Element_GetElemTypeName (header.type, typeName);
+                ACAPI_Element_GetElementInfoString (&guid, &elementId);
+                API_Attribute layer = {};
+                layer.header.typeID = API_LayerID;
+                layer.header.index = header.layer;
+                if (ACAPI_Attribute_Get (&layer) == NoError)
+                    layerName = layer.header.name;
+            }
+            record.Add ("type", typeName);
+            record.Add ("elementId", elementId);
+            record.Add ("story", static_cast<GS::Int32> (found ? header.floorInd : 0));
+            record.Add ("layer", layerName);
+            records.Push (record);
+        }
+        GS::ObjectState result;
+        result.Add ("elements", records);
+        return result;
+    }
+};
+
 // ---------------------------------------------------------------------------
 // EvP.GetPlaceInfo { year?, month?, day?, hour?, minute?, second? }
 //   -> geo location, project north, and the SUN ANGLES for that moment.
@@ -511,6 +556,9 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
             "additionalProperties":false,
             "required":["archicadVersion","archicadBuild","projectName","projectPath","untitled","modelStamp"]
         })json" },
+    { "GetGhElementHeaders", &MakeRegisteredNativeCommand<GetGhElementHeadersCommand>, false,
+      R"json({"type":"object","properties":{"guids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}}},"additionalProperties":false,"required":["guids"]})json",
+      R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"guid":{"type":"string"},"found":{"type":"boolean"},"type":{"type":"string"},"elementId":{"type":"string"},"story":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["guid","found","type","elementId","story","layer"]}}},"additionalProperties":false,"required":["elements"]})json" },
     { "GetPlaceInfo", &MakeRegisteredNativeCommand<GetPlaceInfoCommand>, false,
       R"json({
             "type":"object",
