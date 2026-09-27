@@ -105,6 +105,7 @@ internal static class Gh2HeadlessProof
                 "da78e1ea-f789-4246-ae25-1a42166ef404",
                 "859af4c8-e7dd-484e-a03c-338d7574b50f"
             };
+            var presetChecks = new List<(PresetPickerObject Picker, string Value)>();
             foreach (string id in queryIds)
             {
                 Component query = (Component)(ObjectProxies.TryEmit<IDocumentObject>(new Guid(id))
@@ -124,6 +125,55 @@ internal static class Gh2HeadlessProof
                     .OfType<GrasshopperIO.IoIdAttribute>().Single().Id;
                 if (ObjectProxies.FindById(outputId)?.Nomen.Rank != Grasshopper2.UI.Rank.Hidden)
                     throw new InvalidOperationException($"The query {id} exposes its internal output parameter in the palette.");
+                var modes = new[]
+                {
+                    new[] { "Definition", "Boundary", "Visible 2D", "Section" },
+                    new[] { "Hosted", "Connected", "Inferred" },
+                    new[] { "Discover", "All", "User", "Built-in", "Element settings" },
+                    new[] { "Bounding box", "Surface mesh", "Native definition", "2D drawing", "Derived Brep" },
+                    new[] { "Instance", "All parameters" }
+                }[Array.IndexOf(queryIds, id)];
+                var modePicker = new PresetPickerObject();
+                if (!document.Objects.Add(modePicker) ||
+                    !Connections.Connect(modePicker, query.Parameters.Input(1)) ||
+                    !modePicker.AvailablePresets.Presets.Select(preset => preset.Name).SequenceEqual(modes))
+                    throw new InvalidOperationException($"The query {id} Representation input rejected its Preset Picker.");
+                modePicker.UserNames = [modes[1]];
+                presetChecks.Add((modePicker, modes[1]));
+                if (id == queryIds[2] || id == queryIds[4])
+                {
+                    var selectorPicker = new PresetPickerObject();
+                    if (!document.Objects.Add(selectorPicker) ||
+                        !Connections.Connect(selectorPicker, query.Parameters.Input(2)))
+                        throw new InvalidOperationException($"The query {id} Selectors input rejected its Preset Picker.");
+                    Type queryBase = query.GetType().BaseType!;
+                    MethodInfo parse = queryBase.GetMethod("ParseRows", BindingFlags.NonPublic | BindingFlags.Static)!;
+                    Guid sourceId = Guid.NewGuid();
+                    string key = id == queryIds[2] ? Guid.NewGuid().ToString("D") : "sash_count";
+                    string label = id == queryIds[2] ? "name" : "label";
+                    string reply = "{\"ok\":true,\"data\":{\"elements\":[{\"guid\":\"" + sourceId +
+                        "\",\"status\":\"Success\",\"diagnostic\":\"\",\"more\":false," +
+                        "\"items\":[{\"key\":\"" + key + "\",\"group\":\"Dimensions\",\"" +
+                        label + "\":\"Height\"}]}]}}";
+                    Array rows = (Array)parse.Invoke(null, [reply, new[] { sourceId }])!;
+                    queryBase.GetMethod("ApplySelectorPresets", BindingFlags.NonPublic | BindingFlags.Instance)!
+                        .Invoke(query, [rows]);
+                    var available = selectorPicker.AvailablePresets.Presets;
+                    if (available.Length != 1 || !available[0].Name.Contains("Height", StringComparison.Ordinal))
+                        throw new InvalidOperationException($"The query {id} did not refresh its selectable keys.");
+                    selectorPicker.UserNames = [available[0].Name];
+                    presetChecks.Add((selectorPicker, key));
+                    queryBase.GetMethods(BindingFlags.NonPublic | BindingFlags.Instance)
+                        .Single(method => method.Name.EndsWith(".ClearSelectorPresets", StringComparison.Ordinal))
+                        .Invoke(query, null);
+                    if (selectorPicker.AvailablePresets.Presets.Length != 0 ||
+                        modePicker.AvailablePresets.Presets.Length != modes.Length)
+                        throw new InvalidOperationException($"The query {id} retained stale keys or lost its modes after refresh.");
+                    queryBase.GetMethod("ApplySelectorPresets", BindingFlags.NonPublic | BindingFlags.Instance)!
+                        .Invoke(query, [rows]);
+                    if (selectorPicker.AvailablePresets.Presets.Length != 1)
+                        throw new InvalidOperationException($"The query {id} did not restore discoverable keys.");
+                }
             }
             Component bake = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
                 new Guid("ee94cef3-7073-4a37-a338-24e3a5e02d80"))
@@ -194,6 +244,9 @@ internal static class Gh2HeadlessProof
                 .GetAwaiter().GetResult();
             if (solution.Phase != SolutionPhase.Completed)
                 throw new InvalidOperationException($"GH2 status solution ended in {solution.Phase}.");
+            foreach (var (picker, expected) in presetChecks)
+                if (picker.State.Data.Tree()?.AllItems.SingleOrDefault()?.ToString() != expected)
+                    throw new InvalidOperationException($"GH2 Preset Picker did not emit the selected input value {expected}.");
             string[] diagnostics = component.Parameters.Output(0).State.Data.Tree()?.AllItems
                 .Select(item => item.ToString() ?? "").ToArray() ?? [];
             if (component.State.Data.Messages.WarningCount == 0 ||
@@ -209,7 +262,7 @@ internal static class Gh2HeadlessProof
                 if (count != 0)
                     throw new InvalidOperationException("A disconnected selector exposed stale Archicad choices.");
             }
-            VerifyPopulatedSelectors(document, choiceComponents);
+            VerifyPopulatedSelectors(document, choiceComponents, bake);
             Guid selectedId = Guid.NewGuid();
             VerifyElementBinding(selection.GetType().Assembly, selectedId);
             MethodInfo parseSelection = selection.GetType().GetMethod("ParseSelection",
@@ -373,7 +426,7 @@ internal static class Gh2HeadlessProof
         }
     }
 
-    private static void VerifyPopulatedSelectors(Document document, List<Component> choices)
+    private static void VerifyPopulatedSelectors(Document document, List<Component> choices, Component bake)
     {
         // The worker's linked wire-check type is NOT the .rhp's process-local
         // store. Inject only into the plugin for this headless solve fixture.
@@ -393,6 +446,20 @@ internal static class Gh2HeadlessProof
             set.Invoke(null, [snapshot, "", null, null]);
             foreach (Component choice in choices)
                 applyPresets.Invoke(null, [choice]); // no editor UI loop in this headless fixture
+            applyPresets.Invoke(null, [bake]);
+            var layerPicker = new PresetPickerObject();
+            if (!document.Objects.Add(layerPicker) || !Connections.Connect(layerPicker, bake.Parameters.Input(2)) ||
+                !layerPicker.AvailablePresets.Presets.Select(preset => preset.Name)
+                    .SequenceEqual(new[] { "Mesh tool default", "Walls" }))
+                throw new InvalidOperationException("The terrain mesh Layer input rejected its Preset Picker.");
+            foreach (Component choice in choices.Skip(1))
+            {
+                var choicePicker = new PresetPickerObject();
+                if (!document.Objects.Add(choicePicker) ||
+                    !Connections.Connect(choicePicker, choice.Parameters.Input(0)) ||
+                    choicePicker.AvailablePresets.Presets.Length != 1)
+                    throw new InvalidOperationException("An Archicad project choice rejected its Preset Picker.");
+            }
 
             var picker = new PresetPickerObject();
             if (!document.Objects.Add(picker) || !Connections.Connect(picker, choices[0].Parameters.Input(0)))
@@ -403,6 +470,7 @@ internal static class Gh2HeadlessProof
                 [new[] { "Walls", "Ceilings" }, new[] { "Solid" }, stories])!;
             set.Invoke(null, [changed, "", null, null]);
             applyPresets.Invoke(null, [choices[0]]);
+            applyPresets.Invoke(null, [bake]);
             Type changedType = options.GetNestedType("Changed", BindingFlags.NonPublic)!;
             object lineTypesChanged = Enum.Parse(changedType, "LineTypes");
             if ((bool)shouldUpdate.Invoke(null, [choices[0], lineTypesChanged])! ||
@@ -411,6 +479,11 @@ internal static class Gh2HeadlessProof
                 throw new InvalidOperationException("A line-type change expired unrelated GH2 selectors.");
             if (picker.AvailablePresets.Presets.Length != 2 || picker.AvailablePresets.Presets[1].Name != "Ceilings")
                 throw new InvalidOperationException("GH2 Preset Picker kept its old cached layer list after refresh.");
+            if (layerPicker.AvailablePresets.Presets.Length != 3 ||
+                layerPicker.AvailablePresets.Presets[2].Name != "Ceilings")
+                throw new InvalidOperationException("The terrain mesh layer Picker kept stale project choices.");
+            layerPicker.UserNames = ["Ceilings"];
+            layerPicker.Expire();
             picker.UserNames = ["Ceilings"];
             picker.Expire();
             foreach (Component choice in choices)
@@ -418,6 +491,7 @@ internal static class Gh2HeadlessProof
             var result = Task.Run(() => document.Solution.StartWait(null, SolutionMode.Headless))
                 .GetAwaiter().GetResult();
             if (result.Phase != SolutionPhase.Completed ||
+                layerPicker.State.Data.Tree()?.AllItems.Single()?.ToString() != "Ceilings" ||
                 choices[0].Parameters.Output(0).State.Data.Tree()?.AllItems.Single()?.ToString() != "Ceilings" ||
                 choices[1].Parameters.Output(0).State.Data.Tree()?.AllItems.Single()?.ToString() != "Solid" ||
                 choices[2].Parameters.Output(0).State.Data.Tree()?.AllItems.Single()?.ToString() != "-1" ||

@@ -3,6 +3,7 @@ using Eto.Forms;
 using Grasshopper2.Components;
 using Grasshopper2.Doc;
 using Grasshopper2.Parameters.Special;
+using Grasshopper2.Parameters.Standard;
 using Rhino;
 
 namespace TapiocaGH2;
@@ -32,8 +33,14 @@ internal static class ArchicadPresetBindings
             Components.Add(new(component));
         // GH2 harvests a component with an optimised constructor that omits
         // Parameters entirely. That prototype must not set input presets.
-        if (component.Parameters is not null && (component is ArchicadChoiceInput or ArchicadStoryInput))
+        if (component.Parameters is not null &&
+            component is ArchicadChoiceInput or ArchicadStoryInput or ArchicadBakeTerrainMesh)
             ApplyPresets(component);
+        if (component.Parameters is not null && component is IArchicadQueryPresets query)
+        {
+            query.RestoreModePresets();
+            query.ClearSelectorPresets(); // saved keys must not silently cross projects
+        }
     }
 
     private static void OnUpdated(ArchicadProjectOptions.Changed changes, ArchicadProjectOptions.Status status)
@@ -75,8 +82,13 @@ internal static class ArchicadPresetBindings
             // republished; a project switch/failure explicitly clears all.
             try
             {
-                if (component is ArchicadChoiceInput or ArchicadStoryInput)
+                if (component is ArchicadChoiceInput or ArchicadStoryInput or ArchicadBakeTerrainMesh)
                     ApplyPresets(component);
+                // A successful Refresh may return identical layer/story lists
+                // while element property/GDL definitions have changed. Do not
+                // keep the previous discovery catalog across that refresh.
+                if (component is IArchicadQueryPresets query && !status.Checking)
+                    query.ClearSelectorPresets();
                 component.Expire();
                 documents.Add(document);
             }
@@ -97,6 +109,8 @@ internal static class ArchicadPresetBindings
         ArchicadLayerInput => changes.HasFlag(ArchicadProjectOptions.Changed.Layers),
         ArchicadLineTypeInput => changes.HasFlag(ArchicadProjectOptions.Changed.LineTypes),
         ArchicadStoryInput => changes.HasFlag(ArchicadProjectOptions.Changed.Stories),
+        ArchicadBakeTerrainMesh => changes.HasFlag(ArchicadProjectOptions.Changed.Layers) ||
+            changes.HasFlag(ArchicadProjectOptions.Changed.Stories),
         ArchicadConnectionStatus => true,
         ArchicadElement or ArchicadElementHeaders => true,
         ArchicadGetContours or ArchicadGetRelationships or ArchicadGetProperties or
@@ -106,22 +120,40 @@ internal static class ArchicadPresetBindings
 
     private static void ApplyPresets(Component component)
     {
-        var choice = (Grasshopper2.Parameters.Standard.IntegerParameter)component.Parameters.Input(0);
-        choice.Presets.Clear();
+        int inputIndex = component is ArchicadBakeTerrainMesh ? 2 : 0;
         ArchicadProjectOptions.Snapshot snapshot = ArchicadProjectOptions.Read();
         string[] names = component switch
         {
-            ArchicadLayerInput => snapshot.Layers,
+            ArchicadLayerInput or ArchicadBakeTerrainMesh => snapshot.Layers,
             ArchicadLineTypeInput => snapshot.LineTypes,
             ArchicadStoryInput => snapshot.Stories.Select(story => $"{story.Index}: {story.Name}").ToArray(),
             _ => []
         };
-        for (int index = 0; index < names.Length; index++)
-            choice.Presets.Add(names[index], "Archicad project choice", index);
+        if (component is ArchicadBakeTerrainMesh)
+        {
+            var layer = (TextParameter)component.Parameters.Input(inputIndex);
+            layer.Presets.Clear();
+            layer.Presets.Add("Mesh tool default", "Use Archicad's active Mesh tool layer.", "");
+            foreach (string name in names)
+                layer.Presets.Add(name, "Archicad project layer", name);
+        }
+        else
+        {
+            var choice = (IntegerParameter)component.Parameters.Input(inputIndex);
+            choice.Presets.Clear();
+            for (int index = 0; index < names.Length; index++)
+                choice.Presets.Add(names[index], "Archicad project choice", index);
+        }
 
+        RefreshConnectedPickers(component, inputIndex);
+    }
+
+    internal static void RefreshConnectedPickers(Component component, int inputIndex)
+    {
         Document? document = component.Document;
         if (document is null)
             return;
+        var choice = component.Parameters.Input(inputIndex);
         foreach (Guid source in choice.Inputs.ToArray())
         {
             if (document.Objects.FindParameter(source) is not PresetPickerObject picker)

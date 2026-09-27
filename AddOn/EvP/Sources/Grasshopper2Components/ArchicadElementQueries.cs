@@ -4,6 +4,7 @@ using Grasshopper2.Components;
 using Grasshopper2.Data;
 using Grasshopper2.Data.Meta;
 using Grasshopper2.Parameters;
+using TextParameter = Grasshopper2.Parameters.Standard.TextParameter;
 using Grasshopper2.UI;
 using GrasshopperIO;
 using Rhino;
@@ -14,7 +15,13 @@ namespace TapiocaGH2;
 // A shared, non-blocking query lifecycle for all five downstream components.
 // Each input pear has one aligned result/status/diagnostic pear; never collapse
 // missing elements and accidentally associate the next row with their GUID.
-public abstract class ArchicadElementQuery<T> : Component where T : class
+internal interface IArchicadQueryPresets
+{
+    void RestoreModePresets();
+    void ClearSelectorPresets();
+}
+
+public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets where T : class
 {
     private readonly object sync = new();
     private readonly Dictionary<string, QueryRow[]> cache = new();
@@ -38,9 +45,29 @@ public abstract class ArchicadElementQuery<T> : Component where T : class
     protected override void AddInputs(InputAdder inputs)
     {
         inputs.Add(new AcElementParameter("Elements", "E", "Project-bound Archicad references.", Access.Twig));
-        inputs.AddText("Representation", "M", "Supported: " + string.Join(", ", Modes)).Set(DefaultMode);
+        TextParameter representation = inputs.AddText("Representation", "M",
+            "Connect a GH2 Preset Picker or choose: " + string.Join(", ", Modes));
+        representation.Set(DefaultMode);
+        foreach (string mode in Modes)
+            representation.Presets.Add(mode, "Archicad query representation", mode);
         inputs.AddText("Selectors", "S", "Comma-separated property definition GUIDs or GDL internal names; empty discovers available values.").Set("");
         inputs.AddText("Search", "Q", "Filter property names or GDL names/descriptions/groups during discovery.").Set("");
+    }
+
+    void IArchicadQueryPresets.RestoreModePresets()
+    {
+        if (Parameters?.Input(1) is not TextParameter input) return;
+        input.Presets.Clear();
+        foreach (string mode in Modes)
+            input.Presets.Add(mode, "Archicad query representation", mode);
+        ArchicadPresetBindings.RefreshConnectedPickers(this, 1);
+    }
+
+    void IArchicadQueryPresets.ClearSelectorPresets()
+    {
+        if (Parameters?.Input(2) is not TextParameter input) return;
+        input.Presets.Clear();
+        ArchicadPresetBindings.RefreshConnectedPickers(this, 2);
     }
 
     protected override void AddOutputs(OutputAdder outputs)
@@ -199,12 +226,36 @@ public abstract class ArchicadElementQuery<T> : Component where T : class
                 if (result is null) failures[key] = failure ?? "Archicad did not return query results.";
                 else { if (cache.Count >= 32) cache.Clear(); cache[key] = result; }
             }
+            // A selected-value read is only a subset. Replacing the picker's
+            // catalog with that subset would make its other choices disappear.
+            if (result is not null && selectors.Length == 0 &&
+                ((Kind == "properties" && mode == "Discover") || Kind == "gdl"))
+                ApplySelectorPresets(result);
             if (Document is null) return;
             Expire();
             Document.Solution.Start();
         })); }
         catch (ObjectDisposedException) { }
         catch (InvalidOperationException) { }
+    }
+
+    private void ApplySelectorPresets(QueryRow[] rows)
+    {
+        if (Parameters?.Input(2) is not TextParameter input) return;
+        input.Presets.Clear();
+        var unique = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonElement item in rows.SelectMany(row => row.Items))
+        {
+            if (!item.TryGetProperty("key", out JsonElement id) || id.ValueKind != JsonValueKind.String ||
+                !item.TryGetProperty("name", out JsonElement name) &&
+                !item.TryGetProperty("label", out name)) continue;
+            string key = id.GetString() ?? "";
+            if (key.Length == 0 || !unique.Add(key)) continue;
+            string group = item.TryGetProperty("group", out JsonElement groupValue)
+                ? groupValue.GetString() ?? "" : "";
+            input.Presets.Add($"{group} / {name.GetString()} [{key}]", "Archicad selector key", key);
+        }
+        ArchicadPresetBindings.RefreshConnectedPickers(this, 2);
     }
 
     internal sealed record QueryRow(Guid Guid, AcQueryStatus Status, string Diagnostic, bool More, JsonElement[] Items);
