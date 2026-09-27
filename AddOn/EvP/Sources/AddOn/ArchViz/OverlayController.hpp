@@ -114,6 +114,21 @@ LadderCounts MarkerLadderCounts ();
 // implementation.
 void FollowView ();
 
+// MAIN THREAD, from Archicad's `APINotify_ChangeWindow`: the same as `FollowView`,
+// at the moment the window changes rather than at the next heartbeat.
+//
+// ⚠️ THE HEARTBEAT ALONE LEFT UP TO HALF A SECOND IN WHICH THE 3D SESSION STILL
+// HELD ARCHICAD'S CONTEXT TABLE WHILE ANOTHER VIEW DREW THROUGH IT -- a floor plan,
+// a section, a layout, a schedule all render on the same immediate context. The
+// heartbeat stays, as the fallback for a change the notification does not report.
+void OnWindowChanged ();
+
+// MAIN THREAD, from Archicad's project events (close, and open or new, which
+// replace the document): every session ends, renderers AND intent. The windows
+// they covered belong to the project that went; a new project starts clean,
+// one menu click away (section 8).
+void OnProjectClosed ();
+
 struct Status {
     ViewKind view = ViewKind::Unknown;
     bool injectedRunning = false; // the 3D session

@@ -120,12 +120,25 @@ static void RefreshModelOpen ()
     geomsrv::ServerState::Get ().modelOpen.store (ok);
 }
 
+// The project events this add-on catches: one mask, so registering and detaching
+// can never disagree about which ones are held.
+static constexpr GSFlags kProjectEvents =
+    APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close | APINotify_Quit | APINotify_ChangeWindow;
+
 static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/)
 {
     switch (notifID) {
+        case APINotify_ChangeWindow:
+            // The overlay leaves a view the moment the view is left: the 3D session's
+            // hooks sit on the context every other view draws through too.
+            geomsrv::archviz::overlaycontrol::OnWindowChanged ();
+            break;
         case APINotify_New:
         case APINotify_NewAndReset:
         case APINotify_Open:
+            // A document that replaces another ends the overlay the old one had, if
+            // its Close did not already (a no-op then).
+            geomsrv::archviz::overlaycontrol::OnProjectClosed ();
             geomsrv::ServerState::Get ().modelOpen.store (true);
             // E25: a different document is the largest change there is, and every
             // element observer just went with the old one. Bump the token (so a
@@ -143,6 +156,9 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             geomsrv::archviz::ExtractionWorker::Get ().RequestStop ();
             break;
         case APINotify_Close:
+            // ⚠️ THE OVERLAY'S WINDOWS GO WITH THE PROJECT. Closing the floor plan
+            // closes the project, and a session left running outlived its window.
+            geomsrv::archviz::overlaycontrol::OnProjectClosed ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
             geomsrv::ChangeTracker::Get ().OnProjectEvent ();
             geomsrv::ArmWorker::Get ().RequestStop ();
@@ -542,8 +558,7 @@ GSErrCode Initialize (void)
         return err;
 
     // Track model open/close on the main thread for /health.
-    ACAPI_ProjectOperation_CatchProjectEvent (
-        APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close | APINotify_Quit, ProjectEventHandler);
+    ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, ProjectEventHandler);
     RefreshModelOpen (); // seed current state
 
     return NoError;
@@ -650,8 +665,7 @@ GSErrCode FreeData (void)
     // once before this rule was written down.
     geomsrv::archviz::viewportoverlay::Shutdown ();
     // Detach the project-event handler so the add-on can unload cleanly.
-    ACAPI_ProjectOperation_CatchProjectEvent (
-        APINotify_New | APINotify_NewAndReset | APINotify_Open | APINotify_Close | APINotify_Quit, nullptr);
+    ACAPI_ProjectOperation_CatchProjectEvent (kProjectEvents, nullptr);
     // LAST, because everything above it may still narrate its own teardown. The
     // viewer log holds one handle for the session; this is where it goes back.
     // Reopening is lazy, so a line after this point is still written.

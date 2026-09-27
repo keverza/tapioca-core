@@ -447,6 +447,10 @@ void ArchVizPanel::OpenDiligentOverlay (int attach)
         panel.statusText.SetText ("The Diligent overlay did not start; see archviz.log.");
         return;
     }
+    // ⚠️ THE WINDOW'S TRACKER ENDS THIS SESSION THROUGH THE SAME DOOR AS EVERYONE
+    // ELSE. When the covered window goes -- closing the floor plan closes the
+    // project -- the render thread must stop before its target is destroyed.
+    vo::SetTargetGoneHandler (&ArchVizPanel::CloseDiligentOverlay);
 
     // ⚠️ THE USER'S VIEW STYLE IS NO LONGER CHANGED FOR US. This used
     // to force `SceneRenderMode::Wireframe`, for a reason that was good while
@@ -538,6 +542,7 @@ void ArchVizPanel::CloseDiligentOverlay ()
     // self-healing guard is the backstop, not the mechanism.
     geomsrv::archviz::modelwatch::Stop ();
     geomsrv::archviz::DiligentViewport::Get ().Stop ();
+    geomsrv::archviz::viewportoverlay::SetTargetGoneHandler (nullptr);
     geomsrv::archviz::viewportoverlay::Destroy ();
     if (HasInstance ())
         GetInstance ().statusText.SetText ("Diligent overlay closed.");

@@ -57,6 +57,7 @@ bool s_targetInFront = true;
 // POPUP with no Archicad parent, so that particular route is closed -- but the
 // bookkeeping costs nothing and the failure it prevents is a crash on exit.
 std::vector<HWND> s_created;
+void (*s_targetGone) () = nullptr;
 
 bool IsOurs (HWND hwnd)
 {
@@ -462,6 +463,7 @@ void SetVisible (bool visible)
     ApplyVisibility ();
 }
 OverlayStats Stats () { return s_stats; }
+void SetTargetGoneHandler (void (*handler) ()) { s_targetGone = handler; }
 
 bool TrackedViewRect (RECT& rect)
 {
@@ -487,6 +489,10 @@ void CALLBACK TrackTimerProc (HWND, UINT, UINT_PTR, DWORD)
     // is underneath now.
     if (s_target == nullptr || !IsWindow (s_target) || !IsWindowVisible (s_target)) {
         ArchVizLog ("ArchViz overlay: the window it was covering is gone; closing the overlay");
+        if (s_targetGone != nullptr) {
+            s_targetGone ();   // the owner's teardown: its renderer first, then Destroy
+            return;
+        }
         Destroy ();
         return;
     }

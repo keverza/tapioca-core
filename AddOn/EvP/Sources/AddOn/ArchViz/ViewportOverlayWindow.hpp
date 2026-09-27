@@ -152,6 +152,14 @@ HWND Create (const OverlayTarget& target, OverlayAttach attach, std::string& err
 // Destroy the overlay and stop tracking. Safe when nothing is open.
 void Destroy ();
 
+// ⚠️ WHAT HAPPENS WHEN THE WINDOW THE OVERLAY COVERS GOES AWAY. The owner's full
+// teardown, which stops whatever presents into the overlay BEFORE the window is
+// destroyed -- a composition swap chain whose target HWND has gone is a crash
+// blamed on Archicad. Closing the floor plan closes the project (2026-09-27
+// 22:13): the tracker destroyed the window alone and the Diligent viewport ran on,
+// 14810 frames, following the next project's plan. Null: the window alone.
+void SetTargetGoneHandler (void (*handler) ());
+
 // Unregister the window class. ⚠️ MUST RUN FROM FreeData: a window whose WndProc
 // lives in this DLL outliving the unload takes Archicad down on exit. That is
 // not theoretical -- PlanOverlay's did it once.

@@ -15,6 +15,7 @@
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ArchVizPanel.hpp"
+#include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
@@ -25,6 +26,8 @@
 namespace geomsrv {
 namespace archviz {
 namespace overlaycontrol {
+
+void StartPlanOverlay (); // below; `Follow` starts it
 
 namespace {
 
@@ -47,9 +50,16 @@ void Narrate (const char* channel, const std::string& detail)
     ArchVizLog (line);
 }
 
+// ⚠️ THE VIEWPORT COUNTS, NOT ONLY ITS WINDOW. The window can go without it --
+// the tracker closed it when the floor plan (and the project) closed -- and a
+// session judged by its window alone was invisible to every teardown after that:
+// the viewport ran on, re-armed camera sync on the next project's plan, and the
+// plan overlay was refused as "already running" (2026-09-27 22:13-22:15).
 bool PortableRunning ()
 {
-    return viewportoverlay::Current () != nullptr;
+    const DiligentViewport& viewport = DiligentViewport::Get ();
+    return viewportoverlay::Current () != nullptr ||
+           (viewport.IsRunning () && viewport.Mode () == SurfaceMode::Overlay);
 }
 
 // ⚠️ THE CONTROLLER NEEDS ITS OWN HEARTBEAT AND CANNOT BORROW THE
@@ -91,6 +101,118 @@ void StopRenderers ()
         ArchVizPanel::CloseDiligentOverlay ();
 }
 
+ViewKind KindOf (API_WindowTypeID type)
+{
+    if (type == APIWind_3DModelID)
+        return ViewKind::ThreeD;
+    if (type == APIWind_FloorPlanID)
+        return ViewKind::FloorPlan;
+    return ViewKind::Other;
+}
+
+// The window's own name for the log; the KIND decides what runs.
+const char* WindowTypeName (API_WindowTypeID type)
+{
+    switch (type) {
+        case APIWind_FloorPlanID:
+            return "Floor Plan";
+        case APIWind_SectionID:
+            return "Section";
+        case APIWind_DetailID:
+            return "Detail";
+        case APIWind_3DModelID:
+            return "3D";
+        case APIWind_LayoutID:
+            return "Layout";
+        case APIWind_DrawingID:
+            return "Drawing";
+        case APIWind_MasterLayoutID:
+            return "Master Layout";
+        case APIWind_ElevationID:
+            return "Elevation";
+        case APIWind_InteriorElevationID:
+            return "Interior Elevation";
+        case APIWind_WorksheetID:
+            return "Worksheet";
+        case APIWind_DocumentFrom3DID:
+            return "3D Document";
+        case APIWind_IESCommonDrawingID:
+            return "Interactive Schedule";
+        default:
+            return "other window";
+    }
+}
+
+// One pass of `Follow`: the window in front against the one being served.
+void FollowOnce (const char* how)
+{
+    API_WindowInfo info = {};
+    if (ACAPI_Window_GetCurrentWindow (&info) != NoError)
+        return; // a transient read -- tear nothing down over it
+    const ViewKind view = KindOf (info.typeID);
+    if (view == g_servingView)
+        return;
+
+    // ⚠️ MEASURED, BECAUSE "SAFE" IS A CLAIM ABOUT TIME. While the 3D session runs
+    // after its window has gone, its hooks sit in the frames of whatever is in front.
+    const bool injected = runtime::Running ();
+    const bool portable = PortableRunning ();
+    const ULONGLONG began = ::GetTickCount64 ();
+    StopRenderers ();
+    const ULONGLONG took = ::GetTickCount64 () - began;
+    char line[240] = {};
+    if (injected || portable)
+        _snprintf_s (line, sizeof (line), _TRUNCATE, "%s -> %s (%s): %s in %llu ms", ViewKindName (g_servingView),
+                     WindowTypeName (info.typeID), how,
+                     injected ? "3D overlay stopped, hooks released," : "plan overlay closed",
+                     (unsigned long long) took);
+    else
+        _snprintf_s (line, sizeof (line), _TRUNCATE, "%s -> %s (%s): nothing was running", ViewKindName (g_servingView),
+                     WindowTypeName (info.typeID), how);
+    Narrate ("VIEW", line);
+
+    g_servingView = view;
+    if (view == ViewKind::ThreeD) {
+        const runtime::StartResult started = runtime::Start ();
+        g_lastCode = runtime::StartErrorName (started.code);
+        g_lastMessage = started.message;
+        if (!started.ok)
+            Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
+    }
+    else if (view == ViewKind::FloorPlan) {
+        StartPlanOverlay ();
+    }
+    else {
+        Narrate ("OVERLAY", std::string ("no overlay is defined for the ") + WindowTypeName (info.typeID) +
+                                "; it returns with the 3D window");
+    }
+}
+
+// ⚠️ NOT RE-ENTRANT, AND IT CAN BE ASKED TO BE: starting the 3D runtime can bring
+// a window forward, and Archicad reports that change synchronously. A nested pass
+// would stop the session the outer one is still starting, so it is deferred to
+// after the outer pass instead.
+bool g_following = false;
+bool g_followAgain = false;
+
+void Follow (const char* how)
+{
+    if (!g_requested)
+        return;
+    if (g_following) {
+        g_followAgain = true;
+        return;
+    }
+    g_following = true;
+    for (int pass = 0; pass < 3; ++pass) {
+        g_followAgain = false;
+        FollowOnce (how);
+        if (!g_followAgain || !g_requested)
+            break;
+    }
+    g_following = false;
+}
+
 } // namespace
 
 const char* ViewKindName (ViewKind kind)
@@ -113,11 +235,7 @@ ViewKind CurrentView ()
     API_WindowInfo info = {};
     if (ACAPI_Window_GetCurrentWindow (&info) != NoError)
         return ViewKind::Unknown;
-    if (info.typeID == APIWind_3DModelID)
-        return ViewKind::ThreeD;
-    if (info.typeID == APIWind_FloorPlanID)
-        return ViewKind::FloorPlan;
-    return ViewKind::Other;
+    return KindOf (info.typeID);
 }
 
 bool InjectedOwnsView (ViewKind kind)
@@ -224,6 +342,16 @@ void Toggle ()
         case ViewKind::Other:
         case ViewKind::Unknown:
         default:
+            // ⚠️ WHAT WAS WANTED CAN ALWAYS BE UNWANTED. The 3D session stopped when
+            // this view came forward, but the intent did not; a click here ends it,
+            // or the overlay would come back on the next return to 3D.
+            if (g_requested) {
+                StopAll ();
+                g_lastCode = "None";
+                g_lastMessage = std::string ("turned off in the ") + ViewKindName (view);
+                Narrate ("OVERLAY", "turned off; it will not return with the 3D window");
+                return;
+            }
             // ⚠️ EXPLICIT, NOT A FALLBACK. Sections, elevations and layouts each
             // need their own camera measurement; guessing one of the two existing
             // renderers would draw a model over a drawing.
@@ -243,28 +371,20 @@ void Toggle ()
 // is a second renderer on a window that already has one.
 void FollowView ()
 {
-    if (!g_requested)
-        return;
-    const ViewKind view = CurrentView ();
-    if (view == g_servingView || view == ViewKind::Unknown)
-        return; // unchanged, or a transient read -- tear nothing down over it
+    Follow ("heartbeat");
+}
 
-    Narrate ("OVERLAY MENU", std::string ("view changed to ") + ViewKindName (view) + "; moving the overlay");
-    StopRenderers ();
-    g_servingView = view;
-    if (view == ViewKind::ThreeD) {
-        const runtime::StartResult started = runtime::Start ();
-        g_lastCode = runtime::StartErrorName (started.code);
-        g_lastMessage = started.message;
-        if (!started.ok)
-            Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
-    }
-    else if (view == ViewKind::FloorPlan) {
-        StartPlanOverlay ();
-    }
-    else {
-        Narrate ("OVERLAY", std::string ("no overlay is defined for the ") + ViewKindName (view));
-    }
+void OnWindowChanged ()
+{
+    Follow ("notification");
+}
+
+void OnProjectClosed ()
+{
+    const bool active = g_requested || runtime::Running () || PortableRunning ();
+    StopAll ();
+    if (active)
+        Narrate ("OVERLAY", "the project closed; the overlay is off -- start it again from the menu");
 }
 
 void Mark (const std::string& note)

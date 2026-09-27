@@ -217,7 +217,11 @@ void NominateArchicadChain ()
     // the overlay somewhere the user is not looking, and the run would report it
     // as a success. `target` is the document window the overlay covers, and a
     // swap chain may present into it or into a child of it.
-    const HWND documentWindow = viewportoverlay::Stats ().target;
+    // ⚠️ ONLY WHILE AN OVERLAY WINDOW EXISTS. `target` outlives the window it
+    // describes, so after a plan session it named the plan's canvas -- or a
+    // destroyed window -- and a 3D session's own chain could be refused against it.
+    const viewportoverlay::OverlayStats overlay = viewportoverlay::Stats ();
+    const HWND documentWindow = overlay.active ? overlay.target : nullptr;
     const uint64_t chainWindow = SwapChainWindow (stats.busiestSwapChain);
     if (documentWindow != nullptr && chainWindow != 0) {
         const HWND presented = (HWND) (uintptr_t) chainWindow;

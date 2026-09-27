@@ -110,6 +110,12 @@ void TearDownCurrent ()
             dxgi::RemoveContextHook ();
             dxgi::FlushPresentLog ();
             dxgi::RemovePresentHook ();
+            // ⚠️ AND WHICH CHAIN WAS ARCHICAD'S GOES WITH THEM. A nomination that
+            // survived here outlived its swap chain: the 3D window closed and
+            // reopened (2026-09-27 22:01) presents through a NEW chain, the stale
+            // nomination was never re-evaluated, and the context hook -- installed
+            // only from the nominated chain's Present -- never came back.
+            dxgi::SetMarkerTarget (0);
             break;
         case CameraSyncMode::HookDraw:
             ArchVizPanel::StopCameraSync ();
@@ -424,6 +430,9 @@ bool SetCameraSyncMode (CameraSyncMode mode, uint32_t intervalMs, double predict
             // the timer is what feeds them the ACAPI reference to score
             // against, so a failure between the two must unwind both rather
             // than leave a mode that is recording with nothing to compare to.
+            // Every arm identifies Archicad's chain afresh (section 8): the
+            // teardown forgets it, and this is the other half of that rule.
+            dxgi::SetMarkerTarget (0);
             armed = dxgi::InstallPresentHook (error);
             if (armed && g_gpuState) {
                 dxgi::renderstate::Reset ();
