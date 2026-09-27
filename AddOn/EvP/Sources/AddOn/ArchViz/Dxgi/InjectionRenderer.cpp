@@ -115,8 +115,8 @@ constexpr UINT kExpectedWindowConstants = 16;
 std::atomic<uint32_t> g_armState { uint32_t (ArmState::Disabled) };
 
 ID3D11Device* g_device = nullptr;
-ID3D11VertexShader* g_vs = nullptr;      // the bound variant
-ID3D11VertexShader* g_vsVariant[4] = {}; // one per matrix declaration
+ID3D11VertexShader* g_vs = nullptr;                               // the bound variant
+ID3D11VertexShader* g_vsVariant[camerashader::kShaderSlots] = {}; // per declaration and camera layout
 uint32_t g_boundVariant = 0;
 ID3D11PixelShader* g_ps = nullptr;
 
@@ -251,13 +251,14 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     ID3DBlob* errors = nullptr;
     const UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3;
 
-    // ⚠️ ALL FOUR DECLARATIONS ARE COMPILED AND THE CENSUS PICKS ONE. A constant
+    // ⚠️ EVERY DECLARATION IN BOTH LAYOUTS IS COMPILED AND THE CENSUS PICKS ONE. A constant
     // in this file saying "the shader implements interpretation N" was a claim
     // nobody could check; a shader chosen BY the measurement cannot disagree with
     // it. See `kShaderSourceFormat`.
-    char sources[4][camerashader::kMaxSource] = {};
-    for (uint32_t variant = 0; variant < 4; ++variant)
-        camerashader::Compose (variant, kProofShaderBody, sources[variant], sizeof (sources[variant]));
+    static char sources[camerashader::kShaderSlots][camerashader::kMaxSource] = {}; // 64 KB: not on Archicad's stack
+    for (uint32_t slot = 0; slot < camerashader::kShaderSlots; ++slot)
+        camerashader::Compose (camerashader::InterpretationOfSlot (slot), kProofShaderBody, sources[slot],
+                               sizeof (sources[slot]));
     const char* const kShaderSource = sources[0];
     const SIZE_T sourceLength = strlen (kShaderSource);
 
@@ -285,7 +286,7 @@ bool EnsureCreated (ID3D11DeviceContext* context)
     // The other three declarations of the same shader. The input signature is
     // identical, so the input layout below is built from variant 0's blob and is
     // valid for all of them.
-    for (uint32_t variant = 1; variant < 4 && ok; ++variant) {
+    for (uint32_t variant = 1; variant < camerashader::kShaderSlots && ok; ++variant) {
         ID3DBlob* blob = nullptr;
         if (FAILED (D3DCompile (sources[variant], strlen (sources[variant]), "TapiocaInjection", nullptr, nullptr,
                                 "VSMain", "vs_5_0", flags, 0, &blob, &errors))) {
@@ -474,7 +475,7 @@ void Shutdown ()
     hostocclusion::Shutdown ();
     checkpoints::Shutdown ();
     ReleaseAndNull (g_ps);
-    for (uint32_t variant = 0; variant < 4; ++variant)
+    for (uint32_t variant = 0; variant < camerashader::kShaderSlots; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
     g_vs = nullptr;
     ReleaseAndNull (g_device);
@@ -576,13 +577,13 @@ void DrawWithCamera (ID3D11DeviceContext* context, ID3D11DeviceContext1* context
     context->IASetVertexBuffers (0, 1, &g_vertices, &stride, &offset);
     context->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     // ⚠️ THE VARIANT THE CENSUS SELECTED, RE-BOUND EVERY DRAW. `ExpectedInterpretation`
-    // is what the measurement chose; anything at or above 4 is a reversed
-    // multiplication order, which no declaration can express, and the injection
-    // refuses those upstream rather than silently drawing variant 0.
+    // is what the measurement chose, camera layout included; a reversed multiplication
+    // order (bit 2) has no declaration, and the injection refuses those upstream
+    // rather than silently drawing variant 0.
     const uint32_t wanted = ExpectedInterpretation ();
-    if (wanted < 4 && g_vsVariant[wanted] != nullptr) {
+    if (camerashader::Declarable (wanted) && g_vsVariant[camerashader::SlotOf (wanted)] != nullptr) {
         g_boundVariant = wanted;
-        g_vs = g_vsVariant[wanted];
+        g_vs = g_vsVariant[camerashader::SlotOf (wanted)];
         SetShaderInterpretation (wanted);
     }
     context->VSSetShader (g_vs, nullptr, 0);

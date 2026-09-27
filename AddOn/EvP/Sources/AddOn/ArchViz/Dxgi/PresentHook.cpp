@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/PresentProfile.hpp"
+#include "ArchViz/Dxgi/DrawRecorder.hpp"
 #include "ArchViz/Dxgi/PresentedContent.hpp"
 #include "ArchViz/Dxgi/RenderStateCapture.hpp"
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
@@ -275,6 +276,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_presentCalls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
+        // The draw recorder's frame boundary and readback; one load when idle.
+        if (uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
+            drawrecorder::OnPresent (swapChain);
         // PASS_PROVENANCE samples Archicad's completed image before any marker or
         // injected overlay draw can give the back buffer a provenance of our own.
         passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
@@ -345,6 +349,8 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_present1Calls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
+        if (uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
+            drawrecorder::OnPresent (swapChain);
         passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
         if (passProvenanceActive) {
             sceneCameraPairingActive =

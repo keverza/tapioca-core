@@ -27,7 +27,7 @@ ID3D11Buffer* g_indexBuffer = nullptr;
 // are the regression test for every camera and depth claim under this directory;
 // if a mesh bug could break their shaders or their input layout, the instrument
 // would go down with the thing it exists to diagnose.
-ID3D11VertexShader* g_vsVariant[camerashader::kDeclarableVariants] = {};
+ID3D11VertexShader* g_vsVariant[camerashader::kShaderSlots] = {};
 ID3D11PixelShader* g_ps = nullptr;
 ID3D11InputLayout* g_layout = nullptr;
 
@@ -108,8 +108,7 @@ const char* const kGhostShaderBody = "struct GhostOut { float4 position : SV_POS
                                      "{\n"
                                      "    GhostOut o;\n"
                                      "    float4 p = float4 (position, 1.0);\n"
-                                     "    p = mul (p, View);\n"
-                                     "    p = mul (p, Projection);\n"
+                                     "    p = ArchicadClip (p);\n"
                                      "    o.position = p;\n"
                                      "    o.tint = tint;\n"
                                      "    return o;\n"
@@ -340,8 +339,9 @@ bool EnsureShaders ()
     ID3DBlob* errors = nullptr;
     bool ok = true;
 
-    for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants && ok; ++variant) {
-        if (!camerashader::Compose (variant, kGhostShaderBody, source, sizeof (source))) {
+    for (uint32_t variant = 0; variant < camerashader::kShaderSlots && ok; ++variant) {
+        if (!camerashader::Compose (camerashader::InterpretationOfSlot (variant), kGhostShaderBody, source,
+                                    sizeof (source))) {
             Fail ("the ghost shader source could not be composed");
             return false;
         }
@@ -584,9 +584,7 @@ uint32_t DrawPart (ID3D11DeviceContext* context, uint32_t interpretation, Part p
     if (count == 0 || g_layout == nullptr || g_ps == nullptr)
         return 0;
 
-    const uint32_t variant =
-        (interpretation < camerashader::kDeclarableVariants && g_vsVariant[interpretation] != nullptr) ? interpretation
-                                                                                                       : 0;
+    const uint32_t variant = camerashader::SlotToBind (interpretation, g_vsVariant);
     if (g_vsVariant[variant] == nullptr)
         return 0;
 
@@ -629,9 +627,7 @@ uint32_t DrawCurrent (ID3D11DeviceContext* context, uint32_t interpretation, ID3
     // cbuffer declaration can express. Falling back to 0 is the same refusal the
     // proof triangle makes: draw the reading that was measured, or the default,
     // and never a third thing nobody chose.
-    const uint32_t variant =
-        (interpretation < camerashader::kDeclarableVariants && g_vsVariant[interpretation] != nullptr) ? interpretation
-                                                                                                       : 0;
+    const uint32_t variant = camerashader::SlotToBind (interpretation, g_vsVariant);
     if (g_vsVariant[variant] == nullptr)
         return 0;
 
@@ -666,7 +662,7 @@ void Shutdown ()
     ReleaseAndNull (g_depthTestWrite);
     ReleaseAndNull (g_layout);
     ReleaseAndNull (g_ps);
-    for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)
+    for (uint32_t variant = 0; variant < camerashader::kShaderSlots; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
     ReleaseAndNull (g_indexBuffer);
     ReleaseAndNull (g_vertexBuffer);

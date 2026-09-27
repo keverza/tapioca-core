@@ -70,9 +70,9 @@ std::atomic<uint64_t> g_repairs { 0 };
 // after-call path made. Both restart with the hook, like `g_repairs`.
 std::atomic<uint64_t> g_slotRepairs[size_t (ContextSlot::Count)];
 std::atomic<uint64_t> g_afterCallRepairs { 0 };
-// The after-call repair is OFF unless a diagnostic window forces it on -- back
-// to the known-good behaviour on 2026-09-27. See `SetRepairAfterCallsForced`.
-std::atomic<bool> g_repairAfterCalls { false };
+// The after-call repair is ON unless a diagnostic window forces it off (Stage 77,
+// restored 2026-09-27 on the A/B's evidence). See `SetRepairAfterCallsForced`.
+std::atomic<bool> g_repairAfterCalls { true };
 
 // ⚠️ HOW MANY THREADS ARE INSIDE `RepairContextHook` RIGHT NOW, and it exists for
 // exactly one interleaving, which would be silent and fatal. Teardown restores
@@ -697,8 +697,8 @@ uint64_t ContextSlotRepairs (ContextSlot slot)
 
 void SetRepairAfterCallsForced (int forced)
 {
-    // -1 is the default, and the default is off; only an explicit 1 turns it on.
-    g_repairAfterCalls.store (forced > 0, std::memory_order_release);
+    // -1 is the default, and the default is on; only an explicit 0 turns it off.
+    g_repairAfterCalls.store (forced != 0, std::memory_order_release);
 }
 
 bool RepairAfterCalls ()

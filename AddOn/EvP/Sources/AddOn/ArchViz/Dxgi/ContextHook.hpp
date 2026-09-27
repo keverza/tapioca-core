@@ -250,7 +250,7 @@ void RemoveContextHook ();
 // silently papered over.
 uint32_t RepairContextHook ();
 
-// ⚠️ REPAIR AFTER EVERY HOOKED CALL -- OFF BY DEFAULT, FORCED ON BY THE A/B.
+// ⚠️ REPAIR AFTER EVERY HOOKED CALL -- ON WHENEVER THE HOOK IS INSTALLED (Stage 77).
 // Stage 75 read the back buffer's pixels at every Present: Archicad put a new
 // image into it at ~95% of Presents while the hooks saw a scene pass at one
 // Present in six. The repair above runs once per Present, on the Present thread,
@@ -261,16 +261,17 @@ uint32_t RepairContextHook ();
 // and restores whatever the runtime re-pointed, taking the new pointer as the
 // original exactly as the Present repair does. The Present repair stays (§11).
 //
-// ⚠️ STAGE 77 MADE IT THE DEFAULT AND THE 2026-09-27 REGRESSION REPAIR TOOK
-// THAT BACK. It raised the calls seen to ~9000 a second and the camera still
-// never locked, and its first session ended in a crash; the crash was the state
-// tracker's stale buffer, not this, but a default nothing has shown to help is
-// not kept while a regression is open (section 0). `Hook coverage A/B` measures
-// it: window B forces it on.
+// ⚠️ MEASURED, WHICH IS WHY IT IS THE DEFAULT AGAIN. Withdrawn on 2026-09-27 while
+// the camera could not lock (that was the editing-plane display, CameraLayout.hpp),
+// then `Hook coverage A/B` on a locked camera the same afternoon, one orbit:
+//
+//     once per Present     the hooks saw 20% of the images put on screen;
+//                          overlay camera = shown image for 18% of screen time
+//     after every call     97%; 78%, and lag 0 at all 298 decidable Presents
 //
 // A diagnostic may force it for ONE measurement window: -1 restores the default
-// (off), 0 forces it off, 1 forces it on. Install and removal both restore the
-// default, so no window can outlive its session.
+// (on), 0 forces the once-per-Present repair alone, 1 forces it on. Install and
+// removal both restore the default, so no window can outlive its session.
 void SetRepairAfterCallsForced (int forced);
 bool RepairAfterCalls ();
 // ANY THREAD, from the detours' common exit. Off: one relaxed load. On and

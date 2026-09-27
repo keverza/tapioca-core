@@ -125,7 +125,7 @@ struct FrameInfo {
 // MAIN THREAD. Disabled before the shared PassProvenance drain; Reset after it.
 // Enabling allocates the frame memory, so the Present path never allocates.
 // ⚠️ `repairAfterCallsForced` FORCES THE CONTEXT HOOK'S AFTER-CALL REPAIR FOR THIS
-// WINDOW ONLY (the A/B): 0 off, 1 on, -1 leaves the default (off).
+// WINDOW ONLY (the A/B): 0 off, 1 on, -1 leaves the default (on since Stage 77).
 // Its lifetime is the window's: disabling always restores the default, so
 // production can never inherit a diagnostic's setting (OVERLAY-INVARIANTS §9).
 void SetEnabled (bool enabled, int repairAfterCallsForced = -1);

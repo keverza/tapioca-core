@@ -45,6 +45,7 @@
 // a slot that is not ready is retried on a later draw. `CopyGroups` is the
 // cross-thread read and it takes a copy.
 
+#include "ArchViz/Dxgi/CameraLayout.hpp"
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
 
 #include <cstddef>
@@ -157,8 +158,17 @@ struct Group {
     // CATCHES WHATEVER THE LAST ONE SAW. Measured: the run after the gate
     // landed still selected a group whose matrix was the screen map. A group is
     // a camera only if EVERY sample of it was one.
+    //
+    // ⚠️ "DIVIDE" NOW MEANS "DECODES AS A CAMERA", IN EITHER LAYOUT
+    // (CameraLayout.hpp): `b2` a perspective projection, or view x projection.
+    // `combinedSamples` counts the second; the gate wants one layout per group.
     uint32_t projectionSamples = 0;
     uint32_t projectionDivideSamples = 0;
+    uint32_t combinedSamples = 0;
+    // The draw this group's camera samples came from, and the readbacks of OTHER
+    // draws at its occurrence that were therefore not scored: `camerachoice`.
+    uint32_t cameraIndexCount = 0;
+    uint32_t samplesSkipped = 0;
     uint32_t winningVariant = 0;
     uint32_t winningVariantValid = 0; // samples where THAT variant was valid
 
@@ -212,6 +222,8 @@ struct Stats {
     uint64_t copiesIssued = 0;
     uint64_t readbacksServed = 0;
     uint64_t readbacksBusy = 0;
+    uint64_t readbacksOtherDraw = 0; // not a camera, and not this group's camera draw
+    uint64_t snapshotsOtherDraw = 0; // the pinned occurrence held another draw
     bool enabled = false;
     bool ready = false;
     // Where the tracked b1/b2 disagreed with what the context had bound, at every

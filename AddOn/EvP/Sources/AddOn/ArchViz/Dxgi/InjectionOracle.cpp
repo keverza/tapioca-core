@@ -3,6 +3,8 @@
 
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 
+#include "ArchViz/Dxgi/CameraLayout.hpp"
+
 #include <d3d11_1.h>
 
 #include <atomic>
@@ -377,6 +379,10 @@ bool TryReadMatrices (ID3D11DeviceContext* context, Pending& pending)
     context->Unmap (slot.projection, 0);
     context->Unmap (slot.view, 0);
     ++g_counters.readbacksServed;
+    // The pair in Archicad's layout (CameraLayout.hpp): `view * projection` is what its draw used.
+    float bound[16];
+    std::memcpy (bound, projection, sizeof (bound));
+    cameralayout::Decode (view, bound, projection);
 
     Row& row = pending.row;
     float clip[4] = {};

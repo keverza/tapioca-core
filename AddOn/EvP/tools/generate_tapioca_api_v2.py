@@ -235,14 +235,17 @@ from typing import Any
 # primitives. The menu path and the regression path must not be the same verb.
 # 216 -> 217 with GetGhConnectionInfo, registered in ProjectCommands.cpp
 # without this constant moving; the generator refused every run after it.
-EXPECTED_REGISTRY_COMMANDS = 217
+# 217 -> 218 with ViewerDrawRecorder, the camera-independent draw record
+# (2026-09-27), registered in ViewerDrawRecorderCommands.cpp.
+EXPECTED_REGISTRY_COMMANDS = 218
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
 # reports when it is actually run -- the build had been passing on a stale
 # generated surface.
 # 235 -> 236 with the same verb.
-EXPECTED_TOTAL_COMMANDS = 236
+# 236 -> 237 with the same verb.
+EXPECTED_TOTAL_COMMANDS = 237
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

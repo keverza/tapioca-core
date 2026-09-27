@@ -581,6 +581,10 @@ set (EVP_TEST_SOURCES
     test_sunshadowmath.cpp
     test_environmentlighting.cpp
     test_plancameramath.cpp
+    # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
+    # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
+    test_cameralayout.cpp
+    test_camerachoice.cpp
     test_plananchorribbon.cpp
     test_pickvote.cpp
     test_occlusionprepass.cpp

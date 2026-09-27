@@ -13,6 +13,7 @@
 #include "NativeCommands/ViewerGpuStateCommands.hpp"
 #include "NativeCommands/HostGeometryCommands.hpp"
 #include "NativeCommands/ViewerInjectionCommands.hpp"
+#include "NativeCommands/ViewerDrawRecorderCommands.hpp"
 #include "NativeCommands/ViewerPassProvenanceCommands.hpp"
 #include "NativeCommands/ViewerSyncCommands.hpp"
 #include "NativeCommands/AttributeCommands.hpp"
@@ -129,6 +130,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetViewerGpuStateCommandRegistrations,
     &GetViewerInjectionCommandRegistrations,
     &GetViewerPassProvenanceCommandRegistrations,
+    &GetViewerDrawRecorderCommandRegistrations,
     &GetHostGeometryCommandRegistrations,
     &GetPreviewCommandRegistrations,
     &GetNodeGraphCommandRegistrations,

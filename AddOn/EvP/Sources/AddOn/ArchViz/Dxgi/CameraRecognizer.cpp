@@ -6,6 +6,7 @@
 
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
 
+#include "ArchViz/Dxgi/CameraChoice.hpp"
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 
 #include <cmath>
@@ -577,7 +578,7 @@ static bool Qualifies (const Group& group, uint64_t modelFrames, float& coverage
     // Centre error is the weak term; see the tie-break note in the header.
     term[kGateCentreError] = !(group.errorSamples > 0 && group.medianCentreError > g_eligibility.maxMedianCentreError);
     term[kGateProjectionDivides] =
-        group.projectionSamples > 0 && group.projectionDivideSamples == group.projectionSamples;
+        cameralayout::Decodes (group.projectionSamples, group.projectionDivideSamples, group.combinedSamples);
 
     ++g_gate.evaluated;
     uint32_t failures = 0;
@@ -626,12 +627,11 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     const Group* best = nullptr;
     float bestCoverage = 0.0f;
     float bestInside = 0.0f;
-    float bestMedian = 0.0f;
-    uint32_t bestVariant = 0;
     // The best coverage among the candidates that did NOT win, so a decision
     // can be argued with: a runner-up within a point of the winner is a
     // different situation from one twenty points behind.
     float runnerUpCoverage = 0.0f;
+    camerachoice::Standing bestStanding;
     g_eligibleCandidates = 0;
     // Each attempt is judged on its own; a stale diagnosis from a previous
     // attempt would name a term that has since been satisfied.
@@ -643,27 +643,17 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
         if (!Qualifies (groups[i], modelFrames, coverage, insideClip, agreement))
             continue;
         ++g_eligibleCandidates;
-        // ⚠️ COVERAGE, THEN CLIP CONTAINMENT, THEN THE
-        // CANONICAL INTERPRETATION, AND ERROR ONLY LAST. Centre error is the
-        // weak term -- a hand on a mouse does not put the orbit target on the
-        // anchor to the pixel -- so ranking on it promotes noise. Variant 0
-        // (View x Projection) is what every run the overlay tracked in chose;
-        // preferring it at equal measurement makes a tie deterministic instead
-        // of leaving it to table order.
-        const bool tiedOnShape = coverage >= bestCoverage - 0.01f && insideClip >= bestInside - 0.005f;
-        const bool canonical = groups[i].winningVariant == 0 && bestVariant != 0;
-        const bool better =
-            best == nullptr || coverage > bestCoverage + 0.01f ||
-            (coverage >= bestCoverage - 0.01f && insideClip > bestInside + 0.005f) || (tiedOnShape && canonical) ||
-            (tiedOnShape && groups[i].winningVariant == bestVariant && groups[i].medianCentreError < bestMedian);
-        if (better) {
+        // ⚠️ COVERAGE, THEN CLIP CONTAINMENT, THEN THE CANONICAL INTERPRETATION,
+        // THEN THE MOST GEOMETRY, AND ERROR ONLY LAST: `camerachoice::Outranks`.
+        const camerachoice::Standing standing { coverage, insideClip, groups[i].medianCentreError,
+                                                groups[i].winningVariant, groups[i].lastIndexCount };
+        if (camerachoice::Outranks (standing, best == nullptr ? nullptr : &bestStanding)) {
+            bestStanding = standing;
             if (best != nullptr && bestCoverage > runnerUpCoverage)
                 runnerUpCoverage = bestCoverage;
             best = &groups[i];
             bestCoverage = coverage;
             bestInside = insideClip;
-            bestMedian = groups[i].medianCentreError;
-            bestVariant = groups[i].winningVariant;
         }
         else if (coverage > runnerUpCoverage) {
             runnerUpCoverage = coverage;
@@ -751,7 +741,7 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     chosen.viewNumConstants = best->viewNumConstants;
     chosen.projectionBuffer = best->projectionBuffer;
     chosen.projectionNumConstants = best->projectionNumConstants;
-    chosen.variant = best->winningVariant;
+    chosen.variant = cameralayout::Interpretation (best->winningVariant, best->combinedSamples > 0);
     chosen.samples = best->samplesScored;
     chosen.modelCoverage = bestCoverage;
     chosen.insideClip = bestInside;
@@ -805,7 +795,7 @@ bool SelectCandidate (const Group* groups, size_t count, uint64_t modelFrames, b
     print.depthHeight = best->depthHeight;
     print.depthFormat = best->depthFormat;
     print.depthSamples = best->depthSamples;
-    print.variant = best->winningVariant;
+    print.variant = chosen.variant;
     print.drawOrdinalFirst = uint32_t (best->drawSequenceFirst);
     print.drawOrdinalLast = uint32_t (best->drawSequenceLast);
     g_fingerprint = print;

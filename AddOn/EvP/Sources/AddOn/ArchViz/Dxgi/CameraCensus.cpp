@@ -6,6 +6,7 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 
+#include "ArchViz/Dxgi/CameraChoice.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
 #include "ArchViz/Dxgi/CameraRecognizer.hpp"
@@ -48,6 +49,7 @@ struct Slot {
     ID3D11Buffer* stagingView = nullptr;
     ID3D11Buffer* stagingProjection = nullptr;
     bool copyPending = false;
+    uint32_t pendingIndexCount = 0; // of the draw the pending copy came from
 
     double spreadSum = 0.0;
     uint32_t spreadCount = 0;
@@ -375,18 +377,8 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     slot.copyPending = false;
     ++g_stats.readbacksServed;
 
-    injection::oracle::ViewportRect viewport;
-    viewport.x = slot.group.viewportX;
-    viewport.y = slot.group.viewportY;
-    viewport.width = slot.group.viewportWidth;
-    viewport.height = slot.group.viewportHeight;
-
-    // ⚠️ THE SAME SCORER THE ORACLE USES; two copies would disagree.
-    slot.group.projectionSamples += 1;
-    slot.group.projectionDivideSamples += std::fabs (projection[11]) > 0.5f ? 1 : 0;
-    injection::oracle::VariantScore scores[kVariantCount];
-    injection::oracle::ScoreVariants (view, projection, viewport, scores);
-    RecordSample (slot, scores);
+    const injection::oracle::ViewportRect viewport { slot.group.viewportX, slot.group.viewportY,
+                                                     slot.group.viewportWidth, slot.group.viewportHeight };
 
     // ⚠️ THE ONE PLACE ARCHICAD'S CAMERA EXISTS AS
     // VALUES RATHER THAN AS A BINDING. The ledger keeps the first decode of each
@@ -394,10 +386,36 @@ void TryResolve (ID3D11DeviceContext* context, Slot& slot)
     // group's alone. No second readback, nothing mapped at Present.
     injection::freshness::NoteGroupMatrices (slot.group.groupId, slot.group.occurrenceIndex,
                                              renderstate::ModelSceneGeneration (), view, projection);
+
+    // ⚠️ THE SAME SCORER THE ORACLE USES, on the pair DECODED for Archicad's layout --
+    // and only for this group's own camera draw (`camerachoice::CountsForGroup`).
+    float decoded[16];
+    const cameralayout::Layout layout = cameralayout::Decode (view, projection, decoded);
+    const bool camera = layout != cameralayout::Layout::Neither;
+    if (!camerachoice::CountsForGroup (camera, slot.pendingIndexCount, slot.group.cameraIndexCount)) {
+        ++slot.group.samplesSkipped;
+        ++g_stats.readbacksOtherDraw;
+        return;
+    }
+    if (camera)
+        slot.group.cameraIndexCount = slot.pendingIndexCount;
+    slot.group.projectionSamples += 1;
+    slot.group.projectionDivideSamples += camera ? 1 : 0;
+    slot.group.combinedSamples += layout == cameralayout::Layout::Combined ? 1 : 0;
+    injection::oracle::VariantScore scores[kVariantCount];
+    injection::oracle::ScoreVariants (view, decoded, viewport, scores);
+    RecordSample (slot, scores);
     if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
         slot.group.groupId == GetSelection ().groupId)
         injection::freshness::NoteCameraContent (view, projection, viewport.x, viewport.y, viewport.width,
                                                  viewport.height);
+}
+
+// The draw the selected group's camera samples came from (`camerachoice::IsCameraDraw`).
+uint32_t SelectedCameraIndexCount ()
+{
+    const uint32_t id = GetSelection ().groupId;
+    return id >= 1 && id <= kGroupCapacity ? g_slots[id - 1].group.cameraIndexCount : 0u;
 }
 
 void ResolveSome (ID3D11DeviceContext* context)
@@ -687,9 +705,13 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         }
     }
 
-    // Only the locked group supplies the verified image witness and camera snapshot.
-    if (injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
-        MatchesSelection (live, occurrence)) {
+    // Only the locked group supplies the verified image witness and camera snapshot --
+    // and only its camera draw, not another draw that took its occurrence this frame.
+    const bool pinned = injection::GetCameraSource () == injection::CameraSource::CensusSelectedGroup &&
+                        MatchesSelection (live, occurrence);
+    if (pinned && !camerachoice::IsCameraDraw (indexCount, SelectedCameraIndexCount ()))
+        ++g_stats.snapshotsOtherDraw;
+    else if (pinned) {
         contextstate::SceneDrawState draw;
         draw.valid = true;
         draw.modelSceneGeneration = modelGeneration;
@@ -731,6 +753,14 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
         }
         NoteSnapshot ();
     }
+
+    // ⚠️ NO GROUP UNTIL THE SCENE SIGNATURE IS LEARNED. Before it the generation never
+    // advances and occurrences count across frames: the first second of a start with the
+    // editing plane hidden (2026-09-27 16:52:10) minted 41 groups from that cumulative
+    // numbering, screen maps among them, every later per-frame sample landed in one of
+    // them, and the every-sample gate refused all 41 for the rest of the session.
+    if (modelGeneration == 0)
+        return;
 
     Slot* found = nullptr;
     for (size_t i = 0; i < kGroupCapacity; ++i) {
@@ -857,6 +887,7 @@ void OnDraw (ID3D11DeviceContext* context, DrawKind kind, uint32_t indexCount)
     context->CopySubresourceRegion (found->stagingProjection, 0, 0, 0, 0,
                                     reinterpret_cast<ID3D11Buffer*> (uintptr_t (projection.buffer)), 0, &box);
     found->copyPending = true;
+    found->pendingIndexCount = indexCount;
     ++g_stats.copiesIssued;
 }
 
@@ -892,49 +923,9 @@ size_t CopyGroups (Group* out, size_t capacity)
             group.variantMeanCentreError[v] = n > 0 ? float (slot.variantErrorSum[v] / n) : 0.0f;
         }
 
-        // ⚠️ VALID MOST OFTEN FIRST, then the one putting the
-        // MOST of the model on screen. Validity first is what stops a degenerate
-        // product winning on a median of zero with nothing inside the clip volume.
-        //
-        // ⚠️ AND THE TIE USED TO GO TO THE SMALLEST MEAN
-        // CENTRE ERROR, WHICH IS THE ONE THING IT MUST NOT BE. Shrinking the
-        // model towards the middle IMPROVES every term this gate had: more
-        // samples inside clip, so coverage and insideClip rise; a scale about the
-        // centre leaves the centre, so the error falls; areaPixels and edgePixels
-        // are minima, not targets. Measured on one locked selection (17:19, g9):
-        //
-        //     v0  n=565  err=0.194  spread=261px   <- View x Projection
-        //     v2  n=468  err=0.052  spread= 68px
-        //     v5  n=532  err=0.033  spread= 33px
-        //     v7  n=565  err=0.051  spread= 59px   <- was chosen
-        //
-        // Error and spread are ANTI-CORRELATED: the smaller the error, the
-        // smaller the image. `v0` and `v7` are exact transposes, tie at 565, and
-        // `v0` carries 4.4x the spread. The selection was not even stable --
-        // interp7 at 17:14:58, interp2 at 17:16:56, same group and occurrence.
-        //
-        // ⚠️ A LARGER SPREAD CANNOT BE GAMED: a product
-        // that magnifies pushes its samples OUT of clip, losing on VALIDITY first.
-        uint32_t bestVariant = 0;
-        uint32_t bestValid = 0;
-        double bestSpread = 0.0;
-        double bestMean = 0.0;
-        for (size_t variant = 0; variant < kVariantCount; ++variant) {
-            const uint32_t valid = group.variantValid[variant];
-            if (valid == 0)
-                continue;
-            const double mean = double (group.variantMeanCentreError[variant]);
-            const double spread = double (group.variantMeanSpreadPixels[variant]);
-            if (valid > bestValid || (valid == bestValid && spread > bestSpread) ||
-                (valid == bestValid && spread == bestSpread && mean < bestMean)) {
-                bestVariant = uint32_t (variant);
-                bestValid = valid;
-                bestSpread = spread;
-                bestMean = mean;
-            }
-        }
-        group.winningVariant = bestVariant;
-        group.winningVariantValid = bestValid;
+        // ⚠️ WHICH READING WINS, AND ONLY A DRAWABLE ONE MAY: `camerachoice` (finding 12).
+        group.winningVariant = camerachoice::WinningVariant (group.variantValid, group.variantMeanSpreadPixels,
+                                                             group.variantMeanCentreError, group.winningVariantValid);
         group.medianCentreError = Median (slot);
         group.meanCentreError = slot.errorCount > 0 ? float (slot.errorSum / double (slot.errorCount)) : 0.0f;
         group.meanSpreadPixels = slot.spreadCount > 0 ? float (slot.spreadSum / double (slot.spreadCount)) : 0.0f;

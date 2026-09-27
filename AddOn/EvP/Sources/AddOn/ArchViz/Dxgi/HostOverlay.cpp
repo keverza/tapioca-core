@@ -44,8 +44,7 @@ const char* const kHeatmapBody = "struct VSOut { float4 position : SV_POSITION; 
                                  "{\n"
                                  "    VSOut output;\n"
                                  "    float4 p = float4 (position, 1.0);\n"
-                                 "    p = mul (p, View);\n"
-                                 "    p = mul (p, Projection);\n"
+                                 "    p = ArchicadClip (p);\n"
                                  "    p.z -= DepthBias * p.w;\n"
                                  "    output.position = p;\n"
                                  "    output.scalar = scalar;\n"
@@ -67,8 +66,7 @@ const char* const kHeatmapBody = "struct VSOut { float4 position : SV_POSITION; 
 const char* const kWireframeBody = "float4 VSWire (float3 position : POSITION) : SV_POSITION\n"
                                    "{\n"
                                    "    float4 p = float4 (position, 1.0);\n"
-                                   "    p = mul (p, View);\n"
-                                   "    p = mul (p, Projection);\n"
+                                   "    p = ArchicadClip (p);\n"
                                    "    p.z -= DepthBias * p.w;\n"
                                    "    return p;\n"
                                    "}\n"
@@ -100,17 +98,18 @@ const char* const kWireframeBody = "float4 VSWire (float3 position : POSITION) :
 // is a shell roughly a metre out, moving through the geometry as the camera
 // moves -- which is a defect that only ever shows itself while navigating.
 //
-// `Projection._44` is 1 for a parallel projection and 0 for a perspective one,
-// it is uniform across the draw, and HLSL matrix indexing is LOGICAL: it follows
+// `ArchicadParallel` reads it from `Projection` (CameraShaderSource.hpp), which is
+// uniform across the draw, and HLSL matrix indexing is LOGICAL: it follows
 // the declared `row_major` / `column_major` layout, so the variant declarations
 // already make this correct without anyone here knowing the storage. Handedness
-// still does not enter, because the test below is a sign PRODUCT.
+// still does not enter, because the test below is a sign PRODUCT. `v` stays in
+// view space in both camera layouts, because `View` is `b1` in both.
 const char* const kSilhouetteBody =
     "float4 VSSil (float3 position : POSITION, float3 na : NORMAL0, float3 nb : NORMAL1) : SV_POSITION\n"
     "{\n"
     "    float4 v = mul (float4 (position, 1.0), View);\n"
-    "    float4 p = mul (v, Projection);\n"
-    "    float3 toEye = abs (Projection._44 - 1.0) < 1e-4 ? float3 (0.0, 0.0, 1.0) : v.xyz;\n"
+    "    float4 p = ArchicadClip (float4 (position, 1.0));\n"
+    "    float3 toEye = ArchicadParallel () ? float3 (0.0, 0.0, 1.0) : v.xyz;\n"
     "    float sa = dot (mul (float4 (na, 0.0), View).xyz, toEye);\n"
     "    float sb = dot (mul (float4 (nb, 0.0), View).xyz, toEye);\n"
     "    if (sa * sb > 0.0)\n"
@@ -131,7 +130,7 @@ const char* const kSilhouetteBody =
 // from there. One number, two uses.
 
 struct Pipeline {
-    ID3D11VertexShader* vs[camerashader::kDeclarableVariants] = {};
+    ID3D11VertexShader* vs[camerashader::kShaderSlots] = {};
     ID3D11PixelShader* ps = nullptr;
     ID3D11InputLayout* layout = nullptr;
 };
@@ -204,8 +203,8 @@ bool BuildPipeline (Pipeline& pipeline, const char* body, float bias, const char
     ID3DBlob* errors = nullptr;
     bool ok = true;
 
-    for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants && ok; ++variant) {
-        if (!ComposeWithBias (variant, body, bias, source, sizeof (source))) {
+    for (uint32_t variant = 0; variant < camerashader::kShaderSlots && ok; ++variant) {
+        if (!ComposeWithBias (camerashader::InterpretationOfSlot (variant), body, bias, source, sizeof (source))) {
             Fail ("a host overlay shader source could not be composed");
             return false;
         }
@@ -467,9 +466,7 @@ void Draw (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_
     }
 
     const Pipeline& pipeline = kind == Kind::Heatmap ? g_heatmap : g_wireframe;
-    const uint32_t variant =
-        (interpretation < camerashader::kDeclarableVariants && pipeline.vs[interpretation] != nullptr) ? interpretation
-                                                                                                       : 0;
+    const uint32_t variant = camerashader::SlotToBind (interpretation, pipeline.vs);
     if (pipeline.vs[variant] == nullptr || pipeline.ps == nullptr)
         return;
 
@@ -539,7 +536,7 @@ void Shutdown ()
 {
     Pipeline* const pipelines[2] = { &g_heatmap, &g_wireframe };
     for (Pipeline* pipeline : pipelines) {
-        for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)
+        for (uint32_t variant = 0; variant < camerashader::kShaderSlots; ++variant)
             ReleaseAndNull (pipeline->vs[variant]);
         ReleaseAndNull (pipeline->ps);
         ReleaseAndNull (pipeline->layout);

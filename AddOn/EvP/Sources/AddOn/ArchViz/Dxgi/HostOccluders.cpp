@@ -45,8 +45,7 @@ constexpr uint32_t kMaxIndices = 6u * 1000u * 1000u;
 const char* const kHostShaderBody = "float4 VSHost (float3 position : POSITION) : SV_POSITION\n"
                                     "{\n"
                                     "    float4 p = float4 (position, 1.0);\n"
-                                    "    p = mul (p, View);\n"
-                                    "    p = mul (p, Projection);\n"
+                                    "    p = ArchicadClip (p);\n"
                                     "    return p;\n"
                                     "}\n";
 
@@ -75,7 +74,7 @@ ID3D11Buffer* g_scalarBuffer = nullptr;
 ID3D11Buffer* g_indexBuffer = nullptr;
 ID3D11Buffer* g_lineBuffer = nullptr;
 ID3D11Buffer* g_silhouetteBuffer = nullptr;
-ID3D11VertexShader* g_vsVariant[camerashader::kDeclarableVariants] = {};
+ID3D11VertexShader* g_vsVariant[camerashader::kShaderSlots] = {};
 ID3D11InputLayout* g_layout = nullptr;
 ID3D11DepthStencilState* g_writeDepth = nullptr;
 ID3D11RasterizerState* g_raster = nullptr;
@@ -337,8 +336,9 @@ bool EnsurePipeline (ID3D11DeviceContext* context)
     ID3DBlob* first = nullptr;
     ID3DBlob* errors = nullptr;
     bool ok = true;
-    for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants && ok; ++variant) {
-        if (!camerashader::Compose (variant, kHostShaderBody, source, sizeof (source))) {
+    for (uint32_t variant = 0; variant < camerashader::kShaderSlots && ok; ++variant) {
+        if (!camerashader::Compose (camerashader::InterpretationOfSlot (variant), kHostShaderBody, source,
+                                    sizeof (source))) {
             Fail ("the host occluder shader source could not be composed");
             g_createFailed = true;
             return false;
@@ -794,9 +794,7 @@ ID3D11DepthStencilView* Prepare (ID3D11DeviceContext* context, ID3D11DeviceConte
         return nullptr;
     }
 
-    const uint32_t variant =
-        (interpretation < camerashader::kDeclarableVariants && g_vsVariant[interpretation] != nullptr) ? interpretation
-                                                                                                       : 0;
+    const uint32_t variant = camerashader::SlotToBind (interpretation, g_vsVariant);
     if (g_vsVariant[variant] == nullptr)
         return nullptr;
 
@@ -887,7 +885,7 @@ void Shutdown ()
     ReleaseAndNull (g_raster);
     ReleaseAndNull (g_writeDepth);
     ReleaseAndNull (g_layout);
-    for (uint32_t variant = 0; variant < camerashader::kDeclarableVariants; ++variant)
+    for (uint32_t variant = 0; variant < camerashader::kShaderSlots; ++variant)
         ReleaseAndNull (g_vsVariant[variant]);
     ReleaseAndNull (g_lineBuffer);
     ReleaseAndNull (g_silhouetteBuffer);

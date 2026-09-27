@@ -72,6 +72,8 @@ struct HookMark {
     uint64_t afterCall = 0;
     uint64_t slot[size_t (dxgi::ContextSlot::Count)] = {};
     dxgi::contextstate::BindingAudit binds;
+    uint64_t otherReadbacks = 0;
+    uint64_t otherSnapshots = 0;
 };
 HookMark g_hookMark;
 uint32_t g_hookTicks = 0;
@@ -163,6 +165,24 @@ void Hooks ()
         Say ("BINDS", line);
     }
     said = binds;
+
+    // ⚠️ AND HOW OFTEN ANOTHER DRAW TOOK A GROUP'S OCCURRENCE (2026-09-27): readbacks
+    // not scored, and snapshots refused at the pinned occurrence. Either one rising
+    // while the camera is locked is a frame the overlay kept its previous camera.
+    const cen::Stats census = cen::GetStats ();
+    if (census.readbacksOtherDraw != g_hookMark.otherReadbacks ||
+        census.snapshotsOtherDraw != g_hookMark.otherSnapshots) {
+        char line[240] = {};
+        _snprintf_s (line, sizeof (line), _TRUNCATE,
+                     "~5 s: another draw at a group's occurrence -- readbacks not scored +%llu, snapshots "
+                     "refused at the pinned occurrence +%llu | session: %llu, %llu",
+                     (unsigned long long) Since (census.readbacksOtherDraw, g_hookMark.otherReadbacks),
+                     (unsigned long long) Since (census.snapshotsOtherDraw, g_hookMark.otherSnapshots),
+                     (unsigned long long) census.readbacksOtherDraw, (unsigned long long) census.snapshotsOtherDraw);
+        Say ("OTHERDRAW", line);
+        g_hookMark.otherReadbacks = census.readbacksOtherDraw;
+        g_hookMark.otherSnapshots = census.snapshotsOtherDraw;
+    }
 }
 
 } // namespace
@@ -412,12 +432,14 @@ void CameraBind ()
     g_lastBindSerial = bind.serial;
     char line[300] = {};
     _snprintf_s (line, sizeof (line), _TRUNCATE,
-                 "candidate=g%u interp=%u occurrence=%u coverage=%.0f%% valid=%.0f%% centre=%.3f "
+                 "candidate=g%u interp=%u%s occurrence=%u coverage=%.0f%% valid=%.0f%% centre=%.3f "
                  "candidates=%u runnerUp=%.0f%% calibrationFrame=%llu/%llu selected=%s reason=%s",
-                 bind.groupId, bind.variant, bind.occurrenceIndex, bind.coverage * 100.0f, bind.insideClip * 100.0f,
-                 bind.centreError, bind.candidates, bind.runnerUpCoverage * 100.0f,
-                 (unsigned long long) bind.calibrationFrames, (unsigned long long) bind.calibrationTarget,
-                 bind.selected ? "yes" : "no", cen::BindReasonName (bind.reason));
+                 bind.groupId, bind.variant & ~dxgi::cameralayout::kCombined,
+                 dxgi::cameralayout::IsCombined (bind.variant) ? " layout=view*projection" : "", bind.occurrenceIndex,
+                 bind.coverage * 100.0f, bind.insideClip * 100.0f, bind.centreError, bind.candidates,
+                 bind.runnerUpCoverage * 100.0f, (unsigned long long) bind.calibrationFrames,
+                 (unsigned long long) bind.calibrationTarget, bind.selected ? "yes" : "no",
+                 cen::BindReasonName (bind.reason));
     Say ("CAMERA_BIND", line);
 }
 

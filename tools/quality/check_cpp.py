@@ -282,6 +282,14 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # for the size cap, as the camera agreement's does.
     ("NativeCommands/ViewerPassProvenanceCommands.cpp", "ArchViz/Dxgi/PresentedContent.hpp"),
     ("NativeCommands/ViewerPresentedContentOutput.cpp", "ArchViz/Dxgi/PresentedContent.hpp"),
+    # The camera-independent draw record (2026-09-27): built in fixed storage on
+    # Archicad's render thread, read back at Present, and only copied out here.
+    # The hook's installed flag and the extracted model's bounds ride along so
+    # the diagnostic can project known model points through every recorded
+    # matrix; restating either here would be a second definition of it.
+    ("NativeCommands/ViewerDrawRecorderCommands.cpp", "ArchViz/Dxgi/DrawRecorder.hpp"),
+    ("NativeCommands/ViewerDrawRecorderCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
+    ("NativeCommands/ViewerDrawRecorderCommands.cpp", "ArchViz/Dxgi/HostOccluders.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1122,6 +1130,7 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/CameraCensus.cpp",
     "ArchViz/Dxgi/CameraAgreement.cpp",
     "ArchViz/Dxgi/PresentedContent.cpp",
+    "ArchViz/Dxgi/DrawRecorder.cpp",
     "ArchViz/Dxgi/CameraRecognizer.cpp",
     "ArchViz/Dxgi/HostOccluders.cpp",
     "ArchViz/Dxgi/HostOverlay.cpp",

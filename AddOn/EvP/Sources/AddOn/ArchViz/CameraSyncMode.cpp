@@ -10,6 +10,7 @@
 #include "ArchViz/CameraWake.hpp"
 #include "ArchViz/Dxgi/ContextHook.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
+#include "ArchViz/Dxgi/DrawRecorder.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/HookMarker.hpp"
 #include "ArchViz/Dxgi/HostComposite.hpp"
@@ -153,6 +154,8 @@ void TearDownCurrent ()
     // that device.
     dxgi::census::SetEnabled (false);
     dxgi::census::Shutdown ();
+    // The draw recorder's staging buffer lives on Archicad's device too.
+    dxgi::drawrecorder::Shutdown ();
 
     autoorbit::Stop ();
 

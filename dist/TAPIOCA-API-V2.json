@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 217,
+      "nativeRegistry": 218,
       "dispatcherLocal": 19,
-      "total": 236
+      "total": 237
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -7046,6 +7046,12 @@
           },
           "untitled": {
             "type": "boolean"
+          },
+          "modelStamp": {
+            "type": "integer"
+          },
+          "selectionStamp": {
+            "type": "integer"
           }
         },
         "additionalProperties": false,
@@ -7054,7 +7060,8 @@
           "archicadBuild",
           "projectName",
           "projectPath",
-          "untitled"
+          "untitled",
+          "modelStamp"
         ]
       }
     },
@@ -24225,6 +24232,15 @@
                 },
                 "projectionDivideSamples": {
                   "type": "integer"
+                },
+                "combinedSamples": {
+                  "type": "integer"
+                },
+                "cameraIndexCount": {
+                  "type": "integer"
+                },
+                "samplesSkipped": {
+                  "type": "integer"
                 }
               },
               "additionalProperties": false,
@@ -24489,6 +24505,299 @@
         "required": [
           "enabled",
           "groups"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.ViewerDrawRecorder",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "frames": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8
+          },
+          "disarm": {
+            "type": "boolean"
+          },
+          "redraw": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "armed",
+              "capturing",
+              "closing",
+              "done"
+            ]
+          },
+          "hookInstalled": {
+            "type": "boolean"
+          },
+          "framesWanted": {
+            "type": "integer"
+          },
+          "framesSeen": {
+            "type": "integer"
+          },
+          "draws": {
+            "type": "integer"
+          },
+          "dropped": {
+            "type": "integer"
+          },
+          "readbacksPending": {
+            "type": "integer"
+          },
+          "readbackFailures": {
+            "type": "integer"
+          },
+          "createFailures": {
+            "type": "integer"
+          },
+          "captures": {
+            "type": "string"
+          },
+          "boundsValid": {
+            "type": "boolean"
+          },
+          "boundsMin": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "boundsMax": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 3,
+            "maxItems": 3
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "seq": {
+                  "type": "integer"
+                },
+                "frame": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "indexed",
+                    "direct",
+                    "indexedInstanced",
+                    "instanced",
+                    "auto",
+                    "indexedInstancedIndirect",
+                    "instancedIndirect",
+                    "?"
+                  ]
+                },
+                "count": {
+                  "type": "integer"
+                },
+                "instances": {
+                  "type": "integer"
+                },
+                "thread": {
+                  "type": "integer"
+                },
+                "context": {
+                  "type": "string"
+                },
+                "vs": {
+                  "type": "string"
+                },
+                "ps": {
+                  "type": "string"
+                },
+                "rtv": {
+                  "type": "string"
+                },
+                "rtResource": {
+                  "type": "string"
+                },
+                "rtWidth": {
+                  "type": "integer"
+                },
+                "rtHeight": {
+                  "type": "integer"
+                },
+                "rtFormat": {
+                  "type": "integer"
+                },
+                "rtSamples": {
+                  "type": "integer"
+                },
+                "dsv": {
+                  "type": "string"
+                },
+                "dsResource": {
+                  "type": "string"
+                },
+                "dsWidth": {
+                  "type": "integer"
+                },
+                "dsHeight": {
+                  "type": "integer"
+                },
+                "dsFormat": {
+                  "type": "integer"
+                },
+                "viewport": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "scenePass": {
+                  "type": "string"
+                },
+                "passColour": {
+                  "type": "string"
+                },
+                "passBoundaryHit": {
+                  "type": "boolean"
+                },
+                "signatureColour": {
+                  "type": "string"
+                },
+                "signatureLearned": {
+                  "type": "boolean"
+                },
+                "modelGeneration": {
+                  "type": "string"
+                },
+                "censusEnabled": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "admissible",
+                    "censusOff",
+                    "viewUnbound",
+                    "projectionUnbound",
+                    "viewWindow",
+                    "projectionWindow",
+                    "?"
+                  ]
+                },
+                "slots": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "buffer": {
+                        "type": "string"
+                      },
+                      "bytes": {
+                        "type": "integer"
+                      },
+                      "first": {
+                        "type": "integer"
+                      },
+                      "count": {
+                        "type": "integer"
+                      },
+                      "copied": {
+                        "type": "integer"
+                      },
+                      "m": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "minItems": 16,
+                        "maxItems": 16
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "buffer",
+                      "bytes",
+                      "first",
+                      "count",
+                      "copied",
+                      "m"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "seq",
+                "frame",
+                "kind",
+                "count",
+                "instances",
+                "thread",
+                "context",
+                "vs",
+                "ps",
+                "rtv",
+                "rtResource",
+                "rtWidth",
+                "rtHeight",
+                "rtFormat",
+                "rtSamples",
+                "dsv",
+                "dsResource",
+                "dsWidth",
+                "dsHeight",
+                "dsFormat",
+                "viewport",
+                "scenePass",
+                "passColour",
+                "passBoundaryHit",
+                "signatureColour",
+                "signatureLearned",
+                "modelGeneration",
+                "censusEnabled",
+                "reason",
+                "slots"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "hookInstalled",
+          "framesWanted",
+          "framesSeen",
+          "draws",
+          "dropped",
+          "readbacksPending",
+          "readbackFailures",
+          "createFailures",
+          "captures",
+          "boundsValid",
+          "boundsMin",
+          "boundsMax",
+          "records"
         ]
       }
     },

@@ -16,6 +16,7 @@
 #include "ArchViz/Dxgi/CameraAgreement.hpp"
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/ContextStateTracker.hpp"
+#include "ArchViz/Dxgi/DrawRecorder.hpp"
 #include "ArchViz/Dxgi/DepthCheckpoints.hpp"
 #include "ArchViz/Dxgi/InjectionDepth.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
@@ -117,10 +118,10 @@ extern const size_t kVtableSlots = 124;
 // pointers and then spins until this reads zero.
 std::atomic<int32_t> g_inFlight { 0 };
 
-// Every detour's last act. With the after-call repair on (a diagnostic window;
-// off by default) the table is re-checked here, on the calling thread, straight
-// after the runtime ran -- and before the drain counter lets a teardown proceed,
-// so a teardown that has cleared `installed` finds the repair declining.
+// Every detour's last act. The table is re-checked here, on the calling thread,
+// straight after the runtime ran (on by default since Stage 77; a diagnostic
+// window may force it off) -- and before the drain counter lets a teardown
+// proceed, so a teardown that has cleared `installed` finds the repair declining.
 inline void LeaveDetour ()
 {
     RepairAfterDetour ();
@@ -557,6 +558,7 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::Indexed, indexCount);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::Indexed), indexCount, 1);
     }
     const DrawIndexedFn original = OriginalOf<DrawIndexedFn> (ContextSlot::DrawIndexed);
     if (original != nullptr)
@@ -579,6 +581,7 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::Direct, count);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::Direct), count, 1);
         renderstate::NoteDirectDraw (count);
     }
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
@@ -603,6 +606,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::IndexedInstanced, perInst);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::IndexedInstanced), perInst, instances);
     }
     const DrawIndexedInstFn original = OriginalOf<DrawIndexedInstFn> (ContextSlot::DrawIndexedInstanced);
     if (original != nullptr)
@@ -686,6 +690,7 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::Instanced, perInstance);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::Instanced), perInstance, instances);
     }
     const DrawInstancedFn original = OriginalOf<DrawInstancedFn> (ContextSlot::DrawInstanced);
     if (original != nullptr)
@@ -708,6 +713,7 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::Auto, 0);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::Auto), 0, 0);
     }
     const DrawAutoFn original = OriginalOf<DrawAutoFn> (ContextSlot::DrawAuto);
     if (original != nullptr)
@@ -732,6 +738,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::IndexedInstancedIndirect, 0);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::IndexedInstancedIndirect), 0, 0);
     }
     const DrawIndirectFn original = OriginalOf<DrawIndirectFn> (ContextSlot::DrawIndexedInstancedIndirect);
     if (original != nullptr)
@@ -755,6 +762,7 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
         // its own evidence -- both camera windows bound at the 256-byte shape --
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::InstancedIndirect, 0);
+        drawrecorder::OnDraw (context, uint32_t (census::DrawKind::InstancedIndirect), 0, 0);
     }
     const DrawIndirectFn original = OriginalOf<DrawIndirectFn> (ContextSlot::DrawInstancedIndirect);
     if (original != nullptr)

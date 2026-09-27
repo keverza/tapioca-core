@@ -146,7 +146,7 @@ class ViewerPassProvenanceCommand : public MainThreadCommand {
         if (hasEnabled)
             params.Get ("enabled", enabled);
         // The A/B: force the context hook's after-call repair for this window only
-        // (false = the once-per-Present repair alone). Absent, the default (off) holds.
+        // (false = the once-per-Present repair alone). Absent, the default (on) holds.
         int repairAfterCalls = -1;
         if (params.Contains ("repairAfterCalls")) {
             bool forced = false;

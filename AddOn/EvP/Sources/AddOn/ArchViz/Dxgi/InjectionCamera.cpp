@@ -7,6 +7,7 @@
 #include "ArchViz/Dxgi/InjectionCamera.hpp"
 
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/InjectionOracle.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/SceneCameraPairing.hpp"
@@ -193,8 +194,10 @@ void TryScoreOccurrence (ID3D11DeviceContext* context, Occurrence& slot)
     viewport.y = slot.viewportY;
     viewport.width = slot.viewportWidth;
     viewport.height = slot.viewportHeight;
+    float decoded[16]; // the pair in Archicad's layout: CameraLayout.hpp
+    cameralayout::Decode (view, projection, decoded);
     oracle::VariantScore scores[oracle::kVariantCount];
-    oracle::ScoreVariants (view, projection, viewport, scores);
+    oracle::ScoreVariants (view, decoded, viewport, scores);
 
     const oracle::VariantScore& score = scores[kScoredInterpretation];
     ++slot.samples;
@@ -362,12 +365,12 @@ bool InterpretationAgrees ()
     // no interpretation of its own to offer. ⚠️ AND A REVERSED MULTIPLICATION
     // ORDER (4..7) CANNOT BE EXPRESSED AS A DECLARATION, so it is refused rather
     // than silently drawn as variant 0.
-    // ⚠️ EVERY DECLARATION IN 0..3 IS COMPILED, so agreement is structural
-    // rather than a coincidence to be checked: the draw binds whichever the
-    // census selected. Only a reversed multiplication order (4..7) has no
-    // declaration that expresses it, and that is refused rather than silently
+    // ⚠️ EVERY DECLARATION IN 0..3 IS COMPILED, IN BOTH CAMERA LAYOUTS (bit 3),
+    // so agreement is structural rather than a coincidence to be checked: the draw
+    // binds whichever the census selected. Only a reversed multiplication order (bit 2)
+    // has no declaration that expresses it, and that is refused rather than silently
     // drawn as variant 0. `ShaderInterpretation ()` then REPORTS what was bound.
-    return expected == kNoInterpretation || expected < 4;
+    return expected == kNoInterpretation || camerashader::Declarable (expected);
 }
 
 void SetCameraSource (CameraSource source)
