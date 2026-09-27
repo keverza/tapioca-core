@@ -21,7 +21,8 @@ public sealed record AcPropertyValue(Guid DefinitionId, string Group, string Nam
     string ValueStatus, string Text, double? Number, bool? Boolean);
 public sealed record AcPropertySet(AcElementRef Source, AcPropertyValue[] Values);
 public sealed record AcBounds(double MinX, double MinY, double MinZ, double MaxX, double MaxY, double MaxZ);
-public sealed record AcGeometrySet(AcElementRef Source, string Representation, AcBounds[] Bounds);
+public sealed record AcSurfaceMesh(double[] Vertices, int[] Triangles);
+public sealed record AcGeometrySet(AcElementRef Source, string Representation, AcBounds[] Bounds, AcSurfaceMesh[] Meshes);
 public sealed record AcGdlParameter(string LibraryPart, string InternalName, string DisplayName, string Group, int DataType,
     bool Hidden, bool Disabled, bool IsArray, int Rows, int Columns,
     string ValueStatus, string Text, double Number);
@@ -31,6 +32,7 @@ public sealed record AcGdlSet(AcElementRef Source, AcGdlParameter[] Parameters);
 // and saved .ghz files. The format is versioned independently of the wire JSON.
 public abstract class AcQueryAssistant<T>(string name) : TypeAssistant<T>(name) where T : class
 {
+    protected virtual int Version => 1;
     public override T Copy(T instance) => instance;
     public override bool Same(T a, T b) => JsonSerializer.Serialize(a) == JsonSerializer.Serialize(b);
     public override int Sort(T a, T b) => string.CompareOrdinal(JsonSerializer.Serialize(a), JsonSerializer.Serialize(b));
@@ -39,7 +41,7 @@ public abstract class AcQueryAssistant<T>(string name) : TypeAssistant<T>(name) 
         AcContourSet value => $"{value.Rings.Length} Archicad contour(s) of {value.Source.ElementId:D}",
         AcRelationSet value => $"{value.Edges.Length} Archicad relation(s) of {value.Source.ElementId:D}",
         AcPropertySet value => $"{value.Values.Length} Archicad propert(ies) of {value.Source.ElementId:D}",
-        AcGeometrySet value => $"{value.Bounds.Length} Archicad {value.Representation} result(s) of {value.Source.ElementId:D}",
+        AcGeometrySet value => $"{value.Bounds.Length + value.Meshes.Length} Archicad {value.Representation} result(s) of {value.Source.ElementId:D}",
         AcGdlSet value => $"{value.Parameters.Length} GDL parameter(s) of {value.Source.ElementId:D}",
         _ => Name
     };
@@ -51,7 +53,7 @@ public abstract class AcQueryAssistant<T>(string name) : TypeAssistant<T>(name) 
     public override bool Write(IWriter writer, Name location, T instance)
     {
         if (instance is null) return false;
-        writer.String(location, JsonSerializer.Serialize(new { version = 1, value = instance }));
+        writer.String(location, JsonSerializer.Serialize(new { version = Version, value = instance }));
         return true;
     }
     public override bool Read(IReader reader, Name location, out T instance)
@@ -61,7 +63,7 @@ public abstract class AcQueryAssistant<T>(string name) : TypeAssistant<T>(name) 
         try
         {
             using var json = JsonDocument.Parse(reader.String(location));
-            if (json.RootElement.GetProperty("version").GetInt32() != 1) return false;
+            if (json.RootElement.GetProperty("version").GetInt32() != Version) return false;
             instance = json.RootElement.GetProperty("value").Deserialize<T>()!;
             return instance is not null;
         }
@@ -73,7 +75,10 @@ public abstract class AcQueryAssistant<T>(string name) : TypeAssistant<T>(name) 
 public sealed class AcContourAssistant() : AcQueryAssistant<AcContourSet>("Archicad contours");
 public sealed class AcRelationAssistant() : AcQueryAssistant<AcRelationSet>("Archicad relationships");
 public sealed class AcPropertyAssistant() : AcQueryAssistant<AcPropertySet>("Archicad properties");
-public sealed class AcGeometryAssistant() : AcQueryAssistant<AcGeometrySet>("Archicad geometry bounds");
+public sealed class AcGeometryAssistant() : AcQueryAssistant<AcGeometrySet>("Archicad geometry")
+{
+    protected override int Version => 2; // v1 had only bounds, no actual surface meshes.
+}
 public sealed class AcGdlAssistant() : AcQueryAssistant<AcGdlSet>("Archicad GDL parameters");
 
 public abstract class AcQueryParameter<T> : Parameter<T> where T : class

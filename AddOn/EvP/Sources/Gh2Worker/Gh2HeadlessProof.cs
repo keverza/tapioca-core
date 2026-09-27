@@ -111,8 +111,7 @@ internal static class Gh2HeadlessProof
                     ?? throw new InvalidOperationException($"GH2 did not register query component {id}."));
                 if (!document.Objects.Add(query) ||
                     !Connections.Connect(((Component)selection).Parameters.Output(1), query.Parameters.Input(0)) ||
-                    query.Parameters.Inputs.Count() != 4 || query.Parameters.Outputs.Count() !=
-                    (id == queryIds[1] || id == queryIds[2] || id == queryIds[4] ? 5 : 4))
+                    query.Parameters.Inputs.Count() != 4 || query.Parameters.Outputs.Count() != 5)
                     throw new InvalidOperationException($"The GH2 element query {id} is not wired or aligned.");
                 Type outputType = query.Parameters.Output(0).GetType().BaseType!.BaseType!.GetGenericArguments().FirstOrDefault()
                     ?? throw new InvalidOperationException("Query result has no typed parameter.");
@@ -126,6 +125,33 @@ internal static class Gh2HeadlessProof
                 if (ObjectProxies.FindById(outputId)?.Nomen.Rank != Grasshopper2.UI.Rank.Hidden)
                     throw new InvalidOperationException($"The query {id} exposes its internal output parameter in the palette.");
             }
+            Component bake = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
+                new Guid("ee94cef3-7073-4a37-a338-24e3a5e02d80"))
+                ?? throw new InvalidOperationException("GH2 did not register Create Archicad Terrain Mesh."));
+            if (!document.Objects.Add(bake) || bake.Parameters.Inputs.Count() != 3 ||
+                bake.Parameters.Outputs.Count() != 3)
+                throw new InvalidOperationException("The explicit mesh creation component has an invalid interface.");
+            var prepare = bake.GetType().GetMethod("Prepare", BindingFlags.NonPublic | BindingFlags.Static)!;
+            object preset = prepare.Invoke(null, [null, Array.Empty<Rhino.Geometry.Point3d>(), "", "test-project", 1.0])!;
+            if (((double[])preset.GetType().GetProperty("Outline")!.GetValue(preset)!).Length != 8 ||
+                ((double[])preset.GetType().GetProperty("PolyZ")!.GetValue(preset)!).Length != 4 ||
+                ((int[])preset.GetType().GetProperty("RidgeCounts")!.GetValue(preset)!).Length != 1)
+                throw new InvalidOperationException("The mesh bake test preset is not a four-cornered outline.");
+            var pluginAssembly = bake.GetType().Assembly;
+            var ring = Activator.CreateInstance(pluginAssembly.GetType("TapiocaGH2.AcContourRing")!,
+                "outer", true, new double[] { 0, 0, 2, 0, 2, 2, 0, 2 }, new double[] { 0, 0, 0, 0 })!;
+            var curve = (Rhino.Geometry.Curve)pluginAssembly.GetType("TapiocaGH2.ArchicadGetContours")!
+                .GetMethod("BuildPlanCurve", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, [ring, 1.0])!;
+            if (!curve.IsValid || !curve.IsClosed)
+                throw new InvalidOperationException("An Archicad contour did not become a Rhino closed curve.");
+            var triangles = Activator.CreateInstance(pluginAssembly.GetType("TapiocaGH2.AcSurfaceMesh")!,
+                new double[] { 0, 0, 0, 2, 0, 0, 0, 2, 1 }, new int[] { 0, 1, 2 })!;
+            var rhinoMesh = (Rhino.Geometry.Mesh)pluginAssembly.GetType("TapiocaGH2.ArchicadGetGeometry")!
+                .GetMethod("ToRhinoMesh", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, [triangles, 1.0])!;
+            if (!rhinoMesh.IsValid || rhinoMesh.Faces.Count != 1 || rhinoMesh.Vertices.Count != 3)
+                throw new InvalidOperationException("Archicad tessellation did not become a Rhino mesh.");
             Type queries = selection.GetType().Assembly.GetType("TapiocaGH2.ArchicadElementQuery`1")!
                 .MakeGenericType(selection.GetType().Assembly.GetType("TapiocaGH2.AcPropertySet")!);
             MethodInfo parseQueries = queries.GetMethod("ParseRows", BindingFlags.NonPublic | BindingFlags.Static)!;

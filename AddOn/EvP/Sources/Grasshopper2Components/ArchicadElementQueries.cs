@@ -2,9 +2,12 @@ using System.Text.Json;
 using Eto.Forms;
 using Grasshopper2.Components;
 using Grasshopper2.Data;
+using Grasshopper2.Data.Meta;
 using Grasshopper2.Parameters;
 using Grasshopper2.UI;
 using GrasshopperIO;
+using Rhino;
+using Rhino.Geometry;
 
 namespace TapiocaGH2;
 
@@ -29,6 +32,8 @@ public abstract class ArchicadElementQuery<T> : Component where T : class
     protected abstract T Convert(AcElementRef source, string mode, JsonElement[] items);
     protected virtual void AddExtraOutputs(OutputAdder outputs) { }
     protected virtual void SetExtraOutputs(IDataAccess access, T[] values, Pear<AcElementRef>[] pears) { }
+    protected static MetaData SourceMeta(Pear<AcElementRef> pear) =>
+        (pear.Meta ?? MetaData.Empty).Merge(AcElementData.Provenance(pear.Item), MergeBehaviour.Overwrite);
 
     protected override void AddInputs(InputAdder inputs)
     {
@@ -120,7 +125,8 @@ public abstract class ArchicadElementQuery<T> : Component where T : class
                 Garden.Pear(rows[i].Diagnostic, pear.Meta ?? AcElementData.Provenance(pear.Item)))));
             SetExtraOutputs(access, values, pears);
         }
-        catch (Exception error) when (error is JsonException or FormatException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception error) when (error is JsonException or FormatException or KeyNotFoundException or
+            InvalidOperationException or InvalidDataException or ArgumentException)
         { access.AddWarning("Invalid query data", error.Message); }
     }
 
@@ -148,10 +154,11 @@ public abstract class ArchicadElementQuery<T> : Component where T : class
             if (ArchicadProjectOptions.ParseIdentity(first) != project)
                 throw new InvalidDataException("Archicad changed projects before the query.");
             var collected = new List<QueryRow>(ids.Length);
-            for (int offset = 0; offset < ids.Length; offset += 8)
+            int batchSize = Kind == "geometry" && mode == "Surface mesh" ? 1 : 8;
+            for (int offset = 0; offset < ids.Length; offset += batchSize)
             {
                 lock (sync) if (request != ticket) return;
-                Guid[] page = ids.Skip(offset).Take(8).ToArray();
+                Guid[] page = ids.Skip(offset).Take(batchSize).ToArray();
                 var pageRows = new QueryRow[page.Length];
                 for (int position = 0; ; position += 128)
                 {
@@ -261,15 +268,53 @@ public sealed class ArchicadGetContours : ArchicadElementQuery<AcContourSet>
     protected override string[] Modes => ["Definition", "Boundary", "Visible 2D", "Section"];
     protected override void AddResult(OutputAdder outputs) => outputs.Add(new AcContourParameter(
         "Contours", "C", "Native polygon rings and holes, in project coordinates."));
-    protected override void AddExtraOutputs(OutputAdder outputs) => outputs.AddText("Rings", "R",
-        "Ring role, closure and project-coordinate vertices, one line per ring.", Access.Twig);
-    protected override void SetExtraOutputs(IDataAccess access, AcContourSet[] values, Pear<AcElementRef>[] pears) =>
+    protected override void AddExtraOutputs(OutputAdder outputs)
+    {
+        outputs.AddText("Rings", "R", "Ring role, closure and project-coordinate vertices.", Access.Twig);
+        outputs.AddCurve("Plan Curves", "Crv", "Rhino curves at Z=0, converted from Archicad metres to document units; arcs retained.", Access.Twig);
+    }
+    protected override void SetExtraOutputs(IDataAccess access, AcContourSet[] values, Pear<AcElementRef>[] pears)
+    {
         access.SetTwig(3, Garden.TwigFromPears(values.Select((value, i) => Garden.Pear(
             string.Join("\n", value.Rings.Select(ring =>
                 $"{ring.Role} ({(ring.Closed ? "closed" : "open")}): " +
                 string.Join("; ", Enumerable.Range(0, ring.Xy.Length / 2)
                     .Select(index => $"({ring.Xy[2 * index]:G6}, {ring.Xy[2 * index + 1]:G6}) arc {ring.ArcAngles[index]:G6}")))),
             pears[i].Meta ?? AcElementData.Provenance(pears[i].Item)))));
+        double scale = RhinoMath.UnitScale(UnitSystem.Meters,
+            RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
+        access.SetTwig(4, Garden.TwigFromPears(values.SelectMany((value, i) => value.Rings.Select(ring =>
+            Garden.Pear<Curve>(BuildPlanCurve(ring, scale),
+                SourceMeta(pears[i]))))));
+    }
+
+    private static Curve BuildPlanCurve(AcContourRing ring, double scale)
+    {
+        int count = ring.Xy.Length / 2;
+        if (count < 2 || ring.ArcAngles.Length != count)
+            throw new InvalidDataException("Archicad returned an invalid contour ring.");
+        var points = Enumerable.Range(0, count).Select(i => new Point3d(
+            ring.Xy[2 * i] * scale, ring.Xy[2 * i + 1] * scale, 0)).ToArray();
+        int distinct = ring.Closed && points[0].DistanceTo(points[^1]) < 1e-9 ? count - 1 : count;
+        var curve = new PolyCurve();
+        int segments = ring.Closed ? distinct : distinct - 1;
+        for (int i = 0; i < segments; i++)
+        {
+            Point3d start = points[i], end = points[(i + 1) % distinct];
+            if (start.DistanceTo(end) < 1e-9) continue;
+            double angle = ring.ArcAngles[i];
+            if (Math.Abs(angle) < 1e-10)
+                curve.Append(new LineCurve(start, end));
+            else
+            {
+                double bulge = Math.Tan(angle / 4);
+                var middle = new Point3d((start.X + end.X) / 2 - (end.Y - start.Y) * bulge / 2,
+                    (start.Y + end.Y) / 2 + (end.X - start.X) * bulge / 2, 0);
+                curve.Append(new ArcCurve(new Arc(start, middle, end)));
+            }
+        }
+        return curve;
+    }
     protected override AcContourSet Convert(AcElementRef source, string mode, JsonElement[] items) => new(source,
         items.Select(item => new AcContourRing(item.GetProperty("role").GetString() ?? "",
             item.GetProperty("closed").GetBoolean(),
@@ -313,7 +358,7 @@ public sealed class ArchicadGetProperties : ArchicadElementQuery<AcPropertySet>
     public ArchicadGetProperties(IReader reader) : base(reader) { }
     protected override string Kind => "properties";
     protected override string DefaultMode => "Discover";
-    protected override string[] Modes => ["Discover", "All", "User", "Built-in"];
+    protected override string[] Modes => ["Discover", "All", "User", "Built-in", "Element settings"];
     protected override void AddResult(OutputAdder outputs) => outputs.Add(new AcPropertyParameter(
         "Properties", "P", "Available definitions or selected evaluated property values."));
     protected override void AddExtraOutputs(OutputAdder outputs)
@@ -325,7 +370,8 @@ public sealed class ArchicadGetProperties : ArchicadElementQuery<AcPropertySet>
     {
         access.SetTwig(3, Garden.TwigFromPears(values.Select((value, i) => Garden.Pear(
             string.Join("\n", value.Values.Select(property =>
-                $"{property.Group} / {property.Name} [{property.DefinitionId:D}]")),
+                property.DefinitionId == Guid.Empty ? $"{property.Group} / {property.Name}" :
+                    $"{property.Group} / {property.Name} [{property.DefinitionId:D}]")),
             pears[i].Meta ?? AcElementData.Provenance(pears[i].Item)))));
         access.SetTwig(4, Garden.TwigFromPears(values.Select((value, i) => Garden.Pear(
             string.Join("\n", value.Values.Select(property =>
@@ -352,17 +398,46 @@ public sealed class ArchicadGetGeometry : ArchicadElementQuery<AcGeometrySet>
     protected override string[] Modes => ["Bounding box", "Surface mesh", "Native definition", "2D drawing", "Derived Brep"];
     protected override void AddResult(OutputAdder outputs) => outputs.Add(new AcGeometryParameter(
         "Geometry", "G", "Available 3D model bounds in project coordinates."));
-    protected override void AddExtraOutputs(OutputAdder outputs) => outputs.AddText("Bounds", "B",
-        "Minimum and maximum project-coordinate metres, one item per source.", Access.Twig);
-    protected override void SetExtraOutputs(IDataAccess access, AcGeometrySet[] values, Pear<AcElementRef>[] pears) =>
+    protected override void AddExtraOutputs(OutputAdder outputs)
+    {
+        outputs.AddText("Bounds", "B", "Minimum and maximum project-coordinate metres.", Access.Twig);
+        outputs.AddMesh("Rhino Mesh", "M", "Tessellated 3D geometry converted to Rhino document units; source GUID in metadata.", Access.Twig);
+    }
+    protected override void SetExtraOutputs(IDataAccess access, AcGeometrySet[] values, Pear<AcElementRef>[] pears)
+    {
         access.SetTwig(3, Garden.TwigFromPears(values.Select((value, i) => Garden.Pear(
             string.Join("\n", value.Bounds.Select(box =>
                 $"({box.MinX:G6}, {box.MinY:G6}, {box.MinZ:G6}) – ({box.MaxX:G6}, {box.MaxY:G6}, {box.MaxZ:G6}) m")),
             pears[i].Meta ?? AcElementData.Provenance(pears[i].Item)))));
+        double scale = RhinoMath.UnitScale(UnitSystem.Meters,
+            RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
+        access.SetTwig(4, Garden.TwigFromPears(values.SelectMany((value, i) => value.Meshes.Select(source =>
+            Garden.Pear(ToRhinoMesh(source, scale),
+                SourceMeta(pears[i]))))));
+    }
+    private static Mesh ToRhinoMesh(AcSurfaceMesh source, double scale)
+    {
+        if (source.Vertices.Length % 3 != 0 || source.Triangles.Length % 3 != 0 ||
+            source.Vertices.Length > 12288 || source.Triangles.Length > 24576 ||
+            source.Triangles.Any(index => index < 0 || index >= source.Vertices.Length / 3))
+            throw new InvalidDataException("Archicad returned an invalid tessellated mesh.");
+        var mesh = new Mesh();
+        for (int i = 0; i < source.Vertices.Length; i += 3)
+            mesh.Vertices.Add(source.Vertices[i] * scale, source.Vertices[i + 1] * scale,
+                source.Vertices[i + 2] * scale);
+        for (int i = 0; i < source.Triangles.Length; i += 3)
+            mesh.Faces.AddFace(source.Triangles[i], source.Triangles[i + 1], source.Triangles[i + 2]);
+        mesh.Normals.ComputeNormals();
+        return mesh;
+    }
     protected override AcGeometrySet Convert(AcElementRef source, string mode, JsonElement[] items) => new(source, mode,
-        items.Select(item => new AcBounds(item.GetProperty("minX").GetDouble(), item.GetProperty("minY").GetDouble(),
-            item.GetProperty("minZ").GetDouble(), item.GetProperty("maxX").GetDouble(),
-            item.GetProperty("maxY").GetDouble(), item.GetProperty("maxZ").GetDouble())).ToArray());
+        mode == "Bounding box" ? items.Select(item => new AcBounds(item.GetProperty("minX").GetDouble(),
+            item.GetProperty("minY").GetDouble(), item.GetProperty("minZ").GetDouble(),
+            item.GetProperty("maxX").GetDouble(), item.GetProperty("maxY").GetDouble(),
+            item.GetProperty("maxZ").GetDouble())).ToArray() : [],
+        mode == "Surface mesh" ? items.Select(item => new AcSurfaceMesh(
+            item.GetProperty("vertices").EnumerateArray().Select(value => value.GetDouble()).ToArray(),
+            item.GetProperty("triangles").EnumerateArray().Select(value => value.GetInt32()).ToArray())).ToArray() : []);
 }
 
 [IoId("859af4c8-e7dd-484e-a03c-338d7574b50f")]

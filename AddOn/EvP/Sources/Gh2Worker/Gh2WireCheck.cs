@@ -269,22 +269,21 @@ internal static class Gh2WireCheck
                 "Refresh replaced unchanged lists, or did not update the changed line types.");
             string[] originalLineTypes = ArchicadProjectOptions.Read().LineTypes;
             ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", selectionOnly);
-            // A single lightweight poll detects a model edit; it marks the
-            // snapshot stale without clearing selectors or fetching catalogs.
+            // A stamp-only change cannot prove a catalog edit: project reads
+            // and model generation can advance it without changing the model.
             ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", edited, () =>
                 Require(!ArchicadProjectOptions.ReadStatus().Stale &&
                         ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers),
                     "Changing only Archicad's live selection invalidated the project snapshot."));
-            Require(SpinWait.SpinUntil(() => ArchicadProjectOptions.ReadStatus().Stale,
-                TimeSpan.FromSeconds(3)), "The model-stamp hint did not mark the snapshot stale.");
+            Require(!ArchicadProjectOptions.ReadStatus().Stale,
+                "A model-stamp hint invalidated the project catalog without a project switch.");
             Require(ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers) &&
-                    ReferenceEquals(originalLineTypes, ArchicadProjectOptions.Read().LineTypes),
-                "A stale model hint discarded the last good selector values.");
+                     ReferenceEquals(originalLineTypes, ArchicadProjectOptions.Read().LineTypes),
+                "A model-stamp hint discarded the last good selector values.");
             Require(SpinWait.SpinUntil(Gh2ConnectionStatus.RequestRefresh, TimeSpan.FromSeconds(3)),
                 "The next explicit refresh remained blocked after the previous one completed.");
-            Require(SpinWait.SpinUntil(() => ArchicadProjectOptions.ReadStatus().Checking &&
-                ArchicadProjectOptions.ReadStatus().Stale, TimeSpan.FromSeconds(3)),
-                "A refresh lost the pending stale warning before it completed.");
+            Require(SpinWait.SpinUntil(() => ArchicadProjectOptions.ReadStatus().Checking,
+                TimeSpan.FromSeconds(3)), "A catalog refresh did not start.");
             ExpectRead(server, "Tapioca.GetGhConnectionInfo", "{}", edited);
             Require(ReferenceEquals(originalLayers, ArchicadProjectOptions.Read().Layers) &&
                     ReferenceEquals(originalLineTypes, ArchicadProjectOptions.Read().LineTypes),
@@ -388,6 +387,13 @@ internal static class Gh2WireCheck
                     "{\"ok\":true,\"data\":{\"elements\":[{\"guid\":\"" + id.ToString("D") +
                     "\",\"status\":\"Success\",\"diagnostic\":\"\",\"items\":[],\"more\":" +
                     (offset == 0 ? "true" : "false") + "}]}}");
+            ExpectRead(server, "Tapioca.CreateMesh",
+                "{\"outline\":[0.0,0.0,10.0,0.0,10.0,10.0,0.0,10.0]," +
+                "\"polyZ\":[0.0,0.0,0.0,0.0],\"baseLevel\":0.0," +
+                "\"ridgeCoords\":[5.0,5.0,2.0],\"ridgeCounts\":[1],\"floorInd\":0," +
+                "\"skirt\":\"SurfaceOnlyWithoutSkirt\",\"skirtLevel\":0.0," +
+                "\"onFloorPlan\":true,\"layer\":\"\"}",
+                "{\"ok\":true,\"data\":{\"elementId\":{\"guid\":\"" + id + "\"}}}");
             Send(server, 8, 0, 0, []);
         });
         using var client = Gh2PipeClient.Connect(name);
@@ -407,6 +413,9 @@ internal static class Gh2WireCheck
         Require(client.ReadElementQueryAsync([id], "properties", "Discover", "", [], 128)
             .GetAwaiter().GetResult().Contains("\"more\":false", StringComparison.Ordinal),
             "GH2 did not request the next property discovery page.");
+        Require(client.CreateTerrainMeshAsync([0, 0, 10, 0, 10, 10, 0, 10], [0, 0, 0, 0],
+                0, [5, 5, 2], [1], "").GetAwaiter().GetResult().Contains(id.ToString(), StringComparison.OrdinalIgnoreCase),
+            "The explicit mesh action did not encode real-valued coordinates.");
         reader.GetAwaiter().GetResult();
         host.GetAwaiter().GetResult();
     }

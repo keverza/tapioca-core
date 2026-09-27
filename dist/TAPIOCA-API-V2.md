@@ -67,7 +67,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.GetErrorTrail` | - | `limit`: integer | `entries`: string[]<br>`total`: integer<br>`logPath`: string |
 | `Tapioca.GetGhConnectionInfo` | - | - | `archicadVersion`: integer<br>`archicadBuild`: integer<br>`projectName`: string<br>`projectPath`: string<br>`untitled`: boolean<br>`modelStamp`: integer<br>`selectionStamp?`: integer |
 | `Tapioca.GetGhElementHeaders` | `guids`: string[] | - | `elements`: object[] |
-| `Tapioca.GetGhElementQuery` | `guids`: string[]<br>`kind`: "contours" \| "relationships" \| "properties" \| "geometry" \| "gdl"<br>`mode`: string<br>`search`: string<br>`selectors`: string[] | - | `elements`: object[] |
+| `Tapioca.GetGhElementQuery` | `guids`: string[]<br>`kind`: "contours" \| "relationships" \| "properties" \| "geometry" \| "gdl"<br>`mode`: string<br>`search`: string<br>`selectors`: string[]<br>`offset`: integer | - | `elements`: object[] |
 | `Tapioca.GetLibraryPartInfo` | `libraryPartNames`: string[] | - | `libraryPartName`: string<br>`libInd`: integer<br>`sizeA`: number<br>`sizeB`: number<br>`paramCount`: integer |
 | `Tapioca.GetLibraryPartPreview` | `name`: string | - | `name`: string<br>`previewMime`: string<br>`previewBytes`: integer<br>`dataUri`: string<br>`reason`: string |
 | `Tapioca.GetLibraryPartPreviewInfo` | `name`: string | - | `name`: string<br>`previewMime`: string<br>`previewBytes`: integer<br>`decodable`: boolean |

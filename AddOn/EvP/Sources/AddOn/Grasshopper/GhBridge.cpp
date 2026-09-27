@@ -255,7 +255,7 @@ void GhBridge::QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request,
     if (envelope.empty ())
         envelope = ErrorEnvelope ("Archicad returned an empty envelope.");
     if (envelope.size () > MaxGh2ReplyBytes)
-        envelope = ErrorEnvelope ("The GH2 project read exceeded 1 MiB.");
+        envelope = ErrorEnvelope ("The GH2 command response exceeded 1 MiB.");
     std::lock_guard<std::mutex> lock (gh2RequestMutex);
     if (gh2ShutdownRequested || gh2PendingRequest != request || generation.load () != request->generation ||
         request->replyReady)
@@ -672,7 +672,17 @@ void GhBridge::Run ()
                                  request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
                                  request.parameters.size () >= 12 &&
                                  request.parameters.compare (request.parameters.size () - 2, 2, "]}") == 0) ||
-                                (request.command == "Tapioca.GetGhElementQuery" &&
+                                 (request.command == "Tapioca.CreateMesh" &&
+                                  request.parameters.size () <= 32000 &&
+                                  request.parameters.rfind ("{\"outline\":[", 0) == 0 &&
+                                  request.parameters.find (",\"polyZ\":[") != std::string::npos &&
+                                  request.parameters.find (",\"ridgeCoords\":[") != std::string::npos &&
+                                  request.parameters.find (",\"ridgeCounts\":[") != std::string::npos &&
+                                  request.parameters.find (",\"floorInd\":0,") != std::string::npos &&
+                                  request.parameters.find (",\"skirt\":\"SurfaceOnlyWithoutSkirt\",\"skirtLevel\":0.0,") != std::string::npos &&
+                                  request.parameters.find (",\"onFloorPlan\":true,\"layer\":\"") != std::string::npos &&
+                                  request.parameters.back () == '}') ||
+                                 (request.command == "Tapioca.GetGhElementQuery" &&
                                  request.parameters.size () <= 11000 &&
                                  request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
                                  request.parameters.find (",\"kind\":") != std::string::npos &&

@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Tapioca.Gh2Worker;
 
@@ -9,6 +11,23 @@ namespace Tapioca.Gh2Worker;
 // project reads and explicit UI selection actions; solves never use this pipe.
 internal sealed class Gh2PipeClient : IDisposable
 {
+    // GS::ObjectState's Array<double> parser treats a JSON integer token as 0.
+    // Serialize every mesh coordinate as a real token, including 0.0 and 10.0.
+    private sealed class RealTokenConverter : JsonConverter<double>
+    {
+        public override double Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            reader.GetDouble();
+        public override void Write(Utf8JsonWriter writer, double value, JsonSerializerOptions options)
+        {
+            string text = value.ToString("R", CultureInfo.InvariantCulture);
+            if (!text.Contains('.') && !text.Contains('E') && !text.Contains('e')) text += ".0";
+            writer.WriteRawValue(text);
+        }
+    }
+    private static readonly JsonSerializerOptions MeshJsonOptions = new()
+    {
+        Converters = { new RealTokenConverter() }
+    };
     private readonly NamedPipeClientStream pipe;
     private readonly object writes = new();
     private readonly Timer heartbeat;
@@ -216,6 +235,22 @@ internal sealed class Gh2PipeClient : IDisposable
         });
         return ReadProjectAsync("Tapioca.SetSelection", request);
     }
+    internal Task<string> CreateTerrainMeshAsync(double[] outline, double[] polyZ,
+        double baseLevel, double[] ridgeCoords, int[] ridgeCounts, string layer)
+    {
+        if (outline.Length is < 6 or > 512 || outline.Length % 2 != 0 ||
+            polyZ.Length != outline.Length / 2 || ridgeCoords.Length > 1536 ||
+            ridgeCoords.Length % 3 != 0 || ridgeCounts.Length > 512 ||
+            ridgeCounts.Any(count => count != 1) || ridgeCounts.Sum() != ridgeCoords.Length / 3 ||
+            layer.Length > 128 ||
+            !outline.Concat(polyZ).Concat(ridgeCoords).Append(baseLevel).All(double.IsFinite))
+            throw new ArgumentOutOfRangeException(nameof(outline), "Terrain mesh exceeds the bounded bake contract.");
+        return ReadProjectAsync("Tapioca.CreateMesh", JsonSerializer.Serialize(new
+        {
+            outline, polyZ, baseLevel, ridgeCoords, ridgeCounts, floorInd = 0,
+            skirt = "SurfaceOnlyWithoutSkirt", skirtLevel = 0.0, onFloorPlan = true, layer
+        }, MeshJsonOptions));
+    }
     internal Task<string> ReadAttributesAsync(string kind) => kind switch
     {
         "layer" => ReadProjectAsync("Tapioca.ListAttributes", "{\"kind\":\"layer\"}"),
@@ -226,12 +261,15 @@ internal sealed class Gh2PipeClient : IDisposable
     private async Task<string> ReadProjectAsync(string command, string parameters)
     {
         await projectReads.WaitAsync();
-        try { return await RequestProjectAsync(command, parameters).WaitAsync(TimeSpan.FromSeconds(30)); }
+        try { return await RequestProjectAsync(command, parameters).WaitAsync(
+            TimeSpan.FromSeconds(command == "Tapioca.CreateMesh" ? 120 : 30)); }
         catch (TimeoutException)
         {
             // A late reply cannot safely be mistaken for the next request.
             // Tear down this pipe rather than leave its reader and refresh latch stuck.
             Dispose();
+            if (command == "Tapioca.CreateMesh")
+                throw new TimeoutException("Mesh creation outcome is unknown. Inspect Archicad before retrying; the write may have committed.");
             throw;
         }
         finally { projectReads.Release(); }

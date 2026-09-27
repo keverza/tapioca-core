@@ -64,6 +64,9 @@ def test_gh2_element_query_is_bounded_and_reports_aligned_statuses():
     assert {"guid", "status", "diagnostic", "items", "more"} == set(rows["required"])
     assert request["properties"]["offset"]["maximum"] == 2048
     assert rows["properties"]["items"]["items"]["additionalProperties"] is False
+    mesh_fields = rows["properties"]["items"]["items"]["properties"]
+    assert mesh_fields["vertices"]["maxItems"] == 12288
+    assert mesh_fields["triangles"]["maxItems"] == 24576
 
 
 def test_gh2_bridge_admits_the_paged_query_shape():
@@ -74,6 +77,8 @@ def test_gh2_bridge_admits_the_paged_query_shape():
     assert r'request.parameters.find (",\"offset\":")' in admission
     assert "request.parameters.back () == '}'" in admission
     assert 'request.parameters.compare (request.parameters.size () - 2, 2, "]}")' not in admission
+    assert 'request.command == "Tapioca.CreateMesh"' in bridge
+    assert '\\"skirt\\":\\"SurfaceOnlyWithoutSkirt\\"' in bridge
 
 
 def test_project_success_schemas_forbid_legacy_fields_and_require_the_payload():

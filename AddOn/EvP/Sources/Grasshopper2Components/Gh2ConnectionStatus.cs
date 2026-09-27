@@ -78,6 +78,13 @@ internal static class Gh2ConnectionStatus
             return client?.ReplaceSelectionAsync(ids) ?? Task.FromException<string>(
                 new InvalidOperationException("Attach to Archicad before reselecting elements."));
     }
+    internal static Task<string> CreateTerrainMeshAsync(double[] outline, double[] polyZ,
+        double baseLevel, double[] ridgeCoords, int[] ridgeCounts, string layer)
+    {
+        lock (Sync)
+            return client?.CreateTerrainMeshAsync(outline, polyZ, baseLevel, ridgeCoords, ridgeCounts, layer)
+                ?? Task.FromException<string>(new InvalidOperationException("Attach to Archicad before baking a mesh."));
+    }
 
     internal static void Set(string state, string pipeName = "(none)",
         string project = "(not connected)", Gh2PipeClient? bridge = null, string? issue = null)

@@ -3,6 +3,10 @@
 
 #include "NativeCommands/GhElementQueryCommands.hpp"
 #include "NativeCommands/CommandUtils.hpp"
+#include "Geometry/GeometryExtractor.hpp"
+
+#include <Model.hpp>
+#include <cmath>
 
 namespace geomsrv {
 
@@ -33,6 +37,8 @@ class GetGhElementQueryCommand : public MainThreadCommand {
             return NativeCommandResult::Failure ("Unknown GH2 query kind.");
 
         const GS::UniString wanted = search.ToLowerCase ();
+        ModelerAPI::Model model;
+        const bool haveModel = kind == "geometry" && mode == "Surface mesh" && AcquireCurrentModel (model);
         GS::Array<GS::ObjectState> rows;
         for (const GS::UniString& text : guids) {
             if (text.IsEmpty () || text.GetLength () > 64)
@@ -152,7 +158,38 @@ class GetGhElementQueryCommand : public MainThreadCommand {
                 }
             }
             else if (kind == "geometry") {
-                if (mode != "Bounding box") {
+                if (mode == "Surface mesh") {
+                    if (!haveModel) {
+                        status = "Unavailable";
+                        diagnostic = "No 3D model is available in this project context.";
+                    }
+                    else {
+                        const auto index = model.GetElementIndex (APIGuid2GSGuid (guid));
+                        Mesh mesh;
+                        if (!index.has_value () || !ExtractElementAt (model, *index, mesh)) {
+                            status = "NotApplicable";
+                            diagnostic = "This element has no tessellated 3D body in the current model.";
+                        }
+                        else if (mesh.VertexCount () > 4096 || mesh.TriangleCount () > 8192) {
+                            status = "Unavailable";
+                            diagnostic = "Tessellated body exceeds 4,096 vertices or 8,192 triangles; no partial mesh returned.";
+                        }
+                        else {
+                            GS::Array<double> vertices;
+                            GS::Array<GS::Int32> triangles;
+                            for (double coordinate : mesh.vertices)
+                                vertices.Push (coordinate);
+                            for (uint32_t index : mesh.triangles)
+                                triangles.Push (static_cast<GS::Int32> (index));
+                            GS::ObjectState surface;
+                            surface.Add ("vertices", vertices);
+                            surface.Add ("triangles", triangles);
+                            items.Push (surface);
+                            status = "Success";
+                        }
+                    }
+                }
+                else if (mode != "Bounding box") {
                     status = "Unavailable";
                     diagnostic = "Mesh, Brep and drawing extraction are not implemented in this query adapter.";
                 }
@@ -184,6 +221,75 @@ class GetGhElementQueryCommand : public MainThreadCommand {
                 }
             }
             else if (kind == "properties") {
+                if (mode == "Element settings") {
+                    const auto addNumber = [&items] (const char* name, double number) {
+                        GS::ObjectState field;
+                        field.Add ("key", GS::UniString (APIGuidToString (APINULLGuid).ToCStr ()));
+                        field.Add ("name", GS::UniString (name));
+                        field.Add ("group", GS::UniString ("Native element settings (metres)"));
+                        field.Add ("dataType", (GS::Int32) API_PropertyRealValueType);
+                        field.Add ("definitionType", (GS::Int32) 0);
+                        field.Add ("userDefined", false);
+                        field.Add ("collectionType", (GS::Int32) API_PropertySingleCollectionType);
+                        field.Add ("number", number);
+                        field.Add ("hasNumber", true);
+                        field.Add ("boolean", false);
+                        field.Add ("hasBoolean", false);
+                        field.Add ("valueStatus", GS::UniString ("HasValue"));
+                        field.Add ("value", GS::UniString::Printf ("%.6f", number));
+                        items.Push (field);
+                    };
+                    if (element.header.type.typeID == API_WallID) {
+                        addNumber ("Height", element.wall.height);
+                        addNumber ("Thickness at start", element.wall.thickness);
+                        addNumber ("Thickness at end", element.wall.thickness1);
+                        addNumber ("Base offset", element.wall.bottomOffset);
+                        const double dx = element.wall.endC.x - element.wall.begC.x;
+                        const double dy = element.wall.endC.y - element.wall.begC.y;
+                        const double chord = std::hypot (dx, dy);
+                        const double angle = std::abs (element.wall.angle);
+                        if (element.wall.type != APIWtyp_Poly &&
+                            (angle < 1e-9 || std::abs (std::sin (angle / 2)) > 1e-9))
+                            addNumber ("Reference line length", angle < 1e-9 ? chord :
+                                       chord * angle / (2 * std::sin (angle / 2)));
+                        GS::ObjectState structure;
+                        structure.Add ("key", GS::UniString (APIGuidToString (APINULLGuid).ToCStr ()));
+                        structure.Add ("name", GS::UniString ("Structure"));
+                        structure.Add ("group", GS::UniString ("Native wall settings"));
+                        structure.Add ("dataType", (GS::Int32) API_PropertyStringValueType);
+                        structure.Add ("definitionType", (GS::Int32) 0);
+                        structure.Add ("userDefined", false);
+                        structure.Add ("collectionType", (GS::Int32) API_PropertySingleCollectionType);
+                        structure.Add ("number", 0.0);
+                        structure.Add ("hasNumber", false);
+                        structure.Add ("boolean", false);
+                        structure.Add ("hasBoolean", false);
+                        structure.Add ("valueStatus", GS::UniString ("HasValue"));
+                        GS::UniString structureName = element.wall.modelElemStructureType == API_CompositeStructure
+                            ? GS::UniString ("Composite") : element.wall.modelElemStructureType == API_ProfileStructure
+                                ? GS::UniString ("Profile") : GS::UniString ("Basic");
+                        if (element.wall.modelElemStructureType == API_CompositeStructure) {
+                            API_Attribute attribute = {};
+                            attribute.header.typeID = API_CompWallID;
+                            attribute.header.index = element.wall.composite;
+                            if (ACAPI_Attribute_Get (&attribute) == NoError)
+                                structureName += ": " + GS::UniString (attribute.header.name);
+                        }
+                        structure.Add ("value", structureName);
+                        items.Push (structure);
+                        status = "Success";
+                    }
+                    else if (element.header.type.typeID == API_MeshID) {
+                        addNumber ("Base level", element.mesh.level);
+                        addNumber ("Skirt depth", element.mesh.skirtLevel);
+                        status = "Success";
+                    }
+                    else {
+                        status = "NotApplicable";
+                        diagnostic = "Native settings currently support walls and terrain meshes only.";
+                    }
+                }
+                else {
                 API_PropertyDefinitionFilter filter = API_PropertyDefinitionFilter_All;
                 if (mode == "User")
                     filter = API_PropertyDefinitionFilter_UserDefined;
@@ -294,6 +400,7 @@ class GetGhElementQueryCommand : public MainThreadCommand {
                         }
                     }
                 }
+                }
             }
             else if (kind == "gdl") {
                 const API_ElemTypeID type = element.header.type.typeID;
@@ -393,7 +500,7 @@ class GetGhElementQueryCommand : public MainThreadCommand {
 
 const NativeCommandRegistration GhElementQueryCommandRegistrations[] = {
     { "GetGhElementQuery", &MakeRegisteredNativeCommand<GetGhElementQueryCommand>, false,
-      R"json({"type":"object","properties":{"guids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":64}},"kind":{"type":"string","enum":["contours","relationships","properties","geometry","gdl"]},"mode":{"type":"string","maxLength":64},"search":{"type":"string","maxLength":128},"selectors":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}},"offset":{"type":"integer","minimum":0,"maximum":2048}},"additionalProperties":false,"required":["guids","kind","mode","search","selectors","offset"]})json", R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"guid":{"type":"string"},"status":{"type":"string","enum":["Success","Empty","NotApplicable","Unavailable","Stale","Error"]},"diagnostic":{"type":"string"},"more":{"type":"boolean"},"items":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"role":{"type":"string"},"closed":{"type":"boolean"},"xy":{"type":"array","items":{"type":"number"}},"arcs":{"type":"array","items":{"type":"number"}},"target":{"type":"string"},"relation":{"type":"string"},"provenance":{"type":"string"},"minX":{"type":"number"},"minY":{"type":"number"},"minZ":{"type":"number"},"maxX":{"type":"number"},"maxY":{"type":"number"},"maxZ":{"type":"number"},"key":{"type":"string"},"name":{"type":"string"},"group":{"type":"string"},"dataType":{"type":"integer"},"definitionType":{"type":"integer"},"userDefined":{"type":"boolean"},"collectionType":{"type":"integer"},"valueStatus":{"type":"string"},"value":{"type":"string"},"number":{"type":"number"},"hasNumber":{"type":"boolean"},"boolean":{"type":"boolean"},"hasBoolean":{"type":"boolean"},"libraryPart":{"type":"string"},"label":{"type":"string"},"type":{"type":"integer"},"hidden":{"type":"boolean"},"disabled":{"type":"boolean"},"array":{"type":"boolean"},"dim1":{"type":"integer"},"dim2":{"type":"integer"},"text":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false,"required":["guid","status","diagnostic","items","more"]}}},"additionalProperties":false,"required":["elements"]})json" },
+      R"json({"type":"object","properties":{"guids":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":64}},"kind":{"type":"string","enum":["contours","relationships","properties","geometry","gdl"]},"mode":{"type":"string","maxLength":64},"search":{"type":"string","maxLength":128},"selectors":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128}},"offset":{"type":"integer","minimum":0,"maximum":2048}},"additionalProperties":false,"required":["guids","kind","mode","search","selectors","offset"]})json", R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"guid":{"type":"string"},"status":{"type":"string","enum":["Success","Empty","NotApplicable","Unavailable","Stale","Error"]},"diagnostic":{"type":"string"},"more":{"type":"boolean"},"items":{"type":"array","maxItems":256,"items":{"type":"object","properties":{"role":{"type":"string"},"closed":{"type":"boolean"},"xy":{"type":"array","items":{"type":"number"}},"arcs":{"type":"array","items":{"type":"number"}},"target":{"type":"string"},"relation":{"type":"string"},"provenance":{"type":"string"},"minX":{"type":"number"},"minY":{"type":"number"},"minZ":{"type":"number"},"maxX":{"type":"number"},"maxY":{"type":"number"},"maxZ":{"type":"number"},"vertices":{"type":"array","maxItems":12288,"items":{"type":"number"}},"triangles":{"type":"array","maxItems":24576,"items":{"type":"integer","minimum":0}},"key":{"type":"string"},"name":{"type":"string"},"group":{"type":"string"},"dataType":{"type":"integer"},"definitionType":{"type":"integer"},"userDefined":{"type":"boolean"},"collectionType":{"type":"integer"},"valueStatus":{"type":"string"},"value":{"type":"string"},"number":{"type":"number"},"hasNumber":{"type":"boolean"},"boolean":{"type":"boolean"},"hasBoolean":{"type":"boolean"},"libraryPart":{"type":"string"},"label":{"type":"string"},"type":{"type":"integer"},"hidden":{"type":"boolean"},"disabled":{"type":"boolean"},"array":{"type":"boolean"},"dim1":{"type":"integer"},"dim2":{"type":"integer"},"text":{"type":"string"}},"additionalProperties":false}}},"additionalProperties":false,"required":["guid","status","diagnostic","items","more"]}}},"additionalProperties":false,"required":["elements"]})json" },
 };
 
 } // namespace

@@ -3,8 +3,8 @@ using Tapioca.Gh2Worker;
 
 namespace TapiocaGH2;
 
-// A copied project snapshot. Light project-stamp checks may flag it as stale;
-// only an explicit refresh reads the catalogs. Component solves never use IO.
+// A copied project catalog. Only explicit refresh reads the catalogs; the
+// monitor verifies project identity, not modiStamp (which reads can advance).
 internal static class ArchicadProjectOptions
 {
     internal readonly record struct Story(int Index, string Name, double Level);
@@ -44,8 +44,7 @@ internal static class ArchicadProjectOptions
     internal static Status ReadStatus()
     {
         lock (Sync)
-            return new(stale, checking, revision, checkedAt, lastChanged, issue,
-                modelStamp.HasValue && selectionStamp.HasValue);
+            return new(stale, checking, revision, checkedAt, lastChanged, issue, !invalid);
     }
 
     internal static void Clear()
@@ -143,16 +142,12 @@ internal static class ArchicadProjectOptions
                     bool selectionChanged = selected.HasValue && selectionStamp.HasValue && selected != selectionStamp;
                     if (selectionChanged)
                         selectionStamp = selected;
-                    if (!stamp.HasValue || !modelStamp.HasValue || !selected.HasValue ||
-                        !selectionStamp.HasValue || stamp == modelStamp || selectionChanged)
-                    {
-                        // ACAPI's project stamp also advances on selection-only
-                        // UI edits. Keep the snapshot and accept that stamp as
-                        // the new baseline; the next real edit still alerts.
-                        if (stamp.HasValue)
-                            modelStamp = stamp;
-                        return;
-                    }
+                    // modiStamp also advances while querying/model-generating.
+                    // There is no durable element revision here, so inferring a
+                    // stale catalog from it would make every query a refresh loop.
+                    if (stamp.HasValue)
+                        modelStamp = stamp;
+                    return;
                 }
                 stale = true;
                 if (identity != project)
@@ -162,8 +157,6 @@ internal static class ArchicadProjectOptions
                     changed = Changed.All;
                     issue = "Archicad changed projects; refresh the snapshot";
                 }
-                else
-                    issue = "Archicad model changed; refresh to check project choices";
             }
             Updated?.Invoke(changed, ReadStatus());
         }

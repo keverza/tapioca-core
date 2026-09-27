@@ -7173,6 +7173,11 @@
               "minLength": 1,
               "maxLength": 128
             }
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2048
           }
         },
         "additionalProperties": false,
@@ -7181,7 +7186,8 @@
           "kind",
           "mode",
           "search",
-          "selectors"
+          "selectors",
+          "offset"
         ]
       },
       "outputScheme": {
@@ -7209,6 +7215,9 @@
                 },
                 "diagnostic": {
                   "type": "string"
+                },
+                "more": {
+                  "type": "boolean"
                 },
                 "items": {
                   "type": "array",
@@ -7260,6 +7269,21 @@
                       },
                       "maxZ": {
                         "type": "number"
+                      },
+                      "vertices": {
+                        "type": "array",
+                        "maxItems": 12288,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "triangles": {
+                        "type": "array",
+                        "maxItems": 24576,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
                       },
                       "key": {
                         "type": "string"
@@ -7337,7 +7361,8 @@
                 "guid",
                 "status",
                 "diagnostic",
-                "items"
+                "items",
+                "more"
               ]
             }
           }
