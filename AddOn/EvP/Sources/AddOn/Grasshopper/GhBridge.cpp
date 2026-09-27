@@ -255,7 +255,7 @@ void GhBridge::QueueGh2Reply (const std::shared_ptr<Gh2PendingRequest>& request,
     if (envelope.empty ())
         envelope = ErrorEnvelope ("Archicad returned an empty envelope.");
     if (envelope.size () > MaxGh2ReplyBytes)
-        envelope = ErrorEnvelope ("The GH2 project read exceeded 1 MiB.");
+        envelope = ErrorEnvelope ("The GH2 command response exceeded 1 MiB.");
     std::lock_guard<std::mutex> lock (gh2RequestMutex);
     if (gh2ShutdownRequested || gh2PendingRequest != request || generation.load () != request->generation ||
         request->replyReady)
@@ -666,7 +666,32 @@ void GhBridge::Run ()
                             refusal = "another GH2 request is still pending";
                         if (!gh2ShutdownRequested && gh2PendingRequest == nullptr &&
                              ((request.command == "Tapioca.GetGhConnectionInfo" && request.parameters == "{}") ||
-                              (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                               (request.command == "Tapioca.GetSelection" && request.parameters == "{}") ||
+                                (request.command == "Tapioca.GetGhElementHeaders" &&
+                                 request.parameters.size () <= 5000 &&
+                                 request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
+                                 request.parameters.size () >= 12 &&
+                                 request.parameters.compare (request.parameters.size () - 2, 2, "]}") == 0) ||
+                                 (request.command == "Tapioca.CreateMesh" &&
+                                  request.parameters.size () <= 32000 &&
+                                  request.parameters.rfind ("{\"outline\":[", 0) == 0 &&
+                                  request.parameters.find (",\"polyZ\":[") != std::string::npos &&
+                                  request.parameters.find (",\"ridgeCoords\":[") != std::string::npos &&
+                                  request.parameters.find (",\"ridgeCounts\":[") != std::string::npos &&
+                                  request.parameters.find (",\"floorInd\":0,") != std::string::npos &&
+                                  request.parameters.find (",\"skirt\":\"SurfaceOnlyWithoutSkirt\",\"skirtLevel\":0.0,") != std::string::npos &&
+                                  request.parameters.find (",\"onFloorPlan\":true,\"layer\":\"") != std::string::npos &&
+                                  request.parameters.back () == '}') ||
+                                 (request.command == "Tapioca.GetGhElementQuery" &&
+                                 request.parameters.size () <= 11000 &&
+                                 request.parameters.rfind ("{\"guids\":[", 0) == 0 &&
+                                 request.parameters.find (",\"kind\":") != std::string::npos &&
+                                 request.parameters.find (",\"mode\":") != std::string::npos &&
+                                  request.parameters.find (",\"search\":") != std::string::npos &&
+                                  request.parameters.find (",\"selectors\":[") != std::string::npos &&
+                                  request.parameters.find (",\"offset\":") != std::string::npos &&
+                                  request.parameters.size () >= 2 &&
+                                  request.parameters.back () == '}') ||
                               (request.command == "Tapioca.SetSelection" && request.parameters.size () <= 200000 &&
                                request.parameters.rfind ("{\"elements\":[", 0) == 0 &&
                                request.parameters.size () >= 13 &&

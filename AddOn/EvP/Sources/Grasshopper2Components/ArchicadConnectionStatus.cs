@@ -49,7 +49,7 @@ public sealed class ArchicadConnectionStatus : Component
         ArchicadProjectOptions.Status options = ArchicadProjectOptions.ReadStatus();
         string freshness = options.Checking ? "Checking project choices" : options.Stale
             ? "Stale: " + options.Issue
-            : $"Checked {options.CheckedAt:O}; revision {options.Revision} (model changes sampled every 5 seconds)";
+            : $"Checked {options.CheckedAt:O}; revision {options.Revision} (refresh choices after edits)";
         access.SetTwig(0, new[]
         {
             "Status: " + state.Phase,
@@ -60,7 +60,7 @@ public sealed class ArchicadConnectionStatus : Component
             "Tapioca GH2 version: " + (typeof(ArchicadConnectionStatus).Assembly.GetName().Version?.ToString() ?? "unknown"),
             "Snapshot: " + freshness,
             "Change monitor: " + (state.Phase != "Connected" ? "Not connected" : options.Monitoring
-                ? "5-second selection-aware stamp checks; one stale alert until refresh"
+                ? "5-second project identity checks; Refresh updates project choices and query results"
                 : "Change hint unavailable; install the matched Archicad add-on"),
             "Last refreshed lists: " + options.LastChanged,
             "Description: " + description

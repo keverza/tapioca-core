@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 218,
+      "nativeRegistry": 220,
       "dispatcherLocal": 19,
-      "total": 237
+      "total": 239
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -7062,6 +7062,314 @@
           "projectPath",
           "untitled",
           "modelStamp"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetGhElementHeaders",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "guids": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "guids"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "object",
+              "properties": {
+                "guid": {
+                  "type": "string"
+                },
+                "found": {
+                  "type": "boolean"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "elementId": {
+                  "type": "string"
+                },
+                "story": {
+                  "type": "integer"
+                },
+                "layer": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "guid",
+                "found",
+                "type",
+                "elementId",
+                "story",
+                "layer"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetGhElementQuery",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "guids": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "contours",
+              "relationships",
+              "properties",
+              "geometry",
+              "gdl"
+            ]
+          },
+          "mode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "search": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "selectors": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2048
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "guids",
+          "kind",
+          "mode",
+          "search",
+          "selectors",
+          "offset"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "properties": {
+                "guid": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "Success",
+                    "Empty",
+                    "NotApplicable",
+                    "Unavailable",
+                    "Stale",
+                    "Error"
+                  ]
+                },
+                "diagnostic": {
+                  "type": "string"
+                },
+                "more": {
+                  "type": "boolean"
+                },
+                "items": {
+                  "type": "array",
+                  "maxItems": 256,
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "role": {
+                        "type": "string"
+                      },
+                      "closed": {
+                        "type": "boolean"
+                      },
+                      "xy": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "arcs": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "target": {
+                        "type": "string"
+                      },
+                      "relation": {
+                        "type": "string"
+                      },
+                      "provenance": {
+                        "type": "string"
+                      },
+                      "minX": {
+                        "type": "number"
+                      },
+                      "minY": {
+                        "type": "number"
+                      },
+                      "minZ": {
+                        "type": "number"
+                      },
+                      "maxX": {
+                        "type": "number"
+                      },
+                      "maxY": {
+                        "type": "number"
+                      },
+                      "maxZ": {
+                        "type": "number"
+                      },
+                      "vertices": {
+                        "type": "array",
+                        "maxItems": 12288,
+                        "items": {
+                          "type": "number"
+                        }
+                      },
+                      "triangles": {
+                        "type": "array",
+                        "maxItems": 24576,
+                        "items": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "key": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "group": {
+                        "type": "string"
+                      },
+                      "dataType": {
+                        "type": "integer"
+                      },
+                      "definitionType": {
+                        "type": "integer"
+                      },
+                      "userDefined": {
+                        "type": "boolean"
+                      },
+                      "collectionType": {
+                        "type": "integer"
+                      },
+                      "valueStatus": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "string"
+                      },
+                      "number": {
+                        "type": "number"
+                      },
+                      "hasNumber": {
+                        "type": "boolean"
+                      },
+                      "boolean": {
+                        "type": "boolean"
+                      },
+                      "hasBoolean": {
+                        "type": "boolean"
+                      },
+                      "libraryPart": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "integer"
+                      },
+                      "hidden": {
+                        "type": "boolean"
+                      },
+                      "disabled": {
+                        "type": "boolean"
+                      },
+                      "array": {
+                        "type": "boolean"
+                      },
+                      "dim1": {
+                        "type": "integer"
+                      },
+                      "dim2": {
+                        "type": "integer"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "guid",
+                "status",
+                "diagnostic",
+                "items",
+                "more"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
         ]
       }
     },

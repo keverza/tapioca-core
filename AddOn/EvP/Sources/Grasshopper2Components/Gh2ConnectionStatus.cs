@@ -51,6 +51,20 @@ internal static class Gh2ConnectionStatus
                 new InvalidOperationException("Attach to Archicad before capturing its selection."));
     }
 
+    internal static Task<string> ReadElementHeadersAsync(IReadOnlyList<Guid> ids)
+    {
+        lock (Sync)
+            return client?.ReadElementHeadersAsync(ids) ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before reading element headers."));
+    }
+    internal static Task<string> ReadElementQueryAsync(IReadOnlyList<Guid> ids, string kind, string mode,
+        string search, IReadOnlyList<string> selectors, int offset = 0)
+    {
+        lock (Sync)
+            return client?.ReadElementQueryAsync(ids, kind, mode, search, selectors, offset) ?? Task.FromException<string>(
+                new InvalidOperationException("Attach to Archicad before querying elements."));
+    }
+
     internal static Task<string> ReadProjectInfoAsync()
     {
         lock (Sync)
@@ -63,6 +77,13 @@ internal static class Gh2ConnectionStatus
         lock (Sync)
             return client?.ReplaceSelectionAsync(ids) ?? Task.FromException<string>(
                 new InvalidOperationException("Attach to Archicad before reselecting elements."));
+    }
+    internal static Task<string> CreateTerrainMeshAsync(double[] outline, double[] polyZ,
+        double baseLevel, double[] ridgeCoords, int[] ridgeCounts, string layer)
+    {
+        lock (Sync)
+            return client?.CreateTerrainMeshAsync(outline, polyZ, baseLevel, ridgeCoords, ridgeCounts, layer)
+                ?? Task.FromException<string>(new InvalidOperationException("Attach to Archicad before baking a mesh."));
     }
 
     internal static void Set(string state, string pipeName = "(none)",
