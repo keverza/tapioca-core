@@ -99,6 +99,10 @@ uint64_t g_messageSerial = 0;
 uint64_t g_canvasMessages = 0;
 uint64_t g_retrievedSerial = 0;
 bool g_sampling = false;
+// ⚠️ TRUE WHILE THE SESSION ITSELF IS INSIDE ACAPI_View_Redraw. Archicad may paint
+// and present synchronously inside that call, and a read at such a Present would be
+// ACAPI called from inside ACAPI -- untested, and those frames are still anyway.
+bool g_redrawing = false;
 uint64_t g_inputSerial = 0; // pan and zoom input seen on the canvas
 uint64_t g_idleInputSerial = 0;
 uint32_t g_idleRedraws = 0;
@@ -166,14 +170,19 @@ std::string ClassOf (HWND window)
 
 // ---- the transform ------------------------------------------------------------
 
-bool PointToCoord (uint32_t x, uint32_t y, planoverlay::PlanPoint& out)
+// The error of a refused read is kept: a read refused inside Archicad's paint pass
+// is an answer, and "invalid" alone would cost another run to learn which.
+bool PointToCoord (uint32_t x, uint32_t y, planoverlay::PlanPoint& out, int32_t& error)
 {
     API_Point point = {};
     point.h = short (x);
     point.v = short (y);
     API_Coord coord = {};
-    if (ACAPI_View_PointToCoord (&point, &coord) != NoError)
+    const GSErrCode result = ACAPI_View_PointToCoord (&point, &coord);
+    if (result != NoError) {
+        error = int32_t (result);
         return false;
+    }
     out.x = coord.x;
     out.y = coord.y;
     return true;
@@ -184,13 +193,15 @@ bool PointToCoord (uint32_t x, uint32_t y, planoverlay::PlanPoint& out)
 // buffer is exactly what the pixels are about to measure, so the sample does not
 // assume it. Three corners fix the affine map whatever the scale; the fourth, a
 // repeat of the first, says whether the view moved while it was being asked.
-void TakeSample (SampleSource source, uint32_t message, uint32_t depth, uint64_t messageSerial)
+uint64_t TakeSample (SampleSource source, uint32_t message, uint32_t depth, uint64_t messageSerial)
 {
     if (State () != SessionState::Recording || g_sampling)
-        return;
+        return 0;
+    // ⚠️ NEVER PAST THE RESERVATION. The read at the Present runs inside Archicad's
+    // paint pass, and the buffer was reserved at Start so that pushing never allocates.
     if (g_samples.size () >= kMaxSamples) {
         ++g_samplesDropped;
-        return;
+        return 0;
     }
     g_sampling = true;
     TransformSample sample;
@@ -200,8 +211,9 @@ void TakeSample (SampleSource source, uint32_t message, uint32_t depth, uint64_t
     sample.messageSerial = messageSerial;
     planoverlay::PlanPoint topLeft, topRight, bottomLeft, topLeftAgain;
     const int64_t began = QpcNow ();
-    const bool read = PointToCoord (0, 0, topLeft) && PointToCoord (g_logicalWidth, 0, topRight) &&
-                      PointToCoord (0, g_logicalHeight, bottomLeft) && PointToCoord (0, 0, topLeftAgain);
+    const bool read =
+        PointToCoord (0, 0, topLeft, sample.error) && PointToCoord (g_logicalWidth, 0, topRight, sample.error) &&
+        PointToCoord (0, g_logicalHeight, bottomLeft, sample.error) && PointToCoord (0, 0, topLeftAgain, sample.error);
     const int64_t ended = QpcNow ();
     g_sampling = false;
     sample.qpc = began;
@@ -225,6 +237,16 @@ void TakeSample (SampleSource source, uint32_t message, uint32_t depth, uint64_t
     g_samples.push_back (sample);
     if (sample.valid)
         rec::PublishLatestSample (sample.serial);
+    return sample.serial;
+}
+
+// The read the Present half takes inside the plan's own Present -- see
+// PlanFrameRecord.hpp's SetPresentReader for why it may, and when it is called.
+uint64_t ReadAtPresent ()
+{
+    if (g_redrawing)
+        return 0;
+    return TakeSample (SampleSource::Present, 0, g_depth, 0);
 }
 
 // The messages worth a transform read: input, painting, timers, sizing, and every
@@ -426,6 +448,13 @@ void Nominate ()
                 std::to_string (g_targetClientWidth) + "x" + std::to_string (g_targetClientHeight) + " client area");
 }
 
+void Redraw ()
+{
+    g_redrawing = true;
+    ACAPI_View_Redraw ();
+    g_redrawing = false;
+}
+
 // Two still frames per pause, so the analysis has an anchor there. Never while a
 // button is down or a canvas message is in flight: a redraw inside Archicad's own
 // drag loop is not something a diagnostic gets to try.
@@ -453,7 +482,7 @@ void RedrawWhenIdle ()
         return;
     ++g_idleRedraws;
     ++g_redraws;
-    ACAPI_View_Redraw ();
+    Redraw ();
 }
 
 // ---- lifecycle --------------------------------------------------------------------
@@ -475,6 +504,7 @@ void ReleaseTimer ()
 // Present in flight before anything it wrote is read.
 void ReleaseHooks ()
 {
+    rec::SetPresentReader (nullptr);
     rec::Disarm ();
     if (g_subclassed && g_canvas != nullptr && ::IsWindow (g_canvas))
         g_removeSubclass (g_canvas, &CanvasProc, kSubclassId);
@@ -636,7 +666,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         if (rec::Target () != 0 && g_closingRedraws < 4 && Untouched ()) {
             ++g_closingRedraws;
             ++g_redraws;
-            ACAPI_View_Redraw ();
+            Redraw ();
         }
     }
 }
@@ -710,6 +740,7 @@ bool Install (std::string& error)
     if (!rec::Arm (g_mainThread, error))
         return false;
     SetState (SessionState::Recording); // the subclass and the hooks record only while this holds
+    rec::SetPresentReader (&ReadAtPresent);
     if (!dxgi::InstallPresentHook (error))
         return false;
     g_presentHookOurs = true;
@@ -805,7 +836,7 @@ bool Start (uint32_t seconds, std::string& error)
                 std::to_string (g_mainThread));
     // ⚠️ ONE REDRAW, SO THE PLAN'S CHAIN PRESENTS AT ONCE. A still plan does not
     // present at all, and the chain can only be identified once it has.
-    ACAPI_View_Redraw ();
+    Redraw ();
     return true;
 }
 

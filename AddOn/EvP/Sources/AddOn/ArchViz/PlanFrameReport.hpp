@@ -23,7 +23,7 @@ namespace geomsrv {
 namespace archviz {
 namespace planframes {
 
-enum class SampleSource : uint32_t { Entry = 0, Exit = 1, Timer = 2 };
+enum class SampleSource : uint32_t { Entry = 0, Exit = 1, Timer = 2, Present = 3 };
 
 // One ACAPI read of the plan's model-to-pixel map, in the canvas's LOGICAL pixels:
 //     x = xx * modelX + xy * modelY + ox,   y = yx * modelX + yy * modelY + oy
@@ -37,6 +37,7 @@ struct TransformSample {
     bool valid = false;
     bool torn = false; // the view moved while it was being asked
     uint32_t costUs = 0;
+    int32_t error = 0; // ACAPI's error when a read was refused
     double xx = 0.0, xy = 0.0, yx = 0.0, yy = 0.0, ox = 0.0, oy = 0.0;
 };
 

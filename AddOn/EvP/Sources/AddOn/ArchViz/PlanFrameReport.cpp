@@ -162,7 +162,7 @@ ReportResult WriteReport (const ReportInput& input)
 
     std::string json;
     json.reserve (8u << 20);
-    Append (json, "{\"version\":1,\"reason\":%s,\"qpcFrequency\":%lld,\"startQpc\":%lld,\"mainThread\":%u,\"dpi\":%s,",
+    Append (json, "{\"version\":2,\"reason\":%s,\"qpcFrequency\":%lld,\"startQpc\":%lld,\"mainThread\":%u,\"dpi\":%s,",
             Quoted (input.reason).c_str (), (long long) input.qpcFrequency, (long long) input.startQpc,
             input.mainThread, Number (input.dpi).c_str ());
     Append (json,
@@ -199,26 +199,27 @@ ReportResult WriteReport (const ReportInput& input)
     json += "\"presentColumns\":[\"qpc\",\"chain\",\"thread\",\"mainThread\",\"target\",\"targetSerial\",\"present1\","
             "\"flags\",\"syncInterval\",\"dirtyRects\",\"scroll\",\"scrollX\",\"scrollY\",\"canvasDepth\","
             "\"canvasMessage\",\"canvasSerial\",\"latestSample\",\"retrievedMessage\",\"retrievedWindow\","
-            "\"retrievedSerial\",\"frame\",\"tookUs\"],\"presents\":[";
+            "\"retrievedSerial\",\"frame\",\"tookUs\",\"atPresent\"],\"presents\":[";
     for (size_t i = 0; i < input.presents.size (); ++i) {
         const rec::PresentRecord& r = input.presents[i];
-        Append (json, "%s[%lld,\"0x%llx\",%u,%d,%d,%u,%d,%u,%u,%u,%d,%d,%d,%u,%u,%llu,%llu,%u,\"0x%llx\",%llu,%d,%u]",
-                i > 0 ? "," : "", (long long) r.qpc, (unsigned long long) r.chain, r.thread, r.mainThread ? 1 : 0,
-                r.target ? 1 : 0, r.targetSerial, r.present1 ? 1 : 0, r.flags, r.syncInterval, r.dirtyRects,
-                r.scroll ? 1 : 0, r.scrollX, r.scrollY, r.canvasDepth, r.canvasMessage,
-                (unsigned long long) r.canvasSerial, (unsigned long long) r.latestSample, r.retrievedMessage,
-                (unsigned long long) r.retrievedWindow, (unsigned long long) r.retrievedSerial, r.frame, r.tookUs);
+        Append (
+            json, "%s[%lld,\"0x%llx\",%u,%d,%d,%u,%d,%u,%u,%u,%d,%d,%d,%u,%u,%llu,%llu,%u,\"0x%llx\",%llu,%d,%u,%llu]",
+            i > 0 ? "," : "", (long long) r.qpc, (unsigned long long) r.chain, r.thread, r.mainThread ? 1 : 0,
+            r.target ? 1 : 0, r.targetSerial, r.present1 ? 1 : 0, r.flags, r.syncInterval, r.dirtyRects,
+            r.scroll ? 1 : 0, r.scrollX, r.scrollY, r.canvasDepth, r.canvasMessage, (unsigned long long) r.canvasSerial,
+            (unsigned long long) r.latestSample, r.retrievedMessage, (unsigned long long) r.retrievedWindow,
+            (unsigned long long) r.retrievedSerial, r.frame, r.tookUs, (unsigned long long) r.atPresent);
     }
     json += "],\"sampleColumns\":[\"serial\",\"qpc\",\"source\",\"message\",\"depth\",\"messageSerial\",\"valid\","
-            "\"torn\",\"costUs\",\"xx\",\"xy\",\"yx\",\"yy\",\"ox\",\"oy\"],\"sampleSources\":[\"entry\",\"exit\","
-            "\"timer\"],\"samples\":[";
+            "\"torn\",\"costUs\",\"xx\",\"xy\",\"yx\",\"yy\",\"ox\",\"oy\",\"error\"],\"sampleSources\":[\"entry\","
+            "\"exit\",\"timer\",\"present\"],\"samples\":[";
     for (size_t i = 0; i < input.samples.size (); ++i) {
         const TransformSample& t = input.samples[i];
-        Append (json, "%s[%llu,%lld,%u,%u,%u,%llu,%d,%d,%u,%s,%s,%s,%s,%s,%s]", i > 0 ? "," : "",
+        Append (json, "%s[%llu,%lld,%u,%u,%u,%llu,%d,%d,%u,%s,%s,%s,%s,%s,%s,%d]", i > 0 ? "," : "",
                 (unsigned long long) t.serial, (long long) t.qpc, uint32_t (t.source), t.message, t.depth,
                 (unsigned long long) t.messageSerial, t.valid ? 1 : 0, t.torn ? 1 : 0, t.costUs, Number (t.xx).c_str (),
                 Number (t.xy).c_str (), Number (t.yx).c_str (), Number (t.yy).c_str (), Number (t.ox).c_str (),
-                Number (t.oy).c_str ());
+                Number (t.oy).c_str (), t.error);
     }
     Append (json,
             "],\"downsample\":%u,\"frameColumns\":[\"present\",\"targetSerial\",\"qpc\",\"cropX\",\"cropY\",\"width\","

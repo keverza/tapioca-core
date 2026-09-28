@@ -73,6 +73,7 @@ struct PresentRecord {
     uint32_t tookUs = 0;       // our own capture work at this Present
     int32_t frame = -1;        // the frame kept for this Present, or -1
     uint32_t targetSerial = 0; // this chain's Presents since arming, for the target chain
+    uint64_t atPresent = 0;    // the read of the transform taken INSIDE this Present, by serial; 0 none
     bool present1 = false;
     bool scroll = false;
     bool target = false;
@@ -114,6 +115,19 @@ struct Stats {
 void PublishCanvasMessage (uint32_t depth, uint32_t message, uint64_t serial);
 void PublishLatestSample (uint64_t serial);
 void PublishRetrievedMessage (uint32_t message, uint64_t window, uint64_t serial);
+
+// MAIN THREAD. A read of the plan's transform to take INSIDE the plan's own Present,
+// returning its serial (0 when none was taken); nullptr stops it.
+//
+// ⚠️ AN ACAPI READ INSIDE A PRESENT DETOUR, AND ONLY THIS ONE. Section 11 keeps ACAPI
+// out of hot hooks because the 3D Present runs on a render thread, where ACAPI is
+// illegal. The plan presents on the MAIN thread -- 470 of 470 Presents, 2026-09-28 --
+// inside Archicad's own paint pass, and finding 14 leaves a read there as the one
+// candidate for the frame's transform. So the reader is called only for the plan's
+// chain, only while the record is capturing, and only when the calling thread is the
+// main thread, checked on every call.
+using PresentReader = uint64_t (*) ();
+void SetPresentReader (PresentReader reader);
 
 // MAIN THREAD. Allocate everything and start recording. `mainThread` is the id
 // ACAPI runs on, so every record can say whether it was presented there.

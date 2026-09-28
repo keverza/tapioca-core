@@ -52,6 +52,7 @@ std::atomic<uint64_t> g_latestSample { 0 };
 std::atomic<uint64_t> g_retrievedMessage { 0 };
 std::atomic<uint64_t> g_retrievedWindow { 0 };
 std::atomic<uint64_t> g_retrievedSerial { 0 };
+std::atomic<PresentReader> g_presentReader { nullptr };
 
 // ⚠️ ALLOCATED BY Arm ON THE MAIN THREAD AND FREED BY Release, both only while no
 // detour can be inside OnPresent: Arm runs before the Present hook is installed
@@ -346,6 +347,11 @@ void PublishLatestSample (uint64_t serial)
     g_latestSample.store (serial, std::memory_order_release);
 }
 
+void SetPresentReader (PresentReader reader)
+{
+    g_presentReader.store (reader, std::memory_order_release);
+}
+
 void PublishRetrievedMessage (uint32_t message, uint64_t window, uint64_t serial)
 {
     g_retrievedMessage.store (message, std::memory_order_relaxed);
@@ -530,6 +536,14 @@ void OnPresent (IDXGISwapChain* swapChain, bool present1, uint32_t syncInterval,
     record.retrievedMessage = uint32_t (g_retrievedMessage.load (std::memory_order_relaxed));
     record.retrievedWindow = g_retrievedWindow.load (std::memory_order_relaxed);
     record.target = isTarget;
+    // The read at the Present (see SetPresentReader): the plan's chain, capturing,
+    // and the main thread -- all three, every call. Before the crop, so the read and
+    // the pixels describe one moment.
+    if (isTarget && capturing && record.mainThread) {
+        const PresentReader reader = g_presentReader.load (std::memory_order_acquire);
+        if (reader != nullptr)
+            record.atPresent = reader ();
+    }
 
     int64_t index = -1;
     if (capturing) {
