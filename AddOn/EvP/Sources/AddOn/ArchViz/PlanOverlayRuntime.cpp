@@ -13,6 +13,7 @@
 #include "ArchViz/Dxgi/PlanOverlayLayer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
+#include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/PlanFrameSession.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 #include "ArchViz/PlanViewCamera.hpp"
@@ -341,12 +342,33 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         if (!g_readyLogged) {
             const layer::Stats stats = layer::GetStats ();
             ArchVizLog ("PLAN OVERLAY  ready on the canvas's chain " + Hex (stats.chain) + ": " +
-                        std::to_string (stats.segments) + " segments, " + std::to_string (stats.bufferWidth) + "x" +
-                        std::to_string (stats.bufferHeight) + " buffer as last seen");
+                        std::to_string (stats.segments) + " segments");
             g_readyLogged = true;
         }
         // Something new to draw on a plan that may not present again by itself.
         g_redrawPending = true;
+    }
+    // ⚠️ THE CALLER'S LAYERS (Tapioca.SetOverlayLayer), rebuilt only when the store
+    // moved: preparing them is a walk over every point, and the tick runs ten times a
+    // second whether anything changed or not.
+    if (prepared == layer::Prepared::Ready) {
+        const uint64_t layersGeneration = overlaylayers::Generation ();
+        if (!layer::HoldsLayers (layersGeneration)) {
+            const overlaylayers::Prepared2D layers = overlaylayers::Prepare2D (overlaylayers::Layers ());
+            bool layersChanged = false;
+            error.clear ();
+            if (layer::PrepareLayers (layers, layersGeneration, layersChanged, error)) {
+                if (layersChanged) {
+                    ArchVizLog ("PLAN OVERLAY  layers: " + std::to_string (layers.strokes.size ()) + " strokes, " +
+                                std::to_string (layers.fills.size () / 3) + " filled triangles");
+                    g_redrawPending = true;
+                }
+            }
+            else if (error != g_lastError) {
+                ArchVizLog ("PLAN OVERLAY  layers NOT DRAWN: " + error);
+                g_lastError = error;
+            }
+        }
     }
     if (g_redrawPending && inFront) {
         g_redrawPending = false;

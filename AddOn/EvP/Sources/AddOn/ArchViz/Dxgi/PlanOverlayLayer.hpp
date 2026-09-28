@@ -35,6 +35,7 @@
 // at its second test on any chain but the plan canvas's own, and draws only on the
 // thread it was armed with, which is ACAPI's. Everything else is MAIN THREAD.
 
+#include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 
 #include <cstddef>
@@ -94,6 +95,12 @@ enum class Prepared : uint32_t {
 // `changed` is true when anything new will be drawn -- the caller redraws for it, since
 // a still plan would otherwise show it only when next moved.
 Prepared Prepare (const plancontent::Content& content, uint64_t generation, bool& changed, std::string& error);
+
+// MAIN THREAD, outside any Present, once `Prepare` is Ready. The caller's layers
+// (ArchViz/OverlayLayers.hpp), drawn over the walls with the same transform. Uploads
+// only when `generation` is not the one held; `changed` says a redraw is due.
+bool HoldsLayers (uint64_t generation);
+bool PrepareLayers (const overlaylayers::Prepared2D& layers, uint64_t generation, bool& changed, std::string& error);
 
 // MAIN THREAD. Every D3D object and the held device. Only once no Present can reach the
 // layer's resources: after `Disarm` on this thread, or after the hook is gone.

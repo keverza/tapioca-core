@@ -1,8 +1,9 @@
-// ArchViz/Dxgi/OverlayShaderSources: the floor-plan overlay's HLSL compiles, for every
-// entry point, and each vertex shader reads exactly the inputs its input layout
-// supplies. It is compiled at run time on Archicad's device; without this a typo or a
-// renamed semantic is first found by a live run as "NOT DRAWING".
+// ArchViz/Dxgi/OverlayShaderSources: the overlays' HLSL compiles, for every entry point
+// and every camera slot, and each vertex shader reads exactly the inputs its input
+// layout supplies. These are compiled at run time on Archicad's device; without this a
+// typo or a renamed semantic is first found by a live run as "NOT DRAWING".
 
+#include "ArchViz/Dxgi/CameraShaderSource.hpp"
 #include "ArchViz/Dxgi/OverlayShaderSources.hpp"
 
 #include <gtest/gtest.h>
@@ -15,12 +16,14 @@
 #include <d3d11shader.h>
 #include <d3dcompiler.h>
 
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace sh = geomsrv::archviz::dxgi::overlayshaders;
+namespace cs = geomsrv::archviz::dxgi::camerashader;
 
 namespace {
 
@@ -69,8 +72,8 @@ std::vector<std::string> Inputs (ID3DBlob* blob)
 TEST (OverlayShaders, EveryFloorPlanEntryPointCompiles)
 {
     const std::pair<const char*, const char*> entries[] = {
-        { "VSPlanStroke", "vs_5_0" },
-        { "PSPlanStroke", "ps_5_0" },
+        { "VSPlanStroke", "vs_5_0" },  { "PSPlanStroke", "ps_5_0" }, { "VSLayerStroke", "vs_5_0" },
+        { "VSLayerFill", "vs_5_0" },   { "PSLayer", "ps_5_0" },
     };
     for (const auto& [entry, target] : entries)
         EXPECT_EQ (Compile (sh::kPlan, entry, target), "") << entry;
@@ -82,6 +85,8 @@ TEST (OverlayShaders, EachFloorPlanVertexShaderReadsItsLayout)
 {
     const std::pair<const char*, std::vector<std::string>> expected[] = {
         { "VSPlanStroke", { "SEGMENT0", "SEGMENT1" } },
+        { "VSLayerStroke", { "SEGMENT0", "SEGMENT1", "COLOR0", "WIDTH0" } },
+        { "VSLayerFill", { "POSITION0", "POSITION1", "COLOR0" } },
     };
     for (const auto& [entry, inputs] : expected) {
         ID3DBlob* blob = nullptr;
@@ -89,4 +94,20 @@ TEST (OverlayShaders, EachFloorPlanVertexShaderReadsItsLayout)
         EXPECT_EQ (Inputs (blob), inputs) << entry;
         blob->Release ();
     }
+}
+
+TEST (OverlayShaders, TheThreeDLayerCompilesForEveryCameraSlot)
+{
+    char biased[cs::kMaxSource] = {};
+    std::snprintf (biased, sizeof (biased), "static const float DepthBias = %.8f;\n%s", 0.00075, sh::kLayer3DBody);
+    char source[cs::kMaxSource] = {};
+    for (uint32_t slot = 0; slot < cs::kShaderSlots; ++slot) {
+        ASSERT_TRUE (cs::Compose (cs::InterpretationOfSlot (slot), biased, source, sizeof (source))) << slot;
+        ID3DBlob* blob = nullptr;
+        ASSERT_EQ (Compile (source, "VSLayer", "vs_5_0", &blob), "") << "slot " << slot;
+        EXPECT_EQ (Inputs (blob), (std::vector<std::string> { "POSITION0", "COLOR0" })) << slot;
+        blob->Release ();
+    }
+    ASSERT_TRUE (cs::Compose (0, biased, source, sizeof (source)));
+    EXPECT_EQ (Compile (source, "PSLayer", "ps_5_0"), "");
 }

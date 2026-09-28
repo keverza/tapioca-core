@@ -471,7 +471,7 @@ void Shutdown ()
     ReleaseAndNull (g_vertices);
     ReleaseAndNull (g_layout);
     ghost::Shutdown ();
-    hostoverlay::Shutdown ();
+    overlaycompose::Shutdown ();
     hostocclusion::Shutdown ();
     checkpoints::Shutdown ();
     ReleaseAndNull (g_ps);

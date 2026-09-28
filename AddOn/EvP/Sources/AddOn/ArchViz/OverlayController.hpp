@@ -88,6 +88,12 @@ Outcome Describe (Overlay which);
 // MAIN THREAD. Turn off both, intents and renderers, for teardown. No ACAPI.
 void StopAll ();
 
+// MAIN THREAD. The caller's overlay layers changed (ArchViz/OverlayLayers.hpp): hand
+// the 3D overlay its prepared copy, and redraw the 3D window when it is serving it --
+// a still window does not present by itself. The 2D overlay reads the store on its
+// own tick and redraws the plan when it has taken the change.
+void PublishLayers ();
+
 // MAIN THREAD. Put an operator-supplied label on the overlay log's timeline.
 //
 // ⚠️ IT EXISTS BECAUSE ARCHICAD DOES NOT EXPOSE WHICH

@@ -9,6 +9,7 @@
 #include "ArchViz/Dxgi/OverlayShaderSources.hpp"
 #include "ArchViz/Dxgi/PipelineStateGuard.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
+#include "ArchViz/OverlayLayers.hpp"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -30,7 +31,7 @@ namespace planlayer {
 
 namespace {
 
-// The HLSL is in OverlayShaderSources.hpp, where the offline test compiles it.
+// The shaders live in OverlayShaderSources.hpp, where a test compiles them.
 const char* const kShader = overlayshaders::kPlan;
 
 // A buffer is at most 128 MB in D3D11; half of it is a very large plan.
@@ -77,6 +78,20 @@ uint64_t g_generation = 0;
 bool g_haveGeneration = false;
 double g_originX = 0.0;
 double g_originY = 0.0;
+// The caller's layers: their own buffers and their own centre, drawn over the walls.
+ID3D11VertexShader* g_layerStrokeVs = nullptr;
+ID3D11VertexShader* g_layerFillVs = nullptr;
+ID3D11PixelShader* g_layerPs = nullptr;
+ID3D11InputLayout* g_layerStrokeLayout = nullptr;
+ID3D11InputLayout* g_layerFillLayout = nullptr;
+ID3D11Buffer* g_layerStrokes = nullptr;
+uint32_t g_layerStrokeCount = 0;
+ID3D11Buffer* g_layerFills = nullptr;
+uint32_t g_layerFillCount = 0;
+double g_layerOriginX = 0.0;
+double g_layerOriginY = 0.0;
+uint64_t g_layerGeneration = 0;
+bool g_haveLayerGeneration = false;
 plancontent::PixelTransform g_last;
 bool g_haveLast = false;
 
@@ -139,8 +154,23 @@ template <typename T> struct Transient {
     }
 };
 
+void ReleaseLayers ()
+{
+    ReleaseAndNull (g_layerStrokes);
+    ReleaseAndNull (g_layerFills);
+    g_layerStrokeCount = 0;
+    g_layerFillCount = 0;
+    g_haveLayerGeneration = false;
+}
+
 void ReleasePipeline ()
 {
+    ReleaseLayers ();
+    ReleaseAndNull (g_layerFillLayout);
+    ReleaseAndNull (g_layerStrokeLayout);
+    ReleaseAndNull (g_layerPs);
+    ReleaseAndNull (g_layerFillVs);
+    ReleaseAndNull (g_layerStrokeVs);
     ReleaseAndNull (g_segments);
     ReleaseAndNull (g_constants);
     ReleaseAndNull (g_depth);
@@ -196,6 +226,38 @@ bool BuildPipeline (std::string& error)
     ReleaseAndNull (vertex);
     ReleaseAndNull (pixel);
 
+    // The caller's layers. Their layouts are `overlaylayers::StrokeInstance` and
+    // `FillVertex` byte for byte; the static_asserts there pin the sizes.
+    ID3DBlob* layerStroke = nullptr;
+    ID3DBlob* layerFill = nullptr;
+    ID3DBlob* layerPixel = nullptr;
+    ok = ok && Compile ("VSLayerStroke", "vs_5_0", layerStroke, error) &&
+         Compile ("VSLayerFill", "vs_5_0", layerFill, error) && Compile ("PSLayer", "ps_5_0", layerPixel, error);
+    ok = ok && SUCCEEDED (g_device->CreateVertexShader (layerStroke->GetBufferPointer (), layerStroke->GetBufferSize (),
+                                                        nullptr, &g_layerStrokeVs));
+    ok = ok && SUCCEEDED (g_device->CreateVertexShader (layerFill->GetBufferPointer (), layerFill->GetBufferSize (),
+                                                        nullptr, &g_layerFillVs));
+    ok = ok && SUCCEEDED (g_device->CreatePixelShader (layerPixel->GetBufferPointer (), layerPixel->GetBufferSize (),
+                                                       nullptr, &g_layerPs));
+    const D3D11_INPUT_ELEMENT_DESC strokeElements[4] = {
+        { "SEGMENT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+        { "SEGMENT", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+        { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+        { "WIDTH", 0, DXGI_FORMAT_R32_FLOAT, 0, 36, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+    };
+    ok = ok && SUCCEEDED (g_device->CreateInputLayout (strokeElements, 4, layerStroke->GetBufferPointer (),
+                                                       layerStroke->GetBufferSize (), &g_layerStrokeLayout));
+    const D3D11_INPUT_ELEMENT_DESC fillElements[3] = {
+        { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "POSITION", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    ok = ok && SUCCEEDED (g_device->CreateInputLayout (fillElements, 3, layerFill->GetBufferPointer (),
+                                                       layerFill->GetBufferSize (), &g_layerFillLayout));
+    ReleaseAndNull (layerStroke);
+    ReleaseAndNull (layerFill);
+    ReleaseAndNull (layerPixel);
+
     D3D11_RASTERIZER_DESC raster = {};
     raster.FillMode = D3D11_FILL_SOLID;
     raster.CullMode = D3D11_CULL_NONE; // a stroke's two triangles wind whichever way its segment runs
@@ -238,6 +300,46 @@ bool BuildPipeline (std::string& error)
         return false;
     }
     g_builtFor = g_device;
+    return true;
+}
+
+// MAIN THREAD, outside any Present: an immutable vertex buffer of `bytes`.
+bool ImmutableVertices (const void* data, size_t bytes, ID3D11Buffer*& buffer)
+{
+    D3D11_BUFFER_DESC desc = {};
+    desc.ByteWidth = UINT (bytes);
+    desc.Usage = D3D11_USAGE_IMMUTABLE;
+    desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA initial = {};
+    initial.pSysMem = data;
+    return SUCCEEDED (g_device->CreateBuffer (&desc, &initial, &buffer)) && buffer != nullptr;
+}
+
+// MAIN THREAD, outside any Present: the caller's layers, as two immutable buffers.
+bool UploadLayers (const overlaylayers::Prepared2D& layers, std::string& error)
+{
+    ReleaseLayers ();
+    g_layerOriginX = layers.originX;
+    g_layerOriginY = layers.originY;
+    const size_t strokes = (std::min) (layers.strokes.size (), kMaxSegments);
+    if (strokes > 0) {
+        if (!ImmutableVertices (layers.strokes.data (), strokes * sizeof (overlaylayers::StrokeInstance),
+                                g_layerStrokes)) {
+            error = "the overlay layers' stroke buffer (" + std::to_string (strokes) + " strokes) could not be created";
+            return false;
+        }
+        g_layerStrokeCount = uint32_t (strokes);
+    }
+    const size_t fills = (std::min) (layers.fills.size () / 3 * 3, kMaxSegments);
+    if (fills > 0) {
+        if (!ImmutableVertices (layers.fills.data (), fills * sizeof (overlaylayers::FillVertex), g_layerFills)) {
+            error =
+                "the overlay layers' fill buffer (" + std::to_string (fills / 3) + " triangles) could not be created";
+            ReleaseLayers ();
+            return false;
+        }
+        g_layerFillCount = uint32_t (fills);
+    }
     return true;
 }
 
@@ -312,7 +414,9 @@ void Draw (IDXGISwapChain* swapChain)
         Declined (Decline::NotPrepared);
         return;
     }
-    if (g_segments == nullptr || g_segmentCount == 0) {
+    const bool walls = g_segments != nullptr && g_segmentCount > 0;
+    const bool layers = g_layerStrokeCount > 0 || g_layerFillCount > 0;
+    if (!walls && !layers) {
         Declined (Decline::NoContent);
         return;
     }
@@ -336,8 +440,13 @@ void Draw (IDXGISwapChain* swapChain)
         Declined (Decline::Multisampled);
         return;
     }
+    // The walls and the caller's layers each have their own centre, so each its own
+    // constants; the transform is the one this Present read, for both.
     plancontent::ViewConstants constants;
-    if (!plancontent::MakeViewConstants (transform, g_originX, g_originY, desc.Width, desc.Height, constants)) {
+    plancontent::ViewConstants layerConstants;
+    if (!plancontent::MakeViewConstants (transform, g_originX, g_originY, desc.Width, desc.Height, constants) ||
+        (layers && !plancontent::MakeViewConstants (transform, g_layerOriginX, g_layerOriginY, desc.Width, desc.Height,
+                                                    layerConstants))) {
         Declined (Decline::Degenerate);
         return;
     }
@@ -367,15 +476,16 @@ void Draw (IDXGISwapChain* swapChain)
     {
         contextstate::ScopedInjectionGuard injection;
         const ScopedPipelineState saved (context.p, context1.p);
-        D3D11_MAPPED_SUBRESOURCE mapped = {};
-        if (FAILED (context.p->Map (g_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) || mapped.pData == nullptr) {
-            Declined (Decline::MapConstants);
-            return;
-        }
-        std::memcpy (mapped.pData, &constants, sizeof (constants));
-        context.p->Unmap (g_constants, 0);
+        auto upload = [&context] (const plancontent::ViewConstants& values) {
+            D3D11_MAPPED_SUBRESOURCE mapped = {};
+            if (FAILED (context.p->Map (g_constants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)) ||
+                mapped.pData == nullptr)
+                return false;
+            std::memcpy (mapped.pData, &values, sizeof (values));
+            context.p->Unmap (g_constants, 0);
+            return true;
+        };
 
-        const UINT stride = UINT (sizeof (plancontent::Segment));
         const UINT offset = 0;
         D3D11_VIEWPORT viewport = {};
         viewport.Width = float (desc.Width);
@@ -386,17 +496,47 @@ void Draw (IDXGISwapChain* swapChain)
         context.p->RSSetState (g_raster);
         context.p->OMSetBlendState (g_blend, nullptr, 0xffffffffu);
         context.p->OMSetDepthStencilState (g_depth, 0);
-        context.p->IASetInputLayout (g_layout);
-        context.p->IASetVertexBuffers (0, 1, &g_segments, &stride, &offset);
         context.p->IASetPrimitiveTopology (D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        context.p->VSSetShader (g_vs, nullptr, 0);
         context.p->VSSetConstantBuffers (0, 1, &g_constants);
-        context.p->PSSetShader (g_ps, nullptr, 0);
         context.p->PSSetConstantBuffers (0, 1, &g_constants);
         context.p->GSSetShader (nullptr, nullptr, 0);
         context.p->HSSetShader (nullptr, nullptr, 0);
         context.p->DSSetShader (nullptr, nullptr, 0);
-        context.p->DrawInstanced (6, g_segmentCount, 0, 0);
+
+        if (walls) {
+            if (!upload (constants)) {
+                Declined (Decline::MapConstants);
+                return;
+            }
+            const UINT stride = UINT (sizeof (plancontent::Segment));
+            context.p->IASetInputLayout (g_layout);
+            context.p->IASetVertexBuffers (0, 1, &g_segments, &stride, &offset);
+            context.p->VSSetShader (g_vs, nullptr, 0);
+            context.p->PSSetShader (g_ps, nullptr, 0);
+            context.p->DrawInstanced (6, g_segmentCount, 0, 0);
+        }
+        // ⚠️ THE CALLER'S LAYERS OVER THE WALLS, FILLS UNDER THEIR OWN STROKES.
+        if (layers) {
+            if (!upload (layerConstants)) {
+                Declined (Decline::MapConstants);
+                return;
+            }
+            context.p->PSSetShader (g_layerPs, nullptr, 0);
+            if (g_layerFillCount > 0) {
+                const UINT stride = UINT (sizeof (overlaylayers::FillVertex));
+                context.p->IASetInputLayout (g_layerFillLayout);
+                context.p->IASetVertexBuffers (0, 1, &g_layerFills, &stride, &offset);
+                context.p->VSSetShader (g_layerFillVs, nullptr, 0);
+                context.p->Draw (g_layerFillCount, 0);
+            }
+            if (g_layerStrokeCount > 0) {
+                const UINT stride = UINT (sizeof (overlaylayers::StrokeInstance));
+                context.p->IASetInputLayout (g_layerStrokeLayout);
+                context.p->IASetVertexBuffers (0, 1, &g_layerStrokes, &stride, &offset);
+                context.p->VSSetShader (g_layerStrokeVs, nullptr, 0);
+                context.p->DrawInstanced (6, g_layerStrokeCount, 0, 0);
+            }
+        }
     }
     Bump (g_drawn);
     if (reused)
@@ -511,6 +651,28 @@ Prepared Prepare (const plancontent::Content& content, uint64_t generation, bool
         changed = true;
     }
     return Prepared::Ready;
+}
+
+bool HoldsLayers (uint64_t generation)
+{
+    return g_haveLayerGeneration && g_layerGeneration == generation;
+}
+
+bool PrepareLayers (const overlaylayers::Prepared2D& layers, uint64_t generation, bool& changed, std::string& error)
+{
+    changed = false;
+    if (g_device == nullptr || g_builtFor != g_device) {
+        error = "the plan overlay's pipeline is not built yet";
+        return false;
+    }
+    if (HoldsLayers (generation))
+        return true;
+    if (!UploadLayers (layers, error))
+        return false;
+    g_layerGeneration = generation;
+    g_haveLayerGeneration = true;
+    changed = true;
+    return true;
 }
 
 void Release ()

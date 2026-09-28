@@ -33,6 +33,11 @@ namespace overlaycompose {
 void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint32_t interpretation,
               ID3D11RenderTargetView* targetView, ID3D11DepthStencilView* depthView);
 
+// The device objects of what `Compose` draws -- the host overlays and the caller's
+// layers -- once no Present can reach them (`injection::Shutdown`). What the caller
+// published is kept for the next session.
+void Shutdown ();
+
 struct Stats {
     uint64_t passes = 0;
     // ⚠️ HOW OFTEN THE DEPTH VIEW WAS THE WRONG SIZE FOR THE

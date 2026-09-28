@@ -453,6 +453,9 @@ set (EVP_ARCHVIZ_SOURCES
     # segment is a picture, and a georeferenced project is the case no test file
     # in Archicad exercises by default.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanOverlayContent.cpp"
+    # ArchViz/OverlayLayers.cpp is the arbitrary geometry callers put on both overlays,
+    # prepared for each; a wrong vertex is a picture in someone else's view.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayLayers.cpp"
     # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
     # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
     # -- a wrong ribbon is a picture, not an error -- plus the arc half, which
@@ -594,6 +597,7 @@ set (EVP_TEST_SOURCES
     test_plancameramath.cpp
     test_planframeregistration.cpp
     test_planoverlaycontent.cpp
+    test_overlaylayers.cpp
     test_overlayshaders.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.

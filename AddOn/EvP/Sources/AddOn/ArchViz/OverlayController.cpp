@@ -13,7 +13,9 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/LayerOverlay3D.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
+#include "ArchViz/OverlayLayers.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ArchVizPanel.hpp"
@@ -460,6 +462,12 @@ void OnProjectClosed ()
     // The checks follow the intents off. `StopAll` cannot do this itself: it is also
     // the unload's teardown, where no ACAPI is called.
     SyncMenuChecks ();
+    // ⚠️ THE CALLER'S LAYERS WERE THAT PROJECT'S COORDINATES (§8): drawn over the next
+    // project they would be geometry from somewhere else, in the right place for nothing.
+    if (!overlaylayers::Layers ().empty ()) {
+        overlaylayers::ClearAll ();
+        PublishLayers ();
+    }
     if (active)
         Narrate ("OVERLAY", "the project closed; both overlays are off -- start them again from the menu");
 }
@@ -527,6 +535,15 @@ void StopAll ()
     g_servingView = ViewKind::Unknown;
     StopHeartbeat ();
     StopRenderers (true);
+}
+
+void PublishLayers ()
+{
+    overlaylayers::Prepared3D prepared = overlaylayers::Prepare3D (overlaylayers::Layers ());
+    prepared.generation = overlaylayers::Generation ();
+    dxgi::layers3d::Publish (std::move (prepared));
+    if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
+        ACAPI_View_Redraw ();
 }
 
 Status GetStatus ()

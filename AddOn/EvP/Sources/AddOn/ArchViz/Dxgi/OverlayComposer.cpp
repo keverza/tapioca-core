@@ -10,6 +10,7 @@
 #include "ArchViz/Dxgi/HostOccluders.hpp"
 #include "ArchViz/Dxgi/HostOverlay.hpp"
 #include "ArchViz/Dxgi/InjectedDiligentContext.hpp"
+#include "ArchViz/Dxgi/LayerOverlay3D.hpp"
 #include "ArchViz/Dxgi/OverlayStyle.hpp"
 
 #include <d3d11_1.h>
@@ -166,10 +167,21 @@ void Compose (ID3D11DeviceContext* context, ID3D11DeviceContext1* context1, uint
         }
     }
 
+    // ⚠️ THE CALLER'S LAYERS LAST (Tapioca.SetOverlayLayer): over the reference, with
+    // the same camera and against the same occluder depth, so what a script draws
+    // moves with the model in the frame the model is drawn in.
+    layers3d::Draw (context, context1, wanted, overlayView);
+
     // Collect any checkpoint occlusion results that became ready. The
     // diagnostic is disarmed by default and this costs one branch; see
     // DepthCheckpoints.hpp for what it answered and why it is off.
     injection::checkpoints::Resolve (context);
+}
+
+void Shutdown ()
+{
+    hostoverlay::Shutdown ();
+    layers3d::ReleaseDeviceObjects ();
 }
 
 } // namespace overlaycompose
