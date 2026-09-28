@@ -9,6 +9,8 @@
 
 #include "ArchViz/OverlayController.hpp"
 
+#include "ResourceIds.hpp" // the two menu items whose checks mirror the intents
+
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
@@ -28,21 +30,37 @@ namespace geomsrv {
 namespace archviz {
 namespace overlaycontrol {
 
-void StartPlanOverlay (); // below; `Follow` starts it
-
 namespace {
 
 namespace runtime = overlayruntime;
 
-std::string g_lastCode = "None";
-std::string g_lastMessage;
-
-// ⚠️ WHETHER THE USER WANTS AN OVERLAY AT ALL, KEPT APART FROM WHICH
-// RENDERER IS SERVING IT. The menu toggles the intent; the front window decides
-// which renderer answers. Without that split, walking 3D -> plan -> 3D needs
-// three clicks and reads as the overlay failing twice.
-bool g_requested = false;
+// ⚠️ WHETHER THE USER WANTS EACH OVERLAY, KEPT APART FROM WHICH RENDERER IS
+// SERVING IT. The menu item and the verb set the intent; the front window decides
+// whether its renderer runs now. Without that split, walking 3D -> plan -> 3D
+// needs three clicks and reads as the overlay failing twice.
+struct Intent {
+    bool wanted = false;
+    std::string code = "None";
+    std::string message = "off";
+    bool retryable = false;
+};
+Intent g_intent[2]; // indexed by Overlay
 ViewKind g_servingView = ViewKind::Unknown;
+
+Intent& IntentOf (Overlay which)
+{
+    return g_intent[which == Overlay::ThreeD ? 0 : 1];
+}
+
+bool AnyWanted ()
+{
+    return g_intent[0].wanted || g_intent[1].wanted;
+}
+
+ViewKind ViewOf (Overlay which)
+{
+    return which == Overlay::ThreeD ? ViewKind::ThreeD : ViewKind::FloorPlan;
+}
 
 void Narrate (const char* channel, const std::string& detail)
 {
@@ -90,6 +108,36 @@ void StopHeartbeat ()
     }
 }
 
+// The heartbeat runs while either overlay is wanted and not a moment longer.
+void SyncHeartbeat ()
+{
+    if (AnyWanted ())
+        StartHeartbeat ();
+    else
+        StopHeartbeat ();
+}
+
+// Each menu item carries a check while its overlay is wanted, so the menu says what
+// the user asked for without anyone reading a log. The other flags are kept.
+void SyncMenuCheck (short menuResId, short itemIndex, bool checked)
+{
+    API_MenuItemRef item = {};
+    item.menuResID = menuResId;
+    item.itemIndex = itemIndex;
+    GSFlags flags = 0;
+    if (ACAPI_MenuItem_GetMenuItemFlags (&item, &flags) != NoError)
+        return;
+    GSFlags wanted = checked ? (flags | API_MenuItemChecked) : (flags & ~GSFlags (API_MenuItemChecked));
+    if (wanted != flags)
+        ACAPI_MenuItem_SetMenuItemFlags (&item, &wanted);
+}
+
+void SyncMenuChecks ()
+{
+    SyncMenuCheck (ArchVizOverlayMenuResId, ArchVizOverlayMenuItemIndex, g_intent[0].wanted);
+    SyncMenuCheck (Overlay2DMenuResId, Overlay2DMenuItemIndex, g_intent[1].wanted);
+}
+
 // ⚠️ RENDERERS ONLY. `StopAll` clears the user's INTENT as well, and
 // `FollowView` must not -- it stops one renderer in order to start another, and
 // clearing intent mid-move would leave the overlay off with nobody having asked
@@ -109,6 +157,71 @@ void StopRenderers (bool teardown)
     }
     if (PortableRunning ())
         ArchVizPanel::CloseDiligentOverlay ();
+}
+
+// MAIN THREAD, with `which`'s view in front: start its renderer and record the
+// outcome on its intent.
+//
+// ⚠️ NO SILENT FALLBACK. A refusal is reported with its real code and nothing
+// else is started in its place: quietly opening a different renderer would leave
+// the user looking at an overlay they did not choose, unable to tell which one
+// failed -- which is exactly how run sixty hid a wrong `BuildNotPinned` verdict
+// behind a working portable overlay.
+//
+// ⚠️ AND NEVER TWO OVERLAYS ON ONE WINDOW, OR TWO OWNERS OF ONE HOOK. The portable
+// window may still be up from an earlier session, and the other overlay's session
+// shares the Present hook -- the first to stop would take it from both. Neither
+// should be running with this view in front; both are stopped if they are.
+void StartRenderer (Overlay which)
+{
+    Intent& intent = IntentOf (which);
+    if (PortableRunning ())
+        ArchVizPanel::CloseDiligentOverlay ();
+    if (which == Overlay::ThreeD) {
+        if (planruntime::Running ())
+            planruntime::Stop ("the 3D overlay starts");
+        if (runtime::Running ()) {
+            intent.code = "None";
+            intent.message = "running";
+            return;
+        }
+        const runtime::StartResult started = runtime::Start ();
+        intent.code = runtime::StartErrorName (started.code);
+        intent.message = started.ok ? std::string ("running") : started.message;
+        intent.retryable = !started.ok && started.retryable;
+        if (started.ok) {
+            Narrate ("BUILD", "supported");
+            return;
+        }
+        Narrate ("OVERLAY", std::string ("3D NOT STARTED (") + intent.code + ") - " + intent.message);
+        if (!started.retryable)
+            Narrate ("OVERLAY", "this will not become true by waiting; the 3D overlay is unavailable here");
+        return;
+    }
+
+    // ⚠️ THE 2D PATH TOUCHES NO 3D STATE AT ALL: no census, no host extraction, no
+    // camera recognition, no camera anchor, no depth. It composes at the plan's own
+    // Present, on the plan canvas's own chain, with a transform ACAPI gives it (§12).
+    if (runtime::Running ())
+        runtime::Stop ();
+    if (planruntime::Running ()) {
+        intent.code = "None";
+        intent.message = "running";
+        return;
+    }
+    Narrate ("2D RUNTIME", "starting the 2D overlay at the plan's Present");
+    const planruntime::StartResult started = planruntime::Start ();
+    intent.code = planruntime::StartErrorName (started.code);
+    intent.message = started.ok ? std::string ("running") : started.message;
+    // A frame record or a canvas not there yet may clear. The crash-loop guard holds
+    // for the session, a Present slot another tool took holds until Archicad
+    // restarts, and a missing content reader or a running session never clear.
+    const planruntime::StartError code = started.code;
+    intent.retryable = !started.ok && code != planruntime::StartError::NoContentReader &&
+                       code != planruntime::StartError::AlreadyRunning && code != planruntime::StartError::Blocked &&
+                       code != planruntime::StartError::PresentHook;
+    if (!started.ok)
+        Narrate ("OVERLAY", std::string ("2D NOT STARTED (") + intent.code + ") - " + intent.message);
 }
 
 ViewKind KindOf (API_WindowTypeID type)
@@ -185,20 +298,13 @@ void FollowOnce (const char* how)
     Narrate ("VIEW", line);
 
     g_servingView = view;
-    if (view == ViewKind::ThreeD) {
-        const runtime::StartResult started = runtime::Start ();
-        g_lastCode = runtime::StartErrorName (started.code);
-        g_lastMessage = started.message;
-        if (!started.ok)
-            Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
-    }
-    else if (view == ViewKind::FloorPlan) {
-        StartPlanOverlay ();
-    }
-    else {
+    if (view == ViewKind::ThreeD && IntentOf (Overlay::ThreeD).wanted)
+        StartRenderer (Overlay::ThreeD);
+    else if (view == ViewKind::FloorPlan && IntentOf (Overlay::TwoD).wanted)
+        StartRenderer (Overlay::TwoD);
+    else if (view == ViewKind::Other)
         Narrate ("OVERLAY", std::string ("no overlay is defined for the ") + WindowTypeName (info.typeID) +
-                                "; it returns with the 3D window");
-    }
+                                "; the 3D overlay returns with the 3D window and the 2D overlay with the floor plan");
 }
 
 // ⚠️ NOT RE-ENTRANT, AND IT CAN BE ASKED TO BE: starting the 3D runtime can bring
@@ -210,7 +316,7 @@ bool g_followAgain = false;
 
 void Follow (const char* how)
 {
-    if (!g_requested)
+    if (!AnyWanted ())
         return;
     if (g_following) {
         g_followAgain = true;
@@ -220,7 +326,7 @@ void Follow (const char* how)
     for (int pass = 0; pass < 3; ++pass) {
         g_followAgain = false;
         FollowOnce (how);
-        if (!g_followAgain || !g_requested)
+        if (!g_followAgain || !AnyWanted ())
             break;
     }
     g_following = false;
@@ -262,130 +368,72 @@ bool InjectedOwnsView (ViewKind kind)
     return runtime::Running () && runtime::Visible ();
 }
 
-// MAIN THREAD. Start the plan overlay.
-//
-// ⚠️ A FLOOR PLAN IS NOT 3D GEOMETRY AND MUST NOT BE BUILT FROM IT.
-// It is Archicad's 2D representation, reached through a different API entirely:
-// a wall's plan outline is its CONNECTION polygon, trimmed where it meets other
-// walls (`NativeCommands/PlanGeometryCommands.cpp`), and that is what is drawn.
-//
-// ⚠️ AN EARLIER VERSION OF THIS FUNCTION ASKED FOR STOREY SLICES
-// INSTEAD. `StorySliceAccumulator` cuts the 3D MESH against storey planes and
-// unions the loops, which is a SECTION THROUGH THE MODEL and not a plan: no 2D
-// symbol, no wall reference line, no door or window break, and it agrees with
-// the drawing only where the two happen to coincide. Wrong mechanism, removed.
-//
-// ⚠️ DRAWN AT THE PLAN'S PRESENT, NOT IN A WINDOW OF OUR OWN (finding 14). The
-// portable window followed a poll of the plan's transform, and the frame record
-// measured every read taken before the plan's Present a frame stale -- 26-30 px at
-// the median during a pan. The plan runtime reads the transform inside that
-// Present and draws into the frame it describes. No silent fallback: a refusal
-// is reported with its code and the portable window is not opened in its place.
-void StartPlanOverlay ()
+const char* OverlayName (Overlay which)
 {
-    Narrate ("2D RUNTIME", "starting the plan overlay at the plan's Present");
-    const planruntime::StartResult started = planruntime::Start ();
-    g_lastCode = planruntime::StartErrorName (started.code);
-    g_lastMessage =
-        started.ok ? std::string ("the plan overlay draws the storey's walls at the plan's Present") : started.message;
-    if (!started.ok)
-        Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
+    return which == Overlay::ThreeD ? "3D overlay" : "2D overlay";
 }
 
-void Toggle ()
+// ⚠️ A FLOOR PLAN IS NOT 3D GEOMETRY AND MUST NOT BE BUILT FROM IT. The 2D
+// overlay draws Archicad's own 2D representation -- a wall's plan outline is its
+// CONNECTION polygon, trimmed where it meets other walls
+// (`NativeCommands/PlanGeometryCommands.cpp`) -- never a storey cut of the 3D mesh,
+// which is a section through the model with no 2D symbol, no reference line and
+// no door or window break. And it is drawn at the plan's Present, not in a window
+// of our own (finding 14): the portable window followed a poll the frame record
+// measured a frame stale, 26-30 px at the median during a pan.
+Outcome SetWanted (Overlay which, bool wanted, const char* how)
 {
-    const ViewKind view = CurrentView ();
-    Narrate ("OVERLAY MENU", std::string ("requested for ") + ViewKindName (view));
-
-    switch (view) {
-        case ViewKind::ThreeD: {
-            // ⚠️ THE PORTABLE OVERLAY IS NOT THE 3D RENDERER ANY MORE, but it may
-            // still be up from a plan session. Leaving it running over the 3D
-            // window would put two overlays on one window, which is the state the
-            // suppression hack existed to paper over.
-            if (PortableRunning ())
-                ArchVizPanel::CloseDiligentOverlay ();
-            // And the plan session goes before the 3D one starts: the two would
-            // share one Present hook, and the first to stop would take it from both.
-            if (planruntime::Running ())
-                planruntime::Stop ("the 3D overlay was asked for");
-
-            if (runtime::Running ()) {
+    Intent& intent = IntentOf (which);
+    const ViewKind front = CurrentView ();
+    Narrate ("OVERLAY", std::string (OverlayName (which)) + (wanted ? " on" : " off") + " (" + how + "), " +
+                            ViewKindName (front) + " in front");
+    if (!wanted) {
+        intent.wanted = false;
+        if (which == Overlay::ThreeD) {
+            if (runtime::Running ())
                 runtime::Stop ();
-                g_requested = false;
-                g_servingView = ViewKind::Unknown;
-                StopHeartbeat ();
-                g_lastCode = "None";
-                g_lastMessage = "stopped by the menu";
-                return;
-            }
-            g_requested = true;
-            g_servingView = view;
-            StartHeartbeat ();
-            const runtime::StartResult started = runtime::Start ();
-            g_lastCode = runtime::StartErrorName (started.code);
-            g_lastMessage = started.message;
-            if (started.ok) {
-                Narrate ("BUILD", "supported");
-                return;
-            }
-            // ⚠️ NO SILENT FALLBACK. The refusal is reported with its real code
-            // and the menu stops. Quietly starting a different renderer would
-            // leave the user looking at an overlay they did not choose, unable to
-            // tell which one failed -- which is exactly how run sixty hid a wrong
-            // `BuildNotPinned` verdict behind a working portable overlay.
-            Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
-            if (!started.retryable)
-                Narrate ("OVERLAY", "this will not become true by waiting; the 3D overlay is unavailable here");
-            return;
         }
-
-        case ViewKind::FloorPlan: {
-            // ⚠️ THE PLAN PATH TOUCHES NO 3D STATE AT ALL: no census, no host
-            // extraction, no camera recognition, no camera anchor, no depth. It
-            // composes at the plan's own Present, on the plan canvas's own chain,
-            // with a transform ACAPI gives it (§12).
-            if (planruntime::Running () || PortableRunning ()) {
-                if (planruntime::Running ())
-                    planruntime::Stop ("stopped by the menu");
-                if (PortableRunning ())
-                    ArchVizPanel::CloseDiligentOverlay ();
-                g_requested = false;
-                g_servingView = ViewKind::Unknown;
-                StopHeartbeat ();
-                g_lastCode = "None";
-                g_lastMessage = "stopped by the menu";
-                Narrate ("OVERLAY", "plan overlay closed");
-                return;
-            }
-            g_requested = true;
-            g_servingView = view;
-            StartHeartbeat ();
-            StartPlanOverlay ();
-            return;
+        else if (planruntime::Running ()) {
+            planruntime::Stop ("turned off");
         }
-
-        case ViewKind::Other:
-        case ViewKind::Unknown:
-        default:
-            // ⚠️ WHAT WAS WANTED CAN ALWAYS BE UNWANTED. The 3D session stopped when
-            // this view came forward, but the intent did not; a click here ends it,
-            // or the overlay would come back on the next return to 3D.
-            if (g_requested) {
-                StopAll ();
-                g_lastCode = "None";
-                g_lastMessage = std::string ("turned off in the ") + ViewKindName (view);
-                Narrate ("OVERLAY", "turned off; it will not return with the 3D window");
-                return;
-            }
-            // ⚠️ EXPLICIT, NOT A FALLBACK. Sections, elevations and layouts each
-            // need their own camera measurement; guessing one of the two existing
-            // renderers would draw a model over a drawing.
-            g_lastCode = "UnsupportedView";
-            g_lastMessage = std::string ("no overlay is defined for the ") + ViewKindName (view);
-            Narrate ("OVERLAY", "NOT STARTED (UnsupportedView) - " + g_lastMessage);
-            return;
+        intent.code = "None";
+        intent.message = "off";
+        intent.retryable = false;
     }
+    else {
+        intent.wanted = true;
+        g_servingView = front;
+        if (front == ViewOf (which)) {
+            StartRenderer (which);
+        }
+        else {
+            intent.code = "Waiting";
+            intent.message = std::string ("on; it starts when the ") + ViewKindName (ViewOf (which)) + " is in front";
+            intent.retryable = false;
+            Narrate ("OVERLAY", std::string (OverlayName (which)) + " " + intent.message);
+        }
+    }
+    SyncHeartbeat ();
+    SyncMenuChecks ();
+    return Describe (which);
+}
+
+Outcome Toggle (Overlay which, const char* how)
+{
+    return SetWanted (which, !IntentOf (which).wanted, how);
+}
+
+Outcome Describe (Overlay which)
+{
+    const Intent& intent = IntentOf (which);
+    Outcome outcome;
+    outcome.wanted = intent.wanted;
+    outcome.running = which == Overlay::ThreeD ? runtime::Running () : planruntime::Running ();
+    outcome.code = intent.code;
+    outcome.message = intent.message;
+    outcome.retryable = intent.retryable;
+    outcome.ok = intent.code == "None" || intent.code == "Waiting";
+    return outcome;
 }
 
 // MAIN THREAD, from the runtime heartbeat. Keep the overlay on the window the
@@ -407,10 +455,13 @@ void OnWindowChanged ()
 
 void OnProjectClosed ()
 {
-    const bool active = g_requested || runtime::Running () || planruntime::Running () || PortableRunning ();
+    const bool active = AnyWanted () || runtime::Running () || planruntime::Running () || PortableRunning ();
     StopAll ();
+    // The checks follow the intents off. `StopAll` cannot do this itself: it is also
+    // the unload's teardown, where no ACAPI is called.
+    SyncMenuChecks ();
     if (active)
-        Narrate ("OVERLAY", "the project closed; the overlay is off -- start it again from the menu");
+        Narrate ("OVERLAY", "the project closed; both overlays are off -- start them again from the menu");
 }
 
 void Mark (const std::string& note)
@@ -471,7 +522,8 @@ void StopAll ()
 {
     // Intent as well as renderers: this is the teardown entry point, and a timer
     // left armed in a DLL that is unloading is Windows calling into freed code.
-    g_requested = false;
+    for (Intent& intent : g_intent)
+        intent = Intent {};
     g_servingView = ViewKind::Unknown;
     StopHeartbeat ();
     StopRenderers (true);
@@ -481,11 +533,11 @@ Status GetStatus ()
 {
     Status status;
     status.view = CurrentView ();
+    status.want3D = IntentOf (Overlay::ThreeD).wanted;
+    status.want2D = IntentOf (Overlay::TwoD).wanted;
     status.injectedRunning = runtime::Running ();
     status.planRunning = planruntime::Running ();
     status.portableRunning = PortableRunning ();
-    status.lastCode = g_lastCode;
-    status.lastMessage = g_lastMessage;
     return status;
 }
 

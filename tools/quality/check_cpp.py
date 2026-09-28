@@ -355,6 +355,13 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # hide/show and read the health record without clicking a menu.
     ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
     ("NativeCommands/HostGeometryCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # Tapioca.Overlay3D and Tapioca.Overlay2D (2026-09-28): the two overlay intents
+    # the menu items toggle, as verbs. They set the controller's intent and read
+    # each session's own status; restating either here would be a second place
+    # that decides whether an overlay is on.
+    ("NativeCommands/OverlayCommands.cpp", "ArchViz/OverlayController.hpp"),
+    ("NativeCommands/OverlayCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
+    ("NativeCommands/OverlayCommands.cpp", "ArchViz/PlanOverlayRuntime.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the

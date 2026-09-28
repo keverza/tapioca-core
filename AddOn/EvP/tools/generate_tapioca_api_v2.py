@@ -240,7 +240,9 @@ from typing import Any
 # (2026-09-27), registered in ViewerDrawRecorderCommands.cpp.
 # 220 -> 221 with PlanFrameRecord, the floor-plan frame record (2026-09-28),
 # registered in PlanFrameRecordCommands.cpp.
-EXPECTED_REGISTRY_COMMANDS = 221
+# 221 -> 223 with Overlay3D and Overlay2D, the two overlay intents the menu items
+# toggle (2026-09-28), registered in OverlayCommands.cpp.
+EXPECTED_REGISTRY_COMMANDS = 223
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -248,8 +250,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # generated surface.
 # 235 -> 236 with the same verb.
 # 236 -> 238 with the element queries, 238 -> 239 with the draw record,
-# 239 -> 240 with the plan frame record.
-EXPECTED_TOTAL_COMMANDS = 240
+# 239 -> 240 with the plan frame record, 240 -> 242 with the two overlay intents.
+EXPECTED_TOTAL_COMMANDS = 242
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

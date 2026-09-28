@@ -261,8 +261,12 @@ static GSErrCode MenuCommandHandler (const API_MenuParams* menuParams)
                 // KINDS IT ROUTES BETWEEN. This handler used to choose the
                 // renderer itself, which meant the choice was made where nothing
                 // knew what a floor plan is; see `OverlayController`.
-                geomsrv::archviz::overlaycontrol::Toggle ();
+                geomsrv::archviz::overlaycontrol::Toggle (geomsrv::archviz::overlaycontrol::Overlay::ThreeD, "menu");
             }
+            break;
+        case Overlay2DMenuResId:
+            if (menuParams->menuItemRef.itemIndex == Overlay2DMenuItemIndex)
+                geomsrv::archviz::overlaycontrol::Toggle (geomsrv::archviz::overlaycontrol::Overlay::TwoD, "menu");
             break;
         case NotebookMenuResId:
             if (menuParams->menuItemRef.itemIndex == NotebookMenuItemIndex) {
@@ -397,6 +401,9 @@ GSErrCode RegisterInterface (void)
                    ACAPI_MenuItem_RegisterMenu (ArchVizOverlayMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
                    ArchVizOverlayMenuResId, "3D overlay item");
     RecordStartup ("ACAPI_MenuItem_RegisterMenu",
+                   ACAPI_MenuItem_RegisterMenu (Overlay2DMenuResId, 0, MenuCode_UserDef, MenuFlag_Default),
+                   Overlay2DMenuResId, "2D overlay item");
+    RecordStartup ("ACAPI_MenuItem_RegisterMenu",
                    ACAPI_MenuItem_RegisterMenu (AboutMenuResId, 0, MenuCode_UserDef, MenuFlag_SeparatorBefore),
                    AboutMenuResId, "About item");
 
@@ -476,6 +483,9 @@ GSErrCode Initialize (void)
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (ArchVizOverlayMenuResId, MenuCommandHandler),
                    ArchVizOverlayMenuResId, "3D overlay item");
+    RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
+                   ACAPI_MenuItem_InstallMenuHandler (Overlay2DMenuResId, MenuCommandHandler), Overlay2DMenuResId,
+                   "2D overlay item");
     RecordStartup ("ACAPI_MenuItem_InstallMenuHandler",
                    ACAPI_MenuItem_InstallMenuHandler (NotebookMenuResId, MenuCommandHandler), NotebookMenuResId,
                    "notebook item");

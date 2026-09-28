@@ -56,6 +56,13 @@
 /* [  1] */	"Tapioca 3D Overlay^E3^ES^EE^EI^ED^EW^EL"
 }
 
+/* The floor plan's overlay, drawn at the plan's own Present. Its own item and its
+   own intent: turning it on in another view arms it for the floor plan. */
+'STR#' 32515 "Menu strings - 2D overlay" {
+/* [   ] */	"Tapioca"
+/* [  1] */	"Tapioca 2D Overlay^E3^ES^EE^EI^ED^EW^EL"
+}
+
 'STR#' 32504 "Menu strings - notebook" {
 /* [   ] */	"Tapioca"
 /* [  1] */	"Tapioca Notebook^E3^ES^EE^EI^ED^EW^EL"

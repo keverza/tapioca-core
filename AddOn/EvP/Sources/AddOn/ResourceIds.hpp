@@ -35,6 +35,12 @@ constexpr short ArchVizMenuItemIndex = 1;
 // surface rules exist to keep off this path.
 constexpr short ArchVizOverlayMenuResId = 32512; // "Tapioca 3D Overlay"
 constexpr short ArchVizOverlayMenuItemIndex = 1;
+// ⚠️ THE 2D OVERLAY HAS ITS OWN ITEM (2026-09-28). One item that served whichever
+// view happened to be in front made the user's intent a function of where they
+// last clicked; each overlay now has its own item, intent and Tapioca verb
+// (ArchViz/OverlayController.hpp). The 2D overlay serves the floor plan.
+constexpr short Overlay2DMenuResId = 32515; // "Tapioca 2D Overlay"
+constexpr short Overlay2DMenuItemIndex = 1;
 constexpr short NotebookMenuResId = 32504; // "Tapioca Notebook"
 constexpr short NotebookMenuItemIndex = 1;
 constexpr short WebUIMenuResId = 32505; // "Tapioca WebUI panel"

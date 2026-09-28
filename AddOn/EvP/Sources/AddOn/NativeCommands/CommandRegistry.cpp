@@ -15,6 +15,7 @@
 #include "NativeCommands/ViewerInjectionCommands.hpp"
 #include "NativeCommands/ViewerDrawRecorderCommands.hpp"
 #include "NativeCommands/PlanFrameRecordCommands.hpp"
+#include "NativeCommands/OverlayCommands.hpp"
 #include "NativeCommands/ViewerPassProvenanceCommands.hpp"
 #include "NativeCommands/ViewerSyncCommands.hpp"
 #include "NativeCommands/AttributeCommands.hpp"
@@ -135,6 +136,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetViewerPassProvenanceCommandRegistrations,
     &GetViewerDrawRecorderCommandRegistrations,
     &GetPlanFrameRecordCommandRegistrations,
+    &GetOverlayCommandRegistrations,
     &GetHostGeometryCommandRegistrations,
     &GetPreviewCommandRegistrations,
     &GetNodeGraphCommandRegistrations,

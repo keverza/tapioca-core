@@ -28,9 +28,16 @@
 // off the wrong flag and fell back on every click -- correctly implementing a
 // wrong conclusion, invisibly.
 //
+// ⚠️ TWO INTENTS, TWO MENU ITEMS, TWO VERBS (2026-09-28). One item that toggled
+// "the overlay of whatever view is in front" made the user's intent a function of
+// where they last clicked, and made it impossible to want the 2D overlay while
+// working in 3D. Each overlay now has its own item (`Tapioca 3D Overlay`, `Tapioca
+// 2D Overlay`), its own Tapioca verb (`Overlay3D`, `Overlay2D`) and its own intent;
+// each starts when its view is in front, stops when its view is left, and returns
+// with its view. Turning one on or off never touches the other (§12).
+//
 // THREAD. Every entry point is MAIN THREAD.
 
-#include <cstdint>
 #include <cstdint>
 #include <string>
 
@@ -49,11 +56,36 @@ const char* ViewKindName (ViewKind kind);
 // MAIN THREAD. What Archicad has in front, right now.
 ViewKind CurrentView ();
 
-// MAIN THREAD. The menu item: turn the overlay that belongs to THIS view on, or
-// off if it is already on. Never touches the other view's session.
-void Toggle ();
+// The two overlays a user can ask for. The 2D overlay serves the floor plan; other
+// 2D views (sections, elevations, layouts) have no overlay defined yet.
+enum class Overlay : uint32_t {
+    ThreeD = 0,
+    TwoD = 1,
+};
+const char* OverlayName (Overlay which);
 
-// MAIN THREAD. Turn off whatever is on, for teardown.
+// What asking for an overlay came to -- the menu narrates it, the verb returns it.
+struct Outcome {
+    bool ok = true;       // false when a start in front of the user was refused
+    bool wanted = false;  // the intent after the call
+    bool running = false; // its renderer is serving the view in front right now
+    std::string code;     // the refusal's name; "Waiting" while its view is not in front; "None"
+    std::string message;
+    bool retryable = false; // a refusal that may clear by itself (a view not ready yet)
+};
+
+// MAIN THREAD. Turn one overlay on or off. On starts it at once when its view is in
+// front and waits for that view otherwise; off stops its renderer. `how` names the
+// caller for the log ("menu", "api").
+Outcome SetWanted (Overlay which, bool wanted, const char* how);
+
+// MAIN THREAD. The menu item: the opposite of what is wanted now.
+Outcome Toggle (Overlay which, const char* how);
+
+// MAIN THREAD. The state, unchanged.
+Outcome Describe (Overlay which);
+
+// MAIN THREAD. Turn off both, intents and renderers, for teardown. No ACAPI.
 void StopAll ();
 
 // MAIN THREAD. Put an operator-supplied label on the overlay log's timeline.
@@ -132,11 +164,11 @@ void OnProjectClosed ();
 
 struct Status {
     ViewKind view = ViewKind::Unknown;
+    bool want3D = false; // the user's intent, apart from what runs
+    bool want2D = false;
     bool injectedRunning = false; // the 3D session
     bool planRunning = false;     // the plan session, drawn at the plan's Present
     bool portableRunning = false; // the portable window (no longer the menu's plan renderer)
-    std::string lastCode;         // the real StartError name, never "None"
-    std::string lastMessage;
 };
 Status GetStatus ();
 
