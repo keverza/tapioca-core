@@ -17,6 +17,7 @@
 #include "ArchViz/ArchVizPanel.hpp"
 #include "ArchViz/DiligentViewport.hpp"
 #include "ArchViz/InjectedOverlayRuntime.hpp"
+#include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/ViewportOverlayWindow.hpp"
 
 #include <windows.h>
@@ -93,10 +94,19 @@ void StopHeartbeat ()
 // `FollowView` must not -- it stops one renderer in order to start another, and
 // clearing intent mid-move would leave the overlay off with nobody having asked
 // for that.
-void StopRenderers ()
+//
+// ⚠️ `teardown` IS A PROJECT EVENT OR THE UNLOAD: the plan session then gives
+// everything back without calling ACAPI, which is no longer the plan's to redraw.
+void StopRenderers (bool teardown)
 {
     if (runtime::Running ())
         runtime::Stop ();
+    if (planruntime::Running ()) {
+        if (teardown)
+            planruntime::Shutdown ();
+        else
+            planruntime::Stop ("the view changed");
+    }
     if (PortableRunning ())
         ArchVizPanel::CloseDiligentOverlay ();
 }
@@ -156,15 +166,18 @@ void FollowOnce (const char* how)
     // ⚠️ MEASURED, BECAUSE "SAFE" IS A CLAIM ABOUT TIME. While the 3D session runs
     // after its window has gone, its hooks sit in the frames of whatever is in front.
     const bool injected = runtime::Running ();
+    const bool plan = planruntime::Running ();
     const bool portable = PortableRunning ();
     const ULONGLONG began = ::GetTickCount64 ();
-    StopRenderers ();
+    StopRenderers (false);
     const ULONGLONG took = ::GetTickCount64 () - began;
     char line[240] = {};
-    if (injected || portable)
+    if (injected || plan || portable)
         _snprintf_s (line, sizeof (line), _TRUNCATE, "%s -> %s (%s): %s in %llu ms", ViewKindName (g_servingView),
                      WindowTypeName (info.typeID), how,
-                     injected ? "3D overlay stopped, hooks released," : "plan overlay closed",
+                     injected ? "3D overlay stopped, hooks released,"
+                     : plan   ? "plan overlay stopped, its hook released,"
+                              : "portable plan overlay closed",
                      (unsigned long long) took);
     else
         _snprintf_s (line, sizeof (line), _TRUNCATE, "%s -> %s (%s): nothing was running", ViewKindName (g_servingView),
@@ -253,27 +266,30 @@ bool InjectedOwnsView (ViewKind kind)
 //
 // ⚠️ A FLOOR PLAN IS NOT 3D GEOMETRY AND MUST NOT BE BUILT FROM IT.
 // It is Archicad's 2D representation, reached through a different API entirely:
-// the `ACAPI_DrawingPrimitive_*` family, which calls back with the drawing
-// primitives an element actually contributes to the drawing.
-// `NativeCommands/PlanGeometryCommands.cpp` already does exactly this --
-// `GetWallPlanOutlines` and `GetPlanElementEdges` collect those primitives --
-// and `DiligentViewport::SetPlanAnchors` is the drawing half.
+// a wall's plan outline is its CONNECTION polygon, trimmed where it meets other
+// walls (`NativeCommands/PlanGeometryCommands.cpp`), and that is what is drawn.
 //
 // ⚠️ AN EARLIER VERSION OF THIS FUNCTION ASKED FOR STOREY SLICES
 // INSTEAD. `StorySliceAccumulator` cuts the 3D MESH against storey planes and
 // unions the loops, which is a SECTION THROUGH THE MODEL and not a plan: no 2D
 // symbol, no wall reference line, no door or window break, and it agrees with
 // the drawing only where the two happen to coincide. Wrong mechanism, removed.
+//
+// ⚠️ DRAWN AT THE PLAN'S PRESENT, NOT IN A WINDOW OF OUR OWN (finding 14). The
+// portable window followed a poll of the plan's transform, and the frame record
+// measured every read taken before the plan's Present a frame stale -- 26-30 px at
+// the median during a pan. The plan runtime reads the transform inside that
+// Present and draws into the frame it describes. No silent fallback: a refusal
+// is reported with its code and the portable window is not opened in its place.
 void StartPlanOverlay ()
 {
-    Narrate ("2D RUNTIME", "starting the plan overlay");
-    ArchVizPanel::OpenDiligentOverlay ();
-    g_lastCode = "None";
-    g_lastMessage = "plan overlay requested; 2D outlines are not wired yet";
-    // ⚠️ AND IT SAYS SO. The window opens and follows the plan
-    // camera, which is the part that works; the wall outlines are not fed to it
-    // yet. Claiming otherwise in a log is how a half-finished path gets believed.
-    Narrate ("2D RUNTIME", "NOTE: wall outlines not yet fed from GetWallPlanOutlines");
+    Narrate ("2D RUNTIME", "starting the plan overlay at the plan's Present");
+    const planruntime::StartResult started = planruntime::Start ();
+    g_lastCode = planruntime::StartErrorName (started.code);
+    g_lastMessage =
+        started.ok ? std::string ("the plan overlay draws the storey's walls at the plan's Present") : started.message;
+    if (!started.ok)
+        Narrate ("OVERLAY", std::string ("NOT STARTED (") + g_lastCode + ") - " + g_lastMessage);
 }
 
 void Toggle ()
@@ -289,6 +305,10 @@ void Toggle ()
             // suppression hack existed to paper over.
             if (PortableRunning ())
                 ArchVizPanel::CloseDiligentOverlay ();
+            // And the plan session goes before the 3D one starts: the two would
+            // share one Present hook, and the first to stop would take it from both.
+            if (planruntime::Running ())
+                planruntime::Stop ("the 3D overlay was asked for");
 
             if (runtime::Running ()) {
                 runtime::Stop ();
@@ -322,13 +342,19 @@ void Toggle ()
 
         case ViewKind::FloorPlan: {
             // ⚠️ THE PLAN PATH TOUCHES NO 3D STATE AT ALL: no census, no host
-            // extraction, no Present injection, no camera anchor, no depth. A 3D
-            // session that happens to be running keeps running, in its own window.
-            if (PortableRunning ()) {
-                ArchVizPanel::CloseDiligentOverlay ();
+            // extraction, no camera recognition, no camera anchor, no depth. It
+            // composes at the plan's own Present, on the plan canvas's own chain,
+            // with a transform ACAPI gives it (§12).
+            if (planruntime::Running () || PortableRunning ()) {
+                if (planruntime::Running ())
+                    planruntime::Stop ("stopped by the menu");
+                if (PortableRunning ())
+                    ArchVizPanel::CloseDiligentOverlay ();
                 g_requested = false;
                 g_servingView = ViewKind::Unknown;
                 StopHeartbeat ();
+                g_lastCode = "None";
+                g_lastMessage = "stopped by the menu";
                 Narrate ("OVERLAY", "plan overlay closed");
                 return;
             }
@@ -381,7 +407,7 @@ void OnWindowChanged ()
 
 void OnProjectClosed ()
 {
-    const bool active = g_requested || runtime::Running () || PortableRunning ();
+    const bool active = g_requested || runtime::Running () || planruntime::Running () || PortableRunning ();
     StopAll ();
     if (active)
         Narrate ("OVERLAY", "the project closed; the overlay is off -- start it again from the menu");
@@ -448,7 +474,7 @@ void StopAll ()
     g_requested = false;
     g_servingView = ViewKind::Unknown;
     StopHeartbeat ();
-    StopRenderers ();
+    StopRenderers (true);
 }
 
 Status GetStatus ()
@@ -456,6 +482,7 @@ Status GetStatus ()
     Status status;
     status.view = CurrentView ();
     status.injectedRunning = runtime::Running ();
+    status.planRunning = planruntime::Running ();
     status.portableRunning = PortableRunning ();
     status.lastCode = g_lastCode;
     status.lastMessage = g_lastMessage;

@@ -17,6 +17,7 @@
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
 #include "ArchViz/Dxgi/PlanFrameRecord.hpp"
+#include "ArchViz/Dxgi/PlanOverlayLayer.hpp"
 #include "ArchViz/Dxgi/PresentProfile.hpp"
 #include "ArchViz/Dxgi/DrawRecorder.hpp"
 #include "ArchViz/Dxgi/PresentedContent.hpp"
@@ -288,6 +289,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
         // ⚠️ THE PLAN FRAME RECORD GOES FIRST, before anything of ours can draw: it
         // keeps Archicad's own pixels. One load when idle.
         planframes::OnPresent (swapChain, false, syncInterval, flags, 0, false, 0, 0);
+        // The floor-plan overlay, on the plan canvas's own chain only, with the
+        // transform read at this Present (finding 14). One load when idle.
+        planlayer::OnPresent (swapChain);
         // The draw recorder's frame boundary and readback; one load when idle.
         if (uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
             drawrecorder::OnPresent (swapChain);
@@ -368,6 +372,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
             swapChain, true, syncInterval, flags, parameters != nullptr ? parameters->DirtyRectsCount : 0,
             parameters != nullptr && parameters->pScrollRect != nullptr, scrollOffset != nullptr ? scrollOffset->x : 0,
             scrollOffset != nullptr ? scrollOffset->y : 0);
+        // In both detours, as every Present-side drawing is: the plan has only ever used
+        // Present, but a layer missing from Present1 would vanish the day it did not.
+        planlayer::OnPresent (swapChain);
         if (uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
             drawrecorder::OnPresent (swapChain);
         passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);

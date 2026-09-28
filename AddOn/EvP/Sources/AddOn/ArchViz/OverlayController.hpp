@@ -9,10 +9,11 @@
 // family carrying Archicad's 3D MODEL camera, scores candidates by projecting a
 // world-space triangle, composes against model depth, and occludes against
 // extracted host geometry. A plan window has no model camera, no model depth and
-// no perspective: every one of those mechanisms is meaningless there. The
-// portable renderer measures the plan's own zoom into a top-down orthographic
-// camera and draws it correctly, and it is the renderer for plans -- not a lesser
-// version of the injected one.
+// no perspective: every one of those mechanisms is meaningless there. The plan's
+// renderer is its own session (PlanOverlayRuntime): it composes at the plan's
+// Present like the 3D overlay, but with the transform ACAPI reads at that Present
+// (finding 14) -- not a lesser version of the injected one, and not the portable
+// window, whose poll the frame record measured a frame behind.
 //
 // ⚠️ TWO SESSIONS, NOT ONE FLAG. `overlayActive` as a single global is what let a
 // 3D runtime's state reach into plan rendering; the regression that prompted this
@@ -132,7 +133,8 @@ void OnProjectClosed ();
 struct Status {
     ViewKind view = ViewKind::Unknown;
     bool injectedRunning = false; // the 3D session
-    bool portableRunning = false; // the plan/fallback session
+    bool planRunning = false;     // the plan session, drawn at the plan's Present
+    bool portableRunning = false; // the portable window (no longer the menu's plan renderer)
     std::string lastCode;         // the real StartError name, never "None"
     std::string lastMessage;
 };

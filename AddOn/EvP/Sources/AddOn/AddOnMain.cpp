@@ -48,6 +48,11 @@
 #include "Python/PathUtils.hpp"     // EvpDataDir / AppendTextLine — ACAPI-free, safe this early
 #include "Diagnostics/ApiError.hpp" // DescribeErr — never print a bare GSErrCode
 
+// The floor-plan overlay: its hook and device go before the unload, and the plan
+// geometry domain hands it the content reader at Initialize.
+#include "ArchViz/PlanOverlayRuntime.hpp"
+#include "NativeCommands/PlanGeometryCommands.hpp"
+
 #include <memory>
 #include <string>
 
@@ -510,6 +515,12 @@ GSErrCode Initialize (void)
     // first thing in the file when a user is diagnosing a bad launch.
     geomsrv::archviz::experimentguard::CheckAtStartup ();
 
+    // The floor-plan overlay draws the plan's own wall outlines, read by the plan
+    // geometry domain; ArchViz may not include that domain, so the add-on hands the
+    // reader over here, before any menu can start the overlay (§9: no production
+    // path waits on a command having run).
+    geomsrv::archviz::planruntime::SetContentReader (&geomsrv::ReadActiveFloorWallRings);
+
     GSErrCode err = NoError;
 
     GS::UniString catalogError;
@@ -623,6 +634,9 @@ GSErrCode FreeData (void)
     // The plan frame record's subclass, message hook and timer call into this
     // module; they go before the Present hook, which it may also hold.
     geomsrv::archviz::planframes::Shutdown ();
+    // The plan overlay's timer is in this module too, and its layer holds Archicad's
+    // device; both go before the hook does. No ACAPI: this is the unload.
+    geomsrv::archviz::planruntime::Shutdown ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into
     // this module after it unloads is a crash on Archicad's NEXT frame, not on
     // ours, and it would look like a graphics driver fault. RemovePresentHook

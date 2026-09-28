@@ -448,6 +448,11 @@ set (EVP_ARCHVIZ_SOURCES
     # zoom is known exactly are the only way to know the instrument reads what it
     # claims before a live run depends on it.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanFrameRegistration.cpp"
+    # ArchViz/PlanOverlayContent.cpp turns the plan's own wall rings into the segments
+    # the floor-plan overlay draws, relative to a double-precision origin. A wrong
+    # segment is a picture, and a georeferenced project is the case no test file
+    # in Archicad exercises by default.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanOverlayContent.cpp"
     # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
     # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
     # -- a wrong ribbon is a picture, not an error -- plus the arc half, which
@@ -588,6 +593,7 @@ set (EVP_TEST_SOURCES
     test_environmentlighting.cpp
     test_plancameramath.cpp
     test_planframeregistration.cpp
+    test_planoverlaycontent.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp

@@ -640,7 +640,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
             return;
         }
         const overlaycontrol::Status overlay = overlaycontrol::GetStatus ();
-        if (overlay.injectedRunning || overlay.portableRunning) {
+        if (overlay.injectedRunning || overlay.planRunning || overlay.portableRunning) {
             EndRecording ("an overlay was started during the recording");
             return;
         }
@@ -716,7 +716,8 @@ bool Refused (std::string& error)
         return true;
     }
     const overlaycontrol::Status overlay = overlaycontrol::GetStatus ();
-    if (overlay.injectedRunning || overlay.portableRunning || CurrentCameraSyncMode () != CameraSyncMode::Off) {
+    if (overlay.injectedRunning || overlay.planRunning || overlay.portableRunning ||
+        CurrentCameraSyncMode () != CameraSyncMode::Off) {
         error = "turn the Tapioca overlay off first: the record measures Archicad's frames, and an overlay's own "
                 "poll, window and render thread would be part of the measurement";
         return true;

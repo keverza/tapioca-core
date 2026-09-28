@@ -300,6 +300,10 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # implementation of that fit would be a second definition of the measurement
     # the two plan paths are compared by.
     ("ArchViz/PlanFrameSession.cpp", "PlanOverlay/PlanTransformMath.hpp"),
+    # The plan overlay's read at its Present is the record's read, measured there
+    # to p95 0.50 px (finding 14): the same four samples, the same fit. Its own
+    # copy of the fit would be a transform nobody has measured.
+    ("ArchViz/PlanViewTransform.cpp", "PlanOverlay/PlanTransformMath.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1155,11 +1159,14 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/PassProvenance.cpp",
     "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
     "ArchViz/Dxgi/PlanFrameRecord.cpp",
+    "ArchViz/Dxgi/PlanOverlayLayer.cpp",
     "ArchViz/Dxgi/PresentProfile.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",
     "ArchViz/PlanFrameSession.cpp",
+    "ArchViz/PlanOverlayRuntime.cpp",
+    "ArchViz/PlanViewTransform.cpp",
 )
 
 OVERLAY_CONTRACT_MARKER = "OVERLAY-INVARIANTS.md"

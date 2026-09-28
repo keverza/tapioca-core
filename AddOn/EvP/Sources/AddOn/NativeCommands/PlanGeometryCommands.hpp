@@ -3,6 +3,9 @@
 
 #include "NativeCommands/CommandRegistration.hpp"
 
+#include <string>
+#include <vector>
+
 namespace geomsrv {
 
 // Archicad's OWN 2D plan geometry, read per element.
@@ -20,6 +23,13 @@ namespace geomsrv {
 //
 // Returns this domain's commands in registry order.
 NativeCommandRegistrations GetPlanGeometryCommandRegistrations ();
+
+// The walls on the storey being drawn, as the plan draws them: each wall's connection
+// polygon (outer ring and holes) in model metres, in double, with one signed arc angle
+// per vertex. The floor-plan overlay's content reader -- the add-on registers it with
+// ArchViz/PlanOverlayRuntime, which may not include this domain itself. MAIN THREAD.
+bool ReadActiveFloorWallRings (std::vector<std::vector<double>>& rings, std::vector<std::vector<double>>& arcs,
+                               std::string& error);
 
 } // namespace geomsrv
 

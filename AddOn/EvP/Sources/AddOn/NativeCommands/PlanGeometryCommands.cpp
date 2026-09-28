@@ -874,4 +874,22 @@ NativeCommandRegistrations GetPlanGeometryCommandRegistrations ()
     return MakeRegistrationView (kPlanGeometryCommandRegistrations);
 }
 
+bool ReadActiveFloorWallRings (std::vector<std::vector<double>>& rings, std::vector<std::vector<double>>& arcs,
+                               std::string& error)
+{
+    // ⚠️ THE STOREY BEING DRAWN, NOT THE PROJECT: an outline for a wall on another
+    // floor is a line with nothing under it -- see SetPlanAnchors' `allWalls`.
+    GS::Array<API_Guid> walls;
+    const GSErrCode listed = ACAPI_Element_GetElemList (API_ElemType (API_WallID), &walls, APIFilt_OnActFloor);
+    if (listed != NoError) {
+        error = std::string ("ACAPI_Element_GetElemList refused the walls on the storey being drawn: ") +
+                evp::DescribeErr (listed).ToCStr ().Get ();
+        return false;
+    }
+    WallPlanRings read = ReadWallPlanRings (walls);
+    rings = std::move (read.rings);
+    arcs = std::move (read.arcs);
+    return true;
+}
+
 } // namespace geomsrv
