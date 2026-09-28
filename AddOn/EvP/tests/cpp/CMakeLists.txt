@@ -594,6 +594,7 @@ set (EVP_TEST_SOURCES
     test_plancameramath.cpp
     test_planframeregistration.cpp
     test_planoverlaycontent.cpp
+    test_overlayshaders.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp
@@ -749,6 +750,11 @@ target_include_directories (EvPGeomTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_INC}")
 target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs ${TAPIOCA_TEXT_LIBS})
+# The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):
+# the compiler and its reflection, no GPU.
+if (WIN32)
+    target_link_libraries (EvPGeomTests PRIVATE d3dcompiler dxguid)
+endif ()
 
 if (MSVC)
     # /W4 on OUR code (docs/guides/testing.md Â§5). The add-on ships at /W3; the host-free core
