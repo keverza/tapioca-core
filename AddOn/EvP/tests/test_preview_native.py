@@ -45,8 +45,12 @@ def test_decoded_watch_wire_is_strict_flat_xyz():
     for name, (minimum, maximum) in counts.items():
         schema = schemas[name]
         assert schema["additionalProperties"] is False
-        expected = allowed | ({"hoverOnly", "alwaysVisible"}
-                              if name == "kDimensionSchema" else set())
+        # A dimension also carries its layout intent -- the plane it is measured in,
+        # which side it prefers, and a stable identity -- which the native decoder
+        # reads and evp.watch emits for dimensions and nothing else.
+        dimension = {"hoverOnly", "alwaysVisible", "planeNormal", "preferredOffsetDirection",
+                     "annotationId"}
+        expected = allowed | (dimension if name == "kDimensionSchema" else set())
         assert set(schema["properties"]) == expected
         assert schema["required"] == ["kind", "points"]
         assert schema["properties"]["points"]["minItems"] == minimum
