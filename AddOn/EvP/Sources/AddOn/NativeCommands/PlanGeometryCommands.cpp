@@ -242,6 +242,66 @@ WallConnectionPolygon ReadWallConnectionPolygon (const API_Guid& guid, const GS:
     return result;
 }
 
+// The plan rings of the walls in `guids`: each wall's connection polygon, outer ring
+// and holes, in model metres as Archicad gave them, with one signed arc angle per
+// vertex. Kept in double: the viewer narrows to float, and a consumer that projects
+// a georeferenced project cannot.
+struct WallPlanRings {
+    std::vector<std::vector<double>> rings;
+    std::vector<std::vector<double>> arcs;
+    GS::Int32 walls = 0;
+};
+
+WallPlanRings ReadWallPlanRings (const GS::Array<API_Guid>& guids)
+{
+    WallPlanRings out;
+    for (const API_Guid& guid : guids) {
+        const GS::UniString guidString = APIGuidToString (guid);
+
+        API_Element wallElement = {};
+        wallElement.header.guid = guid;
+        // A guid that is not a wall is SKIPPED, not refused: the natural
+        // caller is "the current selection", and refusing the whole batch
+        // because one door was selected would make the feature unusable.
+        // `count` vs the input length is what reports it.
+        if (ACAPI_Element_Get (&wallElement) != NoError)
+            continue;
+        if (wallElement.header.type.typeID != API_WallID)
+            continue;
+
+        const WallConnectionPolygon polygon = ReadWallConnectionPolygon (wallElement.header.guid, guidString);
+        if (!polygon.ok)
+            continue;
+        ++out.walls;
+
+        auto pushRing = [&] (const GS::Array<double>& flat, const GS::Array<double>& arcs, USize first, USize count) {
+            std::vector<double> xy, angles;
+            xy.reserve (count * 2);
+            angles.reserve (count);
+            for (USize v = 0; v < count; ++v) {
+                xy.push_back (flat[(first + v) * 2]);
+                xy.push_back (flat[(first + v) * 2 + 1]);
+                angles.push_back (arcs[first + v]);
+            }
+            out.rings.push_back (std::move (xy));
+            out.arcs.push_back (std::move (angles));
+        };
+
+        pushRing (polygon.flatOuter, polygon.outerArcs, 0, polygon.flatOuter.GetSize () / 2);
+
+        // A wall's holes are ordinary (a niche, a recess). They are anchors
+        // too: a hole drawn in the wrong place is exactly the kind of
+        // register error this layer exists to catch.
+        USize cursor = 0;
+        for (GS::Int32 h = 0; h < polygon.nHoles; ++h) {
+            const USize count = (USize) polygon.holeCounts[h];
+            pushRing (polygon.flatHoles, polygon.holeArcs, cursor, count);
+            cursor += count;
+        }
+    }
+    return out;
+}
+
 // Wall shape as a script reads it. Not decoration: it is the one field that says
 // whether the memo polygon below was ever expected to exist.
 const char* WallShapeName (API_WallTypeID type)
@@ -618,10 +678,6 @@ class SetPlanAnchorsCommand : public MainThreadCommand {
             rgba = parsed;
         }
 
-        std::vector<std::vector<float>> rings;
-        std::vector<std::vector<float>> ringArcs;
-        GS::Int32 walls = 0;
-
         // ⚠️ ONE LOOP OVER ONE LIST OF GUIDS, WHICHEVER
         // WAY THEY ARRIVED. Two loops with the same body is how the `elements`
         // path and the `allWalls` path would come to disagree about holes, arcs
@@ -643,50 +699,23 @@ class SetPlanAnchorsCommand : public MainThreadCommand {
             }
         }
 
-        for (const API_Guid& guid : guids) {
-            const GS::UniString guidString = APIGuidToString (guid);
-
-            API_Element wallElement = {};
-            wallElement.header.guid = guid;
-            // A guid that is not a wall is SKIPPED, not refused: the natural
-            // caller is "the current selection", and refusing the whole batch
-            // because one door was selected would make the feature unusable.
-            // `count` vs the input length is what reports it.
-            if (ACAPI_Element_Get (&wallElement) != NoError)
-                continue;
-            if (wallElement.header.type.typeID != API_WallID)
-                continue;
-
-            const WallConnectionPolygon polygon = ReadWallConnectionPolygon (wallElement.header.guid, guidString);
-            if (!polygon.ok)
-                continue;
-            ++walls;
-
-            auto pushRing = [&] (const GS::Array<double>& flat, const GS::Array<double>& arcs, USize first,
-                                 USize count) {
-                std::vector<float> xy, angles;
-                xy.reserve (count * 2);
-                angles.reserve (count);
-                for (USize v = 0; v < count; ++v) {
-                    xy.push_back (float (flat[(first + v) * 2]));
-                    xy.push_back (float (flat[(first + v) * 2 + 1]));
-                    angles.push_back (float (arcs[first + v]));
-                }
-                rings.push_back (std::move (xy));
-                ringArcs.push_back (std::move (angles));
-            };
-
-            pushRing (polygon.flatOuter, polygon.outerArcs, 0, polygon.flatOuter.GetSize () / 2);
-
-            // A wall's holes are ordinary (a niche, a recess). They are anchors
-            // too: a hole drawn in the wrong place is exactly the kind of
-            // register error this layer exists to catch.
-            USize cursor = 0;
-            for (GS::Int32 h = 0; h < polygon.nHoles; ++h) {
-                const USize count = (USize) polygon.holeCounts[h];
-                pushRing (polygon.flatHoles, polygon.holeArcs, cursor, count);
-                cursor += count;
-            }
+        const WallPlanRings read = ReadWallPlanRings (guids);
+        const GS::Int32 walls = read.walls;
+        // The viewer's own precision: float, narrowed here and nowhere earlier.
+        std::vector<std::vector<float>> rings;
+        std::vector<std::vector<float>> ringArcs;
+        rings.reserve (read.rings.size ());
+        ringArcs.reserve (read.arcs.size ());
+        for (size_t r = 0; r < read.rings.size (); ++r) {
+            std::vector<float> xy, angles;
+            xy.reserve (read.rings[r].size ());
+            angles.reserve (read.arcs[r].size ());
+            for (const double value : read.rings[r])
+                xy.push_back (float (value));
+            for (const double angle : read.arcs[r])
+                angles.push_back (float (angle));
+            rings.push_back (std::move (xy));
+            ringArcs.push_back (std::move (angles));
         }
 
         archviz::DiligentViewport::Get ().SetPlanAnchors (rings, ringArcs, enabled, float (widthPixels), rgba,
