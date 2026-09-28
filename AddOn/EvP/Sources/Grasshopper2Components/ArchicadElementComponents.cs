@@ -12,7 +12,7 @@ namespace TapiocaGH2;
 public sealed class ArchicadElement : Component
 {
     public ArchicadElement() : base(new Nomen("AC Element", "Bind a GUID to the connected Archicad project.",
-        "Tapioca", "Archicad")) { ArchicadPresetBindings.Register(this); }
+        "Tapioca", "Input")) { ArchicadPresetBindings.Register(this); }
     public ArchicadElement(IReader reader) : base(reader) { ArchicadPresetBindings.Register(this); }
 
     protected override void AddInputs(InputAdder inputs) => inputs.Add(new GuidParameter(

@@ -236,6 +236,8 @@ class GetGhElementHeadersCommand : public MainThreadCommand {
                     layerName = layer.header.name;
             }
             record.Add ("type", typeName);
+            record.Add ("typeId", static_cast<GS::Int32> (found ? header.type.typeID : 0));
+            record.Add ("variationId", static_cast<GS::Int32> (found ? header.type.variationID : 0));
             record.Add ("elementId", elementId);
             record.Add ("story", static_cast<GS::Int32> (found ? header.floorInd : 0));
             record.Add ("layer", layerName);
@@ -558,7 +560,7 @@ const NativeCommandRegistration ProjectCommandRegistrations[] = {
         })json" },
     { "GetGhElementHeaders", &MakeRegisteredNativeCommand<GetGhElementHeadersCommand>, false,
       R"json({"type":"object","properties":{"guids":{"type":"array","maxItems":64,"items":{"type":"string","minLength":1,"maxLength":64}}},"additionalProperties":false,"required":["guids"]})json",
-      R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"guid":{"type":"string"},"found":{"type":"boolean"},"type":{"type":"string"},"elementId":{"type":"string"},"story":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["guid","found","type","elementId","story","layer"]}}},"additionalProperties":false,"required":["elements"]})json" },
+       R"json({"type":"object","properties":{"elements":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"guid":{"type":"string"},"found":{"type":"boolean"},"type":{"type":"string"},"typeId":{"type":"integer"},"variationId":{"type":"integer"},"elementId":{"type":"string"},"story":{"type":"integer"},"layer":{"type":"string"}},"additionalProperties":false,"required":["guid","found","type","typeId","variationId","elementId","story","layer"]}}},"additionalProperties":false,"required":["elements"]})json" },
     { "GetPlaceInfo", &MakeRegisteredNativeCommand<GetPlaceInfoCommand>, false,
       R"json({
             "type":"object",

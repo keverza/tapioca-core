@@ -34,7 +34,7 @@ internal static class ArchicadPresetBindings
         // GH2 harvests a component with an optimised constructor that omits
         // Parameters entirely. That prototype must not set input presets.
         if (component.Parameters is not null &&
-            component is ArchicadChoiceInput or ArchicadStoryInput or ArchicadBakeTerrainMesh)
+            component is ArchicadChoiceInput or ArchicadStoryInput or CreateArchicadTerrainMesh)
             ApplyPresets(component);
         if (component.Parameters is not null && component is IArchicadQueryPresets query)
         {
@@ -82,7 +82,7 @@ internal static class ArchicadPresetBindings
             // republished; a project switch/failure explicitly clears all.
             try
             {
-                if (component is ArchicadChoiceInput or ArchicadStoryInput or ArchicadBakeTerrainMesh)
+                if (component is ArchicadChoiceInput or ArchicadStoryInput or CreateArchicadTerrainMesh)
                     ApplyPresets(component);
                 // A successful Refresh may return identical layer/story lists
                 // while element property/GDL definitions have changed. Do not
@@ -109,10 +109,10 @@ internal static class ArchicadPresetBindings
         ArchicadLayerInput => changes.HasFlag(ArchicadProjectOptions.Changed.Layers),
         ArchicadLineTypeInput => changes.HasFlag(ArchicadProjectOptions.Changed.LineTypes),
         ArchicadStoryInput => changes.HasFlag(ArchicadProjectOptions.Changed.Stories),
-        ArchicadBakeTerrainMesh => changes.HasFlag(ArchicadProjectOptions.Changed.Layers) ||
+        CreateArchicadTerrainMesh => changes.HasFlag(ArchicadProjectOptions.Changed.Layers) ||
             changes.HasFlag(ArchicadProjectOptions.Changed.Stories),
         ArchicadConnectionStatus => true,
-        ArchicadElement or ArchicadElementHeaders => true,
+        ArchicadElement or ArchicadElementHeaders or ArchicadElementContainer => true,
         ArchicadGetContours or ArchicadGetRelationships or ArchicadGetProperties or
             ArchicadGetGeometry or ArchicadGdlParameters => true,
         _ => false
@@ -120,16 +120,16 @@ internal static class ArchicadPresetBindings
 
     private static void ApplyPresets(Component component)
     {
-        int inputIndex = component is ArchicadBakeTerrainMesh ? 2 : 0;
+        int inputIndex = component is CreateArchicadTerrainMesh ? 2 : 0;
         ArchicadProjectOptions.Snapshot snapshot = ArchicadProjectOptions.Read();
         string[] names = component switch
         {
-            ArchicadLayerInput or ArchicadBakeTerrainMesh => snapshot.Layers,
+            ArchicadLayerInput or CreateArchicadTerrainMesh => snapshot.Layers,
             ArchicadLineTypeInput => snapshot.LineTypes,
             ArchicadStoryInput => snapshot.Stories.Select(story => $"{story.Index}: {story.Name}").ToArray(),
             _ => []
         };
-        if (component is ArchicadBakeTerrainMesh)
+        if (component is CreateArchicadTerrainMesh)
         {
             var layer = (TextParameter)component.Parameters.Input(inputIndex);
             layer.Presets.Clear();

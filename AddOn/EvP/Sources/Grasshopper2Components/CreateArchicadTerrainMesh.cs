@@ -1,8 +1,7 @@
 using System.Text.Json;
 using Eto.Forms;
 using Grasshopper2.Components;
-using Grasshopper2.Data;
-using Grasshopper2.Doc.Attributes;
+using Grasshopper2.Doc;
 using Grasshopper2.Parameters;
 using Grasshopper2.UI;
 using GrasshopperIO;
@@ -13,48 +12,42 @@ namespace TapiocaGH2;
 
 // The solver only prepares a bounded immutable request. Archicad is changed
 // solely by a deliberate canvas click, never by document load or a GH2 solve.
-[IoId("ee94cef3-7073-4a37-a338-24e3a5e02d80")]
-public sealed class ArchicadBakeTerrainMesh : Component
+[IoId("f35e5e29-e424-40c9-8493-34e682e9a22b")]
+public sealed class CreateArchicadTerrainMesh : Component
 {
     internal sealed record Prepared(double[] Outline, double[] PolyZ, double BaseLevel,
         double[] RidgeCoords, int[] RidgeCounts, string Layer, string Project);
 
     private Prepared? prepared;
-    private AcElementRef? created;
     private string message = "Connect to Archicad, then press Create Mesh.";
     private int busy;
 
-    public ArchicadBakeTerrainMesh() : base(new Nomen("Create Archicad Terrain Mesh",
+    public CreateArchicadTerrainMesh() : base(new Nomen("CreateArchicadTerrainMesh",
         "Create a new Archicad terrain mesh only when the canvas button is pressed; never on solve.",
-        "Tapioca", "Archicad")) { ArchicadPresetBindings.Register(this); }
-    public ArchicadBakeTerrainMesh(IReader reader) : base(reader) { ArchicadPresetBindings.Register(this); }
+         "Tapioca", "Design")) { ArchicadPresetBindings.Register(this); }
+    public CreateArchicadTerrainMesh(IReader reader) : base(reader) { ArchicadPresetBindings.Register(this); }
 
-    protected override Grasshopper2.Doc.IAttributes CreateAttributes() => new ArchicadBakeTerrainMeshAttributes(this);
+    protected override Grasshopper2.Doc.IAttributes CreateAttributes() => new CreateArchicadTerrainMeshAttributes(this, Create);
 
     protected override void AddInputs(InputAdder inputs)
     {
-        inputs.AddCurve("Outline", "C", "Closed Rhino polyline; XY boundary and vertex elevations. Unwired: outline around points or a 10×10 m test square.");
-        inputs.AddPoint("Terrain Points", "P", "Optional XYZ terrain points; each becomes a single Archicad mesh level point.", Access.Twig);
+        inputs.AddCurve("Outline", "C", "Closed Rhino polyline; XY boundary and vertex elevations. Unwired: outline around ridges or a 10×10 m test square.");
+        inputs.AddCurve("Ridges", "R", "Open Rhino polylines with XYZ vertices; each becomes one Archicad mesh level line.", Access.Twig);
         inputs.AddText("Layer", "L", "Optional Archicad layer; blank uses Mesh tool defaults.").Set("");
     }
 
-    protected override void AddOutputs(OutputAdder outputs)
-    {
-        outputs.Add(new AcElementParameter("Created Element", "E", "Reference to the last successfully created mesh.", Access.Item));
-        outputs.AddText("Action", "A", "Preparation, success or error; a solve never creates an element.");
-        outputs.AddCurve("Prepared Outline", "C", "Preview of the boundary that will be created in Archicad.");
-    }
+    protected override void AddOutputs(OutputAdder outputs) { }
 
     protected override void Process(IDataAccess access)
     {
         access.GetItem(0, out Curve? outline);
-        access.GetPears<Point3d>(1, out var pointPears);
+        access.GetPears<Curve>(1, out var ridgePears);
         access.GetItem(2, out string? layer);
         string? project = ArchicadProjectOptions.CurrentIdentity();
         try
         {
             prepared = project is null ? null : Prepare(outline,
-                pointPears?.Select(pear => pear.Item).ToArray() ?? [], layer ?? "", project,
+                ridgePears?.Select(pear => pear.Item).ToArray() ?? [], layer ?? "", project,
                 RhinoMath.UnitScale(RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters, UnitSystem.Meters));
             if (prepared is not null)
             {
@@ -64,8 +57,8 @@ public sealed class ArchicadBakeTerrainMesh : Component
                 prepared = prepared with { BaseLevel = prepared.BaseLevel -
                     stories.First(story => story.Index == 0).Level };
             }
-            if (prepared is not null && Volatile.Read(ref busy) == 0 && created is null)
-                message = $"Ready: {prepared.Outline.Length / 2} boundary vertices, {prepared.RidgeCounts.Length} terrain points. Press Create Mesh.";
+            if (prepared is not null && Volatile.Read(ref busy) == 0)
+                message = $"Ready: {prepared.Outline.Length / 2} boundary vertices, {prepared.RidgeCounts.Length} ridge polylines. Press Create Mesh.";
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException)
         {
@@ -73,29 +66,31 @@ public sealed class ArchicadBakeTerrainMesh : Component
             access.AddWarning("Mesh input", error.Message);
             message = error.Message;
         }
-        if (created is not null && created.ProjectKey == project)
-            access.SetItem(0, created);
-        access.SetItem(1, message);
-        if (prepared is not null)
-        {
-            double units = RhinoMath.UnitScale(UnitSystem.Meters,
-                RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
-            double storyZero = ArchicadProjectOptions.Read().Stories.First(story => story.Index == 0).Level;
-            var vertices = Enumerable.Range(0, prepared.PolyZ.Length).Select(index => new Point3d(
-                prepared.Outline[2 * index] * units, prepared.Outline[2 * index + 1] * units,
-                (prepared.BaseLevel + storyZero + prepared.PolyZ[index]) * units)).ToList();
-            vertices.Add(vertices[0]);
-            access.SetItem(2, new PolylineCurve(vertices));
-        }
+        if (prepared is null) access.AddWarning("Mesh not ready", "Attach to Archicad and provide valid polylines.");
+        else access.AddRemark("Mesh ready", message);
     }
 
-    internal static Prepared Prepare(Curve? outline, Point3d[] points, string layer, string project, double scale)
+    internal static Prepared Prepare(Curve? outline, Curve[] ridgeLines, string layer, string project, double scale)
     {
-        if (layer.Length > 128 || !double.IsFinite(scale) || scale <= 0 || points.Length > 512 ||
-            points.Any(point => !point.IsValid))
-            throw new ArgumentException("Layer, document units or terrain points are invalid (limit 512 points).");
+        if (layer.Length > 128 || !double.IsFinite(scale) || scale <= 0 || ridgeLines.Length > 128 ||
+            ridgeLines.Any(curve => curve is null || !curve.IsValid))
+            throw new ArgumentException("Layer, document units or ridge polylines are invalid (limit 128 ridges).");
+        var lines = ridgeLines.Select(curve =>
+        {
+            if (!curve.TryGetPolyline(out Polyline polyline) || polyline.Count < 2 || polyline.Count > 257)
+                throw new ArgumentException("Each ridge must be a polyline of 2–256 distinct vertices.");
+            Point3d[] vertices = polyline.ToArray();
+            if (curve.IsClosed && vertices[0].DistanceTo(vertices[^1]) < 1e-9)
+                vertices = vertices[..^1];
+            if (vertices.Length is < 2 or > 256 || vertices.Any(point => !point.IsValid) ||
+                vertices.Zip(vertices.Skip(1)).Any(pair => pair.First.DistanceTo(pair.Second) < 1e-9))
+                throw new ArgumentException("Ridge vertices must be finite and distinct.");
+            return vertices;
+        }).ToArray();
+        if (lines.Sum(line => line.Length) > 512)
+            throw new ArgumentException("Ridges exceed 512 vertices in total.");
         Point3d[] vertices;
-        bool preset = outline is null && points.Length == 0;
+        bool preset = outline is null && lines.Length == 0;
         if (outline is null)
         {
             if (preset)
@@ -103,6 +98,7 @@ public sealed class ArchicadBakeTerrainMesh : Component
                     new(10 / scale, 10 / scale, 0), new(0, 10 / scale, 0)];
             else
             {
+                var points = lines.SelectMany(line => line).ToArray();
                 double minX = points.Min(p => p.X) - 1 / scale, maxX = points.Max(p => p.X) + 1 / scale;
                 double minY = points.Min(p => p.Y) - 1 / scale, maxY = points.Max(p => p.Y) + 1 / scale;
                 double minZ = points.Min(p => p.Z);
@@ -129,18 +125,22 @@ public sealed class ArchicadBakeTerrainMesh : Component
         if (Math.Abs(area2 * scale * scale) < 1e-9)
             throw new ArgumentException("The mesh outline has no XY area.");
         double baseLevel = Math.Min(vertices.Min(p => p.Z),
-            points.Length == 0 ? vertices.Min(p => p.Z) : points.Min(p => p.Z)) * scale;
-        if (preset) points = [new Point3d(5 / scale, 5 / scale, 2 / scale)];
+            lines.Length == 0 ? vertices.Min(p => p.Z) : lines.SelectMany(line => line).Min(p => p.Z)) * scale;
+        if (preset) lines = [[new Point3d(2 / scale, 5 / scale, 0),
+            new Point3d(5 / scale, 5 / scale, 2 / scale), new Point3d(8 / scale, 5 / scale, 0)]];
         var boundary = vertices.SelectMany(p => new[] { p.X * scale, p.Y * scale }).ToArray();
         var heights = vertices.Select(p => p.Z * scale - baseLevel).ToArray();
-        var ridges = points.SelectMany(p => new[] { p.X * scale, p.Y * scale, p.Z * scale - baseLevel }).ToArray();
-        return new Prepared(boundary, heights, baseLevel, ridges, Enumerable.Repeat(1, points.Length).ToArray(), layer, project);
+        var ridges = lines.SelectMany(line => line).SelectMany(p =>
+            new[] { p.X * scale, p.Y * scale, p.Z * scale - baseLevel }).ToArray();
+        return new Prepared(boundary, heights, baseLevel, ridges, lines.Select(line => line.Length).ToArray(), layer, project);
     }
 
     internal void Create()
     {
         Prepared? request = prepared;
-        if (request is null || Interlocked.CompareExchange(ref busy, 1, 0) != 0) return;
+        if (request is null || Document is null || State.Phase != Phase.Completed ||
+            ArchicadProjectOptions.CurrentIdentity() != request.Project ||
+            Interlocked.CompareExchange(ref busy, 1, 0) != 0) return;
         if (MessageBox.Show("Create a NEW Archicad terrain mesh? This action is not repeated by GH2 solves.",
                 "Tapioca", MessageBoxButtons.YesNo) != DialogResult.Yes)
         {
@@ -155,22 +155,11 @@ public sealed class ArchicadBakeTerrainMesh : Component
 
     private async Task CreateAsync(Prepared request)
     {
-        AcElementRef? result = null;
         string outcome;
         try
         {
-            if (ArchicadProjectOptions.ParseIdentity(await Gh2ConnectionStatus.ReadProjectInfoAsync()) != request.Project)
-                throw new InvalidOperationException("Archicad changed projects; no mesh was created.");
-            string response = await Gh2ConnectionStatus.CreateTerrainMeshAsync(request.Outline, request.PolyZ,
-                request.BaseLevel, request.RidgeCoords, request.RidgeCounts, request.Layer);
-            JsonElement data = ArchicadSelectionInput.ValidateReply(response, "terrain mesh bake");
-            Guid id = data.GetProperty("elementId").GetProperty("guid").GetGuid();
-            if (id == Guid.Empty) throw new InvalidDataException("Archicad returned no mesh GUID.");
-            if (ArchicadProjectOptions.ParseIdentity(await Gh2ConnectionStatus.ReadProjectInfoAsync()) != request.Project)
-                throw new InvalidOperationException($"Mesh {id:D} may have been created, but Archicad changed projects. Inspect both projects before retrying.");
-            result = new AcElementRef(request.Project, id);
-            outcome = $"Created Archicad mesh {id:D}.";
-            Gh2ConnectionStatus.RequestRefresh();
+            AcElementRef result = await CommitAsync(request);
+            outcome = $"Created Archicad mesh {result.ElementId:D}.";
         }
         catch (Exception error) { outcome = error.Message; }
         finally { Interlocked.Exchange(ref busy, 0); }
@@ -180,11 +169,25 @@ public sealed class ArchicadBakeTerrainMesh : Component
         {
             if (Document is null) return;
             message = outcome;
-            created = result;
             Expire();
             Document.Solution.Start();
         })); }
         catch (ObjectDisposedException) { }
         catch (InvalidOperationException) { }
+    }
+
+    internal static async Task<AcElementRef> CommitAsync(Prepared request)
+    {
+        if (ArchicadProjectOptions.ParseIdentity(await Gh2ConnectionStatus.ReadProjectInfoAsync()) != request.Project)
+            throw new InvalidOperationException("Archicad changed projects; no mesh was created.");
+        string response = await Gh2ConnectionStatus.CreateTerrainMeshAsync(request.Outline, request.PolyZ,
+            request.BaseLevel, request.RidgeCoords, request.RidgeCounts, request.Layer);
+        JsonElement data = ArchicadSelectionInput.ValidateReply(response, "terrain mesh bake");
+        Guid id = data.GetProperty("elementId").GetProperty("guid").GetGuid();
+        if (id == Guid.Empty) throw new InvalidDataException("Archicad returned no mesh GUID.");
+        if (ArchicadProjectOptions.ParseIdentity(await Gh2ConnectionStatus.ReadProjectInfoAsync()) != request.Project)
+            throw new InvalidOperationException($"Mesh {id:D} may have been created, but Archicad changed projects. Inspect both projects before retrying.");
+        Gh2ConnectionStatus.RequestRefresh();
+        return new AcElementRef(request.Project, id);
     }
 }

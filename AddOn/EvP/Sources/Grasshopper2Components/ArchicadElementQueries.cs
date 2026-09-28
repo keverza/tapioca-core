@@ -141,6 +141,11 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
             EmitNoData(access, pears, mode, AcQueryStatus.Pending, "Reading from Archicad asynchronously.");
             return;
         }
+        QueryRow? problem = rows.FirstOrDefault(row => row.Status is AcQueryStatus.Error or
+            AcQueryStatus.Unavailable or AcQueryStatus.Stale);
+        if (problem is not null)
+            access.AddWarning("Archicad query", $"{rows.Count(row => row.Status == problem.Status)} " +
+                $"element(s): {problem.Status}. {problem.Diagnostic}");
         try
         {
             T[] values = pears.Select((pear, i) => Convert(pear.Item, mode, rows[i].Items)).ToArray();
@@ -312,11 +317,11 @@ public abstract class ArchicadElementQuery<T> : Component, IArchicadQueryPresets
 [IoId("839335bd-cf50-4598-9765-f158c4b68c59")]
 public sealed class ArchicadGetContours : ArchicadElementQuery<AcContourSet>
 {
-    public ArchicadGetContours() : base(new Nomen("Get Contours", "Read native polygon rings and holes on demand.", "Tapioca", "Archicad")) { }
+    public ArchicadGetContours() : base(new Nomen("Get Contours", "Read native polygon rings and holes on demand.", "Tapioca", "Deconstruct")) { }
     public ArchicadGetContours(IReader reader) : base(reader) { }
     protected override string Kind => "contours";
     protected override string DefaultMode => "Definition";
-    protected override string[] Modes => ["Definition", "Boundary", "Visible 2D", "Section"];
+    protected override string[] Modes => ["Definition", "Boundary"];
     protected override void AddResult(OutputAdder outputs) => outputs.Add(new AcContourParameter(
         "Contours", "C", "Native polygon rings and holes, in project coordinates."));
     protected override void AddExtraOutputs(OutputAdder outputs)
@@ -376,7 +381,7 @@ public sealed class ArchicadGetContours : ArchicadElementQuery<AcContourSet>
 [IoId("1aca73bb-0231-4a9c-921e-37aba8546155")]
 public sealed class ArchicadGetRelationships : ArchicadElementQuery<AcRelationSet>
 {
-    public ArchicadGetRelationships() : base(new Nomen("Get Relationships", "Read typed, native wall-hosted opening edges.", "Tapioca", "Archicad")) { }
+    public ArchicadGetRelationships() : base(new Nomen("Get Relationships", "Read typed, native wall-hosted opening edges.", "Tapioca", "Deconstruct")) { }
     public ArchicadGetRelationships(IReader reader) : base(reader) { }
     protected override string Kind => "relationships";
     protected override string DefaultMode => "Hosted";
@@ -405,11 +410,11 @@ public sealed class ArchicadGetRelationships : ArchicadElementQuery<AcRelationSe
 [IoId("72d1643e-0e64-4e37-95c4-5ffbc73cd7a7")]
 public sealed class ArchicadGetProperties : ArchicadElementQuery<AcPropertySet>
 {
-    public ArchicadGetProperties() : base(new Nomen("Get Properties", "Discover available definitions or extract selected Archicad properties.", "Tapioca", "Archicad")) { }
+    public ArchicadGetProperties() : base(new Nomen("Get Properties", "Discover available definitions or extract selected Archicad properties.", "Tapioca", "Deconstruct")) { }
     public ArchicadGetProperties(IReader reader) : base(reader) { }
     protected override string Kind => "properties";
-    protected override string DefaultMode => "Discover";
-    protected override string[] Modes => ["Discover", "All", "User", "Built-in", "Element settings"];
+    protected override string DefaultMode => "Element settings";
+    protected override string[] Modes => ["Element settings", "Discover", "All", "User", "Built-in"];
     protected override void AddResult(OutputAdder outputs) => outputs.Add(new AcPropertyParameter(
         "Properties", "P", "Available definitions or selected evaluated property values."));
     protected override void AddExtraOutputs(OutputAdder outputs)
@@ -442,17 +447,18 @@ public sealed class ArchicadGetProperties : ArchicadElementQuery<AcPropertySet>
 [IoId("da78e1ea-f789-4246-ae25-1a42166ef404")]
 public sealed class ArchicadGetGeometry : ArchicadElementQuery<AcGeometrySet>
 {
-    public ArchicadGetGeometry() : base(new Nomen("Get Geometry", "Request 3D model bounds, without inventing 3D geometry for annotations.", "Tapioca", "Archicad")) { }
+    public ArchicadGetGeometry() : base(new Nomen("Get Geometry", "Read 3D bounds/mesh or evaluated 2D drawing on demand.", "Tapioca", "Deconstruct")) { }
     public ArchicadGetGeometry(IReader reader) : base(reader) { }
     protected override string Kind => "geometry";
     protected override string DefaultMode => "Bounding box";
-    protected override string[] Modes => ["Bounding box", "Surface mesh", "Native definition", "2D drawing", "Derived Brep"];
+    protected override string[] Modes => ["Bounding box", "Surface mesh", "2D drawing"];
     protected override void AddResult(OutputAdder outputs) => outputs.Add(new AcGeometryParameter(
         "Geometry", "G", "Available 3D model bounds in project coordinates."));
     protected override void AddExtraOutputs(OutputAdder outputs)
     {
         outputs.AddText("Bounds", "B", "Minimum and maximum project-coordinate metres.", Access.Twig);
-        outputs.AddMesh("Rhino Mesh", "M", "Tessellated 3D geometry converted to Rhino document units; source GUID in metadata.", Access.Twig);
+        outputs.AddMesh("Rhino Mesh", "M", "3D tessellation or a bounding-box display mesh, in Rhino units.", Access.Twig);
+        outputs.AddCurve("2D Paths", "2D", "Evaluated Archicad floor-plan primitives at Z=0, in Rhino units.", Access.Twig);
     }
     protected override void SetExtraOutputs(IDataAccess access, AcGeometrySet[] values, Pear<AcElementRef>[] pears)
     {
@@ -462,8 +468,16 @@ public sealed class ArchicadGetGeometry : ArchicadElementQuery<AcGeometrySet>
             pears[i].Meta ?? AcElementData.Provenance(pears[i].Item)))));
         double scale = RhinoMath.UnitScale(UnitSystem.Meters,
             RhinoDoc.ActiveDoc?.ModelUnitSystem ?? UnitSystem.Meters);
-        access.SetTwig(4, Garden.TwigFromPears(values.SelectMany((value, i) => value.Meshes.Select(source =>
-            Garden.Pear(ToRhinoMesh(source, scale),
+        access.SetTwig(4, Garden.TwigFromPears(values.SelectMany((value, i) =>
+            value.Meshes.Select(source => Garden.Pear(ToRhinoMesh(source, scale), SourceMeta(pears[i])))
+                .Concat(value.Bounds.Select(box => Garden.Pear(
+                    Mesh.CreateFromBox(new BoundingBox(new Point3d(box.MinX * scale, box.MinY * scale, box.MinZ * scale),
+                        new Point3d(box.MaxX * scale, box.MaxY * scale, box.MaxZ * scale)), 1, 1, 1),
+                    SourceMeta(pears[i])))))));
+        access.SetTwig(5, Garden.TwigFromPears(values.SelectMany((value, i) => value.Paths.Select(path =>
+            Garden.Pear<Curve>(new PolylineCurve(Enumerable.Range(0, path.Xy.Length / 2).Select(index =>
+                new Point3d(path.Xy[2 * index] * scale, path.Xy[2 * index + 1] * scale, 0))
+                    .Concat(path.Closed ? [new Point3d(path.Xy[0] * scale, path.Xy[1] * scale, 0)] : [])),
                 SourceMeta(pears[i]))))));
     }
     private static Mesh ToRhinoMesh(AcSurfaceMesh source, double scale)
@@ -488,13 +502,16 @@ public sealed class ArchicadGetGeometry : ArchicadElementQuery<AcGeometrySet>
             item.GetProperty("maxZ").GetDouble())).ToArray() : [],
         mode == "Surface mesh" ? items.Select(item => new AcSurfaceMesh(
             item.GetProperty("vertices").EnumerateArray().Select(value => value.GetDouble()).ToArray(),
-            item.GetProperty("triangles").EnumerateArray().Select(value => value.GetInt32()).ToArray())).ToArray() : []);
+            item.GetProperty("triangles").EnumerateArray().Select(value => value.GetInt32()).ToArray())).ToArray() : [],
+        mode == "2D drawing" ? items.Select(item => new AcDrawingPath(
+            item.GetProperty("xy").EnumerateArray().Select(value => value.GetDouble()).ToArray(),
+            item.GetProperty("closed").GetBoolean())).ToArray() : []);
 }
 
 [IoId("859af4c8-e7dd-484e-a03c-338d7574b50f")]
 public sealed class ArchicadGdlParameters : ArchicadElementQuery<AcGdlSet>
 {
-    public ArchicadGdlParameters() : base(new Nomen("GDL Parameters & Settings", "Read placed GDL parameters, descriptions, groups and display flags; no edits.", "Tapioca", "Archicad")) { }
+    public ArchicadGdlParameters() : base(new Nomen("GDL Parameters & Settings", "Read placed GDL parameters, descriptions, groups and display flags; no edits.", "Tapioca", "Deconstruct")) { }
     public ArchicadGdlParameters(IReader reader) : base(reader) { }
     protected override string Kind => "gdl";
     protected override string DefaultMode => "Instance";

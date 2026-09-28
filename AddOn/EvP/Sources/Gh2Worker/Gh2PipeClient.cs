@@ -241,7 +241,7 @@ internal sealed class Gh2PipeClient : IDisposable
         if (outline.Length is < 6 or > 512 || outline.Length % 2 != 0 ||
             polyZ.Length != outline.Length / 2 || ridgeCoords.Length > 1536 ||
             ridgeCoords.Length % 3 != 0 || ridgeCounts.Length > 512 ||
-            ridgeCounts.Any(count => count != 1) || ridgeCounts.Sum() != ridgeCoords.Length / 3 ||
+            ridgeCounts.Any(count => count is < 2 or > 256) || ridgeCounts.Sum() != ridgeCoords.Length / 3 ||
             layer.Length > 128 ||
             !outline.Concat(polyZ).Concat(ridgeCoords).Append(baseLevel).All(double.IsFinite))
             throw new ArgumentOutOfRangeException(nameof(outline), "Terrain mesh exceeds the bounded bake contract.");

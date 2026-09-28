@@ -112,7 +112,7 @@ internal static class Gh2HeadlessProof
                     ?? throw new InvalidOperationException($"GH2 did not register query component {id}."));
                 if (!document.Objects.Add(query) ||
                     !Connections.Connect(((Component)selection).Parameters.Output(1), query.Parameters.Input(0)) ||
-                    query.Parameters.Inputs.Count() != 4 || query.Parameters.Outputs.Count() != 5)
+                     query.Parameters.Inputs.Count() != 4 || query.Parameters.Outputs.Count() != (id == queryIds[3] ? 6 : 5))
                     throw new InvalidOperationException($"The GH2 element query {id} is not wired or aligned.");
                 Type outputType = query.Parameters.Output(0).GetType().BaseType!.BaseType!.GetGenericArguments().FirstOrDefault()
                     ?? throw new InvalidOperationException("Query result has no typed parameter.");
@@ -127,10 +127,10 @@ internal static class Gh2HeadlessProof
                     throw new InvalidOperationException($"The query {id} exposes its internal output parameter in the palette.");
                 var modes = new[]
                 {
-                    new[] { "Definition", "Boundary", "Visible 2D", "Section" },
+                     new[] { "Definition", "Boundary" },
                     new[] { "Hosted", "Connected", "Inferred" },
-                    new[] { "Discover", "All", "User", "Built-in", "Element settings" },
-                    new[] { "Bounding box", "Surface mesh", "Native definition", "2D drawing", "Derived Brep" },
+                     new[] { "Element settings", "Discover", "All", "User", "Built-in" },
+                     new[] { "Bounding box", "Surface mesh", "2D drawing" },
                     new[] { "Instance", "All parameters" }
                 }[Array.IndexOf(queryIds, id)];
                 var modePicker = new PresetPickerObject();
@@ -175,19 +175,67 @@ internal static class Gh2HeadlessProof
                         throw new InvalidOperationException($"The query {id} did not restore discoverable keys.");
                 }
             }
-            Component bake = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
-                new Guid("ee94cef3-7073-4a37-a338-24e3a5e02d80"))
-                ?? throw new InvalidOperationException("GH2 did not register Create Archicad Terrain Mesh."));
-            if (!document.Objects.Add(bake) || bake.Parameters.Inputs.Count() != 3 ||
-                bake.Parameters.Outputs.Count() != 3)
-                throw new InvalidOperationException("The explicit mesh creation component has an invalid interface.");
-            var prepare = bake.GetType().GetMethod("Prepare", BindingFlags.NonPublic | BindingFlags.Static)!;
-            object preset = prepare.Invoke(null, [null, Array.Empty<Rhino.Geometry.Point3d>(), "", "test-project", 1.0])!;
+            var meshAction = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
+                new Guid("f35e5e29-e424-40c9-8493-34e682e9a22b"))
+                ?? throw new InvalidOperationException("GH2 did not register the outputless Design mesh action."));
+            if (ObjectProxies.FindById(new Guid("ee94cef3-7073-4a37-a338-24e3a5e02d80")) is not null ||
+                !document.Objects.Add(meshAction) || meshAction.Parameters.InputCount != 3 ||
+                meshAction.Parameters.OutputCount != 0 ||
+                ObjectProxies.FindById(new Guid("f35e5e29-e424-40c9-8493-34e682e9a22b"))?.Nomen.Section != "Design")
+                throw new InvalidOperationException("The Design action must be a zero-output component.");
+            var unique = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
+                new Guid("8a6fe2d8-5b6b-4824-ae43-1d5506a81b61"))
+                ?? throw new InvalidOperationException("GH2 did not register Util / Unique Archicad Elements."));
+            var tint = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
+                new Guid("35be9ebe-1510-4fe1-a922-fd6e8e863210"))
+                ?? throw new InvalidOperationException("GH2 did not register Display / Preview Tint."));
+            var container = (Component)(ObjectProxies.TryEmit<IDocumentObject>(
+                new Guid("b44115d6-96aa-4692-94f7-8e9304bf4503"))
+                ?? throw new InvalidOperationException("GH2 did not register Input / Archicad Element Container."));
+            if (!document.Objects.Add(unique) || !document.Objects.Add(tint) ||
+                !document.Objects.Add(container) ||
+                !Connections.Connect(((Component)selection).Parameters.Output(1), unique.Parameters.Input(0)) ||
+                !Connections.Connect(((Component)selection).Parameters.Output(1), container.Parameters.Input(0)) ||
+                unique.Parameters.OutputCount != 1 || tint.Parameters.OutputCount != 1 ||
+                container.Parameters.OutputCount != 0 ||
+                ObjectProxies.FindById(new Guid("f35e5e29-e424-40c9-8493-34e682e9a22b"))?.Nomen.Section != "Design" ||
+                ObjectProxies.FindById(headerId)?.Nomen.Section != "Deconstruct")
+                throw new InvalidOperationException("The six-category GH2 component interface was not registered.");
+            Type typePort = container.GetType().GetNestedType("TypePort", BindingFlags.NonPublic)!;
+            Array MakePorts(params (int Id, int Variation, string Name)[] items)
+            {
+                Array ports = Array.CreateInstance(typePort, items.Length);
+                for (int i = 0; i < items.Length; i++)
+                    ports.SetValue(Activator.CreateInstance(typePort, items[i].Id, items[i].Variation, items[i].Name), i);
+                return ports;
+            }
+            MethodInfo syncPorts = container.GetType().GetMethod("SyncPorts", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            syncPorts.Invoke(container, [MakePorts((1, 0, "Wall"), (2, 0, "Slab"))]);
+            var wallPort = container.Parameters.Output(0);
+            if (container.Parameters.OutputCount != 2 || wallPort.Nomen.Name != "Wall")
+                throw new InvalidOperationException("The element container did not create type-specific ports.");
+            syncPorts.Invoke(container, [MakePorts((2, 0, "Slab"), (1, 0, "Wall"))]);
+            if (container.Parameters.Output(0) != wallPort)
+                throw new InvalidOperationException("Reordering GUIDs replaced a type's output identity.");
+            var prepare = meshAction.GetType().GetMethod("Prepare", BindingFlags.NonPublic | BindingFlags.Static)!;
+            object preset = prepare.Invoke(null, [null, Array.Empty<Rhino.Geometry.Curve>(), "", "test-project", 1.0])!;
             if (((double[])preset.GetType().GetProperty("Outline")!.GetValue(preset)!).Length != 8 ||
                 ((double[])preset.GetType().GetProperty("PolyZ")!.GetValue(preset)!).Length != 4 ||
-                ((int[])preset.GetType().GetProperty("RidgeCounts")!.GetValue(preset)!).Length != 1)
-                throw new InvalidOperationException("The mesh bake test preset is not a four-cornered outline.");
-            var pluginAssembly = bake.GetType().Assembly;
+                !((int[])preset.GetType().GetProperty("RidgeCounts")!.GetValue(preset)!).SequenceEqual([3]))
+                throw new InvalidOperationException("The mesh bake test preset needs one three-vertex ridge line.");
+            var ridge = new Rhino.Geometry.PolylineCurve(new[] { new Rhino.Geometry.Point3d(1, 1, 0),
+                new Rhino.Geometry.Point3d(2, 2, 1), new Rhino.Geometry.Point3d(3, 3, 0) });
+            object withRidge = prepare.Invoke(null, [null, new Rhino.Geometry.Curve[] { ridge }, "", "test-project", 1.0])!;
+            if (!((int[])withRidge.GetType().GetProperty("RidgeCounts")!.GetValue(withRidge)!).SequenceEqual([3]))
+                throw new InvalidOperationException("A GH2 ridge polyline was reduced to one-point level lines.");
+            var secondRidge = new Rhino.Geometry.PolylineCurve(new[] {
+                new Rhino.Geometry.Point3d(1, 3, 0), new Rhino.Geometry.Point3d(3, 3, 2) });
+            object grouped = prepare.Invoke(null, [null, new Rhino.Geometry.Curve[] { ridge, secondRidge },
+                "", "test-project", 1.0])!;
+            if (!((int[])grouped.GetType().GetProperty("RidgeCounts")!.GetValue(grouped)!).SequenceEqual([3, 2]) ||
+                ((double[])grouped.GetType().GetProperty("RidgeCoords")!.GetValue(grouped)!).Length != 15)
+                throw new InvalidOperationException("Multiple ridge polylines lost their native line boundaries.");
+            var pluginAssembly = meshAction.GetType().Assembly;
             var ring = Activator.CreateInstance(pluginAssembly.GetType("TapiocaGH2.AcContourRing")!,
                 "outer", true, new double[] { 0, 0, 2, 0, 2, 2, 0, 2 }, new double[] { 0, 0, 0, 0 })!;
             var curve = (Rhino.Geometry.Curve)pluginAssembly.GetType("TapiocaGH2.ArchicadGetContours")!
@@ -202,6 +250,17 @@ internal static class Gh2HeadlessProof
                 .Invoke(null, [triangles, 1.0])!;
             if (!rhinoMesh.IsValid || rhinoMesh.Faces.Count != 1 || rhinoMesh.Vertices.Count != 3)
                 throw new InvalidOperationException("Archicad tessellation did not become a Rhino mesh.");
+            var refType = pluginAssembly.GetType("TapiocaGH2.AcElementRef")!;
+            object sourceRef = Activator.CreateInstance(refType, "test-project", Guid.NewGuid())!;
+            using var drawingJson = System.Text.Json.JsonDocument.Parse("[{\"xy\":[0,0,1,0,1,1],\"closed\":false}]");
+            object drawing = pluginAssembly.GetType("TapiocaGH2.ArchicadGetGeometry")!
+                .GetMethod("Convert", BindingFlags.NonPublic | BindingFlags.Instance)!
+                .Invoke(Activator.CreateInstance(pluginAssembly.GetType("TapiocaGH2.ArchicadGetGeometry")!)!,
+                    [sourceRef, "2D drawing", drawingJson.RootElement.EnumerateArray().ToArray()])!;
+            Array paths = (Array)drawing.GetType().GetProperty("Paths")!.GetValue(drawing)!;
+            if (paths.Length != 1 || !((double[])paths.GetValue(0)!.GetType().GetProperty("Xy")!
+                    .GetValue(paths.GetValue(0))!).SequenceEqual([0, 0, 1, 0, 1, 1]))
+                throw new InvalidOperationException("Archicad 2D drawing paths did not survive the managed query.");
             Type queries = selection.GetType().Assembly.GetType("TapiocaGH2.ArchicadElementQuery`1")!
                 .MakeGenericType(selection.GetType().Assembly.GetType("TapiocaGH2.AcPropertySet")!);
             MethodInfo parseQueries = queries.GetMethod("ParseRows", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -255,6 +314,15 @@ internal static class Gh2HeadlessProof
                 !diagnostics[4].Contains("127.0.0.1") ||
                 diagnostics[9] != "Description: Project description for Tapioca.")
                 throw new InvalidOperationException("GH2 status did not show a disconnected local-only bridge.");
+            var tintValue = tint.Parameters.Output(0).State.Data.Tree()?.AllItems.SingleOrDefault();
+            if (tintValue is not Grasshopper2.Types.Colour.Colour colour || Math.Abs(colour.Alpha - 0.5f) > 0.01f)
+                throw new InvalidOperationException("Display / Preview Tint did not emit its alpha colour: " +
+                    (tintValue?.ToString() ?? "no output") + "; " +
+                    string.Join(" | ", tint.State.Data.Messages.Errors.Concat(tint.State.Data.Messages.Warnings)) +
+                    "; input items=" + tint.Parameters.Input(0).PersistentDataWeak.ItemCount + "/" +
+                    tint.Parameters.Input(1).PersistentDataWeak.ItemCount + "; input state=" +
+                    (tint.Parameters.Input(0).State.Data.Tree()?.AllItems.FirstOrDefault()?.GetType().FullName ?? "none") +
+                    "/" + (tint.Parameters.Input(1).State.Data.Tree()?.AllItems.FirstOrDefault()?.GetType().FullName ?? "none"));
             foreach (Component choice in choiceComponents)
             {
                 int availableOutput = choice.Parameters.Outputs.Count() - 1;
@@ -262,7 +330,7 @@ internal static class Gh2HeadlessProof
                 if (count != 0)
                     throw new InvalidOperationException("A disconnected selector exposed stale Archicad choices.");
             }
-            VerifyPopulatedSelectors(document, choiceComponents, bake);
+            VerifyPopulatedSelectors(document, choiceComponents, meshAction);
             Guid selectedId = Guid.NewGuid();
             VerifyElementBinding(selection.GetType().Assembly, selectedId);
             MethodInfo parseSelection = selection.GetType().GetMethod("ParseSelection",
@@ -303,6 +371,8 @@ internal static class Gh2HeadlessProof
                 (Guid)referenceType.GetProperty("ElementId")!.GetValue(typed)! != selectedId ||
                 typedMeta is null || !typedMeta.Get(guidName, out Guid metaId) || metaId != selectedId)
                 throw new InvalidOperationException("GH2 selection did not emit a typed Archicad reference with provenance.");
+            if (unique.Parameters.Output(0).State.Data.Tree()?.AllItems.SingleOrDefault()?.GetType() != referenceType)
+                throw new InvalidOperationException("Util / Unique Archicad Elements lost its typed selection.");
             MethodInfo parseHeaders = headers.GetType().GetMethod("ParseHeaders", BindingFlags.NonPublic | BindingFlags.Static)!;
             string response = "{\"ok\":true,\"data\":{\"elements\":[{\"guid\":\"" + selectedId.ToString("D") +
                 "\",\"found\":true,\"type\":\"Wall\",\"elementId\":\"W-1\"," +
@@ -371,6 +441,12 @@ internal static class Gh2HeadlessProof
                         .GetField("elements", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(savedSelection);
                     if (restoredIds is null || !restoredIds.SequenceEqual([selectedId]))
                         throw new InvalidOperationException("GH2 did not preserve selected GUIDs on save/reopen.");
+                    Component? restoredContainer = io.Document.Objects.ActiveObjects.OfType<Component>()
+                        .FirstOrDefault(component => component.GetType() == container.GetType());
+                    if (restoredContainer?.Parameters.OutputCount != 2 ||
+                        restoredContainer.Parameters.Output(0).Nomen.Name != "Wall" ||
+                        restoredContainer.Parameters.Output(0).InstanceId != wallPort.InstanceId)
+                        throw new InvalidOperationException("GH2 did not preserve container type ports on save/reopen.");
                     IParameter? savedParameter = io.Document.Objects.ActiveObjects.OfType<IParameter>()
                         .FirstOrDefault(parameter => parameter.GetType() == parameterType);
                     object? savedReference = savedParameter?.PersistentDataWeak.AllItems.SingleOrDefault();
@@ -426,7 +502,7 @@ internal static class Gh2HeadlessProof
         }
     }
 
-    private static void VerifyPopulatedSelectors(Document document, List<Component> choices, Component bake)
+    private static void VerifyPopulatedSelectors(Document document, List<Component> choices, Component meshAction)
     {
         // The worker's linked wire-check type is NOT the .rhp's process-local
         // store. Inject only into the plugin for this headless solve fixture.
@@ -446,9 +522,9 @@ internal static class Gh2HeadlessProof
             set.Invoke(null, [snapshot, "", null, null]);
             foreach (Component choice in choices)
                 applyPresets.Invoke(null, [choice]); // no editor UI loop in this headless fixture
-            applyPresets.Invoke(null, [bake]);
+            applyPresets.Invoke(null, [meshAction]);
             var layerPicker = new PresetPickerObject();
-            if (!document.Objects.Add(layerPicker) || !Connections.Connect(layerPicker, bake.Parameters.Input(2)) ||
+            if (!document.Objects.Add(layerPicker) || !Connections.Connect(layerPicker, meshAction.Parameters.Input(2)) ||
                 !layerPicker.AvailablePresets.Presets.Select(preset => preset.Name)
                     .SequenceEqual(new[] { "Mesh tool default", "Walls" }))
                 throw new InvalidOperationException("The terrain mesh Layer input rejected its Preset Picker.");
@@ -470,7 +546,7 @@ internal static class Gh2HeadlessProof
                 [new[] { "Walls", "Ceilings" }, new[] { "Solid" }, stories])!;
             set.Invoke(null, [changed, "", null, null]);
             applyPresets.Invoke(null, [choices[0]]);
-            applyPresets.Invoke(null, [bake]);
+            applyPresets.Invoke(null, [meshAction]);
             Type changedType = options.GetNestedType("Changed", BindingFlags.NonPublic)!;
             object lineTypesChanged = Enum.Parse(changedType, "LineTypes");
             if ((bool)shouldUpdate.Invoke(null, [choices[0], lineTypesChanged])! ||

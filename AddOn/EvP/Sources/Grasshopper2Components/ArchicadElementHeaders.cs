@@ -15,7 +15,7 @@ namespace TapiocaGH2;
 public sealed class ArchicadElementHeaders : Component
 {
     internal sealed record Header(Guid Guid, bool Found, string Type,
-        string ElementId, int Story, string Layer);
+        string ElementId, int Story, string Layer, int TypeId = 0, int VariationId = 0);
 
     private static readonly MetaName TypeName = new("Tapioca", "Source", "Type");
     private readonly object sync = new();
@@ -27,7 +27,7 @@ public sealed class ArchicadElementHeaders : Component
 
     public ArchicadElementHeaders() : base(new Nomen("AC Element Headers",
         "Request basic Archicad element fields in bounded batches; no geometry or properties are fetched.",
-        "Tapioca", "Archicad")) { ArchicadPresetBindings.Register(this); }
+        "Tapioca", "Deconstruct")) { ArchicadPresetBindings.Register(this); }
     public ArchicadElementHeaders(IReader reader) : base(reader) { ArchicadPresetBindings.Register(this); }
 
     protected override void AddInputs(InputAdder inputs)
@@ -172,7 +172,9 @@ public sealed class ArchicadElementHeaders : Component
             values[i] = new Header(id, row.GetProperty("found").GetBoolean(),
                 row.GetProperty("type").GetString() ?? "",
                 row.GetProperty("elementId").GetString() ?? "", row.GetProperty("story").GetInt32(),
-                row.GetProperty("layer").GetString() ?? "");
+                row.GetProperty("layer").GetString() ?? "",
+                row.TryGetProperty("typeId", out var typeId) ? typeId.GetInt32() : 0,
+                row.TryGetProperty("variationId", out var variationId) ? variationId.GetInt32() : 0);
         }
         return values;
     }

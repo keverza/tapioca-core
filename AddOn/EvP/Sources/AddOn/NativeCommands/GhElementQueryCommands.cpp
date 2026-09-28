@@ -6,11 +6,128 @@
 #include "Geometry/GeometryExtractor.hpp"
 
 #include <Model.hpp>
+#include <algorithm>
 #include <cmath>
 
 namespace geomsrv {
 
 namespace {
+
+struct GhDrawingCapture {
+    GS::Array<GS::ObjectState> paths;
+    USize points = 0;
+    bool oversized = false;
+    bool hatchLines = false;
+};
+
+GhDrawingCapture* s_ghDrawingCapture = nullptr;
+
+void AddGhDrawingPath (const GS::Array<double>& xy, bool closed)
+{
+    GhDrawingCapture* capture = s_ghDrawingCapture;
+    if (capture == nullptr || xy.GetSize () < 4)
+        return;
+    if (xy.GetSize () % 2 != 0 || capture->paths.GetSize () >= 128 ||
+        capture->points + xy.GetSize () / 2 > 1024) {
+        capture->oversized = true;
+        return;
+    }
+    GS::ObjectState item;
+    item.Add ("xy", xy);
+    item.Add ("closed", closed);
+    capture->paths.Push (item);
+    capture->points += xy.GetSize () / 2;
+}
+
+void AddGhDrawingEdge (const API_Coord& first, const API_Coord& last, double sweep)
+{
+    GS::Array<double> xy;
+    if (std::abs (sweep) < 1e-12) {
+        xy.Push (first.x); xy.Push (first.y);
+        xy.Push (last.x); xy.Push (last.y);
+    }
+    else {
+        const double dx = last.x - first.x, dy = last.y - first.y;
+        const double chord = std::hypot (dx, dy);
+        const double tangent = std::tan (sweep * 0.5);
+        if (chord < 1e-12 || std::abs (tangent) < 1e-12) return;
+        const double distance = chord / (2.0 * tangent);
+        const double cx = (first.x + last.x) * 0.5 - dy * distance / chord;
+        const double cy = (first.y + last.y) * 0.5 + dx * distance / chord;
+        const double a0 = std::atan2 (first.y - cy, first.x - cx);
+        const double radius = std::hypot (first.x - cx, first.y - cy);
+        const int count = std::min (128, std::max (2, static_cast<int> (std::ceil (std::abs (sweep) * 16))));
+        for (int i = 0; i <= count; ++i) {
+            const double a = a0 + sweep * i / count;
+            xy.Push (cx + radius * std::cos (a));
+            xy.Push (cy + radius * std::sin (a));
+        }
+    }
+    AddGhDrawingPath (xy, false);
+}
+
+double GhEdgeSweep (const API_PolyArc* arcs, Int32 count, Int32 first, Int32 last)
+{
+    for (Int32 i = 0; arcs != nullptr && i < count; ++i)
+        if (arcs[i].begIndex == first && arcs[i].endIndex == last) return arcs[i].arcAngle;
+    return 0;
+}
+
+GSErrCode CollectGhDrawingPath (const API_PrimElement* primitive, const void* par1, const void* par2, const void* par3)
+{
+    if (primitive == nullptr || s_ghDrawingCapture == nullptr)
+        return NoError;
+    if (primitive->header.typeID == API_PrimCtrl_HatchLinesBegID) {
+        s_ghDrawingCapture->hatchLines = true;
+        return NoError;
+    }
+    if (primitive->header.typeID == API_PrimCtrl_HatchLinesEndID) {
+        s_ghDrawingCapture->hatchLines = false;
+        return NoError;
+    }
+    if (s_ghDrawingCapture->hatchLines) return NoError;
+    GS::Array<double> xy;
+    if (primitive->header.typeID == API_PrimLineID) {
+        xy.Push (primitive->line.c1.x); xy.Push (primitive->line.c1.y);
+        xy.Push (primitive->line.c2.x); xy.Push (primitive->line.c2.y);
+        AddGhDrawingPath (xy, false);
+    }
+    else if (primitive->header.typeID == API_PrimArcID) {
+        const API_PrimArc& arc = primitive->arc;
+        constexpr double twoPi = 6.283185307179586;
+        double sweep = arc.whole ? twoPi : arc.endAng - arc.begAng;
+        if (arc.reflected) { while (sweep >= 0.0) sweep -= twoPi; }
+        else { while (sweep <= 0.0) sweep += twoPi; }
+        const int segments = std::min (128, std::max (4, static_cast<int> (std::ceil (std::abs (sweep) * 16))));
+        const double minor = std::abs (arc.ratio) > 1e-12 ? arc.r / arc.ratio : arc.r;
+        for (int i = 0; i <= segments; ++i) {
+            const double a = arc.begAng + sweep * i / segments;
+            const double x = arc.r * std::cos (a), y = minor * std::sin (a);
+            xy.Push (arc.orig.x + x * std::cos (arc.angle) - y * std::sin (arc.angle));
+            xy.Push (arc.orig.y + x * std::sin (arc.angle) + y * std::cos (arc.angle));
+        }
+        AddGhDrawingPath (xy, arc.whole);
+    }
+    else if (primitive->header.typeID == API_PrimPLineID && par1 != nullptr) {
+        const auto* coords = static_cast<const API_Coord*> (par1);
+        const auto* arcs = static_cast<const API_PolyArc*> (par3);
+        if (primitive->pline.nCoords > 1024) { s_ghDrawingCapture->oversized = true; return NoError; }
+        for (Int32 i = 1; i < primitive->pline.nCoords; ++i)
+            AddGhDrawingEdge (coords[i], coords[i + 1], GhEdgeSweep (arcs, primitive->pline.nArcs, i, i + 1));
+    }
+    else if (primitive->header.typeID == API_PrimPolyID && par1 != nullptr && par2 != nullptr) {
+        const auto* coords = static_cast<const API_Coord*> (par1);
+        const auto* ends = static_cast<const Int32*> (par2);
+        const auto* arcs = static_cast<const API_PolyArc*> (par3);
+        for (Int32 polygon = 1; polygon <= primitive->poly.nSubPolys; ++polygon) {
+            const Int32 first = ends[polygon - 1] + 1, last = ends[polygon];
+            if (last - first > 1024) { s_ghDrawingCapture->oversized = true; break; }
+            for (Int32 i = first; i < last; ++i)
+                AddGhDrawingEdge (coords[i], coords[i + 1], GhEdgeSweep (arcs, primitive->poly.nArcs, i, i + 1));
+        }
+    }
+    return NoError;
+}
 
 // Bounded, position-aligned GH2 reads. The mode is part of each request so no
 // unused model representation is loaded. Unsupported modes are data, not a
@@ -59,6 +176,51 @@ class GetGhElementQueryCommand : public MainThreadCommand {
                 if (mode != "Definition" && mode != "Boundary") {
                     status = "Unavailable";
                     diagnostic = "This view-dependent contour representation is not implemented.";
+                }
+                else if (element.header.type.typeID == API_WallID) {
+                    API_WallRelation wall = {};
+                    const GSErrCode relationError = ACAPI_Element_GetRelations (guid, API_ZombieElemID, &wall);
+                    if (relationError == NoError) {
+                        GS::Array<double> outer, arcs, holes, holeArcs;
+                        GS::Array<GS::Int32> holeCounts;
+                        GS::Int32 outerCount = 0, holeCount = 0;
+                        const bool valid = WalkPolygonRings (
+                            { wall.coords, wall.pends, wall.parcs }, nullptr, outer, arcs, outerCount,
+                            holes, holeArcs, holeCounts, holeCount);
+                        if (valid && outer.GetSize () + holes.GetSize () <= 2048 && holeCount <= 255) {
+                            GS::ObjectState ring;
+                            ring.Add ("role", GS::UniString ("outer"));
+                            ring.Add ("closed", true);
+                            ring.Add ("xy", outer);
+                            ring.Add ("arcs", arcs);
+                            items.Push (ring);
+                            USize cursor = 0;
+                            for (GS::Int32 h = 0; h < holeCount; ++h) {
+                                GS::Array<double> xy, angles;
+                                for (GS::Int32 i = 0; i < holeCounts[h]; ++i, ++cursor) {
+                                    xy.Push (holes[2 * cursor]); xy.Push (holes[2 * cursor + 1]);
+                                    angles.Push (holeArcs[cursor]);
+                                }
+                                GS::ObjectState hole;
+                                hole.Add ("role", GS::UniString ("hole"));
+                                hole.Add ("closed", true);
+                                hole.Add ("xy", xy);
+                                hole.Add ("arcs", angles);
+                                items.Push (hole);
+                            }
+                            status = "Success";
+                        }
+                        else {
+                            status = "Unavailable";
+                            diagnostic = "Wall connection polygon is empty or exceeds the contour budget.";
+                        }
+                    }
+                    else {
+                        status = "Unavailable";
+                        diagnostic = GS::UniString::Printf ("Wall connection polygon unavailable (SDK error %d).",
+                                                                static_cast<int> (relationError));
+                    }
+                    ACAPI_DisposeWallRelationHdls (&wall);
                 }
                 else if (element.header.type.typeID != API_SlabID && element.header.type.typeID != API_HatchID &&
                          element.header.type.typeID != API_PolyLineID && element.header.type.typeID != API_MeshID) {
@@ -189,9 +351,28 @@ class GetGhElementQueryCommand : public MainThreadCommand {
                         }
                     }
                 }
+                else if (mode == "2D drawing") {
+                    GhDrawingCapture captured;
+                    s_ghDrawingCapture = &captured;
+                    const GSErrCode drawError = ACAPI_DrawingPrimitive_ShapePrims (element.header, CollectGhDrawingPath);
+                    s_ghDrawingCapture = nullptr;
+                    if (drawError != NoError || captured.oversized) {
+                        status = "Unavailable";
+                        diagnostic = drawError != NoError
+                            ? GS::UniString::Printf ("2D primitives unavailable in this view (SDK error %d).",
+                                                    static_cast<int> (drawError))
+                            : GS::UniString ("2D drawing exceeds 128 paths or 1,024 vertices.");
+                    }
+                    else {
+                        items = captured.paths;
+                        status = items.IsEmpty () ? GS::UniString ("Empty") : GS::UniString ("Success");
+                        if (items.IsEmpty ())
+                            diagnostic = "No evaluated 2D primitives in the current floor-plan context; check the object's plan visibility.";
+                    }
+                }
                 else if (mode != "Bounding box") {
                     status = "Unavailable";
-                    diagnostic = "Mesh, Brep and drawing extraction are not implemented in this query adapter.";
+                    diagnostic = "Native definition and derived Brep are not implemented; use Surface mesh, Bounding box or 2D drawing.";
                 }
                 else if (element.header.type.typeID == API_DimensionID || element.header.type.typeID == API_HatchID ||
                          element.header.type.typeID == API_PolyLineID || element.header.type.typeID == API_CutPlaneID) {
@@ -222,11 +403,12 @@ class GetGhElementQueryCommand : public MainThreadCommand {
             }
             else if (kind == "properties") {
                 if (mode == "Element settings") {
-                    const auto addNumber = [&items] (const char* name, double number) {
+                    const auto addNumber = [&items] (const char* name, double number, const char* unit = "metres") {
                         GS::ObjectState field;
                         field.Add ("key", GS::UniString (APIGuidToString (APINULLGuid).ToCStr ()));
                         field.Add ("name", GS::UniString (name));
-                        field.Add ("group", GS::UniString ("Native element settings (metres)"));
+                        field.Add ("group", GS::UniString (GS::UniString ("Native element settings (") +
+                                                GS::UniString (unit) + GS::UniString (")")));
                         field.Add ("dataType", (GS::Int32) API_PropertyRealValueType);
                         field.Add ("definitionType", (GS::Int32) 0);
                         field.Add ("userDefined", false);
@@ -284,9 +466,40 @@ class GetGhElementQueryCommand : public MainThreadCommand {
                         addNumber ("Skirt depth", element.mesh.skirtLevel);
                         status = "Success";
                     }
+                    else if (element.header.type.typeID == API_SlabID) {
+                        addNumber ("Level", element.slab.level);
+                        addNumber ("Thickness", element.slab.thickness);
+                        status = "Success";
+                    }
+                    else if (element.header.type.typeID == API_RoofID) {
+                        addNumber ("Level", element.roof.shellBase.level);
+                        addNumber ("Thickness", element.roof.shellBase.thickness);
+                        if (element.roof.roofClass == API_PlaneRoofID)
+                            addNumber ("Pitch", element.roof.u.planeRoof.angle, "radians");
+                        status = "Success";
+                    }
+                    else if (element.header.type.typeID == API_BeamID) {
+                        addNumber ("Level", element.beam.level);
+                        addNumber ("Slant angle", element.beam.slantAngle, "radians");
+                        status = "Success";
+                    }
+                    else if (element.header.type.typeID == API_ColumnID) {
+                        addNumber ("Height", element.column.height);
+                        addNumber ("Bottom offset", element.column.bottomOffset);
+                        addNumber ("Slant angle", element.column.slantAngle, "radians");
+                        status = "Success";
+                    }
+                    else if (element.header.type.typeID == API_ObjectID ||
+                             element.header.type.typeID == API_LampID) {
+                        addNumber ("Level", element.object.level);
+                        addNumber ("X scale", element.object.xRatio, "ratio");
+                        addNumber ("Y scale", element.object.yRatio, "ratio");
+                        addNumber ("Plan angle", element.object.angle, "radians");
+                        status = "Success";
+                    }
                     else {
                         status = "NotApplicable";
-                        diagnostic = "Native settings currently support walls and terrain meshes only.";
+                        diagnostic = "Native settings currently support walls, meshes, slabs, roofs, beams, columns and placed objects/lamps only.";
                     }
                 }
                 else {

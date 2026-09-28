@@ -22,7 +22,9 @@ public sealed record AcPropertyValue(Guid DefinitionId, string Group, string Nam
 public sealed record AcPropertySet(AcElementRef Source, AcPropertyValue[] Values);
 public sealed record AcBounds(double MinX, double MinY, double MinZ, double MaxX, double MaxY, double MaxZ);
 public sealed record AcSurfaceMesh(double[] Vertices, int[] Triangles);
-public sealed record AcGeometrySet(AcElementRef Source, string Representation, AcBounds[] Bounds, AcSurfaceMesh[] Meshes);
+public sealed record AcDrawingPath(double[] Xy, bool Closed);
+public sealed record AcGeometrySet(AcElementRef Source, string Representation, AcBounds[] Bounds,
+    AcSurfaceMesh[] Meshes, AcDrawingPath[] Paths);
 public sealed record AcGdlParameter(string LibraryPart, string InternalName, string DisplayName, string Group, int DataType,
     bool Hidden, bool Disabled, bool IsArray, int Rows, int Columns,
     string ValueStatus, string Text, double Number);
@@ -41,7 +43,7 @@ public abstract class AcQueryAssistant<T>(string name) : TypeAssistant<T>(name) 
         AcContourSet value => $"{value.Rings.Length} Archicad contour(s) of {value.Source.ElementId:D}",
         AcRelationSet value => $"{value.Edges.Length} Archicad relation(s) of {value.Source.ElementId:D}",
         AcPropertySet value => $"{value.Values.Length} Archicad propert(ies) of {value.Source.ElementId:D}",
-        AcGeometrySet value => $"{value.Bounds.Length + value.Meshes.Length} Archicad {value.Representation} result(s) of {value.Source.ElementId:D}",
+        AcGeometrySet value => $"{value.Bounds.Length + value.Meshes.Length + value.Paths.Length} Archicad {value.Representation} result(s) of {value.Source.ElementId:D}",
         AcGdlSet value => $"{value.Parameters.Length} GDL parameter(s) of {value.Source.ElementId:D}",
         _ => Name
     };
@@ -77,7 +79,27 @@ public sealed class AcRelationAssistant() : AcQueryAssistant<AcRelationSet>("Arc
 public sealed class AcPropertyAssistant() : AcQueryAssistant<AcPropertySet>("Archicad properties");
 public sealed class AcGeometryAssistant() : AcQueryAssistant<AcGeometrySet>("Archicad geometry")
 {
-    protected override int Version => 2; // v1 had only bounds, no actual surface meshes.
+    protected override int Version => 3; // v3 adds native 2D drawing paths.
+    private sealed record LegacyGeometrySet(AcElementRef Source, string Representation,
+        AcBounds[] Bounds, AcSurfaceMesh[] Meshes);
+
+    public override bool Read(IReader reader, Name location, out AcGeometrySet instance)
+    {
+        if (base.Read(reader, location, out instance)) return true;
+        instance = null!;
+        if (!reader.HasItem(location)) return false;
+        try
+        {
+            using var json = JsonDocument.Parse(reader.String(location));
+            if (json.RootElement.GetProperty("version").GetInt32() != 2) return false;
+            var old = json.RootElement.GetProperty("value").Deserialize<LegacyGeometrySet>();
+            if (old is null || old.Source is null || old.Bounds is null || old.Meshes is null) return false;
+            instance = new(old.Source, old.Representation, old.Bounds, old.Meshes, []);
+            return true;
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException)
+        { return false; }
+    }
 }
 public sealed class AcGdlAssistant() : AcQueryAssistant<AcGdlSet>("Archicad GDL parameters");
 

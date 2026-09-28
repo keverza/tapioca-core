@@ -8,13 +8,13 @@ using Grasshopper2.UI.Skinning;
 
 namespace TapiocaGH2;
 
-public sealed class ArchicadBakeTerrainMeshAttributes : ComponentAttributes
+public sealed class CreateArchicadTerrainMeshAttributes : ComponentAttributes
 {
-    private readonly ArchicadBakeTerrainMesh owner;
+    private readonly Action create;
     private bool pressed;
-    public ArchicadBakeTerrainMeshAttributes(ArchicadBakeTerrainMesh component) : base(component)
+    public CreateArchicadTerrainMeshAttributes(Grasshopper2.Components.Component component, Action create) : base(component)
     {
-        owner = component;
+        this.create = create;
         Responder.MouseDownHook += MouseDown;
         Responder.MouseUpHook += MouseUp;
     }
@@ -42,7 +42,7 @@ public sealed class ArchicadBakeTerrainMeshAttributes : ComponentAttributes
     {
         if (!pressed) return Response.Ignored;
         pressed = false;
-        if (Button.Contains(args.ContentLocation)) owner.Create();
+        if (Button.Contains(args.ContentLocation)) create();
         return Response.Release;
     }
 }
