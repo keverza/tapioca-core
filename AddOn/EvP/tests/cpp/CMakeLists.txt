@@ -442,6 +442,12 @@ set (EVP_ARCHVIZ_SOURCES
     # mirrored) cannot be produced in Archicad on demand, so the only place they
     # can be exercised at all is a test that builds them by hand.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanCameraMath.cpp"
+    # ArchViz/PlanFrameRegistration.cpp measures how far one presented floor-plan
+    # frame moved from the last, from the pixels alone: the ground truth the plan
+    # frame record scores ACAPI's transform against. Rendered frames whose pan or
+    # zoom is known exactly are the only way to know the instrument reads what it
+    # claims before a live run depends on it.
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/PlanFrameRegistration.cpp"
     # ArchViz/PlanAnchorRibbon.cpp turns a wall's 2D plan outline into the
     # triangles that draw it over the floor plan (PLAT-RE65). Same reason again
     # -- a wrong ribbon is a picture, not an error -- plus the arc half, which
@@ -581,6 +587,7 @@ set (EVP_TEST_SOURCES
     test_sunshadowmath.cpp
     test_environmentlighting.cpp
     test_plancameramath.cpp
+    test_planframeregistration.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp

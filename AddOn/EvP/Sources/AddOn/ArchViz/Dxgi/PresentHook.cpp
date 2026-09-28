@@ -16,6 +16,7 @@
 #include "ArchViz/Dxgi/ImageTransferTrace.hpp"
 #include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/PassProvenance.hpp"
+#include "ArchViz/Dxgi/PlanFrameRecord.hpp"
 #include "ArchViz/Dxgi/PresentProfile.hpp"
 #include "ArchViz/Dxgi/DrawRecorder.hpp"
 #include "ArchViz/Dxgi/PresentedContent.hpp"
@@ -117,6 +118,11 @@ struct ChainWindow {
     std::atomic<uint32_t> width { 0 };
     std::atomic<uint32_t> height { 0 };
     std::atomic<uint32_t> format { 0 };
+    // From the same one-time GetDesc: whether a buffer's content survives a
+    // Present is the swap effect's to say, and the plan overlay needs to know.
+    std::atomic<uint32_t> swapEffect { 0 };
+    std::atomic<uint32_t> bufferCount { 0 };
+    std::atomic<uint32_t> flags { 0 };
 };
 ChainWindow g_windowCache[kWindowCacheSize];
 
@@ -159,6 +165,9 @@ void RememberChainWindow (IDXGISwapChain* swapChain)
         entry.width.store (desc.BufferDesc.Width, std::memory_order_relaxed);
         entry.height.store (desc.BufferDesc.Height, std::memory_order_relaxed);
         entry.format.store (uint32_t (desc.BufferDesc.Format), std::memory_order_relaxed);
+        entry.swapEffect.store (uint32_t (desc.SwapEffect), std::memory_order_relaxed);
+        entry.bufferCount.store (desc.BufferCount, std::memory_order_relaxed);
+        entry.flags.store (desc.Flags, std::memory_order_relaxed);
         entry.window.store (uint64_t (uintptr_t (desc.OutputWindow)), std::memory_order_release);
         entry.presents.store (1, std::memory_order_relaxed);
         entry.chain.store (key, std::memory_order_release);
@@ -276,6 +285,9 @@ HRESULT STDMETHODCALLTYPE DetourPresent (IDXGISwapChain* swapChain, UINT syncInt
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_presentCalls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
+        // ⚠️ THE PLAN FRAME RECORD GOES FIRST, before anything of ours can draw: it
+        // keeps Archicad's own pixels. One load when idle.
+        planframes::OnPresent (swapChain, false, syncInterval, flags, 0, false, 0, 0);
         // The draw recorder's frame boundary and readback; one load when idle.
         if (uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
             drawrecorder::OnPresent (swapChain);
@@ -349,6 +361,13 @@ HRESULT STDMETHODCALLTYPE DetourPresent1 (IDXGISwapChain1* swapChain, UINT syncI
     if ((flags & DXGI_PRESENT_TEST) == 0) {
         g_present1Calls.fetch_add (1, std::memory_order_relaxed);
         RecordPresent (swapChain, syncInterval);
+        // Present1 says which rectangles changed and whether the frame is a scroll
+        // of the last one -- exactly what "does a pan blit a cached image" asks.
+        const POINT* scrollOffset = parameters != nullptr ? parameters->pScrollOffset : nullptr;
+        planframes::OnPresent (
+            swapChain, true, syncInterval, flags, parameters != nullptr ? parameters->DirtyRectsCount : 0,
+            parameters != nullptr && parameters->pScrollRect != nullptr, scrollOffset != nullptr ? scrollOffset->x : 0,
+            scrollOffset != nullptr ? scrollOffset->y : 0);
         if (uint64_t (uintptr_t (swapChain)) == MarkerTarget ())
             drawrecorder::OnPresent (swapChain);
         passProvenanceActive = BeginPassProvenanceIfTarget (swapChain);
@@ -592,6 +611,9 @@ bool InstallPresentHook (std::string& error)
         entry.chain.store (0, std::memory_order_relaxed);
         entry.window.store (0, std::memory_order_relaxed);
         entry.presents.store (0, std::memory_order_relaxed);
+        entry.swapEffect.store (0, std::memory_order_relaxed);
+        entry.bufferCount.store (0, std::memory_order_relaxed);
+        entry.flags.store (0, std::memory_order_relaxed);
     }
     g_installed.store (true, std::memory_order_release);
     ArchVizLog ("present hook: installed (DIAGNOSTIC ONLY -- it records when frames go out "
@@ -732,6 +754,9 @@ size_t GetChainInventory (ChainInfo* out, size_t max)
         info.width = entry.width.load (std::memory_order_relaxed);
         info.height = entry.height.load (std::memory_order_relaxed);
         info.format = entry.format.load (std::memory_order_relaxed);
+        info.swapEffect = entry.swapEffect.load (std::memory_order_relaxed);
+        info.bufferCount = entry.bufferCount.load (std::memory_order_relaxed);
+        info.flags = entry.flags.load (std::memory_order_relaxed);
         info.ours = (ownChain != 0 && chain == ownChain);
         info.nominated = (nominated != 0 && chain == nominated);
     }

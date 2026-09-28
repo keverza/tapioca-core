@@ -20,6 +20,7 @@
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
 #include "ArchViz/CameraWake.hpp"       // the input hook — must never outlive the DLL
 #include "ArchViz/Dxgi/PresentHook.hpp" // the DXGI detour — same rule, worse failure
+#include "ArchViz/PlanFrameSession.hpp" // the plan frame record — its hooks go first
 #include "ArchViz/ExperimentGuard.hpp"  // crash-loop guard — consulted before anything arms
 #include "Notebook/NotebookPalette.hpp"
 #include "Palette/GraphEditorPalette.hpp"
@@ -139,6 +140,7 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // A document that replaces another ends the overlay the old one had, if
             // its Close did not already (a no-op then).
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
+            geomsrv::archviz::planframes::Shutdown ();
             geomsrv::ServerState::Get ().modelOpen.store (true);
             // E25: a different document is the largest change there is, and every
             // element observer just went with the old one. Bump the token (so a
@@ -159,6 +161,8 @@ static GSErrCode ProjectEventHandler (API_NotifyEventID notifID, Int32 /*param*/
             // ⚠️ THE OVERLAY'S WINDOWS GO WITH THE PROJECT. Closing the floor plan
             // closes the project, and a session left running outlived its window.
             geomsrv::archviz::overlaycontrol::OnProjectClosed ();
+            // The plan frame record subclasses the plan's canvas; it ends with it.
+            geomsrv::archviz::planframes::Shutdown ();
             geomsrv::ServerState::Get ().modelOpen.store (false);
             geomsrv::ChangeTracker::Get ().OnProjectEvent ();
             geomsrv::ArmWorker::Get ().RequestStop ();
@@ -616,6 +620,9 @@ GSErrCode FreeData (void)
     evp::nodegraph::ShutDownWorkerPool ();
     evp::MainThreadGate::Get ().BeginShutdown ();
     evp::dynamo::Release ();
+    // The plan frame record's subclass, message hook and timer call into this
+    // module; they go before the Present hook, which it may also hold.
+    geomsrv::archviz::planframes::Shutdown ();
     // Same reasoning, one step worse: a DXGI vtable entry still pointing into
     // this module after it unloads is a crash on Archicad's NEXT frame, not on
     // ours, and it would look like a graphics driver fault. RemovePresentHook

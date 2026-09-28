@@ -133,6 +133,11 @@ struct ChainInfo {
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t format = 0;
+    // DXGI_SWAP_EFFECT, the buffer count and DXGI_SWAP_CHAIN_FLAG bits, from the
+    // same one-time GetDesc.
+    uint32_t swapEffect = 0;
+    uint32_t bufferCount = 0;
+    uint32_t flags = 0;
 };
 size_t GetChainInventory (ChainInfo* out, size_t max);
 

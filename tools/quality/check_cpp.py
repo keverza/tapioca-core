@@ -290,6 +290,16 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/ViewerDrawRecorderCommands.cpp", "ArchViz/Dxgi/DrawRecorder.hpp"),
     ("NativeCommands/ViewerDrawRecorderCommands.cpp", "ArchViz/Dxgi/ContextHook.hpp"),
     ("NativeCommands/ViewerDrawRecorderCommands.cpp", "ArchViz/Dxgi/HostOccluders.hpp"),
+    # The floor-plan frame record (2026-09-28): its session hooks the plan canvas
+    # and Archicad's Present on the main thread and writes its raw record from a
+    # worker; this verb only starts, stops and reports it. Restating its status on
+    # this side of the boundary would be a second definition of it.
+    ("NativeCommands/PlanFrameRecordCommands.cpp", "ArchViz/PlanFrameSession.hpp"),
+    # The same record reads ACAPI's model-to-pixel map exactly as the earlier plan
+    # overlay measured it: tear-checked, sheared and mirrored maps refused. A second
+    # implementation of that fit would be a second definition of the measurement
+    # the two plan paths are compared by.
+    ("ArchViz/PlanFrameSession.cpp", "PlanOverlay/PlanTransformMath.hpp"),
     # The camera census, read by Tapioca.ViewerCameraCensus. Same reason again:
     # the groups are built on Archicad's render thread and this verb only copies
     # them out. A second definition of the group shape on this side of the
@@ -1144,10 +1154,12 @@ OVERLAY_CONTRACT_FILES = (
     "ArchViz/Dxgi/OverlayComposer.cpp",
     "ArchViz/Dxgi/PassProvenance.cpp",
     "ArchViz/Dxgi/PassProvenanceFirstTransition.cpp",
+    "ArchViz/Dxgi/PlanFrameRecord.cpp",
     "ArchViz/Dxgi/PresentProfile.cpp",
     "ArchViz/InjectedOverlayRuntime.cpp",
     "ArchViz/OverlayController.cpp",
     "ArchViz/OverlayRuntimeReport.cpp",
+    "ArchViz/PlanFrameSession.cpp",
 )
 
 OVERLAY_CONTRACT_MARKER = "OVERLAY-INVARIANTS.md"
