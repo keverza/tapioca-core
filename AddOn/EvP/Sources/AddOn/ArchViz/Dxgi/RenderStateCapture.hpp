@@ -60,6 +60,7 @@
 
 struct ID3D11RenderTargetView;
 struct ID3D11DepthStencilView;
+struct ID3D11DeviceContext;
 struct D3D11_VIEWPORT;
 typedef struct tagRECT RECT;
 
@@ -279,8 +280,9 @@ struct CompositeDraw {
 };
 CompositeDraw GetCompositeDraw ();
 
-// RENDER THREAD, from the non-indexed draw detour, before it is forwarded.
-void NoteDirectDraw (uint32_t vertexCount);
+// RENDER THREAD, from the non-indexed draw detour, before it is forwarded. The
+// windows it reports are the context's (§11), not the tracker's.
+void NoteDirectDraw (ID3D11DeviceContext* context, uint32_t vertexCount);
 
 uint64_t SceneConsumedCount ();
 
@@ -336,7 +338,11 @@ ScenePass LastCompletedScenePass ();
 // Returns true when this draw is a qualifying camera-bearing draw of the learned
 // model pass -- the caller should then snapshot the camera bytes it is about to
 // consume. See InjectionRenderer::SnapshotCamera.
-bool OnDraw ();
+//
+// ⚠️ `context` IS ASKED FOR THE CAMERA WINDOWS, AND THE TRACKER IS NOT (§11). Whether
+// a pass carried a camera decides which pass is the model's; reading it from the
+// tracker made that decision depend on the hooks having caught Archicad's `b2` bind.
+bool OnDraw (ID3D11DeviceContext* context);
 
 // ⚠️ THE SCENE-COMPLETION TRIGGER, AND IT IS CAUSAL RATHER THAN PREDICTIVE.
 // Returns true when this copy or resolve is consuming the completed scene

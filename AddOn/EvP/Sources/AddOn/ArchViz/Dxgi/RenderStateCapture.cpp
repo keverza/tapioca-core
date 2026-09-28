@@ -205,17 +205,25 @@ bool SameExtent (float a, float b)
     return difference < 0.5f;
 }
 
-bool OnDraw ()
+bool OnDraw (ID3D11DeviceContext* context)
 {
     if (g_currentPass.generation == 0)
         return false;
     if (!g_currentPass.boundaryHit && g_boundColour == g_currentPass.colorTarget) {
         ++g_currentPass.draws;
         ++g_currentPass.drawsThisEpoch;
+        // ⚠️ THE WINDOWS ARE THE CONTEXT'S, ASKED AT THIS DRAW (§11). The
+        // tracker's `b2` disagreed with the context at 766 of 766 census draws on
+        // 2026-09-28 12:01, and at 1156 of 1167 in the last session that locked:
+        // a camera test read from it passed only when the hooks happened to catch
+        // Archicad's bind, and when they caught none no pass ever carried a camera.
+        // Only the model pass's draws ask -- tens per frame, as the census does.
+        contextstate::ContextState live = contextstate::Snapshot ();
+        const contextstate::BoundConstants bound (context);
+        bound.ApplyTo (live);
         // ⚠️ DID THIS DRAW CARRY A CAMERA? That is what separates the model pass
         // from a gizmo pass on a host where neither is busy.
         {
-            const contextstate::ContextState live = contextstate::Snapshot ();
             if (live.vsConstantBuffers[0].IsBound ()) {
                 const uint64_t b0 = uint64_t (live.vsConstantBuffers[0].firstConstant);
                 if (!g_currentPass.b0Bound) {
@@ -264,9 +272,9 @@ bool OnDraw ()
             g_modelPassOfGeneration = g_currentPass.generation;
             ++g_modelSceneGeneration;
         }
-        const bool latchedCamera =
-            contextstate::OnSceneDraw (g_currentPass.generation, g_currentPass.targetEpoch,
-                                       g_currentPass.drawsThisEpoch, g_modelSceneGeneration, inModelPass);
+        const bool latchedCamera = contextstate::OnSceneDraw (g_currentPass.generation, g_currentPass.targetEpoch,
+                                                              g_currentPass.drawsThisEpoch, g_modelSceneGeneration,
+                                                              inModelPass, live.vsConstantBuffers);
         // ⚠️ TRUE MEANS "SNAPSHOT THE CAMERA THIS DRAW JUST BECAME THE SOURCE OF",
         // and the answer comes from the latch itself rather than from a second
         // predicate here. Run twenty-eight still reported exactly twice the truth
@@ -407,13 +415,17 @@ LatchCensus GetLatchCensus ()
 
 CompositeDraw g_composite;
 
-void NoteDirectDraw (uint32_t vertexCount)
+void NoteDirectDraw (ID3D11DeviceContext* context, uint32_t vertexCount)
 {
     // A fullscreen quad is four vertices, or six for two triangles. Anything
     // larger is geometry and not a composite.
     if (vertexCount > 6 || g_currentPass.generation == 0)
         return;
-    const contextstate::ContextState live = contextstate::Snapshot ();
+    // The context's windows: the tracker's printed `b2 unbound` for a whole
+    // session in which the context had it bound at every census draw.
+    contextstate::ContextState live = contextstate::Snapshot ();
+    const contextstate::BoundConstants bound (context);
+    bound.ApplyTo (live);
     const uint64_t b0 =
         live.vsConstantBuffers[0].IsBound () ? uint64_t (live.vsConstantBuffers[0].firstConstant) + 1 : 0;
     const uint64_t b1 =

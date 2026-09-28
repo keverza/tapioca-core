@@ -209,8 +209,16 @@ struct SceneDrawState {
 // this function counted 362. Every snapshot count downstream was therefore
 // exactly twice the truth, and the invariant that was supposed to catch it was
 // comparing two different populations.
+//
+// ⚠️ `constants` ARE THE CALLER'S, ASKED OF THE CONTEXT AT THIS DRAW (§11), and the
+// windows this latches are those. The tracker's own `b2` disagreed with the context
+// at 766 of 766 census draws on 2026-09-28 12:01 -- and at 1156 of 1167 in the last
+// session that locked, which locked only on the few binds the hooks caught -- so a
+// latch that tested the tracker qualified a draw only when the hooks were lucky.
+// Everything else latched here is still the tracker's: identities, which §11 allows.
 bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch, uint64_t drawSequence,
-                  uint64_t modelSceneGeneration, bool inModelPass);
+                  uint64_t modelSceneGeneration, bool inModelPass,
+                  const ConstantBufferBinding (&constants)[kConstantBufferSlots]);
 
 // ANY THREAD. What the most recent verified scene draw consumed.
 SceneDrawState LastSceneDraw ();

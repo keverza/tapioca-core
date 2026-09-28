@@ -552,7 +552,7 @@ void STDMETHODCALLTYPE DetourDrawIndexed (ID3D11DeviceContext* context, UINT ind
     const bool archicad = Who (context, ContextSlot::DrawIndexed) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on
@@ -575,7 +575,7 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
     const bool archicad = Who (context, ContextSlot::Draw) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on
@@ -583,7 +583,7 @@ void STDMETHODCALLTYPE DetourDraw (ID3D11DeviceContext* context, UINT count, UIN
         // rather than on the learner's verdict. See CameraCensus.hpp.
         census::OnDraw (context, census::DrawKind::Direct, count);
         drawrecorder::OnDraw (context, uint32_t (census::DrawKind::Direct), count, 1);
-        renderstate::NoteDirectDraw (count);
+        renderstate::NoteDirectDraw (context, count);
     }
     const DrawFn original = OriginalOf<DrawFn> (ContextSlot::Draw);
     if (original != nullptr)
@@ -600,7 +600,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstanced (ID3D11DeviceContext* context,
     const bool archicad = Who (context, ContextSlot::DrawIndexedInstanced) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on
@@ -684,7 +684,7 @@ void STDMETHODCALLTYPE DetourDrawInstanced (ID3D11DeviceContext* context, UINT p
     const bool archicad = Who (context, ContextSlot::DrawInstanced) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on
@@ -707,7 +707,7 @@ void STDMETHODCALLTYPE DetourDrawAuto (ID3D11DeviceContext* context)
     const bool archicad = Who (context, ContextSlot::DrawAuto) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on
@@ -733,7 +733,7 @@ void STDMETHODCALLTYPE DetourDrawIndexedInstancedIndirect (ID3D11DeviceContext* 
     const bool archicad = Who (context, ContextSlot::DrawIndexedInstancedIndirect) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on
@@ -758,7 +758,7 @@ void STDMETHODCALLTYPE DetourDrawInstancedIndirect (ID3D11DeviceContext* context
     const bool archicad = Who (context, ContextSlot::DrawInstancedIndirect) == Audience::Archicad;
     PassProvenanceOperation provenanceOperation (archicad);
     if (archicad) {
-        if (renderstate::OnDraw ())
+        if (renderstate::OnDraw (context))
             injection::SnapshotCamera (context);
         // ⚠️ THE CENSUS SEES EVERY DRAW, NOT ONLY THE LEARNED PASS'S. It is off
         // unless a diagnostic arms it, it draws nothing, and it admits a draw on

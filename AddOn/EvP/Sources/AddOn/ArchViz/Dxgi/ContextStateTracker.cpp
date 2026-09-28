@@ -50,7 +50,8 @@ bool Injecting ()
 }
 
 bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch, uint64_t drawSequence,
-                  uint64_t modelSceneGeneration, bool inModelPass)
+                  uint64_t modelSceneGeneration, bool inModelPass,
+                  const ConstantBufferBinding (&constants)[kConstantBufferSlots])
 {
     // ⚠️ THE WHOLE LIVE STATE, LATCHED AT THE DRAW. Not a reference to it, not a
     // promise to read it later: by the time anything wants this, Archicad may
@@ -68,13 +69,13 @@ bool OnSceneDraw (uint64_t scenePassGeneration, uint64_t sceneTargetEpoch, uint6
     g_lastSceneDraw.viewportWidth = g_state.viewportWidth;
     g_lastSceneDraw.viewportHeight = g_state.viewportHeight;
     for (size_t i = 0; i < kConstantBufferSlots; ++i)
-        g_lastSceneDraw.vsConstantBuffers[i] = g_state.vsConstantBuffers[i];
+        g_lastSceneDraw.vsConstantBuffers[i] = constants[i];
 
     // ⚠️ STRICT: THIS DRAW, BOTH WINDOWS, RIGHT SIZE. Anything looser lets a
     // gizmo draw that inherited a stale binding count as camera-bearing.
     ++g_drawCounts.total;
-    const ConstantBufferBinding& view = g_state.vsConstantBuffers[1];
-    const ConstantBufferBinding& projection = g_state.vsConstantBuffers[2];
+    const ConstantBufferBinding& view = constants[1];
+    const ConstantBufferBinding& projection = constants[2];
     const bool hasView = view.IsBound () && view.numConstants == kCameraWindowConstants;
     const bool hasProjection = projection.IsBound () && projection.numConstants == kCameraWindowConstants;
     if (hasView)
