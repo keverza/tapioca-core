@@ -373,6 +373,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # 3D overlay its prepared copy through the controller.
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayLayers.hpp"),
     ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayController.hpp"),
+    # The layer verbs' parameters, read into the same store the verbs fill: split out
+    # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
+    ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),
     # The massing slabs' floor slices read each slab's polygon through the one walk of
     # a polygon memo. Its indexing -- 1-based coords, the closing repeat, the arc
     # lookup by begIndex -- must not exist twice, and it lives with the element reads.

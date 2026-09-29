@@ -462,6 +462,8 @@ set (EVP_ARCHVIZ_SOURCES
     # against the real font and the real dimension geometry.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayText.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayScene.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneScreen.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlaySceneMath.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
     # label's corner, each annotation primitive's drawn form.
     "${EVP_ROOT}/Sources/AddOn/ArchViz/StorySliceOverlayContent.cpp"
