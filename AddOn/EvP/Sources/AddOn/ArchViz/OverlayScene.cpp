@@ -90,6 +90,7 @@ void Builder::AddMesh (const layers::Layer& layer, const layers::Mesh& mesh)
         if (!(max > min))
             max = min + 1.0;
         SetRamp (fill.draw, mesh.colormap, min, max);
+        fill.draw.layer = LayerKey (layer.name);
     }
     // The caller's normals, per vertex; otherwise, for a shaded mesh, per corner and
     // split at creases (CornerNormals). A flat mesh reads none.
@@ -740,6 +741,7 @@ void FinishPlan (Draft& draft, overlayhud::Engine* hud, Plan& out)
 {
     out.problems = draft.problems;
     out.regions = std::move (draft.regions);
+    out.highlight = draft.highlight;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
@@ -874,6 +876,7 @@ void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
 {
     out.problems = draft.problems;
     out.regions = std::move (draft.regions);
+    out.highlight = draft.highlight;
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);

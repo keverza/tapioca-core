@@ -145,6 +145,8 @@ struct Draft {
     std::vector<std::array<float, layers::kMaxDashEntries>> dashes;
     // Where its legends and panels are on the view (OverlayHitMap.hpp).
     std::vector<overlayinput::Region> regions;
+    // A HUD draft's: the band of a layer's heatmaps the pointer shows.
+    Highlight highlight;
 };
 
 // A panel, and whose it is: its layer and its place among that layer's panels -- what

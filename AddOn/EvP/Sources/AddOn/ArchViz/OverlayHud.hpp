@@ -93,6 +93,7 @@ struct Input {
 // hovered for the value under the pointer.
 struct LegendBar {
     const overlaylayers::Legend* legend = nullptr;
+    std::string layer;                          // whose heatmaps it describes
     float rect[4] = { 0.0f, 0.0f, 0.0f, 0.0f }; // view pixels: left, top, right, bottom
 };
 
@@ -101,6 +102,17 @@ struct LegendBar {
 struct Layout {
     std::vector<Built> panels;
     Built overlay;
+    // The ramp or legend the pointer is on: its layer, and the band of values under the
+    // pointer -- that band of the layer's heatmaps is shown, the rest dimmed
+    // (OverlayScene.hpp `Highlight`). A band is a colormap's band where it has them,
+    // otherwise a twentieth of the range either side of the value.
+    struct Highlight {
+        bool active = false;
+        std::string layer;
+        double low = 0.0;
+        double high = 0.0;
+    };
+    Highlight highlight;
 };
 
 struct Stats {

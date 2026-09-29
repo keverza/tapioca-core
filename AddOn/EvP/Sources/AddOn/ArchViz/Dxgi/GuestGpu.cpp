@@ -444,7 +444,8 @@ void BindCamera (Pipelines& pipelines, std::vector<Page>& pages, Diligent::IBuff
 }
 
 void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const std::vector<Page>& pages,
-           const Content& content, const void* frame, bool haveDepth, float dpiScale, DrawStats& stats)
+           const Content& content, const void* frame, bool haveDepth, float dpiScale, DrawStats& stats,
+           const overlayscene::Highlight& highlight)
 {
     if (!pipelines.ready || context == nullptr || content.Empty ())
         return;
@@ -475,6 +476,11 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
                 DrawConstants values =
                     Constants (float (draw.shading), draw.opacity, float (passes[p]), draw.screen ? 1.0f : 0.0f);
                 Ramp (draw, dpiScale, values);
+                if (highlight.layer != 0 && draw.heatmap && !draw.screen && draw.layer == highlight.layer) {
+                    values.highlight[0] = highlight.low;
+                    values.highlight[1] = highlight.high;
+                    values.highlight[2] = 1.0f;
+                }
                 if (!constants (values))
                     return;
                 context->SetPipelineState (pipelines.fill[DepthState (passes[p])][draw.cullBack ? 1 : 0]);

@@ -42,6 +42,8 @@ std::vector<gpu::Page> g_hudPages;
 gpu::Content g_hudContent;
 // What the HUD last put on screen: a layout that puts the same is not uploaded again.
 uint64_t g_hudPrint = 0;
+// The band of a heatmap the HUD's pointer is on (OverlayScene.hpp `Highlight`).
+overlayscene::Highlight g_highlight;
 double g_originX = 0.0;
 double g_originY = 0.0;
 float g_dpiScale = 1.0f;
@@ -101,6 +103,7 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
     const overlayscene::Plan panels = overlayscene::PreparePlanHud (layers, hud, g_dpiScale, input, &g_sceneRegions);
     g_hudProblems = panels.problems;
     g_hudRegions = panels.regions;
+    g_highlight = panels.highlight;
     const uint64_t print = overlayscene::Fingerprint (panels);
     if (print == g_hudPrint && g_hudPrint != 0)
         return true;
@@ -295,7 +298,7 @@ void Draw (ID3D11DeviceContext* native, ID3D11RenderTargetView* target, const pl
     const auto started = std::chrono::steady_clock::now ();
     g_guest.BeginDraw (native, target, nullptr);
     gpu::DrawStats drawn;
-    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn);
+    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn, g_highlight);
     // The HUD last, over everything.
     gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, &frame, false, g_dpiScale, drawn);
     const uint32_t took = uint32_t (
@@ -315,6 +318,7 @@ void Release ()
     g_haveGeneration = false;
     g_generation = 0;
     g_stats = Stats {};
+    g_highlight = overlayscene::Highlight {};
     g_sceneRegions.clear ();
     g_hudRegions.clear ();
 }

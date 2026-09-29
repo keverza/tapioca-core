@@ -321,7 +321,10 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
     const auto started = std::chrono::steady_clock::now ();
     g_guest.BeginDraw (context, target, depth);
     gpu::DrawStats drawn;
-    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn);
+    // The band of a heatmap the HUD's pointer is on travels with the HUD.
+    const overlayscene::Highlight highlight = hud ? g_currentHud->scene.highlight : overlayscene::Highlight ();
+    gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, dpiScale, drawn,
+               highlight);
     // The HUD last, over everything.
     gpu::Draw (g_guest.Context (), g_pipelines, g_hudPages, g_hudContent, frame, depth != nullptr, dpiScale, drawn);
     // The render thread's own time for it -- lock-free, no allocation (§11).

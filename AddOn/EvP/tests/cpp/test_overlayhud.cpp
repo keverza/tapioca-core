@@ -3,6 +3,7 @@
 // colour or a glyph sampling an atlas that moved is a picture over Archicad's view, so
 // the layout and the atlas protocol are pinned here against the real library.
 
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayScene.hpp"
 
@@ -15,6 +16,7 @@
 #include <set>
 
 namespace hud = geomsrv::archviz::overlayhud;
+namespace input = geomsrv::archviz::overlayinput;
 namespace layers = geomsrv::archviz::overlaylayers;
 namespace scene = geomsrv::archviz::overlayscene;
 namespace text = geomsrv::archviz::overlaytext;
@@ -431,4 +433,115 @@ TEST (OverlayHud, TheFingerprintMovesOnlyWithThePixels)
     input.y = 16.0f + panel.paddingPixels + 5.0f;
     const uint64_t hovered = scene::Fingerprint (scene::PrepareSceneHud (all, &hud.engine, 1.0f, input));
     EXPECT_NE (hovered, first);
+}
+
+// ---- a legend or ramp pointed at shows its band of the heatmap -----------------------------
+
+// ⚠️ STAGE 1 (the user, 2026-09-29): hovering a legend colour highlights that value range
+// on the heatmap. The layout names the legend's layer and the band under the pointer: a
+// banded legend's band, otherwise a twentieth of the range either side of the value.
+TEST (OverlayHud, APointedLegendNamesItsLayerAndBand)
+{
+    Fresh hud;
+    layers::Legend legend;
+    ASSERT_TRUE (layers::PresetStops ("viridis", legend.colormap.stops));
+    legend.colormap.min = 0.0;
+    legend.colormap.max = 100.0;
+    hud::LegendBar bar;
+    bar.legend = &legend;
+    bar.layer = "sun";
+    bar.rect[0] = 1100.0f;
+    bar.rect[1] = 500.0f;
+    bar.rect[2] = 1112.0f;
+    bar.rect[3] = 700.0f;
+    EXPECT_FALSE (hud.Lay ({}, At (600.0f, 600.0f), { bar }).highlight.active);
+    // A quarter of the way up the bar: 25, and 5 either side.
+    const hud::Layout smooth = hud.Lay ({}, At (1106.0f, 650.0f), { bar });
+    ASSERT_TRUE (smooth.highlight.active);
+    EXPECT_EQ (smooth.highlight.layer, "sun");
+    EXPECT_NEAR (smooth.highlight.low, 20.0, 0.6);
+    EXPECT_NEAR (smooth.highlight.high, 30.0, 0.6);
+    // Banded in five: the second band, exactly.
+    legend.colormap.bands = 5;
+    const hud::Layout banded = hud.Lay ({}, At (1106.0f, 650.0f), { bar });
+    ASSERT_TRUE (banded.highlight.active);
+    EXPECT_DOUBLE_EQ (banded.highlight.low, 20.0);
+    EXPECT_DOUBLE_EQ (banded.highlight.high, 40.0);
+    // At the bottom the band stops at the range's end.
+    legend.colormap.bands = 0;
+    const hud::Layout bottom = hud.Lay ({}, At (1106.0f, 699.5f), { bar });
+    EXPECT_DOUBLE_EQ (bottom.highlight.low, 0.0);
+}
+
+// A ramp inside a panel describes the heatmaps of the panel's own layer.
+TEST (OverlayHud, APointedRampNamesItsPanelsLayer)
+{
+    Fresh hud;
+    layers::Panel panel;
+    layers::PanelItem ramp = Item (layers::ItemKind::Ramp);
+    ASSERT_TRUE (layers::PresetStops ("sunhours", ramp.colormap.stops));
+    ramp.colormap.autoRange = false;
+    ramp.colormap.min = 0.0;
+    ramp.colormap.max = 12.0;
+    ramp.widthPixels = 200.0f;
+    panel.items = { ramp };
+    std::vector<std::string> keys = { "sun#study#2" }; // a layer whose name holds a '#'
+    hud::Layout out;
+    std::string error;
+    const float left = 16.0f + panel.paddingPixels, top = 16.0f + panel.paddingPixels;
+    ASSERT_TRUE (hud.engine.Build ({ &panel }, keys, 1.0f, At (left + 100.0f, top + 5.0f), {}, out, error)) << error;
+    ASSERT_TRUE (out.highlight.active);
+    EXPECT_EQ (out.highlight.layer, "sun#study");
+    EXPECT_NEAR (out.highlight.low, 6.0 - 0.6, 0.1);
+    EXPECT_NEAR (out.highlight.high, 6.0 + 0.6, 0.1);
+}
+
+// Through the scene: the heatmap's draw carries its layer, the legend's own bar does not
+// (it keeps its colours), and the HUD stream says which band of which layer is shown.
+TEST (OverlayHud, TheHudStreamNamesTheHeatmapItHighlights)
+{
+    layers::Layer layer;
+    layer.name = "sun";
+    layers::Mesh heat;
+    heat.points = { 0, 0, 0, 10, 0, 0, 10, 10, 0 };
+    heat.indices = { 0, 1, 2 };
+    heat.values = { 0.0, 50.0, 100.0 };
+    ASSERT_TRUE (layers::PresetStops ("viridis", heat.colormap.stops));
+    layer.meshes = { heat };
+    layers::Legend legend;
+    legend.colormap = heat.colormap;
+    legend.colormap.autoRange = false;
+    legend.colormap.min = 0.0;
+    legend.colormap.max = 100.0;
+    legend.corner = layers::Corner::TopLeft;
+    legend.title.clear ();
+    layer.legends = { legend };
+    ASSERT_EQ (layers::Validate (layer), "");
+    const std::vector<std::shared_ptr<const layers::Layer>> all = { std::make_shared<const layers::Layer> (layer) };
+    const scene::Scene drawn = scene::PrepareScene (all, nullptr);
+    bool heatmap = false;
+    for (const scene::FillDraw& draw : drawn.fillDraws) {
+        if (draw.heatmap && !draw.screen) {
+            heatmap = true;
+            EXPECT_EQ (draw.layer, scene::LayerKey ("sun"));
+        }
+        if (draw.screen)
+            EXPECT_EQ (draw.layer, 0u) << "the legend's own bar keeps its colours";
+    }
+    EXPECT_TRUE (heatmap);
+    EXPECT_NE (scene::LayerKey ("sun"), scene::LayerKey ("shade"));
+    EXPECT_NE (scene::LayerKey (""), 0u);
+
+    // The pointer on the legend's bar, found through its region.
+    ASSERT_EQ (drawn.regions.size (), 1u);
+    const input::Region& region = drawn.regions[0];
+    Fresh hud;
+    const float x = (region.bar[0] + region.bar[2]) * 0.5f, y = (region.bar[1] + region.bar[3]) * 0.5f;
+    const scene::Scene stream = scene::PrepareSceneHud (all, &hud.engine, 1.0f, At (x, y), &drawn.regions);
+    EXPECT_EQ (stream.highlight.layer, scene::LayerKey ("sun"));
+    EXPECT_NEAR (stream.highlight.low, 45.0f, 1.0f);
+    EXPECT_NEAR (stream.highlight.high, 55.0f, 1.0f);
+    const scene::Scene away = scene::PrepareSceneHud (all, &hud.engine, 1.0f, At (600.0f, 600.0f), &drawn.regions);
+    EXPECT_EQ (away.highlight.layer, 0u);
+    EXPECT_NE (scene::Fingerprint (stream), scene::Fingerprint (away));
 }

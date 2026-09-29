@@ -65,8 +65,9 @@ struct DrawConstants {
     float stopColour[16][4];
     float atlas[4];
     float dashes[32][4]; // 16 patterns of 8 lengths in metres (overlayscene's `dashes`)
+    float highlight[4];  // low, high, 1: the band of a heatmap shown (overlayscene::Highlight)
 };
-static_assert (sizeof (DrawConstants) == 912, "GuestDraw is 57 float4s");
+static_assert (sizeof (DrawConstants) == 928, "GuestDraw is 58 float4s");
 
 struct Pipelines {
     Kind kind = Kind::Plan;
@@ -142,11 +143,13 @@ struct DrawStats {
     uint32_t mapFailures = 0;
 };
 
-// Draws the content: fills, then lines, then glyphs, each in its passes. Call after
+// Draws the content: fills, then lines, then glyphs, each in its passes. `highlight`
+// dims the named layer's heatmaps outside its band. Call after
 // the guest's `BeginDraw`, inside the caller's ScopedPipelineState. `frame` is the
 // frame cbuffer's bytes (`pipelines.frameBytes` of them).
 void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const std::vector<Page>& pages,
-           const Content& content, const void* frame, bool haveDepth, float dpiScale, DrawStats& stats);
+           const Content& content, const void* frame, bool haveDepth, float dpiScale, DrawStats& stats,
+           const overlayscene::Highlight& highlight = overlayscene::Highlight ());
 
 } // namespace guestgpu
 } // namespace dxgi

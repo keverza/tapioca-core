@@ -48,6 +48,7 @@ cbuffer GuestDraw
     float4 StopColour[16];
     float4 Atlas;         // x 1 / page width, y 1 / page height, z distance range and w the em in atlas pixels
     float4 Dashes[32];    // 16 dash patterns of 8 lengths in metres: on, off, on, off...
+    float4 Highlight;     // x low, y high, z 1: a heatmap whose legend is pointed at
 };
 
 struct FillOut
@@ -113,6 +114,16 @@ bool InPass (uint behind)
     return behind == 3u;
 }
 
+// A heatmap's fragment outside the band its legend is pointed at (OverlayHud.hpp):
+// mostly grey and faint, so the band stands out. Unchanged with no band.
+float4 Highlighted (float4 c, float value)
+{
+    if (Highlight.z < 0.5 || (value >= Highlight.x && value <= Highlight.y))
+        return c;
+    float grey = dot (c.rgb, float3 (0.299, 0.587, 0.114));
+    return float4 (lerp (c.rgb, float3 (grey, grey, grey), 0.75), c.a * 0.35);
+}
+
 float4 PSFill (FillOut i) : SV_TARGET
 {
     float4 c = i.colour;
@@ -132,6 +143,7 @@ float4 PSFill (FillOut i) : SV_TARGET
         float contour = Iso.x > 0.0 ? saturate (Iso.y - d + 0.5) : 0.0;
         c.rgb = lerp (c.rgb, IsoColour.rgb, contour * IsoColour.a);
         c.a = max (c.a, contour * IsoColour.a);
+        c = Highlighted (c, i.value);
     }
     float3 n = i.normalView;
     float facing = dot (n, n) > 1e-12 ? saturate (abs (normalize (n).z)) : 1.0;

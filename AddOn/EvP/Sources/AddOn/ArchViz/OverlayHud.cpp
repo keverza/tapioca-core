@@ -118,9 +118,13 @@ int PushPanelStyle (const layers::Panel& panel, float scale)
     return int (sizeof (colours) / sizeof (colours[0]));
 }
 
+// The share of a smooth ramp's range either side of the value that a highlight shows.
+constexpr double kHighlightHalfShare = 0.05;
+
 // What a ramp says at `t` along it: the value, or the band it falls in, and its colour.
+// `band` is what its heatmap shows while it is pointed at.
 void ValueTip (const layers::Colormap& colormap, float t, double low, double high, uint32_t decimals,
-               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale)
+               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale, double band[2])
 {
     t = (std::min) ((std::max) (t, 0.0f), 1.0f);
     std::string text;
@@ -128,12 +132,16 @@ void ValueTip (const layers::Colormap& colormap, float t, double low, double hig
     if (colormap.bands > 0) {
         const uint32_t bands = colormap.bands;
         const uint32_t k = (std::min) (uint32_t (t * float (bands)), bands - 1);
-        text = Number (low + (high - low) * double (k) / double (bands), decimals) + " \xE2\x80\x93 " +
-               Number (low + (high - low) * double (k + 1) / double (bands), decimals);
+        band[0] = low + (high - low) * double (k) / double (bands);
+        band[1] = low + (high - low) * double (k + 1) / double (bands);
+        text = Number (band[0], decimals) + " \xE2\x80\x93 " + Number (band[1], decimals);
         colourAt = bands > 1 ? float (k) / float (bands - 1) : 0.5f;
     }
     else {
-        text = Number (low + (high - low) * double (t), decimals);
+        const double value = low + (high - low) * double (t), half = (high - low) * kHighlightHalfShare;
+        band[0] = (std::max) (value - half, (std::min) (low, high));
+        band[1] = (std::min) (value + half, (std::max) (low, high));
+        text = Number (value, decimals);
     }
     if (!unit.empty ())
         text += " " + unit;
@@ -185,6 +193,9 @@ struct Engine::Impl {
         std::map<uint32_t, bool> sections; // by item index
     };
     std::map<std::string, PanelState> states;
+    // The layer of the panel being laid out, and what the pointer is on this frame.
+    std::string layer;
+    Layout::Highlight highlight;
     // The panels' windows in the frame being laid out, by the panel's place in the set.
     std::vector<ImGuiWindow*> windows;
     std::chrono::steady_clock::time_point lastBuild {};
@@ -358,9 +369,13 @@ struct Engine::Impl {
 
         // Pointed at: the value there, over the bar at the pointer.
         const ImVec2 mouse = ImGui::GetIO ().MousePos;
-        if (w > 0.0f && ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (p, ImVec2 (p.x + w, p.y + h)))
+        if (w > 0.0f && ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (p, ImVec2 (p.x + w, p.y + h))) {
+            double band[2] = {};
             ValueTip (item.colormap, (mouse.x - p.x) / w, low, high, item.decimals, item.unit,
-                      ImVec2 (mouse.x, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale);
+                      ImVec2 (mouse.x, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale, band);
+            // A ramp in a panel describes its own layer's heatmaps.
+            highlight = { true, layer, band[0], band[1] };
+        }
     }
 
     // A section's header: its chevron and title, its figure at the right; open or not as
@@ -514,6 +529,7 @@ struct Engine::Impl {
     void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, ImVec2 view)
     {
         PanelState& state = StateOf (key, panel);
+        layer = key.substr (0, key.rfind ('#'));
         const bool titled = !panel.title.empty ();
         const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3;
         const ImVec2 pivot (float (column) * 0.5f, float (row) * 0.5f);
@@ -570,10 +586,11 @@ struct Engine::Impl {
             if (b.x <= a.x || b.y <= a.y || !ImGui::IsMouseHoveringRect (a, b, false))
                 continue;
             const layers::Legend& legend = *bar.legend;
+            double band[2] = {};
             if (legend.horizontal) {
                 ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min, legend.colormap.max,
                           legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f),
-                          scale);
+                          scale, band);
             }
             else {
                 // Towards the middle of the view, away from the edge the legend sits at.
@@ -581,8 +598,9 @@ struct Engine::Impl {
                 ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min, legend.colormap.max,
                           legend.decimals, legend.unit,
                           ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
-                          ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale);
+                          ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale, band);
             }
+            highlight = { true, bar.layer, band[0], band[1] };
             return;
         }
     }
@@ -599,6 +617,7 @@ struct Engine::Impl {
         BaseStyle (scale);
         ImGui::NewFrame ();
         windows.assign (panels.size (), nullptr);
+        highlight = Layout::Highlight {};
         for (size_t i = 0; i < panels.size (); ++i)
             Window (*panels[i], keys[i], i, scale, view);
         if (known)
@@ -763,6 +782,7 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::
         out.panels.assign (panels.size (), Built {});
         unsampled = 0;
         impl_->Collect (out, unsampled);
+        out.highlight = impl_->highlight;
         for (size_t i = 0; i < panels.size (); ++i) {
             Built& built = out.panels[i];
             if (impl_->windows[i] != nullptr) {

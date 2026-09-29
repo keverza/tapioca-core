@@ -157,7 +157,19 @@ struct FillDraw {
     float isolineStep = 0.0f;
     uint32_t isolineRgba = 0;
     float isolineWidthPixels = 1.0f;
+    uint32_t layer = 0; // a heatmap's layer (LayerKey): what a highlight names
 };
+
+// A band of one layer's heatmap values shown, the rest of them dimmed: the legend or ramp
+// the pointer is on (OverlayHud.hpp `Layout::Highlight`). `layer` 0: none.
+struct Highlight {
+    uint32_t layer = 0;
+    float low = 0.0f;
+    float high = 0.0f;
+};
+
+// A layer's name as its fills carry it; never 0.
+uint32_t LayerKey (const std::string& name);
 
 // Glyph quads that sample one atlas page with one depth policy.
 struct GlyphDraw {
@@ -197,6 +209,8 @@ struct Plan {
     // Where its legends and panels are on the view, in draw order: what the HUD's input
     // tests a pointer against (OverlayHitMap.hpp).
     std::vector<overlayinput::Region> regions;
+    // The HUD stream's: the band of a layer's heatmaps the pointer shows.
+    Highlight highlight;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;
@@ -220,6 +234,8 @@ struct Scene {
     // Where its legends and panels are on the view, in draw order: what the HUD's input
     // tests a pointer against (OverlayHitMap.hpp).
     std::vector<overlayinput::Region> regions;
+    // The HUD stream's: the band of a layer's heatmaps the pointer shows.
+    Highlight highlight;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;

@@ -30,6 +30,7 @@ void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& a
                     continue;
                 overlayhud::LegendBar bar;
                 bar.legend = &layer->legends[region.item];
+                bar.layer = region.layer;
                 const float s = region.logical ? scale_ : 1.0f;
                 const float ax = region.fraction[0] * input.width, ay = region.fraction[1] * input.height;
                 for (int k = 0; k < 4; ++k)
@@ -74,6 +75,9 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::In
         if (layout.panels.size () != panels.size ())
             return;
     }
+    if (layout.highlight.active)
+        draft_.highlight = { LayerKey (layout.highlight.layer), float (layout.highlight.low),
+                             float (layout.highlight.high) };
     const std::vector<overlayhud::Built>& built = layout.panels;
     for (size_t i = 0; i < panels.size (); ++i) {
         const float* const fraction = built[i].fraction;
@@ -330,10 +334,21 @@ template <typename Stream> uint64_t FingerprintOf (const Stream& hud)
         const uint64_t id = page != nullptr ? page->id : 0;
         Mix (hash, &id, sizeof (id));
     }
+    Mix (hash, &hud.highlight, sizeof (hud.highlight));
     return hash;
 }
 
 } // namespace
+
+uint32_t LayerKey (const std::string& name)
+{
+    uint32_t hash = 2166136261u;
+    for (const unsigned char c : name) {
+        hash ^= c;
+        hash *= 16777619u;
+    }
+    return hash != 0 ? hash : 1u;
+}
 
 uint64_t Fingerprint (const Plan& hud)
 {
