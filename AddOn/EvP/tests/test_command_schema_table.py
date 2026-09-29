@@ -26,9 +26,13 @@ def test_shared_schema_definitions_are_valid_and_strict():
         blocks = re.findall(r'R"json\((.*?)\)json"', source.read(), re.DOTALL)
 
     definitions = json.loads(blocks[0])
-    assert set(definitions) == {"ElementId", "Element", "Elements", "Point2D", "Point3D"}
+    assert set(definitions) == {"ElementId", "Element", "Elements", "Point2D", "Point3D", "Color"}
     for name in ("ElementId", "Element", "Point2D", "Point3D"):
         assert definitions[name]["additionalProperties"] is False
+    # A colour is one string form everywhere, 6 or 8 hex digits and an optional '#'; the
+    # validator has no pattern keyword, so its length bounds are the schema's half.
+    assert definitions["Color"] == {"type": "string", "minLength": 6, "maxLength": 9,
+                                     "description": definitions["Color"]["description"]}
 
 
 def test_main_thread_commands_delegate_to_central_schema_lookup():

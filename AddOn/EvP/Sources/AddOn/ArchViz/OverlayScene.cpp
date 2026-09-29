@@ -22,10 +22,10 @@ namespace build {
 void Builder::AddLayer (const layers::Layer& layer)
 {
     for (const layers::Mesh& mesh : layer.meshes)
-        if (layers::DrawnByGuest (mesh))
+        if (layers::DrawnByGuest (mesh, layer))
             AddMesh (layer, mesh);
     for (const layers::Polyline& polyline : layer.polylines)
-        if (layers::DrawnByGuest (polyline))
+        if (layers::DrawnByGuest (polyline, layer))
             AddPolyline (layer, polyline);
     for (const layers::Dimension& dimension : layer.dimensions)
         AddDimension (layer, dimension);

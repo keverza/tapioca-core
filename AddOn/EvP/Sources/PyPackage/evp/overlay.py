@@ -15,11 +15,14 @@
     overlay.clear("sun")
 
 A layer is drawn by both overlays -- the floor plan and the 3D window -- through each
-one's own transform (`views` picks). Coordinates are MODEL METRES. A HUD panel is laid
+one's own transform (`views` picks). Coordinates are MODEL METRES: a single point is a
+{x, y, z} record on the wire (a tuple here), bulk geometry flat x, y, z. `occlusion` says
+what an item does behind the building in 3D: "hide", "fade", "dash" (lines) or
+"always"; the layer's own is the default for its items. A HUD panel is laid
 out by Dear ImGui and never takes a click; a legend is a colour bar with its values, and
 a panel's `ramp` is the same bar inside a panel, for a layout of one's own.
 
-Colours are "RRGGBBAA" hex, "#RRGGBB[AA]", or an (r, g, b[, a]) tuple in 0..1. Numbers
+Colours are "RRGGBB[AA]" hex, "#" optional, or an (r, g, b[, a]) tuple in 0..1. Numbers
 are sent as REALS: a JSON whole number reaches the add-on as an integer, which the
 overlay reads either way but most verbs do not (see NativeCommands/CommandUtils.hpp).
 """
@@ -27,13 +30,16 @@ overlay reads either way but most verbs do not (see NativeCommands/CommandUtils.
 from .api import call
 
 __all__ = [
-    "Panel", "colour", "text", "legend", "heatmap", "set_layer", "clear", "clear_all", "layers", "hud",
+    "Panel", "colour", "point2", "point3", "text", "legend", "heatmap", "set_layer", "clear", "clear_all", "layers",
+    "hud",
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
 _INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh"}
 
 _ANCHORS = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
+
+_OCCLUSIONS = ("hide", "fade", "dash", "always")
 
 
 def colour(value):
@@ -57,6 +63,32 @@ def colour(value):
         raise ValueError("a colour tuple is (r, g, b) or (r, g, b, a), got %r" % (value,))
     scale = 255.0 if max(components) <= 1.0 else 1.0
     return "".join("%02X" % max(0, min(255, int(round(float(c) * scale)))) for c in components)
+
+
+def _point(value, axes):
+    """A {x, y[, z]} record from a tuple, a list or a record."""
+    if isinstance(value, dict):
+        return {axis: float(value[axis]) for axis in axes}
+    values = list(value)
+    if len(values) != len(axes):
+        raise ValueError("a point is %s, got %r" % (", ".join(axes), value))
+    return {axis: float(v) for axis, v in zip(axes, values)}
+
+
+def point3(value):
+    """{x, y, z} from (x, y, z) -- the wire's #Point3D."""
+    return _point(value, ("x", "y", "z"))
+
+
+def point2(value):
+    """{x, y} from (x, y) -- the wire's #Point2D."""
+    return _point(value, ("x", "y"))
+
+
+def _occlusion(value):
+    if value is not None and value not in _OCCLUSIONS:
+        raise ValueError("occlusion is one of %s" % ", ".join(_OCCLUSIONS))
+    return value
 
 
 def _reals(value, key=None):
@@ -101,7 +133,7 @@ class Panel:
                  background=None, border=None, rounding=None, padding=None):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
-        self._panel = {"anchor": anchor, "offsetPixels": [float(offset[0]), float(offset[1])]}
+        self._panel = {"anchor": anchor, "offsetPixels": point2(offset)}
         if title:
             self._panel["title"] = str(title)
         for key, value in (("widthPixels", width), ("sizePixels", size), ("roundingPixels", rounding),
@@ -169,7 +201,7 @@ class Panel:
 
 
 def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=None, halo_size=None,
-         background=None, align=None, baseline=None, offset=None, rotation=None, behind=None):
+         background=None, align=None, baseline=None, offset=None, rotation=None, occlusion=None):
     """A label: at a model point (`at`), fixed to the view (`screen`, fractions from its
     top left), or lying on a plane in the model (`at` and `plane`).
 
@@ -180,27 +212,26 @@ def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=Non
         raise ValueError("a text is anchored at a model point or on the screen, one of the two")
     out = {"text": str(text)}
     if at is not None:
-        out["at"] = [float(v) for v in at]
+        out["at"] = point3(at)
     if screen is not None:
-        out["screen"] = [float(v) for v in screen]
+        out["screen"] = point2(screen)
     if plane is not None:
         if isinstance(plane, dict):
-            out["plane"] = dict(plane)
+            direction, normal, height = plane["direction"], plane["normal"], plane["sizeMetres"]
         else:
             direction, normal, height = plane
-            out["plane"] = {"direction": [float(v) for v in direction], "normal": [float(v) for v in normal],
-                            "sizeMetres": float(height)}
+        out["plane"] = {"direction": point3(direction), "normal": point3(normal), "sizeMetres": float(height)}
     for key, value in (("sizePixels", size), ("haloPixels", halo_size), ("rotationDegrees", rotation)):
         if value is not None:
             out[key] = float(value)
     for key, value in (("color", color), ("halo", halo), ("background", background)):
         if value is not None:
             out[key] = colour(value)
-    for key, value in (("align", align), ("baseline", baseline), ("behind", behind)):
+    for key, value in (("align", align), ("baseline", baseline), ("occlusion", _occlusion(occlusion))):
         if value is not None:
             out[key] = value
     if offset is not None:
-        out["offsetPixels"] = [float(offset[0]), float(offset[1])]
+        out["offsetPixels"] = point2(offset)
     return out
 
 
@@ -232,9 +263,9 @@ def legend(colormap, minimum=None, maximum=None, title=None, unit=None, mesh=Non
         if value is not None:
             out[key] = colour(value)
     if screen is not None:
-        out["screen"] = [float(screen[0]), float(screen[1])]
+        out["screen"] = point2(screen)
     if offset is not None:
-        out["offsetPixels"] = [float(offset[0]), float(offset[1])]
+        out["offsetPixels"] = point2(offset)
     if tick_values is not None:
         out["tickValues"] = [float(v) for v in tick_values]
     if tick_labels is not None:
@@ -243,15 +274,15 @@ def legend(colormap, minimum=None, maximum=None, title=None, unit=None, mesh=Non
 
 
 def heatmap(points, indices, values, colormap="viridis", minimum=None, maximum=None, bands=None, isolines=None,
-            opacity=None, behind=None):
+            opacity=None, occlusion=None):
     """A mesh coloured by a value per vertex: flat x, y, z points, three indices per
     triangle. Smooth by default; `bands` steps it, `isolines` ({"step", "color"}) draws
     contours."""
     style = {}
     if opacity is not None:
         style["opacity"] = float(opacity)
-    if behind is not None:
-        style["behind"] = behind
+    if occlusion is not None:
+        style["occlusion"] = _occlusion(occlusion)
     out = {"points": [float(v) for v in points], "indices": [int(i) for i in indices],
            "values": [float(v) for v in values],
            "colormap": _colormap(colormap, minimum, maximum, bands, isolines)}
@@ -260,10 +291,10 @@ def heatmap(points, indices, values, colormap="viridis", minimum=None, maximum=N
     return out
 
 
-def set_layer(name, views="both", occluded=None, polylines=None, points=None, meshes=None, texts=None,
+def set_layer(name, views="both", occlusion=None, polylines=None, points=None, meshes=None, texts=None,
               dimensions=None, legends=None, panels=None):
     """Add or replace the layer `name` on the overlays. Returns what was taken."""
-    params = {"layer": str(name), "views": views, "occluded": occluded, "polylines": polylines,
+    params = {"layer": str(name), "views": views, "occlusion": _occlusion(occlusion), "polylines": polylines,
               "points": points, "meshes": meshes, "texts": texts, "dimensions": dimensions, "legends": legends}
     if panels is not None:
         params["panels"] = [p.to_dict() if isinstance(p, Panel) else p for p in panels]

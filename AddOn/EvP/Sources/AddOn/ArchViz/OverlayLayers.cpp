@@ -187,14 +187,24 @@ bool PresetStops (const std::string& name, std::vector<ColourStop>& stops)
     return false;
 }
 
-bool DrawnByGuest (const Polyline& polyline)
+namespace {
+
+// What the raw pipelines can draw: hidden behind the building, or over it.
+bool RawOcclusion (const Layer& layer)
 {
-    return polyline.dashPixels > 0.0f || polyline.behind != Behind::Layer;
+    return layer.occlusion == Behind::Hide || layer.occlusion == Behind::Show;
 }
 
-bool DrawnByGuest (const Mesh& mesh)
+} // namespace
+
+bool DrawnByGuest (const Polyline& polyline, const Layer& layer)
 {
-    return mesh.styled || !mesh.values.empty () || !mesh.normals.empty ();
+    return polyline.dashPixels > 0.0f || polyline.behind != Behind::Layer || !RawOcclusion (layer);
+}
+
+bool DrawnByGuest (const Mesh& mesh, const Layer& layer)
+{
+    return mesh.styled || !mesh.values.empty () || !mesh.normals.empty () || !RawOcclusion (layer);
 }
 
 bool NeedsGuest (const Layer& layer)
@@ -202,10 +212,10 @@ bool NeedsGuest (const Layer& layer)
     if (!layer.texts.empty () || !layer.dimensions.empty () || !layer.legends.empty () || !layer.panels.empty ())
         return true;
     for (const Polyline& polyline : layer.polylines)
-        if (DrawnByGuest (polyline))
+        if (DrawnByGuest (polyline, layer))
             return true;
     for (const Mesh& mesh : layer.meshes)
-        if (DrawnByGuest (mesh))
+        if (DrawnByGuest (mesh, layer))
             return true;
     return false;
 }
@@ -214,7 +224,7 @@ Behind Resolve (Behind behind, const Layer& layer)
 {
     if (behind != Behind::Layer)
         return behind;
-    return layer.occluded ? Behind::Hide : Behind::Show;
+    return layer.occlusion == Behind::Layer ? Behind::Hide : layer.occlusion;
 }
 
 std::string Validate (const Layer& layer)
@@ -352,7 +362,7 @@ Summary Summarise (const Layer& layer)
     Summary summary;
     summary.name = layer.name;
     summary.views = layer.views;
-    summary.occluded = layer.occluded;
+    summary.occlusion = layer.occlusion;
     summary.polylines = uint32_t (layer.polylines.size ());
     for (const Polyline& polyline : layer.polylines)
         summary.lineVertices += uint32_t (polyline.points.size () / 3);
@@ -472,7 +482,7 @@ Prepared2D Prepare2D (const std::vector<std::shared_ptr<const Layer>>& layers)
         if (!DrawnIn (layer->views, Views::TwoD))
             continue;
         for (const Mesh& mesh : layer->meshes) {
-            if (DrawnByGuest (mesh))
+            if (DrawnByGuest (mesh, *layer))
                 continue;
             for (const uint32_t index : mesh.indices) {
                 FillVertex vertex;
@@ -487,7 +497,7 @@ Prepared2D Prepare2D (const std::vector<std::shared_ptr<const Layer>>& layers)
         if (!DrawnIn (layer->views, Views::TwoD))
             continue;
         for (const Polyline& polyline : layer->polylines) {
-            if (DrawnByGuest (polyline))
+            if (DrawnByGuest (polyline, *layer))
                 continue;
             const size_t points = polyline.points.size () / 3;
             const size_t segments = polyline.closed ? points : points - 1;
@@ -522,10 +532,11 @@ Prepared3D Prepare3D (const std::vector<std::shared_ptr<const Layer>>& layers)
     for (const std::shared_ptr<const Layer>& layer : layers) {
         if (!DrawnIn (layer->views, Views::ThreeD))
             continue;
-        std::vector<ColourVertex>& lines = layer->occluded ? out.occludedLines : out.overLines;
-        std::vector<ColourVertex>& fills = layer->occluded ? out.occludedFills : out.overFills;
+        const bool occluded = layer->occlusion != Behind::Show;
+        std::vector<ColourVertex>& lines = occluded ? out.occludedLines : out.overLines;
+        std::vector<ColourVertex>& fills = occluded ? out.occludedFills : out.overFills;
         for (const Polyline& polyline : layer->polylines) {
-            if (DrawnByGuest (polyline))
+            if (DrawnByGuest (polyline, *layer))
                 continue;
             const uint32_t rgba = ToUnorm (polyline.rgba);
             const size_t points = polyline.points.size () / 3;
@@ -550,7 +561,7 @@ Prepared3D Prepare3D (const std::vector<std::shared_ptr<const Layer>>& layers)
             }
         }
         for (const Mesh& mesh : layer->meshes) {
-            if (DrawnByGuest (mesh))
+            if (DrawnByGuest (mesh, *layer))
                 continue;
             for (const uint32_t index : mesh.indices) {
                 const size_t at = size_t (index) * 3;

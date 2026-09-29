@@ -24,6 +24,7 @@
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
 #include "NativeCommands/CommandUtils.hpp" // ReadReal/ReadReals: a JSON whole number is a number too
+#include "NativeCommands/OverlayLayerReading.hpp"
 
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/OverlayAnnotations.hpp"
@@ -31,7 +32,6 @@
 #include "ArchViz/PlanOverlayRuntime.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
 
-#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -154,39 +154,10 @@ namespace slices = archviz::storysliceoverlay;
 using Cut = archviz::slabslices::Cut;
 namespace overlays = archviz::overlaylayers;
 
-std::string StringOf (const GS::ObjectState& item, const char* key)
-{
-    GS::UniString text;
-    item.Get (key, text);
-    return text.ToCStr (0, MaxUSize, CC_UTF8).Get ();
-}
-
-// "RRGGBBAA"; the schema has checked the length, this checks the digits.
-bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, std::string& error)
-{
-    if (!item.Contains (key))
-        return true;
-    const std::string hex = StringOf (item, key);
-    unsigned int parsed = 0;
-    char trailing = 0;
-    if (hex.size () != 8 || std::sscanf (hex.c_str (), "%8x%c", &parsed, &trailing) != 1) {
-        error = std::string (key) + " must be 8 hex digits RRGGBBAA, got \"" + hex + "\"";
-        return false;
-    }
-    rgba = parsed;
-    return true;
-}
-
-overlays::Behind BehindOf (const GS::ObjectState& item, overlays::Behind fallback)
-{
-    if (!item.Contains ("behind"))
-        return fallback;
-    const std::string which = StringOf (item, "behind");
-    return which == "hide"   ? overlays::Behind::Hide
-           : which == "fade" ? overlays::Behind::Fade
-           : which == "dash" ? overlays::Behind::Dash
-                             : overlays::Behind::Show;
-}
+// One reading of a colour and of an occlusion for every overlay verb.
+using overlayreading::OcclusionOf;
+using overlayreading::ReadColour;
+using overlayreading::StringOf;
 
 float FloatOf (const GS::ObjectState& item, const char* key, float fallback)
 {
@@ -211,13 +182,13 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         if (!ReadColour (outline, "color", controls.outlineRgba, error))
             return false;
         controls.outlineWidthPixels = FloatOf (outline, "widthPixels", controls.outlineWidthPixels);
-        controls.outlineBehind = BehindOf (outline, controls.outlineBehind);
+        controls.outlineBehind = OcclusionOf (outline, controls.outlineBehind);
     }
     GS::ObjectState fill;
     if (params.Get ("fill", fill)) {
         if (!ReadColour (fill, "color", controls.fillRgba, error))
             return false;
-        controls.fillBehind = BehindOf (fill, controls.fillBehind);
+        controls.fillBehind = OcclusionOf (fill, controls.fillBehind);
     }
     GS::ObjectState label;
     if (params.Get ("label", label)) {
@@ -431,19 +402,19 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
     "storeys":{"type":"array","maxItems":1000,"items":{"type":"integer"}},
     "views":{"type":"string","enum":["2d","3d","both"]},)json"
     R"json("outline":{"type":"object","properties":{
-        "color":{"type":"string","minLength":8,"maxLength":8},
+        "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
-        "behind":{"type":"string","enum":["hide","fade","dash","show"]}},
+        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false},
     "fill":{"type":"object","properties":{
-        "color":{"type":"string","minLength":8,"maxLength":8},
-        "behind":{"type":"string","enum":["hide","fade","show"]}},
+        "color":{"$ref":"#Color"},
+        "occlusion":{"type":"string","enum":["hide","fade","always"]}},
       "additionalProperties":false},
     "label":{"type":"object","properties":{
         "show":{"type":"boolean"},
         "sizePixels":{"type":"number","minimum":4,"maximum":64},
-        "color":{"type":"string","minLength":8,"maxLength":8},
-        "halo":{"type":"string","minLength":8,"maxLength":8},
+        "color":{"$ref":"#Color"},
+        "halo":{"$ref":"#Color"},
         "decimals":{"type":"integer","minimum":0,"maximum":6},
         "name":{"type":"boolean"},
         "onSlice":{"type":"boolean"},

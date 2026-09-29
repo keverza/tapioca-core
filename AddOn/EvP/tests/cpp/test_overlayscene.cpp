@@ -135,12 +135,12 @@ TEST (OverlayScene, BehindFollowsTheLayerUnlessTheItemSaysOtherwise)
     layers::Polyline faded = line;
     faded.behind = layers::Behind::Fade;
     layer.polylines = { line, faded };
-    layer.occluded = true;
+    layer.occlusion = layers::Behind::Hide;
     scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
     ASSERT_EQ (scene.lines.size (), 2u);
     EXPECT_EQ (scene.lines[0].behind, scene::kBehindHide);
     EXPECT_EQ (scene.lines[1].behind, scene::kBehindFade);
-    layer.occluded = false;
+    layer.occlusion = layers::Behind::Show;
     scene = scene::PrepareScene (One (layer), nullptr);
     EXPECT_EQ (scene.lines[0].behind, scene::kBehindShow);
 }
@@ -224,7 +224,7 @@ TEST (OverlayScene, ScreenTextIsAnchoredToTheViewAndShownIn3D)
     label.align = layers::Align::Right;
     label.baseline = layers::Baseline::Top;
     layer.texts = { label };
-    layer.occluded = true;
+    layer.occlusion = layers::Behind::Hide;
     const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
     ASSERT_FALSE (scene.glyphs.empty ());
     for (const scene::SceneGlyph& glyph : scene.glyphs) {

@@ -48,14 +48,15 @@ enum class Views : uint32_t {
 
 bool DrawnIn (Views views, Views view);
 
-// What a 3D item does where the building is in front of it. The 2D overlay has no
-// depth (finding 13) and draws every item whole.
+// What a 3D item does where the building is in front of it -- the wire's `occlusion`:
+// "hide", "fade", "dash", "always" (Show). The 2D overlay has no depth (finding 13)
+// and draws every item whole.
 enum class Behind : uint8_t {
-    Layer = 0, // the layer's `occluded`: true is Hide, false is Show
+    Layer = 0, // the layer's own `occlusion`
     Hide = 1,  // not drawn there -- the reference wireframe's rule
     Fade = 2,  // drawn faint
     Dash = 3,  // lines dashed there; other items faint
-    Show = 4,  // drawn as if nothing were in front
+    Show = 4,  // drawn as if nothing were in front: "always"
 };
 
 struct Polyline {
@@ -292,9 +293,10 @@ struct Panel {
 struct Layer {
     std::string name;
     Views views = Views::Both;
-    // 3D only: hidden behind the building's opaque surfaces (the host occluder), as
-    // the reference wireframe is. False draws it over everything.
-    bool occluded = true;
+    // 3D only: what an item that names no occlusion of its own does behind the
+    // building's opaque surfaces (the host occluder). Hidden, as the reference wireframe
+    // is, unless the caller says otherwise. Never `Behind::Layer`.
+    Behind occlusion = Behind::Hide;
     std::vector<Polyline> polylines;
     std::vector<PointSet> points;
     std::vector<Mesh> meshes;
@@ -304,9 +306,10 @@ struct Layer {
     std::vector<Panel> panels;
 };
 
-// Which renderer draws a primitive -- see the header's second note.
-bool DrawnByGuest (const Polyline& polyline);
-bool DrawnByGuest (const Mesh& mesh);
+// Which renderer draws a primitive -- see the header's second note. The raw pipelines
+// know only hidden and over-everything, so an item a layer fades or dashes is the guest's.
+bool DrawnByGuest (const Polyline& polyline, const Layer& layer);
+bool DrawnByGuest (const Mesh& mesh, const Layer& layer);
 // True when anything in the layer needs the guest.
 bool NeedsGuest (const Layer& layer);
 
@@ -319,7 +322,7 @@ std::string Validate (const Layer& layer);
 struct Summary {
     std::string name;
     Views views = Views::Both;
-    bool occluded = true;
+    Behind occlusion = Behind::Hide;
     uint32_t polylines = 0;
     uint32_t lineVertices = 0;
     uint32_t points = 0;

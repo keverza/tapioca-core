@@ -1,9 +1,10 @@
 // NativeCommands/OverlayLayerCommands -- the caller's own content on the overlays.
 // See the header.
 //
-//   Tapioca.SetOverlayLayer {layer, views?, occluded?, polylines?, points?, meshes?,
+//   Tapioca.SetOverlayLayer {layer, views?, occlusion?, polylines?, points?, meshes?,
 //                            texts?, dimensions?, legends?, panels?}
-//       add or replace the named layer; coordinates are MODEL METRES, x, y, z flat
+//       add or replace the named layer; coordinates are MODEL METRES: a single one a
+//       #Point3D record, bulk geometry flat x, y, z
 //   Tapioca.ClearOverlayLayer {layer} | {all: true}
 //   Tapioca.OverlayLayers {}          what is set, in draw order
 //
@@ -54,12 +55,20 @@ const char* ViewsName (layers::Views views)
     return views == layers::Views::TwoD ? "2d" : views == layers::Views::ThreeD ? "3d" : "both";
 }
 
+const char* OcclusionName (layers::Behind occlusion)
+{
+    return occlusion == layers::Behind::Fade   ? "fade"
+           : occlusion == layers::Behind::Dash ? "dash"
+           : occlusion == layers::Behind::Show ? "always"
+                                               : "hide";
+}
+
 GS::ObjectState SummaryRecord (const layers::Summary& summary)
 {
     GS::ObjectState os;
     os.Add ("layer", Utf8 (summary.name));
     os.Add ("views", Utf8 (ViewsName (summary.views)));
-    os.Add ("occluded", summary.occluded);
+    os.Add ("occlusion", Utf8 (OcclusionName (summary.occlusion)));
     os.Add ("polylines", (GS::Int32) summary.polylines);
     os.Add ("lineVertices", (GS::Int32) summary.lineVertices);
     os.Add ("points", (GS::Int32) summary.points);
@@ -181,55 +190,56 @@ class OverlayLayersCommand : public MainThreadCommand {
 };
 
 // clang-format off
-// Colours are 8 hex digits RRGGBBAA, checked by the handler (the validator has no
-// pattern keyword). Coordinates are model metres, flat x, y, z. A colour ramp is a
+// Colours are the shared #Color, "RRGGBB[AA]", checked by the handler (the validator has
+// no pattern keyword). A single coordinate is a #Point3D or #Point2D record; bulk
+// geometry is flat x, y, z in model metres, stride 3. A colour ramp is a
 // preset or stops, with an optional range, bands and isolines -- written out twice
 // below, for meshes and for legends, because a schema constant is one literal.
 constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properties":{
     "layer":{"type":"string","minLength":1,"maxLength":64},
     "views":{"type":"string","enum":["2d","3d","both"]},
-    "occluded":{"type":"boolean"},
+    "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
     "polylines":{"type":"array","maxItems":20000,"items":{"type":"object","properties":{
-        "points":{"type":"array","minItems":6,"maxItems":300000,"items":{"type":"number"}},
+        "points":{"type":"array","minItems":6,"maxItems":300000,"description":"Packed x, y, z model metres; stride 3.","items":{"type":"number"}},
         "closed":{"type":"boolean"},
-        "color":{"type":"string","minLength":8,"maxLength":8},
+        "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":64},
         "dashPixels":{"type":"number","minimum":0,"maximum":512},
         "dashDuty":{"type":"number","minimum":0.05,"maximum":0.95},
-        "behind":{"type":"string","enum":["hide","fade","dash","show"]}},
+        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false,"required":["points"]}},
     "points":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{
-        "points":{"type":"array","minItems":3,"maxItems":300000,"items":{"type":"number"}},
-        "color":{"type":"string","minLength":8,"maxLength":8},
+        "points":{"type":"array","minItems":3,"maxItems":300000,"description":"Packed x, y, z model metres; stride 3.","items":{"type":"number"}},
+        "color":{"$ref":"#Color"},
         "sizePixels":{"type":"number","exclusiveMinimum":0,"maximum":256},
         "sizeMetres":{"type":"number","exclusiveMinimum":0,"maximum":1000}},
       "additionalProperties":false,"required":["points"]}},
     "meshes":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{
-        "points":{"type":"array","minItems":9,"maxItems":300000,"items":{"type":"number"}},
-        "indices":{"type":"array","minItems":3,"maxItems":600000,"items":{"type":"integer","minimum":0}},
-        "color":{"type":"string","minLength":8,"maxLength":8},
-        "vertexColors":{"type":"array","maxItems":100000,"items":{"type":"string","minLength":8,"maxLength":8}},
-        "normals":{"type":"array","minItems":9,"maxItems":300000,"items":{"type":"number"}},
-        "values":{"type":"array","minItems":3,"maxItems":100000,"items":{"type":"number"}},
+        "points":{"type":"array","minItems":9,"maxItems":300000,"description":"Packed x, y, z model metres; stride 3.","items":{"type":"number"}},
+        "indices":{"type":"array","minItems":3,"maxItems":600000,"description":"Three vertex indices per triangle.","items":{"type":"integer","minimum":0}},
+        "color":{"$ref":"#Color"},
+        "vertexColors":{"type":"array","maxItems":100000,"description":"One colour per vertex.","items":{"$ref":"#Color"}},
+        "normals":{"type":"array","minItems":9,"maxItems":300000,"description":"Packed x, y, z per vertex; stride 3.","items":{"type":"number"}},
+        "values":{"type":"array","minItems":3,"maxItems":100000,"description":"One value per vertex.","items":{"type":"number"}},
         "colormap":{"type":"object","properties":{
             "preset":{"type":"string","enum":["viridis","inferno","magma","plasma","turbo","coolwarm","greys","sunhours","slope","clearance"]},
             "stops":{"type":"array","minItems":2,"maxItems":16,"items":{"type":"object","properties":{
-                "at":{"type":"number","minimum":0,"maximum":1},"color":{"type":"string","minLength":8,"maxLength":8}},
+                "at":{"type":"number","minimum":0,"maximum":1},"color":{"$ref":"#Color"}},
               "additionalProperties":false,"required":["at","color"]}},
             "min":{"type":"number"},"max":{"type":"number"},
             "bands":{"type":"integer","minimum":0,"maximum":64},
             "isolines":{"type":"object","properties":{
-                "step":{"type":"number","exclusiveMinimum":0},"color":{"type":"string","minLength":8,"maxLength":8},
+                "step":{"type":"number","exclusiveMinimum":0},"color":{"$ref":"#Color"},
                 "widthPixels":{"type":"number","minimum":0.25,"maximum":16}},
               "additionalProperties":false,"required":["step"]}},
           "additionalProperties":false},
         "style":{"type":"object","properties":{
             "shading":{"type":"string","enum":["flat","lit","ghost","xray"]},
             "opacity":{"type":"number","minimum":0,"maximum":1},
-            "behind":{"type":"string","enum":["hide","fade","show"]},
+            "occlusion":{"type":"string","enum":["hide","fade","always"]},
             "cull":{"type":"string","enum":["none","back"]},
             "edges":{"type":"object","properties":{
-                "color":{"type":"string","minLength":8,"maxLength":8},
+                "color":{"$ref":"#Color"},
                 "widthPixels":{"type":"number","minimum":0.25,"maximum":16},
                 "angleDegrees":{"type":"number","minimum":0,"maximum":180}},
               "additionalProperties":false}},
@@ -237,39 +247,39 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
       "additionalProperties":false,"required":["points","indices"]}},
     "texts":{"type":"array","maxItems":5000,"items":{"type":"object","properties":{
         "text":{"type":"string","minLength":1,"maxLength":512},
-        "at":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
-        "screen":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}},
-        "offsetPixels":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}},
+        "at":{"$ref":"#Point3D"},
+        "screen":{"$ref":"#Point2D"},
+        "offsetPixels":{"$ref":"#Point2D"},
         "sizePixels":{"type":"number","minimum":4,"maximum":256},
-        "color":{"type":"string","minLength":8,"maxLength":8},
-        "halo":{"type":"string","minLength":8,"maxLength":8},
+        "color":{"$ref":"#Color"},
+        "halo":{"$ref":"#Color"},
         "haloPixels":{"type":"number","minimum":0,"maximum":8},
-        "background":{"type":"string","minLength":8,"maxLength":8},
+        "background":{"$ref":"#Color"},
         "align":{"type":"string","enum":["left","center","right"]},
         "baseline":{"type":"string","enum":["top","middle","bottom","alphabetic"]},
         "rotationDegrees":{"type":"number","minimum":-360,"maximum":360},
-        "behind":{"type":"string","enum":["hide","fade","show"]},
+        "occlusion":{"type":"string","enum":["hide","fade","always"]},
         "plane":{"type":"object","properties":{
-            "direction":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
-            "normal":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
+            "direction":{"$ref":"#Point3D"},
+            "normal":{"$ref":"#Point3D"},
             "sizeMetres":{"type":"number","minimum":0.001,"maximum":1000}},
           "additionalProperties":false}},
       "additionalProperties":false,"required":["text"]}},
     "dimensions":{"type":"array","maxItems":5000,"items":{"type":"object","properties":{
-        "from":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
-        "to":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
+        "from":{"$ref":"#Point3D"},
+        "to":{"$ref":"#Point3D"},
         "offsetMetres":{"type":"number","minimum":-10000,"maximum":10000},
-        "direction":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
-        "normal":{"type":"array","minItems":3,"maxItems":3,"items":{"type":"number"}},
+        "direction":{"$ref":"#Point3D"},
+        "normal":{"$ref":"#Point3D"},
         "text":{"type":"string","maxLength":512},
         "decimals":{"type":"integer","minimum":0,"maximum":6},
         "unit":{"type":"string","enum":["m","cm","mm"]},
         "showUnit":{"type":"boolean"},
-        "color":{"type":"string","minLength":8,"maxLength":8},
+        "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
         "textSizePixels":{"type":"number","minimum":4,"maximum":128},
         "terminator":{"type":"string","enum":["tick","arrow","dot"]},
-        "behind":{"type":"string","enum":["hide","fade","dash","show"]}},
+        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false,"required":["from","to"]}},)json"
     R"json("legends":{"type":"array","maxItems":8,"items":{"type":"object","properties":{
         "title":{"type":"string","maxLength":512},
@@ -278,18 +288,18 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "colormap":{"type":"object","properties":{
             "preset":{"type":"string","enum":["viridis","inferno","magma","plasma","turbo","coolwarm","greys","sunhours","slope","clearance"]},
             "stops":{"type":"array","minItems":2,"maxItems":16,"items":{"type":"object","properties":{
-                "at":{"type":"number","minimum":0,"maximum":1},"color":{"type":"string","minLength":8,"maxLength":8}},
+                "at":{"type":"number","minimum":0,"maximum":1},"color":{"$ref":"#Color"}},
               "additionalProperties":false,"required":["at","color"]}},
             "min":{"type":"number"},"max":{"type":"number"},
             "bands":{"type":"integer","minimum":0,"maximum":64},
             "isolines":{"type":"object","properties":{
-                "step":{"type":"number","exclusiveMinimum":0},"color":{"type":"string","minLength":8,"maxLength":8},
+                "step":{"type":"number","exclusiveMinimum":0},"color":{"$ref":"#Color"},
                 "widthPixels":{"type":"number","minimum":0.25,"maximum":16}},
               "additionalProperties":false,"required":["step"]}},
           "additionalProperties":false},
         "corner":{"type":"string","enum":["top-left","top-right","bottom-left","bottom-right"]},
-        "offsetPixels":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}},
-        "screen":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}},
+        "offsetPixels":{"$ref":"#Point2D"},
+        "screen":{"$ref":"#Point2D"},
         "horizontal":{"type":"boolean"},
         "lengthPixels":{"type":"number","minimum":20,"maximum":4000},
         "widthPixels":{"type":"number","minimum":2,"maximum":200},
@@ -300,21 +310,21 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "sizePixels":{"type":"number","minimum":4,"maximum":128},
         "titleSizePixels":{"type":"number","minimum":0,"maximum":128},
         "paddingPixels":{"type":"number","minimum":0,"maximum":64},
-        "color":{"type":"string","minLength":8,"maxLength":8},
-        "halo":{"type":"string","minLength":8,"maxLength":8},
-        "background":{"type":"string","minLength":8,"maxLength":8},
-        "barBorder":{"type":"string","minLength":8,"maxLength":8}},
+        "color":{"$ref":"#Color"},
+        "halo":{"$ref":"#Color"},
+        "background":{"$ref":"#Color"},
+        "barBorder":{"$ref":"#Color"}},
       "additionalProperties":false}},)json"
     R"json("panels":{"type":"array","maxItems":32,"items":{"type":"object","properties":{
         "title":{"type":"string","maxLength":512},
         "anchor":{"type":"string","enum":["top-left","top","top-right","left","center","right","bottom-left","bottom",
                                           "bottom-right"]},
-        "offsetPixels":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"number"}},
+        "offsetPixels":{"$ref":"#Point2D"},
         "widthPixels":{"type":"number","minimum":0,"maximum":4000},
         "sizePixels":{"type":"number","minimum":6,"maximum":96},
-        "color":{"type":"string","minLength":8,"maxLength":8},
-        "background":{"type":"string","minLength":8,"maxLength":8},
-        "border":{"type":"string","minLength":8,"maxLength":8},
+        "color":{"$ref":"#Color"},
+        "background":{"$ref":"#Color"},
+        "border":{"$ref":"#Color"},
         "roundingPixels":{"type":"number","minimum":0,"maximum":64},
         "paddingPixels":{"type":"number","minimum":0,"maximum":64},
         "items":{"type":"array","maxItems":200,"items":{"type":"object","properties":{
@@ -322,14 +332,14 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
                                             "table"]},
             "text":{"type":"string","maxLength":4096},
             "value":{"type":"string","maxLength":512},
-            "color":{"type":"string","minLength":8,"maxLength":8},
+            "color":{"$ref":"#Color"},
             "sizePixels":{"type":"number","minimum":0,"maximum":96},
             "wrap":{"type":"boolean"},
             "fraction":{"type":"number"},
             "colormap":{"type":"object","properties":{
                 "preset":{"type":"string","enum":["viridis","inferno","magma","plasma","turbo","coolwarm","greys","sunhours","slope","clearance"]},
                 "stops":{"type":"array","minItems":2,"maxItems":16,"items":{"type":"object","properties":{
-                    "at":{"type":"number","minimum":0,"maximum":1},"color":{"type":"string","minLength":8,"maxLength":8}},
+                    "at":{"type":"number","minimum":0,"maximum":1},"color":{"$ref":"#Color"}},
                   "additionalProperties":false,"required":["at","color"]}},
                 "min":{"type":"number"},"max":{"type":"number"},
                 "bands":{"type":"integer","minimum":0,"maximum":64}},
@@ -351,14 +361,15 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
   "additionalProperties":false,"required":["layer"]})json";
 
 constexpr const char kSetOverlayLayerOutput[] = R"json({"type":"object","properties":{
-    "layer":{"type":"string"},"views":{"type":"string","enum":["2d","3d","both"]},"occluded":{"type":"boolean"},
+    "layer":{"type":"string"},"views":{"type":"string","enum":["2d","3d","both"]},
+    "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
     "polylines":{"type":"integer","minimum":0},"lineVertices":{"type":"integer","minimum":0},
     "points":{"type":"integer","minimum":0},"meshes":{"type":"integer","minimum":0},
     "triangles":{"type":"integer","minimum":0},"texts":{"type":"integer","minimum":0},
     "dimensions":{"type":"integer","minimum":0},"legends":{"type":"integer","minimum":0},
     "panels":{"type":"integer","minimum":0},"generation":{"type":"string"}},
   "additionalProperties":false,
-  "required":["layer","views","occluded","polylines","lineVertices","points","meshes","triangles","texts",
+  "required":["layer","views","occlusion","polylines","lineVertices","points","meshes","triangles","texts",
               "dimensions","legends","panels","generation"]})json";
 
 constexpr const char kClearOverlayLayerInput[] = R"json({"type":"object","properties":{
@@ -373,14 +384,15 @@ constexpr const char kOverlayLayersInput[] = R"json({"type":"object","properties
 
 constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","properties":{
     "layers":{"type":"array","items":{"type":"object","properties":{
-        "layer":{"type":"string"},"views":{"type":"string","enum":["2d","3d","both"]},"occluded":{"type":"boolean"},
+        "layer":{"type":"string"},"views":{"type":"string","enum":["2d","3d","both"]},
+        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
         "polylines":{"type":"integer","minimum":0},"lineVertices":{"type":"integer","minimum":0},
         "points":{"type":"integer","minimum":0},"meshes":{"type":"integer","minimum":0},
         "triangles":{"type":"integer","minimum":0},"texts":{"type":"integer","minimum":0},
         "dimensions":{"type":"integer","minimum":0},"legends":{"type":"integer","minimum":0},
         "panels":{"type":"integer","minimum":0}},
       "additionalProperties":false,
-      "required":["layer","views","occluded","polylines","lineVertices","points","meshes","triangles","texts",
+      "required":["layer","views","occlusion","polylines","lineVertices","points","meshes","triangles","texts",
                   "dimensions","legends","panels"]}},
     "generation":{"type":"string"},)json"
     R"json("guest":{"type":"object","properties":{

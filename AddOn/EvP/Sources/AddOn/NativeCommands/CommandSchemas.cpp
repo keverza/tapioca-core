@@ -11,7 +11,7 @@ struct CommandSchema {
 };
 
 constexpr const char kSchemaDefinitions[] =
-    R"json({"ElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"Element":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"}},"additionalProperties":false,"required":["elementId"]},"Elements":{"type":"array","items":{"$ref":"#Element"}},"Point2D":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"additionalProperties":false,"required":["x","y"]},"Point3D":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}},"additionalProperties":false,"required":["x","y","z"]}})json";
+    R"json({"ElementId":{"type":"object","properties":{"guid":{"type":"string","minLength":1}},"additionalProperties":false,"required":["guid"]},"Element":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"}},"additionalProperties":false,"required":["elementId"]},"Elements":{"type":"array","items":{"$ref":"#Element"}},"Point2D":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"additionalProperties":false,"required":["x","y"]},"Point3D":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}},"additionalProperties":false,"required":["x","y","z"]},"Color":{"type":"string","minLength":6,"maxLength":9,"description":"RRGGBB or RRGGBBAA hex, optional leading #; six digits are opaque."}})json";
 
 constexpr const char kEmptyObject[] = R"json({"type":"object","properties":{},"additionalProperties":false})json";
 

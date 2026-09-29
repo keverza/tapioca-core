@@ -70,7 +70,7 @@ Built BuildLayer (const annotation::Frame& frame)
     Built out;
     out.layer.name = kLayerName;
     out.layer.views = layers::Views::Both;
-    out.layer.occluded = false;
+    out.layer.occlusion = layers::Behind::Show;
     for (const annotation::Primitive& primitive : frame.primitives) {
         ++out.primitives;
         if (!annotation::IsDrawable (primitive) || primitive.kind == PrimitiveKind::Element)

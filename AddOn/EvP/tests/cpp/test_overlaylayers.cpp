@@ -187,7 +187,7 @@ TEST (OverlayLayers, TheThreeDLinesArePairsAndPointsAreAxisCrosses)
 TEST (OverlayLayers, AnUnoccludedLayerGoesToTheOverPasses)
 {
     ol::Layer layer = Square ("over");
-    layer.occluded = false;
+    layer.occlusion = ol::Behind::Show;
     ol::Mesh triangle;
     triangle.points = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
     triangle.indices = { 0, 1, 2 };
@@ -197,4 +197,24 @@ TEST (OverlayLayers, AnUnoccludedLayerGoesToTheOverPasses)
     EXPECT_TRUE (prepared.occludedFills.empty ());
     EXPECT_EQ (prepared.overLines.size (), 8u);
     EXPECT_EQ (prepared.overFills.size (), 3u);
+}
+
+// A layer that fades its items behind the building: the raw pipelines know only hidden
+// and over-everything, so its plain lines and fills are the guest's -- drawn once, faded.
+TEST (OverlayLayers, AFadedLayerHandsItsPlainItemsToTheGuest)
+{
+    ol::Layer layer = Square ("faded");
+    layer.occlusion = ol::Behind::Fade;
+    ol::Mesh triangle;
+    triangle.points = { 0, 0, 0, 1, 0, 0, 0, 1, 0 };
+    triangle.indices = { 0, 1, 2 };
+    layer.meshes.push_back (triangle);
+    EXPECT_TRUE (ol::DrawnByGuest (layer.polylines[0], layer));
+    EXPECT_TRUE (ol::DrawnByGuest (layer.meshes[0], layer));
+    EXPECT_EQ (ol::Resolve (ol::Behind::Layer, layer), ol::Behind::Fade);
+    EXPECT_EQ (ol::Resolve (ol::Behind::Show, layer), ol::Behind::Show); // an item's own wins
+    const ol::Prepared3D prepared = ol::Prepare3D ({ std::make_shared<const ol::Layer> (layer) });
+    EXPECT_TRUE (prepared.occludedLines.empty ());
+    EXPECT_TRUE (prepared.occludedFills.empty ());
+    EXPECT_TRUE (prepared.overFills.empty ());
 }

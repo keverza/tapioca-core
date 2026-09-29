@@ -63,26 +63,44 @@ def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch)
     command, params = seen[0]
     assert command == "Tapioca.SetOverlayLayer"
     assert params["layer"] == "sun" and params["views"] == "both"
-    assert "occluded" not in params  # None is left out, not sent
+    assert "occlusion" not in params  # None is left out, not sent
     label = params["texts"][0]
-    assert label["at"] == [0.0, 0.0, 0.0] and all(isinstance(v, float) for v in label["at"])
-    assert label["offsetPixels"] == [6.0, -6.0]
+    # A single coordinate is a record on the wire (SPEC.md), every component a real.
+    assert label["at"] == {"x": 0.0, "y": 0.0, "z": 0.0} and all(isinstance(v, float) for v in label["at"].values())
+    assert label["offsetPixels"] == {"x": 6.0, "y": -6.0}
     mesh = params["meshes"][0]
     assert mesh["indices"] == [0, 1, 2] and all(isinstance(i, int) for i in mesh["indices"])
     assert all(isinstance(v, float) for v in mesh["values"])
     assert mesh["colormap"]["bands"] == 8 and isinstance(mesh["colormap"]["bands"], int)
     legend = params["legends"][0]
     assert legend["mesh"] == 0 and isinstance(legend["mesh"], int)
-    assert legend["screen"] == [0.5, 1.0] and legend["horizontal"] is True
+    assert legend["screen"] == {"x": 0.5, "y": 1.0} and legend["horizontal"] is True
     assert legend["decimals"] == 1 and isinstance(legend["decimals"], int)
     assert params["panels"][0]["items"][0] == {"kind": "row", "text": "GFA", "value": "2633 m2"}
 
 
 def test_a_text_on_a_plane_carries_its_plane():
     label = overlay.text("Hall", at=(10, 20, 3), plane=((0, 1, 0), (0, 0, 1), 0.5), align="left")
-    assert label["plane"] == {"direction": [0.0, 1.0, 0.0], "normal": [0.0, 0.0, 1.0], "sizeMetres": 0.5}
+    assert label["plane"] == {"direction": {"x": 0.0, "y": 1.0, "z": 0.0}, "normal": {"x": 0.0, "y": 0.0, "z": 1.0},
+                              "sizeMetres": 0.5}
+    assert label["at"] == overlay.point3({"x": 10, "y": 20, "z": 3})
     with pytest.raises(ValueError):
         overlay.text("both", at=(0, 0, 0), screen=(0, 0))
+    with pytest.raises(ValueError):
+        overlay.text("short", at=(0, 0))
+
+
+def test_occlusion_speaks_the_text_labels_vocabulary(monkeypatch):
+    seen = _capture(monkeypatch)
+    label = overlay.text("Behind a wall", at=(0, 0, 0), occlusion="fade")
+    mesh = overlay.heatmap([0, 0, 0, 1, 0, 0, 1, 1, 0], [0, 1, 2], [1, 2, 3], occlusion="always")
+    overlay.set_layer("walls", occlusion="hide", texts=[label], meshes=[mesh])
+    params = seen[0][1]
+    assert params["occlusion"] == "hide"
+    assert params["texts"][0]["occlusion"] == "fade"
+    assert params["meshes"][0]["style"] == {"occlusion": "always"}
+    with pytest.raises(ValueError):
+        overlay.text("x", at=(0, 0, 0), occlusion="show")
 
 
 def test_clear_and_hud(monkeypatch):

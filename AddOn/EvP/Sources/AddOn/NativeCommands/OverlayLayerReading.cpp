@@ -31,32 +31,6 @@ std::string StringValue (const GS::ObjectState& item, const char* key)
     return Utf8Of (text);
 }
 
-// "RRGGBBAA", as SetPlanAnchors takes it: what a script writes by hand and what a
-// log line can be compared against by eye.
-bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, std::string& error)
-{
-    if (!item.Contains (key))
-        return true;
-    const std::string hex = StringValue (item, key);
-    uint32_t parsed = 0;
-    bool valid = hex.size () == 8;
-    for (size_t i = 0; valid && i < hex.size (); ++i) {
-        const char c = hex[i];
-        const int digit = (c >= '0' && c <= '9')   ? c - '0'
-                          : (c >= 'A' && c <= 'F') ? c - 'A' + 10
-                          : (c >= 'a' && c <= 'f') ? c - 'a' + 10
-                                                   : -1;
-        valid = digit >= 0;
-        parsed = (parsed << 4) | uint32_t (digit < 0 ? 0 : digit);
-    }
-    if (!valid) {
-        error = std::string (key) + " must be 8 hex digits RRGGBBAA, got \"" + hex + "\"";
-        return false;
-    }
-    rgba = parsed;
-    return true;
-}
-
 void ReadNumbers (const GS::ObjectState& item, const char* key, std::vector<double>& out)
 {
     std::vector<double> values;
@@ -93,26 +67,28 @@ void ReadStrings (const GS::ObjectState& item, const char* key, std::vector<std:
             out.push_back (Utf8Of (value));
 }
 
-template <size_t N> bool ReadFixed (const GS::ObjectState& item, const char* key, double (&out)[N])
+// A single coordinate is a record, #Point3D {x, y, z} or #Point2D {x, y} (SPEC.md, wire
+// shapes); only bulk geometry is a flat array. False when `key` is absent or short.
+bool ReadPoint (const GS::ObjectState& item, const char* key, double* out, size_t count)
 {
-    std::vector<double> values;
-    ReadNumbers (item, key, values);
-    if (values.size () != N)
+    GS::ObjectState point;
+    if (!item.Get (key, point))
         return false;
-    for (size_t i = 0; i < N; ++i)
-        out[i] = values[i];
+    const char* const axes[] = { "x", "y", "z" };
+    for (size_t i = 0; i < count; ++i)
+        if (!ReadReal (point, axes[i], out[i]))
+            return false;
     return true;
 }
 
-layers::Behind BehindOf (const GS::ObjectState& item)
+bool ReadPoint2 (const GS::ObjectState& item, const char* key, float (&out)[2])
 {
-    if (!item.Contains ("behind"))
-        return layers::Behind::Layer;
-    const std::string which = StringValue (item, "behind");
-    return which == "hide"   ? layers::Behind::Hide
-           : which == "fade" ? layers::Behind::Fade
-           : which == "dash" ? layers::Behind::Dash
-                             : layers::Behind::Show;
+    double values[2] = {};
+    if (!ReadPoint (item, key, values, 2))
+        return false;
+    out[0] = float (values[0]);
+    out[1] = float (values[1]);
+    return true;
 }
 
 bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std::string& error)
@@ -202,7 +178,7 @@ bool ReadMesh (const GS::ObjectState& item, layers::Mesh& mesh, std::string& err
                              : shading == "xray"  ? layers::Shading::Xray
                                                   : layers::Shading::Flat;
         ReadFloat (style, "opacity", mesh.style.opacity);
-        mesh.style.behind = BehindOf (style);
+        mesh.style.behind = OcclusionOf (style, layers::Behind::Layer);
         mesh.style.cullBack = style.Contains ("cull") && StringValue (style, "cull") == "back";
         GS::ObjectState edges;
         if (style.Get ("edges", edges)) {
@@ -224,25 +200,18 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
         error = "a text is anchored at a model point (at) or on the view (screen), one of the two";
         return false;
     }
-    if (at && !ReadFixed (item, "at", text.at)) {
-        error = "at is x, y, z";
+    if (at && !ReadPoint (item, "at", text.at, 3)) {
+        error = "at is {x, y, z}";
         return false;
     }
     if (screen) {
-        double fraction[2] = {};
-        if (!ReadFixed (item, "screen", fraction)) {
-            error = "screen is x, y: fractions of the view from its top left";
+        if (!ReadPoint (item, "screen", text.at, 2)) {
+            error = "screen is {x, y}: fractions of the view from its top left";
             return false;
         }
         text.screen = true;
-        text.at[0] = fraction[0];
-        text.at[1] = fraction[1];
     }
-    double offset[2] = {};
-    if (item.Contains ("offsetPixels") && ReadFixed (item, "offsetPixels", offset)) {
-        text.offsetPixels[0] = float (offset[0]);
-        text.offsetPixels[1] = float (offset[1]);
-    }
+    ReadPoint2 (item, "offsetPixels", text.offsetPixels);
     ReadFloat (item, "sizePixels", text.sizePixels);
     if (!ReadColour (item, "color", text.rgba, error) || !ReadColour (item, "halo", text.haloRgba, error) ||
         !ReadColour (item, "background", text.backgroundRgba, error))
@@ -262,7 +231,7 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
                                                    : layers::Baseline::Middle;
     }
     ReadFloat (item, "rotationDegrees", text.rotationDegrees);
-    text.behind = BehindOf (item);
+    text.behind = OcclusionOf (item, layers::Behind::Layer);
     GS::ObjectState plane;
     if (item.Get ("plane", plane)) {
         if (screen) {
@@ -270,9 +239,9 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
             return false;
         }
         text.planar = true;
-        if ((plane.Contains ("direction") && !ReadFixed (plane, "direction", text.direction)) ||
-            (plane.Contains ("normal") && !ReadFixed (plane, "normal", text.normal))) {
-            error = "a plane's direction and normal are x, y, z";
+        if ((plane.Contains ("direction") && !ReadPoint (plane, "direction", text.direction, 3)) ||
+            (plane.Contains ("normal") && !ReadPoint (plane, "normal", text.normal, 3))) {
+            error = "a plane's direction and normal are {x, y, z}";
             return false;
         }
         ReadDouble (plane, "sizeMetres", text.sizeMetres);
@@ -282,16 +251,13 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
 
 bool ReadDimension (const GS::ObjectState& item, layers::Dimension& dimension, std::string& error)
 {
-    if (!ReadFixed (item, "from", dimension.from) || !ReadFixed (item, "to", dimension.to)) {
-        error = "a dimension's from and to are x, y, z each";
+    if (!ReadPoint (item, "from", dimension.from, 3) || !ReadPoint (item, "to", dimension.to, 3)) {
+        error = "a dimension's from and to are {x, y, z} each";
         return false;
     }
-    if (item.Contains ("direction") && !ReadFixed (item, "direction", dimension.direction)) {
-        error = "direction is x, y, z";
-        return false;
-    }
-    if (item.Contains ("normal") && !ReadFixed (item, "normal", dimension.normal)) {
-        error = "normal is x, y, z";
+    if ((item.Contains ("direction") && !ReadPoint (item, "direction", dimension.direction, 3)) ||
+        (item.Contains ("normal") && !ReadPoint (item, "normal", dimension.normal, 3))) {
+        error = "a dimension's direction and normal are {x, y, z}";
         return false;
     }
     ReadDouble (item, "offsetMetres", dimension.offsetMetres);
@@ -316,7 +282,7 @@ bool ReadDimension (const GS::ObjectState& item, layers::Dimension& dimension, s
                                : terminator == "dot" ? layers::Terminator::Dot
                                                      : layers::Terminator::Tick;
     }
-    dimension.behind = BehindOf (item);
+    dimension.behind = OcclusionOf (item, layers::Behind::Layer);
     return true;
 }
 
@@ -365,20 +331,13 @@ bool ReadLegend (const GS::ObjectState& item, const std::vector<layers::Mesh>& m
                         : corner == "bottom-left" ? layers::Corner::BottomLeft
                                                   : layers::Corner::BottomRight;
     }
-    double offset[2] = {};
-    if (item.Contains ("offsetPixels") && ReadFixed (item, "offsetPixels", offset)) {
-        legend.offsetPixels[0] = float (offset[0]);
-        legend.offsetPixels[1] = float (offset[1]);
-    }
-    double screen[2] = {};
+    ReadPoint2 (item, "offsetPixels", legend.offsetPixels);
     if (item.Contains ("screen")) {
-        if (!ReadFixed (item, "screen", screen)) {
-            error = "screen is x, y: fractions of the view from its top left";
+        if (!ReadPoint2 (item, "screen", legend.screen)) {
+            error = "screen is {x, y}: fractions of the view from its top left";
             return false;
         }
         legend.placed = true;
-        legend.screen[0] = float (screen[0]);
-        legend.screen[1] = float (screen[1]);
     }
     if (item.Contains ("horizontal"))
         item.Get ("horizontal", legend.horizontal);
@@ -473,11 +432,7 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
             if (anchor == names[i])
                 panel.anchor = layers::PanelAnchor (i);
     }
-    double offset[2] = {};
-    if (item.Contains ("offsetPixels") && ReadFixed (item, "offsetPixels", offset)) {
-        panel.offsetPixels[0] = float (offset[0]);
-        panel.offsetPixels[1] = float (offset[1]);
-    }
+    ReadPoint2 (item, "offsetPixels", panel.offsetPixels);
     ReadFloat (item, "widthPixels", panel.widthPixels);
     ReadFloat (item, "sizePixels", panel.sizePixels);
     ReadFloat (item, "roundingPixels", panel.roundingPixels);
@@ -502,6 +457,47 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
 
 } // namespace
 
+// The shared #Color: "RRGGBB" or "RRGGBBAA", an optional leading '#' -- what a script
+// writes by hand and what a log line can be compared against by eye. Six digits are
+// opaque.
+bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, std::string& error)
+{
+    if (!item.Contains (key))
+        return true;
+    const std::string given = StringValue (item, key);
+    const std::string hex = !given.empty () && given[0] == '#' ? given.substr (1) : given;
+    uint32_t parsed = 0;
+    bool valid = hex.size () == 6 || hex.size () == 8;
+    for (size_t i = 0; valid && i < hex.size (); ++i) {
+        const char c = hex[i];
+        const int digit = (c >= '0' && c <= '9')   ? c - '0'
+                          : (c >= 'A' && c <= 'F') ? c - 'A' + 10
+                          : (c >= 'a' && c <= 'f') ? c - 'a' + 10
+                                                   : -1;
+        valid = digit >= 0;
+        parsed = (parsed << 4) | uint32_t (digit < 0 ? 0 : digit);
+    }
+    if (!valid) {
+        error = std::string (key) + " is a colour \"RRGGBB\" or \"RRGGBBAA\", got \"" + given + "\"";
+        return false;
+    }
+    rgba = hex.size () == 6 ? (parsed << 8) | 0xFFu : parsed;
+    return true;
+}
+
+// `occlusion`, the vocabulary SetDiligentTextLabels already speaks: "always", "hide",
+// "fade", and for lines "dash".
+layers::Behind OcclusionOf (const GS::ObjectState& item, layers::Behind fallback)
+{
+    if (!item.Contains ("occlusion"))
+        return fallback;
+    const std::string which = StringValue (item, "occlusion");
+    return which == "hide"   ? layers::Behind::Hide
+           : which == "fade" ? layers::Behind::Fade
+           : which == "dash" ? layers::Behind::Dash
+                             : layers::Behind::Show;
+}
+
 std::string StringOf (const GS::ObjectState& item, const char* key)
 {
     return StringValue (item, key);
@@ -519,8 +515,8 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
         const std::string which = StringValue (params, "views");
         layer.views = which == "2d" ? layers::Views::TwoD : which == "3d" ? layers::Views::ThreeD : layers::Views::Both;
     }
-    if (params.Contains ("occluded"))
-        params.Get ("occluded", layer.occluded);
+    const layers::Behind occlusion = OcclusionOf (params, layers::Behind::Layer);
+    layer.occlusion = occlusion == layers::Behind::Layer ? layers::Behind::Hide : occlusion;
 
     GS::Array<GS::ObjectState> items;
     if (params.Get ("polylines", items)) {
@@ -534,7 +530,7 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
             ReadFloat (item, "widthPixels", polyline.widthPixels);
             ReadFloat (item, "dashPixels", polyline.dashPixels);
             ReadFloat (item, "dashDuty", polyline.dashDuty);
-            polyline.behind = BehindOf (item);
+            polyline.behind = OcclusionOf (item, layers::Behind::Layer);
             layer.polylines.push_back (std::move (polyline));
         }
     }

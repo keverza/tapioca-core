@@ -99,7 +99,7 @@ TEST (StorySliceOverlay, EachStoreyIsItsFillOutlineAndAreaAtItsLevel)
     ASSERT_EQ (layer.texts.size (), 2u);
     // The fill: light translucent grey, faint behind the building, drawn by the guest.
     EXPECT_EQ (layer.meshes[0].rgba, 0xC8C8C84Du);
-    EXPECT_TRUE (layers::DrawnByGuest (layer.meshes[0]));
+    EXPECT_TRUE (layers::DrawnByGuest (layer.meshes[0], layer));
     EXPECT_EQ (layer.meshes[0].style.behind, layers::Behind::Fade);
     for (size_t i = 2; i < layer.meshes[1].points.size (); i += 3)
         EXPECT_DOUBLE_EQ (layer.meshes[1].points[i], 3.0);

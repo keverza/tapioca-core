@@ -82,6 +82,12 @@
         "y",
         "z"
       ]
+    },
+    "Color": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 9,
+      "description": "RRGGBB or RRGGBBAA hex, optional leading #; six digits are opaque."
     }
   },
   "commands": [
@@ -18264,8 +18270,14 @@
                     "both"
                   ]
                 },
-                "occluded": {
-                  "type": "boolean"
+                "occlusion": {
+                  "type": "string",
+                  "enum": [
+                    "hide",
+                    "fade",
+                    "dash",
+                    "always"
+                  ]
                 },
                 "polylines": {
                   "type": "integer",
@@ -18308,7 +18320,7 @@
               "required": [
                 "layer",
                 "views",
-                "occluded",
+                "occlusion",
                 "polylines",
                 "lineVertices",
                 "points",
@@ -18901,22 +18913,20 @@
             "type": "object",
             "properties": {
               "color": {
-                "type": "string",
-                "minLength": 8,
-                "maxLength": 8
+                "$ref": "#Color"
               },
               "widthPixels": {
                 "type": "number",
                 "exclusiveMinimum": 0,
                 "maximum": 16
               },
-              "behind": {
+              "occlusion": {
                 "type": "string",
                 "enum": [
                   "hide",
                   "fade",
                   "dash",
-                  "show"
+                  "always"
                 ]
               }
             },
@@ -18926,16 +18936,14 @@
             "type": "object",
             "properties": {
               "color": {
-                "type": "string",
-                "minLength": 8,
-                "maxLength": 8
+                "$ref": "#Color"
               },
-              "behind": {
+              "occlusion": {
                 "type": "string",
                 "enum": [
                   "hide",
                   "fade",
-                  "show"
+                  "always"
                 ]
               }
             },
@@ -18953,14 +18961,10 @@
                 "maximum": 64
               },
               "color": {
-                "type": "string",
-                "minLength": 8,
-                "maxLength": 8
+                "$ref": "#Color"
               },
               "halo": {
-                "type": "string",
-                "minLength": 8,
-                "maxLength": 8
+                "$ref": "#Color"
               },
               "decimals": {
                 "type": "integer",
@@ -23603,8 +23607,14 @@
               "both"
             ]
           },
-          "occluded": {
-            "type": "boolean"
+          "occlusion": {
+            "type": "string",
+            "enum": [
+              "hide",
+              "fade",
+              "dash",
+              "always"
+            ]
           },
           "polylines": {
             "type": "array",
@@ -23616,6 +23626,7 @@
                   "type": "array",
                   "minItems": 6,
                   "maxItems": 300000,
+                  "description": "Packed x, y, z model metres; stride 3.",
                   "items": {
                     "type": "number"
                   }
@@ -23624,9 +23635,7 @@
                   "type": "boolean"
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "widthPixels": {
                   "type": "number",
@@ -23643,13 +23652,13 @@
                   "minimum": 0.05,
                   "maximum": 0.95
                 },
-                "behind": {
+                "occlusion": {
                   "type": "string",
                   "enum": [
                     "hide",
                     "fade",
                     "dash",
-                    "show"
+                    "always"
                   ]
                 }
               },
@@ -23669,14 +23678,13 @@
                   "type": "array",
                   "minItems": 3,
                   "maxItems": 300000,
+                  "description": "Packed x, y, z model metres; stride 3.",
                   "items": {
                     "type": "number"
                   }
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "sizePixels": {
                   "type": "number",
@@ -23705,6 +23713,7 @@
                   "type": "array",
                   "minItems": 9,
                   "maxItems": 300000,
+                  "description": "Packed x, y, z model metres; stride 3.",
                   "items": {
                     "type": "number"
                   }
@@ -23713,29 +23722,28 @@
                   "type": "array",
                   "minItems": 3,
                   "maxItems": 600000,
+                  "description": "Three vertex indices per triangle.",
                   "items": {
                     "type": "integer",
                     "minimum": 0
                   }
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "vertexColors": {
                   "type": "array",
                   "maxItems": 100000,
+                  "description": "One colour per vertex.",
                   "items": {
-                    "type": "string",
-                    "minLength": 8,
-                    "maxLength": 8
+                    "$ref": "#Color"
                   }
                 },
                 "normals": {
                   "type": "array",
                   "minItems": 9,
                   "maxItems": 300000,
+                  "description": "Packed x, y, z per vertex; stride 3.",
                   "items": {
                     "type": "number"
                   }
@@ -23744,6 +23752,7 @@
                   "type": "array",
                   "minItems": 3,
                   "maxItems": 100000,
+                  "description": "One value per vertex.",
                   "items": {
                     "type": "number"
                   }
@@ -23779,9 +23788,7 @@
                             "maximum": 1
                           },
                           "color": {
-                            "type": "string",
-                            "minLength": 8,
-                            "maxLength": 8
+                            "$ref": "#Color"
                           }
                         },
                         "additionalProperties": false,
@@ -23810,9 +23817,7 @@
                           "exclusiveMinimum": 0
                         },
                         "color": {
-                          "type": "string",
-                          "minLength": 8,
-                          "maxLength": 8
+                          "$ref": "#Color"
                         },
                         "widthPixels": {
                           "type": "number",
@@ -23845,12 +23850,12 @@
                       "minimum": 0,
                       "maximum": 1
                     },
-                    "behind": {
+                    "occlusion": {
                       "type": "string",
                       "enum": [
                         "hide",
                         "fade",
-                        "show"
+                        "always"
                       ]
                     },
                     "cull": {
@@ -23864,9 +23869,7 @@
                       "type": "object",
                       "properties": {
                         "color": {
-                          "type": "string",
-                          "minLength": 8,
-                          "maxLength": 8
+                          "$ref": "#Color"
                         },
                         "widthPixels": {
                           "type": "number",
@@ -23904,28 +23907,13 @@
                   "maxLength": 512
                 },
                 "at": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point3D"
                 },
                 "screen": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 2,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point2D"
                 },
                 "offsetPixels": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 2,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point2D"
                 },
                 "sizePixels": {
                   "type": "number",
@@ -23933,14 +23921,10 @@
                   "maximum": 256
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "halo": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "haloPixels": {
                   "type": "number",
@@ -23948,9 +23932,7 @@
                   "maximum": 8
                 },
                 "background": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "align": {
                   "type": "string",
@@ -23974,32 +23956,22 @@
                   "minimum": -360,
                   "maximum": 360
                 },
-                "behind": {
+                "occlusion": {
                   "type": "string",
                   "enum": [
                     "hide",
                     "fade",
-                    "show"
+                    "always"
                   ]
                 },
                 "plane": {
                   "type": "object",
                   "properties": {
                     "direction": {
-                      "type": "array",
-                      "minItems": 3,
-                      "maxItems": 3,
-                      "items": {
-                        "type": "number"
-                      }
+                      "$ref": "#Point3D"
                     },
                     "normal": {
-                      "type": "array",
-                      "minItems": 3,
-                      "maxItems": 3,
-                      "items": {
-                        "type": "number"
-                      }
+                      "$ref": "#Point3D"
                     },
                     "sizeMetres": {
                       "type": "number",
@@ -24023,20 +23995,10 @@
               "type": "object",
               "properties": {
                 "from": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point3D"
                 },
                 "to": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point3D"
                 },
                 "offsetMetres": {
                   "type": "number",
@@ -24044,20 +24006,10 @@
                   "maximum": 10000
                 },
                 "direction": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point3D"
                 },
                 "normal": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point3D"
                 },
                 "text": {
                   "type": "string",
@@ -24080,9 +24032,7 @@
                   "type": "boolean"
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "widthPixels": {
                   "type": "number",
@@ -24102,13 +24052,13 @@
                     "dot"
                   ]
                 },
-                "behind": {
+                "occlusion": {
                   "type": "string",
                   "enum": [
                     "hide",
                     "fade",
                     "dash",
-                    "show"
+                    "always"
                   ]
                 }
               },
@@ -24168,9 +24118,7 @@
                             "maximum": 1
                           },
                           "color": {
-                            "type": "string",
-                            "minLength": 8,
-                            "maxLength": 8
+                            "$ref": "#Color"
                           }
                         },
                         "additionalProperties": false,
@@ -24199,9 +24147,7 @@
                           "exclusiveMinimum": 0
                         },
                         "color": {
-                          "type": "string",
-                          "minLength": 8,
-                          "maxLength": 8
+                          "$ref": "#Color"
                         },
                         "widthPixels": {
                           "type": "number",
@@ -24227,20 +24173,10 @@
                   ]
                 },
                 "offsetPixels": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 2,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point2D"
                 },
                 "screen": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 2,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point2D"
                 },
                 "horizontal": {
                   "type": "boolean"
@@ -24296,24 +24232,16 @@
                   "maximum": 64
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "halo": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "background": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "barBorder": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 }
               },
               "additionalProperties": false
@@ -24344,12 +24272,7 @@
                   ]
                 },
                 "offsetPixels": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 2,
-                  "items": {
-                    "type": "number"
-                  }
+                  "$ref": "#Point2D"
                 },
                 "widthPixels": {
                   "type": "number",
@@ -24362,19 +24285,13 @@
                   "maximum": 96
                 },
                 "color": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "background": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "border": {
-                  "type": "string",
-                  "minLength": 8,
-                  "maxLength": 8
+                  "$ref": "#Color"
                 },
                 "roundingPixels": {
                   "type": "number",
@@ -24415,9 +24332,7 @@
                         "maxLength": 512
                       },
                       "color": {
-                        "type": "string",
-                        "minLength": 8,
-                        "maxLength": 8
+                        "$ref": "#Color"
                       },
                       "sizePixels": {
                         "type": "number",
@@ -24461,9 +24376,7 @@
                                   "maximum": 1
                                 },
                                 "color": {
-                                  "type": "string",
-                                  "minLength": 8,
-                                  "maxLength": 8
+                                  "$ref": "#Color"
                                 }
                               },
                               "additionalProperties": false,
@@ -24590,8 +24503,14 @@
               "both"
             ]
           },
-          "occluded": {
-            "type": "boolean"
+          "occlusion": {
+            "type": "string",
+            "enum": [
+              "hide",
+              "fade",
+              "dash",
+              "always"
+            ]
           },
           "polylines": {
             "type": "integer",
@@ -24637,7 +24556,7 @@
         "required": [
           "layer",
           "views",
-          "occluded",
+          "occlusion",
           "polylines",
           "lineVertices",
           "points",

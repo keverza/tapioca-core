@@ -172,7 +172,7 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
     Built out;
     out.layer.name = kLayerName;
     out.layer.views = controls.views;
-    out.layer.occluded = true;
+    out.layer.occlusion = layers::Behind::Hide;
     for (const Slice& slice : slices) {
         if (!controls.storeys.empty () &&
             std::find (controls.storeys.begin (), controls.storeys.end (), slice.storey) == controls.storeys.end ())
