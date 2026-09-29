@@ -118,6 +118,7 @@ PORT_CONTROLS = {
     "integer": "Int",
     "checkbox": "Bool",
     "text": "Text",
+    "color": "Color",
     "enum": "Enum",
     "action": "Action",
     "layer": "Layer",

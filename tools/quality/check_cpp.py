@@ -952,6 +952,7 @@ def _check_architecture_subobjects(failures: list[str]) -> None:
         "ControlPaletteAutoPreview.cpp",
         "ControlPaletteDynamo.cpp",
         "ControlPaletteGrasshopper.cpp",
+        "ControlPaletteInputEvents.cpp",  # shell's generated-input observer overrides
         "ControlPaletteWorkflowPicker.cpp",  # defines the shell's file-picker method
         "ControlPaletteUserItems.cpp",
         "ControlPaletteLayout.cpp",

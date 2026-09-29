@@ -61,7 +61,8 @@ class ControlPalette final : public DG::Palette,
                              // The command combo's drop arrow is a drawn cell, not a
                              // button — it needs its paint and its press from here.
                              public DG::UserItemObserver,
-                             public DG::PopUpObserver,
+                              public DG::PopUpObserver,
+                              public DG::DateTimeObserver,
                              public DG::TextEditBaseObserver,
                              public DG::ListBoxObserver,
                              public DG::SplitterObserver,
@@ -283,6 +284,7 @@ class ControlPalette final : public DG::Palette,
     // F3 — a generated popup changed: the Action, or an Enum something follows.
     // Before F3 no popup was attached to anything, so this override is new ground.
     virtual void PopUpChanged (const DG::PopUpChangeEvent& ev) override;
+    virtual void DateTimeChanged (const DG::DateTimeChangeEvent& ev) override;
     // Typing into a REQUIRED text field must enable Run there and then. Waiting
     // for the idle poll made a required parameter look like it was being ignored.
     virtual void TextEditChanged (const DG::TextEditChangeEvent& ev) override;

@@ -9,6 +9,40 @@
 
 namespace evp {
 
+namespace {
+
+int HexDigit (GS::uchar_t digit)
+{
+    if (digit >= '0' && digit <= '9') return digit - '0';
+    if (digit >= 'A' && digit <= 'F') return digit - 'A' + 10;
+    if (digit >= 'a' && digit <= 'f') return digit - 'a' + 10;
+    return -1;
+}
+
+} // namespace
+
+bool HexToColor (const GS::UniString& hex, Gfx::Color& color)
+{
+    if (hex.GetLength () != 7 || hex[0] != '#')
+        return false;
+    UChar channels[3] = {};
+    for (UIndex i = 0; i < 3; ++i) {
+        const int high = HexDigit (hex[1 + i * 2]);
+        const int low = HexDigit (hex[2 + i * 2]);
+        if (high < 0 || low < 0)
+            return false;
+        channels[i] = (UChar) ((high << 4) | low);
+    }
+    color = Gfx::Color (channels[0], channels[1], channels[2]);
+    return true;
+}
+
+GS::UniString ColorToHex (const Gfx::Color& color)
+{
+    return GS::UniString::Printf ("#%02X%02X%02X", (unsigned) color.GetRed (),
+                                  (unsigned) color.GetGreen (), (unsigned) color.GetBlue ());
+}
+
 std::string Utf8 (const GS::UniString& text)
 {
     return std::string (text.ToCStr (0, GS::MaxUSize, CC_UTF8).Get ());

@@ -254,6 +254,7 @@ def _parse_run_signature(fn):
             entry["required"] = False
         else:
             entry["required"] = True
+        _validate_color_default(entry, arg.lineno)
         params.append(entry)
 
     for arg, default in zip(args.kwonlyargs, args.kw_defaults):
@@ -266,9 +267,22 @@ def _parse_run_signature(fn):
             entry["required"] = False
         else:
             entry["required"] = True
+        _validate_color_default(entry, arg.lineno)
         params.append(entry)
 
     return params
+
+
+def _validate_color_default(entry, line):
+    if entry["type"] != "Color" or "default" not in entry:
+        return
+    value = entry["default"]
+    if not isinstance(value, str) or (value and (
+        len(value) != 7 or value[0] != "#" or
+        any(digit not in "0123456789abcdefABCDEF" for digit in value[1:])
+    )):
+        raise ScanError("Color default must be an opaque #RRGGBB string or empty (line %d)" % line,
+                        line)
 
 
 def _value_text(value):

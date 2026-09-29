@@ -105,6 +105,23 @@ TEST (GhInputModel, ParsesEveryDeclaredFieldOfEveryKind)
     EXPECT_EQ (InputKind::Text, note->kind);
 }
 
+TEST (GhInputModel, ColorIsOpaqueHexNotFreeText)
+{
+    EXPECT_EQ (InputKind::Color, InputKindFromName ("color"));
+    InputControl color;
+    color.id = "tint";
+    color.kind = InputKind::Color;
+    color.required = true;
+    EXPECT_TRUE (Coerce (color, "#5a7f62").ok);
+    EXPECT_EQ ("#5A7F62", Coerce (color, "#5a7f62").value);
+    EXPECT_FALSE (Coerce (color, "#12345").ok);
+    EXPECT_FALSE (Coerce (color, "#12345678").ok);
+    EXPECT_FALSE (Coerce (color, "red").ok);
+    EXPECT_FALSE (Coerce (color, "").ok);
+    color.required = false;
+    EXPECT_TRUE (Coerce (color, "").ok);
+}
+
 TEST (GhInputModel, RowsAreOrderedByGroupThenOrder)
 {
     // The same rule the worker's discovery applied. Two sorts that disagreed

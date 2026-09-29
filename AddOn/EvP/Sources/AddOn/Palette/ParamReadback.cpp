@@ -68,6 +68,10 @@ bool ParamControl::HasValue () const
             // not the label — a label with no value behind it is the failure this
             // gate exists for.
             return !selectedValueJson.IsEmpty ();
+        case Kind::Color:
+            return !colorHex.IsEmpty ();
+        case Kind::DateTimeProbe:
+            return true;
         case Kind::Text:
         case Kind::FilePath:
             return !static_cast<DG::TextEdit*> (control.get ())->GetText ().IsEmpty ();
@@ -100,6 +104,10 @@ GS::UniString ParamControl::CurrentValueText () const
             // literal in a command's source, so show_when={"door": "..."} is
             // genuinely usable — and "" still matches "nothing chosen yet".
             return selectedLabel;
+        case Kind::Color:
+            return colorHex;
+        case Kind::DateTimeProbe:
+            return GS::UniString::Printf ("%d", (int) static_cast<DG::DateTime*> (control.get ())->GetValue ());
         case Kind::NavItem: {
             // What a show_when compares against is the value the parameter SENDS —
             // the guid, not the row text — so the two can never disagree. In
@@ -184,6 +192,12 @@ GS::UniString ParamPanel::CollectJson () const
                 // Whatever the browser last returned. Empty until the user picks,
                 // which is exactly the state a required View parameter blocks Run on.
                 json += "\"" + EscapeJson (pc.selectedGuid) + "\"";
+                break;
+            case ParamControl::Kind::Color:
+                json += "\"" + EscapeJson (pc.colorHex) + "\"";
+                break;
+            case ParamControl::Kind::DateTimeProbe:
+                json += GS::UniString::Printf ("%d", (int) static_cast<DG::DateTime*> (pc.control.get ())->GetValue ());
                 break;
             case ParamControl::Kind::Catalog:
                 // ⚠️ THE ONE KIND THAT EMITS AN OBJECT, NOT A SCALAR — already

@@ -193,6 +193,30 @@ Surface = _ProjectList("Surface")    # -> APIUserControlType_Material,   value: 
 Story = _ProjectList("Story")
 
 
+class _Color:
+    """An opaque colour chosen with Archicad's native colour dialog.
+
+    ``tint: evp.Color = "#5A7F62"`` sends a canonical ``#RRGGBB`` string.
+    An empty default leaves the picker unselected until the user chooses one.
+    """
+
+    __slots__ = ("kind", "readonly", "show_when")
+
+    def __init__(self, readonly=False, show_when=None):
+        self.kind = "Color"
+        self.readonly = readonly
+        self.show_when = show_when
+
+    def __call__(self, readonly=False, show_when=None):
+        return _Color(readonly=readonly, show_when=show_when)
+
+    def __repr__(self):
+        return "evp.Color"
+
+
+Color = _Color()
+
+
 class _FilePath:
     """A path selected through an open or save file dialog.
 

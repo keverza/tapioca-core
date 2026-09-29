@@ -8,6 +8,7 @@
 #include "Palette/PaletteScroll.hpp"        // F4 — every row reaches the panel through it
 #include "Palette/ParamVisibility.hpp"      // F3 show_when — DevKit-free, tested offline
 #include "Palette/ParamValues.hpp"          // a control's value <-> its text, both ways
+#include "Palette/ParamDateTimeProbe.hpp" // diagnostic logging only
 #include "Palette/NavItemChoices.hpp"       // evp.View / evp.Database — the rows and their guids
 #include "Palette/NavigatorBrowser.hpp"     // evp.View — the modal Navigator tree
 #include "Palette/CatalogPicker.hpp"        // evp.LibraryPart / evp.Favourite — catalogue + modal
@@ -23,6 +24,7 @@
 #include "DGFileDialog.hpp"    // evp.FilePath Browse button
 #include "FileTypeManager.hpp" // FTM::RootGroup — the "any file" filter
 #include "Location.hpp"        // IO::Location -> path string
+#include "GSTime.hpp"          // probe only: compare three DG controls with GSRoot time
 
 #include <algorithm>
 #include <string>
@@ -49,6 +51,7 @@ std::string NormalizedFileExtension (const GS::UniString& rawExtension)
         extension.erase (0, 1);
     return extension;
 }
+
 
 // UserControlTypeFor — which Archicad picker an evp.<Attribute> type maps to —
 // lives in Palette/AttributePickerTypes.hpp. It is a table of claims about the
@@ -242,6 +245,34 @@ void ParamPanel::Rebuild (const CommandInfo& info)
             pc.control = std::move (edit);
 
             domainText = FormatNumericDomain (pc.unit, haveMin, haveMax, minimum, maximum);
+        }
+        else if (pc.type == "Color") {
+            pc.kind = ParamControl::Kind::Color;
+            GS::UniString value;
+            os.Get ("default", value);
+            Gfx::Color parsed;
+            if (HexToColor (value, parsed))
+                pc.colorHex = ColorToHex (parsed);
+            auto button = std::make_unique<DG::Button> (panel, seed);
+            button->SetText (pc.colorHex.IsEmpty () ? GS::UniString ("Choose colour...") : pc.colorHex);
+            button->Attach (observer);
+            pc.control = std::move (button);
+        }
+        else if (pc.type == "DateProbe" || pc.type == "TimeProbe" || pc.type == "CalendarProbe") {
+            // Diagnostic only. Do not infer a public Date/Time wire format from
+            // these Int32 values until the three UI readings have been compared.
+            pc.kind = ParamControl::Kind::DateTimeProbe;
+            std::unique_ptr<DG::DateTime> control;
+            if (pc.type == "DateProbe") control = std::make_unique<DG::DateControl> (panel, seed);
+            else if (pc.type == "TimeProbe") control = std::make_unique<DG::TimeControl> (panel, seed);
+            else control = std::make_unique<DG::CalendarControl> (panel, seed);
+            GSTimeRecord known (2026, 9, 2, 29, 9, 30, 0, 0);
+            GSTime sample = 0;
+            if (TIGetGSTime (&known, &sample) == NoError)
+                control->SetValue (sample);
+            LogDateTimeProbe (pc.name, "after SetValue(2026-09-29 09:30)", *control);
+            control->Attach (observer);
+            pc.control = std::move (control);
         }
         else if (pc.type == "Pen" && nextPenSlot < penPool.size ()) {
             // Archicad's real pen swatch, borrowed from the .grc pool. The attribute
@@ -837,13 +868,30 @@ bool ParamPanel::HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflo
     return false;
 }
 
-// The three buttons a generated row can own: a FilePath's Browse, a View's
-// Navigator browser, and a LibraryPart/Favourite's catalogue browser. All open a
+// A generated row's buttons include FilePath, View, LibraryPart/Favourite and
+// Color. All open a
 // MODAL dialog directly on the main thread from a button handler — NEVER through
 // MainThreadGate, which must not hold for human time (it would report a false
 // timeout; see the gate's contract).
-bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath)
+bool ParamPanel::HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath,
+                                      bool* reflow)
 {
+    for (ParamControl& pc : paramControls) {
+        if (pc.kind != ParamControl::Kind::Color || ev.GetSource () != pc.control.get ())
+            continue;
+        Gfx::Color color;
+        if (!pc.colorHex.IsEmpty ())
+            HexToColor (pc.colorHex, color);
+        if (DG::GetColor ("Choose colour", &color)) {
+            pc.colorHex = ColorToHex (color);
+            static_cast<DG::Button*> (pc.control.get ())->SetText (pc.colorHex);
+            const bool changedVisibility = ApplyVisibility ();
+            if (reflow != nullptr)
+                *reflow = changedVisibility;
+        }
+        return true;
+    }
+
     // evp.View — the Navigator browser. Its own loop first, because a View row's
     // button IS pc.control, not pc.browseButton.
     for (ParamControl& pc : paramControls) {

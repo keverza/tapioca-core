@@ -4,6 +4,7 @@
 #include "PaletteMetrics.hpp"
 #include "PaletteScroll.hpp"
 #include "ParamLayout.hpp"
+#include "ParamValues.hpp"
 
 #include "NativeCommands/SelectionSetStore.hpp" // a selection row's value lives here
 #include "AddOnCommands.hpp"                    // ExecuteNativeCommand, for the selection verbs
@@ -54,6 +55,8 @@ DG::Item* WorkflowControl::Widget () const
         return popUp.get ();
     if (editText)
         return editText.get ();
+    if (colorButton)
+        return colorButton.get ();
     if (realEdit)
         return realEdit.get ();
     if (intEdit)
@@ -180,6 +183,8 @@ GS::UniString WorkflowControl::CurrentText () const
 
     if (editText)
         return editText->GetText ();
+    if (colorButton)
+        return colorHex;
 
     // ⚠️ RENDERED THROUGH FormatInputNumber, NOT THROUGH DG's OWN FORMATTING.
     // The value that leaves here is hashed into the input snapshot, so it has to
@@ -196,6 +201,23 @@ GS::UniString WorkflowControl::CurrentText () const
 WorkflowPanel::WorkflowPanel (const DG::Panel& hostPanel, ControlPalette& shellObserver)
     : panel (hostPanel), observer (shellObserver)
 {
+}
+
+bool WorkflowPanel::HandleColorButton (const DG::Item* source)
+{
+    for (WorkflowControl& control : controls) {
+        if (control.colorButton == nullptr || control.colorButton.get () != source)
+            continue;
+        Gfx::Color color;
+        if (!control.colorHex.IsEmpty ())
+            HexToColor (control.colorHex, color);
+        if (DG::GetColor ("Choose colour", &color)) {
+            control.colorHex = ColorToHex (color);
+            control.colorButton->SetText (control.colorHex);
+        }
+        return true;
+    }
+    return false;
 }
 
 void WorkflowPanel::Create ()
@@ -473,6 +495,18 @@ void WorkflowPanel::Rebuild (const std::string& schemaJson)
                                                     (unsigned) control.attributeChoices.GetSize ()));
                 popup->Attach (observer);
                 control.attributePopUp = std::move (popup);
+                break;
+            }
+
+            case InputKind::Color: {
+                Gfx::Color parsed;
+                if (HexToColor (ToUniString (row.initialValue), parsed))
+                    control.colorHex = ColorToHex (parsed);
+                auto button = std::make_unique<DG::Button> (panel, seed);
+                button->SetText (control.colorHex.IsEmpty () ? GS::UniString ("Choose colour...")
+                                                         : control.colorHex);
+                button->Attach (observer);
+                control.colorButton = std::move (button);
                 break;
             }
 

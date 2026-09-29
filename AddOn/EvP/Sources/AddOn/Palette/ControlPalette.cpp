@@ -549,36 +549,12 @@ void ControlPalette::ButtonClicked (const DG::ButtonClickEvent& ev)
     if (HandleWorkflowButton (ev))
         return;
     GS::UniString chosenPath;
-    if (params.HandleButtonClicked (ev, &chosenPath))
-        DynamoGraphChosen (chosenPath); // a .dyn also carries the rows below it; re-gates Run
-}
-
-void ControlPalette::TextEditChanged (const DG::TextEditChangeEvent& /*ev*/)
-{
-    // A required text parameter is empty until the user types something, so the
-    // gate has to react to typing. Relying on the idle poll made a required field
-    // look broken: you could type a name and Run stayed disabled.
-    RefreshRunGate ();
-    RefreshSearchFilter (); // the search box commits through here too
-}
-
-void ControlPalette::UserControlChanged (const DG::UserControlChangeEvent& /*ev*/)
-{
-    // Pen swatches only. Nothing to do: ACAPI_Dialog_SetUserControlCallback runs the
-    // pen chooser and stores the new pen on the item itself, so the value is already
-    // correct and ParamPanel::CollectJson reads it at Run time. This override exists
-    // because DG requires the observer to be attached for the control to be live.
-}
-
-void ControlPalette::PopUpChanged (const DG::PopUpChangeEvent& ev)
-{
-    // The command's Action, or an Enum other rows follow. Only the parameter block
-    // owns popups, so there is nothing else this can be.
     bool reflow = false;
-    if (!preview.HandlePopUpChanged (ev) && params.HandlePopUpChanged (ev, reflow)) {
+    if (params.HandleButtonClicked (ev, &chosenPath, &reflow)) {
         if (reflow)
             ReflowParams ();
-        RefreshRunGate (); // a mode change can hide the row that was blocking Run
+        RefreshRunGate ();
+        DynamoGraphChosen (chosenPath); // a .dyn also carries the rows below it; re-gates Run
     }
 }
 

@@ -5,6 +5,7 @@
 #include "NodeGraph/Json.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -209,6 +210,8 @@ const char* DescribeInputKind (InputKind kind)
             return "boolean";
         case InputKind::Text:
             return "text";
+        case InputKind::Color:
+            return "color";
         case InputKind::Enum:
             return "enum";
         case InputKind::Selection:
@@ -242,6 +245,8 @@ InputKind InputKindFromName (const std::string& name)
     // spellings are accepted because only one of them is ours to change.
     if (name == "string" || name == "text")
         return InputKind::Text;
+    if (name == "color")
+        return InputKind::Color;
     if (name == "enum")
         return InputKind::Enum;
     if (name == "selection")
@@ -469,6 +474,21 @@ CoerceResult Coerce (const InputControl& control, const std::string& text)
             if (control.required && Trim (text).empty ())
                 return Refuse (control, "is required.");
             return Accept (text);
+        }
+
+        case InputKind::Color: {
+            if (trimmed.empty () && !control.required)
+                return Accept (trimmed);
+            if (trimmed.size () != 7 || trimmed[0] != '#')
+                return Refuse (control, "must be #RRGGBB.");
+            std::string normalized = "#";
+            for (size_t i = 1; i < trimmed.size (); ++i) {
+                const unsigned char digit = (unsigned char) trimmed[i];
+                if (!std::isxdigit (digit))
+                    return Refuse (control, "must be #RRGGBB.");
+                normalized += (char) std::toupper (digit);
+            }
+            return Accept (normalized);
         }
 
         case InputKind::Unsupported:

@@ -658,6 +658,10 @@ void ControlPalette::RefreshWorkflowBand ()
 
 bool ControlPalette::HandleWorkflowButton (const DG::ButtonClickEvent& ev)
 {
+    if (workflow.HandleColorButton (ev.GetSource ())) {
+        RefreshRunGate ();
+        return true;
+    }
     // ⚠️ FIRST, BECAUSE THESE ARE ROWS RATHER THAN BAND CONTROLS. A selection
     // input's five verbs are built by the band's own panel, one row per input, so
     // the band asks it before testing any of its own buttons.

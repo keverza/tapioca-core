@@ -56,6 +56,8 @@ struct WorkflowControl {
     std::unique_ptr<DG::CheckBox> checkBox; // Boolean
     std::unique_ptr<DG::PopUp> popUp;       // Enum
     std::unique_ptr<DG::TextEdit> editText; // Text
+    std::unique_ptr<DG::Button> colorButton; // Color, native modal chooser
+    GS::UniString colorHex;
     std::unique_ptr<DG::RealEdit> realEdit; // Number
     std::unique_ptr<DG::IntEdit> intEdit;   // Integer
 
@@ -168,6 +170,8 @@ class WorkflowPanel {
     // one row was refused and `errors` says which; the ids and values are still
     // aligned either way.
     WorkflowSnapshot Collect () const;
+
+    bool HandleColorButton (const DG::Item* source);
 
     // True when the panel holds a schema at all -- an empty definition still
     // counts, because "loaded with no inputs" and "nothing loaded" are different

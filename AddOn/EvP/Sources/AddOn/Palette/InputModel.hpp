@@ -39,6 +39,7 @@ enum class InputKind {
     Integer,
     Boolean,
     Text,
+    Color,
     Enum,
     // ⚠️ THE ONE INPUT THE PANEL DOES NOT EDIT IN ITS OWN ROW. A selection
     // is many element GUIDs, picked in Archicad with the Update / Add / Remove /

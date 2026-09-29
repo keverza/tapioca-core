@@ -14,6 +14,7 @@
 
 #include "APIEnvir.h"
 #include "ACAPinc.h"
+#include "Color.hpp"
 
 #include <string>
 
@@ -104,6 +105,11 @@ GS::UniString JsonReal (double value);
 // Any Text input containing a newline had the same bug. Escape here, once, for
 // every control that serialises a string.
 GS::UniString EscapeJson (const GS::UniString& text);
+
+// The colour picker transports opaque CSS-style RGB only. Reject rather than
+// reinterpret malformed defaults; canonical output uses uppercase hex digits.
+bool HexToColor (const GS::UniString& hex, Gfx::Color& color);
+GS::UniString ColorToHex (const Gfx::Color& color);
 
 }   // namespace evp
 

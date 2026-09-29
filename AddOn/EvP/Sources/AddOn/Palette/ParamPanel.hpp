@@ -5,6 +5,7 @@
 #include "ACAPinc.h"
 #include "APIdefs_Interface.h" // API_AttributePicker (Layer/Pen/Fill/LineType)
 #include "DGModule.hpp"
+#include "DGDateTime.hpp"
 
 #include <memory>
 #include <vector>
@@ -65,7 +66,9 @@ struct ParamControl {
         NavItem,
         NavBrowse,
         Catalog,
-        ProjectField
+        ProjectField,
+        Color,
+        DateTimeProbe
     } kind = Kind::Text;
 
     GS::Array<GS::UniString> choices; // Enum/Action and Story: the popup's row labels
@@ -142,6 +145,9 @@ struct ParamControl {
     //    to the collector. Empty means every kind.
     GS::UniString catalogFilter;
     GS::UniString selectedValueJson;
+
+    // An opaque colour, blank until chosen when no valid default was supplied.
+    GS::UniString colorHex;
 
     // FilePath only: a compact Browse icon before the field. Typing a path by hand
     // stays possible; the button exists because remembering one is not the user's job.
@@ -240,7 +246,9 @@ class ParamPanel {
     // a second call so the shell cannot forget to ask.
     bool HandleCheckItemChanged (const DG::CheckItemChangeEvent& ev, bool& reflow);
     bool HandlePopUpChanged (const DG::PopUpChangeEvent& ev, bool& reflow);
-    bool HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath = nullptr);
+    bool HandleDateTimeChanged (const DG::DateTimeChangeEvent& ev, bool& reflow);
+    bool HandleButtonClicked (const DG::ButtonClickEvent& ev, GS::UniString* selectedFilePath = nullptr,
+                              bool* reflow = nullptr);
 
   private:
     // F3 — re-evaluate every show_when against the values the controls hold now,
