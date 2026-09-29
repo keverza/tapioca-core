@@ -47,6 +47,7 @@ cbuffer GuestDraw
     float4 StopAt[4];     // 16 positions, 0..1
     float4 StopColour[16];
     float4 Atlas;         // x 1 / page width, y 1 / page height, z distance range and w the em in atlas pixels
+    float4 Dashes[32];    // 16 dash patterns of 8 lengths in metres: on, off, on, off...
 };
 
 struct FillOut
@@ -61,9 +62,12 @@ struct LineOut
 {
     float4 position : SV_POSITION;
     float4 colour : COLOR0;
-    float across : TEXCOORD0;  // signed physical pixels from the centre line
-    float along : TEXCOORD1;   // physical pixels along the polyline: the dash's phase
-    float3 style : TEXCOORD2;  // half width, dash period (0 solid), duty
+    float across : TEXCOORD0;     // signed physical pixels from the centre line
+    // Metres along the polyline over w, and 1 over w: interpolated linearly on the screen
+    // (every line vertex is at w 1), their ratio is the fragment's metres, perspective-correct.
+    float2 metres : TEXCOORD1;
+    float halfWidth : TEXCOORD2;  // physical pixels
+    nointerpolation uint dash : TEXCOORD3; // the pattern in Dashes, or 255: solid
 };
 
 struct GlyphOut
@@ -146,18 +150,52 @@ float4 PSFill (FillOut i) : SV_TARGET
     return c;
 }
 
-// Coverage across the width and at the dash ends -- the antialiasing StorySliceLayer
+// How much of a fragment `metres` along a line pattern `pattern` covers: 1 inside a dash,
+// 0 inside a gap, half at an edge, the edges a pixel soft by the metres a pixel spans.
+// ⚠️ UNDER A FEW PIXELS A PERIOD, THE DASHES' SHARE OF IT: a pattern seen from far off is
+// finer than the pixels and would shimmer as the camera moves, so it fades into an even
+// line as faint as the dashes are on average.
+float DashCoverage (uint pattern, float metres, float metresPerPixel)
+{
+    if (pattern > 15u)
+        return 1.0;
+    float4 first = Dashes[pattern * 2u];
+    float4 second = Dashes[pattern * 2u + 1u];
+    float lengths[8] = { first.x, first.y, first.z, first.w, second.x, second.y, second.z, second.w };
+    float total = 0.0, on = 0.0;
+    [unroll] for (int k = 0; k < 8; ++k)
+    {
+        total += lengths[k];
+        on += (k & 1) == 0 ? lengths[k] : 0.0;
+    }
+    if (total <= 0.0)
+        return 1.0;
+    float pixel = max (metresPerPixel, 1e-9);
+    float t = metres - total * floor (metres / total);
+    float start = 0.0, coverage = 0.0;
+    [unroll] for (int j = 0; j < 8; ++j)
+    {
+        float end = start + lengths[j];
+        if (t >= start && t < end)
+        {
+            float inside = saturate (min (t - start, end - t) / pixel + 0.5);
+            coverage = (j & 1) == 0 ? inside : 1.0 - inside;
+        }
+        start = end;
+    }
+    return lerp (on / total, coverage, saturate ((total / pixel - 2.0) / 4.0));
+}
+
+// Coverage across the width and along the dash pattern -- the antialiasing StorySliceLayer
 // established: the ribbon is a pixel wider than the line, and its last pixel fades.
 float4 PSLine (LineOut i) : SV_TARGET
 {
-    float coverage = saturate (i.style.x - abs (i.across) + 0.5);
-    if (i.style.y > 0.5)
-    {
-        float phase = frac (i.along / i.style.y);
-        float into = phase * i.style.y;
-        float until = (i.style.z - phase) * i.style.y;
-        coverage *= saturate (min (into, until) + 0.5);
-    }
+    // Before the branch: the derivative wants every pixel of the quad.
+    float metres = i.metres.x / max (i.metres.y, 1e-12);
+    float perPixel = fwidth (metres);
+    float coverage = saturate (i.halfWidth - abs (i.across) + 0.5);
+    if (i.dash <= 15u)
+        coverage *= DashCoverage (i.dash, metres, perPixel);
     if (coverage <= 0.001)
         discard;
     return float4 (i.colour.rgb, i.colour.a * coverage * Mode.y);
@@ -263,7 +301,7 @@ FillOut VSFill (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTRIB
 }
 
 LineOut VSLine (float2 hiA : ATTRIB0, float2 loA : ATTRIB1, float2 hiB : ATTRIB2, float2 loB : ATTRIB3,
-                float4 colour : ATTRIB4, float4 style : ATTRIB5, uint corner : SV_VertexID)
+                float4 colour : ATTRIB4, float2 style : ATTRIB5, uint dashes : ATTRIB6, uint corner : SV_VertexID)
 {
     LineOut o;
     float2 a = Pixel (hiA, loA);
@@ -280,11 +318,13 @@ LineOut VSLine (float2 hiA : ATTRIB0, float2 loA : ATTRIB1, float2 hiB : ATTRIB2
     o.position = ClipOf ((atB ? b + along * pushed : a - along * pushed) + across * (side * pushed));
     o.colour = colour;
     o.across = side * pushed;
+    // Metres along the polyline: the plan is flat, so they run evenly across the screen.
     precise float2 m = (hiB - hiA) + (loB - loA);
     float metres = length (m);
-    float perMetre = metres > 1e-9 ? len / metres : 0.0;
-    o.along = style.w * perMetre + (atB ? len + pushed : -pushed);
-    o.style = float3 (halfWidth, style.y * Surface.z, style.z);
+    float s = len > 1e-3 ? (atB ? len + pushed : -pushed) / len : (atB ? 1.0 : 0.0);
+    o.metres = float2 (style.y + s * metres, 1.0);
+    o.halfWidth = halfWidth;
+    o.dash = dashes & 255u;
     return o;
 }
 
@@ -389,8 +429,8 @@ FillOut VSFill (float3 position : ATTRIB0, float3 normal : ATTRIB1, float2 offse
     return o;
 }
 
-LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2, float4 style : ATTRIB3,
-                uint behind : ATTRIB4, uint corner : SV_VertexID)
+LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2, float4 hiddenColour : ATTRIB3,
+                float3 style : ATTRIB4, uint dashes : ATTRIB5, uint behind : ATTRIB6, uint corner : SV_VertexID)
 {
     LineOut o;
     // Pulled toward the eye first: the pull is affine in clip space, so the cut at the
@@ -415,7 +455,9 @@ LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2,
     float2 pb = ToPixels (cb);
     float za = saturate (ca.z / ca.w);
     float zb = saturate (cb.z / cb.w);
-    float halfWidth = style.x * 0.5 * Surface.z;
+    // Behind the building: the line's hidden width, colour and pattern.
+    bool behindPass = Mode.z > 0.5 && Mode.z < 1.5;
+    float halfWidth = (behindPass && style.y > 0.0 ? style.y : style.x) * 0.5 * Surface.z;
     float pushed = halfWidth + 1.0;
     float2 d = pb - pa;
     float len = length (d);
@@ -425,21 +467,26 @@ LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2,
     float side = (corner == 2 || corner == 4 || corner == 5) ? 1.0 : -1.0;
     float2 p = (atB ? pb + along * pushed : pa - along * pushed) + across * (side * pushed);
     o.position = draw ? FromPixels (p, atB ? zb : za) : kCulled;
+    // ⚠️ THE PATTERN IS ANCHORED IN THE MODEL: metres along the polyline at each end of the
+    // part in front of the eye, carried over w so the fragment divides back to its own
+    // metres -- never pixels from wherever the start happens to project (OverlayLayers.hpp).
     float metres = length (b - a);
-    float perMetre = metres * (tb - ta) > 1e-9 ? len / (metres * (tb - ta)) : 0.0;
-    o.along = (style.w + ta * metres) * perMetre + (atB ? len + pushed : -pushed);
-    bool behindPass = Mode.z > 0.5 && Mode.z < 1.5;
-    float period = style.y * Surface.z;
-    float duty = style.z;
-    if (behindPass && behind == 2u && period < 0.5)
-    {
-        period = 8.0 * Surface.z;
-        duty = 0.55;
-    }
-    o.style = float3 (halfWidth, period, duty);
+    float ma = style.z + ta * metres;
+    float mb = style.z + tb * metres;
+    float s = len > 1e-3 ? clamp ((atB ? len + pushed : -pushed) / len, -0.25, 1.25) : (atB ? 1.0 : 0.0);
+    float ia = 1.0 / max (ca.w, kNearW);
+    float ib = 1.0 / max (cb.w, kNearW);
+    o.metres = float2 (lerp (ma * ia, mb * ib, s), max (lerp (ia, ib, s), 1e-12));
+    o.halfWidth = halfWidth;
+    o.dash = behindPass ? (dashes >> 8) & 255u : dashes & 255u;
     o.colour = colour;
-    if (behindPass && behind == 1u)
-        o.colour.a *= 0.3;
+    if (behindPass)
+    {
+        if (hiddenColour.a > 0.0)
+            o.colour = hiddenColour;
+        else if (behind == 1u)
+            o.colour.a *= 0.3;
+    }
     o.across = side * pushed;
     return o;
 }

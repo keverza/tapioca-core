@@ -183,7 +183,10 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         if (!ReadColour (outline, "color", controls.outlineRgba, error))
             return false;
         controls.outlineWidthPixels = FloatOf (outline, "widthPixels", controls.outlineWidthPixels);
-        controls.outlineDashPixels = FloatOf (outline, "dashPixels", controls.outlineDashPixels);
+        overlayreading::ReadDash (outline, "dashMetres", controls.outlineDashMetres);
+        GS::ObjectState hidden;
+        if (outline.Get ("hidden", hidden) && !overlayreading::ReadHiddenLine (hidden, controls.outlineHidden, error))
+            return false;
         controls.outlineBehind = OcclusionOf (outline, controls.outlineBehind);
     }
     GS::ObjectState fill;
@@ -440,7 +443,8 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
     R"json("outline":{"type":"object","properties":{
         "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
-        "dashPixels":{"type":"number","minimum":0,"maximum":512},
+        "dashMetres":{"type":"array","maxItems":8,"description":"On, off, on, off... in model metres along the line, anchored at its start; empty is solid.","items":{"type":"number","minimum":0,"maximum":1000}},
+        "hidden":{"type":"object","description":"The part behind the building, where occlusion is dash or fade.","properties":{"color":{"$ref":"#Color"},"widthPixels":{"type":"number","minimum":0,"maximum":64},"dashMetres":{"type":"array","maxItems":8,"description":"On, off, on, off... in model metres along the line, anchored at its start; empty is solid.","items":{"type":"number","minimum":0,"maximum":1000}}},"additionalProperties":false},
         "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false},
     "fill":{"type":"object","properties":{

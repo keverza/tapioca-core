@@ -161,6 +161,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     arrays.glyphs = plan.glyphs.data ();
     arrays.glyphCount = plan.glyphs.size ();
     arrays.glyphStride = sizeof (overlayscene::PlanGlyph);
+    arrays.dashes = &plan.dashes;
     gpu::Content content;
     if (!gpu::Upload (g_guest.Device (), g_pipelines, g_pages, arrays, plan.fillDraws, plan.glyphDraws, plan.pages,
                       content, error)) {

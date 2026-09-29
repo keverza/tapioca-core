@@ -128,6 +128,7 @@ void Builder::AddMesh (const layers::Layer& layer, const layers::Mesh& mesh)
             line.rgba = mesh.style.edgeRgba;
             line.width = mesh.style.edgeWidthPixels;
             line.behind = behind;
+            line.dashes = DashesOf ({}, nullptr, behind);
             if (!PushLine (line))
                 break;
         }
@@ -139,6 +140,7 @@ void Builder::AddPolyline (const layers::Layer& layer, const layers::Polyline& p
     const size_t points = polyline.points.size () / 3;
     const size_t segments = polyline.closed ? points : points - 1;
     const uint32_t behind = BehindOf (polyline.behind, layer);
+    const uint32_t dashes = DashesOf (polyline.dashMetres, &polyline.hidden, behind);
     double arc = 0.0;
     for (size_t i = 0; i < segments; ++i) {
         const Vec3 a = At (polyline.points, uint32_t (i));
@@ -154,8 +156,9 @@ void Builder::AddPolyline (const layers::Layer& layer, const layers::Polyline& p
         Assign (line.b, b);
         line.rgba = polyline.rgba;
         line.width = polyline.widthPixels;
-        line.dash = polyline.dashPixels;
-        line.duty = polyline.dashDuty;
+        line.hiddenRgba = polyline.hidden.rgba;
+        line.hiddenWidth = polyline.hidden.widthPixels;
+        line.dashes = dashes;
         line.arc = float (arc);
         line.behind = behind;
         if (!PushLine (line))
@@ -228,6 +231,7 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
         l.rgba = dimension.rgba;
         l.width = dimension.widthPixels;
         l.behind = behind;
+        l.dashes = DashesOf ({}, nullptr, behind);
         PushLine (l);
     };
     line (resolved->dimensionFirst, resolved->dimensionSecond);
@@ -500,6 +504,35 @@ bool Builder::PushGlyphVertex (const DraftGlyph& glyph, float x, float y, float 
     return true;
 }
 
+uint32_t Builder::DashOf (const float* lengths, size_t count)
+{
+    if (count == 0)
+        return kSolidPattern;
+    std::array<float, layers::kMaxDashEntries> pattern {};
+    for (size_t i = 0; i < count && i < pattern.size (); ++i)
+        pattern[i] = lengths[i];
+    for (size_t i = 0; i < draft_.dashes.size (); ++i)
+        if (draft_.dashes[i] == pattern)
+            return uint32_t (i);
+    if (draft_.dashes.size () >= kMaxDashPatterns) {
+        draft_.problems.lastError = "more than 16 dash patterns: the rest are drawn solid";
+        return kSolidPattern;
+    }
+    draft_.dashes.push_back (pattern);
+    return uint32_t (draft_.dashes.size () - 1);
+}
+
+uint32_t Builder::DashesOf (const std::vector<float>& visible, const layers::HiddenLine* hidden, uint32_t behind)
+{
+    const uint32_t shown = DashOf (visible.data (), visible.size ());
+    uint32_t behindBuilding = kSolidPattern;
+    if (hidden != nullptr && !hidden->dashMetres.empty ())
+        behindBuilding = DashOf (hidden->dashMetres.data (), hidden->dashMetres.size ());
+    else if (behind == kBehindDash)
+        behindBuilding = DashOf (layers::kDefaultHiddenDash, 2);
+    return shown | (behindBuilding << 8);
+}
+
 bool Builder::PushLine (const DraftLine& line)
 {
     if (draft_.lines.size () >= kMaxLines) {
@@ -550,8 +583,23 @@ bool Append (Draft& into, const Draft& from)
             into.textPages.push_back (from.textPages[i]);
         slot[i] = uint32_t (at);
     }
+    // Dash patterns likewise, by content; past the table's room a line is drawn solid.
+    std::vector<uint32_t> dash (from.dashes.size (), kSolidPattern);
+    for (size_t i = 0; i < from.dashes.size (); ++i) {
+        size_t at = 0;
+        while (at < into.dashes.size () && into.dashes[at] != from.dashes[i])
+            ++at;
+        if (at == into.dashes.size () && into.dashes.size () < kMaxDashPatterns)
+            into.dashes.push_back (from.dashes[i]);
+        dash[i] = at < into.dashes.size () ? uint32_t (at) : kSolidPattern;
+    }
+    auto renumbered = [&dash] (uint32_t id) { return id < dash.size () ? dash[id] : kSolidPattern; };
     into.fills.insert (into.fills.end (), from.fills.begin (), from.fills.end ());
-    into.lines.insert (into.lines.end (), from.lines.begin (), from.lines.end ());
+    into.lines.reserve (into.lines.size () + from.lines.size ());
+    for (DraftLine line : from.lines) {
+        line.dashes = renumbered (line.dashes & 0xFFu) | (renumbered ((line.dashes >> 8) & 0xFFu) << 8);
+        into.lines.push_back (line);
+    }
     into.glyphs.reserve (into.glyphs.size () + from.glyphs.size ());
     for (DraftGlyph glyph : from.glyphs) {
         if (glyph.page < kHudPageBase && glyph.page < slot.size ())
@@ -681,6 +729,8 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
     Plan out;
     Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale, fonts, out.cost);
     out.problems = draft.problems;
+    for (const auto& pattern : draft.dashes)
+        out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
 
     // The centre every half is relative to: the model anchors' mean.
@@ -740,9 +790,8 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
         SplitAt (line.b[1], out.originY, l.hiB[1], l.loB[1]);
         l.rgba = layers::ToUnorm (line.rgba);
         l.widthPixels = line.width;
-        l.dashPixels = line.dash;
-        l.dashDuty = line.duty;
         l.arcStart = line.arc;
+        l.dashes = line.dashes;
         out.lines.push_back (l);
     }
 
@@ -793,6 +842,8 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
     Scene out;
     Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale, fonts, out.cost);
     out.problems = draft.problems;
+    for (const auto& pattern : draft.dashes)
+        out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
 
     for (const DraftFill& fill : draft.fills) {
@@ -821,10 +872,11 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
             s.b[k] = float (line.b[k]);
         }
         s.rgba = layers::ToUnorm (line.rgba);
+        s.hiddenRgba = layers::ToUnorm (line.hiddenRgba);
         s.widthPixels = line.width;
-        s.dashPixels = line.dash;
-        s.dashDuty = line.duty;
+        s.hiddenWidthPixels = line.hiddenWidth;
         s.arcStart = line.arc;
+        s.dashes = line.dashes;
         s.behind = line.behind;
         out.lines.push_back (s);
     }

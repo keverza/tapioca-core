@@ -189,6 +189,27 @@ bool PresetStops (const std::string& name, std::vector<ColourStop>& stops)
 
 namespace {
 
+bool Styled (const HiddenLine& hidden)
+{
+    return (hidden.rgba & 0xFFu) != 0 || hidden.widthPixels > 0.0f || !hidden.dashMetres.empty ();
+}
+
+// At most kMaxDashEntries lengths, each finite and 0 to 1000 m, some of them above 0.
+bool ValidDash (const std::vector<float>& lengths)
+{
+    if (lengths.empty ())
+        return true;
+    if (lengths.size () > kMaxDashEntries)
+        return false;
+    float total = 0.0f;
+    for (const float length : lengths) {
+        if (!std::isfinite (length) || length < 0.0f || length > 1000.0f)
+            return false;
+        total += length;
+    }
+    return total > 0.0f;
+}
+
 // What the raw pipelines can draw: hidden behind the building, or over it.
 bool RawOcclusion (const Layer& layer)
 {
@@ -199,7 +220,8 @@ bool RawOcclusion (const Layer& layer)
 
 bool DrawnByGuest (const Polyline& polyline, const Layer& layer)
 {
-    return polyline.dashPixels > 0.0f || polyline.behind != Behind::Layer || !RawOcclusion (layer) ||
+    return !polyline.dashMetres.empty () || Styled (polyline.hidden) || polyline.behind != Behind::Layer ||
+           !RawOcclusion (layer) ||
            (!polyline.closed && (polyline.startArrow != Terminator::None || polyline.endArrow != Terminator::None));
 }
 
@@ -240,8 +262,10 @@ std::string Validate (const Layer& layer)
             return Numbered ("polyline", i, "needs at least two points");
         if (!Positive (polyline.widthPixels, 64.0f))
             return Numbered ("polyline", i, "widthPixels must be above 0 and at most 64");
-        if (!InRange (polyline.dashPixels, 0.0f, 512.0f) || !InRange (polyline.dashDuty, 0.05f, 0.95f))
-            return Numbered ("polyline", i, "dashPixels is 0 to 512 and dashDuty 0.05 to 0.95");
+        if (!ValidDash (polyline.dashMetres) || !ValidDash (polyline.hidden.dashMetres))
+            return Numbered ("polyline", i, "a dash pattern is at most 8 lengths of 0 to 1000 m, not all 0");
+        if (!InRange (polyline.hidden.widthPixels, 0.0f, 64.0f))
+            return Numbered ("polyline", i, "hidden widthPixels is 0 to 64");
         if (!InRange (polyline.arrowSizePixels, 1.0f, 64.0f))
             return Numbered ("polyline", i, "arrowSizePixels is 1 to 64");
     }

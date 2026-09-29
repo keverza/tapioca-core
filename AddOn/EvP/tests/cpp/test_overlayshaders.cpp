@@ -131,7 +131,7 @@ TEST (OverlayShaders, EachGuestPlanVertexShaderReadsItsLayout)
     const std::string source = guest::PlanSource ();
     const std::pair<const char*, size_t> expected[] = {
         { "VSFill", 5 },  // PlanFillVertex: hi, lo, offset, rgba, value
-        { "VSLine", 6 },  // PlanLine: hiA, loA, hiB, loB, rgba, style
+        { "VSLine", 7 },  // PlanLine: hiA, loA, hiB, loB, rgba, style, dashes
         { "VSGlyph", 10 } // PlanGlyph: hi, lo, offset, uv, dir, rgba, halo, haloPixels, flags, minSpan
     };
     for (const auto& [entry, count] : expected) {
@@ -148,7 +148,7 @@ TEST (OverlayShaders, TheGuestSceneCompilesForEveryCameraSlot)
     std::vector<char> source (64 * 1024);
     const std::pair<const char*, size_t> expected[] = {
         { "VSFill", 5 },  // SceneFillVertex: position, normal, offset, rgba, value
-        { "VSLine", 5 },  // SceneLine: a, b, rgba, style, behind
+        { "VSLine", 7 },  // SceneLine: a, b, rgba, hidden rgba, style, dashes, behind
         { "VSGlyph", 9 }, // SceneGlyph: position, dir, offset, uv, rgba, halo, haloPixels, flags, minSpan
     };
     for (uint32_t slot = 0; slot < cs::kShaderSlots; ++slot) {

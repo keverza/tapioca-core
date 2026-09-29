@@ -10,6 +10,7 @@
 #include <Shader.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 
 namespace geomsrv {
@@ -62,11 +63,13 @@ std::vector<LayoutElement> LineLayout (Kind kind)
     if (kind == Kind::Plan) {
         const uint32_t s = sizeof (overlayscene::PlanLine);
         return { At (0, 2, F32, 0, s, kInstance),  At (1, 2, F32, 8, s, kInstance), At (2, 2, F32, 16, s, kInstance),
-                 At (3, 2, F32, 24, s, kInstance), At (4, 4, U8, 32, s, kInstance), At (5, 4, F32, 36, s, kInstance) };
+                 At (3, 2, F32, 24, s, kInstance), At (4, 4, U8, 32, s, kInstance), At (5, 2, F32, 36, s, kInstance),
+                 At (6, 1, U32, 44, s, kInstance) };
     }
     const uint32_t s = sizeof (overlayscene::SceneLine);
     return { At (0, 3, F32, 0, s, kInstance), At (1, 3, F32, 12, s, kInstance), At (2, 4, U8, 24, s, kInstance),
-             At (3, 4, F32, 28, s, kInstance), At (4, 1, U32, 44, s, kInstance) };
+             At (3, 4, U8, 28, s, kInstance), At (4, 3, F32, 32, s, kInstance), At (5, 1, U32, 44, s, kInstance),
+             At (6, 1, U32, 48, s, kInstance) };
 }
 
 std::vector<LayoutElement> GlyphLayout (Kind kind)
@@ -359,6 +362,11 @@ bool Upload (Diligent::IRenderDevice* device, const Pipelines& pipelines, std::v
     out.lineCount = uint32_t (arrays.lineCount);
     out.fillDraws = fillDraws;
     out.glyphDraws = glyphDraws;
+    if (arrays.dashes != nullptr)
+        out.dashes.assign (
+            arrays.dashes->begin (),
+            arrays.dashes->begin () +
+                std::ptrdiff_t ((std::min) (arrays.dashes->size (), sizeof (DrawConstants::dashes) / sizeof (float))));
 
     // ⚠️ THE CACHE KEEPS ONLY WHAT THIS CONTENT SAMPLES. A HUD panel's font atlas is a
     // new page every time ImGui grows it (OverlayHud.hpp), and a cache that only ever
@@ -487,7 +495,9 @@ void Draw (Diligent::IDeviceContext* context, const Pipelines& pipelines, const 
         const uint32_t* passes = pipelines.kind == Kind::Plan ? plan : (haveDepth ? scene : all);
         const uint32_t count = pipelines.kind == Kind::Plan || !haveDepth ? 1u : 3u;
         for (uint32_t p = 0; p < count; ++p) {
-            if (!constants (Constants (0.0f, 1.0f, float (passes[p]), 0.0f)))
+            DrawConstants values = Constants (0.0f, 1.0f, float (passes[p]), 0.0f);
+            std::memcpy (values.dashes, content.dashes.data (), content.dashes.size () * sizeof (float));
+            if (!constants (values))
                 return;
             context->SetPipelineState (pipelines.line[DepthState (passes[p])]);
             context->CommitShaderResources (pipelines.lineSrb, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
