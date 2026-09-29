@@ -108,6 +108,22 @@ struct OverlayStyle {
 constexpr float kHostHeatmapDepthBias = 0.00040f;
 constexpr float kHostWireframeDepthBias = 0.00075f;
 
+// ⚠️ THE GUEST'S CONTENT IS NOT PULLED BY THOSE. A step in NDC depth is a step of
+// about bias * d^2 / near metres at distance d: with the overlay's own near (0.04 m,
+// cameralayout::kNear) the wireframe's 0.00075 reaches 1.9 m at 10 m and 7.5 m at
+// 20 m. On the building's own edges that is harmless -- nothing lies between an edge
+// and its surface -- but the guest draws what a caller puts ANYWHERE: a ghost box 3 m
+// behind a wall came in front of it at some distances and went behind at others, and
+// a heatmap on the ground drew over the walls (the live run of 2026-09-29, 10:39).
+//
+// So the guest moves each point toward the eye by this FRACTION of its distance --
+// along its own ray, so it stays on the same pixel: 2 cm at 10 m, 20 cm at 100 m,
+// where D32_FLOAT resolves 0.15 mm and 1.5 cm (CameraLayout.hpp). A parallel view has
+// no eye; there the shader pulls 1.5 pixels' worth of metres instead
+// (`kParallelPullPixels`, GuestShaderSources.hpp) -- about what 0.002 is at the
+// distance a perspective view shows the same detail.
+constexpr float kGuestDepthPullFraction = 0.002f;
+
 // The three kinds this rung has to demonstrate together, each with the policy
 // that makes it what it is.
 inline OverlayStyle SolidGhostStyle ()

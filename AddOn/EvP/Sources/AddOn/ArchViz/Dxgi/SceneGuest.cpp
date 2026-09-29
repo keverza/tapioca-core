@@ -242,7 +242,7 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
         Bump (s_noViewport);
         return;
     }
-    const float frame[4] = { viewport.Width, viewport.Height, g_current->dpiScale, overlay::kHostWireframeDepthBias };
+    const float frame[4] = { viewport.Width, viewport.Height, g_current->dpiScale, overlay::kGuestDepthPullFraction };
     // InvalidateState inside the injection's guard, then Archicad's target and the
     // composer's depth view, bound natively; the scene viewport stays as bound.
     g_guest.BeginDraw (context, target, depth);

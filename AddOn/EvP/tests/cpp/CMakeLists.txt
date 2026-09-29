@@ -624,6 +624,7 @@ set (EVP_TEST_SOURCES
     test_slabslices.cpp
     test_overlayannotations.cpp
     test_overlayshaders.cpp
+    test_guestdepthpull.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp
@@ -794,9 +795,10 @@ target_include_directories (EvPGeomTests SYSTEM PRIVATE "${NANORT_INC}" "${GLM_I
 target_link_libraries (EvPGeomTests PRIVATE gtest_vendored TapiocaClipper2 TapiocaQuickJs TapiocaImGui
                                            ${TAPIOCA_TEXT_LIBS})
 # The overlays' HLSL is compiled by the test that holds it (test_overlayshaders.cpp):
-# the compiler and its reflection, no GPU.
+# the compiler and its reflection, no GPU. The guest's depth pull is RUN, on WARP --
+# the software device every Windows has, no hardware GPU (test_guestdepthpull.cpp).
 if (WIN32)
-    target_link_libraries (EvPGeomTests PRIVATE d3dcompiler dxguid)
+    target_link_libraries (EvPGeomTests PRIVATE d3dcompiler dxguid d3d11)
 endif ()
 
 if (MSVC)

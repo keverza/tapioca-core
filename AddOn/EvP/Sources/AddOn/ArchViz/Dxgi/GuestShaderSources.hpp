@@ -308,10 +308,41 @@ GlyphOut VSGlyph (float2 hi : ATTRIB0, float2 lo : ATTRIB1, float2 offset : ATTR
 inline constexpr const char* kSceneBody = R"hlsl(
 cbuffer GuestSceneFrame
 {
-    float4 Surface;  // the viewport's width and height in pixels, the DPI scale, the depth bias
+    float4 Surface;  // the viewport's width and height in pixels, the DPI scale, the depth pull
 };
 
 static const float kNearW = 1e-5;
+static const float kParallelPullPixels = 1.5;
+
+// ⚠️ TOWARD THE EYE BY A FRACTION OF THE DISTANCE, NOT A STEP IN NDC DEPTH (the note
+// on kGuestDepthPullFraction, OverlayStyle.hpp, says what the step did). `c` is
+// `position` through ArchicadClip. Perspective: along every ray z = A w + B, so the
+// eye is (0, 0, B, 0) in clip space and a point moved toward it by the fraction f is
+// ((1-f) x, (1-f) y, (1-f) z + f B, (1-f) w) -- the same pixel, nearer. A and B come
+// from the camera itself, measured along the axis w changes most along (at least
+// 1/sqrt 3 per metre), so no depth mapping is assumed. Parallel: no eye; the pull is
+// kParallelPullPixels pixels' worth of metres along the view.
+float4 TowardEye (float4 c, float3 position)
+{
+    float4 dx = ArchicadClip (float4 (position + float3 (1.0, 0.0, 0.0), 1.0)) - c;
+    float4 dy = ArchicadClip (float4 (position + float3 (0.0, 1.0, 0.0), 1.0)) - c;
+    float4 dz = ArchicadClip (float4 (position + float3 (0.0, 0.0, 1.0), 1.0)) - c;
+    if (ArchicadParallel ())
+    {
+        float depthPerMetre = length (float3 (dx.z, dy.z, dz.z));
+        float widthPerMetre = max (length (float3 (dx.x, dy.x, dz.x)), 1e-12);
+        float metres = kParallelPullPixels * (2.0 / Surface.x) / widthPerMetre;
+        c.z -= metres * depthPerMetre * c.w;
+        return c;
+    }
+    float3 dw = float3 (dx.w, dy.w, dz.w);
+    float3 dd = float3 (dx.z, dy.z, dz.z);
+    float3 a = abs (dw);
+    float slope = a.x >= a.y && a.x >= a.z ? dd.x / dw.x : (a.y >= a.z ? dd.y / dw.y : dd.z / dw.z);
+    float eyeZ = c.z - slope * c.w;
+    float keep = 1.0 - Surface.w;
+    return float4 (c.xy * keep, c.z * keep + Surface.w * eyeZ, c.w * keep);
+}
 
 float2 ToPixels (float4 c)
 {
@@ -332,8 +363,7 @@ FillOut VSFill (float3 position : ATTRIB0, float3 normal : ATTRIB1, float2 offse
         o.position = FromPixels (position.xy * Surface.xy + offset * Surface.z, 0.0);
     else
     {
-        float4 c = ArchicadClip (float4 (position, 1.0));
-        c.z -= Surface.w * c.w;
+        float4 c = TowardEye (ArchicadClip (float4 (position, 1.0)), position);
         c.xy += offset * Surface.z * float2 (2.0 / Surface.x, -2.0 / Surface.y) * c.w;
         o.position = c;
     }
@@ -347,8 +377,10 @@ LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2,
                 uint behind : ATTRIB4, uint corner : SV_VertexID)
 {
     LineOut o;
-    float4 ca = ArchicadClip (float4 (a, 1.0));
-    float4 cb = ArchicadClip (float4 (b, 1.0));
+    // Pulled toward the eye first: the pull is affine in clip space, so the cut at the
+    // eye below still interpolates a line.
+    float4 ca = TowardEye (ArchicadClip (float4 (a, 1.0)), a);
+    float4 cb = TowardEye (ArchicadClip (float4 (b, 1.0)), b);
     bool draw = InPass (behind) && (ca.w > kNearW || cb.w > kNearW);
     // The part behind the eye is cut away in clip space, where it is still a line.
     float ta = 0.0, tb = 1.0;
@@ -365,8 +397,8 @@ LineOut VSLine (float3 a : ATTRIB0, float3 b : ATTRIB1, float4 colour : ATTRIB2,
     }
     float2 pa = ToPixels (ca);
     float2 pb = ToPixels (cb);
-    float za = saturate (ca.z / ca.w - Surface.w);
-    float zb = saturate (cb.z / cb.w - Surface.w);
+    float za = saturate (ca.z / ca.w);
+    float zb = saturate (cb.z / cb.w);
     float halfWidth = style.x * 0.5 * Surface.z;
     float pushed = halfWidth + 1.0;
     float2 d = pb - pa;
@@ -410,8 +442,7 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
     // Projected whole, so the glyph is perspective-correct and occluded by depth.
     if ((flags & 32u) != 0u)
     {
-        float4 m = ArchicadClip (float4 (position, 1.0));
-        m.z -= Surface.w * m.w;
+        float4 m = TowardEye (ArchicadClip (float4 (position, 1.0)), position);
         o.position = m.w > kNearW ? m : kCulled;
         return o;
     }
@@ -422,10 +453,10 @@ GlyphOut VSGlyph (float3 position : ATTRIB0, float3 dir : ATTRIB1, float2 offset
         anchor = position.xy * Surface.xy;
     else
     {
-        float4 c = ArchicadClip (float4 (position, 1.0));
+        float4 c = TowardEye (ArchicadClip (float4 (position, 1.0)), position);
         visible = c.w > kNearW;
         anchor = ToPixels (c);
-        depth = saturate (c.z / c.w - Surface.w);
+        depth = saturate (c.z / c.w);
     }
     float2 local = offset * ((flags & 128u) != 0u ? 1.0 : Surface.z);
     if ((flags & 2u) != 0u)
