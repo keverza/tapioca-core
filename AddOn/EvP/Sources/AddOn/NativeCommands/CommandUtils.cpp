@@ -528,4 +528,105 @@ bool Base64Decode (const GS::UniString& text, std::vector<unsigned char>& bytes)
     return true;
 }
 
+namespace {
+
+// A list's elements as doubles, whichever way each number travelled.
+class NumberCollector final : public GS::ObjectState::Processor {
+  public:
+    explicit NumberCollector (std::vector<double>& out) : out_ (out)
+    {
+    }
+    bool ok = true;
+
+    void IntFound (const GS::String&, Int64 value) override
+    {
+        Take (double (value));
+    }
+    void UIntFound (const GS::String&, UInt64 value) override
+    {
+        Take (double (value));
+    }
+    void RealFound (const GS::String&, double value) override
+    {
+        Take (value);
+    }
+    void BoolFound (const GS::String&, bool) override
+    {
+        ok = false;
+    }
+    void StringFound (const GS::String&, const GS::UniString&) override
+    {
+        ok = false;
+    }
+    bool ObjectFound (const GS::String&, const GS::ObjectState&) override
+    {
+        ok = false;
+        return false;
+    }
+    bool ListFound (const GS::String&) override
+    {
+        if (depth_ == 0)
+            return true;
+        ok = false; // a list inside the list: not numbers
+        return false;
+    }
+    void ListEntered (const GS::String&) override
+    {
+        ++depth_;
+    }
+    void ListExited (const GS::String&) override
+    {
+        --depth_;
+    }
+
+  private:
+    void Take (double value)
+    {
+        if (depth_ == 1)
+            out_.push_back (value);
+        else
+            ok = false; // a scalar where a list was asked for
+    }
+
+    std::vector<double>& out_;
+    int depth_ = 0;
+};
+
+} // namespace
+
+bool ReadReal (const GS::ObjectState& os, const char* key, double& out)
+{
+    if (!os.Contains (key))
+        return false;
+    if (os.IsReal (key))
+        return os.Get (key, out);
+    if (os.IsInt (key)) {
+        Int64 value = 0;
+        if (!os.Get (key, value))
+            return false;
+        out = double (value);
+        return true;
+    }
+    if (os.IsUInt (key)) {
+        UInt64 value = 0;
+        if (!os.Get (key, value))
+            return false;
+        out = double (value);
+        return true;
+    }
+    return false;
+}
+
+bool ReadReals (const GS::ObjectState& os, const char* key, std::vector<double>& out)
+{
+    out.clear ();
+    if (!os.Contains (key) || !os.IsList (key))
+        return false;
+    NumberCollector collector (out);
+    os.Enumerate (key, collector);
+    if (!collector.ok)
+        out.clear ();
+    return collector.ok;
+}
+
 } // namespace geomsrv

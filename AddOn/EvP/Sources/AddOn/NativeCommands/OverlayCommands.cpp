@@ -23,6 +23,7 @@
 #include "NativeCommands/OverlayCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
+#include "NativeCommands/CommandUtils.hpp" // ReadReal/ReadReals: a JSON whole number is a number too
 
 #include "ArchViz/InjectedOverlayRuntime.hpp"
 #include "ArchViz/OverlayAnnotations.hpp"
@@ -189,11 +190,8 @@ overlays::Behind BehindOf (const GS::ObjectState& item, overlays::Behind fallbac
 
 float FloatOf (const GS::ObjectState& item, const char* key, float fallback)
 {
-    if (!item.Contains (key))
-        return fallback;
     double value = 0.0;
-    item.Get (key, value);
-    return float (value);
+    return ReadReal (item, key, value) ? float (value) : fallback;
 }
 
 bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& controls, std::string& error)
@@ -237,8 +235,7 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         if (label.Contains ("name"))
             label.Get ("name", controls.labelName);
     }
-    if (params.Contains ("liftMetres"))
-        params.Get ("liftMetres", controls.liftMetres);
+    ReadReal (params, "liftMetres", controls.liftMetres);
     return true;
 }
 
@@ -263,16 +260,10 @@ void ReadSliceRequest (const GS::ObjectState& params, slices::Request& request)
                        : cut == "step"       ? Cut::Step
                        : cut == "levels"     ? Cut::Levels
                                              : Cut::Storeys;
-    if (params.Contains ("stepMetres"))
-        params.Get ("stepMetres", request.rule.stepMetres);
-    GS::Array<double> levels;
-    if (params.Get ("levels", levels))
-        for (const double level : levels)
-            request.rule.levels.push_back (level);
-    if (params.Contains ("offsetMetres"))
-        params.Get ("offsetMetres", request.rule.offsetMetres);
-    if (params.Contains ("minTopMetres"))
-        params.Get ("minTopMetres", request.rule.minTopMetres);
+    ReadReal (params, "stepMetres", request.rule.stepMetres);
+    ReadReals (params, "levels", request.rule.levels);
+    ReadReal (params, "offsetMetres", request.rule.offsetMetres);
+    ReadReal (params, "minTopMetres", request.rule.minTopMetres);
 }
 
 GS::ObjectState ElementIdOf (const std::string& guid)

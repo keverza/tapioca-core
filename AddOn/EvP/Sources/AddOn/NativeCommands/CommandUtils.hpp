@@ -6,6 +6,8 @@
 
 #include "ObjectState.hpp"
 
+#include <vector>
+
 // Cross-domain helpers for the native commands — and ONLY cross-domain ones.
 //
 // THE RULE: a helper moves here on its SECOND domain, never speculatively. Most
@@ -219,6 +221,23 @@ size_t RetainedBytes ();
 
 // Adds `retainedBytes` to a command response.
 void AddMemory (GS::ObjectState& os);
+
+// ---------------------------------------------------------------------------
+// Numbers where a schema says "number"
+//
+// ⚠️ A JSON WHOLE NUMBER ARRIVES AS AN INTEGER. `JSON::ConvertToObjectState` keeps
+// `16` and `[1, 0]` as integers; `Get (key, double&)` refuses one, and
+// `Get (key, GS::Array<double>&)` does not yield it as a number (§E16.5a, §E16.6 --
+// RoofCreateCommands and ElementModifyCommands met it first). Scripts write whole
+// numbers all the time: the overlay's first live run refused every label for a
+// `[1, 0]`. These read an integer, a real, or a list mixing both, as doubles.
+// Shared by the overlay's two command domains, the layers and the switches.
+// ---------------------------------------------------------------------------
+// False, `out` untouched, when `key` is absent or not a number.
+bool ReadReal (const GS::ObjectState& os, const char* key, double& out);
+// False when `key` is absent, not a list, or holds anything but numbers; `out` is
+// replaced either way.
+bool ReadReals (const GS::ObjectState& os, const char* key, std::vector<double>& out);
 
 } // namespace geomsrv
 

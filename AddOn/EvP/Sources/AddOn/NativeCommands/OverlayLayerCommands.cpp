@@ -22,6 +22,7 @@
 #include "NativeCommands/OverlayLayerCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
 #include "NativeCommands/CommandRegistration.hpp"
+#include "NativeCommands/CommandUtils.hpp" // ReadReal/ReadReals: a JSON whole number is a number too
 
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
@@ -86,25 +87,21 @@ bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, s
 
 void ReadNumbers (const GS::ObjectState& item, const char* key, std::vector<double>& out)
 {
-    GS::Array<double> values;
-    if (item.Get (key, values))
-        for (const double value : values)
-            out.push_back (value);
+    std::vector<double> values;
+    if (ReadReals (item, key, values))
+        out.insert (out.end (), values.begin (), values.end ());
 }
 
 void ReadFloat (const GS::ObjectState& item, const char* key, float& out)
 {
-    if (item.Contains (key)) {
-        double value = 0.0;
-        item.Get (key, value);
+    double value = 0.0;
+    if (ReadReal (item, key, value))
         out = float (value);
-    }
 }
 
 void ReadDouble (const GS::ObjectState& item, const char* key, double& out)
 {
-    if (item.Contains (key))
-        item.Get (key, out);
+    ReadReal (item, key, out);
 }
 
 void ReadCount (const GS::ObjectState& item, const char* key, uint32_t& out)
