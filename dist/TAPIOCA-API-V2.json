@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 229,
+      "nativeRegistry": 230,
       "dispatcherLocal": 19,
-      "total": 248
+      "total": 249
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1457,6 +1457,116 @@
               "additionalProperties": false,
               "required": [
                 "kind",
+                "succeeded"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "results",
+          "count"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.CreateFills",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "fills": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "fill": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "polygonOutline": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 4097,
+                  "items": {
+                    "$ref": "#Point2D"
+                  }
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "floorInd": {
+                  "type": "integer"
+                },
+                "pen": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "fillPen": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "fillBGPen": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "fill",
+                "polygonOutline"
+              ]
+            }
+          },
+          "databaseAnchorElementId": {
+            "$ref": "#ElementId"
+          },
+          "failOnError": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fills"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "databaseId": {
+                  "$ref": "#ElementId"
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "verified": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
                 "succeeded"
               ]
             }
@@ -6778,6 +6888,9 @@
                         },
                         "angle": {
                           "type": "number"
+                        },
+                        "fill": {
+                          "type": "string"
                         }
                       },
                       "additionalProperties": false
@@ -23447,7 +23560,21 @@
                     },
                     "pen": {
                       "type": "integer",
+                      "minimum": 0,
+                      "maximum": 255
+                    },
+                    "fill": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "fillPen": {
+                      "type": "integer",
                       "minimum": 1,
+                      "maximum": 255
+                    },
+                    "fillBGPen": {
+                      "type": "integer",
+                      "minimum": 0,
                       "maximum": 255
                     }
                   },

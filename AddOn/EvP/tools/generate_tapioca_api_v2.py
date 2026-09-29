@@ -248,7 +248,8 @@ from typing import Any
 # overlays, in OverlayCommands.cpp; 227 -> 228 with OverlayAnnotations, the Watch
 # trace's annotations on the overlays, in the same file.
 # 228 -> 229 with CreateDraftingPrimitives (line/arc/circle/hotspot CRUD slice).
-EXPECTED_REGISTRY_COMMANDS = 229
+# 229 -> 230 with CreateFills (API_HatchID element, not fill attribute).
+EXPECTED_REGISTRY_COMMANDS = 230
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -260,7 +261,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 242 -> 245 with the three overlay layer verbs, 245 -> 246 with the slices,
 # 246 -> 247 with the Watch annotations on the overlays.
 # 247 -> 248 with CreateDraftingPrimitives.
-EXPECTED_TOTAL_COMMANDS = 248
+# 248 -> 249 with CreateFills.
+EXPECTED_TOTAL_COMMANDS = 249
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

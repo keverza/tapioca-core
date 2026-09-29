@@ -54,6 +54,10 @@ bool AttributeNameToIndex (API_AttrTypeID type, const GS::UniString& name, API_A
 // The reverse lookup. Returns an empty string if the index does not resolve.
 GS::UniString AttributeIndexToName (API_AttrTypeID type, const API_AttributeIndex& index);
 
+// GS::ObjectState does not coerce JSON integer coordinates to double. Shared by
+// drafting creation and sparse element edits; reject NaN/Inf before ACAPI.
+bool ReadFiniteNumber (const GS::ObjectState& item, const GS::String& key, double& value);
+
 // ---------------------------------------------------------------------------
 // Layer: the optional `layer` param -> head.layer
 //

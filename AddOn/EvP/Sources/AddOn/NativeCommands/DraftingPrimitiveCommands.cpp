@@ -5,27 +5,8 @@
 #include "NativeCommands/CommandUtils.hpp"
 #include "NativeCommands/DraftingDatabaseTarget.hpp"
 
-#include <cmath>
-
 namespace geomsrv {
 namespace {
-
-// GS::ObjectState does not coerce JSON integers to doubles. Coordinates passed
-// from Python commonly contain 0 or 1, so accept all three JSON number kinds.
-static bool ReadDraftingNumber (const GS::ObjectState& item, const char* key, double& value)
-{
-    if (item.IsReal (key))
-        return item.Get (key, value) && std::isfinite (value);
-    if (item.IsInt (key)) {
-        Int64 number = 0;
-        if (item.Get (key, number)) { value = (double) number; return true; }
-    }
-    if (item.IsUInt (key)) {
-        UInt64 number = 0;
-        if (item.Get (key, number)) { value = (double) number; return true; }
-    }
-    return false;
-}
 
 // Line, arc, circle and hotspot have no creation memo (ACAPinc.h:3358-3361).
 // Keep a single batch/undo boundary while each item still reports its own error.
@@ -70,14 +51,14 @@ class CreateDraftingPrimitivesCommand : public WriteCommand {
 
             double x = 0.0, y = 0.0, endX = 0.0, endY = 0.0;
             double radius = 0.0, begAngle = 0.0, endAngle = 0.0;
-            const bool havePosition = ReadDraftingNumber (item, "x", x) && ReadDraftingNumber (item, "y", y);
-            const bool haveLine = kind != "line" || (ReadDraftingNumber (item, "endX", endX) &&
-                                                      ReadDraftingNumber (item, "endY", endY) &&
+            const bool havePosition = ReadFiniteNumber (item, "x", x) && ReadFiniteNumber (item, "y", y);
+            const bool haveLine = kind != "line" || (ReadFiniteNumber (item, "endX", endX) &&
+                                                      ReadFiniteNumber (item, "endY", endY) &&
                                                       (x != endX || y != endY));
             const bool haveArc = (kind != "arc" && kind != "circle") ||
-                                 (ReadDraftingNumber (item, "radius", radius) && radius > 0.0 &&
-                                  (kind != "arc" || (ReadDraftingNumber (item, "begAngle", begAngle) &&
-                                                       ReadDraftingNumber (item, "endAngle", endAngle) &&
+                                 (ReadFiniteNumber (item, "radius", radius) && radius > 0.0 &&
+                                  (kind != "arc" || (ReadFiniteNumber (item, "begAngle", begAngle) &&
+                                                       ReadFiniteNumber (item, "endAngle", endAngle) &&
                                                        begAngle != endAngle)));
             if (typeId == API_ZombieElemID || wrongField || !havePosition || !haveLine || !haveArc) {
                 rec.Add ("succeeded", false);
@@ -114,7 +95,7 @@ class CreateDraftingPrimitivesCommand : public WriteCommand {
             } else if (typeId == API_HotspotID) {
                 element.hotspot.pos = { x, y };
                 if (pen != 0) element.hotspot.pen = (short) pen;
-                if (item.Contains ("height") && !ReadDraftingNumber (item, "height", element.hotspot.height)) {
+                if (item.Contains ("height") && !ReadFiniteNumber (item, "height", element.hotspot.height)) {
                     rec.Add ("succeeded", false);
                     rec.Add ("error", EVP_FAIL ("height must be a finite number", "Tapioca.CreateDraftingPrimitives"));
                     results.Push (rec);

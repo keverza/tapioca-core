@@ -247,7 +247,8 @@ def details(guids):
         and an object are points, so begin == end. beam / column also carry
         `section_width`, `section_height`, `n_segments`; object / lamp carry `x_ratio`,
         `y_ratio`, `reflected` and `library_part_name` (`plan_angle` is the rotation).
-      - fill, additionally: `pen` (the contour pen), `fill_pen` and `fill_bg_pen`.
+      - fill, additionally: `fill` (attribute name for a fill-backed hatch),
+        `pen` (the contour pen), `fill_pen` and `fill_bg_pen`.
         A fill is a 2D polygon with NO thickness, level or elevation — those keys
         are present but zero. It has no `closed` flag either: a fill is closed by
         definition, which is what makes it read like a slab rather than a polyline.
@@ -350,6 +351,7 @@ def details(guids):
                 rec["pen"] = d.get("pen", 0)
                 rec["fill_pen"] = d.get("fillPen", 0)
                 rec["fill_bg_pen"] = d.get("fillBGPen", 0)
+                rec["fill"] = d.get("fill", "")
 
             if kind in _TERRAIN_KINDS:
                 # `footprint_z[i]` is the elevation of `footprint[i]` — a parallel array,
@@ -654,7 +656,7 @@ WRITABLE_DETAIL_FIELDS = {
     "object": ("level", "plan_angle", "x_ratio", "y_ratio", "reflected"),
     "lamp":   ("level", "plan_angle", "x_ratio", "y_ratio", "reflected"),
     "polyline": (),
-    "fill":     (),
+    "fill":     ("fill", "pen", "fill_pen", "fill_bg_pen"),
     "line": ("beg_coordinate", "end_coordinate", "pen"),
     "arc": ("x", "y", "radius", "beg_angle", "end_angle", "ratio", "angle", "pen"),
     "circle": ("x", "y", "radius", "ratio", "angle", "pen"),
@@ -679,6 +681,8 @@ _DETAIL_FIELD_WIRE = {
     "end_coordinate": "endCoordinate",
     "beg_angle": "begAngle",
     "end_angle": "endAngle",
+    "fill_pen": "fillPen",
+    "fill_bg_pen": "fillBGPen",
 }
 
 
@@ -706,7 +710,8 @@ def set_details(edits, tx=None):
     roof's pitch is per level.
     Line endpoints, arc/circle centre and radius, and hotspot position/height are
     direct struct geometry and CAN be changed here; spline and polygon geometry
-    remain read-only. A line endpoint is a (x, y) pair, not a 3D edit.
+    remain read-only. Fill attribute and pens are writable, but fill outlines
+    are not. A line endpoint is a (x, y) pair, not a 3D edit.
 
     A WRITE — pass `tx` (an open evp.transaction) to fuse it with the rest of a run into
     ONE undo step; without one the dispatcher wraps this single call.

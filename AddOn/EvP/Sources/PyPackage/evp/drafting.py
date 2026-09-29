@@ -85,6 +85,56 @@ def create_primitives(elements, database_anchor=None, fail_on_error=False, tx=No
         "error": result.get("error", ""),
     } for result in data.get("results") or []]
 
+
+def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
+    """Create drafting Fill *elements* (API_HatchID), not fill attributes.
+
+    Each item needs ``fill`` (an existing fill attribute name) and
+    ``polygon_outline`` (at least three (x, y) model-coordinate pairs).
+    This first slice supports one straight outer ring, no holes or curved edges;
+    a repeated closing point is optional. ``pen=0`` hides the outline and
+    ``fill_bg_pen=0`` makes the background transparent. Layer/pen/floor omitted
+    from an item inherit the Fill tool's defaults. As with ``create_text``, a
+    transaction returns a Handle with the raw wire response.
+    """
+    if isinstance(fills, dict):
+        fills = [fills]
+    items = []
+    keys = {"fill", "polygon_outline", "layer", "floor_ind", "pen", "fill_pen", "fill_bg_pen"}
+    aliases = {"floor_ind": "floorInd", "fill_pen": "fillPen", "fill_bg_pen": "fillBGPen"}
+    for fill in fills:
+        unknown = set(fill) - keys
+        if unknown:
+            raise ValueError("unknown fill field: %s" % ", ".join(sorted(unknown)))
+        if not fill.get("fill") or "polygon_outline" not in fill:
+            raise ValueError("each fill needs fill and polygon_outline")
+        outline = [{"x": float(x), "y": float(y)} for x, y in fill["polygon_outline"]]
+        if len(outline) < 3:
+            raise ValueError("fill polygon_outline needs at least three points")
+        item = {"fill": str(fill["fill"]), "polygonOutline": outline}
+        for key, value in fill.items():
+            if key not in ("fill", "polygon_outline") and value is not None:
+                item[aliases.get(key, key)] = value
+        items.append(item)
+    if not items:
+        return []
+    params = {"fills": items}
+    if database_anchor is not None:
+        params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
+    if fail_on_error:
+        params["failOnError"] = True
+    if tx is not None:
+        return tx.call("Tapioca.CreateFills", params)
+    data = call("Tapioca.CreateFills", params).data or {}
+    return [{
+        "ok": bool(result.get("succeeded", False)),
+        "guid": (result.get("elementId") or {}).get("guid", ""),
+        "database_guid": (result.get("databaseId") or {}).get("guid", ""),
+        "layer": result.get("layer", ""),
+        "verified": bool(result.get("verified", False)),
+        "error": result.get("error", ""),
+    } for result in data.get("results") or []]
+
 #: Every anchor the two commands accept — which point of the box (x, y) names.
 #: Getting this wrong is the usual reason placed text or images look offset.
 ANCHORS = (

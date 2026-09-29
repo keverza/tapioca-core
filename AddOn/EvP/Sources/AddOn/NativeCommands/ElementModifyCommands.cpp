@@ -3,8 +3,7 @@
 
 #include "NativeCommands/ElementModifyCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
-
-#include <cmath>
+#include "NativeCommands/CommandUtils.hpp"
 
 namespace geomsrv {
 
@@ -56,7 +55,7 @@ namespace {
 // (§E16.5a — the trap that returned 0.0 from coordinate arrays). Read-modify-
 // write walks straight into it, because the response serializer emits a whole
 // number as a JSON int: read `level: 3`, send `level: 3` back, and a naive read
-// would report "field absent" and write nothing. ReadNumber below asks
+// would report "field absent" and write nothing. ReadFiniteNumber below asks
 // IsReal/IsInt/IsUInt first, so an int is accepted and converted. This closes
 // the trap for SCALARS here; the ARRAY case (§E16.6 open item 1) is untouched
 // and still needs its probe.
@@ -68,29 +67,6 @@ namespace {
 // evp.transaction for it.
 // ---------------------------------------------------------------------------
 
-// A scalar out of the details record, tolerating a JSON integer where a real is
-// expected. See the ⚠️ above — this is the whole reason the function exists.
-static bool ReadNumber (const GS::ObjectState& os, const GS::String& field, double& out)
-{
-    if (os.IsReal (field))
-        return os.Get (field, out) && std::isfinite (out);
-    if (os.IsInt (field)) {
-        Int64 value = 0;
-        if (!os.Get (field, value))
-            return false;
-        out = (double) value;
-        return std::isfinite (out);
-    }
-    if (os.IsUInt (field)) {
-        UInt64 value = 0;
-        if (!os.Get (field, value))
-            return false;
-        out = (double) value;
-        return std::isfinite (out);
-    }
-    return false;
-}
-
 // Set one real member and mark it in the mask. The mask macro needs the member
 // name as a LITERAL relative to the type struct, so the union member path
 // (`element.slab.level`) and the mask path (`API_SlabType, level`) are spelled
@@ -99,7 +75,7 @@ static bool ReadNumber (const GS::ObjectState& os, const GS::String& field, doub
     do {                                                                              \
         if (details.Contains (jsonName)) {                                            \
             double value = 0.0;                                                       \
-            if (!ReadNumber (details, jsonName, value)) {                              \
+            if (!ReadFiniteNumber (details, jsonName, value)) {                              \
                 badValue.Push (GS::UniString (jsonName));                              \
             } else {                                                                  \
                 element.unionMember.member = value;                                    \
@@ -142,6 +118,7 @@ static const char* const* WritableFields (const GS::UniString& kind, USize& coun
     static const char* const lineFields[] = { "begCoordinate", "endCoordinate", "pen" };
     static const char* const arcFields[] = { "x", "y", "radius", "begAngle", "endAngle", "ratio", "angle", "pen" };
     static const char* const hotspotFields[] = { "x", "y", "height", "pen" };
+    static const char* const fillFields[] = { "fill", "pen", "fillPen", "fillBGPen" };
 
     if (kind == "slab")   { count = 2; return slabFields;   }
     if (kind == "roof")   { count = 3; return roofFields;   }
@@ -153,8 +130,9 @@ static const char* const* WritableFields (const GS::UniString& kind, USize& coun
     if (kind == "line") { count = 3; return lineFields; }
     if (kind == "arc" || kind == "circle") { count = 8; return arcFields; }
     if (kind == "hotspot") { count = 4; return hotspotFields; }
+    if (kind == "fill") { count = 4; return fillFields; }
 
-    count = 0;              // polyline, fill — read-only kinds, nothing settable
+    count = 0;              // polyline — read-only here; polygon geometry needs a memo rewrite
     return nullptr;
 }
 
@@ -347,6 +325,56 @@ public:
                 EVP_WRITE_REAL ("height",    column, API_ColumnType, height);
                 EVP_WRITE_REAL ("planAngle", column, API_ColumnType, axisRotationAngle);
 
+            } else if (typeId == API_HatchID) {
+                bool flagsChanged = false;
+                if (element.hatch.hatchType != API_FillHatch && !details.Contains ("fill") &&
+                    (details.Contains ("fillPen") || details.Contains ("fillBGPen"))) {
+                    badValue.Push ("fillPen/fillBGPen on a Building Material hatch: choose a fill attribute first");
+                }
+                GS::UniString fillName;
+                if (details.Contains ("fill")) {
+                    if (!details.Get ("fill", fillName) || fillName.IsEmpty () ||
+                        !AttributeNameToIndex (API_FilltypeID, fillName, element.hatch.fillInd)) {
+                        badValue.Push ("fill (unknown fill attribute name)");
+                    } else {
+                        element.hatch.hatchType = API_FillHatch;
+                        element.hatch.hatchFlags &= ~(APIHatch_OverrideFgPen | APIHatch_OverrideBkgPen |
+                                                      APIHatch_OverrideFillInd);
+                        flagsChanged = true;
+                        ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, hatchType);
+                        ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, fillInd);
+                        applied.Push ("fill");
+                    }
+                }
+                for (const char* field : { "pen", "fillPen", "fillBGPen" }) {
+                    if (!details.Contains (field)) continue;
+                    GS::Int32 pen = 0;
+                    const bool isFillPen = GS::String (field) == "fillPen";
+                    if (!details.Get (field, pen) || pen < (isFillPen ? 1 : 0) || pen > 255) {
+                        badValue.Push (GS::UniString (field));
+                        continue;
+                    }
+                    if (GS::String (field) == "pen") {
+                        element.hatch.contPen.penIndex = (short) pen;
+                        element.hatch.contPen.colorOverridePenIndex = 0;
+                        ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, contPen);
+                    } else if (isFillPen) {
+                        element.hatch.fillPen.penIndex = (short) pen;
+                        element.hatch.fillPen.colorOverridePenIndex = 0;
+                        element.hatch.hatchFlags &= ~APIHatch_HasFgRGBColor;
+                        flagsChanged = true;
+                        ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, fillPen);
+                    } else {
+                        element.hatch.fillBGPen = (short) pen;
+                        element.hatch.hatchFlags &= ~APIHatch_HasBkgRGBColor;
+                        flagsChanged = true;
+                        ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, fillBGPen);
+                    }
+                    applied.Push (GS::UniString (field));
+                }
+                if (flagsChanged)
+                    ACAPI_ELEMENT_MASK_SET (mask, API_HatchType, hatchFlags);
+
             } else if (typeId == API_LineID || typeId == API_ArcID ||
                        typeId == API_CircleID || typeId == API_HotspotID) {
                 // Geometry edits are supported for these types by ACAPinc.h:3476-3480.
@@ -357,9 +385,9 @@ public:
                         if (!details.Contains (name)) continue;
                         GS::ObjectState point;
                         double x = 0.0, y = 0.0, z = 0.0;
-                        if (!details.Get (name, point) || !ReadNumber (point, "x", x) ||
-                            !ReadNumber (point, "y", y) ||
-                            (point.Contains ("z") && (!ReadNumber (point, "z", z) || z != 0.0))) {
+                        if (!details.Get (name, point) || !ReadFiniteNumber (point, "x", x) ||
+                            !ReadFiniteNumber (point, "y", y) ||
+                            (point.Contains ("z") && (!ReadFiniteNumber (point, "z", z) || z != 0.0))) {
                             badValue.Push (GS::UniString (name));
                             continue;
                         }
@@ -378,8 +406,8 @@ public:
                 } else {
                     if (typeId == API_HotspotID) {
                         double x = element.hotspot.pos.x, y = element.hotspot.pos.y;
-                        if (details.Contains ("x") && !ReadNumber (details, "x", x)) badValue.Push ("x");
-                        if (details.Contains ("y") && !ReadNumber (details, "y", y)) badValue.Push ("y");
+                        if (details.Contains ("x") && !ReadFiniteNumber (details, "x", x)) badValue.Push ("x");
+                        if (details.Contains ("y") && !ReadFiniteNumber (details, "y", y)) badValue.Push ("y");
                         if (details.Contains ("x") || details.Contains ("y")) {
                             element.hotspot.pos = { x, y };
                             ACAPI_ELEMENT_MASK_SET (mask, API_HotspotType, pos);
@@ -389,8 +417,8 @@ public:
                         EVP_WRITE_REAL ("height", hotspot, API_HotspotType, height);
                     } else {
                         double x = element.arc.origC.x, y = element.arc.origC.y;
-                        if (details.Contains ("x") && !ReadNumber (details, "x", x)) badValue.Push ("x");
-                        if (details.Contains ("y") && !ReadNumber (details, "y", y)) badValue.Push ("y");
+                        if (details.Contains ("x") && !ReadFiniteNumber (details, "x", x)) badValue.Push ("x");
+                        if (details.Contains ("y") && !ReadFiniteNumber (details, "y", y)) badValue.Push ("y");
                         if (details.Contains ("x") || details.Contains ("y")) {
                             element.arc.origC = { x, y };
                             ACAPI_ELEMENT_MASK_SET (mask, API_ArcType, origC);
@@ -484,7 +512,7 @@ public:
 
 const NativeCommandRegistration kElementModifyCommandRegistrations[] = {
     { "SetElementDetails", &MakeRegisteredNativeCommand<SetElementDetailsCommand>, false,
-      R"json({"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"details":{"type":"object","properties":{"level":{"type":"number"},"thickness":{"type":"number"},"height":{"type":"number"},"slantAngle":{"type":"number"},"planAngle":{"type":"number"},"skirtLevel":{"type":"number"},"xRatio":{"type":"number"},"yRatio":{"type":"number"},"reflected":{"type":"boolean"},"begCoordinate":{"$ref":"#Point3D"},"endCoordinate":{"$ref":"#Point3D"},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer","minimum":1,"maximum":255}},"additionalProperties":false,"minProperties":1}},"additionalProperties":false,"required":["elementId","details"]}}},"additionalProperties":false,"required":["edits"]})json",
+      R"json({"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"details":{"type":"object","properties":{"level":{"type":"number"},"thickness":{"type":"number"},"height":{"type":"number"},"slantAngle":{"type":"number"},"planAngle":{"type":"number"},"skirtLevel":{"type":"number"},"xRatio":{"type":"number"},"yRatio":{"type":"number"},"reflected":{"type":"boolean"},"begCoordinate":{"$ref":"#Point3D"},"endCoordinate":{"$ref":"#Point3D"},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer","minimum":0,"maximum":255},"fill":{"type":"string","minLength":1},"fillPen":{"type":"integer","minimum":1,"maximum":255},"fillBGPen":{"type":"integer","minimum":0,"maximum":255}},"additionalProperties":false,"minProperties":1}},"additionalProperties":false,"required":["elementId","details"]}}},"additionalProperties":false,"required":["edits"]})json",
       R"json({"oneOf":[{"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"succeeded":{"type":"boolean"},"kind":{"type":"string","enum":["","slab","roof","mesh","wall","beam","column","object","lamp","polyline","fill","line","arc","circle","hotspot"]},"applied":{"type":"array","items":{"type":"string"}},"error":{"type":"string"}},"additionalProperties":false,"required":["elementId","succeeded","kind"]}},"count":{"type":"integer","minimum":0},"changed":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count","changed"]},{"type":"object","properties":{"ok":{"const":false},"error":{"type":"string"}},"additionalProperties":false,"required":["ok","error"]}]})json" }
 };
 

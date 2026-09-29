@@ -4,6 +4,7 @@
 #include "NativeCommands/CommandUtils.hpp"
 
 #include <vector>
+#include <cmath>
 #include "Diagnostics/ApiError.hpp" // EVP_ACAPI_FAIL -- see the two lookups below
 
 #include "Geometry/MeshStore.hpp"
@@ -11,6 +12,21 @@
 #include "Screenshot/ScreenshotStore.hpp"
 
 namespace geomsrv {
+
+bool ReadFiniteNumber (const GS::ObjectState& item, const GS::String& key, double& value)
+{
+    if (item.IsReal (key))
+        return item.Get (key, value) && std::isfinite (value);
+    if (item.IsInt (key)) {
+        Int64 number = 0;
+        if (item.Get (key, number)) { value = (double) number; return std::isfinite (value); }
+    }
+    if (item.IsUInt (key)) {
+        UInt64 number = 0;
+        if (item.Get (key, number)) { value = (double) number; return std::isfinite (value); }
+    }
+    return false;
+}
 
 bool AttributeNameToIndex (API_AttrTypeID type, const GS::UniString& name, API_AttributeIndex& index)
 {
