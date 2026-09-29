@@ -467,6 +467,8 @@ set (EVP_ARCHVIZ_SOURCES
     # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
     # font atlas, the same library the add-on links (TapiocaImGui below).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
+    # Where the HUD is on the view and whose a mouse gesture is (OverlayInput.cpp takes the messages).
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHitMap.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ImGuiContextLock.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
@@ -621,6 +623,7 @@ set (EVP_TEST_SOURCES
     test_overlaytext.cpp
     test_overlayscene.cpp
     test_overlayhud.cpp
+    test_overlayhitmap.cpp
     test_storysliceoverlay.cpp
     test_slabslices.cpp
     test_overlayannotations.cpp

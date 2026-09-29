@@ -195,6 +195,21 @@ class OverlayLayersCommand : public MainThreadCommand {
         guestRecord.Add ("plan", GuestRecord (guest.plan));
         guestRecord.Add ("scene", GuestRecord (guest.scene));
         os.Add ("guest", guestRecord);
+        // What the HUD's input took and passed (ArchViz/OverlayInput.hpp): totals too.
+        const archviz::overlaycontrol::InputCounts input = archviz::overlaycontrol::Input ();
+        GS::ObjectState inputRecord;
+        inputRecord.Add ("installed", input.installed);
+        inputRecord.Add ("attached3D", input.attached3D);
+        inputRecord.Add ("attachedPlan", input.attachedPlan);
+        inputRecord.Add ("regions3D", (GS::Int32) input.regions3D);
+        inputRecord.Add ("regionsPlan", (GS::Int32) input.regionsPlan);
+        inputRecord.Add ("seen", Text (input.seen));
+        inputRecord.Add ("taken", Text (input.taken));
+        inputRecord.Add ("takenPresses", Text (input.takenPresses));
+        inputRecord.Add ("takenMoves", Text (input.takenMoves));
+        inputRecord.Add ("passedOverHud", Text (input.passedOverHud));
+        inputRecord.Add ("declinedHidden", Text (input.declinedHidden));
+        os.Add ("input", inputRecord);
         return os;
     }
 };
@@ -458,8 +473,16 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
                       "glyphVertices","pages","failure","prepareMicroseconds","layersBuilt","layersReused",
                       "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds","hudUploads",
                       "hudGlyphVertices","hudPrepareMicroseconds"]}},
-      "additionalProperties":false,"required":["plan","scene"]}},
-  "additionalProperties":false,"required":["layers","generation","guest"]})json";
+      "additionalProperties":false,"required":["plan","scene"]},
+    "input":{"type":"object","description":"The HUD's mouse input: totals since Archicad started.","properties":{
+        "installed":{"type":"boolean"},"attached3D":{"type":"boolean"},"attachedPlan":{"type":"boolean"},
+        "regions3D":{"type":"integer","minimum":0},"regionsPlan":{"type":"integer","minimum":0},
+        "seen":{"type":"string"},"taken":{"type":"string"},"takenPresses":{"type":"string"},
+        "takenMoves":{"type":"string"},"passedOverHud":{"type":"string"},"declinedHidden":{"type":"string"}},
+      "additionalProperties":false,
+      "required":["installed","attached3D","attachedPlan","regions3D","regionsPlan","seen","taken","takenPresses",
+                  "takenMoves","passedOverHud","declinedHidden"]}},
+  "additionalProperties":false,"required":["layers","generation","guest","input"]})json";
 
 const NativeCommandRegistration kOverlayLayerCommandRegistrations[] = {
     { "SetOverlayLayer", &MakeRegisteredNativeCommand<SetOverlayLayerCommand>, false, kSetOverlayLayerInput,

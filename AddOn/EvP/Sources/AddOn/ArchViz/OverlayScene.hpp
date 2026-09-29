@@ -27,6 +27,7 @@
 //
 // MAIN THREAD (the text engine). Pure otherwise, so tests/cpp builds the real source.
 
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
 
@@ -192,6 +193,9 @@ struct Plan {
     // The lines' dash patterns: kMaxDashEntries lengths in metres each, a line's `dashes`
     // indexing them (the guest's GuestDraw.Dashes).
     std::vector<float> dashes;
+    // Where its legends and panels are on the view, in draw order: what the HUD's input
+    // tests a pointer against (OverlayHitMap.hpp).
+    std::vector<overlayinput::Region> regions;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;
@@ -212,6 +216,9 @@ struct Scene {
     // The lines' dash patterns: kMaxDashEntries lengths in metres each, a line's `dashes`
     // indexing them (the guest's GuestDraw.Dashes).
     std::vector<float> dashes;
+    // Where its legends and panels are on the view, in draw order: what the HUD's input
+    // tests a pointer against (OverlayHitMap.hpp).
+    std::vector<overlayinput::Region> regions;
     uint64_t generation = 0;
     Problems problems;
     Cost cost;

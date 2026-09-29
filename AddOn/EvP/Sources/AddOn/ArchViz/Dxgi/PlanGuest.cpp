@@ -86,11 +86,15 @@ bool NeedsHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& l
 
 // The HUD panels' stream, laid out and uploaded apart from the scene.
 overlayscene::Problems g_hudProblems;
+// Where the scene's legends and the panels are: the HUD's input.
+std::vector<overlayinput::Region> g_sceneRegions;
+std::vector<overlayinput::Region> g_hudRegions;
 bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, std::string& error)
 {
     overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud () : nullptr;
     const overlayscene::Plan panels = overlayscene::PreparePlanHud (layers, hud, g_dpiScale);
     g_hudProblems = panels.problems;
+    g_hudRegions = panels.regions;
     gpu::Arrays arrays;
     arrays.glyphs = panels.glyphs.data ();
     arrays.glyphCount = panels.glyphs.size ();
@@ -131,6 +135,8 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
         changed = !g_content.Empty () || !g_hudContent.Empty ();
         g_content = gpu::Content {};
         g_hudContent = gpu::Content {};
+        g_sceneRegions.clear ();
+        g_hudRegions.clear ();
         overlayscene::ForgetDrafts ();
         g_generation = generation;
         g_haveGeneration = true;
@@ -200,6 +206,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     }
     content.generation = generation;
     g_content = std::move (content);
+    g_sceneRegions = plan.regions;
     if (!PrepareHud (layers, error))
         return false;
     g_originX = plan.originX;
@@ -229,6 +236,15 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     if (!g_hudProblems.lastError.empty ())
         g_stats.lastError = g_hudProblems.lastError;
     return true;
+}
+
+overlayinput::HitMap HitMap ()
+{
+    overlayinput::HitMap map;
+    map.dpiScale = g_dpiScale;
+    map.regions = g_sceneRegions;
+    map.regions.insert (map.regions.end (), g_hudRegions.begin (), g_hudRegions.end ());
+    return map;
 }
 
 bool HasContent ()
@@ -277,6 +293,8 @@ void Release ()
     g_haveGeneration = false;
     g_generation = 0;
     g_stats = Stats {};
+    g_sceneRegions.clear ();
+    g_hudRegions.clear ();
 }
 
 Stats GetStats ()

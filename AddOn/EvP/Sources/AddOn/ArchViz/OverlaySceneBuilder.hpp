@@ -142,6 +142,16 @@ struct Draft {
     std::vector<std::shared_ptr<const overlaytext::Page>> textPages;
     // The dash patterns the lines name, kMaxDashEntries lengths each, zero-padded.
     std::vector<std::array<float, layers::kMaxDashEntries>> dashes;
+    // Where its legends and panels are on the view (OverlayHitMap.hpp).
+    std::vector<overlayinput::Region> regions;
+};
+
+// A panel, and whose it is: its layer and its place among that layer's panels -- what
+// the HUD's input names it by.
+struct PanelRef {
+    const layers::Panel* panel = nullptr;
+    std::string layer;
+    uint32_t index = 0;
 };
 
 class Builder {
@@ -160,7 +170,7 @@ class Builder {
     void AddLayer (const layers::Layer& layer);
     // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
     // after everything else, over it.
-    void AddPanels (const std::vector<const layers::Panel*>& panels);
+    void AddPanels (const std::vector<PanelRef>& panels);
 
   private:
     bool Plan () const;
@@ -180,7 +190,8 @@ class Builder {
     // against the glyphs' up, `normal` x `direction`. Every corner is its own model point
     // (`kModelQuad`), so the text is foreshortened and hidden like the model.
     void AddPlanarText (const layers::Layer& layer, const layers::Text& text, const overlaytext::Label& label);
-    void AddLegend (const layers::Legend& legend);
+    // `index` is the legend's place among its layer's, which its region names.
+    void AddLegend (const layers::Layer& layer, const layers::Legend& legend, uint32_t index);
     void ScreenText (const std::string& text, double fx, double fy, float x, float y, float size, layers::Align align,
                      layers::Baseline baseline, uint32_t rgba, uint32_t halo, float haloPixels,
                      const std::string& font);

@@ -17,10 +17,14 @@ namespace build {
 
 // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
 // after everything else, over it.
-void Builder::AddPanels (const std::vector<const layers::Panel*>& panels)
+void Builder::AddPanels (const std::vector<PanelRef>& refs)
 {
-    if (panels.empty ())
+    if (refs.empty ())
         return;
+    std::vector<const layers::Panel*> panels;
+    panels.reserve (refs.size ());
+    for (const PanelRef& ref : refs)
+        panels.push_back (ref.panel);
     if (hud_ == nullptr || !hud_->Ready ()) {
         draft_.problems.textsNotLaidOut += uint32_t (panels.size ());
         draft_.problems.lastError = "the overlay HUD is not ready: its panels are not drawn";
@@ -37,6 +41,18 @@ void Builder::AddPanels (const std::vector<const layers::Panel*>& panels)
     for (size_t i = 0; i < panels.size (); ++i) {
         float fraction[2] = {}, offset[2] = {};
         overlayhud::Place (*panels[i], built[i].width, built[i].height, scale_, fraction, offset);
+        // Its rectangle is the HUD's: a click there is never Archicad's (OverlayHitMap.hpp).
+        overlayinput::Region region;
+        region.kind = overlayinput::RegionKind::Panel;
+        region.layer = refs[i].layer;
+        region.item = refs[i].index;
+        region.fraction[0] = fraction[0];
+        region.fraction[1] = fraction[1];
+        region.rect[0] = offset[0];
+        region.rect[1] = offset[1];
+        region.rect[2] = offset[0] + built[i].width;
+        region.rect[3] = offset[1] + built[i].height;
+        draft_.regions.push_back (std::move (region));
         DraftGlyph glyph;
         glyph.anchor[0] = fraction[0];
         glyph.anchor[1] = fraction[1];
@@ -51,7 +67,7 @@ void Builder::AddPanels (const std::vector<const layers::Panel*>& panels)
     }
 }
 
-void Builder::AddLegend (const layers::Legend& legend)
+void Builder::AddLegend (const layers::Layer& layer, const layers::Legend& legend, uint32_t index)
 {
     const bool right = legend.corner == layers::Corner::TopRight || legend.corner == layers::Corner::BottomRight;
     const bool bottom = legend.corner == layers::Corner::BottomLeft || legend.corner == layers::Corner::BottomRight;
@@ -125,6 +141,20 @@ void Builder::AddLegend (const layers::Legend& legend)
     }
     const float ox = right ? -boxWidth - legend.offsetPixels[0] : legend.offsetPixels[0];
     const float oy = bottom ? -boxHeight - legend.offsetPixels[1] : legend.offsetPixels[1];
+
+    // Its box is the HUD's; in logical pixels, as the vertex shader scales its offsets.
+    overlayinput::Region region;
+    region.kind = overlayinput::RegionKind::Legend;
+    region.layer = layer.name;
+    region.item = index;
+    region.fraction[0] = float (fx);
+    region.fraction[1] = float (fy);
+    region.rect[0] = ox;
+    region.rect[1] = oy;
+    region.rect[2] = ox + boxWidth;
+    region.rect[3] = oy + boxHeight;
+    region.logical = true;
+    draft_.regions.push_back (std::move (region));
 
     auto screenFill = [&] (DraftFill& fill, float x0, float y0, float x1, float y1, uint32_t rgba, double v0,
                            double v1) {

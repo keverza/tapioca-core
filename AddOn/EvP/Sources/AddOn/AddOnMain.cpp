@@ -15,6 +15,7 @@
 #include "Palette/ControlPalette.hpp"
 #include "ArchViz/ArchVizPanel.hpp" // the Diligent 3D viewer palette
 #include "ArchViz/OverlayController.hpp"
+#include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/ExtractionThread.hpp" // its geometry producer, joined on teardown
 #include "ArchViz/CameraSyncMode.hpp"   // camera-sync mechanism switch — torn down on exit
@@ -697,6 +698,8 @@ GSErrCode FreeData (void)
     // installed when this DLL unloads is Archicad calling into freed code -- the
     // same rule the overlay windows below are torn down under.
     geomsrv::archviz::overlaycontrol::StopAll ();
+    // The HUD's message hook, whatever StopAll found: its procedure lives in this DLL.
+    geomsrv::archviz::overlayinput::Shutdown ();
     geomsrv::ShutdownPlanOverlay ();
     // The 3D overlay's window and class, on exactly the same terms -- its
     // WndProc lives in this DLL too, and PlanOverlay's crashed Archicad on close

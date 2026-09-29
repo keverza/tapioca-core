@@ -14,6 +14,7 @@
 #include "ArchViz/Dxgi/PlanOverlayLayer.hpp"
 #include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/ExperimentGuard.hpp"
+#include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/PlanFrameSession.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
@@ -260,6 +261,7 @@ void Teardown (const std::string& reason, bool acapi)
 {
     const bool wasRunning = g_running;
     g_running = false;
+    overlayinput::Detach (overlayinput::View::Plan);
     layer::Disarm ();
     if (g_timer != 0) {
         ::KillTimer (nullptr, g_timer);
@@ -288,6 +290,22 @@ void Teardown (const std::string& reason, bool acapi)
         Redraw ();
 }
 
+// Whether the plan's HUD is on screen: the session composes at every canvas Present.
+// Called from the HUD's message hook, on this thread: a plain read.
+bool HudShown ()
+{
+    return g_running;
+}
+
+// The HUD takes its input from the canvas the session composes into; a failure is said
+// once and costs the overlay nothing else.
+void AttachHudInput ()
+{
+    std::string error;
+    if (!overlayinput::Attach (overlayinput::View::Plan, g_canvas, &HudShown, error))
+        ArchVizLog ("PLAN OVERLAY  the HUD takes no input: " + error);
+}
+
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
     if (!g_running)
@@ -314,6 +332,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
             g_canvas = target.window;
             g_canvasClass = target.windowClass;
             layer::Retarget (uint64_t (uintptr_t (g_canvas)));
+            AttachHudInput ();
         }
     }
     if (g_canvas == nullptr || !::IsWindow (g_canvas)) {
@@ -393,6 +412,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         if (dxgi::planguest::Prepare (layer::Device (), overlaylayers::Layers (), layersGeneration, float (g_dpi),
                                       guestChanged, error)) {
             if (guestChanged) {
+                overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
                 const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();
                 ArchVizLog ("PLAN OVERLAY  guest: " + std::to_string (guest.fills / 3) + " filled triangles, " +
                             std::to_string (guest.lines) + " lines, " + std::to_string (guest.glyphVertices / 6) +
@@ -535,6 +555,7 @@ StartResult Start ()
     }
     g_running = true;
     g_startedMs = ::GetTickCount64 ();
+    AttachHudInput ();
     g_lastReportMs = g_startedMs;
 
     char scale[16] = {};

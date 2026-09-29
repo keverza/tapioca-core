@@ -19227,13 +19227,69 @@
               "plan",
               "scene"
             ]
+          },
+          "input": {
+            "type": "object",
+            "description": "The HUD's mouse input: totals since Archicad started.",
+            "properties": {
+              "installed": {
+                "type": "boolean"
+              },
+              "attached3D": {
+                "type": "boolean"
+              },
+              "attachedPlan": {
+                "type": "boolean"
+              },
+              "regions3D": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "regionsPlan": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seen": {
+                "type": "string"
+              },
+              "taken": {
+                "type": "string"
+              },
+              "takenPresses": {
+                "type": "string"
+              },
+              "takenMoves": {
+                "type": "string"
+              },
+              "passedOverHud": {
+                "type": "string"
+              },
+              "declinedHidden": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "installed",
+              "attached3D",
+              "attachedPlan",
+              "regions3D",
+              "regionsPlan",
+              "seen",
+              "taken",
+              "takenPresses",
+              "takenMoves",
+              "passedOverHud",
+              "declinedHidden"
+            ]
           }
         },
         "additionalProperties": false,
         "required": [
           "layers",
           "generation",
-          "guest"
+          "guest",
+          "input"
         ]
       }
     },

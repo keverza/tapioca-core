@@ -25,6 +25,7 @@
 //
 // MAIN THREAD ONLY.
 
+#include "ArchViz/OverlayHitMap.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 
@@ -51,6 +52,9 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
 
 // Whether there is anything to draw -- the plan layer's `NoContent` test.
 bool HasContent ();
+
+// Where the legends and panels drawn now are on the plan (OverlayHitMap.hpp).
+overlayinput::HitMap HitMap ();
 
 // Inside the plan layer's Present draw, inside its ScopedPipelineState, after its
 // own draws; `target` is the view that draw made of the back buffer.

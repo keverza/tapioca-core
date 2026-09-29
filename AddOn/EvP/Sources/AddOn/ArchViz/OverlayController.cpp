@@ -13,12 +13,16 @@
 
 #include "ArchViz/Dxgi/CameraCensus.hpp"
 #include "ArchViz/Dxgi/CameraFreshness.hpp"
+#include "ArchViz/Dxgi/HookMarker.hpp"
+#include "ArchViz/Dxgi/InjectionRenderer.hpp"
 #include "ArchViz/Dxgi/LayerOverlay3D.hpp"
 #include "ArchViz/Dxgi/PlanGuest.hpp"
 #include "ArchViz/Dxgi/SceneGuest.hpp"
 #include "ArchViz/Dxgi/MarkerLadder.hpp"
+#include "ArchViz/Dxgi/PresentHook.hpp"
 #include "ArchViz/OverlayAnnotations.hpp"
 #include "ArchViz/OverlayGuestText.hpp"
+#include "ArchViz/OverlayInput.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayScene.hpp"
 #include "ArchViz/StorySliceOverlay.hpp"
@@ -97,9 +101,48 @@ bool PortableRunning ()
 UINT_PTR g_timer = 0;
 constexpr UINT kTickMs = 500;
 
+// Whether the 3D HUD is on screen: the overlay shown and composing with a camera.
+// Called from the HUD's message hook, on this thread: plain reads and atomics.
+bool HudShown3D ()
+{
+    return runtime::Running () && runtime::Visible () &&
+           dxgi::injection::GetArmState () == dxgi::injection::ArmState::Active && dxgi::injection::SnapshotValid ();
+}
+
+// ⚠️ THE 3D HUD'S INPUT FOLLOWS THE CANVAS THE OVERLAY COMPOSES INTO -- the nominated
+// swap chain's window, known once Archicad has presented through it, and a new one when
+// the 3D window is closed and reopened. On this heartbeat rather than the runtime's
+// tick; without a running 3D overlay it takes nothing (§8).
+std::string g_inputError;
+void FollowHudInput ()
+{
+    if (!runtime::Running ()) {
+        overlayinput::Detach (overlayinput::View::ThreeD);
+        g_inputError.clear ();
+        return;
+    }
+    const uint64_t chain = dxgi::MarkerTarget ();
+    if (chain == 0)
+        return;
+    dxgi::ChainInfo chains[8];
+    const size_t count = dxgi::GetChainInventory (chains, 8);
+    for (size_t i = 0; i < count; ++i) {
+        if (chains[i].swapChain != chain || chains[i].window == 0)
+            continue;
+        std::string error;
+        if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), &HudShown3D,
+                                   error) &&
+            error != g_inputError)
+            Narrate ("OVERLAY", "the 3D HUD takes no input: " + error);
+        g_inputError = error;
+        return;
+    }
+}
+
 void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
 {
     overlaycontrol::FollowView ();
+    FollowHudInput ();
 }
 
 void StartHeartbeat ()
@@ -157,6 +200,7 @@ void StopRenderers (bool teardown)
 {
     if (runtime::Running ())
         runtime::Stop ();
+    overlayinput::Detach (overlayinput::View::ThreeD);
     if (planruntime::Running ()) {
         if (teardown)
             planruntime::Shutdown ();
@@ -400,6 +444,7 @@ Outcome SetWanted (Overlay which, bool wanted, const char* how)
         if (which == Overlay::ThreeD) {
             if (runtime::Running ())
                 runtime::Stop ();
+            overlayinput::Detach (overlayinput::View::ThreeD);
         }
         else if (planruntime::Running ()) {
             planruntime::Stop ("turned off");
@@ -591,6 +636,24 @@ GuestReport Guest ()
     return out;
 }
 
+InputCounts Input ()
+{
+    const overlayinput::Stats stats = overlayinput::GetStats ();
+    InputCounts out;
+    out.installed = stats.installed;
+    out.attached3D = stats.attached[0];
+    out.attachedPlan = stats.attached[1];
+    out.regions3D = stats.regions[0];
+    out.regionsPlan = stats.regions[1];
+    out.seen = stats.seen;
+    out.taken = stats.taken;
+    out.takenPresses = stats.takenPresses;
+    out.takenMoves = stats.takenMoves;
+    out.passedOverHud = stats.passedOverHud;
+    out.declinedHidden = stats.declinedHidden;
+    return out;
+}
+
 void StopAll ()
 {
     // Intent as well as renderers: this is the teardown entry point, and a timer
@@ -600,6 +663,7 @@ void StopAll ()
     g_servingView = ViewKind::Unknown;
     StopHeartbeat ();
     StopRenderers (true);
+    overlayinput::Shutdown ();
 }
 
 void PublishLayers ()
@@ -633,6 +697,12 @@ void PublishLayers ()
                                 std::to_string (panelsNotDrawn) + " panels, " + std::to_string (problems.truncated) +
                                 " past the budget: " +
                                 (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
+    // Where the legends and panels now are, legends first: panels are drawn over them.
+    overlayinput::HitMap map;
+    map.dpiScale = scale;
+    map.regions = scene.regions;
+    map.regions.insert (map.regions.end (), hud.regions.begin (), hud.regions.end ());
+    overlayinput::SetHitMap (overlayinput::View::ThreeD, std::move (map));
     dxgi::sceneguest::Publish (std::move (scene), scale);
     dxgi::sceneguest::PublishHud (std::move (hud), scale);
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)

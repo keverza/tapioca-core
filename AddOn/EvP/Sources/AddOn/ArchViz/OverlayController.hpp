@@ -188,6 +188,24 @@ struct GuestReport {
 };
 GuestReport Guest ();
 
+// What the HUD's mouse input took and passed (OverlayInput.hpp), carried across the
+// NativeCommands boundary. ⚠️ TOTALS SINCE ARCHICAD STARTED: a question about now is two
+// readings and their difference (section 7).
+struct InputCounts {
+    bool installed = false;
+    bool attached3D = false;
+    bool attachedPlan = false;
+    uint32_t regions3D = 0;
+    uint32_t regionsPlan = 0;
+    uint64_t seen = 0;  // mouse messages to an attached canvas
+    uint64_t taken = 0; // never reached Archicad
+    uint64_t takenPresses = 0;
+    uint64_t takenMoves = 0;
+    uint64_t passedOverHud = 0;  // over the HUD but Archicad's: a gesture begun in the view, or navigation
+    uint64_t declinedHidden = 0; // over a region while its HUD was not on screen
+};
+InputCounts Input ();
+
 // MAIN THREAD, periodic. While an overlay is wanted, keep it on the window the
 // user is looking at: tear down the session for the view being left and start
 // the one the new view needs. Intent and renderer are tracked apart -- see the

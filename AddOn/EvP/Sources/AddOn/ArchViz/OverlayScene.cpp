@@ -32,8 +32,8 @@ void Builder::AddLayer (const layers::Layer& layer)
         AddDimension (layer, dimension);
     for (const layers::Text& text : layer.texts)
         AddText (layer, text);
-    for (const layers::Legend& legend : layer.legends)
-        AddLegend (legend);
+    for (size_t i = 0; i < layer.legends.size (); ++i)
+        AddLegend (layer, layer.legends[i], uint32_t (i));
 }
 
 bool Builder::Plan () const
@@ -607,6 +607,7 @@ bool Append (Draft& into, const Draft& from)
         into.glyphs.push_back (glyph);
     }
     into.fillVertices += from.fillVertices;
+    into.regions.insert (into.regions.end (), from.regions.begin (), from.regions.end ());
     into.problems.textsNotLaidOut += from.problems.textsNotLaidOut;
     into.problems.dimensionsNotResolved += from.problems.dimensionsNotResolved;
     into.problems.truncated += from.problems.truncated;
@@ -651,11 +652,11 @@ Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
 Draft HudDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
                 overlayhud::Engine* hud, float scale)
 {
-    std::vector<const layers::Panel*> panels;
+    std::vector<PanelRef> panels;
     for (const std::shared_ptr<const layers::Layer>& layer : all)
         if (layers::DrawnIn (layer->views, view))
-            for (const layers::Panel& panel : layer->panels)
-                panels.push_back (&panel);
+            for (size_t i = 0; i < layer->panels.size (); ++i)
+                panels.push_back ({ &layer->panels[i], layer->name, uint32_t (i) });
     const FontResolver none;
     Builder builder (view, nullptr, hud, scale, none);
     builder.AddPanels (panels);
@@ -741,6 +742,7 @@ namespace {
 void FinishPlan (Draft& draft, overlayhud::Engine* hud, Plan& out)
 {
     out.problems = draft.problems;
+    out.regions = std::move (draft.regions);
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
@@ -873,6 +875,7 @@ namespace {
 void FinishScene (Draft& draft, overlayhud::Engine* hud, Scene& out)
 {
     out.problems = draft.problems;
+    out.regions = std::move (draft.regions);
     for (const auto& pattern : draft.dashes)
         out.dashes.insert (out.dashes.end (), pattern.begin (), pattern.end ());
     out.pages = ComposePages (draft, hud);
