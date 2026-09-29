@@ -115,7 +115,8 @@ bool DispatchWebUIVerb (const GS::UniString& backend, const GS::UniString& name,
                 // starts RUNS, never output actions — those are the control
                 // palette's action bar and right-click menu, which act on a stored
                 // result the WebUI has no equivalent of.
-                const bool watchArmed = preview::PreviewRuntimeState::Get ().IsEnabled () &&
+                // Armed when the palette's preview or the overlays' annotations will show it.
+                const bool watchArmed = preview::PreviewRuntimeState::Get ().AcceptsWatchTraces () &&
                                         (info.previewKind == "plan2d" || info.previewKind == "3d");
                 const CommandLaunchRequest request { info.path,        info.folder,        info.title,
                                                      requestedParams,  GS::UniString (),   GS::UniString (),

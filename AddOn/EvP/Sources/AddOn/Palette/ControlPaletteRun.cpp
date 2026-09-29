@@ -279,7 +279,7 @@ void ControlPalette::RunSelected (const GS::UniString& action, const GS::UniStri
     // supplies only what it alone knows.
     evp::StartupTrace ("RunSelected: params collected, composing the run");
 
-    const bool watchArmed = automaticPreviewRun || (evp::preview::PreviewRuntimeState::Get ().IsEnabled () &&
+    const bool watchArmed = automaticPreviewRun || (evp::preview::PreviewRuntimeState::Get ().AcceptsWatchTraces () &&
                                                     (info->previewKind == "plan2d" || info->previewKind == "3d"));
     GS::UniString paramsJson = params.CollectJson ();
     if (automaticPreviewRun) {

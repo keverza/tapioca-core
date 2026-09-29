@@ -10,6 +10,7 @@
 #include "ArchViz/OverlayAnnotationContent.hpp"
 #include "ArchViz/OverlayController.hpp"
 #include "ArchViz/OverlayLayers.hpp"
+#include "Preview/PreviewRuntimeState.hpp" // a Watch trace is taken while the overlays want it
 
 #include <windows.h>
 
@@ -79,6 +80,8 @@ void Start ()
 {
     g_enabled = true;
     g_state.enabled = true;
+    // SetWatchTrace takes a trace for the overlays even with the palette's Preview off.
+    evp::preview::PreviewRuntimeState::Get ().SetOverlayWatch (true);
     if (g_timer == 0)
         g_timer = ::SetTimer (nullptr, 0, kTickMs, Tick);
     // Whatever is selected now, at once.
@@ -94,6 +97,7 @@ void Stop ()
         g_timer = 0;
     }
     g_enabled = false;
+    evp::preview::PreviewRuntimeState::Get ().SetOverlayWatch (false);
 }
 
 } // namespace

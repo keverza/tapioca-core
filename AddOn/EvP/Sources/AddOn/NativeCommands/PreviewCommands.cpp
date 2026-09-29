@@ -388,8 +388,9 @@ class SetWatchTraceCommand : public MainThreadCommand {
     }
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
-        if (!evp::preview::PreviewRuntimeState::Get ().IsEnabled ())
-            return NativeCommandResult::Failure ("previews are disabled");
+        if (!evp::preview::PreviewRuntimeState::Get ().AcceptsWatchTraces ())
+            return NativeCommandResult::Failure (
+                "previews are disabled and the overlay annotations are off: nothing would show this trace");
         retained::WatchTrace trace;
         std::size_t frames = 0, points = 0;
         GS::UniString error;

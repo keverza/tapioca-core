@@ -317,10 +317,15 @@ def test_preview_enable_state_gates_palette_and_webui_watch_arming():
     )
 
     assert "std::atomic<bool> enabled" in runtime
-    assert "PreviewRuntimeState::Get ().IsEnabled ()" in palette_run
-    assert "PreviewRuntimeState::Get ().IsEnabled ()" in webui
-    assert native.count("PreviewRuntimeState::Get ().IsEnabled ()") == 2
-    assert native.count('Failure ("previews are disabled")') == 2
+    # A Watch trace has two readers since 2026-09-29: the palette's preview and the
+    # overlays' annotations (ArchViz/OverlayAnnotations). Arming and SetWatchTrace take
+    # a trace when either wants it; the preview scene is the palette's alone.
+    assert "std::atomic<bool> overlayWatch" in runtime
+    assert "PreviewRuntimeState::Get ().AcceptsWatchTraces ()" in palette_run
+    assert "PreviewRuntimeState::Get ().AcceptsWatchTraces ()" in webui
+    assert native.count("PreviewRuntimeState::Get ().IsEnabled ()") == 1
+    assert native.count("PreviewRuntimeState::Get ().AcceptsWatchTraces ()") == 1
+    assert native.count('Failure ("previews are disabled")') == 1
 
 
 def test_fresh_trace_is_required_and_first_nonempty_node_is_selected():
