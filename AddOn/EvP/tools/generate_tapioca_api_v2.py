@@ -243,7 +243,7 @@ from typing import Any
 # 221 -> 223 with Overlay3D and Overlay2D, the two overlay intents the menu items
 # toggle (2026-09-28), registered in OverlayCommands.cpp; 223 -> 226 with
 # SetOverlayLayer, ClearOverlayLayer and OverlayLayers, the caller's arbitrary
-# geometry on both overlays, in the same file.
+# geometry on both overlays, now in OverlayLayerCommands.cpp.
 EXPECTED_REGISTRY_COMMANDS = 226
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when

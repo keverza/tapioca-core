@@ -363,9 +363,11 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/InjectedOverlayRuntime.hpp"),
     ("NativeCommands/OverlayCommands.cpp", "ArchViz/PlanOverlayRuntime.hpp"),
     # Tapioca.SetOverlayLayer and its two siblings: the caller's arbitrary geometry
-    # on both overlays. The verbs fill the one store both overlays read; a second
-    # store on this side would be a second answer to "what is on the overlay".
-    ("NativeCommands/OverlayCommands.cpp", "ArchViz/OverlayLayers.hpp"),
+    # on both overlays. The verbs fill the one store both overlays read -- a second
+    # store on this side would be a second answer to "what is on the overlay" -- and
+    # hand the 3D overlay its prepared copy through the controller.
+    ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayLayers.hpp"),
+    ("NativeCommands/OverlayLayerCommands.cpp", "ArchViz/OverlayController.hpp"),
     # The extraction worker, started by Tapioca.RequestHostGeometry. The verb
     # exists precisely so host extraction does NOT share a lifecycle with camera
     # synchronisation -- opening the Diligent overlay to force one tore down the

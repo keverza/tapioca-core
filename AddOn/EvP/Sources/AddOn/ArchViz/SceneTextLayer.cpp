@@ -3,6 +3,7 @@
 #include "ArchViz/MatrixMath.hpp"
 #include "ArchViz/SceneTextAtlas.hpp"
 #include "ArchViz/SceneTextAtlasCache.hpp"
+#include "ArchViz/SceneTextFont.hpp"
 #include "ArchViz/SceneTextLayoutCache.hpp"
 #include "ArchViz/SceneTextPlacement.hpp"
 
@@ -28,7 +29,6 @@
 namespace geomsrv::archviz {
 namespace {
 
-constexpr int kSceneTextFontResourceId = 32581;
 constexpr size_t kMaximumLabels = 256;
 constexpr size_t kMaximumCodepointsPerLabel = 512;
 
@@ -133,33 +133,6 @@ float4 main (PSInput input) : SV_TARGET
     return float4(input.fillColor.rgb*fillAlpha+input.haloColor.rgb*haloAlpha, fillAlpha+haloAlpha)*visibility;
 }
 )hlsl";
-
-bool LoadFontResource (std::vector<uint8_t>& bytes, std::string& error)
-{
-    HMODULE module = nullptr;
-    if (!GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                             reinterpret_cast<LPCWSTR> (&LoadFontResource), &module)) {
-        error = "could not resolve the add-on module for the bundled text font";
-        return false;
-    }
-    const HRSRC resource = FindResourceW (module, MAKEINTRESOURCEW (kSceneTextFontResourceId), L"DATA");
-    const DWORD resourceSize = resource != nullptr ? SizeofResource (module, resource) : 0;
-    const HGLOBAL loaded = resource != nullptr ? LoadResource (module, resource) : nullptr;
-    const void* data = loaded != nullptr ? LockResource (loaded) : nullptr;
-    if (data == nullptr || resourceSize < sizeof (uint32_t)) {
-        error = "bundled Noto Sans resource 32581 is missing or unreadable";
-        return false;
-    }
-    uint32_t payloadSize = 0;
-    std::memcpy (&payloadSize, data, sizeof (payloadSize));
-    if (payloadSize == 0 || payloadSize > resourceSize - sizeof (payloadSize)) {
-        error = "bundled Noto Sans resource has an invalid payload size";
-        return false;
-    }
-    const uint8_t* payload = static_cast<const uint8_t*> (data) + sizeof (payloadSize);
-    bytes.assign (payload, payload + payloadSize);
-    return true;
-}
 
 float SrgbToLinear (uint8_t channel)
 {
@@ -389,7 +362,8 @@ bool SceneTextLayer::Init (Diligent::IRenderDevice* device, uint32_t colorBuffer
         return false;
     }
     std::vector<uint8_t> fontBytes;
-    if (!LoadFontResource (fontBytes, error) || !impl_->layoutCache.Start (fontBytes.data (), fontBytes.size (), error))
+    if (!LoadBundledSceneTextFont (fontBytes, error) ||
+        !impl_->layoutCache.Start (fontBytes.data (), fontBytes.size (), error))
         return false;
     const auto seedRun = impl_->layoutCache.WaitFor (SceneTextSeedText (), SceneTextDirection::Auto, error);
     if (seedRun == nullptr || !impl_->atlas.Build (fontBytes.data (), fontBytes.size (), *seedRun, error))
