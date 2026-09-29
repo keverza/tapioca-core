@@ -135,6 +135,143 @@ def create_fills(fills, database_anchor=None, fail_on_error=False, tx=None):
         "error": result.get("error", ""),
     } for result in data.get("results") or []]
 
+
+_DIMENSION_FIELDS = {
+    "linear": {"line", "direction", "points"},
+    "radial": {"base", "end", "radius"},
+    "angular": {"origin", "ray1", "ray2", "radius", "small_arc"},
+}
+_DIMENSION_REQUIRED = {
+    "linear": {"line", "direction", "points"},
+    "radial": {"base", "end", "radius"},
+    "angular": {"origin", "ray1", "ray2", "radius"},
+}
+
+
+def _dimension_point(point):
+    """Accept model-coordinate (x, y) pairs, never ambiguous bare scalars."""
+    x, y = point
+    return {"x": float(x), "y": float(y)}
+
+
+def create_dimensions(dimensions, database_anchor=None, fail_on_error=False, tx=None):
+    """Create static linear, radial or angular dimensions in model metres.
+
+    Linear: ``line`` (point on dimension line), ``direction`` (nonzero vector),
+    ``points`` (2..64 witness points). Radial: ``base`` (point on circle),
+    ``end`` (leader end), ``radius``. Angular: ``origin``, ``ray1``, ``ray2``
+    (ray endpoints), ``radius`` (arc distance), optional ``small_arc``.
+    All points are (x, y) pairs. Optional ``pen``, ``layer`` and ``floor_ind``
+    override tool defaults. Radial geometry is not yet live-verified in Archicad.
+    With ``tx``, returns a raw transaction Handle; otherwise aligned results.
+    """
+    if isinstance(dimensions, dict):
+        dimensions = [dimensions]
+    items = []
+    for dimension in dimensions:
+        kind = dimension.get("kind")
+        if kind not in _DIMENSION_FIELDS:
+            raise ValueError("dimension kind must be linear, radial or angular")
+        unknown = set(dimension) - _DIMENSION_FIELDS[kind] - {
+            "kind", "pen", "layer", "floor_ind"}
+        missing = _DIMENSION_REQUIRED[kind] - set(dimension)
+        if unknown or missing:
+            raise ValueError("invalid %s dimension fields: unknown=%s missing=%s" %
+                             (kind, sorted(unknown), sorted(missing)))
+        item = {"kind": kind}
+        for key, value in dimension.items():
+            if key == "kind" or value is None:
+                continue
+            if key == "points":
+                item[key] = [_dimension_point(p) for p in value]
+            elif key in ("line", "direction", "base", "end", "origin", "ray1", "ray2"):
+                item[key] = _dimension_point(value)
+            else:
+                item[{"floor_ind": "floorInd", "small_arc": "smallArc"}.get(key, key)] = value
+        items.append(item)
+    if not items:
+        return []
+    params = {"dimensions": items}
+    if database_anchor is not None:
+        params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
+    if fail_on_error:
+        params["failOnError"] = True
+    if tx is not None:
+        return tx.call("Tapioca.CreateDraftingDimensions", params)
+    data = call("Tapioca.CreateDraftingDimensions", params).data or {}
+    return [{
+        "kind": result.get("kind", ""),
+        "ok": bool(result.get("succeeded", False)),
+        "guid": (result.get("elementId") or {}).get("guid", ""),
+        "database_guid": (result.get("databaseId") or {}).get("guid", ""),
+        "layer": result.get("layer", ""),
+        "verified": bool(result.get("verified", False)),
+        "error": result.get("error", ""),
+    } for result in data.get("results") or []]
+
+
+def dimensions(guids=None, scope="database"):
+    """Read linear, radial, angular and level dimensions in the current database.
+
+    Explicit GUIDs in the current database or ``scope='selection'`` narrow the read.
+    ``points`` for linear dimensions are empty if ``memo_read`` is false; do not
+    treat an unreadable memo as a dimension with no witness points.
+    """
+    if scope not in ("database", "selection"):
+        raise ValueError("scope must be database or selection")
+    params = {"scope": scope}
+    if guids is not None:
+        params["elements"] = [{"elementId": {"guid": str(guid)}} for guid in guids]
+    data = call("Tapioca.GetDraftingDimensions", params).data or {}
+    records = []
+    for item in data.get("dimensions") or []:
+        record = dict(item)
+        record["guid"] = (record.pop("elementId", None) or {}).get("guid", "")
+        record["floor_ind"] = record.pop("floorInd", 0)
+        for key, alias in (("memoRead", "memo_read"), ("nDimElem", "n_dim_elem"),
+                           ("showOrigin", "show_origin"), ("smallArc", "small_arc"),
+                           ("angleValue", "angle_value"), ("isStatic", "is_static"),
+                           ("markerSize", "marker_size"), ("parentGuid", "parent_guid")):
+            if key in record:
+                record[alias] = record.pop(key)
+        for key in ("line", "direction", "base", "end", "origin", "position"):
+            if key in record:
+                record[key] = (record[key]["x"], record[key]["y"])
+        for key in ("points", "bases"):
+            if key in record:
+                record[key] = [(p["x"], p["y"]) for p in record[key]]
+        records.append(record)
+    return records
+
+
+def set_dimension_style(edits, tx=None, fail_on_error=False):
+    """Sparse edits: pen (all four kinds), radial show_origin, angular small_arc,
+    or level marker_size (millimetres). Geometry and witness memos are read-only.
+    ``edits`` maps GUID to a style dict. Returns aligned per-element write results.
+    """
+    allowed = {"pen", "show_origin", "small_arc", "marker_size"}
+    items = []
+    for guid, style in edits.items():
+        if not style or set(style) - allowed:
+            raise ValueError("unsupported or empty dimension style for %s" % guid)
+        item = {"elementId": {"guid": str(guid)}}
+        for key, value in style.items():
+            item[{"show_origin": "showOrigin", "small_arc": "smallArc",
+                  "marker_size": "markerSize"}.get(key, key)] = value
+        items.append(item)
+    if not items:
+        return []
+    params = {"edits": items}
+    if fail_on_error:
+        params["failOnError"] = True
+    if tx is not None:
+        return tx.call("Tapioca.SetDraftingDimensionStyle", params)
+    data = call("Tapioca.SetDraftingDimensionStyle", params).data or {}
+    return [{"guid": (item.get("elementId") or {}).get("guid", ""),
+             "kind": item.get("kind", ""), "ok": bool(item.get("succeeded", False)),
+             "error": item.get("error", "")}
+            for item in data.get("results") or []]
+
 #: Every anchor the two commands accept — which point of the box (x, y) names.
 #: Getting this wrong is the usual reason placed text or images look offset.
 ANCHORS = (

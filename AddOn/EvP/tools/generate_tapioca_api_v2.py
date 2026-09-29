@@ -249,7 +249,8 @@ from typing import Any
 # trace's annotations on the overlays, in the same file.
 # 228 -> 229 with CreateDraftingPrimitives (line/arc/circle/hotspot CRUD slice).
 # 229 -> 230 with CreateFills (API_HatchID element, not fill attribute).
-EXPECTED_REGISTRY_COMMANDS = 230
+# 230 -> 233 with static dimension create, typed read and sparse style edits.
+EXPECTED_REGISTRY_COMMANDS = 233
 EXPECTED_LOCAL_COMMANDS = 19
 # 232 -> 233 with the same verb. The registry constant above was raised when
 # RequestHostGeometry was added and this one was not, which the generator only
@@ -262,7 +263,8 @@ EXPECTED_LOCAL_COMMANDS = 19
 # 246 -> 247 with the Watch annotations on the overlays.
 # 247 -> 248 with CreateDraftingPrimitives.
 # 248 -> 249 with CreateFills.
-EXPECTED_TOTAL_COMMANDS = 249
+# 249 -> 252 with static dimension create, read and style edit.
+EXPECTED_TOTAL_COMMANDS = 252
 
 RAW_JSON_PATTERN = r'R"json\((.*?)\)json"'
 SCHEMA_EXPRESSION_PATTERN = rf'(?:R"json\(.*?\)json"|[A-Za-z_]\w*)'

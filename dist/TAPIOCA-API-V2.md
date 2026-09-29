@@ -23,6 +23,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.CommitTransaction` | `steps`: string[] | `name`: string | `results`: string[]<br>`steps`: integer |
 | `Tapioca.CreateColumn` | `x`: number[]<br>`y`: number[] | `base`: number<br>`floorInd`: integer<br>`height`: number<br>`layer`: string<br>`shape`: "rectangular" \| "circular" \| "profile"<br>`width`: number<br>`height2`: number<br>`diameter`: number<br>`profile`: string<br>`material`: string<br>`angle`: number | `results`: object[]<br>`count`: integer<br>`floorInd`: integer |
 | `Tapioca.CreateDatabase` | `type`: "worksheet" \| "detail" \| "layout" \| "masterLayout" \| "3dDocument" | `name`: string<br>`ref`: string | `type`: "worksheet" \| "detail" \| "masterLayout" \| "3dDocument"<br>`databaseId`: object<br>`name`: string<br>`ref`: string |
+| `Tapioca.CreateDraftingDimensions` | `dimensions`: object[] | `databaseAnchorElementId`: ElementId<br>`failOnError`: boolean | `results`: object[]<br>`count`: integer |
 | `Tapioca.CreateDraftingPolyline` | `coordinates`: object[] | `layer`: string<br>`databaseAnchorElementId`: object | `elementId`: object<br>`databaseId`: object<br>`layer`: string<br>`verified`: boolean |
 | `Tapioca.CreateDraftingPrimitives` | `elements`: object[] | `databaseAnchorElementId`: ElementId<br>`failOnError`: boolean | `results`: object[]<br>`count`: integer |
 | `Tapioca.CreateFills` | `fills`: object[] | `databaseAnchorElementId`: ElementId<br>`failOnError`: boolean | `results`: object[]<br>`count`: integer |
@@ -61,6 +62,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.GetCurrentParams` | - | - | `paramsJson`: string |
 | `Tapioca.GetCutPolygons` | `plane`: planeInput<br>one of: `elementId` OR `elemIdx` + `body` | `separateComponents`: boolean | `elementId?`: elementId<br>`elemIdx`: integer<br>`separateComponents`: boolean<br>`plane`: plane<br>`totalArea`: number<br>`bodyCount`: integer<br>`bodies`: body[] |
 | `Tapioca.GetDiligentCamera` | - | - | `valid`: boolean<br>`source`: string<br>`orthographic`: boolean<br>`viewMoving`: boolean<br>`eyeX`: number<br>`eyeY`: number<br>`eyeZ`: number<br>`targetX`: number<br>`targetY`: number<br>`targetZ`: number<br>`viewConeDegreesHorizontal`: number |
+| `Tapioca.GetDraftingDimensions` | - | `elements`: Elements<br>`scope`: "database" \| "selection" | `scope`: "database" \| "selection" \| "elements"<br>`dimensions`: object[]<br>`count`: integer<br>`skipped`: integer |
 | `Tapioca.GetDrawingClipPolygon` | `drawings`: object[] | - | `drawings`: object[]<br>`count`: integer |
 | `Tapioca.GetElement3DInfo` | `elements`: object[] | - | `count`: integer<br>`elements`: object[] |
 | `Tapioca.GetElementDetails` | `elements`: Elements | - | `detailsOfElements`: object[]<br>`count`: integer OR `ok`: false<br>`error`: string |
@@ -207,6 +209,7 @@ In Output, `?` marks a property not listed as required by its schema.
 | `Tapioca.SetDiligentSun` | `enabled`: boolean | `azimuthDegrees`: number<br>`altitudeDegrees`: number | `enabled`: boolean<br>`azimuthDegrees`: number<br>`altitudeDegrees`: number |
 | `Tapioca.SetDiligentTextLabels` | `labels`: object[] | - | `count`: integer |
 | `Tapioca.SetDocumentFrom3DSettings` | `databaseId`: object | `fromCurrent3DView`: boolean<br>`transparency`: boolean<br>`cutaway3D`: boolean<br>`materialFrom3D`: boolean | `databaseId`: object<br>`name`: string<br>`isPersp`: boolean<br>`applied`: "projectionSetting" \| "window3DInfo" \| "transparency" \| "cutaway3D" \| "materialFrom3D"[]<br>`verified`: boolean |
+| `Tapioca.SetDraftingDimensionStyle` | `edits`: object[] | `failOnError`: boolean | `results`: object[]<br>`count`: integer<br>`changed`: integer |
 | `Tapioca.SetDrawingClipPolygon` | `drawing`: object<br>`clipPolygon`: number[] | `arcs`: number[]<br>`isCutWithFrame`: boolean | `elementId`: object<br>`verified`: boolean<br>`pointsWritten`: integer<br>`pointsReadBack`: integer<br>`note?`: string |
 | `Tapioca.SetElementDetails` | `edits`: object[] | - | `results`: object[]<br>`count`: integer<br>`changed`: integer OR `ok`: false<br>`error`: string |
 | `Tapioca.SetElementIds` | `identities`: object[] | - | `results`: object[]<br>`count`: integer<br>`changed`: integer |

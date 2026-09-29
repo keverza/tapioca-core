@@ -28,6 +28,7 @@
 #include "NativeCommands/DraftingCommands.hpp"
 #include "NativeCommands/DraftingPrimitiveCommands.hpp"
 #include "NativeCommands/DraftingFillCommands.hpp"
+#include "NativeCommands/DraftingDimensionCommands.hpp"
 #include "NativeCommands/DraftingPolylineCommands.hpp"
 #include "NativeCommands/DrawingCommands.hpp"
 #include "NativeCommands/ElementModifyCommands.hpp"
@@ -111,6 +112,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetDraftingCommandRegistrations,
     &GetDraftingPrimitiveCommandRegistrations,
     &GetDraftingFillCommandRegistrations,
+    &GetDraftingDimensionCommandRegistrations,
     &GetDraftingPolylineCommandRegistrations,
     &GetDrawingCommandRegistrations,
     &GetLayoutCommandRegistrations,

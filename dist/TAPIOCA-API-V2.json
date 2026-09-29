@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 230,
+      "nativeRegistry": 233,
       "dispatcherLocal": 19,
-      "total": 249
+      "total": 252
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1246,6 +1246,146 @@
           "databaseId",
           "name",
           "ref"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.CreateDraftingDimensions",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "dimensions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "radial",
+                    "angular"
+                  ]
+                },
+                "line": {
+                  "$ref": "#Point2D"
+                },
+                "direction": {
+                  "$ref": "#Point2D"
+                },
+                "points": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 64,
+                  "items": {
+                    "$ref": "#Point2D"
+                  }
+                },
+                "base": {
+                  "$ref": "#Point2D"
+                },
+                "end": {
+                  "$ref": "#Point2D"
+                },
+                "origin": {
+                  "$ref": "#Point2D"
+                },
+                "ray1": {
+                  "$ref": "#Point2D"
+                },
+                "ray2": {
+                  "$ref": "#Point2D"
+                },
+                "radius": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "smallArc": {
+                  "type": "boolean"
+                },
+                "pen": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "floorInd": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ]
+            }
+          },
+          "databaseAnchorElementId": {
+            "$ref": "#ElementId"
+          },
+          "failOnError": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "dimensions"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "radial",
+                    "angular"
+                  ]
+                },
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "databaseId": {
+                  "$ref": "#ElementId"
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "verified": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "succeeded"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "results",
+          "count"
         ]
       }
     },
@@ -6265,6 +6405,160 @@
           "targetY",
           "targetZ",
           "viewConeDegreesHorizontal"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.GetDraftingDimensions",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "$ref": "#Elements"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "database",
+              "selection"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "database",
+              "selection",
+              "elements"
+            ]
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "radial",
+                    "angular",
+                    "level"
+                  ]
+                },
+                "floorInd": {
+                  "type": "integer"
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "pen": {
+                  "type": "integer"
+                },
+                "line": {
+                  "$ref": "#Point2D"
+                },
+                "direction": {
+                  "$ref": "#Point2D"
+                },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#Point2D"
+                  }
+                },
+                "nDimElem": {
+                  "type": "integer"
+                },
+                "memoRead": {
+                  "type": "boolean"
+                },
+                "base": {
+                  "$ref": "#Point2D"
+                },
+                "end": {
+                  "$ref": "#Point2D"
+                },
+                "radius": {
+                  "type": "number"
+                },
+                "showOrigin": {
+                  "type": "boolean"
+                },
+                "origin": {
+                  "$ref": "#Point2D"
+                },
+                "position": {
+                  "$ref": "#Point2D"
+                },
+                "bases": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#Point2D"
+                  }
+                },
+                "angleValue": {
+                  "type": "number"
+                },
+                "smallArc": {
+                  "type": "boolean"
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "level": {
+                  "type": "number"
+                },
+                "isStatic": {
+                  "type": "boolean"
+                },
+                "markerSize": {
+                  "type": "number"
+                },
+                "angle": {
+                  "type": "number"
+                },
+                "parentGuid": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId",
+                "kind",
+                "floorInd",
+                "layer",
+                "pen"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "skipped": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "dimensions",
+          "count",
+          "skipped"
         ]
       }
     },
@@ -23394,6 +23688,103 @@
           "isPersp",
           "applied",
           "verified"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.SetDraftingDimensionStyle",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "edits": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "pen": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "showOrigin": {
+                  "type": "boolean"
+                },
+                "smallArc": {
+                  "type": "boolean"
+                },
+                "markerSize": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "elementId"
+              ],
+              "minProperties": 2
+            }
+          },
+          "failOnError": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "edits"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "linear",
+                    "radial",
+                    "angular",
+                    "level"
+                  ]
+                },
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "succeeded"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "changed": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "results",
+          "count",
+          "changed"
         ]
       }
     },
