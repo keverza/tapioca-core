@@ -7,6 +7,7 @@
 #include "ArchViz/OverlayHud.hpp" // ComposePages: the HUD's atlas pages
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -522,19 +523,88 @@ using namespace build;
 
 namespace {
 
-Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
-                  overlaytext::Engine* text, overlayhud::Engine* hud, float scale, const FontResolver& fonts)
+// One layer's draft as it was built, and what it was built with.
+struct CachedDraft {
+    std::shared_ptr<const layers::Layer> layer;
+    const overlaytext::Engine* text = nullptr;
+    std::shared_ptr<const Draft> draft;
+};
+
+std::vector<CachedDraft> g_drafts[2]; // the plan's, the 3D window's -- MAIN THREAD
+
+// `from` after what `into` holds, its text pages renumbered after `into`'s. False, and
+// nothing appended, when the whole would pass a budget.
+bool Append (Draft& into, const Draft& from)
 {
-    Builder builder (view, text, hud, scale, fonts);
+    if (into.fillVertices + from.fillVertices > kMaxFillVertices ||
+        into.lines.size () + from.lines.size () > kMaxLines ||
+        into.glyphs.size () + from.glyphs.size () > kMaxGlyphVertices)
+        return false;
+    // A page two layers share is one page: same id, one slot, one draw.
+    std::vector<uint32_t> slot (from.textPages.size ());
+    for (size_t i = 0; i < from.textPages.size (); ++i) {
+        size_t at = 0;
+        while (at < into.textPages.size () && into.textPages[at]->id != from.textPages[i]->id)
+            ++at;
+        if (at == into.textPages.size ())
+            into.textPages.push_back (from.textPages[i]);
+        slot[i] = uint32_t (at);
+    }
+    into.fills.insert (into.fills.end (), from.fills.begin (), from.fills.end ());
+    into.lines.insert (into.lines.end (), from.lines.begin (), from.lines.end ());
+    into.glyphs.reserve (into.glyphs.size () + from.glyphs.size ());
+    for (DraftGlyph glyph : from.glyphs) {
+        if (glyph.page < kHudPageBase && glyph.page < slot.size ())
+            glyph.page = slot[glyph.page];
+        into.glyphs.push_back (glyph);
+    }
+    into.fillVertices += from.fillVertices;
+    into.problems.textsNotLaidOut += from.problems.textsNotLaidOut;
+    into.problems.dimensionsNotResolved += from.problems.dimensionsNotResolved;
+    into.problems.truncated += from.problems.truncated;
+    if (!from.problems.lastError.empty ())
+        into.problems.lastError = from.problems.lastError;
+    return true;
+}
+
+Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
+                  overlaytext::Engine* text, overlayhud::Engine* hud, float scale, const FontResolver& fonts,
+                  Cost& cost)
+{
+    std::vector<CachedDraft>& cache = g_drafts[view == layers::Views::TwoD ? 0 : 1];
+    std::vector<CachedDraft> kept;
+    Draft out;
     std::vector<const layers::Panel*> panels;
-    for (const std::shared_ptr<const layers::Layer>& layer : all)
-        if (layers::DrawnIn (layer->views, view)) {
-            builder.AddLayer (*layer);
-            for (const layers::Panel& panel : layer->panels)
-                panels.push_back (&panel);
+    for (const std::shared_ptr<const layers::Layer>& layer : all) {
+        if (!layers::DrawnIn (layer->views, view))
+            continue;
+        for (const layers::Panel& panel : layer->panels)
+            panels.push_back (&panel);
+        std::shared_ptr<const Draft> draft;
+        for (const CachedDraft& cached : cache)
+            if (cached.layer == layer && cached.text == text)
+                draft = cached.draft;
+        if (draft != nullptr) {
+            ++cost.layersReused;
         }
-    builder.AddPanels (panels);
-    return builder.Take ();
+        else {
+            Builder builder (view, text, nullptr, scale, fonts);
+            builder.AddLayer (*layer);
+            draft = std::make_shared<const Draft> (builder.Take ());
+            ++cost.layersBuilt;
+        }
+        kept.push_back ({ layer, text, draft });
+        if (!Append (out, *draft)) {
+            ++out.problems.truncated;
+            out.problems.lastError = "layer \"" + layer->name + "\" would pass the overlay's budget: not drawn";
+        }
+    }
+    cache = std::move (kept);
+    Builder panelBuilder (view, text, hud, scale, fonts);
+    panelBuilder.AddPanels (panels);
+    if (!Append (out, panelBuilder.Take ()))
+        ++out.problems.truncated;
+    return out;
 }
 
 // The pages the glyphs sample: the text pages they use, from every font's engine
@@ -582,6 +652,12 @@ template <typename Key> std::vector<std::pair<Key, std::vector<size_t>>> Group (
 
 } // namespace
 
+void ForgetDrafts ()
+{
+    for (std::vector<CachedDraft>& cache : g_drafts)
+        cache.clear ();
+}
+
 uint32_t BehindCode (layers::Behind resolved)
 {
     switch (resolved) {
@@ -601,8 +677,9 @@ uint32_t BehindCode (layers::Behind resolved)
 Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
                   overlayhud::Engine* hud, float scale, const FontResolver& fonts)
 {
-    Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale, fonts);
+    const auto started = std::chrono::steady_clock::now ();
     Plan out;
+    Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale, fonts, out.cost);
     out.problems = draft.problems;
     out.pages = ComposePages (draft, hud);
 
@@ -704,14 +781,17 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;
         out.glyphDraws.push_back (draw);
     }
+    out.cost.microseconds = uint32_t (
+        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
     return out;
 }
 
 Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
                     overlayhud::Engine* hud, float scale, const FontResolver& fonts)
 {
-    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale, fonts);
+    const auto started = std::chrono::steady_clock::now ();
     Scene out;
+    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale, fonts, out.cost);
     out.problems = draft.problems;
     out.pages = ComposePages (draft, hud);
 
@@ -781,6 +861,8 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
         draw.count = uint32_t (out.glyphs.size ()) - draw.first;
         out.glyphDraws.push_back (draw);
     }
+    out.cost.microseconds = uint32_t (
+        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
     return out;
 }
 

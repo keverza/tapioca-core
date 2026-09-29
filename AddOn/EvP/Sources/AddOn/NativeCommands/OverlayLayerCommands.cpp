@@ -160,6 +160,13 @@ GS::ObjectState GuestRecord (const archviz::overlaycontrol::GuestCounts& counts)
     os.Add ("glyphVertices", (GS::Int32) counts.glyphVertices);
     os.Add ("pages", (GS::Int32) counts.pages);
     os.Add ("failure", GS::UniString (counts.failure.c_str (), CC_UTF8));
+    os.Add ("prepareMicroseconds", (GS::Int32) counts.prepareMicroseconds);
+    os.Add ("layersBuilt", (GS::Int32) counts.layersBuilt);
+    os.Add ("layersReused", (GS::Int32) counts.layersReused);
+    os.Add ("vertexBytes", Text (counts.vertexBytes));
+    os.Add ("pageBytes", Text (counts.pageBytes));
+    os.Add ("lastDrawMicroseconds", (GS::Int32) counts.lastDrawMicroseconds);
+    os.Add ("drawMicroseconds", (GS::Int32) counts.drawMicroseconds);
     return os;
 }
 
@@ -417,11 +424,15 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
             "declinedNoTransform":{"type":"string"},"declinedFailed":{"type":"string"},
             "fills":{"type":"integer","minimum":0},"lines":{"type":"integer","minimum":0},
             "glyphVertices":{"type":"integer","minimum":0},"pages":{"type":"integer","minimum":0},
-            "failure":{"type":"string"}},
+            "failure":{"type":"string"},
+            "prepareMicroseconds":{"type":"integer","minimum":0},"layersBuilt":{"type":"integer","minimum":0},
+            "layersReused":{"type":"integer","minimum":0},"vertexBytes":{"type":"string"},"pageBytes":{"type":"string"},
+            "lastDrawMicroseconds":{"type":"integer","minimum":0},"drawMicroseconds":{"type":"integer","minimum":0}},
           "additionalProperties":false,
           "required":["attached","attachMilliseconds","buildMilliseconds","uploads","draws","drawCalls",
                       "declinedNoCamera","declinedNoViewport","declinedNoTransform","declinedFailed","fills","lines",
-                      "glyphVertices","pages","failure"]},)json"
+                      "glyphVertices","pages","failure","prepareMicroseconds","layersBuilt","layersReused",
+                      "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds"]},)json"
     R"json("scene":{"type":"object","properties":{
             "attached":{"type":"boolean"},"attachMilliseconds":{"type":"integer","minimum":0},
             "buildMilliseconds":{"type":"integer","minimum":0},"uploads":{"type":"string"},"draws":{"type":"string"},
@@ -429,11 +440,15 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
             "declinedNoTransform":{"type":"string"},"declinedFailed":{"type":"string"},
             "fills":{"type":"integer","minimum":0},"lines":{"type":"integer","minimum":0},
             "glyphVertices":{"type":"integer","minimum":0},"pages":{"type":"integer","minimum":0},
-            "failure":{"type":"string"}},
+            "failure":{"type":"string"},
+            "prepareMicroseconds":{"type":"integer","minimum":0},"layersBuilt":{"type":"integer","minimum":0},
+            "layersReused":{"type":"integer","minimum":0},"vertexBytes":{"type":"string"},"pageBytes":{"type":"string"},
+            "lastDrawMicroseconds":{"type":"integer","minimum":0},"drawMicroseconds":{"type":"integer","minimum":0}},
           "additionalProperties":false,
           "required":["attached","attachMilliseconds","buildMilliseconds","uploads","draws","drawCalls",
                       "declinedNoCamera","declinedNoViewport","declinedNoTransform","declinedFailed","fills","lines",
-                      "glyphVertices","pages","failure"]}},
+                      "glyphVertices","pages","failure","prepareMicroseconds","layersBuilt","layersReused",
+                      "vertexBytes","pageBytes","lastDrawMicroseconds","drawMicroseconds"]}},
       "additionalProperties":false,"required":["plan","scene"]}},
   "additionalProperties":false,"required":["layers","generation","guest"]})json";
 

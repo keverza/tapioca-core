@@ -18467,6 +18467,32 @@
                   },
                   "failure": {
                     "type": "string"
+                  },
+                  "prepareMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "layersBuilt": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "layersReused": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "vertexBytes": {
+                    "type": "string"
+                  },
+                  "pageBytes": {
+                    "type": "string"
+                  },
+                  "lastDrawMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "drawMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "additionalProperties": false,
@@ -18485,7 +18511,14 @@
                   "lines",
                   "glyphVertices",
                   "pages",
-                  "failure"
+                  "failure",
+                  "prepareMicroseconds",
+                  "layersBuilt",
+                  "layersReused",
+                  "vertexBytes",
+                  "pageBytes",
+                  "lastDrawMicroseconds",
+                  "drawMicroseconds"
                 ]
               },
               "scene": {
@@ -18541,6 +18574,32 @@
                   },
                   "failure": {
                     "type": "string"
+                  },
+                  "prepareMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "layersBuilt": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "layersReused": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "vertexBytes": {
+                    "type": "string"
+                  },
+                  "pageBytes": {
+                    "type": "string"
+                  },
+                  "lastDrawMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "drawMicroseconds": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "additionalProperties": false,
@@ -18559,7 +18618,14 @@
                   "lines",
                   "glyphVertices",
                   "pages",
-                  "failure"
+                  "failure",
+                  "prepareMicroseconds",
+                  "layersBuilt",
+                  "layersReused",
+                  "vertexBytes",
+                  "pageBytes",
+                  "lastDrawMicroseconds",
+                  "drawMicroseconds"
                 ]
               }
             },

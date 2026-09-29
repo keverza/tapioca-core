@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -660,4 +661,66 @@ TEST (OverlayScene, ADimensionTakesItsTextStyleAndTerminatorSize)
     layer.dimensions = { dimension };
     for (const scene::SceneGlyph& glyph : scene::PrepareScene (One (layer), &Engine ()).glyphs)
         EXPECT_EQ (glyph.flags & scene::kSolid, 0u);
+}
+
+// Only what changed is built again: a layer that stands is reused as it was built, a
+// replaced one is built anew, and the whole is what building everything would give.
+TEST (OverlayScene, ALayerThatStandsIsReusedAndOnlyTheChangedOneIsBuilt)
+{
+    scene::ForgetDrafts ();
+    layers::Layer boxes;
+    boxes.name = "boxes";
+    layers::Mesh cube = Cube (true);
+    cube.styled = true;
+    cube.style.shading = layers::Shading::Ghost;
+    cube.style.edgeRgba = 0x103060FFu;
+    boxes.meshes = { cube };
+    const auto standing = std::make_shared<const layers::Layer> (boxes);
+    layers::Layer labels;
+    labels.name = "labels";
+    layers::Text label;
+    label.text = "A";
+    labels.texts = { label };
+
+    const scene::Scene first =
+        scene::PrepareScene ({ standing, std::make_shared<const layers::Layer> (labels) }, &Engine ());
+    EXPECT_EQ (first.cost.layersBuilt, 2u);
+    EXPECT_EQ (first.cost.layersReused, 0u);
+
+    labels.texts[0].text = "B";
+    const auto changed = std::make_shared<const layers::Layer> (labels);
+    const scene::Scene second = scene::PrepareScene ({ standing, changed }, &Engine ());
+    EXPECT_EQ (second.cost.layersBuilt, 1u);
+    EXPECT_EQ (second.cost.layersReused, 1u);
+
+    scene::ForgetDrafts ();
+    const scene::Scene fresh = scene::PrepareScene ({ standing, changed }, &Engine ());
+    EXPECT_EQ (fresh.cost.layersBuilt, 2u);
+    ASSERT_EQ (second.fills.size (), fresh.fills.size ());
+    ASSERT_EQ (second.lines.size (), fresh.lines.size ());
+    ASSERT_EQ (second.glyphs.size (), fresh.glyphs.size ());
+    for (size_t i = 0; i < fresh.fills.size (); ++i)
+        EXPECT_EQ (std::memcmp (&second.fills[i], &fresh.fills[i], sizeof (scene::SceneFillVertex)), 0) << i;
+    for (size_t i = 0; i < fresh.glyphs.size (); ++i)
+        EXPECT_EQ (std::memcmp (&second.glyphs[i], &fresh.glyphs[i], sizeof (scene::SceneGlyph)), 0) << i;
+    EXPECT_EQ (second.pages.size (), fresh.pages.size ());
+}
+
+// Two layers whose text sits on the same atlas page share it: one page, one draw.
+TEST (OverlayScene, LayersSharingAnAtlasPageShareOneSlot)
+{
+    scene::ForgetDrafts ();
+    std::vector<std::shared_ptr<const layers::Layer>> all;
+    for (const char* name : { "one", "two" }) {
+        layers::Layer layer;
+        layer.name = name;
+        layers::Text label;
+        label.text = "12";
+        label.screen = true;
+        layer.texts = { label };
+        all.push_back (std::make_shared<const layers::Layer> (layer));
+    }
+    const scene::Scene drawn = scene::PrepareScene (all, &Engine ());
+    EXPECT_EQ (drawn.pages.size (), 1u);
+    EXPECT_EQ (drawn.glyphDraws.size (), 1u);
 }

@@ -59,6 +59,14 @@ std::atomic<uint64_t> s_draws { 0 }, s_drawCalls { 0 }, s_uploads { 0 };
 std::atomic<uint64_t> s_noCamera { 0 }, s_noViewport { 0 }, s_failed { 0 };
 std::atomic<uint32_t> s_fills { 0 }, s_lines { 0 }, s_glyphs { 0 }, s_pages { 0 };
 std::atomic<const char*> s_failure { "" };
+std::atomic<uint32_t> s_prepareUs { 0 }, s_built { 0 }, s_reused { 0 }, s_lastDrawUs { 0 }, s_drawUs { 0 };
+std::atomic<uint64_t> s_vertexBytes { 0 }, s_pageBytes { 0 };
+
+uint32_t Since (std::chrono::steady_clock::time_point started)
+{
+    return uint32_t (
+        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
+}
 
 void Bump (std::atomic<uint64_t>& counter)
 {
@@ -163,6 +171,14 @@ bool UploadCurrent ()
     s_lines.store (uint32_t (scene.lines.size ()), std::memory_order_relaxed);
     s_glyphs.store (uint32_t (scene.glyphs.size ()), std::memory_order_relaxed);
     s_pages.store (uint32_t (g_pages.size ()), std::memory_order_relaxed);
+    s_vertexBytes.store (uint64_t (scene.fills.size ()) * sizeof (overlayscene::SceneFillVertex) +
+                             uint64_t (scene.lines.size ()) * sizeof (overlayscene::SceneLine) +
+                             uint64_t (scene.glyphs.size ()) * sizeof (overlayscene::SceneGlyph),
+                         std::memory_order_relaxed);
+    uint64_t pageBytes = 0;
+    for (const auto& page : scene.pages)
+        pageBytes += page != nullptr ? uint64_t (page->width) * uint64_t (page->height) * 4u : 0u;
+    s_pageBytes.store (pageBytes, std::memory_order_relaxed);
     Bump (s_uploads);
     return true;
 }
@@ -192,6 +208,9 @@ bool BindCamera (ID3D11Buffer* view, ID3D11Buffer* projection)
 
 void Publish (overlayscene::Scene scene, float dpiScale)
 {
+    s_prepareUs.store (scene.cost.microseconds, std::memory_order_relaxed);
+    s_built.store (scene.cost.layersBuilt, std::memory_order_relaxed);
+    s_reused.store (scene.cost.layersReused, std::memory_order_relaxed);
     Published* const fresh = new Published { std::move (scene), dpiScale };
     // One the render thread never took is simply superseded.
     delete g_published.exchange (fresh, std::memory_order_acq_rel);
@@ -245,10 +264,16 @@ void Draw (ID3D11DeviceContext* context, uint32_t interpretation, ID3D11RenderTa
     const float frame[4] = { viewport.Width, viewport.Height, g_current->dpiScale, overlay::kGuestDepthPullFraction };
     // InvalidateState inside the injection's guard, then Archicad's target and the
     // composer's depth view, bound natively; the scene viewport stays as bound.
+    const auto started = std::chrono::steady_clock::now ();
     g_guest.BeginDraw (context, target, depth);
     gpu::DrawStats drawn;
     gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, frame, depth != nullptr, g_current->dpiScale,
                drawn);
+    // The render thread's own time for it -- lock-free, no allocation (§11).
+    const uint32_t took = Since (started);
+    s_lastDrawUs.store (took, std::memory_order_relaxed);
+    const uint32_t mean = s_drawUs.load (std::memory_order_relaxed);
+    s_drawUs.store (mean == 0 ? took : mean - mean / 16 + took / 16, std::memory_order_relaxed);
     Bump (s_draws);
     s_drawCalls.fetch_add (drawn.drawCalls, std::memory_order_relaxed);
 }
@@ -263,8 +288,11 @@ void ReleaseDeviceObjects ()
     // Every Start resets what every Stop leaves behind (§8): the next session reports
     // its own numbers and its own failure, not these.
     s_attached.store (false, std::memory_order_relaxed);
-    for (std::atomic<uint32_t>* value : { &s_attachMs, &s_buildMs, &s_slot, &s_fills, &s_lines, &s_glyphs, &s_pages })
+    for (std::atomic<uint32_t>* value : { &s_attachMs, &s_buildMs, &s_slot, &s_fills, &s_lines, &s_glyphs, &s_pages,
+                                          &s_prepareUs, &s_built, &s_reused, &s_lastDrawUs, &s_drawUs })
         value->store (0, std::memory_order_relaxed);
+    s_vertexBytes.store (0, std::memory_order_relaxed);
+    s_pageBytes.store (0, std::memory_order_relaxed);
     for (std::atomic<uint64_t>* counter : { &s_draws, &s_drawCalls, &s_uploads, &s_noCamera, &s_noViewport, &s_failed })
         counter->store (0, std::memory_order_relaxed);
     s_failure.store ("", std::memory_order_relaxed);
@@ -288,6 +316,13 @@ Stats GetStats ()
     stats.glyphVertices = s_glyphs.load (std::memory_order_relaxed);
     stats.pages = s_pages.load (std::memory_order_relaxed);
     stats.failure = s_failure.load (std::memory_order_relaxed);
+    stats.prepareMicroseconds = s_prepareUs.load (std::memory_order_relaxed);
+    stats.layersBuilt = s_built.load (std::memory_order_relaxed);
+    stats.layersReused = s_reused.load (std::memory_order_relaxed);
+    stats.vertexBytes = s_vertexBytes.load (std::memory_order_relaxed);
+    stats.pageBytes = s_pageBytes.load (std::memory_order_relaxed);
+    stats.lastDrawMicroseconds = s_lastDrawUs.load (std::memory_order_relaxed);
+    stats.drawMicroseconds = s_drawUs.load (std::memory_order_relaxed);
     return stats;
 }
 

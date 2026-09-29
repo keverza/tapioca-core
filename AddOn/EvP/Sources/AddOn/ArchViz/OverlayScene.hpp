@@ -171,6 +171,14 @@ struct Problems {
     std::string lastError;
 };
 
+// What preparing the layers cost, on the main thread: how many were built and how many
+// were reused as they stood (the cache below PreparePlan), and how long it took.
+struct Cost {
+    uint32_t layersBuilt = 0;
+    uint32_t layersReused = 0;
+    uint32_t microseconds = 0;
+};
+
 struct Plan {
     double originX = 0.0;
     double originY = 0.0;
@@ -182,6 +190,7 @@ struct Plan {
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
     uint64_t generation = 0;
     Problems problems;
+    Cost cost;
 
     bool Empty () const
     {
@@ -198,6 +207,7 @@ struct Scene {
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
     uint64_t generation = 0;
     Problems problems;
+    Cost cost;
 
     bool Empty () const
     {
@@ -208,6 +218,15 @@ struct Scene {
 // The text engine for a font file a text names (guesttext::EngineFor); null leaves that
 // text in the bundled font, with the reason in `problems`.
 using FontResolver = std::function<overlaytext::Engine*(const std::string& font)>;
+
+// ⚠️ ONLY WHAT CHANGED IS BUILT AGAIN. A layer is immutable once set (OverlayLayers.hpp),
+// so the same layer object is the same content: what it was turned into -- normals
+// welded, feature edges found, text shaped -- is kept per view and reused while it
+// stands. A Watch trace ticking, or slices following an edit, rebuild their own layer,
+// not a 200k-triangle heatmap beside it. The HUD panels are laid out together every
+// time (OverlayHud.hpp says why). MAIN THREAD, as the text engine is; the cache holds
+// only the layers of the last call, and `ForgetDrafts` empties it.
+void ForgetDrafts ();
 
 // What the guest draws of these layers in each view. `text` may be null or not
 // ready: labels are then counted in `problems` and skipped, everything else drawn.

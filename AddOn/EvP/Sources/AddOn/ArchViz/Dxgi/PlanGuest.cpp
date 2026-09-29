@@ -100,6 +100,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     if (!NeedsGuest2D (layers)) {
         changed = !g_content.Empty ();
         g_content = gpu::Content {};
+        overlayscene::ForgetDrafts ();
         g_generation = generation;
         g_haveGeneration = true;
         return true;
@@ -181,6 +182,15 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     g_stats.textsNotLaidOut = plan.problems.textsNotLaidOut;
     g_stats.dimensionsNotResolved = plan.problems.dimensionsNotResolved;
     g_stats.truncated = plan.problems.truncated;
+    g_stats.prepareMicroseconds = plan.cost.microseconds;
+    g_stats.layersBuilt = plan.cost.layersBuilt;
+    g_stats.layersReused = plan.cost.layersReused;
+    g_stats.vertexBytes = uint64_t (plan.fills.size ()) * sizeof (overlayscene::PlanFillVertex) +
+                          uint64_t (plan.lines.size ()) * sizeof (overlayscene::PlanLine) +
+                          uint64_t (plan.glyphs.size ()) * sizeof (overlayscene::PlanGlyph);
+    g_stats.pageBytes = 0;
+    for (const auto& page : plan.pages)
+        g_stats.pageBytes += page != nullptr ? uint64_t (page->width) * uint64_t (page->height) * 4u : 0u;
     if (!plan.problems.lastError.empty ())
         g_stats.lastError = plan.problems.lastError;
     return true;
@@ -209,9 +219,15 @@ void Draw (ID3D11DeviceContext* native, ID3D11RenderTargetView* target, const pl
     frame.surface[1] = float (height);
     frame.surface[2] = g_dpiScale;
     // The plan layer set the viewport to the whole buffer; InvalidateState leaves it.
+    const auto started = std::chrono::steady_clock::now ();
     g_guest.BeginDraw (native, target, nullptr);
     gpu::DrawStats drawn;
     gpu::Draw (g_guest.Context (), g_pipelines, g_pages, g_content, &frame, false, g_dpiScale, drawn);
+    const uint32_t took = uint32_t (
+        std::chrono::duration_cast<std::chrono::microseconds> (std::chrono::steady_clock::now () - started).count ());
+    g_stats.lastDrawMicroseconds = took;
+    g_stats.drawMicroseconds =
+        g_stats.drawMicroseconds == 0 ? took : g_stats.drawMicroseconds - g_stats.drawMicroseconds / 16 + took / 16;
     ++g_stats.draws;
     g_stats.drawCalls += drawn.drawCalls;
 }

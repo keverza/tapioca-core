@@ -75,6 +75,16 @@ struct Stats {
     uint32_t dimensionsNotResolved = 0;
     uint32_t truncated = 0;
     std::string lastError;
+    // What the content costs: preparing it on the main thread (layers built and reused,
+    // OverlayScene.hpp), the bytes it holds on the GPU, and drawing it at Present on the
+    // render thread -- the last draw, and a running mean over about the last sixteen.
+    uint32_t prepareMicroseconds = 0;
+    uint32_t layersBuilt = 0;
+    uint32_t layersReused = 0;
+    uint64_t vertexBytes = 0;
+    uint64_t pageBytes = 0;
+    uint32_t lastDrawMicroseconds = 0;
+    uint32_t drawMicroseconds = 0;
 };
 Stats GetStats ();
 

@@ -66,6 +66,16 @@ struct Stats {
     uint32_t glyphVertices = 0;
     uint32_t pages = 0;
     const char* failure = ""; // a static string: what failed, when something did
+    // What the content costs: preparing it on the main thread (layers built and reused,
+    // OverlayScene.hpp), the bytes it holds on the GPU, and drawing it at Present on the
+    // render thread -- the last draw, and a running mean over about the last sixteen.
+    uint32_t prepareMicroseconds = 0;
+    uint32_t layersBuilt = 0;
+    uint32_t layersReused = 0;
+    uint64_t vertexBytes = 0;
+    uint64_t pageBytes = 0;
+    uint32_t lastDrawMicroseconds = 0;
+    uint32_t drawMicroseconds = 0;
 };
 Stats GetStats ();
 

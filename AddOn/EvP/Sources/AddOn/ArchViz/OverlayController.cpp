@@ -552,6 +552,13 @@ GuestReport Guest ()
     out.plan.lines = plan.lines;
     out.plan.glyphVertices = plan.glyphVertices;
     out.plan.pages = plan.pages;
+    out.plan.prepareMicroseconds = plan.prepareMicroseconds;
+    out.plan.layersBuilt = plan.layersBuilt;
+    out.plan.layersReused = plan.layersReused;
+    out.plan.vertexBytes = plan.vertexBytes;
+    out.plan.pageBytes = plan.pageBytes;
+    out.plan.lastDrawMicroseconds = plan.lastDrawMicroseconds;
+    out.plan.drawMicroseconds = plan.drawMicroseconds;
     out.plan.failure = plan.lastError;
     const dxgi::sceneguest::Stats scene = dxgi::sceneguest::GetStats ();
     out.scene.attached = scene.attached;
@@ -567,6 +574,13 @@ GuestReport Guest ()
     out.scene.lines = scene.lines;
     out.scene.glyphVertices = scene.glyphVertices;
     out.scene.pages = scene.pages;
+    out.scene.prepareMicroseconds = scene.prepareMicroseconds;
+    out.scene.layersBuilt = scene.layersBuilt;
+    out.scene.layersReused = scene.layersReused;
+    out.scene.vertexBytes = scene.vertexBytes;
+    out.scene.pageBytes = scene.pageBytes;
+    out.scene.lastDrawMicroseconds = scene.lastDrawMicroseconds;
+    out.scene.drawMicroseconds = scene.drawMicroseconds;
     out.scene.failure = scene.failure != nullptr ? scene.failure : "";
     return out;
 }
