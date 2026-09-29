@@ -1,12 +1,19 @@
 #ifndef EVP_ARCHVIZ_OVERLAYGUESTTEXT_HPP
 #define EVP_ARCHVIZ_OVERLAYGUESTTEXT_HPP
 
-// ArchViz/OverlayGuestText -- the overlays' one text engine (OverlayText.hpp) and one
-// HUD engine (OverlayHud.hpp), each made with the bundled font on first use: both
-// overlays lay out with them, so a glyph rasterised for the plan is not rasterised
-// again for 3D.
+// ArchViz/OverlayGuestText -- the overlays' one text engine (OverlayText.hpp), made with
+// the bundled font on first use: both overlays lay out with it, so a glyph rasterised
+// for the plan is not rasterised again for 3D -- and a HUD engine (OverlayHud.hpp) per
+// view.
+//
+// ⚠️ ONE HUD ENGINE PER VIEW, NOT ONE FOR BOTH. An ImGui context holds what the pointer
+// hovers and presses. The 3D HUD is laid out on every layer change even while the plan
+// is in front; in one context that layout would take the plan's hover and a press in
+// progress away from it.
 //
 // MAIN THREAD ONLY -- the engine is.
+
+#include "ArchViz/OverlayHitMap.hpp" // overlayinput::View
 
 #include <cstddef>
 #include <string>
@@ -33,8 +40,8 @@ overlaytext::Engine* Engine ();
 constexpr size_t kMaxFonts = 8;
 overlaytext::Engine* EngineFor (const std::string& path);
 
-// The HUD panels' ImGui engine, or null when it could not start -- said once.
-overlayhud::Engine* Hud ();
+// The view's HUD engine, or null when it could not start -- said once.
+overlayhud::Engine* Hud (overlayinput::View view);
 
 } // namespace guesttext
 } // namespace archviz

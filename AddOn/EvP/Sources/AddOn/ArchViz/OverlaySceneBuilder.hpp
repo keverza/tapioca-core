@@ -8,6 +8,7 @@
 // view: legends, HUD panels) and OverlaySceneMath.cpp (the pure geometry) -- and by
 // nothing else: OverlayScene.hpp is the interface.
 
+#include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayScene.hpp"
 
 #include <array>
@@ -170,7 +171,14 @@ class Builder {
     void AddLayer (const layers::Layer& layer);
     // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
     // after everything else, over it.
-    void AddPanels (const std::vector<PanelRef>& panels);
+    // `input` is the view and the pointer (OverlayHud.hpp); `legends` the legends' bars
+    // there, hovered for their values.
+    void AddPanels (const std::vector<PanelRef>& panels, const overlayhud::Input& input,
+                    const std::vector<overlayhud::LegendBar>& legends);
+    // The HUD stream of the layers drawn in this view: their panels, and the scene's
+    // legends' bars (`legends`, Scene.regions) where they are on `input`'s view.
+    void AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, const overlayhud::Input& input,
+                 const std::vector<overlayinput::Region>* legends);
 
   private:
     bool Plan () const;

@@ -40,6 +40,8 @@ gpu::Content g_content;
 // content it uploads samples, so one cache would drop the other's).
 std::vector<gpu::Page> g_hudPages;
 gpu::Content g_hudContent;
+// What the HUD last put on screen: a layout that puts the same is not uploaded again.
+uint64_t g_hudPrint = 0;
 double g_originX = 0.0;
 double g_originY = 0.0;
 float g_dpiScale = 1.0f;
@@ -63,6 +65,7 @@ void ReleaseDeviceObjects ()
     g_pages.clear ();
     g_hudContent = gpu::Content {};
     g_hudPages.clear ();
+    g_hudPrint = 0;
     g_pipelines = gpu::Pipelines {};
     g_buildFailed = false;
 }
@@ -79,7 +82,8 @@ bool NeedsText (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& 
 bool NeedsHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
 {
     for (const auto& layer : layers)
-        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD) && !layer->panels.empty ())
+        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::TwoD) &&
+            (!layer->panels.empty () || !layer->legends.empty ()))
             return true;
     return false;
 }
@@ -89,12 +93,17 @@ overlayscene::Problems g_hudProblems;
 // Where the scene's legends and the panels are: the HUD's input.
 std::vector<overlayinput::Region> g_sceneRegions;
 std::vector<overlayinput::Region> g_hudRegions;
-bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, std::string& error)
+bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const overlayhud::Input& input,
+                 bool& changed, std::string& error)
 {
-    overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud () : nullptr;
-    const overlayscene::Plan panels = overlayscene::PreparePlanHud (layers, hud, g_dpiScale);
+    changed = false;
+    overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud (overlayinput::View::Plan) : nullptr;
+    const overlayscene::Plan panels = overlayscene::PreparePlanHud (layers, hud, g_dpiScale, input, &g_sceneRegions);
     g_hudProblems = panels.problems;
     g_hudRegions = panels.regions;
+    const uint64_t print = overlayscene::Fingerprint (panels);
+    if (print == g_hudPrint && g_hudPrint != 0)
+        return true;
     gpu::Arrays arrays;
     arrays.glyphs = panels.glyphs.data ();
     arrays.glyphCount = panels.glyphs.size ();
@@ -106,6 +115,8 @@ bool PrepareHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>&
         return false;
     }
     g_hudContent = std::move (content);
+    g_hudPrint = print;
+    changed = true;
     ++g_stats.hudUploads;
     g_stats.hudGlyphVertices = uint32_t (panels.glyphs.size ());
     g_stats.hudPrepareMicroseconds = panels.cost.microseconds;
@@ -123,7 +134,7 @@ bool NeedsGuest2D (const std::vector<std::shared_ptr<const overlaylayers::Layer>
 } // namespace
 
 bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers,
-              uint64_t generation, float dpiScale, bool& changed, std::string& error)
+              uint64_t generation, float dpiScale, const overlayhud::Input& input, bool& changed, std::string& error)
 {
     changed = false;
     g_dpiScale = dpiScale > 0.0f ? dpiScale : 1.0f;
@@ -137,6 +148,7 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
         g_hudContent = gpu::Content {};
         g_sceneRegions.clear ();
         g_hudRegions.clear ();
+        g_hudPrint = 0;
         overlayscene::ForgetDrafts ();
         g_generation = generation;
         g_haveGeneration = true;
@@ -207,7 +219,8 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     content.generation = generation;
     g_content = std::move (content);
     g_sceneRegions = plan.regions;
-    if (!PrepareHud (layers, error))
+    bool hudChanged = false;
+    if (!PrepareHud (layers, input, hudChanged, error))
         return false;
     g_originX = plan.originX;
     g_originY = plan.originY;
@@ -236,6 +249,15 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
     if (!g_hudProblems.lastError.empty ())
         g_stats.lastError = g_hudProblems.lastError;
     return true;
+}
+
+bool RefreshHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const overlayhud::Input& input,
+                 bool& changed, std::string& error)
+{
+    changed = false;
+    if (!g_guest.Attached () || !g_pipelines.ready)
+        return true;
+    return PrepareHud (layers, input, changed, error);
 }
 
 overlayinput::HitMap HitMap ()

@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <fstream>
 #include <iterator>
 #include <set>
@@ -223,4 +224,211 @@ TEST (OverlayHud, ValidationNamesWhatAPanelGotWrong)
     EXPECT_NE (layers::Validate (layer).find ("needs its min and max"), std::string::npos);
     layer.panels[0].items.assign (201, Item (layers::ItemKind::Separator));
     EXPECT_NE (layers::Validate (layer).find ("at most 200 items"), std::string::npos);
+}
+
+// ---- the pointer over the HUD (OverlayInput.hpp feeds it) ---------------------------------
+
+namespace {
+
+// A fresh engine per test: what one test folded must not fold the next one's panel.
+struct Fresh {
+    hud::Engine engine;
+    Fresh ()
+    {
+        std::string error;
+        EXPECT_TRUE (engine.Init (Font (), error)) << error;
+    }
+    hud::Layout Lay (const std::vector<const layers::Panel*>& panels, const hud::Input& input,
+                     const std::vector<hud::LegendBar>& legends = {})
+    {
+        std::vector<std::string> keys;
+        for (size_t i = 0; i < panels.size (); ++i)
+            keys.push_back ("hud#" + std::to_string (i));
+        hud::Layout out;
+        std::string error;
+        EXPECT_TRUE (engine.Build (panels, keys, 1.0f, input, legends, out, error)) << error;
+        return out;
+    }
+};
+
+hud::Input At (float x, float y, std::vector<hud::Input::Button> buttons = {})
+{
+    hud::Input input;
+    input.width = 1200.0f;
+    input.height = 800.0f;
+    input.pointer = true;
+    input.x = x;
+    input.y = y;
+    input.buttons = std::move (buttons);
+    return input;
+}
+
+// A click where the pointer is, as the input layer hands it over: a press, then a release.
+void Click (Fresh& hud, const std::vector<const layers::Panel*>& panels, float x, float y)
+{
+    hud.Lay (panels, At (x, y));
+    hud.Lay (panels, At (x, y, { { 0, true } }));
+    hud.Lay (panels, At (x, y, { { 0, false } }));
+}
+
+layers::Panel Titled ()
+{
+    layers::Panel panel;
+    panel.title = "Area metrics";
+    panel.items.push_back (Item (layers::ItemKind::Row, "Site area", "11 214 m\xC2\xB2"));
+    panel.items.push_back (Item (layers::ItemKind::Row, "BCR", "20.0 %"));
+    return panel;
+}
+
+} // namespace
+
+// The pointer on a ramp shows its value there; off it, nothing floats over the panel.
+TEST (OverlayHud, APointedRampSaysItsValue)
+{
+    Fresh hud;
+    layers::Panel panel;
+    layers::PanelItem ramp = Item (layers::ItemKind::Ramp);
+    ASSERT_TRUE (layers::PresetStops ("sunhours", ramp.colormap.stops));
+    ramp.colormap.autoRange = false;
+    ramp.colormap.min = 0.0;
+    ramp.colormap.max = 12.0;
+    ramp.widthPixels = 200.0f;
+    ramp.unit = "h";
+    panel.items = { ramp };
+    const hud::Layout away = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_TRUE (away.overlay.vertices.empty ());
+    // The bar starts at the window's padding inside the panel at (16, 16).
+    const float left = 16.0f + panel.paddingPixels, top = 16.0f + panel.paddingPixels;
+    const hud::Layout over = hud.Lay ({ &panel }, At (left + 150.0f, top + 5.0f));
+    EXPECT_FALSE (over.overlay.vertices.empty ()) << "a tooltip over the pointed bar";
+    // Laid out again with the pointer where it was, the same pixels.
+    const hud::Layout again = hud.Lay ({ &panel }, At (left + 150.0f, top + 5.0f));
+    EXPECT_EQ (again.overlay.vertices.size (), over.overlay.vertices.size ());
+}
+
+// ⚠️ THE HUD IS COLLAPSIBLE (the user, 2026-09-29): the arrow on a titled panel's title
+// bar folds it to that bar, and it stays folded when the layer is set again.
+TEST (OverlayHud, TheTitleBarsArrowFoldsThePanelAndItStaysFolded)
+{
+    Fresh hud;
+    const layers::Panel panel = Titled ();
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    ASSERT_EQ (open.panels.size (), 1u);
+    EXPECT_FALSE (hud.engine.Collapsed ("hud#0"));
+    // The arrow sits at the title bar's start, a frame's padding in: at (16, 16) the
+    // panel, 4 and 3 pixels the padding, the title's font 14 x 1.2.
+    const float arrowX = 16.0f + 4.0f + 8.0f, arrowY = 16.0f + 3.0f + 8.0f;
+    Click (hud, { &panel }, arrowX, arrowY);
+    const hud::Layout folded = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_TRUE (hud.engine.Collapsed ("hud#0"));
+    EXPECT_LT (folded.panels[0].height, open.panels[0].height * 0.7f);
+    // Set again -- a new panel object under the same key -- it is still folded.
+    const layers::Panel republished = Titled ();
+    const hud::Layout still = hud.Lay ({ &republished }, At (600.0f, 600.0f));
+    EXPECT_NEAR (still.panels[0].height, folded.panels[0].height, 0.5f);
+    // And the arrow opens it again.
+    Click (hud, { &republished }, arrowX, arrowY);
+    const hud::Layout reopened = hud.Lay ({ &republished }, At (600.0f, 600.0f));
+    EXPECT_FALSE (hud.engine.Collapsed ("hud#0"));
+    EXPECT_NEAR (reopened.panels[0].height, open.panels[0].height, 0.5f);
+}
+
+// A panel that starts folded, as its caller asked.
+TEST (OverlayHud, APanelStartsFoldedWhenAskedTo)
+{
+    Fresh hud;
+    layers::Panel panel = Titled ();
+    const hud::Layout open = hud.Lay ({ &panel }, At (600.0f, 600.0f));
+    Fresh other;
+    panel.collapsed = true;
+    const hud::Layout folded = other.Lay ({ &panel }, At (600.0f, 600.0f));
+    EXPECT_TRUE (other.engine.Collapsed ("hud#0"));
+    EXPECT_LT (folded.panels[0].height, open.panels[0].height * 0.7f);
+}
+
+// A section's chevron folds the items after it, up to the next section.
+TEST (OverlayHud, ASectionFoldsItsItems)
+{
+    Fresh hud;
+    layers::Panel panel;
+    panel.items.push_back (Item (layers::ItemKind::Section, "GFA", "19 821 m\xC2\xB2"));
+    for (const char* use : { "Healthcare", "Hospitality", "Mixeduse", "Residential" })
+        panel.items.push_back (Item (layers::ItemKind::Row, use, "3 630 m\xC2\xB2"));
+    layers::PanelItem gia = Item (layers::ItemKind::Section, "GIA", "17 839 m\xC2\xB2");
+    gia.open = false;
+    panel.items.push_back (gia);
+    panel.items.push_back (Item (layers::ItemKind::Row, "Healthcare", "3 267 m\xC2\xB2"));
+    layers::Layer layer;
+    layer.name = "metrics";
+    layer.panels = { panel };
+    EXPECT_EQ (layers::Validate (layer), "");
+
+    const hud::Layout open = hud.Lay ({ &panel }, At (900.0f, 600.0f));
+    bool state = true;
+    ASSERT_TRUE (hud.engine.SectionOpen ("hud#0", 0, state));
+    EXPECT_TRUE (state);
+    ASSERT_TRUE (hud.engine.SectionOpen ("hud#0", 5, state));
+    EXPECT_FALSE (state) << "the second section starts folded, as asked";
+    // Its header is the first row, a padding inside the panel at (16, 16).
+    Click (hud, { &panel }, 16.0f + panel.paddingPixels + 30.0f, 16.0f + panel.paddingPixels + 6.0f);
+    const hud::Layout folded = hud.Lay ({ &panel }, At (900.0f, 600.0f));
+    ASSERT_TRUE (hud.engine.SectionOpen ("hud#0", 0, state));
+    EXPECT_FALSE (state);
+    EXPECT_LT (folded.panels[0].height, open.panels[0].height * 0.7f);
+
+    // A section needs its title: it is what the user clicks.
+    layer.panels[0].items[0].text.clear ();
+    EXPECT_NE (layers::Validate (layer).find ("a section needs its title"), std::string::npos);
+}
+
+// A legend's bar -- drawn by the scene, hovered here -- says its value at the pointer.
+TEST (OverlayHud, APointedLegendSaysItsValue)
+{
+    Fresh hud;
+    layers::Legend legend;
+    ASSERT_TRUE (layers::PresetStops ("viridis", legend.colormap.stops));
+    legend.colormap.min = 0.0;
+    legend.colormap.max = 100.0;
+    legend.unit = "%";
+    hud::LegendBar bar;
+    bar.legend = &legend;
+    bar.rect[0] = 1100.0f;
+    bar.rect[1] = 500.0f;
+    bar.rect[2] = 1112.0f;
+    bar.rect[3] = 660.0f;
+    EXPECT_TRUE (hud.Lay ({}, At (600.0f, 600.0f), { bar }).overlay.vertices.empty ());
+    const hud::Layout over = hud.Lay ({}, At (1106.0f, 580.0f), { bar });
+    ASSERT_FALSE (over.overlay.vertices.empty ());
+    // The bar is at the view's right: the tooltip opens towards the middle.
+    float right = -FLT_MAX;
+    for (const hud::Vertex& v : over.overlay.vertices)
+        right = (std::max) (right, v.x);
+    EXPECT_LE (right, 1100.0f);
+}
+
+// Two layouts that draw the same pixels have the same fingerprint, so the second is not
+// uploaded or redrawn; a hover that changes the pixels changes it.
+TEST (OverlayHud, TheFingerprintMovesOnlyWithThePixels)
+{
+    layers::Layer layer;
+    layer.name = "hud";
+    layers::Panel panel;
+    layers::PanelItem ramp = Item (layers::ItemKind::Ramp);
+    ASSERT_TRUE (layers::PresetStops ("sunhours", ramp.colormap.stops));
+    ramp.colormap.autoRange = false;
+    ramp.colormap.min = 0.0;
+    ramp.colormap.max = 12.0;
+    ramp.widthPixels = 200.0f;
+    panel.items = { ramp };
+    layer.panels = { panel };
+    const std::vector<std::shared_ptr<const layers::Layer>> all = { std::make_shared<const layers::Layer> (layer) };
+    Fresh hud;
+    hud::Input input = At (600.0f, 600.0f);
+    const uint64_t first = scene::Fingerprint (scene::PrepareSceneHud (all, &hud.engine, 1.0f, input));
+    const uint64_t second = scene::Fingerprint (scene::PrepareSceneHud (all, &hud.engine, 1.0f, input));
+    EXPECT_EQ (first, second);
+    input.x = 16.0f + panel.paddingPixels + 100.0f;
+    input.y = 16.0f + panel.paddingPixels + 5.0f;
+    const uint64_t hovered = scene::Fingerprint (scene::PrepareSceneHud (all, &hud.engine, 1.0f, input));
+    EXPECT_NE (hovered, first);
 }

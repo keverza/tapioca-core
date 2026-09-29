@@ -297,12 +297,44 @@ bool HudShown ()
     return g_running;
 }
 
+// The input layer's refresh: the HUD laid out again for the pointer, uploaded when what
+// it draws changed.
+std::string g_lastHudError;
+bool RefreshHud ()
+{
+    if (!g_running)
+        return false;
+    bool changed = false;
+    std::string error;
+    if (!dxgi::planguest::RefreshHud (overlaylayers::Layers (), overlayinput::TakeInput (overlayinput::View::Plan),
+                                      changed, error)) {
+        if (error != g_lastHudError)
+            ArchVizLog ("PLAN OVERLAY  the HUD NOT LAID OUT for the pointer: " + error);
+        g_lastHudError = error;
+        return false;
+    }
+    if (changed)
+        overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
+    return changed;
+}
+
+// The input layer's paced redraw: a plan the HUD's moves are taken from presents nothing.
+void RedrawHud ()
+{
+    if (g_running && PlanInFront ())
+        Redraw ();
+}
+
 // The HUD takes its input from the canvas the session composes into; a failure is said
 // once and costs the overlay nothing else.
 void AttachHudInput ()
 {
     std::string error;
-    if (!overlayinput::Attach (overlayinput::View::Plan, g_canvas, &HudShown, error))
+    overlayinput::HudOwner owner;
+    owner.shown = &HudShown;
+    owner.refresh = &RefreshHud;
+    owner.redraw = &RedrawHud;
+    if (!overlayinput::Attach (overlayinput::View::Plan, g_canvas, owner, error))
         ArchVizLog ("PLAN OVERLAY  the HUD takes no input: " + error);
 }
 
@@ -410,7 +442,7 @@ void CALLBACK TickProc (HWND, UINT, UINT_PTR, DWORD)
         bool guestChanged = false;
         error.clear ();
         if (dxgi::planguest::Prepare (layer::Device (), overlaylayers::Layers (), layersGeneration, float (g_dpi),
-                                      guestChanged, error)) {
+                                      overlayinput::CurrentInput (overlayinput::View::Plan), guestChanged, error)) {
             if (guestChanged) {
                 overlayinput::SetHitMap (overlayinput::View::Plan, dxgi::planguest::HitMap ());
                 const dxgi::planguest::Stats guest = dxgi::planguest::GetStats ();

@@ -388,6 +388,7 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
                : kind == "ramp"      ? layers::ItemKind::Ramp
                : kind == "plot"      ? layers::ItemKind::Plot
                : kind == "table"     ? layers::ItemKind::Table
+               : kind == "section"   ? layers::ItemKind::Section
                                      : layers::ItemKind::Text;
     if (item.Contains ("text"))
         out.text = StringValue (item, "text");
@@ -400,6 +401,8 @@ bool ReadPanelItem (const GS::ObjectState& item, layers::PanelItem& out, std::st
     ReadFloat (item, "sizePixels", out.sizePixels);
     if (item.Contains ("wrap"))
         item.Get ("wrap", out.wrap);
+    if (item.Contains ("open"))
+        item.Get ("open", out.open);
     ReadDouble (item, "fraction", out.fraction);
     GS::ObjectState colormap;
     if (item.Get ("colormap", colormap) && !ReadColormap (colormap, out.colormap, error))
@@ -457,6 +460,8 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
     ReadFloat (item, "sizePixels", panel.sizePixels);
     ReadFloat (item, "roundingPixels", panel.roundingPixels);
     ReadFloat (item, "paddingPixels", panel.paddingPixels);
+    if (item.Contains ("collapsed"))
+        item.Get ("collapsed", panel.collapsed);
     if (!ReadFont (item, "font", panel.font, error))
         return false;
     if (!ReadColour (item, "color", panel.textRgba, error) ||

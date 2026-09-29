@@ -15,32 +15,69 @@ namespace archviz {
 namespace overlayscene {
 namespace build {
 
+void Builder::AddHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, const overlayhud::Input& input,
+                      const std::vector<overlayinput::Region>* legends)
+{
+    // The scene's legends' bars where they are on the view: their regions, anchored.
+    std::vector<overlayhud::LegendBar> bars;
+    if (legends != nullptr && input.width >= 1.0f && input.height >= 1.0f) {
+        for (const overlayinput::Region& region : *legends) {
+            if (region.kind != overlayinput::RegionKind::Legend)
+                continue;
+            for (const std::shared_ptr<const layers::Layer>& layer : all) {
+                if (layer->name != region.layer || !layers::DrawnIn (layer->views, view_) ||
+                    region.item >= layer->legends.size ())
+                    continue;
+                overlayhud::LegendBar bar;
+                bar.legend = &layer->legends[region.item];
+                const float s = region.logical ? scale_ : 1.0f;
+                const float ax = region.fraction[0] * input.width, ay = region.fraction[1] * input.height;
+                for (int k = 0; k < 4; ++k)
+                    bar.rect[k] = (k % 2 == 0 ? ax : ay) + region.bar[k] * s;
+                bars.push_back (bar);
+                break;
+            }
+        }
+    }
+    std::vector<PanelRef> panels;
+    for (const std::shared_ptr<const layers::Layer>& layer : all)
+        if (layers::DrawnIn (layer->views, view_))
+            for (size_t i = 0; i < layer->panels.size (); ++i)
+                panels.push_back ({ &layer->panels[i], layer->name, uint32_t (i) });
+    AddPanels (panels, input, bars);
+}
+
 // Every layer's panels, laid out as one set (OverlayHud.hpp says why) and drawn
 // after everything else, over it.
-void Builder::AddPanels (const std::vector<PanelRef>& refs)
+void Builder::AddPanels (const std::vector<PanelRef>& refs, const overlayhud::Input& input,
+                         const std::vector<overlayhud::LegendBar>& legends)
 {
-    if (refs.empty ())
+    if (refs.empty () && legends.empty ())
         return;
     std::vector<const layers::Panel*> panels;
+    std::vector<std::string> keys;
     panels.reserve (refs.size ());
-    for (const PanelRef& ref : refs)
+    for (const PanelRef& ref : refs) {
         panels.push_back (ref.panel);
+        keys.push_back (ref.layer + "#" + std::to_string (ref.index));
+    }
     if (hud_ == nullptr || !hud_->Ready ()) {
         draft_.problems.textsNotLaidOut += uint32_t (panels.size ());
         draft_.problems.lastError = "the overlay HUD is not ready: its panels are not drawn";
         return;
     }
-    std::vector<overlayhud::Built> built;
+    overlayhud::Layout layout;
     std::string error;
-    if (!hud_->Build (panels, scale_, built, error)) {
+    if (!hud_->Build (panels, keys, scale_, input, legends, layout, error)) {
         draft_.problems.textsNotLaidOut += uint32_t (panels.size ());
         draft_.problems.lastError = "a HUD panel: " + error;
-        if (built.size () != panels.size ())
+        if (layout.panels.size () != panels.size ())
             return;
     }
+    const std::vector<overlayhud::Built>& built = layout.panels;
     for (size_t i = 0; i < panels.size (); ++i) {
-        float fraction[2] = {}, offset[2] = {};
-        overlayhud::Place (*panels[i], built[i].width, built[i].height, scale_, fraction, offset);
+        const float* const fraction = built[i].fraction;
+        const float* const offset = built[i].offset;
         // Its rectangle is the HUD's: a click there is never Archicad's (OverlayHitMap.hpp).
         overlayinput::Region region;
         region.kind = overlayinput::RegionKind::Panel;
@@ -64,6 +101,17 @@ void Builder::AddPanels (const std::vector<PanelRef>& refs)
             if (!PushGlyphVertex (glyph, offset[0] + v.x, offset[1] + v.y, v.u, v.v))
                 return;
         }
+    }
+    // The tooltips, over the panels, in view pixels from its top-left. No region: they
+    // take nothing, and a pointer over one is over what it describes.
+    DraftGlyph tip;
+    tip.flags = kScreenAnchored | kPlainTexture | kPhysicalPixels;
+    tip.behind = kBehindShow;
+    for (const overlayhud::Vertex& v : layout.overlay.vertices) {
+        tip.rgba = v.rgba;
+        tip.page = kHudPageBase + v.page;
+        if (!PushGlyphVertex (tip, v.x, v.y, v.u, v.v))
+            return;
     }
 }
 
@@ -154,6 +202,10 @@ void Builder::AddLegend (const layers::Layer& layer, const layers::Legend& legen
     region.rect[2] = ox + boxWidth;
     region.rect[3] = oy + boxHeight;
     region.logical = true;
+    region.bar[0] = ox + barLeft;
+    region.bar[1] = oy + barTop;
+    region.bar[2] = ox + barRight;
+    region.bar[3] = oy + barBottom;
     draft_.regions.push_back (std::move (region));
 
     auto screenFill = [&] (DraftFill& fill, float x0, float y0, float x1, float y1, uint32_t rgba, double v0,
@@ -255,6 +307,44 @@ void Builder::ScreenText (const std::string& text, double fx, double fy, float x
 }
 
 } // namespace build
+
+namespace {
+
+// FNV-1a over bytes.
+void Mix (uint64_t& hash, const void* data, size_t bytes)
+{
+    const unsigned char* p = static_cast<const unsigned char*> (data);
+    for (size_t i = 0; i < bytes; ++i) {
+        hash ^= p[i];
+        hash *= 1099511628211ull;
+    }
+}
+
+template <typename Stream> uint64_t FingerprintOf (const Stream& hud)
+{
+    uint64_t hash = 14695981039346656037ull;
+    Mix (hash, hud.glyphs.data (), hud.glyphs.size () * sizeof (hud.glyphs[0]));
+    for (const GlyphDraw& draw : hud.glyphDraws)
+        Mix (hash, &draw, sizeof (draw));
+    for (const auto& page : hud.pages) {
+        const uint64_t id = page != nullptr ? page->id : 0;
+        Mix (hash, &id, sizeof (id));
+    }
+    return hash;
+}
+
+} // namespace
+
+uint64_t Fingerprint (const Plan& hud)
+{
+    return FingerprintOf (hud);
+}
+
+uint64_t Fingerprint (const Scene& hud)
+{
+    return FingerprintOf (hud);
+}
+
 } // namespace overlayscene
 } // namespace archviz
 } // namespace geomsrv

@@ -26,6 +26,7 @@
 // MAIN THREAD ONLY.
 
 #include "ArchViz/OverlayHitMap.hpp"
+#include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/PlanOverlayContent.hpp"
 
@@ -47,8 +48,15 @@ namespace planguest {
 // and the HUD panels as a stream of their own with their own page cache, drawn after
 // it. `changed` says the picture changed and the plan wants a redraw. False with `error` when
 // something could not be made; the next call tries again.
+// `input` is the plan canvas and the pointer over it, for the HUD (OverlayInput.hpp).
 bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers,
-              uint64_t generation, float dpiScale, bool& changed, std::string& error);
+              uint64_t generation, float dpiScale, const overlayhud::Input& input, bool& changed, std::string& error);
+
+// The HUD alone, laid out again for `input` -- the pointer did something to it. Outside
+// any Present, like `Prepare`; `changed` when what it draws changed and the plan wants a
+// redraw. Nothing before `Prepare` has attached.
+bool RefreshHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, const overlayhud::Input& input,
+                 bool& changed, std::string& error);
 
 // Whether there is anything to draw -- the plan layer's `NoContent` test.
 bool HasContent ();

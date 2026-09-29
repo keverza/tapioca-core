@@ -264,7 +264,9 @@ struct Legend {
     std::string font;           // as a text's
 };
 
-// ---- HUD panels: Dear ImGui over the view, never clickable (OverlayHud.hpp) ----------
+// ---- HUD panels: Dear ImGui over the view (OverlayHud.hpp) ------------------------------
+// ⚠️ THE AREA UNDER A PANEL IS THE HUD'S: a click there never reaches Archicad, and the
+// pointer over it is ImGui's (OverlayInput.hpp).
 
 enum class PanelAnchor : uint8_t {
     TopLeft = 0,
@@ -288,6 +290,8 @@ enum class ItemKind : uint8_t {
     Ramp = 6,      // a colour bar over `colormap`'s range with its ticks: a legend
     Plot = 7,      // `values` as a line
     Table = 8,     // `columns` over `rows`
+    Section = 9,   // a heading with a chevron, `value` at its right: the items after it, up to
+                   // the next section, fold under it; `open` is how it starts
 };
 
 struct PanelItem {
@@ -312,12 +316,14 @@ struct PanelItem {
     bool autoRange = true;                      // ...or its values' own
     std::vector<std::string> columns;           // a table's header; empty: none
     std::vector<std::vector<std::string>> rows; // a table's cells
+    bool open = true;                           // a section, until the user folds it
 };
 
 // A panel, anchored to the view: its own `anchor` point put at the same point of the
 // view, `offsetPixels` inwards. Laid out by Dear ImGui (auto-sized unless
-// `widthPixels`), drawn by the guest, and never takes a click (§12b: ImGui through
-// Diligent).
+// `widthPixels`), drawn by the guest (§12b: ImGui through Diligent). A panel with a
+// title has a title bar whose arrow folds it to that bar; `collapsed` is how it starts,
+// and what the user does to it outlives the layer being set again.
 struct Panel {
     std::string title;
     PanelAnchor anchor = PanelAnchor::TopLeft;
@@ -330,6 +336,7 @@ struct Panel {
     float roundingPixels = 6.0f;
     float paddingPixels = 10.0f;
     std::string font; // as a text's; ImGui rasterises it (OverlayHud.hpp)
+    bool collapsed = false;
     std::vector<PanelItem> items;
 };
 

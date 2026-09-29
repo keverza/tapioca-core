@@ -6,6 +6,7 @@
 #include "ArchViz/OverlayScene.hpp" // RampAt: the ramp the guest's pixel shader draws
 
 #include <imgui.h>
+#include <imgui_internal.h> // ImGuiWindow: which draw list is whose
 
 #include <algorithm>
 #include <cfloat>
@@ -22,11 +23,17 @@ namespace layers = overlaylayers;
 
 namespace {
 
-// A panel is laid out in this many frames: an auto-sized window measures itself in
-// its first and settles in its second; the third is the one drawn.
+// A set is laid out in this many frames: an auto-sized window measures itself in its
+// first and settles in its second; the third is the one drawn. A press and a release
+// take a frame each on top (ImGui spreads input events over frames).
 constexpr int kFrames = 3;
 // And the whole set again at most this often, while the atlas keeps growing.
 constexpr int kAttempts = 3;
+// A panel's title, a little larger than its items.
+constexpr float kTitleScale = 1.2f;
+// The frames after the first advance ImGui's clock by almost nothing: the first carries
+// the time since the last layout, so a double click is timed as the user made it.
+constexpr float kSettleSeconds = 1.0e-4f;
 
 ImVec4 Colour (uint32_t rgba)
 {
@@ -59,6 +66,90 @@ std::string Number (double value, uint32_t decimals)
     return buffer;
 }
 
+// The style every panel starts from; each pushes its own colours and spacing over it.
+void BaseStyle (float scale)
+{
+    ImGuiStyle& style = ImGui::GetStyle ();
+    style = ImGuiStyle ();
+    ImGui::StyleColorsDark (&style);
+    style.ScaleAllSizes (scale);
+    style.WindowMinSize = ImVec2 (1.0f, 1.0f);
+    style.FrameRounding = 2.0f * scale;
+    // The title centred, the collapse arrow before it.
+    style.WindowTitleAlign = ImVec2 (0.5f, 0.5f);
+    style.WindowMenuButtonPosition = ImGuiDir_Left;
+}
+
+constexpr int kStyleVars = 3;
+
+// A panel's own look over the base; the number of colours pushed.
+int PushPanelStyle (const layers::Panel& panel, float scale)
+{
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowPadding,
+                         ImVec2 (panel.paddingPixels * scale, panel.paddingPixels * scale));
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowRounding, panel.roundingPixels * scale);
+    ImGui::PushStyleVar (ImGuiStyleVar_WindowBorderSize,
+                         (panel.borderRgba & 0xFFu) != 0 ? (std::max) (1.0f, scale) : 0.0f);
+    const uint32_t text = panel.textRgba;
+    const std::pair<ImGuiCol, uint32_t> colours[] = {
+        { ImGuiCol_WindowBg, panel.backgroundRgba },
+        { ImGuiCol_Border, panel.borderRgba },
+        { ImGuiCol_Text, text },
+        { ImGuiCol_Separator, WithAlpha (text, 0.3f) },
+        { ImGuiCol_FrameBg, WithAlpha (text, 0.12f) },
+        { ImGuiCol_TableHeaderBg, WithAlpha (text, 0.12f) },
+        { ImGuiCol_TableBorderLight, WithAlpha (text, 0.2f) },
+        { ImGuiCol_TableBorderStrong, WithAlpha (text, 0.3f) },
+        { ImGuiCol_TableRowBgAlt, WithAlpha (text, 0.05f) },
+        // The title bar is the panel: a header, not a coloured strip.
+        { ImGuiCol_TitleBg, panel.backgroundRgba },
+        { ImGuiCol_TitleBgActive, panel.backgroundRgba },
+        { ImGuiCol_TitleBgCollapsed, panel.backgroundRgba },
+        // What the pointer is over: a section's row, the collapse arrow.
+        { ImGuiCol_Header, 0x00000000u },
+        { ImGuiCol_HeaderHovered, WithAlpha (text, 0.10f) },
+        { ImGuiCol_HeaderActive, WithAlpha (text, 0.16f) },
+        { ImGuiCol_Button, 0x00000000u },
+        { ImGuiCol_ButtonHovered, WithAlpha (text, 0.14f) },
+        { ImGuiCol_ButtonActive, WithAlpha (text, 0.22f) },
+    };
+    for (const auto& colour : colours)
+        ImGui::PushStyleColor (colour.first, Colour (colour.second));
+    return int (sizeof (colours) / sizeof (colours[0]));
+}
+
+// What a ramp says at `t` along it: the value, or the band it falls in, and its colour.
+void ValueTip (const layers::Colormap& colormap, float t, double low, double high, uint32_t decimals,
+               const std::string& unit, ImVec2 at, ImVec2 pivot, float scale)
+{
+    t = (std::min) ((std::max) (t, 0.0f), 1.0f);
+    std::string text;
+    float colourAt = t;
+    if (colormap.bands > 0) {
+        const uint32_t bands = colormap.bands;
+        const uint32_t k = (std::min) (uint32_t (t * float (bands)), bands - 1);
+        text = Number (low + (high - low) * double (k) / double (bands), decimals) + " \xE2\x80\x93 " +
+               Number (low + (high - low) * double (k + 1) / double (bands), decimals);
+        colourAt = bands > 1 ? float (k) / float (bands - 1) : 0.5f;
+    }
+    else {
+        text = Number (low + (high - low) * double (t), decimals);
+    }
+    if (!unit.empty ())
+        text += " " + unit;
+    ImGui::SetNextWindowPos (at, ImGuiCond_Always, pivot);
+    if (!ImGui::BeginTooltip ())
+        return;
+    const float s = ImGui::GetFontSize ();
+    const ImVec2 p = ImGui::GetCursorScreenPos ();
+    ImGui::GetWindowDrawList ()->AddRectFilled (p, ImVec2 (p.x + s, p.y + s),
+                                                Packed (overlayscene::RampAt (colormap.stops, colourAt)), 2.0f * scale);
+    ImGui::Dummy (ImVec2 (s, s));
+    ImGui::SameLine ();
+    ImGui::TextUnformatted (text.c_str ());
+    ImGui::EndTooltip ();
+}
+
 } // namespace
 
 void Place (const layers::Panel& panel, float width, float height, float scale, float fraction[2], float offset[2])
@@ -81,6 +172,30 @@ struct Engine::Impl {
     std::map<std::string, ImFont*> fonts;
     std::vector<std::unique_ptr<std::vector<uint8_t>>> fontData;
     std::string fontError;
+    // One slot per ImGui texture, its TexID the slot's index plus one.
+    std::vector<ImTextureData*> textures;
+    std::vector<std::shared_ptr<const overlaytext::Page>> pages;
+    uint64_t atlasVersion = 0;
+    Stats stats;
+    bool ready = false;
+
+    // What the user did to each panel, by its key (the header's third note).
+    struct PanelState {
+        bool collapsed = false;
+        std::map<uint32_t, bool> sections; // by item index
+    };
+    std::map<std::string, PanelState> states;
+    // The panels' windows in the frame being laid out, by the panel's place in the set.
+    std::vector<ImGuiWindow*> windows;
+    std::chrono::steady_clock::time_point lastBuild {};
+
+    PanelState& StateOf (const std::string& key, const layers::Panel& panel)
+    {
+        const auto made = states.try_emplace (key);
+        if (made.second)
+            made.first->second.collapsed = panel.collapsed;
+        return made.first->second;
+    }
 
     // Between frames, the context current and locked: ImGui adds a font to the atlas
     // only then.
@@ -110,12 +225,6 @@ struct Engine::Impl {
         fonts[path] = added;
         return added != nullptr ? added : font;
     }
-    // One slot per ImGui texture, its TexID the slot's index plus one.
-    std::vector<ImTextureData*> textures;
-    std::vector<std::shared_ptr<const overlaytext::Page>> pages;
-    uint64_t atlasVersion = 0;
-    Stats stats;
-    bool ready = false;
 
     // ImGui's texture requests, honoured: every created or updated texture becomes a
     // page with a new id, whole.
@@ -165,28 +274,6 @@ struct Engine::Impl {
                 texture->SetStatus (ImTextureStatus_Destroyed);
             }
         }
-    }
-
-    void Style (const layers::Panel& panel, float scale)
-    {
-        ImGuiStyle& style = ImGui::GetStyle ();
-        style = ImGuiStyle ();
-        ImGui::StyleColorsDark (&style);
-        style.ScaleAllSizes (scale);
-        style.WindowPadding = ImVec2 (panel.paddingPixels * scale, panel.paddingPixels * scale);
-        style.WindowRounding = panel.roundingPixels * scale;
-        style.WindowBorderSize = (panel.borderRgba & 0xFFu) != 0 ? (std::max) (1.0f, scale) : 0.0f;
-        style.WindowMinSize = ImVec2 (1.0f, 1.0f);
-        style.FrameRounding = 2.0f * scale;
-        style.Colors[ImGuiCol_WindowBg] = Colour (panel.backgroundRgba);
-        style.Colors[ImGuiCol_Border] = Colour (panel.borderRgba);
-        style.Colors[ImGuiCol_Text] = Colour (panel.textRgba);
-        style.Colors[ImGuiCol_Separator] = Colour (WithAlpha (panel.textRgba, 0.3f));
-        style.Colors[ImGuiCol_FrameBg] = Colour (WithAlpha (panel.textRgba, 0.12f));
-        style.Colors[ImGuiCol_TableHeaderBg] = Colour (WithAlpha (panel.textRgba, 0.12f));
-        style.Colors[ImGuiCol_TableBorderLight] = Colour (WithAlpha (panel.textRgba, 0.2f));
-        style.Colors[ImGuiCol_TableBorderStrong] = Colour (WithAlpha (panel.textRgba, 0.3f));
-        style.Colors[ImGuiCol_TableRowBgAlt] = Colour (WithAlpha (panel.textRgba, 0.05f));
     }
 
     void Rows (const layers::Panel& panel, size_t begin, size_t end, float scale)
@@ -268,24 +355,55 @@ struct Engine::Impl {
             draw->AddText (ImVec2 (left, p.y + h + 4.0f * scale), textColour, label.c_str ());
         }
         ImGui::Dummy (ImVec2 (w, h + 4.0f * scale + font));
+
+        // Pointed at: the value there, over the bar at the pointer.
+        const ImVec2 mouse = ImGui::GetIO ().MousePos;
+        if (w > 0.0f && ImGui::IsWindowHovered () && ImGui::IsMouseHoveringRect (p, ImVec2 (p.x + w, p.y + h)))
+            ValueTip (item.colormap, (mouse.x - p.x) / w, low, high, item.decimals, item.unit,
+                      ImVec2 (mouse.x, p.y - 2.0f * scale), ImVec2 (0.5f, 1.0f), scale);
     }
 
-    void Items (const layers::Panel& panel, float scale)
+    // A section's header: its chevron and title, its figure at the right; open or not as
+    // the user left it. True when what follows it is shown.
+    bool Section (const layers::Panel& panel, const layers::PanelItem& item, uint32_t index, PanelState& state,
+                  float scale)
     {
-        if (!panel.title.empty ()) {
-            ImGui::PushFont (nullptr, panel.sizePixels * scale * 1.2f);
-            ImGui::TextUnformatted (panel.title.c_str ());
-            ImGui::PopFont ();
-            ImGui::Separator ();
+        bool& open = state.sections.try_emplace (index, item.open).first->second;
+        const bool sized = item.sizePixels > 0.0f;
+        if (sized)
+            ImGui::PushFont (nullptr, item.sizePixels * scale);
+        ImGui::SetNextItemOpen (open, ImGuiCond_Always);
+        open = ImGui::TreeNodeEx ("##section", ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth,
+                                  "%s", item.text.c_str ());
+        if (!item.value.empty ()) {
+            ImGui::SameLine ();
+            const float w = ImGui::CalcTextSize (item.value.c_str ()).x;
+            ImGui::SetCursorPosX (ImGui::GetCursorPosX () + (std::max) (ImGui::GetContentRegionAvail ().x - w, 0.0f));
+            ImGui::PushStyleColor (ImGuiCol_Text, Colour ((item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba));
+            ImGui::TextUnformatted (item.value.c_str ());
+            ImGui::PopStyleColor ();
         }
+        if (sized)
+            ImGui::PopFont ();
+        return open;
+    }
+
+    void Items (const layers::Panel& panel, PanelState& state, float scale)
+    {
         // What an item without its own width spans: the panel's width when it has one,
         // otherwise a width that does not depend on the layout it is part of.
         const float font = ImGui::GetFontSize ();
         const float width =
             panel.widthPixels > 0.0f ? (std::max) (ImGui::GetContentRegionAvail ().x, 1.0f) : 14.0f * font;
+        // Inside a closed section its items are not laid out at all.
+        bool shown = true;
         size_t i = 0;
         while (i < panel.items.size ()) {
             const layers::PanelItem& item = panel.items[i];
+            if (!shown && item.kind != layers::ItemKind::Section) {
+                ++i;
+                continue;
+            }
             ImGui::PushID (int (i));
             const uint32_t colour = (item.rgba & 0xFFu) != 0 ? item.rgba : panel.textRgba;
             switch (item.kind) {
@@ -382,51 +500,139 @@ struct Engine::Impl {
                     ImGui::EndTable ();
                     break;
                 }
+                case layers::ItemKind::Section:
+                    shown = Section (panel, item, uint32_t (i), state, scale);
+                    break;
             }
             ImGui::PopID ();
             ++i;
         }
     }
 
-    // One frame of one panel; its size when the frame ended.
-    ImVec2 Frame (const layers::Panel& panel, float scale, size_t index)
+    // One panel's window, at its anchor on the view: its title bar (which collapses it)
+    // when it has a title, then its items unless it is collapsed.
+    void Window (const layers::Panel& panel, const std::string& key, size_t index, float scale, ImVec2 view)
     {
-        ImGuiIO& io = ImGui::GetIO ();
-        io.DisplaySize = ImVec2 (16384.0f, 16384.0f);
-        io.DeltaTime = 1.0f / 60.0f;
-        Style (panel, scale);
-        ImGui::NewFrame ();
-        ImGui::SetNextWindowPos (ImVec2 (0.0f, 0.0f));
+        PanelState& state = StateOf (key, panel);
+        const bool titled = !panel.title.empty ();
+        const int column = int (panel.anchor) % 3, row = int (panel.anchor) / 3;
+        const ImVec2 pivot (float (column) * 0.5f, float (row) * 0.5f);
+        const float inwardX = column == 2 ? -1.0f : 1.0f, inwardY = row == 2 ? -1.0f : 1.0f;
+        // The panel's own anchor point on the view's, `offsetPixels` inwards (Place).
+        ImGui::SetNextWindowPos (ImVec2 (pivot.x * view.x + inwardX * panel.offsetPixels[0] * scale,
+                                         pivot.y * view.y + inwardY * panel.offsetPixels[1] * scale),
+                                 ImGuiCond_Always, pivot);
         if (panel.widthPixels > 0.0f) {
             const float w = panel.widthPixels * scale;
             ImGui::SetNextWindowSizeConstraints (ImVec2 (w, 0.0f), ImVec2 (w, FLT_MAX));
         }
-        char name[48] = {};
-        std::snprintf (name, sizeof (name), "##tapioca.panel.%zu", index);
-        const ImGuiWindowFlags flags =
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse |
-            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
-            ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
-        ImGui::Begin (name, nullptr, flags);
-        ImGui::PushFont (FontFor (panel.font), panel.sizePixels * scale);
-        Items (panel, scale);
-        ImGui::PopFont ();
-        const ImVec2 size = ImGui::GetWindowSize ();
+        // ### keeps the window's identity -- and so its state -- whatever its title says.
+        const std::string name = (titled ? panel.title : std::string ()) + "###tapioca.panel." + key;
+        // ⚠️ THE ADD-ON'S STATE IS SET ONLY WHERE IMGUI'S DIFFERS AND NO CLICK IS PENDING.
+        // The arrow's click is applied in the NEXT frame's Begin, and a state forced every
+        // frame is applied over it (SetWindowCollapsed): the arrow would never fold.
+        const ImGuiWindow* const existing = ImGui::FindWindowByName (name.c_str ());
+        if (titled &&
+            (existing == nullptr || (!existing->WantCollapseToggle && existing->Collapsed != state.collapsed)))
+            ImGui::SetNextWindowCollapsed (state.collapsed, ImGuiCond_Always);
+        const int colours = PushPanelStyle (panel, scale);
+        ImFont* const face = FontFor (panel.font);
+        ImGui::PushFont (face, panel.sizePixels * scale * (titled ? kTitleScale : 1.0f));
+        ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                                 ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_AlwaysAutoResize |
+                                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing |
+                                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
+        if (!titled)
+            flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse;
+        const bool open = ImGui::Begin (name.c_str (), nullptr, flags);
+        ImGui::PopFont (); // the title bar is drawn
+        windows[index] = ImGui::GetCurrentWindow ();
+        if (titled)
+            state.collapsed = ImGui::IsWindowCollapsed ();
+        if (open) {
+            ImGui::PushFont (face, panel.sizePixels * scale);
+            Items (panel, state, scale);
+            ImGui::PopFont ();
+        }
         ImGui::End ();
+        ImGui::PopStyleColor (colours);
+        ImGui::PopStyleVar (kStyleVars);
+    }
+
+    // A legend's bar pointed at: the value there, beside the bar at the pointer.
+    void LegendTips (const std::vector<LegendBar>& legends, float scale, ImVec2 view)
+    {
+        const ImVec2 mouse = ImGui::GetIO ().MousePos;
+        for (const LegendBar& bar : legends) {
+            if (bar.legend == nullptr)
+                continue;
+            const ImVec2 a (bar.rect[0], bar.rect[1]), b (bar.rect[2], bar.rect[3]);
+            if (b.x <= a.x || b.y <= a.y || !ImGui::IsMouseHoveringRect (a, b, false))
+                continue;
+            const layers::Legend& legend = *bar.legend;
+            if (legend.horizontal) {
+                ValueTip (legend.colormap, (mouse.x - a.x) / (b.x - a.x), legend.colormap.min, legend.colormap.max,
+                          legend.decimals, legend.unit, ImVec2 (mouse.x, a.y - 4.0f * scale), ImVec2 (0.5f, 1.0f),
+                          scale);
+            }
+            else {
+                // Towards the middle of the view, away from the edge the legend sits at.
+                const bool left = a.x > view.x * 0.5f;
+                ValueTip (legend.colormap, (b.y - mouse.y) / (b.y - a.y), legend.colormap.min, legend.colormap.max,
+                          legend.decimals, legend.unit,
+                          ImVec2 (left ? a.x - 6.0f * scale : b.x + 6.0f * scale, mouse.y),
+                          ImVec2 (left ? 1.0f : 0.0f, 0.5f), scale);
+            }
+            return;
+        }
+    }
+
+    // One frame of the whole set.
+    void Frame (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
+                const Input& input, const std::vector<LegendBar>& legends, float delta)
+    {
+        ImGuiIO& io = ImGui::GetIO ();
+        const bool known = input.width >= 1.0f && input.height >= 1.0f;
+        const ImVec2 view = known ? ImVec2 (input.width, input.height) : ImVec2 (16384.0f, 16384.0f);
+        io.DisplaySize = view;
+        io.DeltaTime = delta;
+        BaseStyle (scale);
+        ImGui::NewFrame ();
+        windows.assign (panels.size (), nullptr);
+        for (size_t i = 0; i < panels.size (); ++i)
+            Window (*panels[i], keys[i], i, scale, view);
+        if (known)
+            LegendTips (legends, scale, view);
         ImGui::Render ();
         Sync (ImGui::GetDrawData ());
         ++stats.frames;
-        return size;
     }
 
-    // The last frame's triangles, against the pages as they stand.
-    void Collect (Built& out, uint32_t& unsampled)
+    // Which of the set's windows a draw list belongs to; -1 for what floats over them.
+    int PanelOf (const ImDrawList* list) const
+    {
+        for (ImGuiWindow* window : ImGui::GetCurrentContext ()->Windows) {
+            if (window->DrawList != list)
+                continue;
+            for (size_t i = 0; i < windows.size (); ++i)
+                if (windows[i] != nullptr && window->RootWindow == windows[i])
+                    return int (i);
+            return -1;
+        }
+        return -1;
+    }
+
+    // The last frame's triangles, each panel's from its top-left, against the pages as
+    // they stand.
+    void Collect (Layout& out, uint32_t& unsampled)
     {
         const ImDrawData* data = ImGui::GetDrawData ();
         if (data == nullptr)
             return;
         for (const ImDrawList* list : data->CmdLists) {
+            const int panel = PanelOf (list);
+            Built& into = panel >= 0 ? out.panels[size_t (panel)] : out.overlay;
+            const ImVec2 origin = panel >= 0 ? windows[size_t (panel)]->Pos : ImVec2 (0.0f, 0.0f);
             for (const ImDrawCmd& command : list->CmdBuffer) {
                 if (command.UserCallback != nullptr || command.ElemCount == 0)
                     continue;
@@ -439,7 +645,8 @@ struct Engine::Impl {
                 for (unsigned int e = 0; e < command.ElemCount; ++e) {
                     const ImDrawVert& v =
                         list->VtxBuffer[int (command.VtxOffset + list->IdxBuffer[int (command.IdxOffset + e)])];
-                    out.vertices.push_back ({ v.pos.x, v.pos.y, v.uv.x, v.uv.y, Unpacked (v.col), uint32_t (slot) });
+                    into.vertices.push_back (
+                        { v.pos.x - origin.x, v.pos.y - origin.y, v.uv.x, v.uv.y, Unpacked (v.col), uint32_t (slot) });
                 }
             }
         }
@@ -512,16 +719,27 @@ void Engine::SetFontLoader (FontLoader loader)
     impl_->loader = std::move (loader);
 }
 
-bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale, std::vector<Built>& out,
-                    std::string& error)
+bool Engine::Build (const std::vector<const layers::Panel*>& panels, const std::vector<std::string>& keys, float scale,
+                    const Input& input, const std::vector<LegendBar>& legends, Layout& out, std::string& error)
 {
-    out.clear ();
+    out = Layout {};
     if (!impl_->ready) {
         error = "the overlay HUD is not ready";
         return false;
     }
+    if (keys.size () != panels.size ()) {
+        error = "every HUD panel needs its key";
+        return false;
+    }
     const auto started = std::chrono::steady_clock::now ();
     const float at = scale > 0.25f && scale < 8.0f ? scale : 1.0f;
+    // The time since the last layout, for the first frame: a double click is timed as made.
+    float delta = 1.0f / 60.0f;
+    if (impl_->lastBuild != std::chrono::steady_clock::time_point {})
+        delta =
+            (std::min) ((std::max) (std::chrono::duration<float> (started - impl_->lastBuild).count (), kSettleSeconds),
+                        1.0f);
+    impl_->lastBuild = started;
     std::lock_guard<std::mutex> lock (ImGuiContextMutex ());
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
@@ -530,21 +748,34 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale
     impl_->fontError.clear ();
     for (const layers::Panel* panel : panels)
         impl_->FontFor (panel->font);
+    // The pointer and its buttons, queued once: ImGui takes a press and its release a
+    // frame apart, and a press after a move a frame after the move.
+    ImGuiIO& io = ImGui::GetIO ();
+    io.AddMousePosEvent (input.pointer ? input.x : -FLT_MAX, input.pointer ? input.y : -FLT_MAX);
+    for (const Input::Button& button : input.buttons)
+        io.AddMouseButtonEvent (button.button, button.down);
+    int frames = kFrames + int (input.buttons.size ()) + (input.buttons.empty () ? 0 : 1);
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
         const uint64_t before = impl_->atlasVersion;
-        out.assign (panels.size (), Built {});
+        for (int frame = 0; frame < frames; ++frame)
+            impl_->Frame (panels, keys, at, input, legends, attempt == 0 && frame == 0 ? delta : kSettleSeconds);
+        out = Layout {};
+        out.panels.assign (panels.size (), Built {});
         unsampled = 0;
+        impl_->Collect (out, unsampled);
         for (size_t i = 0; i < panels.size (); ++i) {
-            ImVec2 size;
-            for (int frame = 0; frame < kFrames; ++frame)
-                size = impl_->Frame (*panels[i], at, i);
-            out[i].width = size.x;
-            out[i].height = size.y;
-            impl_->Collect (out[i], unsampled);
+            Built& built = out.panels[i];
+            if (impl_->windows[i] != nullptr) {
+                built.width = impl_->windows[i]->Size.x;
+                built.height = impl_->windows[i]->Size.y;
+            }
+            Place (*panels[i], built.width, built.height, at, built.fraction, built.offset);
         }
         if (impl_->atlasVersion == before)
             break;
+        frames = kFrames;
     }
+    impl_->windows.clear ();
     ImGui::SetCurrentContext (previous);
     ++impl_->stats.builds;
     impl_->stats.lastMilliseconds = uint32_t (
@@ -560,9 +791,39 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale
     return true;
 }
 
+bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale, std::vector<Built>& out,
+                    std::string& error)
+{
+    std::vector<std::string> keys;
+    for (size_t i = 0; i < panels.size (); ++i)
+        keys.push_back ("#" + std::to_string (i));
+    Layout layout;
+    const bool ok = Build (panels, keys, scale, Input (), {}, layout, error);
+    out = std::move (layout.panels);
+    return ok;
+}
+
 const std::vector<std::shared_ptr<const overlaytext::Page>>& Engine::Pages () const
 {
     return impl_->pages;
+}
+
+bool Engine::Collapsed (const std::string& key) const
+{
+    const auto found = impl_->states.find (key);
+    return found != impl_->states.end () && found->second.collapsed;
+}
+
+bool Engine::SectionOpen (const std::string& key, uint32_t item, bool& open) const
+{
+    const auto found = impl_->states.find (key);
+    if (found == impl_->states.end ())
+        return false;
+    const auto section = found->second.sections.find (item);
+    if (section == found->second.sections.end ())
+        return false;
+    open = section->second;
+    return true;
 }
 
 Stats Engine::GetStats () const

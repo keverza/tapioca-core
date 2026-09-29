@@ -135,6 +135,8 @@ std::string ValidatePanel (const Panel& panel)
             return at + "sizePixels 0 to 96, widthPixels 0 to 4000, heightPixels 0 to 2000";
         if (!std::isfinite (item.fraction))
             return at + "fraction is finite";
+        if (item.kind == ItemKind::Section && item.text.empty ())
+            return at + "a section needs its title: it is what the user clicks";
         if (item.kind == ItemKind::Ramp) {
             const std::string ramp = ValidateColormap (item.colormap);
             if (!ramp.empty ())

@@ -648,18 +648,15 @@ Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
     return out;
 }
 
-// The panels of the layers drawn in `view`, laid out as one set (OverlayHud.hpp).
+// The panels of the layers drawn in `view`, laid out as one set (OverlayHud.hpp), with
+// the scene's legends' bars where they are on the view, for their tooltips.
 Draft HudDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
-                overlayhud::Engine* hud, float scale)
+                overlayhud::Engine* hud, float scale, const overlayhud::Input& input,
+                const std::vector<overlayinput::Region>* legends)
 {
-    std::vector<PanelRef> panels;
-    for (const std::shared_ptr<const layers::Layer>& layer : all)
-        if (layers::DrawnIn (layer->views, view))
-            for (size_t i = 0; i < layer->panels.size (); ++i)
-                panels.push_back ({ &layer->panels[i], layer->name, uint32_t (i) });
     const FontResolver none;
     Builder builder (view, nullptr, hud, scale, none);
-    builder.AddPanels (panels);
+    builder.AddHud (all, input, legends);
     return builder.Take ();
 }
 
@@ -859,11 +856,12 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
     return out;
 }
 
-Plan PreparePlanHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud, float scale)
+Plan PreparePlanHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud, float scale,
+                     const overlayhud::Input& input, const std::vector<overlayinput::Region>* legends)
 {
     const auto started = std::chrono::steady_clock::now ();
     Plan out;
-    Draft draft = HudDraft (all, layers::Views::TwoD, hud, scale);
+    Draft draft = HudDraft (all, layers::Views::TwoD, hud, scale, input, legends);
     FinishPlan (draft, hud, out);
     out.cost.microseconds = MicrosecondsSince (started);
     return out;
@@ -963,11 +961,11 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all
 }
 
 Scene PrepareSceneHud (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlayhud::Engine* hud,
-                       float scale)
+                       float scale, const overlayhud::Input& input, const std::vector<overlayinput::Region>* legends)
 {
     const auto started = std::chrono::steady_clock::now ();
     Scene out;
-    Draft draft = HudDraft (all, layers::Views::ThreeD, hud, scale);
+    Draft draft = HudDraft (all, layers::Views::ThreeD, hud, scale, input, legends);
     FinishScene (draft, hud, out);
     out.cost.microseconds = MicrosecondsSince (started);
     return out;

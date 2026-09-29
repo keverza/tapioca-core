@@ -28,6 +28,7 @@
 // MAIN THREAD (the text engine). Pure otherwise, so tests/cpp builds the real source.
 
 #include "ArchViz/OverlayHitMap.hpp"
+#include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 #include "ArchViz/OverlayText.hpp"
 
@@ -257,10 +258,21 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer
 // changes -- a hover, a collapse -- lays out and sends a few thousand vertices again,
 // never the heatmap beside it. Null or not ready: the panels are counted in
 // `problems` and not drawn.
+//
+// `input` is the view and the pointer over it (OverlayInput.hpp); `legends` the regions
+// the scene's legends were drawn in (Scene.regions), whose bars the pointer is tested
+// against for a value tooltip. The engine is one view's: each keeps its own state.
 Plan PreparePlanHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlayhud::Engine* hud,
-                     float scale);
+                     float scale, const overlayhud::Input& input = overlayhud::Input (),
+                     const std::vector<overlayinput::Region>* legends = nullptr);
 Scene PrepareSceneHud (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlayhud::Engine* hud,
-                       float scale);
+                       float scale, const overlayhud::Input& input = overlayhud::Input (),
+                       const std::vector<overlayinput::Region>* legends = nullptr);
+
+// What a HUD stream puts on screen, in one number: two layouts with the same one draw
+// the same pixels, so the second need not be uploaded or redrawn.
+uint64_t Fingerprint (const Plan& hud);
+uint64_t Fingerprint (const Scene& hud);
 
 // ---- pure helpers, exposed for their tests -----------------------------------
 

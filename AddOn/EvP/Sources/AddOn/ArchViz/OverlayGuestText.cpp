@@ -2,6 +2,8 @@
 
 #include "ArchViz/OverlayGuestText.hpp"
 
+#include "ArchViz/OverlayInput.hpp" // ViewName
+
 #include "ArchViz/ArchVizLog.hpp"
 #include "ArchViz/OverlayFonts.hpp"
 #include "ArchViz/OverlayHud.hpp"
@@ -21,8 +23,8 @@ namespace {
 
 std::unique_ptr<overlaytext::Engine> g_engine; // MAIN THREAD
 bool g_failed = false;
-std::unique_ptr<overlayhud::Engine> g_hud;
-bool g_hudFailed = false;
+std::unique_ptr<overlayhud::Engine> g_hud[2]; // by view
+bool g_hudFailed[2] = { false, false };
 // A caller's fonts by path; null for one that failed, so it is said once.
 std::map<std::string, std::unique_ptr<overlaytext::Engine>> g_fonts;
 
@@ -78,24 +80,26 @@ overlaytext::Engine* EngineFor (const std::string& path)
     return made;
 }
 
-overlayhud::Engine* Hud ()
+overlayhud::Engine* Hud (overlayinput::View view)
 {
-    if (g_hud != nullptr)
-        return g_hud.get ();
-    if (g_hudFailed)
+    const size_t at = view == overlayinput::View::ThreeD ? 0 : 1;
+    if (g_hud[at] != nullptr)
+        return g_hud[at].get ();
+    if (g_hudFailed[at])
         return nullptr;
     std::vector<uint8_t> font;
     std::string error;
     auto hud = std::make_unique<overlayhud::Engine> ();
     if (!LoadBundledSceneTextFont (font, error) || !hud->Init (std::move (font), error)) {
-        g_hudFailed = true;
+        g_hudFailed[at] = true;
         ArchVizLog ("OVERLAY HUD  NOT AVAILABLE: " + error + " -- HUD panels are not drawn; everything else is");
         return nullptr;
     }
-    ArchVizLog ("OVERLAY HUD  ready: Dear ImGui over the bundled font, laid out on the main thread");
+    ArchVizLog (std::string ("OVERLAY HUD  the ") + overlayinput::ViewName (view) +
+                " HUD ready: Dear ImGui over the bundled font, laid out on the main thread");
     hud->SetFontLoader (&overlayfonts::Read);
-    g_hud = std::move (hud);
-    return g_hud.get ();
+    g_hud[at] = std::move (hud);
+    return g_hud[at].get ();
 }
 
 } // namespace guesttext

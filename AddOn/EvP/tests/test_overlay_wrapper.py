@@ -61,6 +61,21 @@ def test_a_panel_is_its_items_in_order():
         overlay.Panel(anchor="middle")
 
 
+def test_a_panel_folds_and_its_sections_fold_what_follows():
+    panel = (
+        overlay.Panel(title="Area metrics", collapsed=True)
+        .section("GFA", "19 821 m2")
+        .row("Healthcare", "3 630 m2")
+        .section("GIA", 17839, open=False)
+        .row("Healthcare", "3 267 m2")
+    )
+    out = panel.to_dict()
+    assert out["collapsed"] is True
+    assert out["items"][0] == {"kind": "section", "text": "GFA", "value": "19 821 m2", "open": True}
+    assert out["items"][2] == {"kind": "section", "text": "GIA", "value": "17839", "open": False}
+    assert "collapsed" not in overlay.Panel(title="Plain").to_dict()
+
+
 def test_set_layer_sends_reals_except_where_the_wire_wants_integers(monkeypatch):
     seen = _capture(monkeypatch)
     overlay.set_layer(

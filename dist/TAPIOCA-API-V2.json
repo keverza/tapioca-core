@@ -19266,6 +19266,31 @@
               },
               "declinedHidden": {
                 "type": "string"
+              },
+              "refreshes": {
+                "type": "string"
+              },
+              "changes": {
+                "type": "string"
+              },
+              "redraws": {
+                "type": "string"
+              },
+              "lastRedrawMicroseconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxRedrawMicroseconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lastRefreshMicroseconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "maxRefreshMicroseconds": {
+                "type": "integer",
+                "minimum": 0
               }
             },
             "additionalProperties": false,
@@ -19280,7 +19305,14 @@
               "takenPresses",
               "takenMoves",
               "passedOverHud",
-              "declinedHidden"
+              "declinedHidden",
+              "refreshes",
+              "changes",
+              "redraws",
+              "lastRedrawMicroseconds",
+              "maxRedrawMicroseconds",
+              "lastRefreshMicroseconds",
+              "maxRefreshMicroseconds"
             ]
           }
         },
@@ -25459,6 +25491,10 @@
                   "maxLength": 260,
                   "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
                 },
+                "collapsed": {
+                  "type": "boolean",
+                  "description": "How a titled panel starts; the arrow on its title bar folds it, and what the user does outlives the layer being set again."
+                },
                 "items": {
                   "type": "array",
                   "maxItems": 200,
@@ -25476,7 +25512,8 @@
                           "swatch",
                           "ramp",
                           "plot",
-                          "table"
+                          "table",
+                          "section"
                         ]
                       },
                       "text": {
@@ -25497,6 +25534,10 @@
                       },
                       "wrap": {
                         "type": "boolean"
+                      },
+                      "open": {
+                        "type": "boolean",
+                        "description": "A section: how it starts; the items after it, up to the next section, fold under it."
                       },
                       "fraction": {
                         "type": "number"

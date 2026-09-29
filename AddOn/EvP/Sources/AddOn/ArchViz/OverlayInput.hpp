@@ -19,15 +19,27 @@
 // runtime's canvas.
 //
 // ⚠️ THE HOOK DECIDES AND RETURNS. It runs inside Archicad's dispatch: a rectangle test,
-// a latch, a counter. No ACAPI, no layout, no lock.
+// a latch, the pointer noted, a counter. No ACAPI, no layout, no lock. When the HUD has
+// something to show for it -- the pointer over it or just off it, a press or release it
+// took -- it posts ONE coalesced message to a window of its own, and the view's HUD is
+// laid out again there, on the main thread at ordinary priority (CameraWake's shape).
 //
-// ⚠️ INSTALLED WITH THE FIRST CANVAS, REMOVED WITH THE LAST, AND AT UNLOAD. A hook that
-// outlives this DLL is Windows calling into freed code; a latch that outlives its
-// session would take the next session's first moves (§8). Every `Detach` resets it.
+// ⚠️ A STILL VIEW PRESENTS NOTHING. The plan presents 22-30 times a second from the
+// cursor's feedback alone (HANDOFF-OverlayPatch 2026-09-28 09:41) -- but not while the
+// HUD takes the moves. So a layout that changed what the HUD draws asks for the view's
+// redraw, at most about thirty a second: the last change in a burst is always drawn,
+// the ones between may not be. A layout that changed nothing asks for nothing, and
+// nothing is laid out while Archicad owns the gesture (a wall drawn across a panel).
+//
+// ⚠️ INSTALLED WITH THE FIRST CANVAS, REMOVED WITH THE LAST, AND AT UNLOAD. A hook or a
+// window that outlives this DLL is Windows calling into freed code; a latch that
+// outlives its session would take the next session's first moves (§8). Every `Detach`
+// resets it.
 //
 // MAIN THREAD, every entry point.
 
 #include "ArchViz/OverlayHitMap.hpp"
+#include "ArchViz/OverlayHud.hpp"
 
 #include <cstdint>
 #include <string>
@@ -41,23 +53,36 @@ namespace geomsrv {
 namespace archviz {
 namespace overlayinput {
 
-enum class View : uint8_t { ThreeD = 0, Plan = 1 };
 const char* ViewName (View view);
 
-// Whether the HUD of a view is on screen now. Called from the hook: atomics only.
-using ShownTest = bool (*) ();
+// What the owner of a view's overlay gives it.
+struct HudOwner {
+    // Whether the HUD is on screen now. Called from the hook: plain reads and atomics.
+    bool (*shown) () = nullptr;
+    // Lay the HUD out again for `TakeInput`; true when what it draws changed. From the
+    // posted message, outside the hook: ACAPI allowed.
+    bool (*refresh) () = nullptr;
+    // Have Archicad draw the view again: the HUD changed and a still view presents
+    // nothing. From the posted message or its timer: ACAPI allowed.
+    void (*redraw) () = nullptr;
+};
 
-// The canvas `view`'s overlay composes into, and how to tell its HUD is drawn. Again
-// with a different canvas: that one instead. The hook is installed with the first.
-bool Attach (View view, HWND canvas, ShownTest shown, std::string& error);
-// That view's overlay stopped: its canvas, its regions and the latch go; the hook with
-// the last view.
+// The canvas `view`'s overlay composes into, and its owner. Again with a different
+// canvas: that one instead. The hook is installed with the first.
+bool Attach (View view, HWND canvas, const HudOwner& owner, std::string& error);
+// That view's overlay stopped: its canvas, its regions, its pointer and the latch go;
+// the hook and the window with the last view.
 void Detach (View view);
-// Every view and the hook: the unload, and a project closing.
+// Every view, the hook and the window: the unload, and a project closing.
 void Shutdown ();
 
 // Where the HUD is on that view, from its last layout.
 void SetHitMap (View view, HitMap map);
+
+// The view's size and the pointer over it, for the HUD's layout. `TakeInput` hands over
+// the presses and releases the HUD took since the last call; `CurrentInput` leaves them.
+overlayhud::Input TakeInput (View view);
+overlayhud::Input CurrentInput (View view);
 
 // ⚠️ TOTALS SINCE THE PROCESS STARTED: a question about now is two readings and their
 // difference (§7). `declinedHidden` counts messages over a region while its HUD was not
@@ -72,6 +97,13 @@ struct Stats {
     uint64_t takenMoves = 0;
     uint64_t passedOverHud = 0; // over a region but Archicad's: a gesture begun in the view, or navigation
     uint64_t declinedHidden = 0;
+    uint64_t refreshes = 0; // the HUD laid out again for the pointer
+    uint64_t changes = 0;   // ...and what it draws changed
+    uint64_t redraws = 0;   // views asked to draw again for it
+    uint32_t lastRedrawMicroseconds = 0;
+    uint32_t maxRedrawMicroseconds = 0;
+    uint32_t lastRefreshMicroseconds = 0;
+    uint32_t maxRefreshMicroseconds = 0;
 };
 Stats GetStats ();
 

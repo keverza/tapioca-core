@@ -209,6 +209,13 @@ class OverlayLayersCommand : public MainThreadCommand {
         inputRecord.Add ("takenMoves", Text (input.takenMoves));
         inputRecord.Add ("passedOverHud", Text (input.passedOverHud));
         inputRecord.Add ("declinedHidden", Text (input.declinedHidden));
+        inputRecord.Add ("refreshes", Text (input.refreshes));
+        inputRecord.Add ("changes", Text (input.changes));
+        inputRecord.Add ("redraws", Text (input.redraws));
+        inputRecord.Add ("lastRedrawMicroseconds", (GS::Int32) input.lastRedrawMicroseconds);
+        inputRecord.Add ("maxRedrawMicroseconds", (GS::Int32) input.maxRedrawMicroseconds);
+        inputRecord.Add ("lastRefreshMicroseconds", (GS::Int32) input.lastRefreshMicroseconds);
+        inputRecord.Add ("maxRefreshMicroseconds", (GS::Int32) input.maxRefreshMicroseconds);
         os.Add ("input", inputRecord);
         return os;
     }
@@ -366,14 +373,16 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "roundingPixels":{"type":"number","minimum":0,"maximum":64},
         "paddingPixels":{"type":"number","minimum":0,"maximum":64},
         "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
+        "collapsed":{"type":"boolean","description":"How a titled panel starts; the arrow on its title bar folds it, and what the user does outlives the layer being set again."},
         "items":{"type":"array","maxItems":200,"items":{"type":"object","properties":{
             "kind":{"type":"string","enum":["text","row","separator","spacing","progress","swatch","ramp","plot",
-                                            "table"]},
+                                            "table","section"]},
             "text":{"type":"string","maxLength":4096},
             "value":{"type":"string","maxLength":512},
             "color":{"$ref":"#Color"},
             "sizePixels":{"type":"number","minimum":0,"maximum":96},
             "wrap":{"type":"boolean"},
+            "open":{"type":"boolean","description":"A section: how it starts; the items after it, up to the next section, fold under it."},
             "fraction":{"type":"number"},
             "colormap":{"type":"object","properties":{
                 "preset":{"type":"string","enum":["viridis","inferno","magma","plasma","turbo","coolwarm","greys","sunhours","slope","clearance"]},
@@ -478,10 +487,15 @@ constexpr const char kOverlayLayersOutput[] = R"json({"type":"object","propertie
         "installed":{"type":"boolean"},"attached3D":{"type":"boolean"},"attachedPlan":{"type":"boolean"},
         "regions3D":{"type":"integer","minimum":0},"regionsPlan":{"type":"integer","minimum":0},
         "seen":{"type":"string"},"taken":{"type":"string"},"takenPresses":{"type":"string"},
-        "takenMoves":{"type":"string"},"passedOverHud":{"type":"string"},"declinedHidden":{"type":"string"}},
+        "takenMoves":{"type":"string"},"passedOverHud":{"type":"string"},"declinedHidden":{"type":"string"},
+        "refreshes":{"type":"string"},"changes":{"type":"string"},"redraws":{"type":"string"},
+        "lastRedrawMicroseconds":{"type":"integer","minimum":0},"maxRedrawMicroseconds":{"type":"integer","minimum":0},
+        "lastRefreshMicroseconds":{"type":"integer","minimum":0},"maxRefreshMicroseconds":{"type":"integer","minimum":0}},
       "additionalProperties":false,
       "required":["installed","attached3D","attachedPlan","regions3D","regionsPlan","seen","taken","takenPresses",
-                  "takenMoves","passedOverHud","declinedHidden"]}},
+                  "takenMoves","passedOverHud","declinedHidden","refreshes","changes","redraws",
+                  "lastRedrawMicroseconds","maxRedrawMicroseconds","lastRefreshMicroseconds",
+                  "maxRefreshMicroseconds"]}},
   "additionalProperties":false,"required":["layers","generation","guest","input"]})json";
 
 const NativeCommandRegistration kOverlayLayerCommandRegistrations[] = {

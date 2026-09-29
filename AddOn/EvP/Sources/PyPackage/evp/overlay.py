@@ -183,7 +183,11 @@ def _colormap(colormap, minimum=None, maximum=None, bands=None, isolines=None):
 
 class Panel:
     """A HUD panel: its items in order, laid out by Dear ImGui in a corner (or any of
-    nine anchor points) of the view. Every method returns the panel, so they chain."""
+    nine anchor points) of the view. Every method returns the panel, so they chain.
+
+    A panel with a `title` has a title bar whose arrow folds it to that bar;
+    `collapsed` is how it starts. A click on a panel never reaches Archicad, and what
+    the user folds stays folded when the layer is set again."""
 
     def __init__(
         self,
@@ -198,6 +202,7 @@ class Panel:
         rounding=None,
         padding=None,
         font=None,
+        collapsed=None,
     ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
@@ -206,6 +211,8 @@ class Panel:
             self._panel["title"] = str(title)
         if font:
             self._panel["font"] = str(font)
+        if collapsed is not None:
+            self._panel["collapsed"] = bool(collapsed)
         for key, value in (
             ("widthPixels", width),
             ("sizePixels", size),
@@ -237,6 +244,18 @@ class Panel:
 
     def separator(self):
         return self._add("separator")
+
+    def section(self, title, value=None, open=True, color=None, size=None):
+        """A heading with a chevron and `value` at its right; the items after it, up to
+        the next section, fold under it. `open` is how it starts."""
+        return self._add(
+            "section",
+            text=str(title),
+            value=None if value is None else str(value),
+            open=bool(open),
+            color=color,
+            sizePixels=size,
+        )
 
     def spacing(self, height=6):
         return self._add("spacing", heightPixels=float(height))

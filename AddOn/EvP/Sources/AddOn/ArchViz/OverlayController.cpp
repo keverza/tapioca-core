@@ -109,6 +109,59 @@ bool HudShown3D ()
            dxgi::injection::GetArmState () == dxgi::injection::ArmState::Active && dxgi::injection::SnapshotValid ();
 }
 
+// ---- the 3D HUD ------------------------------------------------------------------
+// The scene's legends where they were last laid out, the scale, and what the HUD last
+// put on screen: a layout that puts the same is not uploaded or redrawn.
+std::vector<overlayinput::Region> g_legends3D;
+float g_scale3D = 1.0f;
+uint64_t g_hudPrint3D = 0;
+
+// Whether the view's HUD has anything to lay out: panels, or legends to hover.
+bool HudIn3D (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers)
+{
+    for (const auto& layer : layers)
+        if (overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD) &&
+            (!layer->panels.empty () || !layer->legends.empty ()))
+            return true;
+    return false;
+}
+
+// The HUD handed to the guest, and where it now is to the input; true when what it
+// draws changed.
+bool PublishHud3D (overlayscene::Scene hud)
+{
+    overlayinput::HitMap map;
+    map.dpiScale = g_scale3D;
+    map.regions = g_legends3D; // legends first: the panels are drawn over them
+    map.regions.insert (map.regions.end (), hud.regions.begin (), hud.regions.end ());
+    overlayinput::SetHitMap (overlayinput::View::ThreeD, std::move (map));
+    const uint64_t print = overlayscene::Fingerprint (hud);
+    if (print == g_hudPrint3D)
+        return false;
+    g_hudPrint3D = print;
+    dxgi::sceneguest::PublishHud (std::move (hud), g_scale3D);
+    return true;
+}
+
+// The input layer's refresh: the HUD laid out again for the pointer.
+bool RefreshHud3D ()
+{
+    if (!runtime::Running ())
+        return false;
+    const std::vector<std::shared_ptr<const overlaylayers::Layer>> layers = overlaylayers::Layers ();
+    overlayscene::Scene hud =
+        overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
+                                       g_scale3D, overlayinput::TakeInput (overlayinput::View::ThreeD), &g_legends3D);
+    return PublishHud3D (std::move (hud));
+}
+
+// The input layer's paced redraw: a still 3D view presents nothing by itself.
+void RedrawHud3D ()
+{
+    if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
+        ACAPI_View_Redraw ();
+}
+
 // ⚠️ THE 3D HUD'S INPUT FOLLOWS THE CANVAS THE OVERLAY COMPOSES INTO -- the nominated
 // swap chain's window, known once Archicad has presented through it, and a new one when
 // the 3D window is closed and reopened. On this heartbeat rather than the runtime's
@@ -130,8 +183,11 @@ void FollowHudInput ()
         if (chains[i].swapChain != chain || chains[i].window == 0)
             continue;
         std::string error;
-        if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), &HudShown3D,
-                                   error) &&
+        overlayinput::HudOwner owner;
+        owner.shown = &HudShown3D;
+        owner.refresh = &RefreshHud3D;
+        owner.redraw = &RedrawHud3D;
+        if (!overlayinput::Attach (overlayinput::View::ThreeD, HWND (uintptr_t (chains[i].window)), owner, error) &&
             error != g_inputError)
             Narrate ("OVERLAY", "the 3D HUD takes no input: " + error);
         g_inputError = error;
@@ -651,6 +707,13 @@ InputCounts Input ()
     out.takenMoves = stats.takenMoves;
     out.passedOverHud = stats.passedOverHud;
     out.declinedHidden = stats.declinedHidden;
+    out.refreshes = stats.refreshes;
+    out.changes = stats.changes;
+    out.redraws = stats.redraws;
+    out.lastRedrawMicroseconds = stats.lastRedrawMicroseconds;
+    out.maxRedrawMicroseconds = stats.maxRedrawMicroseconds;
+    out.lastRefreshMicroseconds = stats.lastRefreshMicroseconds;
+    out.maxRefreshMicroseconds = stats.maxRefreshMicroseconds;
     return out;
 }
 
@@ -675,19 +738,23 @@ void PublishLayers ()
 
     // ⚠️ THE GUEST'S SHARE IS LAID OUT HERE, ON THE MAIN THREAD, BECAUSE THE TEXT
     // ENGINE IS: the render thread receives finished arrays and never shapes a glyph.
-    bool text = false, panels = false;
+    bool text = false;
     for (const auto& layer : layers) {
         const bool drawn = overlaylayers::DrawnIn (layer->views, overlaylayers::Views::ThreeD);
         text = text || (drawn && (!layer->texts.empty () || !layer->dimensions.empty () || !layer->legends.empty ()));
-        panels = panels || (drawn && !layer->panels.empty ());
     }
     const UINT dpi = ::GetDpiForSystem ();
     const float scale = dpi != 0 ? float (dpi) / 96.0f : 1.0f;
     overlayscene::Scene scene =
         overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr, &guesttext::EngineFor);
     scene.generation = overlaylayers::Generation ();
-    // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud).
-    overlayscene::Scene hud = overlayscene::PrepareSceneHud (layers, panels ? guesttext::Hud () : nullptr, scale);
+    g_legends3D = scene.regions;
+    g_scale3D = scale;
+    // The HUD panels are a stream of their own (OverlayScene.hpp PrepareSceneHud), laid
+    // out for where the pointer is now.
+    overlayscene::Scene hud =
+        overlayscene::PrepareSceneHud (layers, HudIn3D (layers) ? guesttext::Hud (overlayinput::View::ThreeD) : nullptr,
+                                       scale, overlayinput::CurrentInput (overlayinput::View::ThreeD), &g_legends3D);
     hud.generation = scene.generation;
     const overlayscene::Problems& problems = scene.problems;
     const uint32_t panelsNotDrawn = hud.problems.textsNotLaidOut;
@@ -697,14 +764,8 @@ void PublishLayers ()
                                 std::to_string (panelsNotDrawn) + " panels, " + std::to_string (problems.truncated) +
                                 " past the budget: " +
                                 (hud.problems.lastError.empty () ? problems.lastError : hud.problems.lastError));
-    // Where the legends and panels now are, legends first: panels are drawn over them.
-    overlayinput::HitMap map;
-    map.dpiScale = scale;
-    map.regions = scene.regions;
-    map.regions.insert (map.regions.end (), hud.regions.begin (), hud.regions.end ());
-    overlayinput::SetHitMap (overlayinput::View::ThreeD, std::move (map));
     dxgi::sceneguest::Publish (std::move (scene), scale);
-    dxgi::sceneguest::PublishHud (std::move (hud), scale);
+    PublishHud3D (std::move (hud));
     if (runtime::Running () && CurrentView () == ViewKind::ThreeD)
         ACAPI_View_Redraw ();
 }

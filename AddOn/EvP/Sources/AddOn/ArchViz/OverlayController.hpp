@@ -203,6 +203,13 @@ struct InputCounts {
     uint64_t takenMoves = 0;
     uint64_t passedOverHud = 0;  // over the HUD but Archicad's: a gesture begun in the view, or navigation
     uint64_t declinedHidden = 0; // over a region while its HUD was not on screen
+    uint64_t refreshes = 0;      // the HUD laid out again for the pointer
+    uint64_t changes = 0;        // ...and what it draws changed
+    uint64_t redraws = 0;        // views asked to draw again for it
+    uint32_t lastRedrawMicroseconds = 0;
+    uint32_t maxRedrawMicroseconds = 0;
+    uint32_t lastRefreshMicroseconds = 0;
+    uint32_t maxRefreshMicroseconds = 0;
 };
 InputCounts Input ();
 
