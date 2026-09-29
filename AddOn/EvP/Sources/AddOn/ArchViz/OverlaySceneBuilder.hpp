@@ -30,6 +30,8 @@ inline constexpr size_t kMaxLines = 2000000;
 inline constexpr size_t kMaxGlyphVertices = 1200000;
 
 inline constexpr double kPi = 3.14159265358979323846;
+// Faces meeting at more than this are shaded apart when a mesh brings no normals.
+inline constexpr float kSmoothingCreaseDegrees = 45.0f;
 
 struct Vec3 {
     double x = 0.0, y = 0.0, z = 0.0;
@@ -56,6 +58,21 @@ inline Vec3 At (const std::vector<double>& points, uint32_t index)
     const size_t i = size_t (index) * 3;
     return { points[i], points[i + 1], points[i + 2] };
 }
+inline Vec3 Scaled (const Vec3& a, double k)
+{
+    return { a.x * k, a.y * k, a.z * k };
+}
+inline Vec3 Plus (const Vec3& a, const Vec3& b)
+{
+    return { a.x + b.x, a.y + b.y, a.z + b.z };
+}
+inline Vec3 Unit (const Vec3& a)
+{
+    const double length = Length (a);
+    return length > 1e-30 ? Scaled (a, 1.0 / length) : Vec3 {};
+}
+
+// ---- the draft: one builder, two writers -------------------------------------
 
 // ---- the draft: one builder, two writers -------------------------------------
 

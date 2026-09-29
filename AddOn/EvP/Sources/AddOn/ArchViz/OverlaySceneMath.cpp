@@ -16,6 +16,35 @@ namespace overlayscene {
 
 using namespace build;
 
+namespace {
+
+// Every vertex to the first one at its position, within a micrometre: a mesh that
+// repeats its vertices per face -- how a brep's faces arrive -- is one surface.
+std::vector<uint32_t> Weld (const std::vector<double>& points)
+{
+    const size_t vertices = points.size () / 3;
+    std::vector<uint32_t> canonical (vertices);
+    struct KeyHash {
+        size_t operator() (const std::tuple<int64_t, int64_t, int64_t>& key) const
+        {
+            const uint64_t a = uint64_t (std::get<0> (key)), b = uint64_t (std::get<1> (key)),
+                           c = uint64_t (std::get<2> (key));
+            return size_t (a * 0x9E3779B97F4A7C15ull ^ (b + 0x632BE59BD9B4E019ull) * 0x94D049BB133111EBull ^ c);
+        }
+    };
+    std::unordered_map<std::tuple<int64_t, int64_t, int64_t>, uint32_t, KeyHash> seen;
+    seen.reserve (vertices);
+    for (size_t v = 0; v < vertices; ++v) {
+        const auto key = std::make_tuple (int64_t (std::llround (points[v * 3] * 1e6)),
+                                          int64_t (std::llround (points[v * 3 + 1] * 1e6)),
+                                          int64_t (std::llround (points[v * 3 + 2] * 1e6)));
+        canonical[v] = seen.emplace (key, uint32_t (v)).first->second;
+    }
+    return canonical;
+}
+
+} // namespace
+
 std::vector<double> VertexNormals (const std::vector<double>& points, const std::vector<uint32_t>& indices)
 {
     const size_t vertices = points.size () / 3;
@@ -53,26 +82,7 @@ std::vector<std::pair<uint32_t, uint32_t>> FeatureEdges (const std::vector<doubl
                                                          const std::vector<uint32_t>& indices, float angleDegrees)
 {
     const size_t vertices = points.size () / 3;
-    // Weld: every vertex to the first one at its position, within a micrometre.
-    std::vector<uint32_t> canonical (vertices);
-    {
-        struct KeyHash {
-            size_t operator() (const std::tuple<int64_t, int64_t, int64_t>& key) const
-            {
-                const uint64_t a = uint64_t (std::get<0> (key)), b = uint64_t (std::get<1> (key)),
-                               c = uint64_t (std::get<2> (key));
-                return size_t (a * 0x9E3779B97F4A7C15ull ^ (b + 0x632BE59BD9B4E019ull) * 0x94D049BB133111EBull ^ c);
-            }
-        };
-        std::unordered_map<std::tuple<int64_t, int64_t, int64_t>, uint32_t, KeyHash> seen;
-        seen.reserve (vertices);
-        for (size_t v = 0; v < vertices; ++v) {
-            const auto key = std::make_tuple (int64_t (std::llround (points[v * 3] * 1e6)),
-                                              int64_t (std::llround (points[v * 3 + 1] * 1e6)),
-                                              int64_t (std::llround (points[v * 3 + 2] * 1e6)));
-            canonical[v] = seen.emplace (key, uint32_t (v)).first->second;
-        }
-    }
+    const std::vector<uint32_t> canonical = Weld (points);
     struct EdgeFaces {
         uint32_t a = 0, b = 0; // original indices, for the coordinates
         Vec3 normals[2];
@@ -113,6 +123,45 @@ std::vector<std::pair<uint32_t, uint32_t>> FeatureEdges (const std::vector<doubl
         const bool feature = edge.faces != 2 || Dot (edge.normals[0], edge.normals[1]) < creaseCosine - 1e-12;
         if (feature)
             out.push_back ({ edge.a, edge.b });
+    }
+    return out;
+}
+
+std::vector<double> CornerNormals (const std::vector<double>& points, const std::vector<uint32_t>& indices,
+                                   float creaseDegrees)
+{
+    const size_t vertices = points.size () / 3;
+    const size_t faces = indices.size () / 3;
+    const std::vector<uint32_t> canonical = Weld (points);
+    std::vector<Vec3> weighted (faces), unit (faces);
+    std::vector<std::vector<uint32_t>> around (vertices);
+    for (size_t f = 0; f < faces; ++f) {
+        const uint32_t i0 = indices[f * 3], i1 = indices[f * 3 + 1], i2 = indices[f * 3 + 2];
+        if (i0 >= vertices || i1 >= vertices || i2 >= vertices)
+            continue;
+        // Unnormalised: its length is twice the triangle's area, which is the weight.
+        weighted[f] = Cross (Sub (At (points, i1), At (points, i0)), Sub (At (points, i2), At (points, i0)));
+        unit[f] = Unit (weighted[f]);
+        for (const uint32_t i : { i0, i1, i2 })
+            around[canonical[i]].push_back (uint32_t (f));
+    }
+    const double creaseCosine = std::cos (double (creaseDegrees) * kPi / 180.0);
+    std::vector<double> out (faces * 9, 0.0);
+    for (size_t f = 0; f < faces; ++f) {
+        for (size_t k = 0; k < 3; ++k) {
+            const uint32_t index = indices[f * 3 + k];
+            Vec3 sum = {};
+            if (index < vertices)
+                for (const uint32_t g : around[canonical[index]])
+                    if (Dot (unit[g], unit[f]) >= creaseCosine - 1e-12)
+                        sum = Plus (sum, weighted[g]);
+            Vec3 n = Unit (sum);
+            if (Length (n) < 0.5)
+                n = Length (unit[f]) > 0.5 ? unit[f] : Vec3 { 0.0, 0.0, 1.0 };
+            out[(f * 3 + k) * 3] = n.x;
+            out[(f * 3 + k) * 3 + 1] = n.y;
+            out[(f * 3 + k) * 3 + 2] = n.z;
+        }
     }
     return out;
 }

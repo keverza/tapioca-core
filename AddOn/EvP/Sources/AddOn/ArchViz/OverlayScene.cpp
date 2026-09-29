@@ -89,19 +89,26 @@ void Builder::AddMesh (const layers::Layer& layer, const layers::Mesh& mesh)
             max = min + 1.0;
         SetRamp (fill.draw, mesh.colormap, min, max);
     }
-    const std::vector<double> computed =
-        mesh.normals.empty () ? VertexNormals (mesh.points, mesh.indices) : std::vector<double> ();
-    const std::vector<double>& normals = mesh.normals.empty () ? computed : mesh.normals;
+    // The caller's normals, per vertex; otherwise, for a shaded mesh, per corner and
+    // split at creases (CornerNormals). A flat mesh reads none.
+    const bool shaded = mesh.style.shading != layers::Shading::Flat;
+    const std::vector<double> corners = mesh.normals.empty () && shaded
+                                            ? CornerNormals (mesh.points, mesh.indices, kSmoothingCreaseDegrees)
+                                            : std::vector<double> ();
     fill.vertices.reserve (mesh.indices.size ());
-    for (const uint32_t index : mesh.indices) {
+    for (size_t c = 0; c < mesh.indices.size (); ++c) {
+        const uint32_t index = mesh.indices[c];
         DraftVertex v;
         const size_t at = size_t (index) * 3;
         v.p[0] = mesh.points[at];
         v.p[1] = mesh.points[at + 1];
         v.p[2] = mesh.points[at + 2];
-        v.n[0] = float (normals[at]);
-        v.n[1] = float (normals[at + 1]);
-        v.n[2] = float (normals[at + 2]);
+        const double* n = !mesh.normals.empty () ? &mesh.normals[at] : !corners.empty () ? &corners[c * 3] : nullptr;
+        if (n != nullptr) {
+            v.n[0] = float (n[0]);
+            v.n[1] = float (n[1]);
+            v.n[2] = float (n[2]);
+        }
         v.rgba = mesh.vertexRgba.empty () ? mesh.rgba : mesh.vertexRgba[index];
         v.value = mesh.values.empty () ? 0.0f : float (mesh.values[index]);
         fill.vertices.push_back (v);

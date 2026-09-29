@@ -417,3 +417,48 @@ TEST (OverlayScene, ValidationNamesWhatIsWrong)
     layer.texts = { label };
     EXPECT_NE (layers::Validate (layer).find ("1 to 512 bytes"), std::string::npos);
 }
+
+// ⚠️ A BOX'S FACES ARE FLAT. Per-vertex normals averaged three faces into each corner
+// and the ghost's view-angle shading bulged every face (the first live run); corner
+// normals split at the crease keep each face's own.
+TEST (OverlayScene, CornerNormalsKeepABoxFlatAndASeamSmooth)
+{
+    for (const bool split : { false, true }) {
+        const layers::Mesh cube = Cube (split);
+        const std::vector<double> normals = scene::CornerNormals (cube.points, cube.indices, 45.0f);
+        ASSERT_EQ (normals.size (), cube.indices.size () * 3);
+        for (size_t t = 0; t < cube.indices.size (); t += 3) {
+            for (size_t k = 0; k < 3; ++k) {
+                const double* n = &normals[(t + k) * 3];
+                // Axis-aligned: one component is +-1, the others 0.
+                const double largest = (std::max) ({ std::fabs (n[0]), std::fabs (n[1]), std::fabs (n[2]) });
+                EXPECT_NEAR (largest, 1.0, 1e-9) << (split ? "split" : "shared") << " corner " << t + k;
+            }
+        }
+    }
+    // Two triangles meeting at 20 degrees are one smooth surface: their shared corners agree.
+    const double lift = std::tan (20.0 * 3.14159265358979 / 180.0);
+    const std::vector<double> points = { 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, lift };
+    const std::vector<uint32_t> indices = { 0, 1, 2, 1, 3, 2 };
+    const std::vector<double> normals = scene::CornerNormals (points, indices, 45.0f);
+    // Vertex 1 is corner 1 of the first triangle and corner 0 of the second.
+    for (int c = 0; c < 3; ++c)
+        EXPECT_NEAR (normals[1 * 3 + c], normals[3 * 3 + c], 1e-12);
+}
+
+TEST (OverlayScene, AShadedMeshWithoutNormalsIsShadedFlatPerFace)
+{
+    layers::Layer layer;
+    layer.name = "ghost";
+    layers::Mesh mesh = Cube (false);
+    mesh.styled = true;
+    mesh.style.shading = layers::Shading::Ghost;
+    layer.meshes = { mesh };
+    const scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    ASSERT_EQ (scene.fills.size (), 36u);
+    for (size_t t = 0; t < 36; t += 3)
+        for (int c = 0; c < 3; ++c) {
+            EXPECT_FLOAT_EQ (scene.fills[t].normal[c], scene.fills[t + 1].normal[c]);
+            EXPECT_FLOAT_EQ (scene.fills[t].normal[c], scene.fills[t + 2].normal[c]);
+        }
+}

@@ -209,6 +209,15 @@ Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer
 // gets +z.
 std::vector<double> VertexNormals (const std::vector<double>& points, const std::vector<uint32_t>& indices);
 
+// One normal per triangle CORNER (x, y, z for each index): the area-weighted mean of
+// the faces round that corner's vertex that turn from its own face by at most
+// `creaseDegrees`. Smooth across a curved surface, flat on each face of a box -- where
+// per-vertex normals averaged three faces into every corner and bent each flat face
+// into a bulge (the ghost box, the first live run). Coincident vertices are welded
+// first, as for FeatureEdges.
+std::vector<double> CornerNormals (const std::vector<double>& points, const std::vector<uint32_t>& indices,
+                                   float creaseDegrees);
+
 // Boundary edges, and edges whose two faces meet at more than `angleDegrees`, as
 // vertex index pairs. Coincident vertices are welded first, so a seam where a mesh
 // repeats its vertices is not mistaken for a boundary.
