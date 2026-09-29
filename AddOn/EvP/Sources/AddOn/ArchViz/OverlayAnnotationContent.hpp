@@ -44,6 +44,7 @@ struct Style {
     // over it -- the viewer's FadeWhenOccluded, which `occlusion` replaces for all.
     overlaylayers::Behind occlusion = overlaylayers::Behind::Layer;
     uint32_t roleRgba[6] = {}; // by annotation::SemanticRole; alpha 0: the role's own
+    std::string font;          // a font file; empty is the bundled font
 };
 
 // Points as markers, polylines as polylines, arrows with their heads, dimensions and

@@ -384,6 +384,9 @@ BOUNDARY_INCLUDE_EXCEPTIONS = {
     # The layer verbs' parameters, read into the same store the verbs fill: split out
     # of OverlayLayerCommands.cpp so the vocabulary can grow apart from the verbs.
     ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayLayers.hpp"),
+    # A font a verb names is resolved as the verb reads it, so a caller hears at once
+    # that a family is not installed; the layers carry the file (OverlayFonts.hpp).
+    ("NativeCommands/OverlayLayerReading.cpp", "ArchViz/OverlayFonts.hpp"),
     # The massing slabs' floor slices read each slab's polygon through the one walk of
     # a polygon memo. Its indexing -- 1-based coords, the closing repeat, the arc
     # lookup by begIndex -- must not exist twice, and it lives with the element reads.

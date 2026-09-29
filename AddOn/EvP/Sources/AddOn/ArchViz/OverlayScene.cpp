@@ -249,7 +249,8 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
                                                                       dimension.unit, dimension.showUnit);
     const Vec3 middle = { (first.x + second.x) * 0.5, (first.y + second.y) * 0.5, (first.z + second.z) * 0.5 };
     overlaytext::Label label;
-    if (!LayOut (text, dimension.textSizePixels, layers::Align::Center, layers::Baseline::Bottom, label))
+    if (!LayOut (text, dimension.textSizePixels, layers::Align::Center, layers::Baseline::Bottom, label,
+                 dimension.font))
         return;
     const float gap = 3.0f;
     const float minSpan = (label.right - label.left) + 2.0f * 10.0f;
@@ -318,7 +319,7 @@ void Builder::AddTerminator (const Vec3& at, const Vec3& span, layers::Terminato
 void Builder::AddText (const layers::Layer& layer, const layers::Text& text)
 {
     overlaytext::Label label;
-    if (!LayOut (text.text, text.sizePixels, text.align, text.baseline, label))
+    if (!LayOut (text.text, text.sizePixels, text.align, text.baseline, label, text.font))
         return;
     if (text.planar) {
         AddPlanarText (layer, text, label);
@@ -429,19 +430,41 @@ void Builder::AddPlanarText (const layers::Layer& layer, const layers::Text& tex
     }
 }
 
-bool Builder::LayOut (const std::string& text, float size, layers::Align align, layers::Baseline baseline,
-                      overlaytext::Label& label)
+overlaytext::Engine* Builder::EngineFor (const std::string& font)
 {
-    if (text_ == nullptr || !text_->Ready ()) {
+    if (font.empty () || !fonts_)
+        return text_;
+    overlaytext::Engine* const engine = fonts_ (font);
+    if (engine != nullptr && engine->Ready ())
+        return engine;
+    draft_.problems.lastError = "the font \"" + font + "\" could not be loaded: the bundled font is used";
+    return text_;
+}
+
+bool Builder::LayOut (const std::string& text, float size, layers::Align align, layers::Baseline baseline,
+                      overlaytext::Label& label, const std::string& font)
+{
+    overlaytext::Engine* const engine = EngineFor (font);
+    if (engine == nullptr || !engine->Ready ()) {
         ++draft_.problems.textsNotLaidOut;
         draft_.problems.lastError = "the overlay text engine is not ready";
         return false;
     }
     std::string error;
-    if (!text_->Layout (text, size, align, baseline, label, error)) {
+    if (!engine->Layout (text, size, align, baseline, label, error)) {
         ++draft_.problems.textsNotLaidOut;
         draft_.problems.lastError = error;
         return false;
+    }
+    // Pages are the engine's own; the draft's list holds every engine's the glyphs use.
+    for (overlaytext::Quad& quad : label.quads) {
+        const auto key = std::make_pair (static_cast<const overlaytext::Engine*> (engine), quad.page);
+        auto slot = pageSlots_.find (key);
+        if (slot == pageSlots_.end ()) {
+            slot = pageSlots_.emplace (key, uint32_t (draft_.textPages.size ())).first;
+            draft_.textPages.push_back (engine->Pages ()[quad.page]);
+        }
+        quad.page = slot->second;
     }
     return true;
 }
@@ -500,9 +523,9 @@ using namespace build;
 namespace {
 
 Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, layers::Views view,
-                  overlaytext::Engine* text, overlayhud::Engine* hud, float scale)
+                  overlaytext::Engine* text, overlayhud::Engine* hud, float scale, const FontResolver& fonts)
 {
-    Builder builder (view, text, hud, scale);
+    Builder builder (view, text, hud, scale, fonts);
     std::vector<const layers::Panel*> panels;
     for (const std::shared_ptr<const layers::Layer>& layer : all)
         if (layers::DrawnIn (layer->views, view)) {
@@ -514,16 +537,14 @@ Draft BuildDraft (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
     return builder.Take ();
 }
 
-// The pages the glyphs sample: the text engine's, then the HUD's, every glyph's page
-// renumbered into that one list.
-std::vector<std::shared_ptr<const overlaytext::Page>> ComposePages (Draft& draft, overlaytext::Engine* text,
-                                                                    overlayhud::Engine* hud)
+// The pages the glyphs sample: the text pages they use, from every font's engine
+// (LayOut numbered them), then the HUD's, every glyph's page renumbered into that one list.
+std::vector<std::shared_ptr<const overlaytext::Page>> ComposePages (Draft& draft, overlayhud::Engine* hud)
 {
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
     if (draft.glyphs.empty ())
         return pages;
-    if (text != nullptr && text->Ready ())
-        pages = text->Pages ();
+    pages = draft.textPages;
     const uint32_t base = uint32_t (pages.size ());
     bool panels = false;
     for (DraftGlyph& glyph : draft.glyphs)
@@ -578,12 +599,12 @@ uint32_t BehindCode (layers::Behind resolved)
 }
 
 Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
-                  overlayhud::Engine* hud, float scale)
+                  overlayhud::Engine* hud, float scale, const FontResolver& fonts)
 {
-    Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale);
+    Draft draft = BuildDraft (all, layers::Views::TwoD, text, hud, scale, fonts);
     Plan out;
     out.problems = draft.problems;
-    out.pages = ComposePages (draft, text, hud);
+    out.pages = ComposePages (draft, hud);
 
     // The centre every half is relative to: the model anchors' mean.
     double sumX = 0.0, sumY = 0.0;
@@ -687,12 +708,12 @@ Plan PreparePlan (const std::vector<std::shared_ptr<const layers::Layer>>& all, 
 }
 
 Scene PrepareScene (const std::vector<std::shared_ptr<const layers::Layer>>& all, overlaytext::Engine* text,
-                    overlayhud::Engine* hud, float scale)
+                    overlayhud::Engine* hud, float scale, const FontResolver& fonts)
 {
-    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale);
+    Draft draft = BuildDraft (all, layers::Views::ThreeD, text, hud, scale, fonts);
     Scene out;
     out.problems = draft.problems;
-    out.pages = ComposePages (draft, text, hud);
+    out.pages = ComposePages (draft, hud);
 
     for (const DraftFill& fill : draft.fills) {
         FillDraw draw = fill.draw;

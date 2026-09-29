@@ -12,6 +12,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <map>
 
 namespace geomsrv {
 namespace archviz {
@@ -74,6 +75,41 @@ struct Engine::Impl {
     ImGuiContext* context = nullptr;
     ImFont* font = nullptr;
     std::vector<uint8_t> fontBytes; // ImGui reads it for as long as the atlas lives
+    // A panel's own fonts, by path, their bytes kept as long; a path that failed maps
+    // to the bundled font, tried once.
+    FontLoader loader;
+    std::map<std::string, ImFont*> fonts;
+    std::vector<std::unique_ptr<std::vector<uint8_t>>> fontData;
+    std::string fontError;
+
+    // Between frames, the context current and locked: ImGui adds a font to the atlas
+    // only then.
+    ImFont* FontFor (const std::string& path)
+    {
+        if (path.empty () || !loader)
+            return font;
+        const auto found = fonts.find (path);
+        if (found != fonts.end ())
+            return found->second != nullptr ? found->second : font;
+        auto bytes = std::make_unique<std::vector<uint8_t>> ();
+        std::string error;
+        ImFont* added = nullptr;
+        if (loader (path, *bytes, error)) {
+            ImFontConfig config;
+            config.FontDataOwnedByAtlas = false;
+            added = ImGui::GetIO ().Fonts->AddFontFromMemoryTTF (bytes->data (), int (bytes->size ()), 16.0f, &config);
+            if (added == nullptr)
+                error = "ImGui could not load \"" + path + "\"";
+        }
+        if (added != nullptr) {
+            fontData.push_back (std::move (bytes));
+            ++stats.fonts;
+        }
+        else
+            fontError = error;
+        fonts[path] = added;
+        return added != nullptr ? added : font;
+    }
     // One slot per ImGui texture, its TexID the slot's index plus one.
     std::vector<ImTextureData*> textures;
     std::vector<std::shared_ptr<const overlaytext::Page>> pages;
@@ -373,7 +409,7 @@ struct Engine::Impl {
             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs |
             ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav;
         ImGui::Begin (name, nullptr, flags);
-        ImGui::PushFont (font, panel.sizePixels * scale);
+        ImGui::PushFont (FontFor (panel.font), panel.sizePixels * scale);
         Items (panel, scale);
         ImGui::PopFont ();
         const ImVec2 size = ImGui::GetWindowSize ();
@@ -462,12 +498,18 @@ bool Engine::Init (std::vector<uint8_t> fontBytes, std::string& error)
         return false;
     }
     impl_->ready = true;
+    impl_->stats.fonts = 1;
     return true;
 }
 
 bool Engine::Ready () const
 {
     return impl_->ready;
+}
+
+void Engine::SetFontLoader (FontLoader loader)
+{
+    impl_->loader = std::move (loader);
 }
 
 bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale, std::vector<Built>& out,
@@ -484,6 +526,10 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale
     ImGuiContext* previous = ImGui::GetCurrentContext ();
     ImGui::SetCurrentContext (impl_->context);
     uint32_t unsampled = 0;
+    // Every panel's font in the atlas before the first frame, not in the middle of one.
+    impl_->fontError.clear ();
+    for (const layers::Panel* panel : panels)
+        impl_->FontFor (panel->font);
     for (int attempt = 0; attempt < kAttempts; ++attempt) {
         const uint64_t before = impl_->atlasVersion;
         out.assign (panels.size (), Built {});
@@ -505,6 +551,10 @@ bool Engine::Build (const std::vector<const layers::Panel*>& panels, float scale
         std::chrono::duration_cast<std::chrono::milliseconds> (std::chrono::steady_clock::now () - started).count ());
     if (unsampled > 0) {
         error = std::to_string (unsampled) + " ImGui draw command(s) sample a texture the HUD has no page for";
+        return false;
+    }
+    if (!impl_->fontError.empty ()) {
+        error = impl_->fontError + " -- the panel is in the bundled font";
         return false;
     }
     return true;

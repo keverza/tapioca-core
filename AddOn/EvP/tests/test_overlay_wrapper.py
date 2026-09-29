@@ -192,3 +192,20 @@ def test_the_add_ons_own_layers_take_their_style(monkeypatch):
     command, params = seen[1]
     assert command == "Tapioca.OverlayAnnotations" and params["action"] == "on"
     assert params["style"] == {"lineWidthPixels": 3.0, "halo": "000000FF", "colors": {"add": "00C000FF"}}
+
+
+def test_a_font_is_named_on_the_layer_or_on_an_item(monkeypatch):
+    seen = _capture(monkeypatch)
+    overlay.set_layer(
+        "fonts",
+        font="Segoe UI",
+        texts=[overlay.text("Room", at=(0, 0, 0), font="Consolas")],
+        dimensions=[overlay.dimension((0, 0, 0), (1, 0, 0), font="Arial")],
+        legends=[overlay.legend("viridis", 0, 1, font="Arial")],
+        panels=[overlay.Panel(title="HUD", font="C:/Fonts/own.ttf")],
+    )
+    params = seen[0][1]
+    assert params["font"] == "Segoe UI"
+    assert params["texts"][0]["font"] == "Consolas"
+    assert params["dimensions"][0]["font"] == "Arial" and params["legends"][0]["font"] == "Arial"
+    assert params["panels"][0]["font"] == "C:/Fonts/own.ttf"

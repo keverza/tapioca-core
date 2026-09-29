@@ -117,7 +117,12 @@ Engine::Engine () : impl_ (new Impl ())
 
 Engine::~Engine () = default;
 
-bool Engine::Init (std::vector<uint8_t> fontBytes, std::string& error)
+const char* Engine::SmallSeedText ()
+{
+    return "0123456789 .,:;-+%()/";
+}
+
+bool Engine::Init (std::vector<uint8_t> fontBytes, std::string& error, const std::string& seedText)
 {
     if (impl_->ready)
         return true;
@@ -130,8 +135,10 @@ bool Engine::Init (std::vector<uint8_t> fontBytes, std::string& error)
     if (!impl_->shaper.Init (impl_->font.data (), impl_->font.size (), error))
         return false;
     SceneTextGlyphRun seedRun;
-    if (!impl_->shaper.Shape (SceneTextSeedText (), SceneTextDirection::Auto, seedRun, error) ||
-        !impl_->seed.Build (impl_->font.data (), impl_->font.size (), seedRun, error, DistanceRangePixels ()))
+    if (!impl_->shaper.Shape (seedText.empty () ? SceneTextSeedText () : seedText, SceneTextDirection::Auto, seedRun,
+                              error) ||
+        !impl_->seed.Build (impl_->font.data (), impl_->font.size (), seedRun, error, DistanceRangePixels (),
+                            seedText.empty ()))
         return false;
     impl_->pages.push_back (MakePage (impl_->seed.Width (), impl_->seed.Height (), impl_->seed.Pixels ()));
     impl_->ready = true;

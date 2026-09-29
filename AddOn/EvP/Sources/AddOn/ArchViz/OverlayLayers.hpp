@@ -171,6 +171,9 @@ struct Text {
     Baseline baseline = Baseline::Middle;
     float rotationDegrees = 0.0f; // on screen, counter-clockwise
     Behind behind = Behind::Layer;
+    // The font file (OverlayFonts.hpp resolved the caller's name to it); empty is the
+    // bundled font. A layer's `font` fills it in when the item names none.
+    std::string font;
     // Lying on a plane in the model instead of facing the view, as a room name painted
     // on a floor: the baseline runs along `direction`, the glyphs rise towards
     // `normal` x `direction`, and the text is `sizeMetres` high. `sizePixels` then sets
@@ -206,6 +209,7 @@ struct Dimension {
     Terminator terminator = Terminator::Tick;
     float terminatorSizePixels = 10.0f;
     Behind behind = Behind::Layer;
+    std::string font; // as a text's
 };
 
 enum class Corner : uint8_t { TopLeft = 0, TopRight = 1, BottomLeft = 2, BottomRight = 3 };
@@ -239,6 +243,7 @@ struct Legend {
     uint32_t backgroundRgba = 0x1E2228C8u; // alpha 0: no panel
     float paddingPixels = 8.0f;
     uint32_t barBorderRgba = 0; // a frame round the bar; alpha 0: none
+    std::string font;           // as a text's
 };
 
 // ---- HUD panels: Dear ImGui over the view, never clickable (OverlayHud.hpp) ----------
@@ -306,6 +311,7 @@ struct Panel {
     uint32_t borderRgba = 0; // alpha 0: none
     float roundingPixels = 6.0f;
     float paddingPixels = 10.0f;
+    std::string font; // as a text's; ImGui rasterises it (OverlayHud.hpp)
     std::vector<PanelItem> items;
 };
 

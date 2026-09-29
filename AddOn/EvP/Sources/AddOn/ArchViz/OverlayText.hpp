@@ -89,7 +89,11 @@ class Engine final {
     Engine& operator= (const Engine&) = delete;
 
     // Shapes the seed text and builds page 0 from it -- the slow part, once.
-    bool Init (std::vector<uint8_t> fontBytes, std::string& error);
+    // `seedText` empty is the full seed (SceneTextSeedText and the scripts' codepoints):
+    // most of a second. Any other seeds only its own glyphs -- a caller's own font seeds
+    // `SmallSeedText` -- and the engine grows its pages as it is used.
+    bool Init (std::vector<uint8_t> fontBytes, std::string& error, const std::string& seedText = std::string ());
+    static const char* SmallSeedText ();
     bool Ready () const;
 
     // `utf8` at `sizePixels` per em, placed by `align` and `baseline` around (0, 0).

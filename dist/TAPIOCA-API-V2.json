@@ -18186,6 +18186,12 @@
                   "always"
                 ]
               },
+              "font": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 260,
+                "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
+              },
               "colors": {
                 "type": "object",
                 "properties": {
@@ -19056,6 +19062,12 @@
               },
               "onSlice": {
                 "type": "boolean"
+              },
+              "font": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 260,
+                "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
               },
               "sizeMetres": {
                 "type": "number",
@@ -23696,6 +23708,12 @@
               "always"
             ]
           },
+          "font": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 260,
+            "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
+          },
           "polylines": {
             "type": "array",
             "maxItems": 20000,
@@ -24065,6 +24083,12 @@
                   "minimum": -360,
                   "maximum": 360
                 },
+                "font": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 260,
+                  "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
+                },
                 "occlusion": {
                   "type": "string",
                   "enum": [
@@ -24178,6 +24202,12 @@
                   "type": "number",
                   "minimum": 1,
                   "maximum": 64
+                },
+                "font": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 260,
+                  "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
                 },
                 "occlusion": {
                   "type": "string",
@@ -24375,6 +24405,12 @@
                 },
                 "barBorder": {
                   "$ref": "#Color"
+                },
+                "font": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 260,
+                  "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
                 }
               },
               "additionalProperties": false
@@ -24435,6 +24471,12 @@
                   "type": "number",
                   "minimum": 0,
                   "maximum": 64
+                },
+                "font": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 260,
+                  "description": "An installed family as Windows lists it, or a .ttf, .otf or .ttc path."
                 },
                 "items": {
                   "type": "array",

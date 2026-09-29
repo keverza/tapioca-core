@@ -148,7 +148,8 @@ bool Prepare (ID3D11Device* device, const std::vector<std::shared_ptr<const over
 
     overlaytext::Engine* text = NeedsText (layers) ? guesttext::Engine () : nullptr;
     overlayhud::Engine* hud = NeedsHud (layers) ? guesttext::Hud () : nullptr;
-    const overlayscene::Plan plan = overlayscene::PreparePlan (layers, text, hud, g_dpiScale);
+    // A text in a font of its own is shaped by that font's engine (guesttext::EngineFor).
+    const overlayscene::Plan plan = overlayscene::PreparePlan (layers, text, hud, g_dpiScale, &guesttext::EngineFor);
     gpu::Arrays arrays;
     arrays.fills = plan.fills.data ();
     arrays.fillCount = plan.fills.size ();

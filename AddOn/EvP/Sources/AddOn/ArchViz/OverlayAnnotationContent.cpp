@@ -59,6 +59,7 @@ layers::Text Label (const std::string& text, const Point3& at, uint32_t rgba, fl
     label.rgba = rgba;
     label.haloRgba = style.haloRgba;
     label.haloPixels = style.haloPixels;
+    label.font = style.font;
     label.align = dx != 0.0f ? layers::Align::Left : layers::Align::Center;
     // The viewer's FadeWhenOccluded, unless the style says otherwise.
     label.behind = style.occlusion != layers::Behind::Layer ? style.occlusion : layers::Behind::Fade;
@@ -163,6 +164,7 @@ Built BuildLayer (const annotation::Frame& frame, const Style& style)
                 dimension.textSizePixels = style.textSizePixels;
                 dimension.haloRgba = style.haloRgba;
                 dimension.haloPixels = style.haloPixels;
+                dimension.font = style.font;
                 dimension.terminator = layers::Terminator::Arrow;
                 dimension.behind = primitive.alwaysVisible                    ? layers::Behind::Show
                                    : style.occlusion != layers::Behind::Layer ? style.occlusion

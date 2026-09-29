@@ -228,6 +228,7 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
             label.rgba = controls.labelRgba;
             label.haloRgba = controls.labelHaloRgba;
             label.haloPixels = controls.labelHaloPixels;
+            label.font = controls.labelFont;
             label.behind = layers::Behind::Show;
             label.at[2] = z;
             if (controls.labelOnSlice) {

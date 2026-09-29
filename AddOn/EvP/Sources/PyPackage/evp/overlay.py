@@ -189,12 +189,15 @@ class Panel:
         border=None,
         rounding=None,
         padding=None,
+        font=None,
     ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
         self._panel = {"anchor": anchor, "offsetPixels": point2(offset)}
         if title:
             self._panel["title"] = str(title)
+        if font:
+            self._panel["font"] = str(font)
         for key, value in (
             ("widthPixels", width),
             ("sizePixels", size),
@@ -395,6 +398,7 @@ def dimension(
     terminator=None,
     terminator_size=None,
     occlusion=None,
+    font=None,
 ):
     """An aligned dimension from `start` to `end`, its line `offset` metres off towards
     `direction`, in the plane `normal` names. `text` replaces the measured length;
@@ -414,6 +418,7 @@ def dimension(
             ("showUnit", show_unit),
             ("terminator", _terminator(terminator)),
             ("occlusion", _occlusion(occlusion)),
+            ("font", font),
         ),
     )
     _put(out, (("color", color), ("textColor", text_color), ("halo", halo)), colour)
@@ -446,6 +451,7 @@ def text(
     offset=None,
     rotation=None,
     occlusion=None,
+    font=None,
 ):
     """A label: at a model point (`at`), fixed to the view (`screen`, fractions from its
     top left), or lying on a plane in the model (`at` and `plane`).
@@ -480,7 +486,7 @@ def text(
     for key, value in (("color", color), ("halo", halo), ("background", background)):
         if value is not None:
             out[key] = colour(value)
-    for key, value in (("align", align), ("baseline", baseline), ("occlusion", _occlusion(occlusion))):
+    for key, value in (("align", align), ("baseline", baseline), ("occlusion", _occlusion(occlusion)), ("font", font)):
         if value is not None:
             out[key] = value
     if offset is not None:
@@ -513,6 +519,7 @@ def legend(
     bar_border=None,
     offset=None,
     halo_size=None,
+    font=None,
 ):
     """A colour bar fixed to the view. `mesh` (an index into the same call's meshes)
     takes that heatmap's ramp and range instead of `colormap`, `minimum`, `maximum`.
@@ -533,6 +540,7 @@ def legend(
         ("horizontal", horizontal),
         ("ticks", ticks),
         ("decimals", decimals),
+        ("font", font),
     ):
         if value is not None:
             out[key] = value
@@ -602,8 +610,13 @@ def set_layer(
     dimensions=None,
     legends=None,
     panels=None,
+    font=None,
 ):
-    """Add or replace the layer `name` on the overlays. Returns what was taken."""
+    """Add or replace the layer `name` on the overlays. Returns what was taken.
+
+    `font` is every text's, dimension's, legend's and panel's that names none: an
+    installed family as Windows lists it ("Arial", "Segoe UI Semibold") or a font file.
+    """
     params = {
         "layer": str(name),
         "views": views,
@@ -614,6 +627,7 @@ def set_layer(
         "texts": texts,
         "dimensions": dimensions,
         "legends": legends,
+        "font": font,
     }
     if panels is not None:
         params["panels"] = [p.to_dict() if isinstance(p, Panel) else p for p in panels]

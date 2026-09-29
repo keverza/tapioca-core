@@ -467,6 +467,7 @@ set (EVP_ARCHVIZ_SOURCES
     # The HUD panels: laid out by the vendored Dear ImGui into triangles over its own
     # font atlas, the same library the add-on links (TapiocaImGui below).
     "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayHud.cpp"
+    "${EVP_ROOT}/Sources/AddOn/ArchViz/OverlayFonts.cpp"
     "${EVP_ROOT}/Sources/AddOn/ArchViz/ImGuiContextLock.cpp"
     # The storey slices and the Watch annotations as overlay layers: which storeys, the
     # label's corner, each annotation primitive's drawn form.
@@ -626,6 +627,7 @@ set (EVP_TEST_SOURCES
     test_overlayshaders.cpp
     test_guestdepthpull.cpp
     test_guesthalo.cpp
+    test_overlayfonts.cpp
     # ArchViz/Dxgi/CameraLayout.hpp and CameraShaderSource.hpp are header-only and
     # name no D3D type: what Archicad's b2 holds, pinned with captured matrices.
     test_cameralayout.cpp

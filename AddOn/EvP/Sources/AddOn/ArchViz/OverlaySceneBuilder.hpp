@@ -13,7 +13,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 #include <utility>
 #include <vector>
 
@@ -124,12 +127,16 @@ struct Draft {
     std::vector<DraftGlyph> glyphs;
     size_t fillVertices = 0;
     Problems problems;
+    // The text pages the glyphs sample, from every font's engine: a glyph's `page`
+    // indexes this, below kHudPageBase.
+    std::vector<std::shared_ptr<const overlaytext::Page>> textPages;
 };
 
 class Builder {
   public:
-    Builder (layers::Views view, overlaytext::Engine* text, overlayhud::Engine* hud, float scale)
-        : view_ (view), text_ (text), hud_ (hud), scale_ (scale > 0.0f ? scale : 1.0f)
+    Builder (layers::Views view, overlaytext::Engine* text, overlayhud::Engine* hud, float scale,
+             const FontResolver& fonts)
+        : view_ (view), text_ (text), hud_ (hud), scale_ (scale > 0.0f ? scale : 1.0f), fonts_ (fonts)
     {
     }
 
@@ -163,9 +170,13 @@ class Builder {
     void AddPlanarText (const layers::Layer& layer, const layers::Text& text, const overlaytext::Label& label);
     void AddLegend (const layers::Legend& legend);
     void ScreenText (const std::string& text, double fx, double fy, float x, float y, float size, layers::Align align,
-                     layers::Baseline baseline, uint32_t rgba, uint32_t halo, float haloPixels);
+                     layers::Baseline baseline, uint32_t rgba, uint32_t halo, float haloPixels,
+                     const std::string& font);
+    // `text` shaped in `font`'s engine, its quads' pages renumbered into the draft's.
     bool LayOut (const std::string& text, float size, layers::Align align, layers::Baseline baseline,
-                 overlaytext::Label& label);
+                 overlaytext::Label& label, const std::string& font);
+    // The engine for a font file; the bundled font's for none, or for one that failed.
+    overlaytext::Engine* EngineFor (const std::string& font);
     // One glyph's two triangles, moved by (dx, dy) in the label's frame.
     void PushQuad (DraftGlyph glyph, const overlaytext::Quad& quad, float dx, float dy);
     bool PushGlyphVertex (const DraftGlyph& glyph, float x, float y, float u, float v);
@@ -175,7 +186,10 @@ class Builder {
     overlaytext::Engine* text_;
     overlayhud::Engine* hud_;
     float scale_;
+    const FontResolver& fonts_;
     Draft draft_;
+    // Each (engine, page) a glyph used, and its index in `draft_.textPages`.
+    std::map<std::pair<const overlaytext::Engine*, uint32_t>, uint32_t> pageSlots_;
 };
 
 } // namespace build

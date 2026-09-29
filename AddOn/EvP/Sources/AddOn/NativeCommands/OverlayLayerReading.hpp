@@ -38,6 +38,10 @@ std::string StringOf (const GS::ObjectState& item, const char* key);
 // when it is not 6 or 8 hex digits. Every overlay verb reads its colours here.
 bool ReadColour (const GS::ObjectState& item, const char* key, uint32_t& rgba, std::string& error);
 
+// The font named at `key` -- an installed family or a font file -- as the file's path,
+// untouched when absent; false with `error` when no such font is installed.
+bool ReadFont (const GS::ObjectState& item, const char* key, std::string& path, std::string& error);
+
 // `occlusion` ("always", "hide", "fade", "dash"); `fallback` when absent.
 archviz::overlaylayers::Behind OcclusionOf (const GS::ObjectState& item, archviz::overlaylayers::Behind fallback);
 

@@ -28,6 +28,7 @@
 #include "ArchViz/OverlayText.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -61,7 +62,11 @@ struct Stats {
     uint32_t frames = 0;        // ImGui frames they took
     uint32_t atlasVersions = 0; // font atlas versions made into pages
     uint32_t lastMilliseconds = 0;
+    uint32_t fonts = 0; // in the atlas, the bundled one included
 };
+
+// Reads the font file at a path a panel names (overlayfonts::Read).
+using FontLoader = std::function<bool (const std::string& path, std::vector<uint8_t>& bytes, std::string& error)>;
 
 class Engine final {
   public:
@@ -73,6 +78,9 @@ class Engine final {
     // The font is the overlays' own (SceneTextFont.hpp); ImGui rasterises from it.
     bool Init (std::vector<uint8_t> fontBytes, std::string& error);
     bool Ready () const;
+
+    // How a panel's `font` is read; without one every panel is in the bundled font.
+    void SetFontLoader (FontLoader loader);
 
     // Every panel of a set, laid out at `scale` (the view's DPI scale): `out[i]` is
     // `panels[i]`. ⚠️ BUILT TOGETHER, AND AGAIN UNTIL THE ATLAS HOLDS STILL: a panel

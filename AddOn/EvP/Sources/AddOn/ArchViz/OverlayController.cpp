@@ -599,8 +599,9 @@ void PublishLayers ()
     }
     const UINT dpi = ::GetDpiForSystem ();
     const float scale = dpi != 0 ? float (dpi) / 96.0f : 1.0f;
-    overlayscene::Scene scene = overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr,
-                                                            panels ? guesttext::Hud () : nullptr, scale);
+    overlayscene::Scene scene =
+        overlayscene::PrepareScene (layers, text ? guesttext::Engine () : nullptr, panels ? guesttext::Hud () : nullptr,
+                                    scale, &guesttext::EngineFor);
     scene.generation = overlaylayers::Generation ();
     const overlayscene::Problems& problems = scene.problems;
     if (problems.textsNotLaidOut + problems.dimensionsNotResolved + problems.truncated > 0)

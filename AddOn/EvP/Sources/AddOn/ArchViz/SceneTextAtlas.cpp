@@ -217,7 +217,7 @@ const SceneTextGlyph* SceneTextAtlasPage::FindGlyphExact (uint32_t glyphIndex) c
 }
 
 bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun,
-                            std::string& error, float distanceRangePixels)
+                            std::string& error, float distanceRangePixels, bool scripts)
 {
     width_ = height_ = 0;
     pixels_.clear ();
@@ -247,6 +247,8 @@ bool SceneTextAtlas::Build (const uint8_t* fontBytes, size_t fontByteCount, cons
     msdf_atlas::Charset glyphset;
     const std::vector<uint32_t> seedCodepoints = SeedCodepoints ();
     for (uint32_t codepoint : seedCodepoints) {
+        if (!scripts && codepoint != kReplacementCodepoint)
+            continue;
         msdfgen::GlyphIndex glyphIndex;
         if (msdfgen::getGlyphIndex (glyphIndex, font, codepoint)) {
             glyphset.add (glyphIndex.getIndex ());

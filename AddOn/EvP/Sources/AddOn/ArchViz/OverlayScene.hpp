@@ -31,6 +31,7 @@
 #include "ArchViz/OverlayText.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <utility>
@@ -204,14 +205,19 @@ struct Scene {
     }
 };
 
+// The text engine for a font file a text names (guesttext::EngineFor); null leaves that
+// text in the bundled font, with the reason in `problems`.
+using FontResolver = std::function<overlaytext::Engine*(const std::string& font)>;
+
 // What the guest draws of these layers in each view. `text` may be null or not
 // ready: labels are then counted in `problems` and skipped, everything else drawn.
 // `hud` lays out the HUD panels at `scale`, the view's DPI scale; null skips them,
-// counted with the labels. The panels are drawn last, over everything.
+// counted with the labels. The panels are drawn last, over everything. `fonts` finds
+// the engine for a text in a font of its own; without it every text is in `text`'s.
 Plan PreparePlan (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text,
-                  overlayhud::Engine* hud = nullptr, float scale = 1.0f);
+                  overlayhud::Engine* hud = nullptr, float scale = 1.0f, const FontResolver& fonts = FontResolver ());
 Scene PrepareScene (const std::vector<std::shared_ptr<const overlaylayers::Layer>>& layers, overlaytext::Engine* text,
-                    overlayhud::Engine* hud = nullptr, float scale = 1.0f);
+                    overlayhud::Engine* hud = nullptr, float scale = 1.0f, const FontResolver& fonts = FontResolver ());
 
 // ---- pure helpers, exposed for their tests -----------------------------------
 

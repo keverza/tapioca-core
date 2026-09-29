@@ -3,10 +3,12 @@
 #include "ArchViz/OverlayGuestText.hpp"
 
 #include "ArchViz/ArchVizLog.hpp"
+#include "ArchViz/OverlayFonts.hpp"
 #include "ArchViz/OverlayHud.hpp"
 #include "ArchViz/OverlayText.hpp"
 #include "ArchViz/SceneTextFont.hpp"
 
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,6 +23,8 @@ std::unique_ptr<overlaytext::Engine> g_engine; // MAIN THREAD
 bool g_failed = false;
 std::unique_ptr<overlayhud::Engine> g_hud;
 bool g_hudFailed = false;
+// A caller's fonts by path; null for one that failed, so it is said once.
+std::map<std::string, std::unique_ptr<overlaytext::Engine>> g_fonts;
 
 } // namespace
 
@@ -46,6 +50,34 @@ overlaytext::Engine* Engine ()
     return g_engine.get ();
 }
 
+overlaytext::Engine* EngineFor (const std::string& path)
+{
+    if (path.empty ())
+        return Engine ();
+    const auto found = g_fonts.find (path);
+    if (found != g_fonts.end ())
+        return found->second.get ();
+    std::unique_ptr<overlaytext::Engine> engine;
+    std::string error;
+    std::vector<uint8_t> font;
+    if (g_fonts.size () >= kMaxFonts)
+        error = "the overlays already hold " + std::to_string (kMaxFonts) + " fonts";
+    else if (overlayfonts::Read (path, font, error)) {
+        engine = std::make_unique<overlaytext::Engine> ();
+        if (!engine->Init (std::move (font), error, overlaytext::Engine::SmallSeedText ()))
+            engine.reset ();
+    }
+    if (engine != nullptr)
+        ArchVizLog ("OVERLAY TEXT  font \"" + path + "\" ready in " +
+                    std::to_string (engine->GetStats ().seedMilliseconds) + " ms");
+    else
+        ArchVizLog ("OVERLAY TEXT  font \"" + path + "\" NOT AVAILABLE: " + error +
+                    " -- its texts use the bundled font");
+    overlaytext::Engine* const made = engine.get ();
+    g_fonts[path] = std::move (engine);
+    return made;
+}
+
 overlayhud::Engine* Hud ()
 {
     if (g_hud != nullptr)
@@ -61,6 +93,7 @@ overlayhud::Engine* Hud ()
         return nullptr;
     }
     ArchVizLog ("OVERLAY HUD  ready: Dear ImGui over the bundled font, laid out on the main thread");
+    hud->SetFontLoader (&overlayfonts::Read);
     g_hud = std::move (hud);
     return g_hud.get ();
 }

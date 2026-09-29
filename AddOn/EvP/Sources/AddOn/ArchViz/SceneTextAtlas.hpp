@@ -69,9 +69,10 @@ class SceneTextAtlas final {
     // `distanceRangePixels` is how far from an edge the atlas records distance, in atlas
     // pixels. A halo can reach only that far (half of it, beyond the edge), so the
     // overlays' labels, which wear one at small sizes, build theirs wider than the
-    // viewer's; the default is the viewer's.
+    // viewer's; the default is the viewer's. `scripts` false seeds only `seedRun` and the
+    // replacement glyph, not the scripts' codepoints -- most of a second of the build.
     bool Build (const uint8_t* fontBytes, size_t fontByteCount, const SceneTextGlyphRun& seedRun, std::string& error,
-                float distanceRangePixels = kDistanceRangePixels);
+                float distanceRangePixels = kDistanceRangePixels, bool scripts = true);
     const SceneTextGlyph* Find (uint32_t codepoint) const;
     const SceneTextGlyph* FindGlyph (uint32_t glyphIndex) const;
     const SceneTextGlyph* FindGlyphExact (uint32_t glyphIndex) const;

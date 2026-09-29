@@ -7,6 +7,7 @@
 #include "NativeCommands/OverlayLayerReading.hpp"
 #include "NativeCommands/CommandUtils.hpp" // ReadReal/ReadReals: a JSON whole number is a number too
 
+#include "ArchViz/OverlayFonts.hpp"
 #include "ArchViz/OverlayLayers.hpp"
 
 #include <string>
@@ -244,6 +245,8 @@ bool ReadText (const GS::ObjectState& item, layers::Text& text, std::string& err
                                                    : layers::Baseline::Middle;
     }
     ReadFloat (item, "rotationDegrees", text.rotationDegrees);
+    if (!ReadFont (item, "font", text.font, error))
+        return false;
     text.behind = OcclusionOf (item, layers::Behind::Layer);
     GS::ObjectState plane;
     if (item.Get ("plane", plane)) {
@@ -294,6 +297,8 @@ bool ReadDimension (const GS::ObjectState& item, layers::Dimension& dimension, s
     ReadFloat (item, "haloPixels", dimension.haloPixels);
     dimension.terminator = TerminatorOf (item, "terminator", dimension.terminator);
     ReadFloat (item, "terminatorSizePixels", dimension.terminatorSizePixels);
+    if (!ReadFont (item, "font", dimension.font, error))
+        return false;
     dimension.behind = OcclusionOf (item, layers::Behind::Layer);
     return true;
 }
@@ -363,6 +368,8 @@ bool ReadLegend (const GS::ObjectState& item, const std::vector<layers::Mesh>& m
     ReadFloat (item, "titleSizePixels", legend.titleSizePixels);
     ReadFloat (item, "paddingPixels", legend.paddingPixels);
     ReadFloat (item, "haloPixels", legend.haloPixels);
+    if (!ReadFont (item, "font", legend.font, error))
+        return false;
     return ReadColour (item, "color", legend.rgba, error) && ReadColour (item, "halo", legend.haloRgba, error) &&
            ReadColour (item, "background", legend.backgroundRgba, error) &&
            ReadColour (item, "barBorder", legend.barBorderRgba, error);
@@ -450,6 +457,8 @@ bool ReadPanel (const GS::ObjectState& item, layers::Panel& panel, std::string& 
     ReadFloat (item, "sizePixels", panel.sizePixels);
     ReadFloat (item, "roundingPixels", panel.roundingPixels);
     ReadFloat (item, "paddingPixels", panel.paddingPixels);
+    if (!ReadFont (item, "font", panel.font, error))
+        return false;
     if (!ReadColour (item, "color", panel.textRgba, error) ||
         !ReadColour (item, "background", panel.backgroundRgba, error) ||
         !ReadColour (item, "border", panel.borderRgba, error))
@@ -516,6 +525,17 @@ std::string StringOf (const GS::ObjectState& item, const char* key)
     return StringValue (item, key);
 }
 
+bool ReadFont (const GS::ObjectState& item, const char* key, std::string& path, std::string& error)
+{
+    if (!item.Contains (key))
+        return true;
+    if (!archviz::overlayfonts::Resolve (StringValue (item, key), path, error)) {
+        error = std::string (key) + ": " + error;
+        return false;
+    }
+    return true;
+}
+
 bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string& error)
 {
     layer.name = StringValue (params, "layer");
@@ -530,6 +550,10 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
     }
     const layers::Behind occlusion = OcclusionOf (params, layers::Behind::Layer);
     layer.occlusion = occlusion == layers::Behind::Layer ? layers::Behind::Hide : occlusion;
+    // The layer's font is every text-bearing item's that names none of its own.
+    std::string font;
+    if (!ReadFont (params, "font", font, error))
+        return false;
 
     GS::Array<GS::ObjectState> items;
     if (params.Get ("polylines", items)) {
@@ -614,6 +638,16 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
             }
             layer.panels.push_back (std::move (panel));
         }
+    }
+    if (!font.empty ()) {
+        for (layers::Text& text : layer.texts)
+            text.font = text.font.empty () ? font : text.font;
+        for (layers::Dimension& dimension : layer.dimensions)
+            dimension.font = dimension.font.empty () ? font : dimension.font;
+        for (layers::Legend& legend : layer.legends)
+            legend.font = legend.font.empty () ? font : legend.font;
+        for (layers::Panel& panel : layer.panels)
+            panel.font = panel.font.empty () ? font : panel.font;
     }
     error = layers::Validate (layer);
     return error.empty ();

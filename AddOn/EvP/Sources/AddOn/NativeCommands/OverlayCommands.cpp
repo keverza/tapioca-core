@@ -157,6 +157,7 @@ namespace overlays = archviz::overlaylayers;
 // One reading of a colour and of an occlusion for every overlay verb.
 using overlayreading::OcclusionOf;
 using overlayreading::ReadColour;
+using overlayreading::ReadFont;
 using overlayreading::StringOf;
 
 float FloatOf (const GS::ObjectState& item, const char* key, float fallback)
@@ -209,6 +210,8 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
             label.Get ("name", controls.labelName);
         if (label.Contains ("onSlice"))
             label.Get ("onSlice", controls.labelOnSlice);
+        if (!ReadFont (label, "font", controls.labelFont, error))
+            return false;
         ReadReal (label, "sizeMetres", controls.labelSizeMetres);
     }
     ReadReal (params, "liftMetres", controls.liftMetres);
@@ -224,7 +227,7 @@ bool ReadAnnotationStyle (const GS::ObjectState& params, archviz::overlayannotat
     style.textSizePixels = FloatOf (params, "textSizePixels", style.textSizePixels);
     style.haloPixels = FloatOf (params, "haloPixels", style.haloPixels);
     style.occlusion = OcclusionOf (params, style.occlusion);
-    if (!ReadColour (params, "halo", style.haloRgba, error))
+    if (!ReadColour (params, "halo", style.haloRgba, error) || !ReadFont (params, "font", style.font, error))
         return false;
     GS::ObjectState colors;
     if (params.Get ("colors", colors)) {
@@ -453,6 +456,7 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
         "decimals":{"type":"integer","minimum":0,"maximum":6},
         "name":{"type":"boolean"},
         "onSlice":{"type":"boolean"},
+        "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
         "sizeMetres":{"type":"number","minimum":0,"maximum":100}},
       "additionalProperties":false},
     "liftMetres":{"type":"number","minimum":-100,"maximum":100}},
@@ -493,6 +497,7 @@ constexpr const char kOverlayAnnotationsInput[] = R"json({"type":"object","prope
         "halo":{"$ref":"#Color"},
         "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
         "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
+        "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
         "colors":{"type":"object","properties":{
             "none":{"$ref":"#Color"},"add":{"$ref":"#Color"},"remove":{"$ref":"#Color"},
             "modify":{"$ref":"#Color"},"context":{"$ref":"#Color"},"guide":{"$ref":"#Color"}},

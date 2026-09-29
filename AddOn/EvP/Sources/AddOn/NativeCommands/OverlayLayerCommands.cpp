@@ -199,6 +199,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
     "layer":{"type":"string","minLength":1,"maxLength":64},
     "views":{"type":"string","enum":["2d","3d","both"]},
     "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
+    "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
     "polylines":{"type":"array","maxItems":20000,"items":{"type":"object","properties":{
         "points":{"type":"array","minItems":6,"maxItems":300000,"description":"Packed x, y, z model metres; stride 3.","items":{"type":"number"}},
         "closed":{"type":"boolean"},
@@ -262,6 +263,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "align":{"type":"string","enum":["left","center","right"]},
         "baseline":{"type":"string","enum":["top","middle","bottom","alphabetic"]},
         "rotationDegrees":{"type":"number","minimum":-360,"maximum":360},
+        "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
         "occlusion":{"type":"string","enum":["hide","fade","always"]},
         "plane":{"type":"object","properties":{
             "direction":{"$ref":"#Point3D"},
@@ -287,6 +289,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
         "terminator":{"type":"string","enum":["tick","arrow","dot","none"]},
         "terminatorSizePixels":{"type":"number","minimum":1,"maximum":64},
+        "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
         "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false,"required":["from","to"]}},)json"
     R"json("legends":{"type":"array","maxItems":8,"items":{"type":"object","properties":{
@@ -322,7 +325,8 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "halo":{"$ref":"#Color"},
         "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
         "background":{"$ref":"#Color"},
-        "barBorder":{"$ref":"#Color"}},
+        "barBorder":{"$ref":"#Color"},
+        "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."}},
       "additionalProperties":false}},)json"
     R"json("panels":{"type":"array","maxItems":32,"items":{"type":"object","properties":{
         "title":{"type":"string","maxLength":512},
@@ -336,6 +340,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "border":{"$ref":"#Color"},
         "roundingPixels":{"type":"number","minimum":0,"maximum":64},
         "paddingPixels":{"type":"number","minimum":0,"maximum":64},
+        "font":{"type":"string","minLength":1,"maxLength":260,"description":"An installed family as Windows lists it, or a .ttf, .otf or .ttc path."},
         "items":{"type":"array","maxItems":200,"items":{"type":"object","properties":{
             "kind":{"type":"string","enum":["text","row","separator","spacing","progress","swatch","ramp","plot",
                                             "table"]},

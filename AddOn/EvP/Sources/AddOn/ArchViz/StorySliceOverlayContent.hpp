@@ -42,6 +42,7 @@ struct Controls {
     uint32_t labelRgba = 0x202020FFu;
     uint32_t labelHaloRgba = 0xFFFFFFD0u;
     float labelHaloPixels = overlaylayers::kAutoHalo; // as a text's
+    std::string labelFont;                            // a font file; empty is the bundled font
     uint32_t decimals = 1;
     bool labelName = false; // the slice's name before the area
     // ⚠️ ON THE SLICE BY DEFAULT: the label lies on the cut plane at its height, along
