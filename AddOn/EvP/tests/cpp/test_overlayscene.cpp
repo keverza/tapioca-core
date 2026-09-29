@@ -591,3 +591,73 @@ TEST (OverlayScene, AHaloIsAutomaticUnlessFixed)
     layer.texts = { fixed };
     EXPECT_NE (layers::Validate (layer), "");
 }
+
+// An open polyline's ends: an arrowhead and a dot, turned with their own segments, as
+// solid glyph triangles; the line itself goes to the guest because of them.
+TEST (OverlayScene, APolylineEndsInItsArrows)
+{
+    layers::Layer layer;
+    layer.name = "flow";
+    layers::Polyline flow;
+    flow.points = { 0, 0, 0, 2, 0, 0, 2, 3, 0 };
+    flow.startArrow = layers::Terminator::Dot;
+    flow.endArrow = layers::Terminator::Arrow;
+    flow.arrowSizePixels = 14.0f;
+    layer.polylines = { flow };
+    EXPECT_TRUE (layers::DrawnByGuest (layer.polylines[0], layer));
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene scene = scene::PrepareScene (One (layer), nullptr);
+    EXPECT_EQ (scene.lines.size (), 2u);
+    ASSERT_EQ (scene.glyphs.size (), 12u); // two terminators, six vertices each
+    // The dot at the start, along the first segment; the arrow at the end, along the last.
+    EXPECT_FLOAT_EQ (scene.glyphs[0].position[0], 0.0f);
+    EXPECT_FLOAT_EQ (scene.glyphs[0].dir[0], 2.0f);
+    EXPECT_FLOAT_EQ (scene.glyphs[6].position[1], 3.0f);
+    EXPECT_FLOAT_EQ (scene.glyphs[6].dir[1], 3.0f);
+    float back = 0.0f;
+    for (size_t i = 6; i < 12; ++i) {
+        EXPECT_NE (scene.glyphs[i].flags & scene::kSolid, 0u);
+        back = (std::min) (back, scene.glyphs[i].offset[0]);
+    }
+    EXPECT_FLOAT_EQ (back, -14.0f); // the head's body lies back along the line, its size long
+
+    flow.closed = true; // a closed polyline has no ends
+    layer.polylines = { flow };
+    EXPECT_TRUE (scene::PrepareScene (One (layer), nullptr).glyphs.empty ());
+}
+
+// A dimension's text in its own colour and halo, its terminators sized, or none.
+TEST (OverlayScene, ADimensionTakesItsTextStyleAndTerminatorSize)
+{
+    layers::Layer layer;
+    layer.name = "dimension";
+    layers::Dimension dimension;
+    dimension.to[0] = 4.0;
+    dimension.rgba = 0xFF5000FFu;
+    dimension.textRgba = 0x202020FFu;
+    dimension.haloRgba = 0xFFFFFFC0u;
+    dimension.haloPixels = 1.0f;
+    dimension.terminator = layers::Terminator::Arrow;
+    dimension.terminatorSizePixels = 16.0f;
+    layer.dimensions = { dimension };
+    EXPECT_EQ (layers::Validate (layer), "");
+    const scene::Scene scene = scene::PrepareScene (One (layer), &Engine ());
+    size_t text = 0;
+    float reach = 0.0f;
+    for (const scene::SceneGlyph& glyph : scene.glyphs) {
+        if ((glyph.flags & scene::kSolid) != 0) {
+            reach = (std::max) (reach, std::fabs (glyph.offset[0]));
+            continue;
+        }
+        ++text;
+        EXPECT_EQ (glyph.rgba, layers::ToUnorm (0x202020FFu)); // as the GPU reads it
+        EXPECT_EQ (glyph.halo, layers::ToUnorm (0xFFFFFFC0u));
+        EXPECT_FLOAT_EQ (glyph.haloPixels, 1.0f);
+    }
+    EXPECT_GT (text, 0u);
+    EXPECT_FLOAT_EQ (reach, 16.0f);
+    dimension.terminator = layers::Terminator::None;
+    layer.dimensions = { dimension };
+    for (const scene::SceneGlyph& glyph : scene::PrepareScene (One (layer), &Engine ()).glyphs)
+        EXPECT_EQ (glyph.flags & scene::kSolid, 0u);
+}

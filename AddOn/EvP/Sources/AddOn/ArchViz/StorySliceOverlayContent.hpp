@@ -32,6 +32,7 @@ struct Controls {
     overlaylayers::Views views = overlaylayers::Views::ThreeD;
     uint32_t outlineRgba = 0x3C3C3CFFu;
     float outlineWidthPixels = 2.0f;
+    float outlineDashPixels = 0.0f; // a dash period where the outline is visible too; 0 is solid
     // Where the building is in front: dashed, the drafting convention for hidden edges.
     overlaylayers::Behind outlineBehind = overlaylayers::Behind::Dash;
     uint32_t fillRgba = 0xC8C8C84Du; // light, translucent grey; alpha 0 is no fill
@@ -40,6 +41,7 @@ struct Controls {
     float labelSizePixels = 11.0f;
     uint32_t labelRgba = 0x202020FFu;
     uint32_t labelHaloRgba = 0xFFFFFFD0u;
+    float labelHaloPixels = overlaylayers::kAutoHalo; // as a text's
     uint32_t decimals = 1;
     bool labelName = false; // the slice's name before the area
     // ⚠️ ON THE SLICE BY DEFAULT: the label lies on the cut plane at its height, along

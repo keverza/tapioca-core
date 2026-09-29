@@ -46,7 +46,7 @@ Point3 PlaneFor (const annotation::Primitive& primitive, const Point3& direction
     return n > 1e-12 * length ? Point3 { nx / n, ny / n, 0.0 } : Point3 { 1.0, 0.0, 0.0 };
 }
 
-layers::Text Label (const std::string& text, const Point3& at, uint32_t rgba, float dx, float dy)
+layers::Text Label (const std::string& text, const Point3& at, uint32_t rgba, float dx, float dy, const Style& style)
 {
     layers::Text label;
     label.text = text;
@@ -55,42 +55,50 @@ layers::Text Label (const std::string& text, const Point3& at, uint32_t rgba, fl
     label.at[2] = at.z;
     label.offsetPixels[0] = dx;
     label.offsetPixels[1] = dy;
-    label.sizePixels = 12.0f;
+    label.sizePixels = style.textSizePixels;
     label.rgba = rgba;
-    label.haloRgba = 0x000000B0u;
+    label.haloRgba = style.haloRgba;
+    label.haloPixels = style.haloPixels;
     label.align = dx != 0.0f ? layers::Align::Left : layers::Align::Center;
-    label.behind = layers::Behind::Fade; // the viewer's FadeWhenOccluded
+    // The viewer's FadeWhenOccluded, unless the style says otherwise.
+    label.behind = style.occlusion != layers::Behind::Layer ? style.occlusion : layers::Behind::Fade;
     return label;
 }
 
 } // namespace
 
-Built BuildLayer (const annotation::Frame& frame)
+Built BuildLayer (const annotation::Frame& frame, const Style& style)
 {
     Built out;
     out.layer.name = kLayerName;
     out.layer.views = layers::Views::Both;
-    out.layer.occlusion = layers::Behind::Show;
+    // Over everything unless the style says otherwise; labels and dimensions fade (Label).
+    out.layer.occlusion = style.occlusion != layers::Behind::Layer ? style.occlusion : layers::Behind::Show;
     for (const annotation::Primitive& primitive : frame.primitives) {
         ++out.primitives;
         if (!annotation::IsDrawable (primitive) || primitive.kind == PrimitiveKind::Element)
             continue;
-        const uint32_t rgba = annotation::PackRgba (annotation::RoleColour (primitive.role));
+        const size_t role = size_t (primitive.role);
+        const uint32_t rgba = role < 6 && (style.roleRgba[role] & 0xFFu) != 0
+                                  ? style.roleRgba[role]
+                                  : annotation::PackRgba (annotation::RoleColour (primitive.role));
+        const float lineWidth =
+            primitive.role == annotation::SemanticRole::Context ? style.contextWidthPixels : style.lineWidthPixels;
         const std::vector<Point3>& points = primitive.points;
         switch (primitive.kind) {
             case PrimitiveKind::Point: {
                 layers::PointSet set;
                 Push (set.points, points[0]);
                 set.rgba = rgba;
-                set.sizePixels = 8.0f;
+                set.sizePixels = style.pointSizePixels;
                 set.sizeMetres = 0.2f;
                 out.layer.points.push_back (std::move (set));
                 if (!primitive.text.empty ())
-                    out.layer.texts.push_back (Label (primitive.text, points[0], rgba, 7.0f, 7.0f));
+                    out.layer.texts.push_back (Label (primitive.text, points[0], rgba, 7.0f, 7.0f, style));
                 break;
             }
             case PrimitiveKind::Label:
-                out.layer.texts.push_back (Label (primitive.text, points[0], rgba, 0.0f, 0.0f));
+                out.layer.texts.push_back (Label (primitive.text, points[0], rgba, 0.0f, 0.0f, style));
                 break;
             case PrimitiveKind::Polyline:
             case PrimitiveKind::Arrow: {
@@ -99,7 +107,7 @@ Built BuildLayer (const annotation::Frame& frame)
                     Push (polyline.points, p);
                 polyline.closed = primitive.kind == PrimitiveKind::Polyline && primitive.closed && points.size () > 2;
                 polyline.rgba = rgba;
-                polyline.widthPixels = primitive.role == annotation::SemanticRole::Context ? 1.0f : 2.0f;
+                polyline.widthPixels = lineWidth;
                 out.layer.polylines.push_back (std::move (polyline));
                 if (primitive.kind == PrimitiveKind::Arrow) {
                     const Point3& tail = points[points.size () - 2];
@@ -116,7 +124,7 @@ Built BuildLayer (const annotation::Frame& frame)
                         Push (head.points, legs[0]);
                         Push (head.points, legs[3]);
                         head.rgba = rgba;
-                        head.widthPixels = 2.0f;
+                        head.widthPixels = lineWidth;
                         out.layer.polylines.push_back (std::move (head));
                     }
                     if (!primitive.text.empty ()) {
@@ -124,7 +132,7 @@ Built BuildLayer (const annotation::Frame& frame)
                         out.layer.texts.push_back (
                             Label (primitive.text,
                                    { (first.x + tip.x) * 0.5, (first.y + tip.y) * 0.5, (first.z + tip.z) * 0.5 }, rgba,
-                                   0.0f, -10.0f));
+                                   0.0f, -10.0f, style));
                     }
                 }
                 break;
@@ -152,9 +160,13 @@ Built BuildLayer (const annotation::Frame& frame)
                 }
                 dimension.text = primitive.text;
                 dimension.rgba = rgba;
-                dimension.textSizePixels = 12.0f;
+                dimension.textSizePixels = style.textSizePixels;
+                dimension.haloRgba = style.haloRgba;
+                dimension.haloPixels = style.haloPixels;
                 dimension.terminator = layers::Terminator::Arrow;
-                dimension.behind = primitive.alwaysVisible ? layers::Behind::Show : layers::Behind::Fade;
+                dimension.behind = primitive.alwaysVisible                    ? layers::Behind::Show
+                                   : style.occlusion != layers::Behind::Layer ? style.occlusion
+                                                                              : layers::Behind::Fade;
                 out.layer.dimensions.push_back (std::move (dimension));
                 break;
             }
@@ -182,13 +194,13 @@ Built BuildLayer (const annotation::Frame& frame)
                 for (const Point3& p : arc)
                     Push (polyline.points, p);
                 polyline.rgba = rgba;
-                polyline.widthPixels = 1.5f;
+                polyline.widthPixels = (std::max) (0.75f * lineWidth, 1.0f);
                 out.layer.polylines.push_back (std::move (polyline));
                 char degrees[32] = {};
                 std::snprintf (degrees, sizeof (degrees), "%.1f\xC2\xB0", resolved->angleRadians * 180.0 / kPi);
                 const Point3& middle = arc[arc.size () / 2];
                 out.layer.texts.push_back (
-                    Label (primitive.text.empty () ? degrees : primitive.text, middle, rgba, 0.0f, 0.0f));
+                    Label (primitive.text.empty () ? degrees : primitive.text, middle, rgba, 0.0f, 0.0f, style));
                 break;
             }
             case PrimitiveKind::Element:

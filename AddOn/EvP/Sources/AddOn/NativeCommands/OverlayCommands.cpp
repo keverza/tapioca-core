@@ -182,6 +182,7 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         if (!ReadColour (outline, "color", controls.outlineRgba, error))
             return false;
         controls.outlineWidthPixels = FloatOf (outline, "widthPixels", controls.outlineWidthPixels);
+        controls.outlineDashPixels = FloatOf (outline, "dashPixels", controls.outlineDashPixels);
         controls.outlineBehind = OcclusionOf (outline, controls.outlineBehind);
     }
     GS::ObjectState fill;
@@ -195,6 +196,7 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         if (label.Contains ("show"))
             label.Get ("show", controls.label);
         controls.labelSizePixels = FloatOf (label, "sizePixels", controls.labelSizePixels);
+        controls.labelHaloPixels = FloatOf (label, "haloPixels", controls.labelHaloPixels);
         if (!ReadColour (label, "color", controls.labelRgba, error) ||
             !ReadColour (label, "halo", controls.labelHaloRgba, error))
             return false;
@@ -210,6 +212,28 @@ bool ReadSliceControls (const GS::ObjectState& params, slices::Controls& control
         ReadReal (label, "sizeMetres", controls.labelSizeMetres);
     }
     ReadReal (params, "liftMetres", controls.liftMetres);
+    return true;
+}
+
+// The Watch annotations' style; the schema has checked the ranges.
+bool ReadAnnotationStyle (const GS::ObjectState& params, archviz::overlayannotations::Style& style, std::string& error)
+{
+    style.lineWidthPixels = FloatOf (params, "lineWidthPixels", style.lineWidthPixels);
+    style.contextWidthPixels = FloatOf (params, "contextWidthPixels", style.contextWidthPixels);
+    style.pointSizePixels = FloatOf (params, "pointSizePixels", style.pointSizePixels);
+    style.textSizePixels = FloatOf (params, "textSizePixels", style.textSizePixels);
+    style.haloPixels = FloatOf (params, "haloPixels", style.haloPixels);
+    style.occlusion = OcclusionOf (params, style.occlusion);
+    if (!ReadColour (params, "halo", style.haloRgba, error))
+        return false;
+    GS::ObjectState colors;
+    if (params.Get ("colors", colors)) {
+        // By annotation::SemanticRole: None, Add, Remove, Modify, Context, Guide.
+        const char* const roles[6] = { "none", "add", "remove", "modify", "context", "guide" };
+        for (size_t i = 0; i < 6; ++i)
+            if (!ReadColour (colors, roles[i], style.roleRgba[i], error))
+                return false;
+    }
     return true;
 }
 
@@ -345,6 +369,15 @@ class OverlayAnnotationsCommand : public MainThreadCommand {
     NativeCommandResult ExecuteNative (const GS::ObjectState& params, GS::ProcessControl&) const override
     {
         const std::string action = params.Contains ("action") ? StringOf (params, "action") : std::string ("state");
+        GS::ObjectState styleParams;
+        if (params.Get ("style", styleParams)) {
+            // A style replaces the one before it; what it leaves out is the default.
+            archviz::overlayannotations::Style style;
+            std::string error;
+            if (!ReadAnnotationStyle (styleParams, style, error))
+                return NativeCommandResult::Failure (EVP_FAIL (Utf8 (error), "styling the Watch annotations"));
+            archviz::overlayannotations::SetStyle (style);
+        }
         archviz::overlayannotations::State state;
         if (action == "on")
             state = archviz::overlayannotations::Apply (true);
@@ -404,6 +437,7 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
     R"json("outline":{"type":"object","properties":{
         "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
+        "dashPixels":{"type":"number","minimum":0,"maximum":512},
         "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false},
     "fill":{"type":"object","properties":{
@@ -415,6 +449,7 @@ constexpr const char kOverlayStorySlicesInput[] = R"json({"type":"object","prope
         "sizePixels":{"type":"number","minimum":4,"maximum":64},
         "color":{"$ref":"#Color"},
         "halo":{"$ref":"#Color"},
+        "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
         "decimals":{"type":"integer","minimum":0,"maximum":6},
         "name":{"type":"boolean"},
         "onSlice":{"type":"boolean"},
@@ -448,7 +483,21 @@ constexpr const char kOverlayStorySlicesOutput[] = R"json({"type":"object","prop
               "skipped","message"]})json";
 
 constexpr const char kOverlayAnnotationsInput[] = R"json({"type":"object","properties":{
-    "action":{"type":"string","enum":["on","off","state"]}},
+    "action":{"type":"string","enum":["on","off","state"]},
+    "style":{"type":"object","description":"Replaces the previous style; what it leaves out is the default.",
+      "properties":{
+        "lineWidthPixels":{"type":"number","minimum":0.25,"maximum":16},
+        "contextWidthPixels":{"type":"number","minimum":0.25,"maximum":16},
+        "pointSizePixels":{"type":"number","minimum":1,"maximum":64},
+        "textSizePixels":{"type":"number","minimum":4,"maximum":64},
+        "halo":{"$ref":"#Color"},
+        "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
+        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
+        "colors":{"type":"object","properties":{
+            "none":{"$ref":"#Color"},"add":{"$ref":"#Color"},"remove":{"$ref":"#Color"},
+            "modify":{"$ref":"#Color"},"context":{"$ref":"#Color"},"guide":{"$ref":"#Color"}},
+          "additionalProperties":false}},
+      "additionalProperties":false}},
   "additionalProperties":false})json";
 
 constexpr const char kOverlayAnnotationsOutput[] = R"json({"type":"object","properties":{

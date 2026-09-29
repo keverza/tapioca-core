@@ -31,10 +31,25 @@ struct Built {
     uint32_t drawn = 0;      // turned into something drawn
 };
 
+// How the annotations are drawn -- Tapioca.OverlayAnnotations' `style`. Each role keeps
+// the viewer's colour (annotation::RoleColour) unless `roleRgba` names another.
+struct Style {
+    float lineWidthPixels = 2.0f;    // polylines and arrows
+    float contextWidthPixels = 1.0f; // the Context role's, drawn lighter
+    float pointSizePixels = 8.0f;    // a point's marker in the plan
+    float textSizePixels = 12.0f;    // labels, and a dimension's or angle's text
+    uint32_t haloRgba = 0x000000B0u;
+    float haloPixels = overlaylayers::kAutoHalo; // as a text's
+    // Where the building is in front: labels and dimensions fade, the rest is drawn
+    // over it -- the viewer's FadeWhenOccluded, which `occlusion` replaces for all.
+    overlaylayers::Behind occlusion = overlaylayers::Behind::Layer;
+    uint32_t roleRgba[6] = {}; // by annotation::SemanticRole; alpha 0: the role's own
+};
+
 // Points as markers, polylines as polylines, arrows with their heads, dimensions and
 // angles through the annotation geometry, labels as text -- each in its role's colour.
 // Element primitives name a GUID and draw nothing here.
-Built BuildLayer (const annotation::Frame& frame);
+Built BuildLayer (const annotation::Frame& frame, const Style& style = Style ());
 
 } // namespace overlayannotations
 } // namespace archviz

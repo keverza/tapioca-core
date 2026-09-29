@@ -161,6 +161,28 @@ void Builder::AddPolyline (const layers::Layer& layer, const layers::Polyline& p
             return;
         arc += length;
     }
+    if (polyline.closed || points < 2)
+        return;
+    // Each end's own segment, the first that has a length.
+    auto end = [&] (bool start, Vec3& at, Vec3& along) {
+        for (size_t k = 1; k < points; ++k) {
+            const size_t tip = start ? 0 : points - 1, next = start ? k : points - 1 - k;
+            at = At (polyline.points, uint32_t (tip));
+            along = start ? Sub (At (polyline.points, uint32_t (next)), at)
+                          : Sub (at, At (polyline.points, uint32_t (next)));
+            if (Plan ())
+                along.z = 0.0;
+            if (Length (along) > 1e-9)
+                return true;
+        }
+        return false;
+    };
+    const float width = (std::max) (polyline.widthPixels, 1.25f);
+    Vec3 at {}, along {};
+    if (polyline.startArrow != layers::Terminator::None && end (true, at, along))
+        AddTerminator (at, along, polyline.startArrow, true, width, polyline.arrowSizePixels, polyline.rgba, behind);
+    if (polyline.endArrow != layers::Terminator::None && end (false, at, along))
+        AddTerminator (at, along, polyline.endArrow, false, width, polyline.arrowSizePixels, polyline.rgba, behind);
 }
 
 void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension& dimension)
@@ -215,8 +237,12 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
     // keeps upright and gives way when the dimension is too short on screen to
     // hold it between its ends.
     const float width = (std::max) (dimension.widthPixels, 1.25f);
-    AddTerminator (first, span, dimension.terminator, true, width, dimension.rgba, behind);
-    AddTerminator (second, span, dimension.terminator, false, width, dimension.rgba, behind);
+    if (dimension.terminator != layers::Terminator::None) {
+        AddTerminator (first, span, dimension.terminator, true, width, dimension.terminatorSizePixels, dimension.rgba,
+                       behind);
+        AddTerminator (second, span, dimension.terminator, false, width, dimension.terminatorSizePixels, dimension.rgba,
+                       behind);
+    }
 
     const std::string text = !dimension.text.empty () ? dimension.text
                                                       : FormatLength (resolved->measurement, dimension.decimals,
@@ -231,9 +257,9 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
         DraftGlyph glyph;
         Assign (glyph.anchor, middle);
         Assign (glyph.dir, span);
-        glyph.rgba = dimension.rgba;
-        glyph.halo = 0x000000A0u;
-        glyph.haloPixels = HaloOf (layers::kAutoHalo, 1.0f);
+        glyph.rgba = (dimension.textRgba & 0xFFu) != 0 ? dimension.textRgba : dimension.rgba;
+        glyph.halo = dimension.haloRgba;
+        glyph.haloPixels = HaloOf (dimension.haloPixels, 1.0f);
         glyph.flags = kAlongDirection | kKeepUpright | kHideShortSpan;
         glyph.minSpan = minSpan;
         glyph.behind = behind;
@@ -241,10 +267,10 @@ void Builder::AddDimension (const layers::Layer& layer, const layers::Dimension&
     }
 }
 
-// A tick, an arrowhead or a dot at one end of a dimension line, in the local
-// frame whose +x is the dimension's direction on screen.
+// A tick, an arrowhead or a dot `size` pixels long at one end of a line, in the
+// local frame whose +x is the line's direction on screen; `first` is its start.
 void Builder::AddTerminator (const Vec3& at, const Vec3& span, layers::Terminator terminator, bool first, float width,
-                             uint32_t rgba, uint32_t behind)
+                             float size, uint32_t rgba, uint32_t behind)
 {
     DraftGlyph glyph;
     Assign (glyph.anchor, at);
@@ -255,7 +281,7 @@ void Builder::AddTerminator (const Vec3& at, const Vec3& span, layers::Terminato
     float corners[6][2];
     if (terminator == layers::Terminator::Arrow) {
         // The tip on the end, the body inside the line: outward arrows.
-        const float length = 10.0f, half = 3.5f, back = first ? length : -length;
+        const float length = size, half = 0.35f * size, back = first ? length : -length;
         const float tri[3][2] = { { 0.0f, 0.0f }, { back, -half }, { back, half } };
         const int order[6] = { 0, 1, 2, 2, 2, 2 };
         for (int i = 0; i < 6; ++i) {
@@ -264,7 +290,7 @@ void Builder::AddTerminator (const Vec3& at, const Vec3& span, layers::Terminato
         }
     }
     else if (terminator == layers::Terminator::Dot) {
-        const float r = (std::max) (2.5f, width * 1.5f);
+        const float r = (std::max) (0.25f * size, width * 1.5f);
         const float quad[4][2] = { { 0.0f, -r }, { r, 0.0f }, { 0.0f, r }, { -r, 0.0f } };
         const int order[6] = { 0, 1, 2, 0, 2, 3 };
         for (int i = 0; i < 6; ++i) {
@@ -273,8 +299,8 @@ void Builder::AddTerminator (const Vec3& at, const Vec3& span, layers::Terminato
         }
     }
     else {
-        // The architectural slash: 45 degrees through the end, 9 px long.
-        const float h = 4.5f * 0.70710678f, w = width * 0.5f * 0.70710678f;
+        // The architectural slash: 45 degrees through the end, 0.9 of `size` long.
+        const float h = 0.45f * size * 0.70710678f, w = width * 0.5f * 0.70710678f;
         // From lower left to upper right (screen y is down), widened across.
         const float quad[4][2] = { { -h - w, h - w }, { h - w, -h - w }, { h + w, -h + w }, { -h + w, h + w } };
         const int order[6] = { 0, 1, 2, 0, 2, 3 };

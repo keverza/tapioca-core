@@ -152,10 +152,10 @@ class Builder {
     void AddMesh (const layers::Layer& layer, const layers::Mesh& mesh);
     void AddPolyline (const layers::Layer& layer, const layers::Polyline& polyline);
     void AddDimension (const layers::Layer& layer, const layers::Dimension& dimension);
-    // A tick, an arrowhead or a dot at one end of a dimension line, in the local
-    // frame whose +x is the dimension's direction on screen.
+    // A tick, an arrowhead or a dot `size` pixels long at one end of a line, in the
+    // local frame whose +x is the line's direction on screen; `first` is its start.
     void AddTerminator (const Vec3& at, const Vec3& span, layers::Terminator terminator, bool first, float width,
-                        uint32_t rgba, uint32_t behind);
+                        float size, uint32_t rgba, uint32_t behind);
     void AddText (const layers::Layer& layer, const layers::Text& text);
     // The label's layout mapped onto its plane: x along `direction`, the layout's y (down)
     // against the glyphs' up, `normal` x `direction`. Every corner is its own model point
@@ -163,7 +163,7 @@ class Builder {
     void AddPlanarText (const layers::Layer& layer, const layers::Text& text, const overlaytext::Label& label);
     void AddLegend (const layers::Legend& legend);
     void ScreenText (const std::string& text, double fx, double fy, float x, float y, float size, layers::Align align,
-                     layers::Baseline baseline, uint32_t rgba, uint32_t halo);
+                     layers::Baseline baseline, uint32_t rgba, uint32_t halo, float haloPixels);
     bool LayOut (const std::string& text, float size, layers::Align align, layers::Baseline baseline,
                  overlaytext::Label& label);
     // One glyph's two triangles, moved by (dx, dy) in the label's frame.

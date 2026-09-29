@@ -91,6 +91,18 @@ bool ReadPoint2 (const GS::ObjectState& item, const char* key, float (&out)[2])
     return true;
 }
 
+// "none", "arrow", "tick" or "dot": what ends a line.
+layers::Terminator TerminatorOf (const GS::ObjectState& item, const char* key, layers::Terminator fallback)
+{
+    if (!item.Contains (key))
+        return fallback;
+    const std::string which = StringValue (item, key);
+    return which == "arrow"  ? layers::Terminator::Arrow
+           : which == "dot"  ? layers::Terminator::Dot
+           : which == "none" ? layers::Terminator::None
+                             : layers::Terminator::Tick;
+}
+
 bool ReadColormap (const GS::ObjectState& item, layers::Colormap& colormap, std::string& error)
 {
     if (item.Contains ("stops")) {
@@ -273,16 +285,15 @@ bool ReadDimension (const GS::ObjectState& item, layers::Dimension& dimension, s
     }
     if (item.Contains ("showUnit"))
         item.Get ("showUnit", dimension.showUnit);
-    if (!ReadColour (item, "color", dimension.rgba, error))
+    if (!ReadColour (item, "color", dimension.rgba, error) ||
+        !ReadColour (item, "textColor", dimension.textRgba, error) ||
+        !ReadColour (item, "halo", dimension.haloRgba, error))
         return false;
     ReadFloat (item, "widthPixels", dimension.widthPixels);
     ReadFloat (item, "textSizePixels", dimension.textSizePixels);
-    if (item.Contains ("terminator")) {
-        const std::string terminator = StringValue (item, "terminator");
-        dimension.terminator = terminator == "arrow" ? layers::Terminator::Arrow
-                               : terminator == "dot" ? layers::Terminator::Dot
-                                                     : layers::Terminator::Tick;
-    }
+    ReadFloat (item, "haloPixels", dimension.haloPixels);
+    dimension.terminator = TerminatorOf (item, "terminator", dimension.terminator);
+    ReadFloat (item, "terminatorSizePixels", dimension.terminatorSizePixels);
     dimension.behind = OcclusionOf (item, layers::Behind::Layer);
     return true;
 }
@@ -351,6 +362,7 @@ bool ReadLegend (const GS::ObjectState& item, const std::vector<layers::Mesh>& m
     ReadFloat (item, "sizePixels", legend.sizePixels);
     ReadFloat (item, "titleSizePixels", legend.titleSizePixels);
     ReadFloat (item, "paddingPixels", legend.paddingPixels);
+    ReadFloat (item, "haloPixels", legend.haloPixels);
     return ReadColour (item, "color", legend.rgba, error) && ReadColour (item, "halo", legend.haloRgba, error) &&
            ReadColour (item, "background", legend.backgroundRgba, error) &&
            ReadColour (item, "barBorder", legend.barBorderRgba, error);
@@ -531,6 +543,9 @@ bool ReadLayer (const GS::ObjectState& params, layers::Layer& layer, std::string
             ReadFloat (item, "widthPixels", polyline.widthPixels);
             ReadFloat (item, "dashPixels", polyline.dashPixels);
             ReadFloat (item, "dashDuty", polyline.dashDuty);
+            polyline.startArrow = TerminatorOf (item, "startArrow", polyline.startArrow);
+            polyline.endArrow = TerminatorOf (item, "endArrow", polyline.endArrow);
+            ReadFloat (item, "arrowSizePixels", polyline.arrowSizePixels);
             polyline.behind = OcclusionOf (item, layers::Behind::Layer);
             layer.polylines.push_back (std::move (polyline));
         }

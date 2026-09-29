@@ -14,6 +14,8 @@
 //
 // MAIN THREAD. A 250 ms timer while on; `Shutdown` kills it without ACAPI.
 
+#include "ArchViz/OverlayAnnotationContent.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -30,6 +32,9 @@ struct State {
 };
 
 State Apply (bool enabled);
+
+// How the annotations are drawn from now on; what is shown is redrawn at once.
+void SetStyle (const Style& style);
 State Describe ();
 
 // An overlay was turned on: start following the trace unless a caller said off.

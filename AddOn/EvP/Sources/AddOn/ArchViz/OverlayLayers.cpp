@@ -199,7 +199,8 @@ bool RawOcclusion (const Layer& layer)
 
 bool DrawnByGuest (const Polyline& polyline, const Layer& layer)
 {
-    return polyline.dashPixels > 0.0f || polyline.behind != Behind::Layer || !RawOcclusion (layer);
+    return polyline.dashPixels > 0.0f || polyline.behind != Behind::Layer || !RawOcclusion (layer) ||
+           (!polyline.closed && (polyline.startArrow != Terminator::None || polyline.endArrow != Terminator::None));
 }
 
 bool DrawnByGuest (const Mesh& mesh, const Layer& layer)
@@ -241,6 +242,8 @@ std::string Validate (const Layer& layer)
             return Numbered ("polyline", i, "widthPixels must be above 0 and at most 64");
         if (!InRange (polyline.dashPixels, 0.0f, 512.0f) || !InRange (polyline.dashDuty, 0.05f, 0.95f))
             return Numbered ("polyline", i, "dashPixels is 0 to 512 and dashDuty 0.05 to 0.95");
+        if (!InRange (polyline.arrowSizePixels, 1.0f, 64.0f))
+            return Numbered ("polyline", i, "arrowSizePixels is 1 to 64");
     }
     for (size_t i = 0; i < layer.points.size (); ++i) {
         const PointSet& set = layer.points[i];
@@ -323,6 +326,9 @@ std::string Validate (const Layer& layer)
             return Numbered ("dimension", i, "decimals is 0 to 6 and text at most 512 bytes");
         if (!Positive (dimension.widthPixels, 16.0f) || !InRange (dimension.textSizePixels, 4.0f, 128.0f))
             return Numbered ("dimension", i, "widthPixels is above 0 to 16 and textSizePixels 4 to 128");
+        if (!InRange (dimension.terminatorSizePixels, 1.0f, 64.0f) ||
+            (dimension.haloPixels != kAutoHalo && !InRange (dimension.haloPixels, 0.0f, 8.0f)))
+            return Numbered ("dimension", i, "terminatorSizePixels is 1 to 64 and haloPixels 0 to 8");
     }
     for (size_t i = 0; i < layer.legends.size (); ++i) {
         const Legend& legend = layer.legends[i];
@@ -337,6 +343,8 @@ std::string Validate (const Layer& layer)
             return Numbered ("legend", i, "lengthPixels 20 to 4000, widthPixels 2 to 200, ticks at most 32");
         if (legend.title.size () > kMaxTextBytes || legend.unit.size () > 64)
             return Numbered ("legend", i, "title is at most 512 bytes and unit 64");
+        if (legend.haloPixels != kAutoHalo && !InRange (legend.haloPixels, 0.0f, 8.0f))
+            return Numbered ("legend", i, "haloPixels is 0 to 8");
         if (legend.placed && !(InRange (legend.screen[0], -1.0f, 2.0f) && InRange (legend.screen[1], -1.0f, 2.0f)))
             return Numbered ("legend", i, "a screen position is a fraction of the view, about 0 to 1");
         if (legend.tickValues.size () > 32 || legend.tickLabels.size () > 32)

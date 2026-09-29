@@ -30,20 +30,38 @@ overlay reads either way but most verbs do not (see NativeCommands/CommandUtils.
 from .api import call
 
 __all__ = [
-    "Panel", "colour", "point2", "point3", "text", "legend", "heatmap", "set_layer", "clear", "clear_all", "layers",
+    "Panel",
+    "colour",
+    "point2",
+    "point3",
+    "polyline",
+    "points",
+    "mesh",
+    "heatmap",
+    "text",
+    "dimension",
+    "legend",
+    "set_layer",
+    "clear",
+    "clear_all",
+    "layers",
     "hud",
+    "story_slices",
+    "annotations",
 ]
 
 # The keys whose numbers ARE integers on the wire; every other number is sent as a real.
-_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh"}
+_INTEGER_KEYS = {"indices", "ticks", "decimals", "bands", "mesh", "storeys"}
 
 _ANCHORS = ("top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right")
 
 _OCCLUSIONS = ("hide", "fade", "dash", "always")
 
+_TERMINATORS = ("none", "arrow", "tick", "dot")
+
 
 def colour(value):
-    """"RRGGBBAA" from "#RRGGBB", "#RRGGBBAA", "RRGGBBAA" or an (r, g, b[, a]) tuple.
+    """ "RRGGBBAA" from "#RRGGBB", "#RRGGBBAA", "RRGGBBAA" or an (r, g, b[, a]) tuple.
 
     A tuple is 0..1 per component, as evp.selection takes it; a tuple whose components
     are above 1 is read as 0..255.
@@ -72,7 +90,7 @@ def _point(value, axes):
     values = list(value)
     if len(values) != len(axes):
         raise ValueError("a point is %s, got %r" % (", ".join(axes), value))
-    return {axis: float(v) for axis, v in zip(axes, values)}
+    return {axis: float(v) for axis, v in zip(axes, values, strict=True)}
 
 
 def point3(value):
@@ -89,6 +107,36 @@ def _occlusion(value):
     if value is not None and value not in _OCCLUSIONS:
         raise ValueError("occlusion is one of %s" % ", ".join(_OCCLUSIONS))
     return value
+
+
+def _flat(points):
+    """Flat x, y, z from a flat list or a list of (x, y, z)."""
+    values = list(points)
+    if values and isinstance(values[0], (list, tuple, dict)):
+        values = [c for p in values for c in point3(p).values()]
+    return [float(v) for v in values]
+
+
+def _terminator(value):
+    if value is not None and value not in _TERMINATORS:
+        raise ValueError("a line ends in one of %s" % ", ".join(_TERMINATORS))
+    return value
+
+
+def _put(out, pairs, convert=None):
+    for key, value in pairs:
+        if value is not None:
+            out[key] = convert(value) if convert else value
+    return out
+
+
+def _coloured(fields, keys=("color", "halo", "textColor")):
+    """A copy of a style dict with its colours as the wire's."""
+    out = dict(fields or {})
+    for key in keys:
+        if out.get(key) is not None:
+            out[key] = colour(out[key])
+    return out
 
 
 def _reals(value, key=None):
@@ -129,15 +177,30 @@ class Panel:
     """A HUD panel: its items in order, laid out by Dear ImGui in a corner (or any of
     nine anchor points) of the view. Every method returns the panel, so they chain."""
 
-    def __init__(self, title=None, anchor="top-left", offset=(16, 16), width=None, size=None, color=None,
-                 background=None, border=None, rounding=None, padding=None):
+    def __init__(
+        self,
+        title=None,
+        anchor="top-left",
+        offset=(16, 16),
+        width=None,
+        size=None,
+        color=None,
+        background=None,
+        border=None,
+        rounding=None,
+        padding=None,
+    ):
         if anchor not in _ANCHORS:
             raise ValueError("anchor is one of %s" % ", ".join(_ANCHORS))
         self._panel = {"anchor": anchor, "offsetPixels": point2(offset)}
         if title:
             self._panel["title"] = str(title)
-        for key, value in (("widthPixels", width), ("sizePixels", size), ("roundingPixels", rounding),
-                           ("paddingPixels", padding)):
+        for key, value in (
+            ("widthPixels", width),
+            ("sizePixels", size),
+            ("roundingPixels", rounding),
+            ("paddingPixels", padding),
+        ):
             if value is not None:
                 self._panel[key] = float(value)
         for key, value in (("color", color), ("background", background), ("border", border)):
@@ -168,31 +231,65 @@ class Panel:
         return self._add("spacing", heightPixels=float(height))
 
     def progress(self, fraction, text=None, color=None, width=None, height=None):
-        return self._add("progress", fraction=float(fraction), text=text, color=color, widthPixels=width,
-                         heightPixels=height)
+        return self._add(
+            "progress", fraction=float(fraction), text=text, color=color, widthPixels=width, heightPixels=height
+        )
 
     def swatch(self, color, text):
         """A key entry: a square of `color` and what it means."""
         return self._add("swatch", color=color, text=str(text))
 
-    def ramp(self, colormap, minimum, maximum, title=None, unit=None, ticks=None, decimals=None,
-             tick_values=None, tick_labels=None, bands=None, width=None, height=None, color=None):
+    def ramp(
+        self,
+        colormap,
+        minimum,
+        maximum,
+        title=None,
+        unit=None,
+        ticks=None,
+        decimals=None,
+        tick_values=None,
+        tick_labels=None,
+        bands=None,
+        width=None,
+        height=None,
+        color=None,
+    ):
         """A colour bar over [minimum, maximum] with its ticks: a legend inside the panel."""
-        return self._add("ramp", colormap=_colormap(colormap, minimum, maximum, bands), text=title, unit=unit,
-                         ticks=ticks, decimals=decimals,
-                         tickValues=[float(v) for v in tick_values] if tick_values is not None else None,
-                         tickLabels=[str(v) for v in tick_labels] if tick_labels is not None else None,
-                         widthPixels=width, heightPixels=height, color=color)
+        return self._add(
+            "ramp",
+            colormap=_colormap(colormap, minimum, maximum, bands),
+            text=title,
+            unit=unit,
+            ticks=ticks,
+            decimals=decimals,
+            tickValues=[float(v) for v in tick_values] if tick_values is not None else None,
+            tickLabels=[str(v) for v in tick_labels] if tick_labels is not None else None,
+            widthPixels=width,
+            heightPixels=height,
+            color=color,
+        )
 
     def plot(self, values, caption=None, minimum=None, maximum=None, color=None, width=None, height=None):
         if (minimum is None) != (maximum is None):
             raise ValueError("a plot's range is minimum and maximum together")
-        return self._add("plot", values=[float(v) for v in values], text=caption, min=minimum, max=maximum,
-                         color=color, widthPixels=width, heightPixels=height)
+        return self._add(
+            "plot",
+            values=[float(v) for v in values],
+            text=caption,
+            min=minimum,
+            max=maximum,
+            color=color,
+            widthPixels=width,
+            heightPixels=height,
+        )
 
     def table(self, columns, rows):
-        return self._add("table", columns=[str(c) for c in columns] if columns else None,
-                         rows=[[str(cell) for cell in row] for row in rows])
+        return self._add(
+            "table",
+            columns=[str(c) for c in columns] if columns else None,
+            rows=[[str(cell) for cell in row] for row in rows],
+        )
 
     def to_dict(self):
         out = dict(self._panel)
@@ -200,8 +297,156 @@ class Panel:
         return out
 
 
-def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=None, halo_size=None,
-         halo_scale=None, background=None, align=None, baseline=None, offset=None, rotation=None, occlusion=None):
+def polyline(
+    points,
+    color=None,
+    width=None,
+    closed=None,
+    dash=None,
+    dash_duty=None,
+    occlusion=None,
+    start_arrow=None,
+    end_arrow=None,
+    arrow_size=None,
+):
+    """A line through `points` (flat x, y, z or a list of points), `width` pixels wide.
+
+    `dash` is a dash period in pixels and `dash_duty` the part of it drawn; `start_arrow`
+    and `end_arrow` end an open one in "arrow", "tick" or "dot", `arrow_size` pixels long.
+    """
+    out = {"points": _flat(points)}
+    _put(out, (("closed", closed),))
+    _put(out, (("color", color),), colour)
+    _put(
+        out,
+        (("widthPixels", width), ("dashPixels", dash), ("dashDuty", dash_duty), ("arrowSizePixels", arrow_size)),
+        float,
+    )
+    _put(
+        out,
+        (
+            ("occlusion", _occlusion(occlusion)),
+            ("startArrow", _terminator(start_arrow)),
+            ("endArrow", _terminator(end_arrow)),
+        ),
+    )
+    return out
+
+
+def points(points, color=None, size=None, size_metres=None):
+    """Markers at `points`: squares `size` pixels wide in plan, crosses `size_metres` long in 3D."""
+    out = {"points": _flat(points)}
+    _put(out, (("color", color),), colour)
+    return _put(out, (("sizePixels", size), ("sizeMetres", size_metres)), float)
+
+
+def mesh(
+    points,
+    indices,
+    color=None,
+    vertex_colors=None,
+    normals=None,
+    shading=None,
+    opacity=None,
+    occlusion=None,
+    cull=None,
+    edges=None,
+    edge_width=None,
+    edge_angle=None,
+):
+    """Triangles: flat x, y, z points and three indices each.
+
+    `shading` is "flat", "lit", "ghost" or "xray"; `edges` a colour draws its feature
+    edges -- boundaries and creases sharper than `edge_angle` degrees -- `edge_width` wide.
+    """
+    out = {"points": _flat(points), "indices": [int(i) for i in indices]}
+    _put(out, (("color", color),), colour)
+    if vertex_colors is not None:
+        out["vertexColors"] = [colour(c) for c in vertex_colors]
+    if normals is not None:
+        out["normals"] = _flat(normals)
+    style = _put({}, (("shading", shading), ("occlusion", _occlusion(occlusion)), ("cull", cull)))
+    _put(style, (("opacity", opacity),), float)
+    if edges is not None:
+        style["edges"] = _put(
+            {"color": colour(edges)}, (("widthPixels", edge_width), ("angleDegrees", edge_angle)), float
+        )
+    if style:
+        out["style"] = style
+    return out
+
+
+def dimension(
+    start,
+    end,
+    offset=None,
+    direction=None,
+    normal=None,
+    text=None,
+    decimals=None,
+    unit=None,
+    show_unit=None,
+    color=None,
+    width=None,
+    text_size=None,
+    text_color=None,
+    halo=None,
+    halo_size=None,
+    terminator=None,
+    terminator_size=None,
+    occlusion=None,
+):
+    """An aligned dimension from `start` to `end`, its line `offset` metres off towards
+    `direction`, in the plane `normal` names. `text` replaces the measured length;
+    `terminator` is "tick", "arrow", "dot" or "none", `terminator_size` pixels long.
+    """
+    out = {"from": point3(start), "to": point3(end)}
+    if direction is not None:
+        out["direction"] = point3(direction)
+    if normal is not None:
+        out["normal"] = point3(normal)
+    _put(
+        out,
+        (
+            ("text", text),
+            ("decimals", decimals),
+            ("unit", unit),
+            ("showUnit", show_unit),
+            ("terminator", _terminator(terminator)),
+            ("occlusion", _occlusion(occlusion)),
+        ),
+    )
+    _put(out, (("color", color), ("textColor", text_color), ("halo", halo)), colour)
+    return _put(
+        out,
+        (
+            ("offsetMetres", offset),
+            ("widthPixels", width),
+            ("textSizePixels", text_size),
+            ("haloPixels", halo_size),
+            ("terminatorSizePixels", terminator_size),
+        ),
+        float,
+    )
+
+
+def text(
+    text,
+    at=None,
+    screen=None,
+    plane=None,
+    size=None,
+    color=None,
+    halo=None,
+    halo_size=None,
+    halo_scale=None,
+    background=None,
+    align=None,
+    baseline=None,
+    offset=None,
+    rotation=None,
+    occlusion=None,
+):
     """A label: at a model point (`at`), fixed to the view (`screen`, fractions from its
     top left), or lying on a plane in the model (`at` and `plane`).
 
@@ -224,8 +469,12 @@ def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=Non
         else:
             direction, normal, height = plane
         out["plane"] = {"direction": point3(direction), "normal": point3(normal), "sizeMetres": float(height)}
-    for key, value in (("sizePixels", size), ("haloPixels", halo_size), ("haloScale", halo_scale),
-                       ("rotationDegrees", rotation)):
+    for key, value in (
+        ("sizePixels", size),
+        ("haloPixels", halo_size),
+        ("haloScale", halo_scale),
+        ("rotationDegrees", rotation),
+    ):
         if value is not None:
             out[key] = float(value)
     for key, value in (("color", color), ("halo", halo), ("background", background)):
@@ -239,10 +488,32 @@ def text(text, at=None, screen=None, plane=None, size=None, color=None, halo=Non
     return out
 
 
-def legend(colormap, minimum=None, maximum=None, title=None, unit=None, mesh=None, corner=None, screen=None,
-           horizontal=None, length=None, width=None, ticks=None, decimals=None, tick_values=None,
-           tick_labels=None, size=None, title_size=None, color=None, halo=None, background=None, padding=None,
-           bar_border=None, offset=None):
+def legend(
+    colormap,
+    minimum=None,
+    maximum=None,
+    title=None,
+    unit=None,
+    mesh=None,
+    corner=None,
+    screen=None,
+    horizontal=None,
+    length=None,
+    width=None,
+    ticks=None,
+    decimals=None,
+    tick_values=None,
+    tick_labels=None,
+    size=None,
+    title_size=None,
+    color=None,
+    halo=None,
+    background=None,
+    padding=None,
+    bar_border=None,
+    offset=None,
+    halo_size=None,
+):
     """A colour bar fixed to the view. `mesh` (an index into the same call's meshes)
     takes that heatmap's ramp and range instead of `colormap`, `minimum`, `maximum`.
 
@@ -255,12 +526,24 @@ def legend(colormap, minimum=None, maximum=None, title=None, unit=None, mesh=Non
         out["mesh"] = int(mesh)
     else:
         out["colormap"] = _colormap(colormap, minimum, maximum)
-    for key, value in (("title", title), ("unit", unit), ("corner", corner), ("horizontal", horizontal),
-                       ("ticks", ticks), ("decimals", decimals)):
+    for key, value in (
+        ("title", title),
+        ("unit", unit),
+        ("corner", corner),
+        ("horizontal", horizontal),
+        ("ticks", ticks),
+        ("decimals", decimals),
+    ):
         if value is not None:
             out[key] = value
-    for key, value in (("lengthPixels", length), ("widthPixels", width), ("sizePixels", size),
-                       ("titleSizePixels", title_size), ("paddingPixels", padding)):
+    for key, value in (
+        ("lengthPixels", length),
+        ("widthPixels", width),
+        ("sizePixels", size),
+        ("titleSizePixels", title_size),
+        ("paddingPixels", padding),
+        ("haloPixels", halo_size),
+    ):
         if value is not None:
             out[key] = float(value)
     for key, value in (("color", color), ("halo", halo), ("background", background), ("barBorder", bar_border)):
@@ -277,8 +560,18 @@ def legend(colormap, minimum=None, maximum=None, title=None, unit=None, mesh=Non
     return out
 
 
-def heatmap(points, indices, values, colormap="viridis", minimum=None, maximum=None, bands=None, isolines=None,
-            opacity=None, occlusion=None):
+def heatmap(
+    points,
+    indices,
+    values,
+    colormap="viridis",
+    minimum=None,
+    maximum=None,
+    bands=None,
+    isolines=None,
+    opacity=None,
+    occlusion=None,
+):
     """A mesh coloured by a value per vertex: flat x, y, z points, three indices per
     triangle. Smooth by default; `bands` steps it, `isolines` ({"step", "color"}) draws
     contours."""
@@ -287,19 +580,41 @@ def heatmap(points, indices, values, colormap="viridis", minimum=None, maximum=N
         style["opacity"] = float(opacity)
     if occlusion is not None:
         style["occlusion"] = _occlusion(occlusion)
-    out = {"points": [float(v) for v in points], "indices": [int(i) for i in indices],
-           "values": [float(v) for v in values],
-           "colormap": _colormap(colormap, minimum, maximum, bands, isolines)}
+    out = {
+        "points": [float(v) for v in points],
+        "indices": [int(i) for i in indices],
+        "values": [float(v) for v in values],
+        "colormap": _colormap(colormap, minimum, maximum, bands, isolines),
+    }
     if style:
         out["style"] = style
     return out
 
 
-def set_layer(name, views="both", occlusion=None, polylines=None, points=None, meshes=None, texts=None,
-              dimensions=None, legends=None, panels=None):
+def set_layer(
+    name,
+    views="both",
+    occlusion=None,
+    polylines=None,
+    points=None,
+    meshes=None,
+    texts=None,
+    dimensions=None,
+    legends=None,
+    panels=None,
+):
     """Add or replace the layer `name` on the overlays. Returns what was taken."""
-    params = {"layer": str(name), "views": views, "occlusion": _occlusion(occlusion), "polylines": polylines,
-              "points": points, "meshes": meshes, "texts": texts, "dimensions": dimensions, "legends": legends}
+    params = {
+        "layer": str(name),
+        "views": views,
+        "occlusion": _occlusion(occlusion),
+        "polylines": polylines,
+        "points": points,
+        "meshes": meshes,
+        "texts": texts,
+        "dimensions": dimensions,
+        "legends": legends,
+    }
     if panels is not None:
         params["panels"] = [p.to_dict() if isinstance(p, Panel) else p for p in panels]
     return call("Tapioca.SetOverlayLayer", _reals(params)).data or {}
@@ -308,6 +623,66 @@ def set_layer(name, views="both", occlusion=None, polylines=None, points=None, m
 def hud(name, *panels, views="both"):
     """A layer of HUD panels only."""
     return set_layer(name, views=views, panels=list(panels))
+
+
+def story_slices(
+    action="on",
+    source=None,
+    elements=None,
+    cut=None,
+    step=None,
+    levels=None,
+    offset=None,
+    min_top=None,
+    storeys=None,
+    views=None,
+    outline=None,
+    fill=None,
+    label=None,
+    lift=None,
+):
+    """The add-on's slices on the overlays: the selected massing slabs' floors, or the
+    model per storey (Tapioca.OverlayStorySlices).
+
+    `outline`, `fill` and `label` are style dicts in the wire's names -- outline
+    {"color", "widthPixels", "dashPixels", "occlusion"}, fill {"color", "occlusion"},
+    label {"show", "sizePixels", "color", "halo", "haloPixels", "decimals", "name",
+    "onSlice", "sizeMetres"} -- with colours in any form `colour` reads.
+    """
+    params = {
+        "action": action,
+        "source": source,
+        "cut": cut,
+        "stepMetres": step,
+        "levels": levels,
+        "offsetMetres": offset,
+        "minTopMetres": min_top,
+        "storeys": storeys,
+        "views": views,
+        "liftMetres": lift,
+    }
+    if elements is not None:
+        params["elements"] = [{"elementId": {"guid": str(guid)}} for guid in elements]
+    for key, value in (("outline", outline), ("fill", fill), ("label", label)):
+        if value is not None:
+            params[key] = _coloured(value)
+    return call("Tapioca.OverlayStorySlices", _reals(params)).data or {}
+
+
+def annotations(action="on", style=None):
+    """The Watch trace's annotations on the overlays (Tapioca.OverlayAnnotations).
+
+    `style` replaces the previous one: {"lineWidthPixels", "contextWidthPixels",
+    "pointSizePixels", "textSizePixels", "halo", "haloPixels", "occlusion", "colors":
+    {"add", "remove", "modify", "context", "guide", "none"}}.
+    """
+    params = {"action": action}
+    if style is not None:
+        styled = _coloured(style, ("halo",))
+        if "colors" in styled:
+            styled["colors"] = {role: colour(c) for role, c in styled["colors"].items()}
+        params["style"] = styled
+    return call("Tapioca.OverlayAnnotations", _reals(params)).data or {}
 
 
 def clear(name):

@@ -92,3 +92,38 @@ TEST (OverlayAnnotations, ASlopingArrowStillGetsItsHead)
     const oa::Built built = oa::BuildLayer (frame);
     EXPECT_EQ (built.layer.polylines.size (), 2u);
 }
+
+// OverlayAnnotations' `style`: widths, sizes, the halo, the occlusion and a role's colour
+// replace the viewer's, and what it leaves out stays the viewer's.
+TEST (OverlayAnnotations, AStyleReplacesWidthsSizesAndARolesColour)
+{
+    annotation::Frame frame;
+    annotation::Primitive added = Make (annotation::PrimitiveKind::Polyline, { { 0, 0, 0 }, { 4, 0, 0 } });
+    added.role = annotation::SemanticRole::Add;
+    frame.primitives.push_back (added);
+    annotation::Primitive guide = Make (annotation::PrimitiveKind::Label, { { 0, 0, 0 } }, "guide");
+    guide.role = annotation::SemanticRole::Guide;
+    frame.primitives.push_back (guide);
+    frame.primitives.push_back (Make (annotation::PrimitiveKind::Dimension, { { 0, 0, 0 }, { 5, 0, 0 } }));
+    oa::Style style;
+    style.lineWidthPixels = 4.0f;
+    style.textSizePixels = 18.0f;
+    style.haloPixels = 1.0f;
+    style.occlusion = layers::Behind::Hide;
+    style.roleRgba[size_t (annotation::SemanticRole::Add)] = 0x00C000FFu;
+    const oa::Built built = oa::BuildLayer (frame, style);
+    const layers::Layer& layer = built.layer;
+    EXPECT_EQ (layers::Validate (layer), "");
+    ASSERT_EQ (layer.polylines.size (), 1u);
+    EXPECT_EQ (layer.polylines[0].rgba, 0x00C000FFu);
+    EXPECT_FLOAT_EQ (layer.polylines[0].widthPixels, 4.0f);
+    ASSERT_EQ (layer.texts.size (), 1u);
+    EXPECT_FLOAT_EQ (layer.texts[0].sizePixels, 18.0f);
+    EXPECT_FLOAT_EQ (layer.texts[0].haloPixels, 1.0f);
+    EXPECT_EQ (layer.texts[0].behind, layers::Behind::Hide);
+    EXPECT_EQ (layer.texts[0].rgba, oa::BuildLayer (frame).layer.texts[0].rgba); // the guide keeps its own
+    ASSERT_EQ (layer.dimensions.size (), 1u);
+    EXPECT_EQ (layer.dimensions[0].behind, layers::Behind::Hide);
+    EXPECT_EQ (layer.occlusion, layers::Behind::Hide);
+    EXPECT_EQ (oa::BuildLayer (frame).layer.occlusion, layers::Behind::Show); // no style: over everything
+}

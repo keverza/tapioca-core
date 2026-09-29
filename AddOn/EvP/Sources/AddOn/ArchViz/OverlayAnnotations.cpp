@@ -32,6 +32,7 @@ std::shared_ptr<const annotation::DrawList> g_shownList;
 size_t g_shownNode = SIZE_MAX;
 size_t g_shownFrame = SIZE_MAX;
 State g_state;
+Style g_style;
 
 void Show (const std::optional<annotation::RetainedFrameSnapshot>& selected)
 {
@@ -44,7 +45,7 @@ void Show (const std::optional<annotation::RetainedFrameSnapshot>& selected)
         g_state.frame.clear ();
         return;
     }
-    Built built = BuildLayer (selected->SelectedFrame ());
+    Built built = BuildLayer (selected->SelectedFrame (), g_style);
     g_shownList = selected->drawList;
     g_shownNode = selected->nodeIndex;
     g_shownFrame = selected->frameIndex;
@@ -124,6 +125,17 @@ State Describe ()
     return g_state;
 }
 
+void SetStyle (const Style& style)
+{
+    g_style = style;
+    if (!g_enabled)
+        return;
+    // Redrawn now, in the new style: forget what is shown and look again.
+    g_shownList = nullptr;
+    g_shownNode = g_shownFrame = SIZE_MAX;
+    Tick (nullptr, 0, 0, 0);
+}
+
 void EnsureStarted ()
 {
     if (!g_switchedOff && !g_enabled)
@@ -133,6 +145,7 @@ void EnsureStarted ()
 void OnProjectClosed ()
 {
     Stop ();
+    g_style = Style {};
     g_shownList = nullptr;
     g_shownNode = g_shownFrame = SIZE_MAX;
     g_state = State {};

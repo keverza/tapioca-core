@@ -204,6 +204,7 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
             outline.closed = chain.closed;
             outline.rgba = controls.outlineRgba;
             outline.widthPixels = controls.outlineWidthPixels;
+            outline.dashPixels = controls.outlineDashPixels;
             // Never Layer: the guest draws it, visible part solid, hidden part per `behind`.
             outline.behind =
                 controls.outlineBehind == layers::Behind::Layer ? layers::Behind::Dash : controls.outlineBehind;
@@ -226,6 +227,7 @@ Built BuildLayer (const std::vector<Slice>& slices, const Controls& controls)
             label.text = AreaText (slice.areaM2, controls.decimals, slice.name, controls.labelName);
             label.rgba = controls.labelRgba;
             label.haloRgba = controls.labelHaloRgba;
+            label.haloPixels = controls.labelHaloPixels;
             label.behind = layers::Behind::Show;
             label.at[2] = z;
             if (controls.labelOnSlice) {

@@ -189,22 +189,23 @@ void Builder::AddLegend (const layers::Legend& legend)
             const float x = barLeft + float (t) * legend.lengthPixels;
             solid (x - 0.5f, barBottom, x + 0.5f, barBottom + 4.0f, legend.rgba);
             ScreenText (labels[k], fx, fy, ox + x, oy + barBottom + 6.0f, size, layers::Align::Center,
-                        layers::Baseline::Top, legend.rgba, legend.haloRgba);
+                        layers::Baseline::Top, legend.rgba, legend.haloRgba, legend.haloPixels);
         }
         else {
             const float y = barBottom - float (t) * legend.lengthPixels;
             solid (barRight, y - 0.5f, barRight + 4.0f, y + 0.5f, legend.rgba);
             ScreenText (labels[k], fx, fy, ox + barRight + 6.0f, oy + y, size, layers::Align::Left,
-                        layers::Baseline::Middle, legend.rgba, legend.haloRgba);
+                        layers::Baseline::Middle, legend.rgba, legend.haloRgba, legend.haloPixels);
         }
     }
     if (!legend.title.empty ())
         ScreenText (legend.title, fx, fy, ox + pad, oy + pad, titleSize, layers::Align::Left, layers::Baseline::Top,
-                    legend.rgba, legend.haloRgba);
+                    legend.rgba, legend.haloRgba, legend.haloPixels);
 }
 
 void Builder::ScreenText (const std::string& text, double fx, double fy, float x, float y, float size,
-                          layers::Align align, layers::Baseline baseline, uint32_t rgba, uint32_t halo)
+                          layers::Align align, layers::Baseline baseline, uint32_t rgba, uint32_t halo,
+                          float haloPixels)
 {
     overlaytext::Label label;
     if (!LayOut (text, size, align, baseline, label))
@@ -215,7 +216,7 @@ void Builder::ScreenText (const std::string& text, double fx, double fy, float x
     glyph.flags = kScreenAnchored;
     glyph.rgba = rgba;
     glyph.halo = halo;
-    glyph.haloPixels = HaloOf (layers::kAutoHalo, 1.0f);
+    glyph.haloPixels = HaloOf (haloPixels, 1.0f);
     for (const overlaytext::Quad& quad : label.quads)
         PushQuad (glyph, quad, x, y);
 }

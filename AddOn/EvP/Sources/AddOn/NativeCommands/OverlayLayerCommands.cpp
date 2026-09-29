@@ -206,7 +206,10 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":64},
         "dashPixels":{"type":"number","minimum":0,"maximum":512},
         "dashDuty":{"type":"number","minimum":0.05,"maximum":0.95},
-        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
+        "occlusion":{"type":"string","enum":["hide","fade","dash","always"]},
+        "startArrow":{"type":"string","enum":["none","arrow","tick","dot"]},
+        "endArrow":{"type":"string","enum":["none","arrow","tick","dot"]},
+        "arrowSizePixels":{"type":"number","minimum":1,"maximum":64}},
       "additionalProperties":false,"required":["points"]}},
     "points":{"type":"array","maxItems":1000,"items":{"type":"object","properties":{
         "points":{"type":"array","minItems":3,"maxItems":300000,"description":"Packed x, y, z model metres; stride 3.","items":{"type":"number"}},
@@ -279,7 +282,11 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "color":{"$ref":"#Color"},
         "widthPixels":{"type":"number","exclusiveMinimum":0,"maximum":16},
         "textSizePixels":{"type":"number","minimum":4,"maximum":128},
-        "terminator":{"type":"string","enum":["tick","arrow","dot"]},
+        "textColor":{"$ref":"#Color"},
+        "halo":{"$ref":"#Color"},
+        "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
+        "terminator":{"type":"string","enum":["tick","arrow","dot","none"]},
+        "terminatorSizePixels":{"type":"number","minimum":1,"maximum":64},
         "occlusion":{"type":"string","enum":["hide","fade","dash","always"]}},
       "additionalProperties":false,"required":["from","to"]}},)json"
     R"json("legends":{"type":"array","maxItems":8,"items":{"type":"object","properties":{
@@ -313,6 +320,7 @@ constexpr const char kSetOverlayLayerInput[] = R"json({"type":"object","properti
         "paddingPixels":{"type":"number","minimum":0,"maximum":64},
         "color":{"$ref":"#Color"},
         "halo":{"$ref":"#Color"},
+        "haloPixels":{"type":"number","minimum":0,"maximum":8,"description":"Fixed; absent grows with the text."},
         "background":{"$ref":"#Color"},
         "barBorder":{"$ref":"#Color"}},
       "additionalProperties":false}},)json"

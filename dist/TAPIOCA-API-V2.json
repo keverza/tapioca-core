@@ -18143,6 +18143,75 @@
               "off",
               "state"
             ]
+          },
+          "style": {
+            "type": "object",
+            "description": "Replaces the previous style; what it leaves out is the default.",
+            "properties": {
+              "lineWidthPixels": {
+                "type": "number",
+                "minimum": 0.25,
+                "maximum": 16
+              },
+              "contextWidthPixels": {
+                "type": "number",
+                "minimum": 0.25,
+                "maximum": 16
+              },
+              "pointSizePixels": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 64
+              },
+              "textSizePixels": {
+                "type": "number",
+                "minimum": 4,
+                "maximum": 64
+              },
+              "halo": {
+                "$ref": "#Color"
+              },
+              "haloPixels": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 8,
+                "description": "Fixed; absent grows with the text."
+              },
+              "occlusion": {
+                "type": "string",
+                "enum": [
+                  "hide",
+                  "fade",
+                  "dash",
+                  "always"
+                ]
+              },
+              "colors": {
+                "type": "object",
+                "properties": {
+                  "none": {
+                    "$ref": "#Color"
+                  },
+                  "add": {
+                    "$ref": "#Color"
+                  },
+                  "remove": {
+                    "$ref": "#Color"
+                  },
+                  "modify": {
+                    "$ref": "#Color"
+                  },
+                  "context": {
+                    "$ref": "#Color"
+                  },
+                  "guide": {
+                    "$ref": "#Color"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -18920,6 +18989,11 @@
                 "exclusiveMinimum": 0,
                 "maximum": 16
               },
+              "dashPixels": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 512
+              },
               "occlusion": {
                 "type": "string",
                 "enum": [
@@ -18965,6 +19039,12 @@
               },
               "halo": {
                 "$ref": "#Color"
+              },
+              "haloPixels": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 8,
+                "description": "Fixed; absent grows with the text."
               },
               "decimals": {
                 "type": "integer",
@@ -23660,6 +23740,29 @@
                     "dash",
                     "always"
                   ]
+                },
+                "startArrow": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "arrow",
+                    "tick",
+                    "dot"
+                  ]
+                },
+                "endArrow": {
+                  "type": "string",
+                  "enum": [
+                    "none",
+                    "arrow",
+                    "tick",
+                    "dot"
+                  ]
+                },
+                "arrowSizePixels": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 64
                 }
               },
               "additionalProperties": false,
@@ -24050,13 +24153,31 @@
                   "minimum": 4,
                   "maximum": 128
                 },
+                "textColor": {
+                  "$ref": "#Color"
+                },
+                "halo": {
+                  "$ref": "#Color"
+                },
+                "haloPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8,
+                  "description": "Fixed; absent grows with the text."
+                },
                 "terminator": {
                   "type": "string",
                   "enum": [
                     "tick",
                     "arrow",
-                    "dot"
+                    "dot",
+                    "none"
                   ]
+                },
+                "terminatorSizePixels": {
+                  "type": "number",
+                  "minimum": 1,
+                  "maximum": 64
                 },
                 "occlusion": {
                   "type": "string",
@@ -24242,6 +24363,12 @@
                 },
                 "halo": {
                   "$ref": "#Color"
+                },
+                "haloPixels": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 8,
+                  "description": "Fixed; absent grows with the text."
                 },
                 "background": {
                   "$ref": "#Color"

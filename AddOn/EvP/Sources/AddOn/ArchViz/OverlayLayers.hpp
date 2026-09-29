@@ -59,6 +59,9 @@ enum class Behind : uint8_t {
     Show = 4,  // drawn as if nothing were in front: "always"
 };
 
+// What ends a dimension line, or either end of an open polyline.
+enum class Terminator : uint8_t { Tick = 0, Arrow = 1, Dot = 2, None = 3 };
+
 struct Polyline {
     std::vector<double> points; // x, y, z model metres; at least two points
     bool closed = false;
@@ -69,6 +72,11 @@ struct Polyline {
     float dashPixels = 0.0f;
     float dashDuty = 0.5f;
     Behind behind = Behind::Layer;
+    // Guest only: what ends an open polyline, turned with its end segment on screen and
+    // `arrowSizePixels` long. A closed one has no ends.
+    Terminator startArrow = Terminator::None;
+    Terminator endArrow = Terminator::None;
+    float arrowSizePixels = 10.0f;
 };
 
 // A marker at each point: a square `sizePixels` wide in 2D, an axis cross with arms
@@ -174,7 +182,6 @@ struct Text {
     double sizeMetres = 0.5;
 };
 
-enum class Terminator : uint8_t { Tick = 0, Arrow = 1, Dot = 2 };
 enum class LengthUnit : uint8_t { Metres = 0, Centimetres = 1, Millimetres = 2 };
 
 // An aligned dimension, resolved by the annotation layer's own geometry
@@ -193,7 +200,11 @@ struct Dimension {
     uint32_t rgba = 0xFFFFFFFFu;
     float widthPixels = 1.25f;
     float textSizePixels = 12.0f;
+    uint32_t textRgba = 0; // alpha 0: the line's colour
+    uint32_t haloRgba = 0x000000A0u;
+    float haloPixels = kAutoHalo; // as a text's
     Terminator terminator = Terminator::Tick;
+    float terminatorSizePixels = 10.0f;
     Behind behind = Behind::Layer;
 };
 
@@ -224,6 +235,7 @@ struct Legend {
     // ⚠️ A PANEL, NOT A HALO, BY DEFAULT. Small labels over a busy model read on a
     // panel; a halo that small has almost no distance to work with (OverlayText.cpp).
     uint32_t haloRgba = 0x00000000u;
+    float haloPixels = kAutoHalo;          // as a text's
     uint32_t backgroundRgba = 0x1E2228C8u; // alpha 0: no panel
     float paddingPixels = 8.0f;
     uint32_t barBorderRgba = 0; // a frame round the bar; alpha 0: none
