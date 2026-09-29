@@ -26,6 +26,7 @@
 #include "NativeCommands/CreateCommands.hpp"
 #include "NativeCommands/CuttingPlaneCommands.hpp"
 #include "NativeCommands/DraftingCommands.hpp"
+#include "NativeCommands/DraftingPrimitiveCommands.hpp"
 #include "NativeCommands/DraftingPolylineCommands.hpp"
 #include "NativeCommands/DrawingCommands.hpp"
 #include "NativeCommands/ElementModifyCommands.hpp"
@@ -107,6 +108,7 @@ constexpr DomainRegistrationProvider domainProviders[] = {
     &GetCreateCommandRegistrations,
     &GetRoofCreateCommandRegistrations,
     &GetDraftingCommandRegistrations,
+    &GetDraftingPrimitiveCommandRegistrations,
     &GetDraftingPolylineCommandRegistrations,
     &GetDrawingCommandRegistrations,
     &GetLayoutCommandRegistrations,

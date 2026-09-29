@@ -214,8 +214,7 @@ _OBJECT_KINDS = ("object", "lamp")
 
 
 def details(guids):
-    """Parametric geometry for slab / roof / mesh / fill / wall / beam / column /
-    polyline / object / lamp, aligned to `guids`.
+    """Parametric geometry for model and 2D drafting elements, aligned to `guids`.
 
     Each dict always carries: {guid, found, kind, floor_ind, thickness, height, level,
     plan_angle, slant_angle, is_slanted}. `slant_angle` (radians) is each type's tilt
@@ -257,7 +256,12 @@ def details(guids):
         and `closed` says whether it wraps back to its first vertex. Area is only
         meaningful when `closed` is True; length is `polygon_perimeter(fp, arcs)` for a
         closed one, and the open chain's own walk otherwise. `holes` is never present.
-        `pen` is the contour pen — the join key a survey drawing relies on.
+         `pen` is the contour pen — the join key a survey drawing relies on.
+      - line: `beg_coordinate`/`end_coordinate` as (x,y) pairs and `pen`.
+      - arc/circle: centre `x/y`, `radius`, `ratio`, `angle`, `pen`; arcs also carry
+        `beg_angle`/`end_angle` (radians). Circles are identified by kind, not by
+        equality of the arc angles.
+      - hotspot: `x/y`, `height` and `pen`.
     Unsupported / missing guids come back found=False, kind="", empty geometry — plus
     `reason` ("notFound" vs "unsupportedType"), `type_name` (localized) and `type_id`, so a
     bulk read can report WHICH types are still unspoken rather than a list of guids.
@@ -384,6 +388,20 @@ def details(guids):
             # join key a survey drawing uses — a breakline and its spot-height
             # label share a pen and nothing else.
             rec["pen"] = d.get("pen", 0)
+        elif kind == "line":
+            beg = d.get("begCoordinate") or {}
+            end = d.get("endCoordinate") or {}
+            rec["beg_coordinate"] = (beg.get("x", 0.0), beg.get("y", 0.0))
+            rec["end_coordinate"] = (end.get("x", 0.0), end.get("y", 0.0))
+            rec["pen"] = d.get("pen", 0)
+        elif kind in ("arc", "circle"):
+            for key in ("x", "y", "radius", "ratio", "angle", "pen"):
+                rec[key] = d.get(key, 0.0)
+            if kind == "arc":
+                rec["beg_angle"] = d.get("begAngle", 0.0)
+                rec["end_angle"] = d.get("endAngle", 0.0)
+        elif kind == "hotspot":
+            rec.update({key: d.get(key, 0.0) for key in ("x", "y", "height", "pen")})
         elif kind in ("wall",) + _SECTION_KINDS + _OBJECT_KINDS:
             beg = d.get("begCoordinate") or {}
             end = d.get("endCoordinate") or {}
@@ -637,6 +655,10 @@ WRITABLE_DETAIL_FIELDS = {
     "lamp":   ("level", "plan_angle", "x_ratio", "y_ratio", "reflected"),
     "polyline": (),
     "fill":     (),
+    "line": ("beg_coordinate", "end_coordinate", "pen"),
+    "arc": ("x", "y", "radius", "beg_angle", "end_angle", "ratio", "angle", "pen"),
+    "circle": ("x", "y", "radius", "ratio", "angle", "pen"),
+    "hotspot": ("x", "y", "height", "pen"),
 }
 
 # snake_case (what `details()` emits) -> the wire spelling the native command wants.
@@ -653,11 +675,15 @@ _DETAIL_FIELD_WIRE = {
     "x_ratio": "xRatio",
     "y_ratio": "yRatio",
     "reflected": "reflected",
+    "beg_coordinate": "begCoordinate",
+    "end_coordinate": "endCoordinate",
+    "beg_angle": "begAngle",
+    "end_angle": "endAngle",
 }
 
 
 def set_details(edits, tx=None):
-    """Write scalar settings back into elements — the symmetric write for `details()`.
+    """Write sparse details back into elements — the symmetric write for `details()`.
 
     `edits` is {guid: {field: value}} or [(guid, {field: value}), ...], with the same
     snake_case field names `details()` returns. Read, change one key, send it back:
@@ -678,6 +704,9 @@ def set_details(edits, tx=None):
     to `is_slanted` and the axis endpoints there, so writing the angle alone would
     half-write the element. On a roof it IS writable, but only for a plane roof — a poly
     roof's pitch is per level.
+    Line endpoints, arc/circle centre and radius, and hotspot position/height are
+    direct struct geometry and CAN be changed here; spline and polygon geometry
+    remain read-only. A line endpoint is a (x, y) pair, not a 3D edit.
 
     A WRITE — pass `tx` (an open evp.transaction) to fuse it with the rest of a run into
     ONE undo step; without one the dispatcher wraps this single call.
@@ -695,7 +724,12 @@ def set_details(edits, tx=None):
     items = []
     for guid, fields in edits:
         wire = {_DETAIL_FIELD_WIRE.get(key, key): value for key, value in dict(fields).items()}
-        items.append({"guid": guid, "details": wire})
+        for key in ("begCoordinate", "endCoordinate"):
+            if key in wire and not isinstance(wire[key], dict):
+                x, y = wire[key]
+                wire[key] = {"x": x, "y": y, "z": 0.0}
+        # The native schema requires the typed identity, not a flat guid.
+        items.append({"elementId": {"guid": str(guid)}, "details": wire})
     if not items:
         return []
 
@@ -705,8 +739,8 @@ def set_details(edits, tx=None):
 
     data = call("Tapioca.SetElementDetails", params).data or {}
     return [{
-        "guid": r.get("guid", ""),
-        "ok": bool(r.get("ok", False)),
+        "guid": (r.get("elementId") or {}).get("guid", ""),
+        "ok": bool(r.get("succeeded", False)),
         "kind": r.get("kind", ""),
         "applied": list(r.get("applied") or ()),
         "error": r.get("error", ""),

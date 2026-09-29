@@ -5,9 +5,9 @@
     "namespace": "Tapioca",
     "schemaDialect": "JSON Schema",
     "counts": {
-      "nativeRegistry": 228,
+      "nativeRegistry": 229,
       "dispatcherLocal": 19,
-      "total": 247
+      "total": 248
     },
     "sources": [
       "AddOn/EvP/Sources/AddOn/NativeCommands/*Commands.cpp",
@@ -1337,6 +1337,139 @@
           "databaseId",
           "layer",
           "verified"
+        ]
+      }
+    },
+    {
+      "name": "Tapioca.CreateDraftingPrimitives",
+      "implementation": "native-registry",
+      "inputScheme": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "line",
+                    "arc",
+                    "circle",
+                    "hotspot"
+                  ]
+                },
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                },
+                "endX": {
+                  "type": "number"
+                },
+                "endY": {
+                  "type": "number"
+                },
+                "radius": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "begAngle": {
+                  "type": "number"
+                },
+                "endAngle": {
+                  "type": "number"
+                },
+                "height": {
+                  "type": "number"
+                },
+                "pen": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 255
+                },
+                "floorInd": {
+                  "type": "integer"
+                },
+                "layer": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "x",
+                "y"
+              ]
+            }
+          },
+          "databaseAnchorElementId": {
+            "$ref": "#ElementId"
+          },
+          "failOnError": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "elements"
+        ]
+      },
+      "outputScheme": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "line",
+                    "arc",
+                    "circle",
+                    "hotspot"
+                  ]
+                },
+                "succeeded": {
+                  "type": "boolean"
+                },
+                "elementId": {
+                  "$ref": "#ElementId"
+                },
+                "databaseId": {
+                  "$ref": "#ElementId"
+                },
+                "layer": {
+                  "type": "string"
+                },
+                "verified": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "succeeded"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "results",
+          "count"
         ]
       }
     },
@@ -6365,7 +6498,11 @@
                         "polyline",
                         "object",
                         "lamp",
-                        "fill"
+                        "fill",
+                        "line",
+                        "arc",
+                        "circle",
+                        "hotspot"
                       ]
                     },
                     "floorInd": {
@@ -6620,6 +6757,27 @@
                         },
                         "overHangType": {
                           "type": "integer"
+                        },
+                        "x": {
+                          "type": "number"
+                        },
+                        "y": {
+                          "type": "number"
+                        },
+                        "radius": {
+                          "type": "number"
+                        },
+                        "begAngle": {
+                          "type": "number"
+                        },
+                        "endAngle": {
+                          "type": "number"
+                        },
+                        "ratio": {
+                          "type": "number"
+                        },
+                        "angle": {
+                          "type": "number"
                         }
                       },
                       "additionalProperties": false
@@ -23259,6 +23417,38 @@
                     },
                     "reflected": {
                       "type": "boolean"
+                    },
+                    "begCoordinate": {
+                      "$ref": "#Point3D"
+                    },
+                    "endCoordinate": {
+                      "$ref": "#Point3D"
+                    },
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "radius": {
+                      "type": "number"
+                    },
+                    "begAngle": {
+                      "type": "number"
+                    },
+                    "endAngle": {
+                      "type": "number"
+                    },
+                    "ratio": {
+                      "type": "number"
+                    },
+                    "angle": {
+                      "type": "number"
+                    },
+                    "pen": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 255
                     }
                   },
                   "additionalProperties": false,
@@ -23307,7 +23497,11 @@
                         "object",
                         "lamp",
                         "polyline",
-                        "fill"
+                        "fill",
+                        "line",
+                        "arc",
+                        "circle",
+                        "hotspot"
                       ]
                     },
                     "applied": {

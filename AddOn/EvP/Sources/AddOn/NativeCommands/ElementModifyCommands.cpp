@@ -4,6 +4,8 @@
 #include "NativeCommands/ElementModifyCommands.hpp"
 #include "NativeCommands/CommandBase.hpp"
 
+#include <cmath>
+
 namespace geomsrv {
 
 namespace {
@@ -34,9 +36,9 @@ namespace {
 //     dropped. A silently-ignored field is the same class of bug as the
 //     JSON-int one (§E16.5a) — the caller believes it wrote something.
 //
-// WHAT IS WRITABLE — the table in WritableFields below, and nothing else. Every
-// entry is ONE scalar struct member with a mask precedent in the DevKit's own
-// examples (Element_Modify_ModelElements.cpp, Element_Modify_ChangeParameters.cpp).
+// WHAT IS WRITABLE — the table in WritableFields below, and nothing else. Most
+// entries are scalar settings; line/arc/circle/hotspot also allow direct geometry
+// fields per ACAPinc.h:3476-3480. Polygon/memo geometry remains out of scope.
 // Deliberately NOT writable, so the reasons are recorded rather than rediscovered:
 //
 //   * polygon / memo geometry (`polygonOutline`, `holes`, `polygonZ`,
@@ -71,20 +73,20 @@ namespace {
 static bool ReadNumber (const GS::ObjectState& os, const GS::String& field, double& out)
 {
     if (os.IsReal (field))
-        return os.Get (field, out);
+        return os.Get (field, out) && std::isfinite (out);
     if (os.IsInt (field)) {
         Int64 value = 0;
         if (!os.Get (field, value))
             return false;
         out = (double) value;
-        return true;
+        return std::isfinite (out);
     }
     if (os.IsUInt (field)) {
         UInt64 value = 0;
         if (!os.Get (field, value))
             return false;
         out = (double) value;
-        return true;
+        return std::isfinite (out);
     }
     return false;
 }
@@ -137,6 +139,9 @@ static const char* const* WritableFields (const GS::UniString& kind, USize& coun
     static const char* const beamFields[]   = { "level" };
     static const char* const columnFields[] = { "level", "height", "planAngle" };
     static const char* const objectFields[] = { "level", "planAngle", "xRatio", "yRatio", "reflected" };
+    static const char* const lineFields[] = { "begCoordinate", "endCoordinate", "pen" };
+    static const char* const arcFields[] = { "x", "y", "radius", "begAngle", "endAngle", "ratio", "angle", "pen" };
+    static const char* const hotspotFields[] = { "x", "y", "height", "pen" };
 
     if (kind == "slab")   { count = 2; return slabFields;   }
     if (kind == "roof")   { count = 3; return roofFields;   }
@@ -145,6 +150,9 @@ static const char* const* WritableFields (const GS::UniString& kind, USize& coun
     if (kind == "beam")   { count = 1; return beamFields;   }
     if (kind == "column") { count = 3; return columnFields; }
     if (kind == "object" || kind == "lamp") { count = 5; return objectFields; }
+    if (kind == "line") { count = 3; return lineFields; }
+    if (kind == "arc" || kind == "circle") { count = 8; return arcFields; }
+    if (kind == "hotspot") { count = 4; return hotspotFields; }
 
     count = 0;              // polyline, fill — read-only kinds, nothing settable
     return nullptr;
@@ -221,6 +229,10 @@ public:
                 case API_LampID:   kind = "lamp";   break;
                 case API_PolyLineID: kind = "polyline"; break;
                 case API_HatchID:  kind = "fill";   break;
+                case API_LineID: kind = "line"; break;
+                case API_ArcID: kind = "arc"; break;
+                case API_CircleID: kind = "circle"; break;
+                case API_HotspotID: kind = "hotspot"; break;
                 default: break;
             }
             rec.Add ("kind", kind);
@@ -335,6 +347,89 @@ public:
                 EVP_WRITE_REAL ("height",    column, API_ColumnType, height);
                 EVP_WRITE_REAL ("planAngle", column, API_ColumnType, axisRotationAngle);
 
+            } else if (typeId == API_LineID || typeId == API_ArcID ||
+                       typeId == API_CircleID || typeId == API_HotspotID) {
+                // Geometry edits are supported for these types by ACAPinc.h:3476-3480.
+                // Keep each coordinate pair atomic in the mask, and preserve the
+                // omitted half for sparse edits to a point.
+                if (typeId == API_LineID) {
+                    for (const char* name : { "begCoordinate", "endCoordinate" }) {
+                        if (!details.Contains (name)) continue;
+                        GS::ObjectState point;
+                        double x = 0.0, y = 0.0, z = 0.0;
+                        if (!details.Get (name, point) || !ReadNumber (point, "x", x) ||
+                            !ReadNumber (point, "y", y) ||
+                            (point.Contains ("z") && (!ReadNumber (point, "z", z) || z != 0.0))) {
+                            badValue.Push (GS::UniString (name));
+                            continue;
+                        }
+                        if (GS::String (name) == "begCoordinate") {
+                            element.line.begC = { x, y };
+                            ACAPI_ELEMENT_MASK_SET (mask, API_LineType, begC);
+                        } else {
+                            element.line.endC = { x, y };
+                            ACAPI_ELEMENT_MASK_SET (mask, API_LineType, endC);
+                        }
+                        applied.Push (GS::UniString (name));
+                    }
+                    if (element.line.begC.x == element.line.endC.x &&
+                        element.line.begC.y == element.line.endC.y)
+                        badValue.Push ("line endpoints must differ");
+                } else {
+                    if (typeId == API_HotspotID) {
+                        double x = element.hotspot.pos.x, y = element.hotspot.pos.y;
+                        if (details.Contains ("x") && !ReadNumber (details, "x", x)) badValue.Push ("x");
+                        if (details.Contains ("y") && !ReadNumber (details, "y", y)) badValue.Push ("y");
+                        if (details.Contains ("x") || details.Contains ("y")) {
+                            element.hotspot.pos = { x, y };
+                            ACAPI_ELEMENT_MASK_SET (mask, API_HotspotType, pos);
+                            if (details.Contains ("x")) applied.Push ("x");
+                            if (details.Contains ("y")) applied.Push ("y");
+                        }
+                        EVP_WRITE_REAL ("height", hotspot, API_HotspotType, height);
+                    } else {
+                        double x = element.arc.origC.x, y = element.arc.origC.y;
+                        if (details.Contains ("x") && !ReadNumber (details, "x", x)) badValue.Push ("x");
+                        if (details.Contains ("y") && !ReadNumber (details, "y", y)) badValue.Push ("y");
+                        if (details.Contains ("x") || details.Contains ("y")) {
+                            element.arc.origC = { x, y };
+                            ACAPI_ELEMENT_MASK_SET (mask, API_ArcType, origC);
+                            if (details.Contains ("x")) applied.Push ("x");
+                            if (details.Contains ("y")) applied.Push ("y");
+                        }
+                        EVP_WRITE_REAL ("radius", arc, API_ArcType, r);
+                        EVP_WRITE_REAL ("ratio", arc, API_ArcType, ratio);
+                        EVP_WRITE_REAL ("angle", arc, API_ArcType, angle);
+                        if (typeId == API_ArcID) {
+                            EVP_WRITE_REAL ("begAngle", arc, API_ArcType, begAng);
+                            EVP_WRITE_REAL ("endAngle", arc, API_ArcType, endAng);
+                        } else if (details.Contains ("begAngle") || details.Contains ("endAngle")) {
+                            badValue.Push ("circle angles (use an arc element)");
+                        }
+                        if ((details.Contains ("radius") && element.arc.r <= 0.0) ||
+                            (details.Contains ("ratio") && element.arc.ratio <= 0.0))
+                            badValue.Push ("radius/ratio must be positive");
+                    }
+                }
+                if (details.Contains ("pen")) {
+                    GS::Int32 pen = 0;
+                    if (!details.Get ("pen", pen) || pen < 1 || pen > 255) {
+                        badValue.Push ("pen");
+                    } else {
+                        if (typeId == API_HotspotID) {
+                            element.hotspot.pen = (short) pen;
+                            ACAPI_ELEMENT_MASK_SET (mask, API_HotspotType, pen);
+                        } else if (typeId == API_LineID) {
+                            element.line.linePen.penIndex = (short) pen;
+                            ACAPI_ELEMENT_MASK_SET (mask, API_LineType, linePen.penIndex);
+                        } else {
+                            element.arc.linePen.penIndex = (short) pen;
+                            ACAPI_ELEMENT_MASK_SET (mask, API_ArcType, linePen.penIndex);
+                        }
+                        applied.Push ("pen");
+                    }
+                }
+
             } else {   // API_ObjectID / API_LampID — API_LampType IS API_ObjectType
                 EVP_WRITE_REAL ("level",     object, API_ObjectType, level);
                 EVP_WRITE_REAL ("planAngle", object, API_ObjectType, angle);
@@ -389,8 +484,8 @@ public:
 
 const NativeCommandRegistration kElementModifyCommandRegistrations[] = {
     { "SetElementDetails", &MakeRegisteredNativeCommand<SetElementDetailsCommand>, false,
-      R"json({"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"details":{"type":"object","properties":{"level":{"type":"number"},"thickness":{"type":"number"},"height":{"type":"number"},"slantAngle":{"type":"number"},"planAngle":{"type":"number"},"skirtLevel":{"type":"number"},"xRatio":{"type":"number"},"yRatio":{"type":"number"},"reflected":{"type":"boolean"}},"additionalProperties":false,"minProperties":1}},"additionalProperties":false,"required":["elementId","details"]}}},"additionalProperties":false,"required":["edits"]})json",
-      R"json({"oneOf":[{"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"succeeded":{"type":"boolean"},"kind":{"type":"string","enum":["","slab","roof","mesh","wall","beam","column","object","lamp","polyline","fill"]},"applied":{"type":"array","items":{"type":"string"}},"error":{"type":"string"}},"additionalProperties":false,"required":["elementId","succeeded","kind"]}},"count":{"type":"integer","minimum":0},"changed":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count","changed"]},{"type":"object","properties":{"ok":{"const":false},"error":{"type":"string"}},"additionalProperties":false,"required":["ok","error"]}]})json" }
+      R"json({"type":"object","properties":{"edits":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"details":{"type":"object","properties":{"level":{"type":"number"},"thickness":{"type":"number"},"height":{"type":"number"},"slantAngle":{"type":"number"},"planAngle":{"type":"number"},"skirtLevel":{"type":"number"},"xRatio":{"type":"number"},"yRatio":{"type":"number"},"reflected":{"type":"boolean"},"begCoordinate":{"$ref":"#Point3D"},"endCoordinate":{"$ref":"#Point3D"},"x":{"type":"number"},"y":{"type":"number"},"radius":{"type":"number"},"begAngle":{"type":"number"},"endAngle":{"type":"number"},"ratio":{"type":"number"},"angle":{"type":"number"},"pen":{"type":"integer","minimum":1,"maximum":255}},"additionalProperties":false,"minProperties":1}},"additionalProperties":false,"required":["elementId","details"]}}},"additionalProperties":false,"required":["edits"]})json",
+      R"json({"oneOf":[{"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"elementId":{"$ref":"#ElementId"},"succeeded":{"type":"boolean"},"kind":{"type":"string","enum":["","slab","roof","mesh","wall","beam","column","object","lamp","polyline","fill","line","arc","circle","hotspot"]},"applied":{"type":"array","items":{"type":"string"}},"error":{"type":"string"}},"additionalProperties":false,"required":["elementId","succeeded","kind"]}},"count":{"type":"integer","minimum":0},"changed":{"type":"integer","minimum":0}},"additionalProperties":false,"required":["results","count","changed"]},{"type":"object","properties":{"ok":{"const":false},"error":{"type":"string"}},"additionalProperties":false,"required":["ok","error"]}]})json" }
 };
 
 }   // namespace

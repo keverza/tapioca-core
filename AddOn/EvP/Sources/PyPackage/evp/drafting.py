@@ -18,6 +18,73 @@ Tapir can place one.
 
 from .api import call
 
+
+_PRIMITIVE_FIELDS = {
+    "line": {"x", "y", "endX", "endY", "pen", "layer", "floorInd"},
+    "arc": {"x", "y", "radius", "begAngle", "endAngle", "pen", "layer", "floorInd"},
+    "circle": {"x", "y", "radius", "pen", "layer", "floorInd"},
+    "hotspot": {"x", "y", "height", "pen", "layer", "floorInd"},
+}
+_PRIMITIVE_ALIASES = {
+    "end_x": "endX", "end_y": "endY", "beg_angle": "begAngle",
+    "end_angle": "endAngle", "floor_ind": "floorInd",
+}
+
+
+def create_primitives(elements, database_anchor=None, fail_on_error=False, tx=None):
+    """Create line, arc, circle or hotspot elements in one native batch.
+
+    Each dict has ``kind``, ``x``, ``y`` and type-specific geometry: a line
+    needs ``end_x/end_y``, an arc needs ``radius/beg_angle/end_angle`` (radians),
+    a circle needs ``radius``, and a hotspot optionally takes ``height``.
+    Omitted layer/pen/floor inherit the Archicad tool's defaults. Coordinates
+    and radii are model metres. Pass ``tx`` for one undo step with other writes;
+    a transaction returns a Handle whose result is the raw wire response.
+    """
+    if isinstance(elements, dict):
+        elements = [elements]
+    items = []
+    for element in elements:
+        kind = element.get("kind")
+        if kind not in _PRIMITIVE_FIELDS:
+            raise ValueError("kind must be line, arc, circle or hotspot")
+        item = {"kind": kind}
+        for key, value in element.items():
+            name = _PRIMITIVE_ALIASES.get(key, key)
+            if name != "kind":
+                if name not in _PRIMITIVE_FIELDS[kind]:
+                    raise ValueError("unexpected %s field: %s" % (kind, key))
+                item[name] = value
+        required = {"x", "y"}
+        if kind == "line":
+            required.update(("endX", "endY"))
+        elif kind == "arc":
+            required.update(("radius", "begAngle", "endAngle"))
+        elif kind == "circle":
+            required.add("radius")
+        if not required.issubset(item):
+            raise ValueError("%s needs %s" % (kind, ", ".join(sorted(required - item.keys()))))
+        items.append(item)
+    if not items:
+        return []
+    params = {"elements": items}
+    if database_anchor is not None:
+        params["databaseAnchorElementId"] = {"guid": str(database_anchor)}
+    if fail_on_error:
+        params["failOnError"] = True
+    if tx is not None:
+        return tx.call("Tapioca.CreateDraftingPrimitives", params)
+    data = call("Tapioca.CreateDraftingPrimitives", params).data or {}
+    return [{
+        "kind": result.get("kind", ""),
+        "ok": bool(result.get("succeeded", False)),
+        "guid": (result.get("elementId") or {}).get("guid", ""),
+        "database_guid": (result.get("databaseId") or {}).get("guid", ""),
+        "layer": result.get("layer", ""),
+        "verified": bool(result.get("verified", False)),
+        "error": result.get("error", ""),
+    } for result in data.get("results") or []]
+
 #: Every anchor the two commands accept — which point of the box (x, y) names.
 #: Getting this wrong is the usual reason placed text or images look offset.
 ANCHORS = (
